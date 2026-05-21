@@ -263,7 +263,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                 key={gap.id}
                 type="button"
                 onClick={() => handleAddressGap(gap.id)}
-                className="text-left text-sm border border-neutral-medium rounded-lg p-2.5 hover:border-teal transition-colors"
+                className="ai-card text-left text-sm cursor-pointer hover:shadow-card transition-shadow"
                 data-testid="gap-card"
               >
                 <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
@@ -277,7 +277,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                     key={gap.id}
                     type="button"
                     onClick={() => handleAddressGap(gap.id)}
-                    className="text-left text-sm border border-neutral-medium rounded-lg p-2.5 hover:border-teal transition-colors"
+                    className="ai-card text-left text-sm cursor-pointer hover:shadow-card transition-shadow"
                     data-testid="gap-card"
                   >
                     <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
@@ -304,11 +304,11 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
             key={section.section_id}
             type="button"
             onClick={() => handleSectionEdit(section.section_id)}
-            className="text-left text-sm flex items-center justify-between border border-transparent rounded-lg px-3 py-2 hover:border-neutral-medium transition-colors"
+            className="text-left text-sm flex items-center justify-between border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
           >
             <span className="text-neutral-darker">{section.label}</span>
             {section.gaps.length > 0 ? (
-              <span className="text-xs bg-warning-container text-warning px-1.5 py-0.5 rounded-full">
+              <span className="text-xs bg-gold-container text-gold-dim px-1.5 py-0.5 rounded-full">
                 {section.gaps.length}
               </span>
             ) : (
