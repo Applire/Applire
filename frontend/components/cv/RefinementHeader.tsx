@@ -37,7 +37,12 @@ export function RefinementHeader({ roleTitle, matchScore, expiryWarning }: Refin
     >
       {scorePct !== null && (
         <div className="relative w-10 h-10 flex-shrink-0" data-testid="refinement-header-score">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+          <svg
+            className="w-full h-full -rotate-90"
+            viewBox="0 0 36 36"
+            role="img"
+            aria-label={`Match score: ${scorePct} percent`}
+          >
             <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--color-primary-container)" strokeWidth="3.5" />
             <circle
               cx="18"
@@ -66,17 +71,17 @@ export function RefinementHeader({ roleTitle, matchScore, expiryWarning }: Refin
             {roleTitle}
           </p>
         )}
-        {showExpiry && (
+        {showExpiry && expiryWarning && (
           <span
             className={`inline-block mt-0.5 text-[10px] uppercase tracking-wide font-semibold rounded-full px-2 py-0.5 ${
-              expiryWarning!.level === "critical"
+              expiryWarning.level === "critical"
                 ? "bg-critical-container text-critical"
                 : "bg-warning-container text-warning"
             }`}
             data-testid="refinement-header-expiry"
           >
-            {expiryWarning!.level === "critical" ? t("statusHeaderExpired") : t("statusHeaderExpiresOn")}{" "}
-            {expiryWarning!.expiresIn}
+            {expiryWarning.level === "critical" ? t("statusHeaderExpired") : t("statusHeaderExpiresOn")}{" "}
+            {expiryWarning.expiresIn}
           </span>
         )}
       </div>
