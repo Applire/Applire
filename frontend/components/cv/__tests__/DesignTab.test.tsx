@@ -28,6 +28,7 @@ const BASE_PROPS = {
   currentAccentHex: "#009fe3",
   onColorApplied: vi.fn(),
   onChangeTemplate: vi.fn(),
+  onRegenerateSame: vi.fn(),
 };
 
 describe("DesignTab", () => {
@@ -102,5 +103,26 @@ describe("DesignTab", () => {
     fireEvent.change(screen.getByDisplayValue("#009fe3"), { target: { value: "#ff5500" } });
     fireEvent.click(screen.getByText("Apply color"));
     await waitFor(() => expect(onColorApplied).toHaveBeenCalled());
+  });
+
+  it("renders regenerate-current-template button and invokes onRegenerateSame on click", () => {
+    const onRegenerateSame = vi.fn();
+    render(
+      withIntl(
+        <DesignTab
+          cvId="cv-1"
+          templateLabel="Classic German"
+          detectedCompany={null}
+          currentAccentHex="#003399"
+          onColorApplied={vi.fn()}
+          onChangeTemplate={vi.fn()}
+          onRegenerateSame={onRegenerateSame}
+        />,
+      ),
+    );
+    const btn = screen.getByTestId("regenerate-current-template-btn");
+    expect(btn).toBeTruthy();
+    fireEvent.click(btn);
+    expect(onRegenerateSame).toHaveBeenCalled();
   });
 });
