@@ -60,7 +60,7 @@ describe("DesignTab", () => {
 
   it("renders preset swatch row with color swatches", () => {
     render(withIntl(<DesignTab {...BASE_PROPS} />));
-    const swatches = screen.getAllByRole("button", { name: /Farbe wählen/ });
+    const swatches = screen.getAllByRole("button", { name: /Pick colou?r/ });
     expect(swatches.length).toBeGreaterThanOrEqual(5);
   });
 

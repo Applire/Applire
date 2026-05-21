@@ -156,7 +156,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
           className="text-xs text-teal underline hover:opacity-80 self-start"
           data-testid="back-to-browse"
         >
-          &larr; Zur&uuml;ck zur &Uuml;bersicht
+          {t("backToOverview")}
         </button>
 
         <h3 className="text-sm font-medium text-neutral-dark">
@@ -221,7 +221,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
   if (sectionsError) {
     return (
       <div className="p-4 text-center">
-        <p className="text-sm text-gray-500 mb-2">Abschnitte konnten nicht geladen werden.</p>
+        <p className="text-sm text-gray-500 mb-2">{t("sectionsLoadError")}</p>
         <button
           type="button"
           onClick={() => {
@@ -241,7 +241,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
           }}
           className="text-sm text-teal underline hover:opacity-80"
         >
-          Erneut versuchen
+          {t("retryLoad")}
         </button>
       </div>
     );
@@ -254,7 +254,11 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
           <div className="flex items-center gap-2">
             <span className="text-lg">🤖</span>
             <p className="text-sm text-neutral-dark">
-              {allGaps.length} {pluralGaps ? "Lücken" : "Lücke"} gefunden für &quot;{flowSummary?.job_summary ?? "Rolle"}&quot;
+              {t("gapsFoundFor", {
+                count: allGaps.length,
+                label: pluralGaps ? t("gapsFoundPlural") : t("gapsFoundSingular"),
+                role: flowSummary?.job_summary ?? "",
+              })}
             </p>
           </div>
           <div className="flex flex-col gap-2">
@@ -291,7 +295,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
       )}
 
       <h4 className="text-xs font-semibold text-neutral-dark uppercase tracking-wide">
-        Abschnitte bearbeiten
+        {t("sectionsEdit")}
       </h4>
       {sections.length === 0 && (
         <p className="text-xs text-gray-500">

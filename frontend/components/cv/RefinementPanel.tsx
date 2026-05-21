@@ -95,7 +95,7 @@ export function RefinementPanel({
           type="button"
           onClick={onToggleCollapse}
           className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-container text-on-surface-variant text-sm"
-          title="Panel öffnen"
+          title={t("panelOpen")}
           data-testid="cv-panel-expand-btn"
         >
           ❮
@@ -160,7 +160,7 @@ export function RefinementPanel({
           type="button"
           onClick={onToggleCollapse}
           className="px-2 py-2.5 text-on-surface-variant hover:text-on-surface text-sm shrink-0"
-          title="Panel einklappen"
+          title={t("panelCollapse")}
           data-testid="cv-panel-collapse-btn"
         >
           ❯

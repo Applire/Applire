@@ -68,7 +68,7 @@ describe("ContentTab", () => {
   it("Browse mode: renders gap count with role title", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() =>
-      expect(screen.getByText(/1 Lücke gefunden für "Senior Software Engineer"/)).toBeTruthy()
+      expect(screen.getByText(/1 gap found for "Senior Software Engineer"/)).toBeTruthy()
     );
   });
 
@@ -85,21 +85,21 @@ describe("ContentTab", () => {
     await waitFor(() => expect(screen.getByText("Skills")).toBeTruthy());
     fireEvent.click(screen.getByText("Skills"));
     // Should show back button and section label
-    expect(screen.getByText(/zur/)).toBeTruthy();
+    expect(screen.getByTestId("back-to-browse")).toBeTruthy();
   });
 
   it("Browse mode: clicking gap card navigates to owning section", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() => expect(screen.getByText("Python")).toBeTruthy());
     fireEvent.click(screen.getByText("Python"));
-    expect(screen.getByText(/zur/)).toBeTruthy();
+    expect(screen.getByTestId("back-to-browse")).toBeTruthy();
   });
 
   it("Edit mode: 'Back to overview' returns to Browse", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() => expect(screen.getByText("Skills")).toBeTruthy());
     fireEvent.click(screen.getByText("Skills"));
-    fireEvent.click(screen.getByText(/zur/i));
-    await waitFor(() => expect(screen.getByText(/Lücke gefunden/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("back-to-browse"));
+    await waitFor(() => expect(screen.getByText(/gap found/)).toBeTruthy());
   });
 });

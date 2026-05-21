@@ -77,12 +77,12 @@ export function DesignTab({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail ?? "Farbe konnte nicht gespeichert werden");
+        throw new Error(data.detail ?? t("colorSaveFailed"));
       }
       setAppliedHex(selectedHex);
       onColorApplied();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setError(err instanceof Error ? err.message : t("colorSaveUnknownError"));
     } finally {
       setApplying(false);
     }
@@ -94,7 +94,7 @@ export function DesignTab({
       {/* Template selection + regenerate */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">
-          Vorlage
+          {t("templateLabel")}
         </p>
         <div className="flex items-center justify-between gap-2 mb-2">
           {templateLabel && (
@@ -106,7 +106,7 @@ export function DesignTab({
             className="text-xs text-primary underline hover:opacity-80 whitespace-nowrap"
             data-testid="change-template-btn"
           >
-            Vorlage wechseln
+            {t("templateChange")}
           </button>
         </div>
         <button
@@ -123,12 +123,12 @@ export function DesignTab({
       {detectedCompany && (
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">
-            Erkannte Firmenfarbe
+            {t("detectedCompanyColor")}
           </p>
           <div className="flex items-center gap-3 bg-primary-container border border-outline-variant rounded-lg p-2.5">
             <button
               type="button"
-              aria-label={`Farbe wählen: ${detectedCompany.hex}`}
+              aria-label={t("colorPickAriaLabel", { color: detectedCompany.hex })}
               onClick={() => setSelectedHex(detectedCompany.hex)}
               className="w-8 h-8 rounded-full border-2 border-white shadow-sm flex-shrink-0 cursor-pointer"
               style={{ background: detectedCompany.hex }}
@@ -149,12 +149,12 @@ export function DesignTab({
       {/* Color picker */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">
-          Akzentfarbe wählen
+          {t("accentColorPick")}
         </p>
 
         {/* Native color picker — styled swatch wraps hidden input */}
         <div className="flex items-center gap-3 mb-3">
-          <label className="cursor-pointer flex-shrink-0" title="Farbe auswählen">
+          <label className="cursor-pointer flex-shrink-0" title={t("colorPickerTitle")}>
             <div
               className="w-9 h-9 rounded-lg border border-neutral-medium shadow-sm"
               style={{ background: selectedHex }}
@@ -167,8 +167,8 @@ export function DesignTab({
             />
           </label>
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-on-surface">Akzentfarbe</div>
-            <div className="text-[11px] text-on-surface-variant">Überschriften, Linien, Hervorhebungen</div>
+            <div className="text-xs font-semibold text-on-surface">{t("accentColorLabel")}</div>
+            <div className="text-[11px] text-on-surface-variant">{t("accentColorSubtitle")}</div>
           </div>
           <code className="text-[11px] text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded flex-shrink-0">
             {selectedHex}
@@ -181,7 +181,7 @@ export function DesignTab({
             <button
               key={hex}
               type="button"
-              aria-label={`Farbe wählen: ${label}`}
+              aria-label={t("colorPickAriaLabel", { color: label })}
               onClick={() => setSelectedHex(hex)}
               title={label}
               className={`w-7 h-7 rounded-full transition-transform ${
