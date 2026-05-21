@@ -135,7 +135,7 @@ export function RefinementPanel({
       <RefinementHeader roleTitle={roleTitle} matchScore={matchScore} expiryWarning={expiryWarning} />
 
       {/* Tab strip */}
-      <div className="flex items-center border-b border-outline-variant shrink-0">
+      <div className="flex items-center border-b border-outline-variant shrink-0" role="tablist">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -148,6 +148,8 @@ export function RefinementPanel({
             }`}
             role="tab"
             aria-selected={activeTab === tab.id}
+            id={`tab-${tab.id}`}
+            aria-controls={`tabpanel-${tab.id}`}
             data-testid={`tab-${tab.id}`}
           >
             <span className="mr-1">{tab.icon}</span>
@@ -166,7 +168,12 @@ export function RefinementPanel({
       </div>
 
       {/* Active tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        role="tabpanel"
+        aria-labelledby={`tab-${activeTab}`}
+        id={`tabpanel-${activeTab}`}
+      >
         {activeTab === "content" ? (
           <ContentTab
             cvId={cvId}

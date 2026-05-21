@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { render, screen, fireEvent } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { RefinementPanel } from "../RefinementPanel";
 
@@ -27,6 +27,10 @@ beforeEach(() => {
       json: () => Promise.resolve({ sections: [], general_gaps: [] }),
     }),
   ) as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 const BASE_PROPS = {
