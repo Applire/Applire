@@ -74,34 +74,34 @@ test.describe("CV Design tab", () => {
     // Wait for the RefinementPanel's appearance tab button — signals the CV preview phase
     // is fully rendered. Avoids networkidle which never resolves due to external font
     // requests (Google Fonts) loaded by the root layout.
-    await page.waitForSelector('[data-testid="tab-appearance"]', { state: "visible", timeout: 30000 });
+    await page.waitForSelector('[data-testid="tab-design"]', { state: "visible", timeout: 30000 });
   });
 
   test("Design tab is visible in RefinementPanel", async ({ page }) => {
-    await expect(page.getByTestId("tab-appearance")).toBeVisible();
+    await expect(page.getByTestId("tab-design")).toBeVisible();
   });
 
   test("clicking Design tab shows company color card", async ({ page }) => {
-    await page.getByTestId("tab-appearance").click();
+    await page.getByTestId("tab-design").click();
     await expect(page.getByText("Siemens AG")).toBeVisible();
     await expect(page.getByText("automatisch erkannt")).toBeVisible();
   });
 
   test("apply button is disabled when no color change", async ({ page }) => {
-    await page.getByTestId("tab-appearance").click();
+    await page.getByTestId("tab-design").click();
     const applyBtn = page.getByText("Farbe übernehmen");
     await expect(applyBtn).toBeDisabled();
   });
 
   test("clicking a different preset swatch enables apply button", async ({ page }) => {
-    await page.getByTestId("tab-appearance").click();
+    await page.getByTestId("tab-design").click();
     // Click a preset that is not the current accent
     await page.getByRole("button", { name: "Farbe wählen: Rot" }).click();
     await expect(page.getByText("Farbe übernehmen")).toBeEnabled();
   });
 
   test("applying color calls PATCH and refreshes iframe", async ({ page }) => {
-    await page.getByTestId("tab-appearance").click();
+    await page.getByTestId("tab-design").click();
     await page.getByRole("button", { name: "Farbe wählen: Rot" }).click();
     const patchRequest = page.waitForRequest(
       (req) => req.url().includes("/color") && req.method() === "PATCH"

@@ -477,13 +477,10 @@ test.describe("CV Section Editor — Actions Tab", () => {
       timeout: 10_000,
     });
 
-    // Switch to Actions tab
-    await page.click('[data-testid="tab-actions"]');
-
     // Match score should be visible
     await expect(page.getByText("85%")).toBeVisible({ timeout: 3_000 });
 
-    // Download PDF button
-    await expect(page.locator('[data-testid="download-pdf-btn"]')).toBeVisible();
+    // Download PDF button is on the page action bar above the CV
+    await expect(page.locator('[data-testid="page-action-download"]')).toBeVisible();
   });
 });
