@@ -177,8 +177,10 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     });
 
     // Content tab is default — should show gap count
+    // Page loads with default "en" locale (no /api/settings mock here),
+    // so the gap-count line comes from en.json "gapsFoundFor".
     await expect(
-      page.getByText(/1 Lücke gefunden für/)
+      page.getByText(/1 gap found for/)
     ).toBeVisible({ timeout: 5_000 });
 
     // Section list buttons (they're rendered as buttons)
