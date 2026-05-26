@@ -112,6 +112,7 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
           <h1 className="font-heading text-2xl font-bold text-neutral-dark">Applire</h1>
           <p className="text-sm text-gray-500 hidden sm:block">
             {t("tagline")}
@@ -184,7 +185,7 @@ export default function Home() {
                         : "text-gray-500 hover:text-neutral-dark"
                     )}
                   >
-                    URL
+                    {t("jdUrlTab")}
                     {jdMode === "url" && (
                       <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal" />
                     )}
@@ -219,7 +220,7 @@ export default function Home() {
                 ) : (
                   <textarea
                     className="flex min-h-[180px] w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark placeholder:text-gray-400 transition-colors focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                    placeholder="Paste the full job description here..."
+                    placeholder={t("jdTextPlaceholder")}
                     value={jdText}
                     onChange={(e) => setJdText(e.target.value)}
                     disabled={showOverlay}
@@ -267,7 +268,7 @@ export default function Home() {
       <footer className="bg-white border-t border-gray-200 px-4 py-4">
         <div className="max-w-4xl mx-auto text-center">
           <p className="text-sm text-gray-500">
-            Precise. Confident. Future-Ready.
+            {t("footerTagline")}
           </p>
         </div>
       </footer>
