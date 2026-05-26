@@ -427,12 +427,11 @@
   },
   "shell": {
     "dashboard": "Dashboard",
-    "profile": "Master Profile",
-    "import": "Update Profile",
+    "profile": "My Profile",
+    "import": "Import",
     "documents": "My Documents",
     "settings": "Settings",
-    "help": "Help & Support",
-    "userFreePlan": "Free Plan"
+    "admin": "Admin"
   },
   "quickTailor": {
     "title": "Quick Tailor",
