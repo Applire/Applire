@@ -431,7 +431,9 @@
     "import": "Import",
     "documents": "Meine Dokumente",
     "settings": "Einstellungen",
-    "admin": "Administration"
+    "admin": "Administration",
+    "notificationsAriaLabel": "Benachrichtigungen",
+    "openSettingsAriaLabel": "Einstellungen öffnen"
   },
   "quickTailor": {
     "title": "Quick Tailor",
