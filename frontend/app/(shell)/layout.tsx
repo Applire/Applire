@@ -1,3 +1,5 @@
+"use client";
+
 // Copyright (C) 2024-2026 Tobias Rosenbaum
 //
 // This file is part of Applire.
@@ -14,8 +16,6 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
-
-"use client";
 
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/shell/AppSidebar";

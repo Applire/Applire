@@ -157,4 +157,9 @@ describe("AppSidebar", () => {
     // We just check the footer element exists with the right test-id
     expect(screen.getByTestId("sidebar-version")).toBeInTheDocument();
   });
+
+  it("computes correct initials when userName has a double space", () => {
+    render(<AppSidebar userName="Tobias  Rosenbaum" />);
+    expect(screen.getByText("TR")).toBeInTheDocument();
+  });
 });

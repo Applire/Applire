@@ -46,7 +46,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   const t = useTranslations("shell");
 
   const initials = userName
-    ? userName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
+    ? userName.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase()
     : "";
 
   return (
