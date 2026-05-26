@@ -19,6 +19,7 @@
 
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface FileChipProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -37,6 +38,7 @@ function formatFileSize(bytes?: number): string {
 
 const FileChip = React.forwardRef<HTMLDivElement, FileChipProps>(
   ({ filename, size, progress, onRemove, className, ...props }, ref) => {
+    const t = useTranslations("common");
     const isUploading = progress !== undefined && progress < 100;
 
     return (
@@ -95,7 +97,7 @@ const FileChip = React.forwardRef<HTMLDivElement, FileChipProps>(
             onRemove();
           }}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-teal/20 transition-colors"
-          aria-label="Remove file"
+          aria-label={t("ariaRemoveFile")}
         >
           <svg
             className="h-4 w-4 text-gray-500 hover:text-critical"

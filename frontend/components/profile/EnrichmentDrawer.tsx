@@ -45,6 +45,7 @@ export interface EnrichmentDrawerProps {
 
 export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps) {
   const t = useTranslations("enrich");
+  const tc = useTranslations("common");
   const [session, setSession] = useState<EnrichSession | null>(null);
   const [gaps, setGaps] = useState<GapItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -182,7 +183,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-            aria-label="Close"
+            aria-label={tc("ariaClose")}
           >
             ✕
           </button>

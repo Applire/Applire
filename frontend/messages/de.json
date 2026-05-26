@@ -11,7 +11,10 @@
     "send": "Senden",
     "close": "Schließen",
     "done": "Fertig",
-    "preparing": "Wird vorbereitet…"
+    "preparing": "Wird vorbereitet…",
+    "ariaClose": "Schließen",
+    "ariaDismiss": "Verwerfen",
+    "ariaRemoveFile": "Datei entfernen"
   },
   "nav": {
     "dashboard": "Dashboard",

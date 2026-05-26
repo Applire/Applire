@@ -109,6 +109,7 @@ function JdRecoveryBannerInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tc = useTranslations("common");
   const [dismissed, setDismissed] = useState(false);
 
   const jdStatus = searchParams.get("jd_status");
@@ -153,7 +154,7 @@ function JdRecoveryBannerInner() {
       <button
         data-testid="jd-recovery-dismiss"
         type="button"
-        aria-label="Dismiss"
+        aria-label={tc("ariaDismiss")}
         className="shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
         onClick={() => setDismissed(true)}
       >
@@ -186,6 +187,7 @@ function GapClickPanel({
   onResolved: () => void;
 }) {
   const t = useTranslations("gaps");
+  const tc = useTranslations("common");
   const tc = useTranslations("common");
 
   async function sendAnswer() {
@@ -293,6 +295,7 @@ export default function GapsPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tc = useTranslations("common");
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);

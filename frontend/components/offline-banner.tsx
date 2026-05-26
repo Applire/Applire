@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 function OfflineBanner() {
   const t = useTranslations("offline");
+  const tc = useTranslations("common");
   const [isOffline, setIsOffline] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
 
@@ -88,7 +89,7 @@ function OfflineBanner() {
       <button
         onClick={() => setIsDismissed(true)}
         className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/20 transition-colors"
-        aria-label="Dismiss"
+        aria-label={tc("ariaDismiss")}
       >
         <svg
           className="h-4 w-4"

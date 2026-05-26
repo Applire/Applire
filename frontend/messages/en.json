@@ -11,7 +11,10 @@
     "send": "Send",
     "close": "Close",
     "done": "Done",
-    "preparing": "Preparing…"
+    "preparing": "Preparing…",
+    "ariaClose": "Close",
+    "ariaDismiss": "Dismiss",
+    "ariaRemoveFile": "Remove file"
   },
   "nav": {
     "dashboard": "Dashboard",
