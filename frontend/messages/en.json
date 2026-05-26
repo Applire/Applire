@@ -467,6 +467,9 @@
     "whyBody": "An up-to-date CV improves accuracy across all AI analyses — from gap analysis to CV generation. Changes are merged into your Master Profile immediately."
   },
   "profileUpdate": {
+    "chooserTitle": "Update profile",
+    "addRoleTitle": "Add role",
+    "importTitle": "Import CV",
     "chooser": {
       "heading": "Update profile",
       "subheading": "What's changed?",

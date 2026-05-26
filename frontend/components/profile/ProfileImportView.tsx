@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -53,6 +54,7 @@ async function readApiError(res: Response): Promise<string> {
 
 export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
+  const tp = useTranslations("profileUpdate");
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -137,16 +139,14 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   }
 
   return (
+    <>
+      <AppTopbar
+        mode="detail"
+        backHref="/profile"
+        backLabelKey="shell.profile"
+        pageTitle={tp("importTitle")}
+      />
     <div className="p-8 max-w-[1100px] mx-auto">
-      <div className="mb-7">
-        <h1 className="font-manrope text-[26px] font-extrabold text-primary leading-tight mb-1.5">
-          {t("title")}
-        </h1>
-        <p className="text-sm text-on-surface-variant max-w-[520px] leading-relaxed">
-          {t("subtitle")}
-        </p>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* ── Left column ── */}
         <div>
@@ -376,5 +376,6 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

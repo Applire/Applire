@@ -467,6 +467,9 @@
     "whyBody": "Ein aktueller Lebenslauf verbessert die Treffsicherheit aller KI-Analysen — von der Lückenanalyse bis zur CV-Generierung. Änderungen werden sofort im Masterprofil zusammengeführt."
   },
   "profileUpdate": {
+    "chooserTitle": "Profil aktualisieren",
+    "addRoleTitle": "Position hinzufügen",
+    "importTitle": "Lebenslauf importieren",
     "chooser": {
       "heading": "Profil aktualisieren",
       "subheading": "Was hat sich geändert?",
