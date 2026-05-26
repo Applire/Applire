@@ -581,7 +581,35 @@
     "errorBackendUnreachable": "Server nicht erreichbar. Läuft das Backend?"
   },
   "admin": {
-    "appearanceTitle": "Erscheinungsbild"
+    "appearanceTitle": "Erscheinungsbild",
+    "schemeEditor": {
+      "sectionSavedSchemes": "Gespeicherte Schemata",
+      "sectionSeedColors": "Ausgangsfarben",
+      "sectionSurfaceTint": "Flächentönung",
+      "sectionSaveScheme": "Schema speichern",
+      "badgeActive": "aktiv",
+      "labelNew": "Neu",
+      "labelPrimary": "Primär",
+      "labelAccent": "Akzent",
+      "labelSecondary": "Sekundär",
+      "labelWhite": "Weiß",
+      "descPrimary": "Überschriften, Navigation, Hauptflächen",
+      "descAccent": "Links, interaktive Elemente",
+      "descSecondary": "Hervorhebungen, Badges, Akzente",
+      "descSurfaceTint": "Wie stark die Primärfarbe Seiten- und Kartenhintergründe einfärbt",
+      "namePlaceholder": "Schemaname z. B. Midnight",
+      "titleActivate": "{name} aktivieren",
+      "titlePickColor": "{label}-Farbe wählen",
+      "buttonSave": "Speichern",
+      "buttonSaving": "Wird gespeichert…",
+      "buttonSaveActivate": "Speichern & Aktivieren",
+      "iconNewScheme": "+",
+      "surfaceLightnessValue": "{value} %",
+      "errorNameRequired": "Bitte gib einen Schemanamen ein.",
+      "errorSaveFailed": "Speichern fehlgeschlagen.",
+      "errorSaveFailedBackend": "Speichern fehlgeschlagen. Läuft das Backend?",
+      "errorActivationFailed": "Aktivierung fehlgeschlagen."
+    }
   },
   "documents": {
     "title": "Meine Dokumente",

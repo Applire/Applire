@@ -19,6 +19,7 @@
 
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { deriveScheme, type DerivedScheme, type SeedColors } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 
@@ -56,6 +57,7 @@ const SURFACE_LIGHTNESS_DEFAULT = 0.95;
 
 export function SchemeEditor() {
   const { refreshTheme } = useTheme();
+  const t = useTranslations("admin.schemeEditor");
   const [schemes, setSchemes] = useState<SavedScheme[]>([]);
   const [seeds, setSeeds] = useState<SeedColors>(NEUTRAL_DEFAULTS);
   const [surfaceLightness, setSurfaceLightness] = useState(SURFACE_LIGHTNESS_DEFAULT);
@@ -96,7 +98,7 @@ export function SchemeEditor() {
   }
 
   async function handleSave() {
-    if (!name.trim()) { setError("Please enter a scheme name."); return; }
+    if (!name.trim()) { setError(t("errorNameRequired")); return; }
     setSaving(true); setError("");
     try {
       const res = await fetch(`${API_BASE}/api/admin/color-schemes`, {
@@ -111,11 +113,11 @@ export function SchemeEditor() {
         }),
       });
       if (!res.ok) {
-        setError(extractError(await res.json(), "Save failed."));
+        setError(extractError(await res.json(), t("errorSaveFailed")));
       } else {
         await fetchSchemes();
       }
-    } catch { setError("Save failed. Is the backend running?"); }
+    } catch { setError(t("errorSaveFailedBackend")); }
     finally { setSaving(false); }
   }
 
@@ -126,15 +128,21 @@ export function SchemeEditor() {
         method: "PATCH",
       });
       if (!res.ok) {
-        setError("Activation failed.");
+        setError(t("errorActivationFailed"));
       } else {
         await fetchSchemes();
         refreshTheme();
         loadScheme(scheme);
       }
-    } catch { setError("Activation failed."); }
+    } catch { setError(t("errorActivationFailed")); }
     finally { setActivating(false); }
   }
+
+  const seedColorRows = [
+    { key: "primary" as const, label: t("labelPrimary"), desc: t("descPrimary") },
+    { key: "accent" as const,  label: t("labelAccent"),  desc: t("descAccent")  },
+    { key: "secondary" as const, label: t("labelSecondary"), desc: t("descSecondary") },
+  ];
 
   return (
     <div className="w-[340px] flex-shrink-0 flex flex-col gap-4">
@@ -142,7 +150,7 @@ export function SchemeEditor() {
       {/* Saved Schemes */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Saved Schemes
+          {t("sectionSavedSchemes")}
         </div>
         <div className="flex gap-2 flex-wrap">
           {schemes.map((scheme) => (
@@ -151,7 +159,7 @@ export function SchemeEditor() {
               onClick={() => activateScheme(scheme)}
               disabled={activating}
               className="flex flex-col items-center gap-1 disabled:opacity-60"
-              title={`Activate ${scheme.name}`}
+              title={t("titleActivate", { name: scheme.name })}
             >
               <div
                 className="w-11 h-11 rounded-lg relative"
@@ -171,15 +179,15 @@ export function SchemeEditor() {
                 {scheme.name}
               </span>
               {scheme.is_active && (
-                <span className="text-[9px] font-semibold" style={{ color: "var(--color-gold)" }}>active</span>
+                <span className="text-[9px] font-semibold" style={{ color: "var(--color-gold)" }}>{t("badgeActive")}</span>
               )}
             </button>
           ))}
           <button onClick={startNew} className="flex flex-col items-center gap-1 opacity-50 hover:opacity-80">
             <div className="w-11 h-11 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xl">
-              +
+              {t("iconNewScheme")}
             </div>
-            <span className="text-[10px] text-gray-400">New</span>
+            <span className="text-[10px] text-gray-400">{t("labelNew")}</span>
           </button>
         </div>
       </div>
@@ -187,18 +195,12 @@ export function SchemeEditor() {
       {/* Seed Colors */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Seed Colors
+          {t("sectionSeedColors")}
         </div>
         <div className="flex flex-col gap-3">
-          {(
-            [
-              { key: "primary", label: "Primary", desc: "Headings, nav, key surfaces" },
-              { key: "accent", label: "Accent", desc: "Links, interactive elements" },
-              { key: "secondary", label: "Secondary", desc: "Highlights, badges, accents" },
-            ] as const
-          ).map(({ key, label, desc }) => (
+          {seedColorRows.map(({ key, label, desc }) => (
             <div key={key} className="flex items-center gap-3">
-              <label className="cursor-pointer flex-shrink-0" title={`Pick ${label} color`}>
+              <label className="cursor-pointer flex-shrink-0" title={t("titlePickColor", { label })}>
                 <div
                   className="w-9 h-9 rounded-lg border border-gray-200"
                   style={{ background: seeds[key] }}
@@ -225,10 +227,10 @@ export function SchemeEditor() {
       {/* Surface Tint */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-          Surface Tint
+          {t("sectionSurfaceTint")}
         </div>
         <div className="text-[11px] text-gray-400 mb-3">
-          How much primary color tints page and card backgrounds
+          {t("descSurfaceTint")}
         </div>
         <input
           type="range"
@@ -241,18 +243,18 @@ export function SchemeEditor() {
           style={{ accentColor: "var(--color-primary)" }}
         />
         <div className="flex justify-between items-center mt-1">
-          <span className="text-[10px] text-gray-400">Primary</span>
+          <span className="text-[10px] text-gray-400">{t("labelPrimary")}</span>
           <code className="text-xs font-semibold" style={{ color: "var(--color-neutral-dark, #2C3E50)" }}>
-            {Math.round(surfaceLightness * 100)}%
+            {t("surfaceLightnessValue", { value: Math.round(surfaceLightness * 100) })}
           </code>
-          <span className="text-[10px] text-gray-400">White</span>
+          <span className="text-[10px] text-gray-400">{t("labelWhite")}</span>
         </div>
       </div>
 
       {/* Save Scheme */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Save Scheme
+          {t("sectionSaveScheme")}
         </div>
         {error && (
           <p className="text-xs mb-2" style={{ color: "var(--color-critical, #e53e3e)" }}>{error}</p>
@@ -261,7 +263,7 @@ export function SchemeEditor() {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Scheme name e.g. Midnight"
+          placeholder={t("namePlaceholder")}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none"
           style={{ color: "var(--color-neutral-dark, #2C3E50)" }}
         />
@@ -272,11 +274,11 @@ export function SchemeEditor() {
             className="flex-1 text-white rounded-lg py-2 text-xs font-semibold disabled:opacity-50"
             style={{ background: "var(--color-primary)" }}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("buttonSaving") : t("buttonSave")}
           </button>
           <button
             onClick={async () => {
-              if (!name.trim()) { setError("Please enter a scheme name."); return; }
+              if (!name.trim()) { setError(t("errorNameRequired")); return; }
               setSaving(true); setError("");
               try {
                 const res = await fetch(`${API_BASE}/api/admin/color-schemes`, {
@@ -291,19 +293,19 @@ export function SchemeEditor() {
                   }),
                 });
                 if (!res.ok) {
-                  setError(extractError(await res.json(), "Save failed."));
+                  setError(extractError(await res.json(), t("errorSaveFailed")));
                 } else {
                   const saved: SavedScheme = await res.json();
                   await activateScheme(saved);
                 }
-              } catch { setError("Save failed. Is the backend running?"); }
+              } catch { setError(t("errorSaveFailedBackend")); }
               finally { setSaving(false); }
             }}
             disabled={saving || activating}
             className="flex-1 text-white rounded-lg py-2 text-xs font-semibold disabled:opacity-50"
             style={{ background: "var(--color-teal)" }}
           >
-            {saving || activating ? "Saving…" : "Save & Activate"}
+            {saving || activating ? t("buttonSaving") : t("buttonSaveActivate")}
           </button>
         </div>
       </div>

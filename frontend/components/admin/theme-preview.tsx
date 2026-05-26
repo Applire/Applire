@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+/* eslint-disable formatjs/no-literal-string-in-jsx -- demo content for color-scheme preview */
 
 export function ThemePreview() {
   return (

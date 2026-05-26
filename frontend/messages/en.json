@@ -581,7 +581,35 @@
     "errorBackendUnreachable": "Could not reach the server. Is the backend running?"
   },
   "admin": {
-    "appearanceTitle": "Appearance"
+    "appearanceTitle": "Appearance",
+    "schemeEditor": {
+      "sectionSavedSchemes": "Saved Schemes",
+      "sectionSeedColors": "Seed Colors",
+      "sectionSurfaceTint": "Surface Tint",
+      "sectionSaveScheme": "Save Scheme",
+      "badgeActive": "active",
+      "labelNew": "New",
+      "labelPrimary": "Primary",
+      "labelAccent": "Accent",
+      "labelSecondary": "Secondary",
+      "labelWhite": "White",
+      "descPrimary": "Headings, nav, key surfaces",
+      "descAccent": "Links, interactive elements",
+      "descSecondary": "Highlights, badges, accents",
+      "descSurfaceTint": "How much primary color tints page and card backgrounds",
+      "namePlaceholder": "Scheme name e.g. Midnight",
+      "titleActivate": "Activate {name}",
+      "titlePickColor": "Pick {label} color",
+      "buttonSave": "Save",
+      "buttonSaving": "Saving…",
+      "buttonSaveActivate": "Save & Activate",
+      "iconNewScheme": "+",
+      "surfaceLightnessValue": "{value}%",
+      "errorNameRequired": "Please enter a scheme name.",
+      "errorSaveFailed": "Save failed.",
+      "errorSaveFailedBackend": "Save failed. Is the backend running?",
+      "errorActivationFailed": "Activation failed."
+    }
   },
   "documents": {
     "title": "My Documents",
