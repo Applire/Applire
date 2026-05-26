@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { JobCard, type JobMatchResult } from "@/components/match/JobCard";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 
@@ -43,6 +44,7 @@ async function fetchGapSummary(gapAnalysisId: string): Promise<GapSummary | null
 
 export default function MatchPage() {
   const router = useRouter();
+  const t = useTranslations("match");
   const [jobs, setJobs] = useState<EnrichedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,24 +59,24 @@ export default function MatchPage() {
           return;
         }
         if (!res.ok) {
-          setError("Failed to load job matches. Please try again.");
+          setError(t("errorLoadFailed"));
           return;
         }
         const data: JobMatchResult[] = await res.json();
         setJobs(data.map((j) => ({ ...j, strengths: [], gaps: [] })));
       } catch {
-        setError("Could not reach the server. Is the backend running?");
+        setError(t("errorBackendUnreachable"));
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [router]);
+  }, [router, t]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-dim" data-testid="match-loading">
-        <p className="text-gray-500">Loading matches…</p>
+        <p className="text-gray-500">{t("loading")}</p>
       </div>
     );
   }
@@ -98,19 +100,19 @@ export default function MatchPage() {
             className="text-center py-20"
             data-testid="match-empty-state"
           >
-            <div className="text-4xl mb-4">📋</div>
+            <div className="text-4xl mb-4" aria-hidden="true">{t("emptyIcon")}</div>
             <h2 className="font-heading text-xl font-semibold text-neutral-dark mb-2">
-              No jobs analysed yet
+              {t("emptyHeading")}
             </h2>
             <p className="text-gray-500 mb-6 max-w-md mx-auto">
-              Paste a job description on the home page to analyse it and see it ranked here.
+              {t("emptyBody")}
             </p>
             <button
               type="button"
               onClick={() => router.push("/dashboard")}
               className="inline-flex items-center px-5 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/90 transition-colors"
             >
-              Add your first job →
+              {t("emptyAction")}
             </button>
           </div>
         )}

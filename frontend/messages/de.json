@@ -508,7 +508,18 @@
     }
   },
   "match": {
-    "title": "Stellenanzeigen"
+    "title": "Stellenanzeigen",
+    "loading": "Stellen werden geladen…",
+    "emptyIcon": "📋",
+    "emptyHeading": "Noch keine Stellen analysiert",
+    "emptyBody": "Füge eine Stellenbeschreibung auf der Startseite ein, um sie zu analysieren und hier zu sehen.",
+    "emptyAction": "Erste Stelle hinzufügen →",
+    "matchScore": "Übereinstimmung",
+    "strengthPrefix": "✓ {label}",
+    "gapPrefix": "✗ {label}",
+    "runGapAnalysis": "Lückenanalyse starten →",
+    "errorLoadFailed": "Stellen konnten nicht geladen werden. Bitte erneut versuchen.",
+    "errorBackendUnreachable": "Server nicht erreichbar. Läuft das Backend?"
   },
   "admin": {
     "appearanceTitle": "Erscheinungsbild"

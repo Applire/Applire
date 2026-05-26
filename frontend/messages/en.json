@@ -508,7 +508,18 @@
     }
   },
   "match": {
-    "title": "Job Matches"
+    "title": "Job Matches",
+    "loading": "Loading matches…",
+    "emptyIcon": "📋",
+    "emptyHeading": "No jobs analysed yet",
+    "emptyBody": "Paste a job description on the home page to analyse it and see it ranked here.",
+    "emptyAction": "Add your first job →",
+    "matchScore": "Match score",
+    "strengthPrefix": "✓ {label}",
+    "gapPrefix": "✗ {label}",
+    "runGapAnalysis": "Run gap analysis →",
+    "errorLoadFailed": "Failed to load job matches. Please try again.",
+    "errorBackendUnreachable": "Could not reach the server. Is the backend running?"
   },
   "admin": {
     "appearanceTitle": "Appearance"
