@@ -28,6 +28,7 @@ type JdMode = "url" | "text";
 
 export function QuickTailorWidget() {
   const t = useTranslations("quickTailor");
+  const tDash = useTranslations("dashboard");
   const router = useRouter();
   const [mode, setMode] = useState<JdMode>("url");
   const [url, setUrl] = useState("");
@@ -50,7 +51,7 @@ export function QuickTailorWidget() {
       });
       if (!analyzeRes.ok) {
         const err = await analyzeRes.json();
-        setError(err.detail ?? "Analysis failed");
+        setError(err.detail ?? tDash("errorAnalysisFailed"));
         return;
       }
       const jobData = await analyzeRes.json();
@@ -62,13 +63,13 @@ export function QuickTailorWidget() {
       });
       if (!createRes.ok) {
         const err = await createRes.json();
-        setError(createRes.status === 409 ? "Application already exists." : (err.detail ?? "Failed to create application"));
+        setError(createRes.status === 409 ? tDash("errorAppExists") : (err.detail ?? tDash("errorCreateAppFailed")));
         return;
       }
       const appData = await createRes.json();
       router.push(`/flow/${appData.flow_session_id}/import`);
     } catch {
-      setError("An unexpected error occurred.");
+      setError(tDash("errorUnexpected"));
     } finally {
       setLoading(false);
     }
@@ -80,7 +81,8 @@ export function QuickTailorWidget() {
       <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-gold via-primary to-gold" />
 
       <p className="font-extrabold text-[15px] text-neutral-dark mb-1 font-manrope flex items-center gap-1.5">
-        <span className="material-symbols-outlined text-gold" style={{ fontSize: 18 }}>auto_awesome</span>
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+        <span className="material-symbols-outlined text-gold" aria-hidden="true" style={{ fontSize: 18 }}>auto_awesome</span>
         {t("title")}
       </p>
       <p className="text-[12px] text-gray-500 mb-3.5">{t("subtitle")}</p>

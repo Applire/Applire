@@ -54,11 +54,13 @@ const PROGRESS: Record<CardStatus, number> = {
   tracking: 0,
 };
 
-const CHIP: Record<CardStatus, { label: string; className: string }> = {
-  in_progress:  { label: "In Progress",  className: "bg-teal-container text-primary" },
-  cv_ready:     { label: "CV Ready",     className: "bg-[#dcfce7] text-[#166534]" },
-  interrupted:  { label: "Interrupted",  className: "bg-[#fef9c3] text-[#854d0e]" },
-  tracking:     { label: "Tracking",     className: "bg-[#f1f5f9] text-[#64748b]" },
+type ChipKey = "chipInProgress" | "chipCvReady" | "chipInterrupted" | "chipTracking";
+
+const CHIP: Record<CardStatus, { labelKey: ChipKey; className: string }> = {
+  in_progress:  { labelKey: "chipInProgress",  className: "bg-teal-container text-primary" },
+  cv_ready:     { labelKey: "chipCvReady",     className: "bg-[#dcfce7] text-[#166534]" },
+  interrupted:  { labelKey: "chipInterrupted", className: "bg-[#fef9c3] text-[#854d0e]" },
+  tracking:     { labelKey: "chipTracking",    className: "bg-[#f1f5f9] text-[#64748b]" },
 };
 
 const PROGRESS_COLOR: Record<CardStatus, string> = {
@@ -79,6 +81,7 @@ export function DashboardApplicationCard({
   onStartFlow,
 }: DashboardApplicationCardProps) {
   const router = useRouter();
+  const tDash = useTranslations("dashboard");
   const status = deriveCardStatus(workflowStatus, updatedAt);
   const chip = CHIP[status];
   const initial = (companyName ?? roleTitle ?? "?")[0].toUpperCase();
@@ -89,9 +92,9 @@ export function DashboardApplicationCard({
 
   const relativeTime = (() => {
     const h = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 36e5);
-    if (h < 1) return "just now";
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h / 24)}d ago`;
+    if (h < 1) return tDash("relativeJustNow");
+    if (h < 24) return tDash("relativeHoursAgo", { h });
+    return tDash("relativeDaysAgo", { d: Math.floor(h / 24) });
   })();
 
   function handleAction(e: React.MouseEvent) {
@@ -115,12 +118,17 @@ export function DashboardApplicationCard({
     }
   }
 
-  const ACTION_LABEL: Record<CardStatus, string> = {
-    in_progress: "Resume",
-    cv_ready:    "Open",
-    interrupted: "Continue",
-    tracking:    "Start Flow",
+  type ActionKey = "actionResume" | "actionOpen" | "actionContinue" | "actionStartFlow";
+  const ACTION_LABEL: Record<CardStatus, ActionKey> = {
+    in_progress: "actionResume",
+    cv_ready:    "actionOpen",
+    interrupted: "actionContinue",
+    tracking:    "actionStartFlow",
   };
+
+  // Icon names are non-user-facing Material Symbols identifiers — kept as JS vars to avoid JSX literal rule
+  const actionIcon: string =
+    status === "cv_ready" ? "open_in_new" : status === "tracking" ? "bolt" : "play_arrow";
 
   return (
     <div
@@ -145,12 +153,12 @@ export function DashboardApplicationCard({
           {initial}
         </div>
         <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
-          {chip.label}
+          {tDash(chip.labelKey)}
         </span>
       </div>
 
       <p className="text-[14px] font-bold text-gray-900 font-manrope leading-snug truncate">
-        {roleTitle ?? "Unknown role"}
+        {roleTitle ?? tDash("unknownRole")}
       </p>
       <p className="text-[12px] text-gray-500 mt-0.5 truncate">{companyName ?? ""}</p>
 
@@ -175,10 +183,10 @@ export function DashboardApplicationCard({
                 : "bg-teal-dim text-white hover:bg-primary"
             )}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-              {status === "cv_ready" ? "open_in_new" : status === "tracking" ? "bolt" : "play_arrow"}
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 14 }}>
+              {actionIcon}
             </span>
-            {ACTION_LABEL[status]}
+            {tDash(ACTION_LABEL[status])}
           </button>
           {showMarkHired && (
             <button
