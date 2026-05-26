@@ -21,6 +21,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { JobCard, type JobMatchResult } from "@/components/match/JobCard";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -79,27 +80,10 @@ export default function MatchPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-dim">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="font-heading text-2xl font-bold text-neutral-dark">Job Matches</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Ranked by combined AI + semantic similarity score
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-            className="text-sm text-teal hover:underline"
-          >
-            ← Dashboard
-          </button>
-        </div>
-      </header>
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <AppTopbar mode="section" titleKey="match.title" />
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="flex-1 overflow-y-auto px-8 py-7">
         {error && (
           <div
             className="p-4 rounded-lg bg-critical/10 border border-critical/20 mb-6"

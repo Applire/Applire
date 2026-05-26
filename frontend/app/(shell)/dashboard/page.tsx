@@ -87,7 +87,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <AppTopbar />
+      <AppTopbar mode="section" titleKey="shell.dashboard" />
 
       <main className="flex-1 overflow-y-auto px-8 py-7">
         {/* Page header */}

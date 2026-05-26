@@ -498,6 +498,9 @@
       "confirming": "Wird als eingestellt markiert …"
     }
   },
+  "match": {
+    "title": "Stellenanzeigen"
+  },
   "documents": {
     "title": "Meine Dokumente",
     "subtitle": "Alle generierten Lebensläufe deiner Bewerbungen",

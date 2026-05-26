@@ -498,6 +498,9 @@
       "confirming": "Marking as hired…"
     }
   },
+  "match": {
+    "title": "Job Matches"
+  },
   "documents": {
     "title": "My Documents",
     "subtitle": "All generated CVs across your applications",

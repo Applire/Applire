@@ -21,10 +21,10 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useLocale } from "@/lib/providers/locale-provider";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -120,7 +120,6 @@ export default function SettingsPage() {
   const t = useTranslations("settings");
   const tErrors = useTranslations("errors");
   const tCommon = useTranslations("common");
-  const tNav = useTranslations("nav");
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -180,16 +179,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
-      <header className="bg-white border-b border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push("/")} className="text-sm text-teal hover:underline">
-              {t("back")}
-            </button>
-            <h1 className="font-heading text-2xl font-bold text-neutral-dark">{t("title")}</h1>
-          </div>
-        </div>
-      </header>
+      <AppTopbar mode="section" titleKey="shell.settings" />
 
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
@@ -284,14 +274,6 @@ export default function SettingsPage() {
         </div>
       </main>
 
-      <footer className="bg-white border-t border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex justify-center gap-6">
-          <Link href="/" className="text-sm text-teal hover:underline">{tNav("dashboard")}</Link>
-          <Link href="/profile" className="text-sm text-teal hover:underline">{tNav("profile")}</Link>
-          <Link href="/admin/appearance" className="text-sm text-teal hover:underline">{tNav("admin")}</Link>
-          <Link href="/help" className="text-sm text-gray-500 hover:underline">{tNav("help")}</Link>
-        </div>
-      </footer>
     </div>
   );
 }

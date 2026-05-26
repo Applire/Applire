@@ -62,10 +62,12 @@ export default function DocumentsPage() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <AppTopbar
+        mode="section"
+        titleKey="shell.documents"
         showSearch
         searchValue={searchValue}
         onSearchChange={setSearchValue}
-        searchPlaceholder={t("searchPlaceholder")}
+        searchPlaceholderKey="documents.searchPlaceholder"
       />
 
       <main className="flex-1 overflow-y-auto px-8 py-7">
