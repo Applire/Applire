@@ -170,7 +170,7 @@ export default function ApplicationDetailPage() {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
         <p className="text-critical mb-4">{error}</p>
-        <Button onClick={() => router.push("/")}>{t("backToDashboard")}</Button>
+        <Button onClick={() => router.push("/dashboard")}>{t("backToDashboard")}</Button>
       </div>
     );
   }

@@ -107,7 +107,7 @@ export default function MatchPage() {
             </p>
             <button
               type="button"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/dashboard")}
               className="inline-flex items-center px-5 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/90 transition-colors"
             >
               Add your first job →

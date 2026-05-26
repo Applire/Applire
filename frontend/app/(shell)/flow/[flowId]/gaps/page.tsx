@@ -145,7 +145,7 @@ function JdRecoveryBannerInner() {
           data-testid="jd-recovery-cta"
           type="button"
           className="mt-1 text-sm font-medium text-amber-700 underline hover:no-underline"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/dashboard")}
         >
           {t("addJobDescription")}
         </button>

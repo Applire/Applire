@@ -81,7 +81,7 @@ export function WhatNext({ flowId, roleTitle }: WhatNextProps) {
 
         <button
           type="button"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/dashboard")}
           className="w-full bg-teal text-white font-semibold py-3 rounded-lg text-sm hover:opacity-90 transition-colors"
         >
           {t("startNewApplication")}
@@ -89,7 +89,7 @@ export function WhatNext({ flowId, roleTitle }: WhatNextProps) {
 
         <button
           type="button"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/dashboard")}
           className="text-sm text-teal hover:underline"
         >
           {t("backToHome")}
