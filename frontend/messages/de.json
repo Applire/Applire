@@ -501,6 +501,9 @@
   "match": {
     "title": "Stellenanzeigen"
   },
+  "admin": {
+    "appearanceTitle": "Erscheinungsbild"
+  },
   "documents": {
     "title": "Meine Dokumente",
     "subtitle": "Alle generierten Lebensläufe deiner Bewerbungen",

@@ -501,6 +501,9 @@
   "match": {
     "title": "Job Matches"
   },
+  "admin": {
+    "appearanceTitle": "Appearance"
+  },
   "documents": {
     "title": "My Documents",
     "subtitle": "All generated CVs across your applications",
