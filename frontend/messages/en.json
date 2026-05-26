@@ -450,7 +450,27 @@
     "enrichmentHistory": "Enrichment History",
     "completeness": "Profile Completeness",
     "enrichProfile": "Enrich Profile",
-    "enrichEntry": "Enrich"
+    "enrichEntry": "Enrich",
+    "photo": {
+      "title": "Profile Photo",
+      "subtitle": "Optional. Used in your CV when applying to DACH roles.",
+      "altText": "Profile photo",
+      "labelCurrent": "Profile photo",
+      "uploadedLabel": "Uploaded {date}",
+      "uploadingLabel": "Uploading…",
+      "replaceCta": "Replace",
+      "deletingLabel": "Deleting…",
+      "deleteCta": "Delete",
+      "uploadPrompt": "Upload a photo",
+      "fileHint": "JPEG, PNG or WebP · max 5 MB",
+      "consentLabel": "I consent to Applire storing my profile photo to include it in generated CVs. I can delete it at any time.",
+      "privacyLink": "Privacy policy ↗",
+      "consentError": "Please tick the consent checkbox before uploading.",
+      "uploadError": "Upload failed",
+      "deleteError": "Delete failed",
+      "uploadCta": "Upload photo",
+      "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
+    }
   },
   "applications": {
     "loadingDetails": "Loading application details...",

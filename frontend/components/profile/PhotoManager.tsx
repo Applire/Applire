@@ -19,6 +19,7 @@
 
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -31,6 +32,7 @@ interface PhotoManagerProps {
 }
 
 export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerProps) {
+  const t = useTranslations("profile.photo");
   // Consent defaults to true when the user already has a photo (Replace path — no re-consent needed)
   const [consent, setConsent] = useState(!!currentPhotoUrl);
   const [uploading, setUploading] = useState(false);
@@ -64,7 +66,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   async function handleUpload(file: File) {
     setError(null);
     if (!consent) {
-      setError("Please tick the consent checkbox before uploading.");
+      setError(t("consentError"));
       return;
     }
     setUploading(true);
@@ -77,7 +79,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error((err as { detail?: string }).detail ?? "Upload failed");
+        throw new Error((err as { detail?: string }).detail ?? t("uploadError"));
       }
       const data = (await res.json()) as { photo_url: string; consent_at: string };
       setUploadedAt(
@@ -94,7 +96,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
       });
       onPhotoChange?.(data.photo_url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(err instanceof Error ? err.message : t("uploadError"));
     } finally {
       setUploading(false);
     }
@@ -105,7 +107,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
     setDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/api/profile/photo`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) throw new Error(t("deleteError"));
       setPreviewSrc((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
@@ -114,7 +116,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
       setConsent(false);
       onPhotoChange?.(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("deleteError"));
     } finally {
       setDeleting(false);
     }
@@ -123,9 +125,9 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">Profile Photo</h3>
+        <h3 className="text-sm font-semibold text-gray-900">{t("title")}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Optional. Used in your CV when applying to DACH roles.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -141,14 +143,14 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
           {previewSrc && (
             <img
               src={previewSrc}
-              alt="Profile photo"
+              alt={t("altText")}
               className="w-14 h-[68px] object-cover object-top rounded"
             />
           )}
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-gray-900 truncate">Profile photo</p>
+            <p className="text-xs font-medium text-gray-900 truncate">{t("labelCurrent")}</p>
             {uploadedAt && (
-              <p className="text-xs text-gray-500 mt-0.5">Uploaded {uploadedAt}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{t("uploadedLabel", { date: uploadedAt })}</p>
             )}
             <div className="flex gap-2 mt-2">
               <Button
@@ -157,7 +159,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
                 onClick={() => inputRef.current?.click()}
                 disabled={uploading}
               >
-                {uploading ? "Uploading…" : "Replace"}
+                {uploading ? t("uploadingLabel") : t("replaceCta")}
               </Button>
               <Button
                 variant="outline"
@@ -166,7 +168,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
                 onClick={handleDelete}
                 disabled={deleting}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? t("deletingLabel") : t("deleteCta")}
               </Button>
             </div>
           </div>
@@ -178,9 +180,10 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
             className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
             onClick={() => inputRef.current?.click()}
           >
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
             <div className="text-2xl mb-2">📷</div>
-            <p className="text-sm font-medium text-gray-700">Upload a photo</p>
-            <p className="text-xs text-gray-400 mt-1">JPEG, PNG or WebP · max 5 MB</p>
+            <p className="text-sm font-medium text-gray-700">{t("uploadPrompt")}</p>
+            <p className="text-xs text-gray-400 mt-1">{t("fileHint")}</p>
           </div>
 
           <div className="flex gap-2 items-start bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
@@ -195,10 +198,11 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
               htmlFor="photo-consent"
               className="text-xs text-blue-800 leading-relaxed cursor-pointer"
             >
-              I consent to Applire storing my profile photo to include it in generated CVs. I can
-              delete it at any time.{" "}
+              {t("consentLabel")}
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              {" "}
               <a href="/privacy" className="underline">
-                Privacy policy ↗
+                {t("privacyLink")}
               </a>
             </label>
           </div>
@@ -208,7 +212,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
             disabled={!consent || uploading}
             onClick={() => inputRef.current?.click()}
           >
-            {uploading ? "Uploading…" : "Upload photo"}
+            {uploading ? t("uploadingLabel") : t("uploadCta")}
           </Button>
         </>
       )}
@@ -227,7 +231,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
 
       {hasPhoto && (
         <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
-          ✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications.
+          {t("successMessage")}
         </p>
       )}
     </div>

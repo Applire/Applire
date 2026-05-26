@@ -450,7 +450,27 @@
     "enrichmentHistory": "Anreicherungshistorie",
     "completeness": "Profilvollständigkeit",
     "enrichProfile": "Profil ergänzen",
-    "enrichEntry": "Ergänzen"
+    "enrichEntry": "Ergänzen",
+    "photo": {
+      "title": "Profilfoto",
+      "subtitle": "Optional. Wird in deinem Lebenslauf bei DACH-Bewerbungen verwendet.",
+      "altText": "Profilfoto",
+      "labelCurrent": "Profilfoto",
+      "uploadedLabel": "Hochgeladen {date}",
+      "uploadingLabel": "Wird hochgeladen…",
+      "replaceCta": "Ersetzen",
+      "deletingLabel": "Wird gelöscht…",
+      "deleteCta": "Löschen",
+      "uploadPrompt": "Foto hochladen",
+      "fileHint": "JPEG, PNG oder WebP · max. 5 MB",
+      "consentLabel": "Ich stimme zu, dass Applire mein Profilfoto speichert und es in generierten Lebensläufen einbindet. Ich kann es jederzeit löschen.",
+      "privacyLink": "Datenschutzerklärung ↗",
+      "consentError": "Bitte bestätige die Einwilligung, bevor du das Foto hochlädst.",
+      "uploadError": "Upload fehlgeschlagen",
+      "deleteError": "Löschen fehlgeschlagen",
+      "uploadCta": "Foto hochladen",
+      "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
+    }
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",
