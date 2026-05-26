@@ -214,8 +214,8 @@ export default function CoverLetterPage({
       <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-neutral-200 flex-shrink-0">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-neutral-400">{roleTitle}</span>
-          <span className="text-neutral-300">›</span>
-          <span className="font-semibold">Anschreiben</span>
+          <span className="text-neutral-300" aria-hidden="true">{t("breadcrumbSeparator")}</span>
+          <span className="font-semibold">{t("coverLetterTitle")}</span>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -232,7 +232,7 @@ export default function CoverLetterPage({
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
             data-testid="cl-topbar-download-btn"
           >
-            {downloading ? "…" : t("download")}
+            {downloading ? tc("loading") : t("download")}
           </button>
         </div>
       </div>

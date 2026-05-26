@@ -41,6 +41,7 @@ export function CoverLetterContentTab({
   letterData,
   onSectionSaved,
 }: CoverLetterContentTabProps) {
+  const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
   const [bodyText, setBodyText] = useState(
     letterData?.body?.paragraphs?.join("\n\n") ?? ""
@@ -62,7 +63,7 @@ export function CoverLetterContentTab({
       setBodyEditing(false);
       onSectionSaved();
     } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : "Fehler beim Speichern");
+      setSaveError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -75,32 +76,32 @@ export function CoverLetterContentTab({
   return (
     <div className="flex flex-col gap-3 p-3">
       <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-        Abschnitte
+        {t("sectionHeader")}
       </p>
 
       {/* Header — read-only */}
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">Kopfzeile</span>
+          <span className="text-sm font-semibold">{t("headerSection")}</span>
           <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            auto
+            {t("autoTag")}
           </span>
         </div>
         <p className="text-xs text-neutral-500">
-          {header?.name ?? "Aus Profil"}{header?.email ? ` · ${header.email}` : ""}
+          {[header?.name ?? t("fromProfile"), header?.email].filter(Boolean).join(` ${t("separator")} `)}
         </p>
       </div>
 
       {/* Recipient — read-only */}
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">Empfänger</span>
+          <span className="text-sm font-semibold">{t("recipientSection")}</span>
           <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            auto
+            {t("autoTag")}
           </span>
         </div>
         <p className="text-xs text-neutral-500">
-          {recipient?.name ?? "–"}{recipient?.company ? ` · ${recipient.company}` : ""}
+          {[recipient?.name ?? t("emDash"), recipient?.company].filter(Boolean).join(` ${t("separator")} `)}
         </p>
       </div>
 
@@ -114,10 +115,10 @@ export function CoverLetterContentTab({
       >
         <div className="flex items-center justify-between mb-2">
           <span className={`text-sm font-semibold ${bodyEditing ? "text-blue-700" : ""}`}>
-            Anschreiben-Text
+            {t("bodySection")}
           </span>
           <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-            bearbeitbar
+            {t("editableTag")}
           </span>
         </div>
         <textarea
@@ -162,13 +163,13 @@ export function CoverLetterContentTab({
       {/* Signature — read-only */}
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">Unterschrift & Datum</span>
+          <span className="text-sm font-semibold">{t("signatureSection")}</span>
           <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            auto
+            {t("autoTag")}
           </span>
         </div>
         <p className="text-xs text-neutral-500">
-          {signature?.closing ?? "Mit freundlichen Grüßen"} · {signature?.name ?? "–"}
+          {[signature?.closing ?? t("salutationClosing"), signature?.name ?? t("emDash")].join(` ${t("separator")} `)}
         </p>
       </div>
     </div>

@@ -19,6 +19,7 @@
 
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 interface CoverLetterDocumentProps {
   coverLetterId: string;
@@ -28,6 +29,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 const CV_WIDTH = 794; // A4 at 96 dpi
 
 export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps) {
+  const t = useTranslations("coverLetter");
   const containerRef = useRef<HTMLDivElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps)
         if (!cancelled) setSrcDoc(html);
       } catch (err: unknown) {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "Preview nicht verfügbar");
+          setError(err instanceof Error ? err.message : t("errorPreviewUnavailable"));
       }
     }
 
@@ -63,6 +65,7 @@ export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps)
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coverLetterId]);
 
   const scale = containerWidth > 0 ? Math.min(1, containerWidth / CV_WIDTH) : 1;
@@ -79,12 +82,12 @@ export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps)
         </div>
       ) : !srcDoc ? (
         <div className="flex items-center justify-center h-full text-sm text-neutral-400">
-          Lade Vorschau…
+          {t("previewLoading")}
         </div>
       ) : (
         <iframe
           srcDoc={srcDoc}
-          title="Anschreiben Vorschau"
+          title={t("previewTitle")}
           data-testid="cover-letter-iframe"
           sandbox="allow-same-origin"
           style={{

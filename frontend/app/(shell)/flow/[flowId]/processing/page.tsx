@@ -18,9 +18,10 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { use } from "react";
+import { useTranslations } from "next-intl";
 import { Card } from "@/components/ui/card";
 import { ProgressLinear } from "@/components/ui/progress";
 import { StepChecklist, StepItem, StepState } from "@/components/ui/step-checklist";
@@ -36,15 +37,6 @@ interface FlowState {
   profile_completeness?: number | null;
   processing_detail?: string | null;
 }
-
-const PROCESSING_STEPS: StepItem[] = [
-  { key: "upload", label: "Uploading CVs" },
-  { key: "parse", label: "Parsing CVs" },
-  { key: "analyze_jd", label: "Analyzing Job Description" },
-  { key: "build_profile", label: "Building Master Profile" },
-  { key: "match", label: "Matching against role" },
-  { key: "detect_gaps", label: "Detecting gaps" },
-];
 
 // Simulated step progression timing (in ms)
 const STEP_DURATIONS: Record<string, number> = {
@@ -63,7 +55,18 @@ export default function ProcessingPage({
 }) {
   const { flowId } = use(params);
   const router = useRouter();
-  
+  const t = useTranslations("flow.processing");
+
+  // Build step list inside component so labels are translated
+  const PROCESSING_STEPS: StepItem[] = [
+    { key: "upload", label: t("stepUploading") },
+    { key: "parse", label: t("stepParsing") },
+    { key: "analyze_jd", label: t("stepAnalyzingJD") },
+    { key: "build_profile", label: t("stepBuildingProfile") },
+    { key: "match", label: t("stepMatchingRole") },
+    { key: "detect_gaps", label: t("stepDetectingGaps") },
+  ];
+
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({
     upload: "pending",
     parse: "pending",
@@ -72,7 +75,7 @@ export default function ProcessingPage({
     match: "pending",
     detect_gaps: "pending",
   });
-  
+
   const [stepDetails, setStepDetails] = useState<Record<string, string>>({});
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -80,16 +83,16 @@ export default function ProcessingPage({
   // Simulate step progression
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    
+
     const advanceStep = () => {
       const steps = PROCESSING_STEPS;
-      
+
       if (currentStepIndex >= steps.length) {
         return;
       }
 
       const stepKey = steps[currentStepIndex].key;
-      
+
       // Mark current step as in_progress
       setStepStates(prev => ({
         ...prev,
@@ -107,22 +110,17 @@ export default function ProcessingPage({
         if (stepKey === "upload") {
           setStepDetails(prev => ({
             ...prev,
-            [stepKey]: "Files received successfully",
-          }));
-        } else if (stepKey === "parse") {
-          setStepDetails(prev => ({
-            ...prev,
-            [stepKey]: "5 positions, 12 projects, 3 certifications found",
+            [stepKey]: t("detailFilesReceived"),
           }));
         } else if (stepKey === "analyze_jd") {
           setStepDetails(prev => ({
             ...prev,
-            [stepKey]: "QA Manager role identified",
+            [stepKey]: t("detailRoleIdentified"),
           }));
         } else if (stepKey === "build_profile") {
           setStepDetails(prev => ({
             ...prev,
-            [stepKey]: "Merged 3 CVs into unified profile",
+            [stepKey]: t("detailMergedCVs", { count: 3 }),
           }));
         }
 
@@ -135,6 +133,7 @@ export default function ProcessingPage({
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStepIndex]);
 
   // Poll backend for actual state
@@ -144,13 +143,13 @@ export default function ProcessingPage({
         const res = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
         if (!res.ok) {
           if (res.status === 404) {
-            setError("Flow not found. Please start over.");
+            setError(t("errorFlowNotFound"));
           }
           return;
         }
-        
+
         const state: FlowState = await res.json();
-        
+
         // If backend indicates we're done processing, redirect
         if (state.current_step === "gap_analysis" || state.current_step === "cv_import") {
           clearInterval(pollInterval);
@@ -163,7 +162,7 @@ export default function ProcessingPage({
             match: "completed",
             detect_gaps: "completed",
           });
-          
+
           // Redirect after a brief delay
           setTimeout(() => {
             router.push(`/flow/${flowId}/gaps`);
@@ -175,7 +174,7 @@ export default function ProcessingPage({
     }, 2000);
 
     return () => clearInterval(pollInterval);
-  }, [flowId, router]);
+  }, [flowId, router, t]);
 
   // Calculate progress
   const completedCount = Object.values(stepStates).filter(s => s === "completed").length;
@@ -192,10 +191,10 @@ export default function ProcessingPage({
       <Card className="w-full max-w-[600px] p-8">
         <div className="text-center mb-8">
           <h1 className="font-heading text-2xl font-bold text-neutral-dark mb-2">
-            Processing Your Profile
+            {t("title")}
           </h1>
           <p className="text-sm text-gray-500">
-            We&apos;re analyzing your CVs and building your master profile
+            {t("subtitle")}
           </p>
         </div>
 
@@ -213,12 +212,12 @@ export default function ProcessingPage({
         <div className="mt-8">
           <ProgressLinear value={progress} />
           <p className="text-xs text-gray-500 text-center mt-2">
-            {Math.round(progress)}% complete
+            {t("percentComplete", { pct: Math.round(progress) })}
           </p>
         </div>
 
         <p className="text-xs text-gray-500 text-center mt-6">
-          This usually takes about 30 seconds
+          {t("usuallyTakes")}
         </p>
       </Card>
     </div>
