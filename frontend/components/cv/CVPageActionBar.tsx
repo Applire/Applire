@@ -106,7 +106,9 @@ export function CVPageActionBar({
         onClick={onNext}
         data-testid="page-action-next"
       >
-        {t("pageActionNext")} →
+        {t("pageActionNext")}
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative directional arrow */}
+        {" →"}
       </button>
     </div>
   );

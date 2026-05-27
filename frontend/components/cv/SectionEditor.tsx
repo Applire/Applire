@@ -156,7 +156,7 @@ export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddre
       )}
 
       {showPreviewStale && (
-        <p className="text-xs text-warning">Vorschau könnte veraltet sein.</p>
+        <p className="text-xs text-warning">{t("previewStale")}</p>
       )}
 
       <div className="flex gap-2">

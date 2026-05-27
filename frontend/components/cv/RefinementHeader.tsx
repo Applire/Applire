@@ -41,7 +41,7 @@ export function RefinementHeader({ roleTitle, matchScore, expiryWarning }: Refin
             className="w-full h-full -rotate-90"
             viewBox="0 0 36 36"
             role="img"
-            aria-label={`Match score: ${scorePct} percent`}
+            aria-label={t("matchScoreAriaLabel", { score: scorePct })}
           >
             <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--color-primary-container)" strokeWidth="3.5" />
             <circle
@@ -56,6 +56,7 @@ export function RefinementHeader({ roleTitle, matchScore, expiryWarning }: Refin
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
             <span className="text-[11px] font-bold text-primary font-heading">{scorePct}%</span>
           </div>
         </div>
@@ -80,8 +81,8 @@ export function RefinementHeader({ roleTitle, matchScore, expiryWarning }: Refin
             }`}
             data-testid="refinement-header-expiry"
           >
-            {expiryWarning.level === "critical" ? t("statusHeaderExpired") : t("statusHeaderExpiresOn")}{" "}
-            {expiryWarning.expiresIn}
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            {(expiryWarning.level === "critical" ? t("statusHeaderExpired") : t("statusHeaderExpiresOn")) + " " + expiryWarning.expiresIn}
           </span>
         )}
       </div>

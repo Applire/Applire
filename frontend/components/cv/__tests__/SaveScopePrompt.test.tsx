@@ -63,7 +63,7 @@ describe("SaveScopePrompt", () => {
   it("Cancel calls onCancel", () => {
     const onCancel = vi.fn();
     render(withIntl(<SaveScopePrompt onConfirm={vi.fn()} onCancel={onCancel} />));
-    fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
 });

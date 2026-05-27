@@ -44,8 +44,7 @@ export function SaveScopePrompt({ onConfirm, onCancel }: SaveScopePromptProps) {
           {t("saveToProfile")}
         </h3>
         <p className="text-xs text-gray-500 mb-4">
-          Im Masterprofil bleibt die Änderung dauerhaft erhalten. Nur für diesen
-          Lebenslauf bleibt sie auf diesen Lebenslauf beschränkt.
+          {t("description")}
         </p>
         <div className="flex flex-col gap-2 mb-4">
           <button
@@ -73,14 +72,14 @@ export function SaveScopePrompt({ onConfirm, onCancel }: SaveScopePromptProps) {
             data-testid="remember-choice-checkbox"
             className="rounded"
           />
-          Meine Wahl für diese Sitzung merken
+          {t("rememberChoice")}
         </label>
         <button
           type="button"
           onClick={onCancel}
           className="mt-3 w-full text-xs text-gray-400 hover:text-gray-600"
         >
-          Abbrechen
+          {t("cancel")}
         </button>
       </div>
     </div>

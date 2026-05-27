@@ -106,7 +106,7 @@ export function TemplateSelector({
                 <div className="bg-neutral-light h-48 overflow-hidden">
                   <img
                     src={`${API_BASE}/static/templates/${id}.png`}
-                    alt={`${t(keys.name)}`}
+                    alt={t(keys.name)}
                     className="w-full h-full object-cover object-top"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = "none";
@@ -116,8 +116,9 @@ export function TemplateSelector({
                 <div className="p-4">
                   <div className="flex items-center gap-2 mb-1">
                     {selected === id && (
-                      <span className="w-4 h-4 rounded-full bg-teal flex items-center justify-center text-white text-[10px] font-bold">
-                        ✓
+                      <span className="w-4 h-4 rounded-full bg-teal flex items-center justify-center text-white text-[10px] font-bold" aria-hidden="true">
+                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                        <span>✓</span>
                       </span>
                     )}
                     <p className="font-semibold text-neutral-dark text-sm">{t(keys.name)}</p>

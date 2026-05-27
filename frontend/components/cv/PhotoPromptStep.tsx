@@ -68,7 +68,8 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
           className="border-2 border-blue-600 bg-blue-50 rounded-lg p-4 text-center hover:bg-blue-100 transition-colors"
           onClick={() => setShowUpload(true)}
         >
-          <div className="text-2xl mb-1">📷</div>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <div className="text-2xl mb-1" aria-hidden="true">📷</div>
           <p className="text-xs font-semibold text-blue-700">{t("uploadPhoto")}</p>
           <p className="text-xs text-blue-500 mt-0.5">{t("uploadPhotoSaved")}</p>
         </button>
@@ -77,7 +78,8 @@ export function PhotoPromptStep({ onContinue, currentPhotoUrl, onPhotoChange }: 
           className="border border-gray-200 bg-gray-50 rounded-lg p-4 text-center hover:bg-gray-100 transition-colors"
           onClick={onContinue}
         >
-          <div className="text-2xl mb-1">⏭</div>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <div className="text-2xl mb-1" aria-hidden="true">⏭</div>
           <p className="text-xs font-medium text-gray-700">{t("skipPhotoNow")}</p>
           <p className="text-xs text-gray-400 mt-0.5">{t("skipPhotoHint")}</p>
         </button>

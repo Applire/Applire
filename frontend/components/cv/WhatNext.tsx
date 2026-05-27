@@ -58,9 +58,8 @@ export function WhatNext({ flowId, roleTitle }: WhatNextProps) {
 
   return (
     <div className="max-w-md mx-auto text-center animate-slide-up">
-      <div className="w-16 h-16 rounded-full bg-success flex items-center justify-center text-white text-2xl mx-auto mb-4">
-        ✓
-      </div>
+      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative checkmark icon */}
+      <div className="w-16 h-16 rounded-full bg-success flex items-center justify-center text-white text-2xl mx-auto mb-4" aria-hidden="true">{"✓"}</div>
 
       <h1 className="text-2xl font-heading font-bold text-neutral-dark mb-2">
         {t("cvReady")}

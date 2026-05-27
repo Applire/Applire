@@ -252,7 +252,8 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
       {allGaps.length > 0 && (
         <>
           <div className="flex items-center gap-2">
-            <span className="text-lg">🤖</span>
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <span className="text-lg" aria-hidden="true">🤖</span>
             <p className="text-sm text-neutral-dark">
               {t("gapsFoundFor", {
                 count: allGaps.length,
@@ -316,7 +317,8 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                 {section.gaps.length}
               </span>
             ) : (
-              <span className="text-xs text-success">✓</span>
+              /* eslint-disable-next-line formatjs/no-literal-string-in-jsx */
+              <span className="text-xs text-success" aria-hidden="true">✓</span>
             )}
           </button>
         ))}

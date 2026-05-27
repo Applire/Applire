@@ -107,7 +107,7 @@ export function AssistMicroSession({
 
   return (
     <div className="mt-2 rounded-lg border border-teal/40 bg-teal/5 p-3 text-xs">
-      <p className="text-xs font-semibold text-teal mb-2">Kaile hilft ✦</p>
+      <p className="text-xs font-semibold text-teal mb-2">{t("kaileHelperLabel")}</p>
 
       {phase === "loading" && (
         <div data-testid="assist-loading" className="flex items-center gap-2 text-gray-500">

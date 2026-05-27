@@ -98,7 +98,8 @@ export function RefinementPanel({
           title={t("panelOpen")}
           data-testid="cv-panel-expand-btn"
         >
-          ❮
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❮</span>
         </button>
         {TABS.map((tab) => (
           <button
@@ -163,7 +164,8 @@ export function RefinementPanel({
           title={t("panelCollapse")}
           data-testid="cv-panel-collapse-btn"
         >
-          ❯
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❯</span>
         </button>
       </div>
 
