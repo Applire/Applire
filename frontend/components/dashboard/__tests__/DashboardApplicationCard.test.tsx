@@ -26,12 +26,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => {
-    // Map known keys; fall through to raw key
-    if (key === "button") return "Mark as Hired";
-    if (key === "confirming") return "Marking as hired…";
-    return key;
-  },
+  useTranslations: () => (key: string) => key,
 }));
 
 vi.mock("@/lib/profile-roles", () => ({
@@ -70,27 +65,27 @@ describe("DashboardApplicationCard", () => {
 
   it("shows 'CV Ready' chip for completed workflow", () => {
     renderCard({ workflowStatus: "completed" });
-    expect(screen.getByText("CV Ready")).toBeInTheDocument();
+    expect(screen.getByText("chipCvReady")).toBeInTheDocument();
   });
 
   it("shows 'Tracking' chip for none workflow", () => {
     renderCard({ workflowStatus: "none" });
-    expect(screen.getByText("Tracking")).toBeInTheDocument();
+    expect(screen.getByText("chipTracking")).toBeInTheDocument();
   });
 
   it("shows 'In Progress' chip for recent analyzing status", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: NOW });
-    expect(screen.getByText("In Progress")).toBeInTheDocument();
+    expect(screen.getByText("chipInProgress")).toBeInTheDocument();
   });
 
   it("shows 'Interrupted' chip for stale analyzing status (>48h old)", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: STALE_48H });
-    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.getByText("chipInterrupted")).toBeInTheDocument();
   });
 
   it("shows 'In Progress' chip for recent cv_generating status", () => {
     renderCard({ workflowStatus: "cv_generating", updatedAt: NOW });
-    expect(screen.getByText("In Progress")).toBeInTheDocument();
+    expect(screen.getByText("chipInProgress")).toBeInTheDocument();
   });
 
   // ── Action button labels ─────────────────────────────────────────────────
@@ -102,7 +97,7 @@ describe("DashboardApplicationCard", () => {
 
   it("action button shows 'Start Flow' for tracking", () => {
     renderCard({ workflowStatus: "none" });
-    expect(screen.getByRole("button", { name: /start flow/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /actionStartFlow/i })).toBeInTheDocument();
   });
 
   it("action button shows 'Resume' for in_progress", () => {
@@ -141,7 +136,7 @@ describe("DashboardApplicationCard", () => {
   it("Start Flow button calls onStartFlow callback", () => {
     const onStartFlow = vi.fn();
     renderCard({ workflowStatus: "none", onStartFlow });
-    fireEvent.click(screen.getByRole("button", { name: /start flow/i }));
+    fireEvent.click(screen.getByRole("button", { name: /actionStartFlow/i }));
     expect(onStartFlow).toHaveBeenCalled();
     expect(mockPush).not.toHaveBeenCalled();
   });
@@ -166,23 +161,23 @@ describe("DashboardApplicationCard", () => {
 
   it("renders fallback text when roleTitle is null", () => {
     renderCard({ roleTitle: null, companyName: null });
-    expect(screen.getByText("Unknown role")).toBeInTheDocument();
+    expect(screen.getByText("unknownRole")).toBeInTheDocument();
   });
 
   // ── Mark as Hired affordance ─────────────────────────────────────────────
 
   it("shows when workflow_status=completed and user_status!=hired", () => {
     renderCard({ workflowStatus: "completed", userStatus: "applied" });
-    expect(screen.getByRole("button", { name: /Mark as Hired/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^button$/i })).toBeInTheDocument();
   });
 
   it("hides when user_status=hired", () => {
     renderCard({ workflowStatus: "completed", userStatus: "hired" });
-    expect(screen.queryByRole("button", { name: /Mark as Hired/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
   });
 
   it("hides when CV is not yet ready", () => {
     renderCard({ workflowStatus: "analyzing", userStatus: "applied" });
-    expect(screen.queryByRole("button", { name: /Mark as Hired/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^button$/i })).not.toBeInTheDocument();
   });
 });

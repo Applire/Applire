@@ -35,6 +35,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock next-intl — JobCard uses useTranslations()
+// ---------------------------------------------------------------------------
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${Object.values(params).join(",")}` : key,
+}));
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
@@ -211,6 +219,7 @@ describe("JobCard", () => {
     );
     const pills = screen.getAllByTestId("strength-pill");
     expect(pills).toHaveLength(3);
+    // Mock returns "strengthPrefix:<label>" — verify the label value is present
     expect(pills[0].textContent).toContain("Python");
   });
 
@@ -223,6 +232,7 @@ describe("JobCard", () => {
     );
     const pills = screen.getAllByTestId("gap-pill");
     expect(pills).toHaveLength(3);
+    // Mock returns "gapPrefix:<label>" — verify the label value is present
     expect(pills[0].textContent).toContain("Rust");
   });
 
