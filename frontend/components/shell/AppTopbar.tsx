@@ -73,9 +73,9 @@ export function AppTopbar(props: AppTopbarProps) {
               href={props.backHref}
               className="text-[13px] text-teal hover:underline flex-shrink-0"
             >
-              ← {t(props.backLabelKey)}
+              {t("shell.backArrowLabel", { label: t(props.backLabelKey) })}
             </Link>
-            <span className="text-gray-300" aria-hidden>|</span>
+            <span className="text-gray-300" aria-hidden>{t("shell.topbarSeparator")}</span>
             <h1 className="text-[15px] font-extrabold text-neutral-dark font-manrope truncate">
               {props.pageTitle}
             </h1>
@@ -111,6 +111,7 @@ export function AppTopbar(props: AppTopbarProps) {
 
       {props.mode === "section" && props.showSearch && (
         <div className="flex items-center gap-2 bg-surface-container border border-gray-200 rounded-full px-3.5 py-1.5 w-52">
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
           <span className="material-symbols-outlined text-gray-400" style={{ fontSize: 16 }}>search</span>
           <input
             type="text"
@@ -128,6 +129,7 @@ export function AppTopbar(props: AppTopbarProps) {
           aria-label={t("shell.notificationsAriaLabel")}
           className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-surface-container hover:text-primary transition-colors"
         >
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
           <span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications</span>
         </button>
         <button
@@ -136,7 +138,7 @@ export function AppTopbar(props: AppTopbarProps) {
           onClick={() => router.push("/settings")}
           className="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-primary-container to-surface-container-highest flex items-center justify-center text-[12px] font-bold text-primary cursor-pointer"
         >
-          A
+          {t("shell.topbarUserInitial")}
         </button>
       </div>
     </header>

@@ -185,7 +185,8 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
             aria-label={tc("ariaClose")}
           >
-            ✕
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 
@@ -203,7 +204,8 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
 
         {done && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8">
-            <div className="text-3xl text-success">✓</div>
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <div className="text-3xl text-success" aria-hidden="true">✓</div>
             <p className="text-sm font-medium text-neutral-dark">{t("done")}</p>
             <Button variant="outline" onClick={onClose}>{t("close")}</Button>
           </div>

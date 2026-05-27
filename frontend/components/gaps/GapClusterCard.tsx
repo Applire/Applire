@@ -96,8 +96,10 @@ export function GapClusterCard({
             </div>
           )}
           {resolved && (
-            <p data-testid="gap-resolved" className="mt-1.5 text-xs font-medium text-green-600">
-              ✓ {t("clusterStatusResolved")}
+            <p data-testid="gap-resolved" className="mt-1.5 text-xs font-medium text-green-600 flex items-center gap-1">
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true">✓</span>
+              {t("clusterStatusResolved")}
             </p>
           )}
         </div>

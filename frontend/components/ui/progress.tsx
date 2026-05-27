@@ -46,6 +46,7 @@ function ProgressLinear({
       </div>
       {showLabel && (
         <p className="text-xs text-gray-500 mt-1 text-right">
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- numeric percentage display */}
           {Math.round(percentage)}%
         </p>
       )}
@@ -143,6 +144,7 @@ function ProgressCircle({
       {showLabel && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={cn("text-2xl font-bold", colorClasses[color])}>
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- numeric percentage display */}
             {Math.round(displayValue)}%
           </span>
           {label && (

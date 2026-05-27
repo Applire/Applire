@@ -193,13 +193,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
             }}
           >
             <div className="w-[72px] h-[72px] rounded-full bg-gradient-to-br from-primary to-primary-container flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(0,51,153,0.25)]">
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-white text-[36px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                cloud_upload
-              </span>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true" className="material-symbols-outlined text-white text-[36px]" style={{ fontVariationSettings: "'FILL' 1" }}>cloud_upload</span>
             </div>
             <h3 className="font-manrope text-[18px] font-bold text-primary mb-1.5">
               {loading ? t("uploading") : t("dropTitle")}
@@ -235,6 +230,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
               <p className="text-[13px] font-bold text-primary">{t("linkedinCardTitle")}</p>
               <p className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">{t("linkedinCardDesc")}</p>
             </div>
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
             <span aria-hidden="true" className="material-symbols-outlined text-outline-variant text-[20px]">chevron_right</span>
           </button>
 
@@ -244,16 +240,11 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
               data-testid="upload-success-strip"
               className="mt-3 flex items-center gap-2.5 bg-[#dcfce7] border border-[#86efac] rounded-[10px] px-4 py-3"
             >
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-[#16a34a] text-[20px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                check_circle
-              </span>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true" className="material-symbols-outlined text-[#16a34a] text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
               <span className="text-[13px] font-semibold text-[#166534]">
                 {completenessScore !== null
-                  ? `${t("successPrefix")}${Math.round(completenessScore * 100)} %`
+                  ? t("successWithScore", { score: Math.round(completenessScore * 100) })
                   : t("successNoScore")}
               </span>
             </div>
@@ -262,13 +253,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
           {/* Upload error strip */}
           {error && (
             <div className="mt-3 flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-[10px] px-4 py-3">
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-red-500 text-[20px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                error
-              </span>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true" className="material-symbols-outlined text-red-500 text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
               <span className="text-[13px] font-semibold text-red-700">{error}</span>
             </div>
           )}
@@ -276,13 +262,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
           {/* Flow navigation error strip — shown alongside success strip */}
           {flowError && (
             <div className="mt-3 flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-[10px] px-4 py-3">
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined text-amber-500 text-[20px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                warning
-              </span>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true" className="material-symbols-outlined text-amber-500 text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
               <span className="text-[13px] font-semibold text-amber-700">{flowError}</span>
             </div>
           )}
@@ -297,6 +278,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
           >
             <div className="flex items-center justify-between mb-3.5">
               <span className="font-manrope text-[15px] font-bold text-primary">{t("historyTitle")}</span>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
               <span aria-hidden="true" className="material-symbols-outlined text-[20px] text-on-surface-variant">history</span>
             </div>
             {history.length === 0 ? (
@@ -320,6 +302,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                         )}
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
+                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon names */}
                         {isLinkedIn ? "link" : "description"}
                       </span>
                       <div className="flex-1 min-w-0">
@@ -328,12 +311,16 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                         </p>
                         <p className="text-[10px] text-on-surface-variant mt-0.5">
                           {new Date(item.created_at).toLocaleDateString()}
-                          {item.completeness_score !== null &&
-                            ` · ${Math.round(item.completeness_score * 100)} %`}
+                          {item.completeness_score !== null && (
+                            <>
+                              {" · "}{Math.round(item.completeness_score * 100)}{" %"}
+                            </>
+                          )}
                         </p>
                       </div>
                       {/* Decorative only — no action */}
                       <span className="material-symbols-outlined text-[16px] text-outline-variant" aria-hidden="true">
+                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon names */}
                         {isLinkedIn ? "refresh" : "download"}
                       </span>
                     </li>
@@ -358,13 +345,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
             </svg>
             <div className="relative z-10">
               <div className="flex items-center gap-1.5 mb-2">
-                <span
-                  aria-hidden="true"
-                  className="material-symbols-outlined text-[18px] text-secondary-container"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  auto_awesome
-                </span>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-secondary-container" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
                 <span className="text-[10px] font-semibold tracking-widest uppercase text-primary-fixed-dim">
                   {t("whyTag")}
                 </span>

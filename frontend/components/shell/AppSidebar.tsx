@@ -55,12 +55,11 @@ export function AppSidebar({ userName }: AppSidebarProps) {
       <div className="flex items-center gap-2.5 px-5 py-[18px] border-b border-gray-100">
         <img
           src="/applire-icon.png"
-          alt="Applire"
+          alt={t("appName")}
           className="w-[34px] h-[34px] rounded-[9px] object-contain flex-shrink-0"
         />
-        <span className="text-[16px] font-extrabold text-primary tracking-tight font-manrope">
-          Applire
-        </span>
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- brand name not translated */}
+        <span className="text-[16px] font-extrabold text-primary tracking-tight font-manrope">Applire</span>
       </div>
 
       {/* User strip — only shown when the profile fetch returned a name */}

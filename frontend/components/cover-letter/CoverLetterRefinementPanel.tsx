@@ -86,7 +86,8 @@ export function CoverLetterRefinementPanel({
           title={t("contentTab")}
           data-testid="cl-panel-expand-btn"
         >
-          ❮
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❮</span>
         </button>
         {TABS.map((tab) => (
           <button
@@ -137,7 +138,8 @@ export function CoverLetterRefinementPanel({
           title={t("designTab")}
           data-testid="cl-panel-collapse-btn"
         >
-          ❯
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❯</span>
         </button>
       </div>
 

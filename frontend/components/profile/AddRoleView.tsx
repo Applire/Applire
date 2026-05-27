@@ -207,8 +207,8 @@ export function AddRoleView({ openRoles: openRolesProp, prefill, sourceRef }: Ad
                       className="mt-1"
                     />
                     <span className="text-sm">
-                      <span className="font-semibold">{role.role}</span> at <span className="font-semibold">{role.company}</span>
-                      {role.start_date && <span className="text-gray-500"> (since {role.start_date})</span>}
+                      {t("atCompany", { role: role.role, company: role.company })}
+                      {role.start_date && <span className="text-gray-500">{t("sinceDate", { date: role.start_date })}</span>}
                     </span>
                   </label>
                   {checked && (
@@ -271,11 +271,12 @@ function Field({
   type?: string;
   required?: boolean;
 }) {
+  const t = useTranslations("profileUpdate.addRole");
   return (
     <label className="block">
       <span className="text-sm text-gray-700">
         {label}
-        {required && " *"}
+        {required && t("requiredSuffix")}
       </span>
       <input
         type={type}

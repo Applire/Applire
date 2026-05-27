@@ -18,6 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 export type ProgressStepStatus = "done" | "active" | "pending";
@@ -60,6 +61,7 @@ function StepIcon({ status }: { status: ProgressStepStatus }) {
 }
 
 export function ProgressWidget({ steps, title, subtitle, className }: ProgressWidgetProps) {
+  const t = useTranslations("progressWidget");
   const doneCount = steps.filter((s) => s.status === "done").length;
   const pct = steps.length === 0 ? 0 : Math.round((doneCount / steps.length) * 100);
   const offset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
@@ -87,9 +89,10 @@ export function ProgressWidget({ steps, title, subtitle, className }: ProgressWi
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
           <span className="text-lg font-extrabold text-primary leading-none">{pct}%</span>
           <span className="text-[8px] font-semibold tracking-widest uppercase text-on-surface-variant mt-0.5">
-            done
+            {t("done")}
           </span>
         </div>
       </div>

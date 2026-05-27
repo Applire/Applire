@@ -39,7 +39,7 @@ describe("AppSidebar", () => {
 
   it("renders Applire logo image", () => {
     render(<AppSidebar />);
-    expect(screen.getByRole("img", { name: /applire/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /appName/i })).toBeInTheDocument();
   });
 
   it("renders Applire brand name", () => {

@@ -41,9 +41,8 @@ export function ProfileUpdateChooser() {
           href="/profile/upload?action=upload"
           className="block rounded-2xl border bg-white p-6 hover:shadow-md hover:border-primary-container transition-all"
         >
-          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>
-            description
-          </span>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>description</span>
           <h2 className="mt-3 text-base font-bold text-gray-900 font-manrope">{t("uploadTitle")}</h2>
           <p className="mt-1 text-sm text-gray-600">{t("uploadBody")}</p>
         </Link>
@@ -52,9 +51,8 @@ export function ProfileUpdateChooser() {
           href="/profile/upload?action=add-role&source=manual"
           className="block rounded-2xl border bg-white p-6 hover:shadow-md hover:border-primary-container transition-all"
         >
-          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>
-            work
-          </span>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>work</span>
           <h2 className="mt-3 text-base font-bold text-gray-900 font-manrope">{t("addRoleTitle")}</h2>
           <p className="mt-1 text-sm text-gray-600">{t("addRoleBody")}</p>
         </Link>
