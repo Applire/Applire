@@ -127,7 +127,8 @@
     "clusterCardAnswerButton": "Answer",
     "clusterCardConstituentLabel": "Covers:",
     "clusterStatusResolved": "Answered",
-    "choiceCardHint": "Pick a starting point (editable):"
+    "choiceCardHint": "Pick a starting point (editable):",
+    "matchScoreDisplay": "{label}: {score}%"
   },
   "interview": {
     "loading": "Starting interview…",
@@ -157,7 +158,9 @@
     "roleRequirements": "Role Requirements",
     "choiceCardHint": "Pick a starting point (editable):",
     "advancingToCV": "Preparing…",
-    "viewHistory": "View conversation history ({count} {count, plural, one {exchange} other {exchanges}})"
+    "viewHistory": "View conversation history ({count} {count, plural, one {exchange} other {exchanges}})",
+    "matchScorePercent": "{score}%",
+    "conflictDetail": "{field}: “{oldValue}” vs “{newValue}”"
   },
   "cv": {
     "generating": "Generating CV…",
@@ -271,12 +274,48 @@
     "accentColorSubtitle": "Headings, lines, highlights",
     "colorPickerTitle": "Select colour",
     "colorSaveFailed": "Colour could not be saved",
-    "colorSaveUnknownError": "Unknown error"
+    "colorSaveUnknownError": "Unknown error",
+    "editSections": "Edit sections",
+    "allGapsClosedLabel": "✓ All gaps closed",
+    "closeSections": "Close ✕",
+    "sectionsLoadFailed": "Sections could not be loaded.",
+    "retryLoadSections": "Try again",
+    "iframeTitle": "CV Preview",
+    "zoomIn": "Zoom in",
+    "fitToWidth": "Fit to width",
+    "previewLoadFailed": "Preview could not be loaded.",
+    "retryPreview": "Try again",
+    "leaveGuardTitle": "You have unsaved changes. Leave anyway?",
+    "leaveConfirm": "Leave",
+    "stayEditing": "Stay",
+    "availableUntilLabel": "Available until {date}",
+    "expiredLabel": "Expired. Please regenerate.",
+    "fineTuneClose": "Close fine-tuning",
+    "fineTuneOpen": "Fine-tune",
+    "regenerateSame": "Regenerate",
+    "changeTemplate": "Change template",
+    "whatNextArrow": "What next? →",
+    "nextArrow": "Next →",
+    "discardChangesTitle": "Discard unsaved changes?",
+    "discardChanges": "Discard",
+    "keepEditing": "Keep editing",
+    "kaileSuggestionHeading": "Kaile's suggestion",
+    "kaileInstructionsHeading": "Instructions for Kaile",
+    "kaileGapsConsider": "Gaps to consider:",
+    "kaileHelperLabel": "Kaile helps ✦",
+    "previewStale": "Preview may be out of date.",
+    "saveFailed": "Save failed. Please try again.",
+    "completenessPercent": "{pct}%",
+    "matchScorePercent": "{score}%",
+    "profileChangeLog": "{action}: {section}/{field}"
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
+    "description": "Changes saved to the Master Profile are permanent. Changes saved to this CV only apply to this document.",
     "toProfile": "Save to Profile",
-    "justThisCV": "Just this CV"
+    "justThisCV": "Just this CV",
+    "rememberChoice": "Remember my choice for this session",
+    "cancel": "Cancel"
   },
   "unsavedChanges": {
     "title": "Discard unsaved changes?",
@@ -340,7 +379,9 @@
     "generateArrow": "Generate Cover Letter →",
     "separator": "·",
     "emDash": "–",
-    "breadcrumbSeparator": "›"
+    "breadcrumbSeparator": "›",
+    "regenerateHeading": "Regenerate",
+    "regenerateHint": "Opens the input form with the previous entries. The new cover letter replaces the current one."
   },
   "settings": {
     "title": "Settings",
@@ -359,7 +400,8 @@
     "deletionItemApplications": "All applications and their flow sessions",
     "deletionItemInterviews": "Interview sessions and transcripts",
     "deletionItemCVs": "Generated CVs and uploaded files",
-    "typeDeleteLabel": "Type DELETE to confirm:",
+    "typeDeleteLabel": "Type {token} to confirm:",
+    "deleteToken": "DELETE",
     "confirmDeleteButton": "Confirm Delete",
     "deleting": "Deleting...",
     "defaultCVColor": "Default CV Color",
@@ -454,6 +496,8 @@
     "completeness": "Profile Completeness",
     "enrichProfile": "Enrich Profile",
     "enrichEntry": "Enrich",
+    "completenessLabel": "Completeness: {pct}%",
+    "changeLog": "{action}: {section}/{field}",
     "photo": {
       "title": "Profile Photo",
       "subtitle": "Optional. Used in your CV when applying to DACH roles.",
@@ -511,6 +555,20 @@
   "offline": {
     "message": "You appear to be offline. Some features may not work."
   },
+  "dropzone": {
+    "dragDropHeading": "Drag & drop CVs here",
+    "clickToBrowse": "click to browse",
+    "orPrefix": "or",
+    "formatHint": "PDF, DOCX, DOC up to 10MB each"
+  },
+  "progressWidget": {
+    "done": "done"
+  },
+  "errorBoundary": {
+    "heading": "Something went wrong",
+    "body": "We’re sorry, but something unexpected happened. Please try again.",
+    "retry": "Try Again"
+  },
   "errors": {
     "uploadAtLeastOne": "Please upload at least one CV to continue.",
     "exportFailed": "Export failed. Please try again.",
@@ -543,7 +601,12 @@
     "settings": "Settings",
     "admin": "Admin",
     "notificationsAriaLabel": "Notifications",
-    "openSettingsAriaLabel": "Open settings"
+    "openSettingsAriaLabel": "Open settings",
+    "appName": "Applire",
+    "appLogoAlt": "Applire",
+    "topbarSeparator": "|",
+    "topbarUserInitial": "A",
+    "backArrowLabel": "← {label}"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -574,7 +637,8 @@
     "viewAll": "View all",
     "whyTag": "Profile intelligence",
     "whyTitle": "Why update?",
-    "whyBody": "An up-to-date CV improves accuracy across all AI analyses — from gap analysis to CV generation. Changes are merged into your Master Profile immediately."
+    "whyBody": "An up-to-date CV improves accuracy across all AI analyses — from gap analysis to CV generation. Changes are merged into your Master Profile immediately.",
+    "successWithScore": "Profile updated — completeness: {score} %"
   },
   "profileUpdate": {
     "chooserTitle": "Update profile",
@@ -604,7 +668,10 @@
       "save": "Save changes",
       "cancel": "Cancel",
       "savedSuccess": "Profile updated.",
-      "noJdHint": "Couldn't load the job description from this application — please fill in the details."
+      "noJdHint": "Couldn't load the job description from this application — please fill in the details.",
+      "atCompany": "{role} at {company}",
+      "sinceDate": "(since {date})",
+      "requiredSuffix": " *"
     },
     "markHired": {
       "button": "Mark as Hired",

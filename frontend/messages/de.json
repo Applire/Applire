@@ -127,7 +127,8 @@
     "clusterCardAnswerButton": "Beantworten",
     "clusterCardConstituentLabel": "Umfasst:",
     "clusterStatusResolved": "Beantwortet",
-    "choiceCardHint": "Wähle einen Startpunkt (editierbar):"
+    "choiceCardHint": "Wähle einen Startpunkt (editierbar):",
+    "matchScoreDisplay": "{label}: {score}%"
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -157,7 +158,9 @@
     "roleRequirements": "Rollenanforderungen",
     "choiceCardHint": "Wähle einen Startpunkt (editierbar):",
     "advancingToCV": "Wird vorbereitet…",
-    "viewHistory": "Gesprächsverlauf anzeigen ({count} {count, plural, one {Austausch} other {Austausche}})"
+    "viewHistory": "Gesprächsverlauf anzeigen ({count} {count, plural, one {Austausch} other {Austausche}})",
+    "matchScorePercent": "{score}%",
+    "conflictDetail": "{field}: „{oldValue}” vs. „{newValue}”"
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -271,12 +274,48 @@
     "accentColorSubtitle": "Überschriften, Linien, Hervorhebungen",
     "colorPickerTitle": "Farbe auswählen",
     "colorSaveFailed": "Farbe konnte nicht gespeichert werden",
-    "colorSaveUnknownError": "Unbekannter Fehler"
+    "colorSaveUnknownError": "Unbekannter Fehler",
+    "editSections": "Abschnitte bearbeiten",
+    "allGapsClosedLabel": "✓ Alle Lücken geschlossen",
+    "closeSections": "Schließen ✕",
+    "sectionsLoadFailed": "Abschnitte konnten nicht geladen werden.",
+    "retryLoadSections": "Erneut versuchen",
+    "iframeTitle": "Lebenslauf Vorschau",
+    "zoomIn": "Vergrößern",
+    "fitToWidth": "Einpassen",
+    "previewLoadFailed": "Vorschau konnte nicht geladen werden.",
+    "retryPreview": "Erneut versuchen",
+    "leaveGuardTitle": "Du hast ungespeicherte Änderungen. Wirklich verlassen?",
+    "leaveConfirm": "Verlassen",
+    "stayEditing": "Bleiben",
+    "availableUntilLabel": "Verfügbar bis {date}",
+    "expiredLabel": "Abgelaufen. Bitte neu generieren.",
+    "fineTuneClose": "Fine-tune schließen",
+    "fineTuneOpen": "Fine-tune",
+    "regenerateSame": "Neu generieren",
+    "changeTemplate": "Andere Vorlage",
+    "whatNextArrow": "Was nun? →",
+    "nextArrow": "Weiter →",
+    "discardChangesTitle": "Ungespeicherte Änderungen verwerfen?",
+    "discardChanges": "Verwerfen",
+    "keepEditing": "Weiter bearbeiten",
+    "kaileSuggestionHeading": "Kailes Vorschlag",
+    "kaileInstructionsHeading": "Anweisungen an Kaile",
+    "kaileGapsConsider": "Lücken berücksichtigen:",
+    "kaileHelperLabel": "Kaile hilft ✦",
+    "previewStale": "Vorschau könnte veraltet sein.",
+    "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
+    "completenessPercent": "{pct}%",
+    "matchScorePercent": "{score}%",
+    "profileChangeLog": "{action}: {section}/{field}"
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
+    "description": "Im Masterprofil bleibt die Änderung dauerhaft erhalten. Nur für diesen Lebenslauf bleibt sie auf diesen Lebenslauf beschränkt.",
     "toProfile": "Im Profil speichern",
-    "justThisCV": "Nur für diesen Lebenslauf"
+    "justThisCV": "Nur für diesen Lebenslauf",
+    "rememberChoice": "Meine Wahl für diese Sitzung merken",
+    "cancel": "Abbrechen"
   },
   "unsavedChanges": {
     "title": "Ungespeicherte Änderungen verwerfen?",
@@ -340,7 +379,9 @@
     "generateArrow": "Anschreiben erstellen →",
     "separator": "·",
     "emDash": "–",
-    "breadcrumbSeparator": "›"
+    "breadcrumbSeparator": "›",
+    "regenerateHeading": "Neu generieren",
+    "regenerateHint": "Öffnet das Eingabeformular mit den bisherigen Angaben. Das neue Anschreiben ersetzt das aktuelle."
   },
   "settings": {
     "title": "Einstellungen",
@@ -359,7 +400,8 @@
     "deletionItemApplications": "Alle Bewerbungen und deren Ablaufsitzungen",
     "deletionItemInterviews": "Interviewsitzungen und Transkripte",
     "deletionItemCVs": "Generierte Lebensläufe und hochgeladene Dateien",
-    "typeDeleteLabel": "Gib DELETE ein zur Bestätigung:",
+    "typeDeleteLabel": "Gib {token} ein zur Bestätigung:",
+    "deleteToken": "DELETE",
     "confirmDeleteButton": "Löschen bestätigen",
     "deleting": "Wird gelöscht…",
     "defaultCVColor": "Standard-Farbe für Lebensläufe",
@@ -454,6 +496,8 @@
     "completeness": "Profilvollständigkeit",
     "enrichProfile": "Profil ergänzen",
     "enrichEntry": "Ergänzen",
+    "completenessLabel": "Vollständigkeit: {pct}%",
+    "changeLog": "{action}: {section}/{field}",
     "photo": {
       "title": "Profilfoto",
       "subtitle": "Optional. Wird in deinem Lebenslauf bei DACH-Bewerbungen verwendet.",
@@ -511,6 +555,20 @@
   "offline": {
     "message": "Du scheinst offline zu sein. Einige Funktionen sind möglicherweise nicht verfügbar."
   },
+  "dropzone": {
+    "dragDropHeading": "Lebensläufe hier ablegen",
+    "clickToBrowse": "Datei auswählen",
+    "orPrefix": "oder",
+    "formatHint": "PDF, DOCX, DOC bis 10 MB je Datei"
+  },
+  "progressWidget": {
+    "done": "fertig"
+  },
+  "errorBoundary": {
+    "heading": "Etwas ist schiefgelaufen",
+    "body": "Es tut uns leid, aber etwas Unerwartetes ist passiert. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen"
+  },
   "errors": {
     "uploadAtLeastOne": "Bitte lade mindestens einen Lebenslauf hoch, um fortzufahren.",
     "exportFailed": "Export fehlgeschlagen. Bitte versuche es erneut.",
@@ -543,7 +601,12 @@
     "settings": "Einstellungen",
     "admin": "Administration",
     "notificationsAriaLabel": "Benachrichtigungen",
-    "openSettingsAriaLabel": "Einstellungen öffnen"
+    "openSettingsAriaLabel": "Einstellungen öffnen",
+    "appName": "Applire",
+    "appLogoAlt": "Applire",
+    "topbarSeparator": "|",
+    "topbarUserInitial": "A",
+    "backArrowLabel": "← {label}"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -574,7 +637,8 @@
     "viewAll": "Alle anzeigen",
     "whyTag": "Profil-Intelligenz",
     "whyTitle": "Warum aktualisieren?",
-    "whyBody": "Ein aktueller Lebenslauf verbessert die Treffsicherheit aller KI-Analysen — von der Lückenanalyse bis zur CV-Generierung. Änderungen werden sofort im Masterprofil zusammengeführt."
+    "whyBody": "Ein aktueller Lebenslauf verbessert die Treffsicherheit aller KI-Analysen — von der Lückenanalyse bis zur CV-Generierung. Änderungen werden sofort im Masterprofil zusammengeführt.",
+    "successWithScore": "Profil aktualisiert — Vollständigkeit: {score} %"
   },
   "profileUpdate": {
     "chooserTitle": "Profil aktualisieren",
@@ -604,7 +668,10 @@
       "save": "Änderungen speichern",
       "cancel": "Abbrechen",
       "savedSuccess": "Profil aktualisiert.",
-      "noJdHint": "Die Stellenbeschreibung dieser Bewerbung konnte nicht geladen werden – bitte fülle die Felder manuell aus."
+      "noJdHint": "Die Stellenbeschreibung dieser Bewerbung konnte nicht geladen werden – bitte fülle die Felder manuell aus.",
+      "atCompany": "{role} bei {company}",
+      "sinceDate": "(seit {date})",
+      "requiredSuffix": " *"
     },
     "markHired": {
       "button": "Als eingestellt markieren",
