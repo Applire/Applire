@@ -244,14 +244,14 @@ export default function SettingsPage() {
               </ul>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("typeDeleteLabel")} <code className="bg-gray-100 px-1 rounded">DELETE</code>
+                  {t("typeDeleteLabel", { token: t("deleteToken") })} <code className="bg-gray-100 px-1 rounded">{t("deleteToken")}</code>
                 </label>
                 <input
                   type="text"
                   value={deleteConfirmation}
                   onChange={(e) => setDeleteConfirmation(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-critical focus:outline-none focus:ring-2 focus:ring-critical/20"
-                  placeholder="DELETE"
+                  placeholder={t("deleteToken")}
                 />
               </div>
               <div className="flex gap-2">

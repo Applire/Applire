@@ -224,15 +224,13 @@ export default function ApplicationDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-500">{t("company")}</label>
-                <p className="text-base text-neutral-dark mt-1">
-                  {application.company_name || "—"}
-                </p>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <p className="text-base text-neutral-dark mt-1">{application.company_name || "—"}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-500">{t("role")}</label>
-                <p className="text-base text-neutral-dark mt-1">
-                  {application.role_title || "—"}
-                </p>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <p className="text-base text-neutral-dark mt-1">{application.role_title || "—"}</p>
               </div>
             </div>
           </Card>
@@ -315,9 +313,8 @@ export default function ApplicationDetailPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500">{t("currentStep")}</span>
-                  <span className="text-sm font-medium text-neutral-dark">
-                    {application.flow_current_step || "—"}
-                  </span>
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                  <span className="text-sm font-medium text-neutral-dark">{application.flow_current_step || "—"}</span>
                 </div>
                 <div className="flex gap-2">
                   {application.flow_current_step && application.flow_current_step !== "complete" && (

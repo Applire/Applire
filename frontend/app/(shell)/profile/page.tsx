@@ -302,7 +302,7 @@ export default function ProfilePage() {
             }`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">
-                  {t("completeness")}: {Math.round((profile.completeness ?? 0) * 100)}%
+                  {t("completenessLabel", { pct: Math.round((profile.completeness ?? 0) * 100) })}
                 </span>
                 {hasProfileGaps(profile.profile) && (
                   <Button size="sm" variant="outline" onClick={openEnrichForAll}>
@@ -391,7 +391,11 @@ export default function ProfilePage() {
                                       className="text-amber-500 hover:text-amber-600 text-xs h-7 px-2"
                                       onClick={() => openEnrichForEntry(company, role)}
                                     >
-                                      ⚠ {t("enrichEntry")}
+                                      <span className="flex items-center gap-1">
+                                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                                        <span aria-hidden="true">⚠</span>
+                                        {t("enrichEntry")}
+                                      </span>
                                     </Button>
                                   </div>
                                 )}
@@ -433,7 +437,7 @@ export default function ProfilePage() {
                     </div>
                     {record.changes.map((change, cIdx) => (
                       <p key={cIdx} className="text-gray-600">
-                        {change.action}: {change.section}/{change.field}
+                        {t("changeLog", { action: change.action, section: change.section, field: change.field })}
                       </p>
                     ))}
                   </div>

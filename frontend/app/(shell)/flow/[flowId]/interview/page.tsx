@@ -171,9 +171,8 @@ function CompletenessGauge({ score }: { score: number }) {
           transform="rotate(-90 64 64)"
           style={{ transition: "stroke-dashoffset 0.05s linear" }}
         />
-        <text x="64" y="68" textAnchor="middle" fontSize="22" fontWeight="700" fill="#1B4F72" fontFamily="Poppins, sans-serif">
-          {displayed}%
-        </text>
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+        <text x="64" y="68" textAnchor="middle" fontSize="22" fontWeight="700" fill="#1B4F72" fontFamily="Poppins, sans-serif">{displayed}%</text>
       </svg>
       <p className="text-xs text-gray-500 font-body">{t("profileCompleteness")}</p>
     </div>
@@ -214,7 +213,7 @@ function ConflictCard({
     <div data-testid="conflict-card" className="rounded-lg border border-warning/40 bg-warning/5 p-4 mt-3">
       <p className="text-sm font-semibold text-neutral-dark mb-1">{t("discrepancyDetected")}</p>
       <p className="text-xs text-gray-600 mb-3">
-        <span className="font-medium">{conflict.field}</span>: &ldquo;{conflict.old_value}&rdquo; vs &ldquo;{conflict.new_value}&rdquo;
+        {t("conflictDetail", { field: conflict.field, oldValue: conflict.old_value, newValue: conflict.new_value })}
       </p>
       <div className="flex gap-2">
         <Button
@@ -554,6 +553,7 @@ export default function InterviewPage({
             : t("loading")}
         </span>
         {matchScore !== null && (
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
           <span className="text-xs font-semibold text-teal">{Math.round(matchScore * 100)}%</span>
         )}
       </div>
@@ -575,7 +575,8 @@ export default function InterviewPage({
                 className="text-teal hover:text-teal/70 text-lg leading-none"
                 aria-label={tCommon("close")}
               >
-                ×
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           )}
@@ -583,10 +584,8 @@ export default function InterviewPage({
           {/* Header */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-1">
-              <p className="text-xs font-medium text-gray-500 font-body">
-                {t("questionOf", { current: questionsAsked, total: estimatedQuestions })} — {t("closingGapsFor")}{" "}
-                <span className="text-primary font-semibold">{roleTitle}</span>
-              </p>
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <p className="text-xs font-medium text-gray-500 font-body">{t("questionOf", { current: questionsAsked, total: estimatedQuestions })} — {t("closingGapsFor")} <span className="text-primary font-semibold">{roleTitle}</span></p>
               {gapsTotal > 0 && (
                 <p className="text-xs text-gray-400 font-body">
                   {t("gapsRemaining", { count: gapsRemaining })}
@@ -776,7 +775,8 @@ export default function InterviewPage({
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <span>{isResolved ? "✓" : isCurrent ? "►" : "○"}</span>
+                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                      <span aria-hidden="true">{isResolved ? "✓" : isCurrent ? "►" : "○"}</span>
                       <span className="truncate">{cluster.label}</span>
                     </div>
                     {cluster.jd_skills.length > 0 && (

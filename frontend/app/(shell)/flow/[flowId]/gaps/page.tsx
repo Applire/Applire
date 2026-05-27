@@ -158,7 +158,8 @@ function JdRecoveryBannerInner() {
         className="shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
         onClick={() => setDismissed(true)}
       >
-        ×
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative close symbol */}
+        {"×"}
       </button>
     </div>
   );
@@ -537,7 +538,7 @@ export default function GapsPage({
           <div className="flex-1 text-center lg:text-left">
             <h3 className="font-heading text-lg font-bold text-neutral-dark mb-2">{roleTitle}</h3>
             <p data-testid="match-score-display" className="text-sm text-gray-500 mb-4">
-              {t("matchScore")}: {matchScore}%
+              {t("matchScoreDisplay", { label: t("matchScore"), score: matchScore })}
             </p>
             <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
               {gaps?.category_a && gaps.category_a.length > 0 && (
