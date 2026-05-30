@@ -70,6 +70,15 @@ export default function Home() {
     checkProfile();
   }, []);
 
+  // Returning user → Dashboard. Navigation must happen in an effect, not during
+  // render — calling router.replace() in the render body updates the Router's
+  // state mid-render and triggers a "setState during render" warning (bug 6).
+  useEffect(() => {
+    if (isReturningUser) {
+      router.replace("/dashboard");
+    }
+  }, [isReturningUser, router]);
+
   function handleSubmit() {
     if (!hasFiles) {
       setError(tErrors("uploadAtLeastOne"));
@@ -87,9 +96,8 @@ export default function Home() {
     );
   }
 
-  // Returning user → Dashboard
+  // Returning user → Dashboard (navigation handled by the effect above)
   if (isReturningUser) {
-    router.replace("/dashboard");
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-dim">
         <p className="text-gray-500">{tCommon("loading")}</p>

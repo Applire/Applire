@@ -305,6 +305,55 @@ async def test_advance_flow_cv_generation_no_artifact_succeeds(db, user_and_job)
 
 
 @pytest.mark.asyncio
+async def test_advance_flow_idempotent_same_step_is_noop(db, user_and_job):
+    """Re-advancing to the current step is a no-op, not a 409 (bug 6).
+
+    A benign double-submit (e.g. photo-skip firing twice) must not raise
+    InvalidTransitionError — it returns the current state unchanged.
+    """
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    flow_id = flow_resp.flow_id
+
+    gap_id = uuid.uuid4()
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id), db)
+
+    # Repeat the exact same transition — must NOT raise
+    result = await advance_flow(
+        flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id), db
+    )
+    assert result.current_step == "gap_analysis"
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_idempotent_refreshes_artifact_fk(db, user_and_job):
+    """Re-advancing to the current step with a new artifact_id updates the FK.
+
+    Covers CV regeneration: the flow is already 'complete' but a freshly
+    generated CV must be recorded.
+    """
+    from applire.models.flow import FlowSession
+    from sqlalchemy import select
+
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    flow_id = flow_resp.flow_id
+
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
+    cv_v1 = uuid.uuid4()
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v1), db)
+
+    cv_v2 = uuid.uuid4()
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v2), db)
+
+    flow = (await db.execute(select(FlowSession).where(FlowSession.id == flow_id))).scalar_one()
+    assert flow.current_step == "complete"
+    assert flow.generated_cv_id == cv_v2
+
+
+@pytest.mark.asyncio
 async def test_advance_flow_complete_requires_artifact(db, user_and_job):
     """cv_generation → complete requires artifact_id (generated_cv_id)."""
     _, job = user_and_job
