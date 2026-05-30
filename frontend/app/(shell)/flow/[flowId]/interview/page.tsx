@@ -553,7 +553,7 @@ export default function InterviewPage({
             : t("loading")}
         </span>
         {matchScore !== null && (
-          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          // eslint-disable-next-line formatjs/no-literal-string-in-jsx
           <span className="text-xs font-semibold text-teal">{Math.round(matchScore * 100)}%</span>
         )}
       </div>
