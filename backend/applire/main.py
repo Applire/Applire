@@ -16,7 +16,6 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import os
 import subprocess
 import uuid
 from contextlib import asynccontextmanager
@@ -29,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from applire import __version__
-from applire.config import settings
+from applire.config import resolve_static_dir, settings
 
 # Attach a StreamHandler directly to the applire logger so records don't rely on the
 # root logger's handler chain (uvicorn's dictConfig only registers handlers for its
@@ -51,7 +50,7 @@ from applire.services.thumbnails import ensure_thumbnails
 _STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _STUB_EMAIL = "local@applire.community"
 
-STATIC_DIR = Path(os.getenv("STATIC_DIR", "./data/static"))
+STATIC_DIR = resolve_static_dir()
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 

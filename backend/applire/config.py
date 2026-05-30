@@ -15,7 +15,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import os
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Backend package root — the directory that contains the `applire/` package.
+# config.py lives at <backend>/applire/config.py, so two parents up is <backend>.
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def resolve_static_dir() -> Path:
+    """Return the absolute path to the static-asset directory.
+
+    Honours the STATIC_DIR env var when set; otherwise defaults to the
+    package-relative ``<backend>/data/static``. Anchoring to the package root
+    (rather than the CWD-relative "./data/static") keeps the path stable no
+    matter which directory the process is launched from — launching uvicorn
+    from the repo root used to serve an empty directory and 404 every template
+    thumbnail.
+    """
+    env = os.getenv("STATIC_DIR")
+    if env:
+        return Path(env).resolve()
+    return _BACKEND_ROOT / "data" / "static"
 
 
 class Settings(BaseSettings):

@@ -36,6 +36,14 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${backendUrl}/api/:path*`,
       },
+      {
+        // Template thumbnails (and other backend static assets) are served by
+        // the backend at /static. The frontend uses an empty API_BASE, so these
+        // requests land on the Next origin — proxy them through to the backend,
+        // mirroring the /api rule, otherwise every thumbnail 404s.
+        source: "/static/:path*",
+        destination: `${backendUrl}/static/:path*`,
+      },
     ];
   },
 };
