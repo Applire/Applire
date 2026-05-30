@@ -102,4 +102,40 @@ describe("ContentTab", () => {
     fireEvent.click(screen.getByTestId("back-to-browse"));
     await waitFor(() => expect(screen.getByText(/gap found/)).toBeTruthy());
   });
+
+  it("Browse mode: deduplicates a gap repeated across sections (bug 4)", async () => {
+    // Simulate the pre-fix backend behaviour where the same gap id was emitted
+    // under multiple sections — the count and chip list must not double-count.
+    const DUP_SECTIONS = [
+      {
+        section_id: "introduction",
+        label: "Introduction",
+        content: "x",
+        has_override: false,
+        gaps: [
+          { id: "Industrial Design", label: "Industrial Design" },
+          { id: "IoT", label: "IoT" },
+        ],
+      },
+      {
+        section_id: "skills",
+        label: "Skills",
+        content: "y",
+        has_override: false,
+        gaps: [{ id: "Industrial Design", label: "Industrial Design" }],
+      },
+    ];
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sections: DUP_SECTIONS, general_gaps: [] }),
+    } as Response);
+
+    render(withIntl(<ContentTab {...BASE_PROPS} />));
+    // 2 distinct gaps, not 3
+    await waitFor(() =>
+      expect(screen.getByText(/2 gaps found for "Senior Software Engineer"/)).toBeTruthy()
+    );
+    // The repeated gap renders exactly one chip
+    expect(screen.getAllByText("Industrial Design")).toHaveLength(1);
+  });
 });

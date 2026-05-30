@@ -299,18 +299,50 @@ class TestMapGapsToSections:
         assert "__general__" in result
         assert "Kubernetes" in result["__general__"]
 
-    def test_gap_matches_multiple_sections(self):
+    def test_gap_assigned_to_single_best_section(self):
+        # Bug 4: a gap must land in exactly ONE section (the strongest token
+        # overlap), not every section it weakly matches — otherwise the CV
+        # panel counts and renders the same gap multiple times.
+        from applire.services.cv_gap_mapper import map_gaps_to_sections
+        result = map_gaps_to_sections(
+            ["Industrial Design"],
+            {
+                "introduction": "Industrial Design portfolio",  # overlap 2 — best
+                "skills": "Design tools",                       # overlap 1
+                "position::1": "Design work",                   # overlap 1
+            },
+        )
+        assignments = [sid for sid, gaps in result.items() if "Industrial Design" in gaps]
+        assert assignments == ["introduction"]
+        # No duplication anywhere
+        all_assigned = [g for gaps in result.values() for g in gaps]
+        assert all_assigned.count("Industrial Design") == 1
+
+    def test_tie_breaks_to_first_section_deterministically(self):
         from applire.services.cv_gap_mapper import map_gaps_to_sections
         result = map_gaps_to_sections(
             ["Python"],
             {
-                "introduction": "Python developer with Python expertise",
-                "skills": "Python FastAPI",
-            }
+                "introduction": "Python developer",  # overlap 1
+                "skills": "Python FastAPI",           # overlap 1 — tie, loses to first
+            },
         )
-        # Should be in both sections
-        assert "introduction" in result
-        assert "skills" in result
+        assert "Python" in result.get("introduction", [])
+        assert "Python" not in result.get("skills", [])
+
+    def test_no_gap_appears_in_more_than_one_section(self):
+        # Aggregate regression: total assignments == number of gaps (no inflation).
+        from applire.services.cv_gap_mapper import map_gaps_to_sections
+        gaps = ["Brand-Teams", "Fertigungspartnern", "Industrial Design"]
+        sections = {
+            "introduction": "Industrial Design with Brand-Teams and Fertigungspartnern",
+            "skills": "Industrial Design Brand-Teams",
+            "position::1": "Fertigungspartnern Brand-Teams",
+        }
+        result = map_gaps_to_sections(gaps, sections)
+        all_assigned = [g for gs in result.values() for g in gs]
+        assert len(all_assigned) == len(gaps)
+        assert sorted(all_assigned) == sorted(gaps)
 
     def test_empty_gap_string_goes_to_general(self):
         from applire.services.cv_gap_mapper import map_gaps_to_sections

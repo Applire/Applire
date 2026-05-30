@@ -54,6 +54,20 @@ interface ContentTabProps {
   onUnsavedChange: (hasUnsaved: boolean) => void;
 }
 
+/**
+ * Drop gaps with a duplicate id. The backend maps each gap to a single section,
+ * but this guards the aggregate count and the React keys against any duplicate
+ * slipping through (bug 4: "16 Lücken gefunden" with repeated chips).
+ */
+function dedupeById(items: GapHintItem[]): GapHintItem[] {
+  const seen = new Set<string>();
+  return items.filter((g) => {
+    if (seen.has(g.id)) return false;
+    seen.add(g.id);
+    return true;
+  });
+}
+
 export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
@@ -95,11 +109,9 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsaved, mode]);
 
-  // All gaps = section gaps flattened + general gaps
-  const allGaps: GapHintItem[] = [
-    ...sections.flatMap((s) => s.gaps),
-    ...generalGaps,
-  ];
+  // All gaps = section gaps flattened + general gaps, deduped by id
+  const sectionGaps: GapHintItem[] = dedupeById(sections.flatMap((s) => s.gaps));
+  const allGaps: GapHintItem[] = dedupeById([...sectionGaps, ...generalGaps]);
 
   const handleBrowseToEdit = useCallback(
     (sectionId: string, preselectedGaps: string[] = []) => {
@@ -263,7 +275,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
             </p>
           </div>
           <div className="flex flex-col gap-2">
-            {sections.flatMap((s) => s.gaps).map((gap) => (
+            {sectionGaps.map((gap) => (
               <button
                 key={gap.id}
                 type="button"
