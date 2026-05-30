@@ -189,7 +189,6 @@ function GapClickPanel({
 }) {
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
-  const tc = useTranslations("common");
 
   async function sendAnswer() {
     if (!state.sessionId || !state.answer.trim() || state.sending) return;
@@ -301,7 +300,7 @@ export default function GapsPage({
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [profileStats, setProfileStats] = useState<ProfileStats>({
-    positions: 5, projects: 12, certifications: 3, data_points: 47,
+    positions: 0, projects: 0, certifications: 0, data_points: 0,
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -344,11 +343,12 @@ export default function GapsPage({
           const profileRes = await fetch(`${API_BASE}/api/profile`);
           if (profileRes.ok) {
             const profileData = await profileRes.json();
+            const stats = profileData.stats ?? {};
             setProfileStats({
-              positions: profileData.positions_count ?? 5,
-              projects: profileData.projects_count ?? 12,
-              certifications: profileData.certifications_count ?? 3,
-              data_points: profileData.data_points_count ?? 47,
+              positions: stats.positions ?? 0,
+              projects: stats.projects ?? 0,
+              certifications: stats.certifications ?? 0,
+              data_points: stats.data_points ?? 0,
             });
           }
         } catch {
