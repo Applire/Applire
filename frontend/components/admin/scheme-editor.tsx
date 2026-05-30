@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { deriveScheme, type DerivedScheme, type SeedColors } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
@@ -65,21 +65,48 @@ export function SchemeEditor() {
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
+  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
   const fetchSchemes = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/admin/color-schemes`);
-    if (res.ok) setSchemes(await res.json());
+    const list: SavedScheme[] = res.ok ? await res.json() : [];
+    if (res.ok) setSchemes(list);
+    // Seed the editor from the active scheme on first load so opening this page
+    // reflects the live palette instead of resetting the whole UI to the neutral
+    // placeholder. Guarded by a ref so later refetches (after save / activate)
+    // never clobber an in-progress edit. With no schemes yet we still mark
+    // initialized so the live preview works while creating the first one.
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      if (list.length > 0) {
+        const active = list.find((s) => s.is_active) ?? list[0];
+        setSeeds({ primary: active.seed_primary, accent: active.seed_accent, secondary: active.seed_secondary });
+        setSurfaceLightness(active.surface_lightness);
+        setName(active.name);
+      }
+      setInitialized(true);
+    }
   }, []);
 
   useEffect(() => { fetchSchemes(); }, [fetchSchemes]);
 
-  // Apply derived colors to preview via CSS custom properties on every change
+  // Apply derived colors to preview via CSS custom properties on every change.
+  // Gated on `initialized` so the neutral placeholder defaults are never pushed
+  // onto the global document before the active scheme has loaded.
   useEffect(() => {
+    if (!initialized) return;
     const derived: DerivedScheme = deriveScheme(seeds, surfaceLightness);
     for (const [key, value] of Object.entries(derived)) {
       document.documentElement.style.setProperty(key, value);
     }
-  }, [seeds, surfaceLightness]);
+  }, [seeds, surfaceLightness, initialized]);
+
+  // On leaving the editor, restore the saved active scheme so an unsaved draft
+  // preview doesn't leak into the rest of the app.
+  useEffect(() => {
+    return () => { refreshTheme(); };
+  }, [refreshTheme]);
 
   function loadScheme(scheme: SavedScheme) {
     setSeeds({

@@ -148,6 +148,43 @@ class TestServiceFunctions:
         assert result.name == "EU Blue"
 
     @pytest.mark.asyncio
+    async def test_get_active_scheme_falls_back_to_first_when_none_active(self, db):
+        """When no scheme is marked is_active (drifted or freshly-reset DB), fall
+        back to the oldest scheme — the first entry in the list — so the UI always
+        has a palette to apply instead of rendering unthemed."""
+        from datetime import datetime, timezone
+        from applire.models.color_scheme import ColorScheme
+        from applire.services.color_schemes import get_active_scheme, list_schemes
+
+        older = ColorScheme(
+            id=uuid.uuid4(), name="Older", is_active=False, is_builtin=True,
+            seed_primary="#112233", seed_accent="#445566", seed_secondary="#778899",
+            surface_lightness=0.95, derived=derive_scheme("#112233", "#445566", "#778899", 0.95),
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        newer = ColorScheme(
+            id=uuid.uuid4(), name="Newer", is_active=False, is_builtin=True,
+            seed_primary="#aabbcc", seed_accent="#ddeeff", seed_secondary="#001122",
+            surface_lightness=0.95, derived=derive_scheme("#aabbcc", "#ddeeff", "#001122", 0.95),
+            created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        )
+        db.add_all([newer, older])  # add out of order — ordering must come from created_at
+        await db.commit()
+
+        result = await get_active_scheme(db)
+        assert result is not None
+        assert result.name == "Older"
+        # Must match the first entry of the ordered list the admin UI renders.
+        schemes = await list_schemes(db)
+        assert result.id == schemes[0].id
+
+    @pytest.mark.asyncio
+    async def test_get_active_scheme_returns_none_when_no_schemes(self, db):
+        """No schemes at all → None (nothing to fall back to)."""
+        from applire.services.color_schemes import get_active_scheme
+        assert await get_active_scheme(db) is None
+
+    @pytest.mark.asyncio
     async def test_create_scheme_derives_values(self, db, eu_blue):
         from applire.services.color_schemes import create_scheme
         scheme = await create_scheme(
