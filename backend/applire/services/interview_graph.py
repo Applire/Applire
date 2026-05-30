@@ -262,7 +262,7 @@ async def response_parser(
         temperature=0.1,
     )
     gap_resolution = data.get("gap_resolution", "none")
-    if gap_resolution not in ("full", "partial", "none"):
+    if gap_resolution not in ("full", "partial", "declined", "none"):
         gap_resolution = "none"
     return {
         "skills_to_add": data.get("skills_to_add", []),

@@ -518,6 +518,35 @@ class TestResponseParser:
         assert result["work_history_to_add"] == []
         assert result["gap_addressed"] is False
 
+    @pytest.mark.asyncio
+    async def test_response_parser_accepts_declined(self):
+        """A candidate explicitly without the experience → 'declined' (bug 3).
+
+        'declined' is preserved (not coerced to 'none') and counts as addressed
+        so the orchestrator stops drilling the gap.
+        """
+        from applire.services.interview_graph import response_parser
+
+        provider = _make_mock_provider({
+            "skills_to_add": [],
+            "work_history_to_add": [],
+            "certifications_to_add": [],
+            "languages_to_add": [],
+            "education_to_add": [],
+            "gap_resolution": "declined",
+            "follow_up_hint": None,
+        })
+
+        result = await response_parser(
+            cluster_label="Smart Home & IoT",
+            question="Tell me about your IoT experience",
+            answer="I have no experience with Smart Home or IoT at all.",
+            provider=provider,
+        )
+
+        assert result["gap_resolution"] == "declined"
+        assert result["gap_addressed"] is True
+
 
 class TestProfileUpdater:
     def test_profile_updater_adds_new_skills(self):

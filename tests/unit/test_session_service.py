@@ -708,6 +708,50 @@ class TestSendMessage:
         assert result.gaps_remaining == 1
 
     @pytest.mark.asyncio
+    async def test_declined_resolution_advances_to_next_gap(self, sqlite_session):
+        """gap_resolution='declined' advances instead of drilling follow-ups (bug 3).
+
+        When the candidate declines a gap, the orchestrator must move on rather
+        than asking up to INTERVIEW_MAX_QUESTIONS_PER_GAP follow-ups for
+        experience the candidate has said they don't have.
+        """
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        parser_result = {
+            "gap_resolution": "declined",
+            "follow_up_hint": None,
+            "skills_to_add": [],
+            "work_history_to_add": [],
+            "certifications_to_add": [],
+            "languages_to_add": [],
+            "education_to_add": [],
+        }
+
+        with (
+            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I have no GCP experience at all.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Advanced to the second (and last) gap → one remaining, not still 2
+        assert result.gaps_remaining == 1
+
+    @pytest.mark.asyncio
     async def test_partial_resolution_generates_follow_up(self, sqlite_session):
         """gap_resolution='partial' generates a follow-up question."""
         from applire.services.session import send_message
