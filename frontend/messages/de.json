@@ -307,6 +307,7 @@
     "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
     "completenessPercent": "{pct}%",
     "matchScorePercent": "{score}%",
+    "matchScoreAriaLabel": "Übereinstimmung: {score}%",
     "profileChangeLog": "{action}: {section}/{field}"
   },
   "saveScopePrompt": {
