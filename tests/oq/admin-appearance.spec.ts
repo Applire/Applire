@@ -35,11 +35,12 @@ test.describe("Admin appearance page", () => {
     await expect(page.getByText("EU Blue")).toBeVisible();
   });
 
-  test("settings page footer has Admin link", async ({ page }) => {
+  test("sidebar Admin entry navigates to appearance", async ({ page }) => {
     await page.goto("/settings");
-    const adminLink = page.getByRole("link", { name: "Admin" });
-    await expect(adminLink).toBeVisible();
-    await adminLink.click();
+    // Admin moved from a footer link to a persistent sidebar nav button.
+    const adminNav = page.getByRole("button", { name: /admin/i });
+    await expect(adminNav).toBeVisible();
+    await adminNav.click();
     await expect(page).toHaveURL(/\/admin\/appearance/);
   });
 

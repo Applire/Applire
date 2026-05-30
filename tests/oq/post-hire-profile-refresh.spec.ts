@@ -111,8 +111,8 @@ test.describe("Post-Hire Profile Refresh", () => {
     // Should navigate to /profile/upload?action=add-role&source=manual
     await expect(page).toHaveURL(/\/profile\/upload\?action=add-role&source=manual/);
 
-    // Form should be visible with the step 1 heading
-    await expect(page.getByRole("heading", { name: /Add a new role/i })).toBeVisible();
+    // Form should be visible: the AppTopbar detail title plus the step-1 heading.
+    await expect(page.getByRole("heading", { name: /add role/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Your new position/i })).toBeVisible();
   });
 

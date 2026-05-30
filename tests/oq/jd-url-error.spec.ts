@@ -141,13 +141,14 @@ test.describe("Branch F — JD URL fetch failure", () => {
     await expect(banner).toContainText("That URL didn't look valid.");
   });
 
-  test("CTA navigates to home page", async ({ page }) => {
+  test("CTA navigates to dashboard", async ({ page }) => {
     await page.goto(`/flow/${FLOW_ID}/gaps?jd_status=fetch_failed`);
 
     await expect(page.getByTestId("jd-recovery-cta")).toBeVisible({ timeout: 5000 });
     await page.getByTestId("jd-recovery-cta").click();
 
-    await expect(page).toHaveURL("/", { timeout: 5000 });
+    // In-app home actions now route to /dashboard (the logged-in home), not onboarding.
+    await expect(page).toHaveURL("/dashboard", { timeout: 5000 });
   });
 
   test("dismiss button hides the banner", async ({ page }) => {
