@@ -46,7 +46,7 @@ async function setupCoverLetter(page: Page): Promise<string> {
   const uniqueJD = `${JD_TEXT}\n\n<!-- cover-letter-test: ${Date.now()} -->`;
   await page.getByTestId("jd-mode-text").click();
   await page
-    .locator('textarea[placeholder="Paste the full job description here..."]')
+    .getByTestId('jd-text-input')
     .fill(uniqueJD);
 
   const fileInput = page.getByTestId("file-input");
@@ -77,9 +77,9 @@ async function setupCoverLetter(page: Page): Promise<string> {
     timeout: 90000,
   });
 
-  // Open cover letter generation modal
-  await page.getByTestId("tab-actions").click();
-  await page.getByTestId("generate-cover-letter-btn").click();
+  // Open cover letter generation modal (the trigger now lives in the CV page
+  // action bar, not behind a refinement-panel tab)
+  await page.getByTestId("page-action-cover-letter-generate").click();
   await expect(page.getByTestId("cover-letter-modal")).toBeVisible();
 
   // Fill minimal required inputs and generate
@@ -120,7 +120,7 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     const uniqueJD = `${JD_TEXT}\n\n<!-- cl-btn-test: ${Date.now()} -->`;
     await page.getByTestId("jd-mode-text").click();
     await page
-      .locator('textarea[placeholder="Paste the full job description here..."]')
+      .getByTestId('jd-text-input')
       .fill(uniqueJD);
     await page.getByTestId("file-input").setInputFiles(CV_PATH);
     await page.getByTestId("submit-button").click();
@@ -136,9 +136,8 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
       timeout: 90000,
     });
 
-    await page.getByTestId("tab-actions").click();
     await expect(
-      page.getByTestId("generate-cover-letter-btn")
+      page.getByTestId("page-action-cover-letter-generate")
     ).toBeVisible();
   });
 
@@ -152,7 +151,7 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     const uniqueJD = `${JD_TEXT}\n\n<!-- cl-modal-test: ${Date.now()} -->`;
     await page.getByTestId("jd-mode-text").click();
     await page
-      .locator('textarea[placeholder="Paste the full job description here..."]')
+      .getByTestId('jd-text-input')
       .fill(uniqueJD);
     await page.getByTestId("file-input").setInputFiles(CV_PATH);
     await page.getByTestId("submit-button").click();
@@ -168,8 +167,7 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
       timeout: 90000,
     });
 
-    await page.getByTestId("tab-actions").click();
-    await page.getByTestId("generate-cover-letter-btn").click();
+    await page.getByTestId("page-action-cover-letter-generate").click();
 
     await expect(page.getByTestId("cover-letter-modal")).toBeVisible();
     await expect(page.getByTestId("cl-recipient-name")).toBeVisible();

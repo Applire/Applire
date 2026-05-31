@@ -47,7 +47,7 @@ async function navigateToGapsPage(page: Page): Promise<string> {
   // Append a unique token so each test gets a fresh job_id (flow creation is idempotent per job_id).
   const uniqueJD = `${JD_TEXT}\n\n<!-- test-run: ${Date.now()} -->`;
   await page.getByTestId('jd-mode-text').click();
-  await page.locator('textarea[placeholder="Paste the full job description here..."]').fill(uniqueJD);
+  await page.getByTestId('jd-text-input').fill(uniqueJD);
 
   // Upload CV
   const fileInput = page.getByTestId('file-input');

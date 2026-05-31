@@ -597,7 +597,7 @@
   "shell": {
     "dashboard": "Dashboard",
     "profile": "My Profile",
-    "import": "Import",
+    "import": "Update Profile",
     "documents": "My Documents",
     "settings": "Settings",
     "admin": "Admin",

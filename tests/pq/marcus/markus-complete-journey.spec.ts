@@ -54,9 +54,7 @@ async function setupCompleteJourney(page: Page): Promise<string> {
   // Paste JD (unique token prevents flow-creation idempotency re-using a stale flow)
   const uniqueJD = `${JD_TEXT}\n\n<!-- markus-complete-journey: ${Date.now()} -->`;
   await page.getByTestId('jd-mode-text').click();
-  await page
-    .getByPlaceholder(/Paste the full job description/i)
-    .fill(uniqueJD);
+  await page.getByTestId('jd-text-input').fill(uniqueJD);
 
   // Upload CV
   await page.getByTestId('file-input').setInputFiles(CV_PATH);
@@ -124,9 +122,8 @@ async function setupCompleteJourney(page: Page): Promise<string> {
     timeout: 90000,
   });
 
-  // Open cover letter generation modal
-  await page.getByTestId('tab-actions').click();
-  await page.getByTestId('generate-cover-letter-btn').click();
+  // Open cover letter generation modal (trigger now lives in the CV page action bar)
+  await page.getByTestId('page-action-cover-letter-generate').click();
   await expect(page.getByTestId('cover-letter-modal')).toBeVisible();
 
   // Fill minimal inputs and generate

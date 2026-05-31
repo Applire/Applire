@@ -181,6 +181,7 @@ export function DesignTab({
             <button
               key={hex}
               type="button"
+              data-testid={`accent-preset-${hex.slice(1)}`}
               aria-label={t("colorPickAriaLabel", { color: label })}
               onClick={() => setSelectedHex(hex)}
               title={label}

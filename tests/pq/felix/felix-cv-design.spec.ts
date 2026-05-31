@@ -38,7 +38,7 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
   // Unique JD so flow isn't de-duped
   const uniqueJD = `${JD_TEXT}\n\n<!-- felix-color-test: ${Date.now()} -->`;
   await page.getByTestId("jd-mode-text").click();
-  await page.locator('textarea[placeholder="Paste the full job description here..."]').fill(uniqueJD);
+  await page.getByTestId('jd-text-input').fill(uniqueJD);
 
   const fileInput = page.getByTestId("file-input");
   await fileInput.setInputFiles(CV_PATH);
@@ -70,24 +70,25 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 test.describe("Felix — CV Design tab (PQ)", () => {
   test("Design tab is present after CV generation", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await expect(page.getByTestId("tab-appearance")).toBeVisible();
+    await expect(page.getByTestId("tab-design")).toBeVisible();
   });
 
   test("Design tab shows preset swatch row", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-appearance").click();
-    // At least 5 color swatches must be present
-    const swatches = page.getByRole("button", { name: /Farbe wählen/ });
+    await page.getByTestId("tab-design").click();
+    // At least 5 color swatches must be present (testid is locale-independent;
+    // the aria-label prefix follows the UI locale, so we don't match on it)
+    const swatches = page.getByTestId(/^accent-preset-/);
     await expect(swatches.first()).toBeVisible({ timeout: 5000 });
     expect(await swatches.count()).toBeGreaterThanOrEqual(5);
   });
 
   test("selecting a different swatch and applying re-renders the CV iframe", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-appearance").click();
+    await page.getByTestId("tab-design").click();
 
-    // Click the Rot preset
-    await page.getByRole("button", { name: "Farbe wählen: Rot" }).click();
+    // Click the Rot (#c0392b) preset — testid is locale-independent
+    await page.getByTestId("accent-preset-c0392b").click();
     const applyBtn = page.getByTestId("color-apply-btn");
     await expect(applyBtn).toBeEnabled();
 

@@ -45,9 +45,19 @@ _DOCKER_ENV = {
 
 
 def _docker_compose(*args: str) -> None:
-    # Always overlay docker-compose.ci.yml so tests run with LLM_PROVIDER=mock.
+    # All three files are required. override.yml publishes the host ports
+    # (8001/3000) and the build contexts; without it the API is unreachable on
+    # :8001 and stale GHCR images run instead of local source. ci.yml layers on
+    # top to force LLM_PROVIDER=mock via .env.ci — using the overlay (not
+    # `cp .env.ci .env` like CI) so the developer's real .env is left untouched.
     subprocess.run(
-        ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.ci.yml", *args],
+        [
+            "docker", "compose",
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.override.yml",
+            "-f", "docker-compose.ci.yml",
+            *args,
+        ],
         cwd=PROJECT_ROOT,
         env=_DOCKER_ENV,
         check=True,

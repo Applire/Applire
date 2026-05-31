@@ -227,6 +227,7 @@ export default function Home() {
                   />
                 ) : (
                   <textarea
+                    data-testid="jd-text-input"
                     className="flex min-h-[180px] w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark placeholder:text-gray-400 transition-colors focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
                     placeholder={t("jdTextPlaceholder")}
                     value={jdText}
