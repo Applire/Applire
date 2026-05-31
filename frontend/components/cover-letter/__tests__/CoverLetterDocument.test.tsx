@@ -19,6 +19,13 @@ import { render, screen, act, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { CoverLetterDocument } from "../CoverLetterDocument";
 
+// ---------------------------------------------------------------------------
+// Mock next-intl — CoverLetterDocument uses useTranslations()
+// ---------------------------------------------------------------------------
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
 const CL_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const TEST_HTML = "<html><body><p>Sehr geehrte Damen</p></body></html>";
 
@@ -31,7 +38,7 @@ describe("CoverLetterDocument", () => {
   it("shows loading state while fetch is in flight", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
     render(<CoverLetterDocument coverLetterId={CL_ID} />);
-    expect(screen.getByText("Lade Vorschau…")).toBeTruthy();
+    expect(screen.getByText("previewLoading")).toBeTruthy();
     expect(screen.queryByTestId("cover-letter-iframe")).toBeNull();
   });
 

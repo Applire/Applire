@@ -97,9 +97,9 @@ test.describe('CV View — 70/30 layout rendering', () => {
     const panel = page.locator('[data-testid="refinement-panel"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
-    // Both tab buttons should be present
+    // Page action bar should be present (signals CV preview phase is fully rendered)
     await expect(page.locator('[data-testid="tab-content"]')).toBeVisible();
-    await expect(page.locator('[data-testid="tab-actions"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cv-page-action-bar"]')).toBeVisible();
   });
 
   test('download button triggers PDF fetch', async ({ page }) => {
@@ -122,11 +122,10 @@ test.describe('CV View — 70/30 layout rendering', () => {
       timeout: 10_000,
     });
 
-    // Download button is in the Actions tab (Content is default tab)
-    await page.click('[data-testid="tab-actions"]');
+    // Download button is on the page action bar above the CV
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.click('[data-testid="download-pdf-btn"]'),
+      page.click('[data-testid="page-action-download"]'),
     ]);
 
     expect(download).toBeTruthy();

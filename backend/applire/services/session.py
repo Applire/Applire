@@ -489,10 +489,13 @@ async def send_message(
         )
 
     # --- Advance decision ---
+    # "declined" advances like "full": the candidate has said they have no
+    # experience for this gap, so drilling for a "more specific example" would
+    # only ask about experience they don't have (bug 3 — interview over-drilling).
     gap_resolution = patch.get("gap_resolution", "none")
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
-    if gap_resolution == "full" or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
+    if gap_resolution in ("full", "declined") or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
         skipped_set_updated = set(state.get("skipped_gaps", []))

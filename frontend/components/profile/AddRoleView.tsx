@@ -22,6 +22,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { addRole, type AddRoleRequest, type AddRoleSource, type CloseRoleEntry, fetchOpenRoles, type OpenRoleDTO } from "@/lib/profile-roles";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 
 interface AddRoleViewProps {
   openRoles?: OpenRoleDTO[];
@@ -31,6 +32,7 @@ interface AddRoleViewProps {
 
 export function AddRoleView({ openRoles: openRolesProp, prefill, sourceRef }: AddRoleViewProps) {
   const t = useTranslations("profileUpdate.addRole");
+  const tp = useTranslations("profileUpdate");
   const router = useRouter();
   const searchParams = useSearchParams();
   const source = (searchParams.get("source") ?? "manual") as AddRoleSource;
@@ -136,9 +138,14 @@ export function AddRoleView({ openRoles: openRolesProp, prefill, sourceRef }: Ad
   }
 
   return (
+    <>
+      <AppTopbar
+        mode="detail"
+        backHref="/profile"
+        backLabelKey="shell.profile"
+        pageTitle={tp("addRoleTitle")}
+      />
     <section className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold font-manrope text-gray-900">{t("heading")}</h1>
-
       <div className="mt-8">
         {source === "jd_paste" && (
           <div className="mb-6">
@@ -200,8 +207,8 @@ export function AddRoleView({ openRoles: openRolesProp, prefill, sourceRef }: Ad
                       className="mt-1"
                     />
                     <span className="text-sm">
-                      <span className="font-semibold">{role.role}</span> at <span className="font-semibold">{role.company}</span>
-                      {role.start_date && <span className="text-gray-500"> (since {role.start_date})</span>}
+                      {t("atCompany", { role: role.role, company: role.company })}
+                      {role.start_date && <span className="text-gray-500">{t("sinceDate", { date: role.start_date })}</span>}
                     </span>
                   </label>
                   {checked && (
@@ -247,6 +254,7 @@ export function AddRoleView({ openRoles: openRolesProp, prefill, sourceRef }: Ad
         </button>
       </div>
     </section>
+    </>
   );
 }
 
@@ -263,11 +271,12 @@ function Field({
   type?: string;
   required?: boolean;
 }) {
+  const t = useTranslations("profileUpdate.addRole");
   return (
     <label className="block">
       <span className="text-sm text-gray-700">
         {label}
-        {required && " *"}
+        {required && t("requiredSuffix")}
       </span>
       <input
         type={type}

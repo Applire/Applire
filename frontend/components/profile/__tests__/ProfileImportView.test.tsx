@@ -113,7 +113,7 @@ describe("ProfileImportView", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(screen.getByText(/84/)).toBeInTheDocument();
+      expect(screen.getByText(/successWithScore/)).toBeInTheDocument();
     });
   });
 

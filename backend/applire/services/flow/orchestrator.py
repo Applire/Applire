@@ -198,6 +198,19 @@ async def advance_flow(
         raise LookupError(f"Flow {flow_id} not found")
 
     target = request.step
+
+    # Idempotent re-advance: already on the target step. Treat as a no-op rather
+    # than raising InvalidTransitionError (which the router maps to HTTP 409).
+    # This absorbs benign double-submits (e.g. photo-skip firing twice) and lets
+    # a re-generated artifact (e.g. a new CV) refresh the recorded FK.
+    if target == flow.current_step:
+        if target in _ARTIFACT_FIELD and request.artifact_id is not None:
+            setattr(flow, _ARTIFACT_FIELD[target], request.artifact_id)
+            flow.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(flow)
+        return await _build_state_response(flow, db, base_url)
+
     allowed = VALID_TRANSITIONS.get(flow.current_step, [])
     if target not in allowed:
         raise InvalidTransitionError(

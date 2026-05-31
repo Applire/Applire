@@ -20,11 +20,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
+type ChecklistKey = "profileCheckWorkExp" | "profileCheckSkills" | "profileCheckEducation" | "profileCheckSummary";
+
 interface ChecklistItem {
-  label: string;
+  labelKey: ChecklistKey;
   done: boolean;
 }
 
@@ -35,14 +38,15 @@ function buildChecklist(profile: Record<string, unknown> | null): ChecklistItem[
   const skills = (profile.skills as unknown[]) ?? [];
   const edu = (profile.education as unknown[]) ?? [];
   return [
-    { label: "Berufserfahrung", done: work.length > 0 },
-    { label: "Fähigkeiten", done: skills.length > 0 },
-    { label: "Ausbildung", done: edu.length > 0 },
-    { label: "Zusammenfassung", done: !!(pi.summary as string) },
+    { labelKey: "profileCheckWorkExp", done: work.length > 0 },
+    { labelKey: "profileCheckSkills",  done: skills.length > 0 },
+    { labelKey: "profileCheckEducation", done: edu.length > 0 },
+    { labelKey: "profileCheckSummary", done: !!(pi.summary as string) },
   ];
 }
 
 export function ProfileStrengthCard() {
+  const t = useTranslations("dashboard");
   const router = useRouter();
   const [score, setScore] = useState<number | null>(null);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -74,7 +78,7 @@ export function ProfileStrengthCard() {
   return (
     <div className="rounded-[14px] p-5 text-white flex flex-col bg-gradient-to-br from-teal-dim to-primary shadow-lg shadow-teal-dim/20">
       <p className="text-[11px] font-bold uppercase tracking-widest text-white/60 mb-1.5">
-        Profile Strength
+        {t("profileStrengthTitle")}
       </p>
 
       {score === null ? (
@@ -91,33 +95,39 @@ export function ProfileStrengthCard() {
         />
       </div>
       <p className="text-[11.5px] text-white/60 mb-3">
-        Add missing sections to improve gap matching.
+        {t("profileStrengthHint")}
       </p>
 
       {/* Checklist */}
       <div className="flex flex-col gap-1.5 mb-4">
-        {checklist.map((item) => (
-          <div key={item.label} className="flex items-center gap-2 text-[11.5px]">
-            <span
-              className="material-symbols-outlined"
-              style={{
-                fontSize: 14,
-                color: item.done ? "#4ade80" : "rgba(255,255,255,0.25)",
-              }}
-            >
-              {item.done ? "check_circle" : "radio_button_unchecked"}
-            </span>
-            <span className={item.done ? "text-white/75" : "text-white/40"}>{item.label}</span>
-          </div>
-        ))}
+        {checklist.map((item) => {
+          // Icon name as variable to avoid JSX literal rule (material-symbols identifiers are not user-facing text)
+          const checkIcon: string = item.done ? "check_circle" : "radio_button_unchecked";
+          return (
+            <div key={item.labelKey} className="flex items-center gap-2 text-[11.5px]">
+              <span
+                className="material-symbols-outlined"
+                aria-hidden="true"
+                style={{
+                  fontSize: 14,
+                  color: item.done ? "#4ade80" : "rgba(255,255,255,0.25)",
+                }}
+              >
+                {checkIcon}
+              </span>
+              <span className={item.done ? "text-white/75" : "text-white/40"}>{t(item.labelKey)}</span>
+            </div>
+          );
+        })}
       </div>
 
       <button
         onClick={() => router.push("/profile")}
         className="mt-auto text-[12px] font-bold text-gold flex items-center gap-1 hover:opacity-80 transition-opacity"
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_forward</span>
-        Complete Profile
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>arrow_forward</span>
+        {t("profileCompleteButton")}
       </button>
     </div>
   );

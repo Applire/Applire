@@ -177,8 +177,10 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     });
 
     // Content tab is default — should show gap count
+    // Page loads with default "en" locale (no /api/settings mock here),
+    // so the gap-count line comes from en.json "gapsFoundFor".
     await expect(
-      page.getByText(/1 Lücke gefunden für/)
+      page.getByText(/1 gap found for/)
     ).toBeVisible({ timeout: 5_000 });
 
     // Section list buttons (they're rendered as buttons)
@@ -477,13 +479,10 @@ test.describe("CV Section Editor — Actions Tab", () => {
       timeout: 10_000,
     });
 
-    // Switch to Actions tab
-    await page.click('[data-testid="tab-actions"]');
-
     // Match score should be visible
     await expect(page.getByText("85%")).toBeVisible({ timeout: 3_000 });
 
-    // Download PDF button
-    await expect(page.locator('[data-testid="download-pdf-btn"]')).toBeVisible();
+    // Download PDF button is on the page action bar above the CV
+    await expect(page.locator('[data-testid="page-action-download"]')).toBeVisible();
   });
 });

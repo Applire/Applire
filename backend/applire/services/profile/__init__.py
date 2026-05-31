@@ -154,6 +154,7 @@ def _to_response(record: MasterProfile) -> MasterProfileResponse:
         id=record.id,
         profile=profile_data,
         completeness=profile_data.calculate_completeness(),
+        stats=profile_data.calculate_stats(),
         merge_conflicts=conflicts,
         created_at=record.created_at,
         updated_at=record.updated_at,

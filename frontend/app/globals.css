@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
 
 @theme {
   /* Brand Colors */
@@ -42,7 +42,7 @@
   --color-outline-variant: #c8cfe8;
   
   /* Fonts */
-  --font-heading: "Poppins", sans-serif;
+  --font-heading: "Manrope", sans-serif;
   --font-body: "Inter", sans-serif;
   
   /* Shadows */
@@ -57,7 +57,7 @@
     font-family: "Inter", system-ui, sans-serif;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: "Poppins", sans-serif;
+    font-family: "Manrope", sans-serif;
   }
 }
 
@@ -130,5 +130,95 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Continental Excellence utilities --- */
+
+@layer components {
+  /* Glass surface: semi-transparent white with backdrop blur and hairline border */
+  .surface-glass {
+    background: color-mix(in srgb, white 90%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--color-outline-variant);
+  }
+
+  /* Gold-gradient pill primary button */
+  .btn-pill-primary {
+    background: linear-gradient(135deg, var(--color-gold) 0%, #ffe580 100%);
+    color: var(--color-on-surface);
+    border-radius: 9999px;
+    padding: 0.625rem 1.25rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    box-shadow: 0 2px 8px rgba(254, 203, 0, 0.25);
+    transition: box-shadow 200ms ease, transform 200ms ease;
+  }
+  .btn-pill-primary:hover:not(:disabled) {
+    box-shadow: 0 4px 16px rgba(254, 203, 0, 0.40);
+    transform: translateY(-1px);
+  }
+  .btn-pill-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Glass / navy outline secondary button */
+  .btn-glass {
+    background: color-mix(in srgb, white 80%, transparent);
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    border-radius: 9999px;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: background-color 200ms ease;
+  }
+  .btn-glass:hover:not(:disabled) {
+    background: var(--color-primary-container);
+  }
+
+  /* AI-card: gap suggestion / Kaile output card with rotating light-leak border */
+  .ai-card {
+    position: relative;
+    background: white;
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .ai-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 13px;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--leak-angle, 0deg),
+      var(--color-gold) 0deg,
+      var(--color-primary) 120deg,
+      var(--color-gold-container) 240deg,
+      var(--color-gold) 360deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: ai-card-leak 8s linear infinite;
+    pointer-events: none;
+  }
+}
+
+@property --leak-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ai-card-leak {
+  to { --leak-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-card::before {
+    animation: none;
   }
 }

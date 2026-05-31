@@ -19,6 +19,7 @@
 
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 type CLTemplate =
   | "classic_german"
@@ -35,16 +36,6 @@ interface TemplateOption {
   description: string;
 }
 
-const TEMPLATES: TemplateOption[] = [
-  { value: "classic_german", label: "Lebenslauf", description: "Dunkle Kopfzeile, Serif" },
-  { value: "modern_swiss", label: "Modern Swiss", description: "Akzentlinie, Sans-serif" },
-  { value: "executive", label: "Executive", description: "Marine, Goldakzent" },
-  { value: "tech_developer", label: "Tech Developer", description: "Dunkles Theme, Monospace" },
-  { value: "creative_sidebar", label: "Creative Sidebar", description: "Dunkle Seitenleiste" },
-  { value: "academic", label: "Academic", description: "Zentriert, Serif, klassisch" },
-  { value: "compact_pro", label: "Compact Pro", description: "Kompakt, professionell" },
-];
-
 interface CoverLetterDesignTabProps {
   flowId: string;
   currentTemplate: CLTemplate;
@@ -56,10 +47,23 @@ export function CoverLetterDesignTab({
   currentTemplate,
   onTemplateChange,
 }: CoverLetterDesignTabProps) {
+  const t = useTranslations("coverLetter");
+  const tc = useTranslations("cv");
+
+  const TEMPLATES: TemplateOption[] = [
+    { value: "classic_german", label: tc("templateClassic"), description: tc("templateClassicDesc") },
+    { value: "modern_swiss", label: tc("templateModern"), description: tc("templateModernDesc") },
+    { value: "executive", label: tc("templateExecutive"), description: tc("templateExecutiveDesc") },
+    { value: "tech_developer", label: tc("templateTech"), description: tc("templateTechDesc") },
+    { value: "creative_sidebar", label: tc("templateCreative"), description: tc("templateCreativeDesc") },
+    { value: "academic", label: tc("templateAcademic"), description: tc("templateAcademicDesc") },
+    { value: "compact_pro", label: tc("templateCompact"), description: tc("templateCompactDesc") },
+  ];
+
   return (
     <div className="flex flex-col gap-3 p-3">
       <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-        Vorlage
+        {t("templateSection")}
       </p>
       <div className="flex flex-col gap-2">
         {TEMPLATES.map((tmpl) => (
@@ -79,23 +83,20 @@ export function CoverLetterDesignTab({
               <div className="text-xs text-neutral-500">{tmpl.description}</div>
             </div>
             {currentTemplate === tmpl.value && (
-              <span className="text-blue-600 text-xs font-semibold">Aktiv</span>
+              <span className="text-blue-600 text-xs font-semibold">{t("activeLabel")}</span>
             )}
           </button>
         ))}
       </div>
 
       <div className="border-t border-neutral-200 pt-3 mt-1">
-        <p className="text-xs text-neutral-500 mb-1">Farbschema</p>
+        <p className="text-xs text-neutral-500 mb-1">{t("colorSchemeSection")}</p>
         <p className="text-xs text-neutral-400">
-          Geteilt mit Ihrem Lebenslauf.{" "}
-          <Link
+          {t("colorSchemeHint")}<Link
             href={`/flow/${flowId}/cv`}
             className="text-blue-500 hover:underline"
             data-testid="cl-design-change-color-link"
-          >
-            Im Lebenslauf ändern →
-          </Link>
+          >{t("colorSchemeChangeLink")}</Link>
         </p>
       </div>
     </div>

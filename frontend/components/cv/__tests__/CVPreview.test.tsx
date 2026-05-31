@@ -18,6 +18,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { CVPreview } from "../CVPreview";
+import { withIntl } from "@/lib/test-utils/with-intl";
 
 const BASE_PROPS = {
   cvId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -40,7 +41,7 @@ describe("CVPreview", () => {
   it("renders a loading skeleton while fetch is in flight", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {})); // never resolves
 
-    render(<CVPreview {...BASE_PROPS} />);
+    render(withIntl(<CVPreview {...BASE_PROPS} />));
 
     expect(screen.queryByTestId("cv-iframe")).toBeNull();
     // The skeleton has the animate-pulse class
@@ -54,7 +55,7 @@ describe("CVPreview", () => {
       text: async () => TEST_HTML,
     } as Response);
 
-    render(<CVPreview {...BASE_PROPS} />);
+    render(withIntl(<CVPreview {...BASE_PROPS} />));
 
     const iframe = await screen.findByTestId("cv-iframe");
     expect(iframe.getAttribute("srcdoc")).toBe(TEST_HTML);
@@ -65,11 +66,11 @@ describe("CVPreview", () => {
   it("renders error message with retry button when fetch fails", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
 
-    render(<CVPreview {...BASE_PROPS} />);
+    render(withIntl(<CVPreview {...BASE_PROPS} />));
 
-    await screen.findByText("Vorschau konnte nicht geladen werden.");
+    await screen.findByText("Preview could not be loaded.");
     expect(
-      screen.getByRole("button", { name: "Erneut versuchen" })
+      screen.getByRole("button", { name: "Try again" })
     ).toBeTruthy();
     expect(screen.queryByTestId("cv-iframe")).toBeNull();
   });
@@ -83,13 +84,13 @@ describe("CVPreview", () => {
         text: async () => TEST_HTML,
       } as unknown as Response);
 
-    render(<CVPreview {...BASE_PROPS} />);
+    render(withIntl(<CVPreview {...BASE_PROPS} />));
 
     // Wait for error state
-    await screen.findByText("Vorschau konnte nicht geladen werden.");
+    await screen.findByText("Preview could not be loaded.");
 
     // Click retry
-    fireEvent.click(screen.getByRole("button", { name: "Erneut versuchen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     // iframe should appear after re-fetch
     const iframe = await screen.findByTestId("cv-iframe");

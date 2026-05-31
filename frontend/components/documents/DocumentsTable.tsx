@@ -65,6 +65,7 @@ interface DocumentsTableProps {
 
 export function DocumentsTable({ items, total, page, pageSize, onPageChange }: DocumentsTableProps) {
   const t = useTranslations("documents");
+  const tApp = useTranslations("applications");
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -117,7 +118,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
 
         {/* Text search */}
         <div className="flex items-center gap-1.5 bg-white border-[1.5px] border-gray-200 rounded-full px-3.5 py-1 focus-within:border-primary transition-all">
-          <span className="material-symbols-outlined text-gray-400" style={{ fontSize: 15 }}>search</span>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span className="material-symbols-outlined text-gray-400" aria-hidden="true" style={{ fontSize: 15 }}>search</span>
           <input
             type="text"
             value={searchQuery}
@@ -164,6 +166,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                 const days = daysUntilExpiry(item.expires_at);
                 const isReady = item.status === "ready";
                 const isGenerating = item.status === "generating" || item.status === "pending";
+                // Material icon names stored as variables — not user-facing text
+                const docIcon = "description";
                 return (
                   <tr
                     key={item.cv_id}
@@ -177,16 +181,18 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                         )}>
                           <span
                             className="material-symbols-outlined"
+                            aria-hidden="true"
                             style={{ fontSize: 20, color: isGenerating ? "#8b5000" : "var(--color-primary)" }}
                           >
-                            description
+                            {docIcon}
                           </span>
                         </div>
                         <div>
                           <p className="text-[13.5px] font-semibold text-gray-900 leading-tight">
-                            {item.role_title ?? "Unknown role"}
+                            {item.role_title ?? tApp("unknownRole")}
                           </p>
                           <p className="text-[11.5px] text-gray-500 mt-0.5">
+                            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
                             {item.company_name ?? ""} · {t("generatedOn", { date: formatDate(item.created_at) })}
                           </p>
                         </div>
@@ -200,13 +206,15 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                     <td className="px-4 py-3.5">
                       {isReady && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-[#e6f4ea] text-[#1e6b3a]">
-                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>check_circle</span>
                           {t("statusReady")}
                         </span>
                       )}
                       {isGenerating && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700">
-                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>hourglass_top</span>
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>hourglass_top</span>
                           {t("statusGenerating")}
                         </span>
                       )}
@@ -219,12 +227,14 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                     <td className="px-4 py-3.5">
                       {isReady && days <= 7 ? (
                         <span className="flex items-center gap-1 text-[12px] font-semibold text-amber-600">
-                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 14 }}>warning</span>
                           {days <= 0 ? t("expiresToday") : t("expiresIn", { days })}
                         </span>
                       ) : isReady ? (
                         <span className="text-[12px] text-gray-500">{formatDate(item.expires_at)}</span>
                       ) : (
+                        // eslint-disable-next-line formatjs/no-literal-string-in-jsx
                         <span className="text-[12px] text-gray-300">—</span>
                       )}
                     </td>
@@ -238,7 +248,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 border-[1.5px] border-gray-200 rounded-lg text-[12px] font-semibold text-gray-600 hover:border-primary hover:text-primary hover:bg-surface-container transition-all"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>open_in_new</span>
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>open_in_new</span>
                           {t("openButton")}
                         </button>
                       ) : isGenerating ? (
@@ -246,7 +257,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           disabled
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 border-[1.5px] border-gray-200 rounded-lg text-[12px] font-semibold text-gray-400 opacity-50 cursor-not-allowed"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>hourglass_top</span>
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>hourglass_top</span>
                           {t("generatingButton")}
                         </button>
                       ) : null}
@@ -268,7 +280,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                 disabled={page === 1}
                 className="w-[30px] h-[30px] rounded-md border-[1.5px] border-gray-200 flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-colors"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>chevron_left</span>
               </button>
               {[...Array(totalPages)].map((_, i) => (
                 <button
@@ -289,7 +302,8 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                 disabled={page === totalPages}
                 className="w-[30px] h-[30px] rounded-md border-[1.5px] border-gray-200 flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-colors"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>chevron_right</span>
               </button>
             </div>
           </div>

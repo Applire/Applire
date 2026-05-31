@@ -26,6 +26,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
+// ---------------------------------------------------------------------------
+// Mock next-intl — ProfileStrengthCard uses useTranslations()
+// ---------------------------------------------------------------------------
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
 function mockFetch(existsData: object, profileData: object) {
   let callCount = 0;
   global.fetch = vi.fn().mockImplementation(() => {
@@ -62,8 +69,8 @@ describe("ProfileStrengthCard", () => {
       { profile: { work_experience: [{}], skills: [], education: [], personal_info: {} } }
     );
     render(<ProfileStrengthCard />);
-    await waitFor(() => expect(screen.getByText("Berufserfahrung")).toBeInTheDocument());
-    const item = screen.getByText("Berufserfahrung");
+    await waitFor(() => expect(screen.getByText("profileCheckWorkExp")).toBeInTheDocument());
+    const item = screen.getByText("profileCheckWorkExp");
     expect(item.className).toContain("text-white/75");
   });
 
@@ -73,8 +80,8 @@ describe("ProfileStrengthCard", () => {
       { profile: { work_experience: [], skills: [], education: [], personal_info: {} } }
     );
     render(<ProfileStrengthCard />);
-    await waitFor(() => expect(screen.getByText("Fähigkeiten")).toBeInTheDocument());
-    const item = screen.getByText("Fähigkeiten");
+    await waitFor(() => expect(screen.getByText("profileCheckSkills")).toBeInTheDocument());
+    const item = screen.getByText("profileCheckSkills");
     expect(item.className).toContain("text-white/40");
   });
 
@@ -84,15 +91,15 @@ describe("ProfileStrengthCard", () => {
       { profile: { work_experience: [], skills: [], education: [], personal_info: { summary: "I am great." } } }
     );
     render(<ProfileStrengthCard />);
-    await waitFor(() => expect(screen.getByText("Zusammenfassung")).toBeInTheDocument());
-    expect(screen.getByText("Zusammenfassung").className).toContain("text-white/75");
+    await waitFor(() => expect(screen.getByText("profileCheckSummary")).toBeInTheDocument());
+    expect(screen.getByText("profileCheckSummary").className).toContain("text-white/75");
   });
 
   it("Complete Profile button navigates to /profile", async () => {
     mockFetch({ completeness_score: 0.3 }, { profile: null });
     render(<ProfileStrengthCard />);
-    await waitFor(() => screen.getByText("Complete Profile"));
-    await userEvent.click(screen.getByText("Complete Profile"));
+    await waitFor(() => screen.getByText("profileCompleteButton"));
+    await userEvent.click(screen.getByText("profileCompleteButton"));
     expect(mockPush).toHaveBeenCalledWith("/profile");
   });
 

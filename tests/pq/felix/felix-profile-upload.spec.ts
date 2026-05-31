@@ -40,7 +40,7 @@ async function runFullOnboardingFlow(page: Page): Promise<void> {
   const uniqueJD = `${JD_TEXT}\n\n<!-- felix-upload-test: ${Date.now()} -->`;
   await page.getByTestId("jd-mode-text").click();
   await page
-    .locator('textarea[placeholder="Paste the full job description here..."]')
+    .getByTestId('jd-text-input')
     .fill(uniqueJD);
 
   const fileInput = page.getByTestId("file-input");

@@ -168,11 +168,13 @@ class TestSprint6FullFlow:
         assert state.get("current_step") == "complete"
 
     def test_advance_to_complete_finalizes_flow(self, api, flow_and_cv):
-        """Advancing to complete from complete is rejected (already finalized)."""
+        """Re-advancing to complete from complete is an idempotent no-op (not 409)."""
         r = requests.post(
             f"{api}/api/flow/{flow_and_cv['flow_id']}/advance",
             json={"step": "complete", "artifact_id": flow_and_cv["cv_id"]},
             timeout=10,
         )
-        assert r.status_code == 409
-        assert r.json()["detail"]["allowed_transitions"] == []
+        assert r.status_code == 200, r.text
+        state = r.json()
+        assert state["current_step"] == "complete"
+        assert state["cv_summary"]["cv_id"] == flow_and_cv["cv_id"]

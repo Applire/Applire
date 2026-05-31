@@ -9,10 +9,11 @@ def test_gap_maps_to_section_with_most_keyword_overlap():
     }
     gaps = ["python", "django"]
     result = map_gaps_to_sections(gaps, sections)
-    # "python" appears in both introduction and position::abc; "django" only in introduction
-    # introduction has 2 matches, position::abc has 1
+    # Each gap is assigned to a single section (highest token overlap; ties break
+    # to the first section). "python" ties introduction/position::abc (1 token
+    # each) → introduction wins; "django" only matches introduction.
     assert result["introduction"] == ["python", "django"]
-    assert result.get("position::abc") == ["python"]
+    assert "position::abc" not in result
     assert "skills" not in result or result["skills"] == []
 
 

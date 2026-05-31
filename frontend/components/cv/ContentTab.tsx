@@ -54,6 +54,20 @@ interface ContentTabProps {
   onUnsavedChange: (hasUnsaved: boolean) => void;
 }
 
+/**
+ * Drop gaps with a duplicate id. The backend maps each gap to a single section,
+ * but this guards the aggregate count and the React keys against any duplicate
+ * slipping through (bug 4: "16 Lücken gefunden" with repeated chips).
+ */
+function dedupeById(items: GapHintItem[]): GapHintItem[] {
+  const seen = new Set<string>();
+  return items.filter((g) => {
+    if (seen.has(g.id)) return false;
+    seen.add(g.id);
+    return true;
+  });
+}
+
 export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
@@ -95,11 +109,9 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsaved, mode]);
 
-  // All gaps = section gaps flattened + general gaps
-  const allGaps: GapHintItem[] = [
-    ...sections.flatMap((s) => s.gaps),
-    ...generalGaps,
-  ];
+  // All gaps = section gaps flattened + general gaps, deduped by id
+  const sectionGaps: GapHintItem[] = dedupeById(sections.flatMap((s) => s.gaps));
+  const allGaps: GapHintItem[] = dedupeById([...sectionGaps, ...generalGaps]);
 
   const handleBrowseToEdit = useCallback(
     (sectionId: string, preselectedGaps: string[] = []) => {
@@ -156,7 +168,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
           className="text-xs text-teal underline hover:opacity-80 self-start"
           data-testid="back-to-browse"
         >
-          &larr; Zur&uuml;ck zur &Uuml;bersicht
+          {t("backToOverview")}
         </button>
 
         <h3 className="text-sm font-medium text-neutral-dark">
@@ -221,7 +233,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
   if (sectionsError) {
     return (
       <div className="p-4 text-center">
-        <p className="text-sm text-gray-500 mb-2">Abschnitte konnten nicht geladen werden.</p>
+        <p className="text-sm text-gray-500 mb-2">{t("sectionsLoadError")}</p>
         <button
           type="button"
           onClick={() => {
@@ -241,7 +253,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
           }}
           className="text-sm text-teal underline hover:opacity-80"
         >
-          Erneut versuchen
+          {t("retryLoad")}
         </button>
       </div>
     );
@@ -252,18 +264,23 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
       {allGaps.length > 0 && (
         <>
           <div className="flex items-center gap-2">
-            <span className="text-lg">🤖</span>
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <span className="text-lg" aria-hidden="true">🤖</span>
             <p className="text-sm text-neutral-dark">
-              {allGaps.length} {pluralGaps ? "Lücken" : "Lücke"} gefunden für &quot;{flowSummary?.job_summary ?? "Rolle"}&quot;
+              {t("gapsFoundFor", {
+                count: allGaps.length,
+                label: pluralGaps ? t("gapsFoundPlural") : t("gapsFoundSingular"),
+                role: flowSummary?.job_summary ?? "",
+              })}
             </p>
           </div>
           <div className="flex flex-col gap-2">
-            {sections.flatMap((s) => s.gaps).map((gap) => (
+            {sectionGaps.map((gap) => (
               <button
                 key={gap.id}
                 type="button"
                 onClick={() => handleAddressGap(gap.id)}
-                className="text-left text-sm border border-neutral-medium rounded-lg p-2.5 hover:border-teal transition-colors"
+                className="ai-card text-left text-sm cursor-pointer hover:shadow-card transition-shadow"
                 data-testid="gap-card"
               >
                 <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
@@ -277,7 +294,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                     key={gap.id}
                     type="button"
                     onClick={() => handleAddressGap(gap.id)}
-                    className="text-left text-sm border border-neutral-medium rounded-lg p-2.5 hover:border-teal transition-colors"
+                    className="ai-card text-left text-sm cursor-pointer hover:shadow-card transition-shadow"
                     data-testid="gap-card"
                   >
                     <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
@@ -291,7 +308,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
       )}
 
       <h4 className="text-xs font-semibold text-neutral-dark uppercase tracking-wide">
-        Abschnitte bearbeiten
+        {t("sectionsEdit")}
       </h4>
       {sections.length === 0 && (
         <p className="text-xs text-gray-500">
@@ -304,15 +321,16 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
             key={section.section_id}
             type="button"
             onClick={() => handleSectionEdit(section.section_id)}
-            className="text-left text-sm flex items-center justify-between border border-transparent rounded-lg px-3 py-2 hover:border-neutral-medium transition-colors"
+            className="text-left text-sm flex items-center justify-between border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
           >
             <span className="text-neutral-darker">{section.label}</span>
             {section.gaps.length > 0 ? (
-              <span className="text-xs bg-warning-container text-warning px-1.5 py-0.5 rounded-full">
+              <span className="text-xs bg-gold-container text-gold-dim px-1.5 py-0.5 rounded-full">
                 {section.gaps.length}
               </span>
             ) : (
-              <span className="text-xs text-success">✓</span>
+              /* eslint-disable-next-line formatjs/no-literal-string-in-jsx */
+              <span className="text-xs text-success" aria-hidden="true">✓</span>
             )}
           </button>
         ))}

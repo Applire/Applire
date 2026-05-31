@@ -17,11 +17,13 @@
 
 """Keyword-based gap-to-section mapper (no LLM, ~5ms).
 
-For each gap label, tokenise it and count how many of its tokens appear
-in each section's content. A gap is assigned to every section whose content
-contains at least one matching token — the same gap can appear under multiple
-sections if it is relevant to each. Gaps with zero matches in any section fall
-into the __general__ bucket.
+For each gap label, tokenise it and count how many of its tokens appear in each
+section's content. A gap is assigned to the SINGLE section with the strongest
+token overlap; ties are broken by section order (first wins), which is
+deterministic because the input dict preserves insertion order. Assigning each
+gap to exactly one section keeps the CV refinement panel from counting and
+rendering the same gap multiple times. Gaps with zero matches in any section
+fall into the __general__ bucket.
 """
 import re
 
@@ -55,14 +57,17 @@ def map_gaps_to_sections(
             result.setdefault("__general__", []).append(gap)
             continue
 
-        matched = False
+        # Pick the single best-matching section. Strictly-greater comparison
+        # means the first section wins on a tie (dict preserves insertion order).
+        best_sid: str | None = None
+        best_score = 0
         for sid, tokens in section_tokens.items():
             score = len(gap_tokens & tokens)
-            if score > 0:
-                result.setdefault(sid, []).append(gap)
-                matched = True
+            if score > best_score:
+                best_score = score
+                best_sid = sid
 
-        if not matched:
-            result.setdefault("__general__", []).append(gap)
+        target = best_sid if best_sid is not None else "__general__"
+        result.setdefault(target, []).append(gap)
 
     return result

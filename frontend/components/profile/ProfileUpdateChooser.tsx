@@ -19,13 +19,21 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 
 export function ProfileUpdateChooser() {
   const t = useTranslations("profileUpdate.chooser");
+  const tp = useTranslations("profileUpdate");
 
   return (
+    <>
+      <AppTopbar
+        mode="detail"
+        backHref="/profile"
+        backLabelKey="shell.profile"
+        pageTitle={tp("chooserTitle")}
+      />
     <section className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-bold font-manrope text-gray-900">{t("heading")}</h1>
       <p className="text-sm text-gray-500 mt-1">{t("subheading")}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
@@ -33,9 +41,8 @@ export function ProfileUpdateChooser() {
           href="/profile/upload?action=upload"
           className="block rounded-2xl border bg-white p-6 hover:shadow-md hover:border-primary-container transition-all"
         >
-          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>
-            description
-          </span>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>description</span>
           <h2 className="mt-3 text-base font-bold text-gray-900 font-manrope">{t("uploadTitle")}</h2>
           <p className="mt-1 text-sm text-gray-600">{t("uploadBody")}</p>
         </Link>
@@ -44,13 +51,13 @@ export function ProfileUpdateChooser() {
           href="/profile/upload?action=add-role&source=manual"
           className="block rounded-2xl border bg-white p-6 hover:shadow-md hover:border-primary-container transition-all"
         >
-          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>
-            work
-          </span>
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+          <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>work</span>
           <h2 className="mt-3 text-base font-bold text-gray-900 font-manrope">{t("addRoleTitle")}</h2>
           <p className="mt-1 text-sm text-gray-600">{t("addRoleBody")}</p>
         </Link>
       </div>
     </section>
+    </>
   );
 }

@@ -109,6 +109,7 @@ function JdRecoveryBannerInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tc = useTranslations("common");
   const [dismissed, setDismissed] = useState(false);
 
   const jdStatus = searchParams.get("jd_status");
@@ -145,7 +146,7 @@ function JdRecoveryBannerInner() {
           data-testid="jd-recovery-cta"
           type="button"
           className="mt-1 text-sm font-medium text-amber-700 underline hover:no-underline"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/dashboard")}
         >
           {t("addJobDescription")}
         </button>
@@ -153,11 +154,12 @@ function JdRecoveryBannerInner() {
       <button
         data-testid="jd-recovery-dismiss"
         type="button"
-        aria-label="Dismiss"
+        aria-label={tc("ariaDismiss")}
         className="shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
         onClick={() => setDismissed(true)}
       >
-        ×
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative close symbol */}
+        {"×"}
       </button>
     </div>
   );
@@ -293,11 +295,12 @@ export default function GapsPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("gaps");
+  const tc = useTranslations("common");
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [profileStats, setProfileStats] = useState<ProfileStats>({
-    positions: 5, projects: 12, certifications: 3, data_points: 47,
+    positions: 0, projects: 0, certifications: 0, data_points: 0,
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -340,11 +343,12 @@ export default function GapsPage({
           const profileRes = await fetch(`${API_BASE}/api/profile`);
           if (profileRes.ok) {
             const profileData = await profileRes.json();
+            const stats = profileData.stats ?? {};
             setProfileStats({
-              positions: profileData.positions_count ?? 5,
-              projects: profileData.projects_count ?? 12,
-              certifications: profileData.certifications_count ?? 3,
-              data_points: profileData.data_points_count ?? 47,
+              positions: stats.positions ?? 0,
+              projects: stats.projects ?? 0,
+              certifications: stats.certifications ?? 0,
+              data_points: stats.data_points ?? 0,
             });
           }
         } catch {
@@ -534,7 +538,7 @@ export default function GapsPage({
           <div className="flex-1 text-center lg:text-left">
             <h3 className="font-heading text-lg font-bold text-neutral-dark mb-2">{roleTitle}</h3>
             <p data-testid="match-score-display" className="text-sm text-gray-500 mb-4">
-              {t("matchScore")}: {matchScore}%
+              {t("matchScoreDisplay", { label: t("matchScore"), score: matchScore })}
             </p>
             <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
               {gaps?.category_a && gaps.category_a.length > 0 && (

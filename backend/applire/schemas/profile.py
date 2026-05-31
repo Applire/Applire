@@ -345,13 +345,56 @@ class MasterProfileData(BaseModel):
                 score += weight
         return round(score, 2)
 
+    def calculate_stats(self) -> "ProfileStats":
+        """Derive the gap-page summary tiles from real profile data.
+
+        Replaces the hard-coded persona example numbers (5 / 12 / 3 / 47).
+        - positions:      number of work-experience entries
+        - projects:       total achievements across all roles (concrete wins)
+        - certifications: number of certifications
+        - data_points:    every atomic fact held in the profile
+        """
+        positions = len(self.work_experience)
+        projects = sum(len(w.achievements) for w in self.work_experience)
+        certifications = len(self.certifications)
+
+        data_points = (
+            positions
+            + sum(len(w.responsibilities) for w in self.work_experience)
+            + projects
+            + sum(len(w.technologies) for w in self.work_experience)
+            + len(self.skills)
+            + len(self.education)
+            + sum(len(e.relevant_coursework) for e in self.education)
+            + certifications
+            + len(self.languages)
+            + len(self.publications)
+            + len(self.volunteer_activities)
+        )
+
+        return ProfileStats(
+            positions=positions,
+            projects=projects,
+            certifications=certifications,
+            data_points=data_points,
+        )
+
 
 # ─── API response models ──────────────────────────────────────────────────────
+
+class ProfileStats(BaseModel):
+    """Summary tile counts for the gap page, derived from real profile data."""
+    positions: int = 0
+    projects: int = 0
+    certifications: int = 0
+    data_points: int = 0
+
 
 class MasterProfileResponse(BaseModel):
     id: uuid.UUID
     profile: MasterProfileData
     completeness: float  # 0.0 to 1.0
+    stats: ProfileStats = Field(default_factory=ProfileStats)
     merge_conflicts: list[Conflict] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

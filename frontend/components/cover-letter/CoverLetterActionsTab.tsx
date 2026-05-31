@@ -48,10 +48,10 @@ export function CoverLetterActionsTab({
 
       <div className="border-t border-neutral-200 pt-3">
         <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
-          Neu generieren
+          {t("regenerateHeading")}
         </p>
         <p className="text-xs text-neutral-400 mb-3">
-          Öffnet das Eingabeformular mit den bisherigen Angaben. Das neue Anschreiben ersetzt das aktuelle.
+          {t("regenerateHint")}
         </p>
         <button
           type="button"
@@ -59,7 +59,11 @@ export function CoverLetterActionsTab({
           className="w-full border border-neutral-300 text-sm py-2.5 rounded hover:border-neutral-500 transition-colors"
           data-testid="cl-regenerate-btn"
         >
-          ↻ {t("regenerate")}
+          <span className="flex items-center justify-center gap-1">
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <span aria-hidden="true">↻</span>
+            {t("regenerate")}
+          </span>
         </button>
       </div>
     </div>

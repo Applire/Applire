@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Felix — CV Template selection journey (PQ)
  *
  * Tests that after full CV generation:
- *  - The Actions tab shows a template picker with 7 options
+ *  - The Design tab opens a template picker with 7 options
  *  - Selecting the 'executive' template and regenerating produces a valid CV
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
@@ -35,7 +35,7 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 
   const uniqueJD = `${JD_TEXT}\n\n<!-- felix-template-test: ${Date.now()} -->`;
   await page.getByTestId("jd-mode-text").click();
-  await page.locator('textarea[placeholder="Paste the full job description here..."]').fill(uniqueJD);
+  await page.getByTestId('jd-text-input').fill(uniqueJD);
 
   const fileInput = page.getByTestId("file-input");
   await fileInput.setInputFiles(CV_PATH);
@@ -59,9 +59,10 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 }
 
 test.describe("Felix — CV Template selection (PQ)", () => {
-  test("Actions tab shows at least 7 template options", async ({ page }) => {
+  test("Design tab opens the template picker with at least 7 options", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-actions").click();
+    await page.getByTestId("tab-design").click();
+    await page.getByTestId("change-template-btn").click();
     // Template picker should list all 7 registered templates
     const templateOptions = page.getByTestId("template-option");
     await expect(templateOptions.first()).toBeVisible({ timeout: 5000 });
@@ -70,7 +71,8 @@ test.describe("Felix — CV Template selection (PQ)", () => {
 
   test("selecting executive template and regenerating succeeds", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-actions").click();
+    await page.getByTestId("tab-design").click();
+    await page.getByTestId("change-template-btn").click();
 
     // Select the executive template
     await page.getByTestId("template-option-executive").click();

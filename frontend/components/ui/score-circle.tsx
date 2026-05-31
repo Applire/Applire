@@ -123,6 +123,7 @@ function ScoreCircle({
           colorConfig.bg
         )}>
           <span className="text-2xl font-bold text-white">
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- numeric percentage display */}
             {Math.round(displayScore)}%
           </span>
         </div>

@@ -15,37 +15,47 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-// frontend/components/cv/RefinementPanel.tsx
 "use client";
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { ContentTab } from "./ContentTab";
-import { ActionsTab } from "./ActionsTab";
 import { DesignTab } from "./DesignTab";
+import { RefinementHeader } from "./RefinementHeader";
 
-type Tab = "content" | "actions" | "appearance";
+type Tab = "content" | "design";
 
 interface RefinementPanelProps {
   cvId: string;
   flowId: string;
-  jobSummary: string | null;
-  gapSummary: { gaps: Array<{ id: string; label: string }>; sections: Array<{ section_id: string; label: string; content: string; has_override: boolean; gaps: Array<{ id: string; label: string }> }> } | null;
-  cvSummary: { sections: Array<{ section_id: string; label: string; content: string; has_override: boolean; gaps: Array<{ id: string; label: string }> }> } | null;
-  template: { label: string | null } | null;
+  roleTitle: string | null;
+  gapSummary: {
+    gaps: Array<{ id: string; label: string }>;
+    sections: Array<{
+      section_id: string;
+      label: string;
+      content: string;
+      has_override: boolean;
+      gaps: Array<{ id: string; label: string }>;
+    }>;
+  } | null;
+  cvSummary: {
+    sections: Array<{
+      section_id: string;
+      label: string;
+      content: string;
+      has_override: boolean;
+      gaps: Array<{ id: string; label: string }>;
+    }>;
+  } | null;
+  templateLabel: string | null;
   matchScore: number | null;
   expiryWarning: { level: "none" | "warning" | "critical"; expiresIn: string } | null;
-  coverLetterId: string | null;
-  applicationId?: string | null;
   detectedCompany: { name: string; hex: string } | null;
   currentAccentHex: string;
   onHtmlRefresh: () => void;
   onRegenerateSame: () => void;
   onRegenerateDifferent: () => void;
-  onRegenerateWithTemplate: (template: string) => void;
-  onNext: () => void;
-  onDownloadPdf: () => void;
-  onGenerateCoverLetter: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -53,23 +63,17 @@ interface RefinementPanelProps {
 export function RefinementPanel({
   cvId,
   flowId,
-  jobSummary,
+  roleTitle,
   gapSummary,
   cvSummary,
-  template,
+  templateLabel,
   matchScore,
   expiryWarning,
-  coverLetterId,
-  applicationId,
   detectedCompany,
   currentAccentHex,
   onHtmlRefresh,
   onRegenerateSame,
   onRegenerateDifferent,
-  onRegenerateWithTemplate,
-  onNext,
-  onDownloadPdf,
-  onGenerateCoverLetter,
   collapsed,
   onToggleCollapse,
 }: RefinementPanelProps) {
@@ -78,30 +82,24 @@ export function RefinementPanel({
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: "content", label: t("contentTab"), icon: "📝" },
-    { id: "actions", label: t("actionsTab"), icon: "⚙️" },
-    { id: "appearance", label: t("designTab"), icon: "🎨" },
+    { id: "design", label: t("designTab"), icon: "🎨" },
   ];
-
-  const flowSummary = {
-    job_summary: jobSummary,
-    gap_summary: gapSummary,
-    cv_summary: cvSummary,
-  };
 
   if (collapsed) {
     return (
       <div
-        className="w-12 flex flex-col items-center h-[calc(100vh-56px)] bg-white border-l border-neutral-medium py-2 gap-2 flex-shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
+        className="w-12 flex flex-col items-center h-[calc(100vh-56px)] surface-glass border-l border-outline-variant py-2 gap-2 flex-shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
         data-testid="refinement-panel"
       >
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-100 text-neutral-500 text-sm"
-          title="Panel öffnen"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-container text-on-surface-variant text-sm"
+          title={t("panelOpen")}
           data-testid="cv-panel-expand-btn"
         >
-          ❮
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❮</span>
         </button>
         {TABS.map((tab) => (
           <button
@@ -112,9 +110,7 @@ export function RefinementPanel({
               onToggleCollapse();
             }}
             className={`w-8 h-8 flex items-center justify-center rounded text-base ${
-              activeTab === tab.id
-                ? "bg-blue-50 text-blue-600"
-                : "hover:bg-neutral-100"
+              activeTab === tab.id ? "bg-primary-container text-primary" : "hover:bg-surface-container"
             }`}
             title={tab.label}
             data-testid={`cv-tab-icon-${tab.id}`}
@@ -126,68 +122,60 @@ export function RefinementPanel({
     );
   }
 
+  const flowSummary = {
+    job_summary: roleTitle,
+    gap_summary: gapSummary,
+    cv_summary: cvSummary,
+  };
+
   return (
     <div
-      className="w-[380px] h-[calc(100vh-56px)] overflow-y-auto border-l border-neutral-medium bg-white flex flex-col flex-shrink-0 transition-[width] duration-200 ease-in-out"
+      className="w-[400px] h-[calc(100vh-56px)] overflow-y-auto border-l border-outline-variant surface-glass flex flex-col flex-shrink-0 transition-[width] duration-200 ease-in-out"
       data-testid="refinement-panel"
     >
+      <RefinementHeader roleTitle={roleTitle} matchScore={matchScore} expiryWarning={expiryWarning} />
+
       {/* Tab strip */}
-      <div className="flex items-center border-b border-neutral-medium shrink-0">
-        <button
-          type="button"
-          onClick={() => setActiveTab("content")}
-          className={`flex-1 text-sm py-2.5 px-3 font-medium transition-colors ${
-            activeTab === "content"
-              ? "text-teal border-b-2 border-teal"
-              : "text-neutral-medium hover:text-neutral-dark"
-          }`}
-          role="tab"
-          aria-selected={activeTab === "content"}
-          data-testid="tab-content"
-        >
-          &#x1f4dd; {t("contentTab")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("actions")}
-          className={`flex-1 text-sm py-2.5 px-3 font-medium transition-colors ${
-            activeTab === "actions"
-              ? "text-teal border-b-2 border-teal"
-              : "text-neutral-medium hover:text-neutral-dark"
-          }`}
-          role="tab"
-          aria-selected={activeTab === "actions"}
-          data-testid="tab-actions"
-        >
-          &#x2699;&#xfe0f; {t("actionsTab")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("appearance")}
-          className={`flex-1 text-sm py-2.5 px-3 font-medium transition-colors ${
-            activeTab === "appearance"
-              ? "text-teal border-b-2 border-teal"
-              : "text-neutral-medium hover:text-neutral-dark"
-          }`}
-          role="tab"
-          aria-selected={activeTab === "appearance"}
-          data-testid="tab-appearance"
-        >
-          🎨 {t("designTab")}
-        </button>
+      <div className="flex items-center border-b border-outline-variant shrink-0" role="tablist">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 text-xs font-heading font-semibold uppercase tracking-wider py-2.5 px-3 transition-colors ${
+              activeTab === tab.id
+                ? "text-primary border-b-2 border-gold"
+                : "text-on-surface-variant hover:text-on-surface"
+            }`}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            id={`tab-${tab.id}`}
+            aria-controls={`tabpanel-${tab.id}`}
+            data-testid={`tab-${tab.id}`}
+          >
+            <span className="mr-1">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="px-2 py-2.5 text-neutral-400 hover:text-neutral-600 text-sm shrink-0"
-          title="Panel einklappen"
+          className="px-2 py-2.5 text-on-surface-variant hover:text-on-surface text-sm shrink-0"
+          title={t("panelCollapse")}
           data-testid="cv-panel-collapse-btn"
         >
-          ❯
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <span aria-hidden="true">❯</span>
         </button>
       </div>
 
       {/* Active tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        role="tabpanel"
+        aria-labelledby={`tab-${activeTab}`}
+        id={`tabpanel-${activeTab}`}
+      >
         {activeTab === "content" ? (
           <ContentTab
             cvId={cvId}
@@ -195,27 +183,15 @@ export function RefinementPanel({
             onSectionSave={() => onHtmlRefresh()}
             onUnsavedChange={() => {}}
           />
-        ) : activeTab === "actions" ? (
-          <ActionsTab
-            flowId={flowId}
-            matchScore={matchScore}
-            expiryWarning={expiryWarning}
-            coverLetterId={coverLetterId}
-            applicationId={applicationId}
-            onDownloadPdf={onDownloadPdf}
-            onRegenerateSame={onRegenerateSame}
-            onRegenerateWithTemplate={onRegenerateWithTemplate}
-            onNext={onNext}
-            onGenerateCoverLetter={onGenerateCoverLetter}
-          />
         ) : (
           <DesignTab
             cvId={cvId}
-            templateLabel={template?.label ?? null}
+            templateLabel={templateLabel}
             detectedCompany={detectedCompany}
             currentAccentHex={currentAccentHex}
             onColorApplied={onHtmlRefresh}
             onChangeTemplate={onRegenerateDifferent}
+            onRegenerateSame={onRegenerateSame}
           />
         )}
       </div>

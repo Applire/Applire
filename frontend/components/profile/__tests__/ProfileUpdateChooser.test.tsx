@@ -15,10 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ProfileUpdateChooser } from "../ProfileUpdateChooser";
 import { withIntl } from "@/lib/test-utils/with-intl";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 describe("ProfileUpdateChooser", () => {
   it("renders both action cards with i18n labels (en)", () => {

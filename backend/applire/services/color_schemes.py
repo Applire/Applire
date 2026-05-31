@@ -135,7 +135,17 @@ async def get_active_scheme(db: AsyncSession) -> ColorScheme | None:
     result = await db.execute(
         select(ColorScheme).where(ColorScheme.is_active == True)  # noqa: E712
     )
-    return result.scalar_one_or_none()
+    active = result.scalar_one_or_none()
+    if active is not None:
+        return active
+    # No scheme is flagged active (e.g. a freshly-reset or drifted DB). Fall back
+    # to the oldest scheme — the first entry the admin list renders — so the UI
+    # always has a palette to apply instead of rendering unthemed. Returns None
+    # only when no schemes exist at all.
+    fallback = await db.execute(
+        select(ColorScheme).order_by(ColorScheme.created_at).limit(1)
+    )
+    return fallback.scalar_one_or_none()
 
 
 async def list_schemes(db: AsyncSession) -> list[ColorScheme]:

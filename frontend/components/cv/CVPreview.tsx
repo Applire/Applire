@@ -19,6 +19,7 @@
 
 
 import { useState, useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { FineTunePanel } from "./FineTunePanel";
 
@@ -71,6 +72,7 @@ export function CVPreview({
   onRegenerateSame,
   onNext,
 }: CVPreviewProps) {
+  const t = useTranslations("cv");
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const [fineTuneOpen, setFineTuneOpen] = useState(false);
@@ -172,7 +174,7 @@ export function CVPreview({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4">
             <p className="text-sm font-semibold text-neutral-dark mb-4">
-              Du hast ungespeicherte Änderungen. Wirklich verlassen?
+              {t("leaveGuardTitle")}
             </p>
             <div className="flex gap-3">
               <button
@@ -187,7 +189,7 @@ export function CVPreview({
                 className="flex-1 bg-critical text-white font-semibold py-2 rounded-lg text-sm hover:opacity-90"
                 data-testid="leave-confirm"
               >
-                Verlassen
+                {t("leaveConfirm")}
               </button>
               <button
                 type="button"
@@ -198,7 +200,7 @@ export function CVPreview({
                 className="flex-1 border border-teal text-teal font-semibold py-2 rounded-lg text-sm hover:opacity-90"
                 data-testid="stay-editing"
               >
-                Bleiben
+                {t("stayEditing")}
               </button>
             </div>
           </div>
@@ -225,12 +227,12 @@ export function CVPreview({
 
         {cvSummary && !isExpired && (
           <div className="border-l-4 border-warning bg-warning-container rounded-r-lg p-3 text-xs text-neutral-dark">
-            Verfügbar bis {formatDate(cvSummary.expires_at)}
+            {t("availableUntilLabel", { date: formatDate(cvSummary.expires_at) })}
           </div>
         )}
         {isExpired && (
           <div className="border-l-4 border-critical bg-critical-container rounded-r-lg p-3 text-xs text-neutral-dark">
-            Abgelaufen. Bitte neu generieren.
+            {t("expiredLabel")}
           </div>
         )}
 
@@ -241,7 +243,7 @@ export function CVPreview({
             data-testid="download-button"
             className="w-full bg-success text-white font-semibold py-3 rounded-lg text-sm hover:opacity-90 transition-opacity"
           >
-            PDF herunterladen
+            {t("pageActionDownload")}
           </button>
           <button
             type="button"
@@ -253,7 +255,7 @@ export function CVPreview({
                 : "border border-teal text-teal"
             }`}
           >
-            {fineTuneOpen ? "Fine-tune schließen" : "Fine-tune"}
+            {fineTuneOpen ? t("fineTuneClose") : t("fineTuneOpen")}
           </button>
           {!fineTuneOpen && (
             <>
@@ -262,21 +264,21 @@ export function CVPreview({
                 onClick={() => requestNavigate(onRegenerateSame)}
                 className="w-full border border-teal text-teal font-semibold py-2.5 rounded-lg text-sm hover:opacity-90 transition-opacity"
               >
-                Neu generieren
+                {t("regenerateSame")}
               </button>
               <button
                 type="button"
                 onClick={() => requestNavigate(onRegenerateDifferent)}
                 className="w-full border border-teal text-teal font-semibold py-2.5 rounded-lg text-sm hover:opacity-90 transition-opacity"
               >
-                Andere Vorlage
+                {t("changeTemplate")}
               </button>
               <button
                 type="button"
                 onClick={() => requestNavigate(onNext)}
                 className="w-full bg-teal text-white font-semibold py-3 rounded-lg text-sm hover:opacity-90 transition-colors"
               >
-                Was nun? →
+                {t("whatNextArrow")}
               </button>
             </>
           )}
@@ -312,14 +314,14 @@ export function CVPreview({
               onClick={() => setIsZoomed((z) => !z)}
               className="absolute top-2 right-2 z-10 bg-white/80 backdrop-blur-sm border border-gray-200 text-xs text-gray-600 px-2 py-1 rounded shadow-sm hover:bg-white transition-colors"
             >
-              {isZoomed ? "Einpassen" : "Vergrößern"}
+              {isZoomed ? t("fitToWidth") : t("zoomIn")}
             </button>
           )}
 
           {previewError ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <p className="text-sm text-gray-500">
-                Vorschau konnte nicht geladen werden.
+                {t("previewLoadFailed")}
               </p>
               <button
                 type="button"
@@ -329,7 +331,7 @@ export function CVPreview({
                 }}
                 className="text-sm text-teal underline hover:opacity-80"
               >
-                Erneut versuchen
+                {t("retryPreview")}
               </button>
             </div>
           ) : htmlContent ? (
@@ -338,7 +340,7 @@ export function CVPreview({
               <iframe
                 srcDoc={htmlContent}
                 sandbox="allow-same-origin"
-                title="Lebenslauf Vorschau"
+                title={t("iframeTitle")}
                 style={{
                   width: CV_WIDTH,
                   height: containerSize.height / scale,
@@ -355,7 +357,7 @@ export function CVPreview({
                 <iframe
                   srcDoc={htmlContent}
                   sandbox="allow-same-origin"
-                  title="Lebenslauf Vorschau"
+                  title={t("iframeTitle")}
                   style={
                     needsScaling
                       ? { width: CV_WIDTH, minHeight: "100%", border: "none", display: "block" }

@@ -42,12 +42,6 @@ interface GenerateCoverLetterModalProps {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
-const TONE_OPTIONS: { value: CLTone; label: string; sub: string }[] = [
-  { value: "formal", label: "Formal", sub: "Traditionelles Bewerbungsschreiben" },
-  { value: "professional", label: "Professional", sub: "Warm but polished" },
-  { value: "conversational", label: "Conversational", sub: "Modern, direkt" },
-];
-
 export function GenerateCoverLetterModal({
   jobId,
   prefillRecipientName,
@@ -71,6 +65,12 @@ export function GenerateCoverLetterModal({
   const [tone, setTone] = useState<CLTone>(existingInputs?.tone ?? "formal");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const TONE_OPTIONS: { value: CLTone; label: string; sub: string }[] = [
+    { value: "formal", label: t("toneFormalLabel"), sub: t("toneFormalSub") },
+    { value: "professional", label: t("toneProfessionalLabel"), sub: t("toneProfessionalSub") },
+    { value: "conversational", label: t("toneConversationalLabel"), sub: t("toneConversationalSub") },
+  ];
 
   async function handleGenerate() {
     setLoading(true);
@@ -96,7 +96,7 @@ export function GenerateCoverLetterModal({
       const data = await res.json();
       onGenerated((data as { cover_letter_id: string }).cover_letter_id);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setError(err instanceof Error ? err.message : t("errorGenerationFailed"));
     } finally {
       setLoading(false);
     }
@@ -113,27 +113,27 @@ export function GenerateCoverLetterModal({
             {isRegenerate ? t("regenerate") : t("generate")}
           </h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Wir erstellen ein Bewerbungsschreiben passend zu Ihrem Lebenslauf.
+            {t("modalIntro")}
           </p>
         </div>
 
         {/* Recipient */}
         <div>
-          <label className="block text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
-            Empfänger{" "}
-            <span className="font-normal text-neutral-400">(aus Stellenanzeige)</span>
+          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
+            {t("recipientLabel")}
+            <span className="font-normal text-neutral-400 normal-case">{t("recipientHint")}</span>
           </label>
           <div className="flex gap-2">
             <input
               className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Name"
+              placeholder={t("recipientNamePlaceholder")}
               value={recipientName}
               onChange={(e) => setRecipientName(e.target.value)}
               data-testid="cl-recipient-name"
             />
             <input
               className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Unternehmen"
+              placeholder={t("recipientCompanyPlaceholder")}
               value={recipientCompany}
               onChange={(e) => setRecipientCompany(e.target.value)}
               data-testid="cl-recipient-company"
@@ -143,13 +143,13 @@ export function GenerateCoverLetterModal({
 
         {/* Salary */}
         <div>
-          <label className="block text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
-            Gehaltswunsch{" "}
-            <span className="font-normal text-neutral-400">(optional)</span>
+          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
+            {t("salaryLabel")}
+            <span className="font-normal text-neutral-400 normal-case">{t("optionalHint")}</span>
           </label>
           <input
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="z.B. 95.000 – 110.000 € p.a."
+            placeholder={t("salaryPlaceholder")}
             value={salary}
             onChange={(e) => setSalary(e.target.value)}
             data-testid="cl-salary"
@@ -158,13 +158,13 @@ export function GenerateCoverLetterModal({
 
         {/* Availability */}
         <div>
-          <label className="block text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
-            Verfügbarkeit{" "}
-            <span className="font-normal text-neutral-400">(optional)</span>
+          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
+            {t("availabilityLabel")}
+            <span className="font-normal text-neutral-400 normal-case">{t("optionalHint")}</span>
           </label>
           <input
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="z.B. 3 Monate zum Monatsende"
+            placeholder={t("availabilityPlaceholder")}
             value={availability}
             onChange={(e) => setAvailability(e.target.value)}
             data-testid="cl-availability"
@@ -173,14 +173,14 @@ export function GenerateCoverLetterModal({
 
         {/* Motivation */}
         <div>
-          <label className="block text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
-            Persönliche Motivation{" "}
-            <span className="font-normal text-neutral-400">(optional)</span>
+          <label className="flex items-center gap-1 text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">
+            {t("motivationLabel")}
+            <span className="font-normal text-neutral-400 normal-case">{t("optionalHint")}</span>
           </label>
           <textarea
             className="w-full border border-neutral-300 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             rows={3}
-            placeholder="Warum interessiert Sie diese Stelle? Leer lassen = KI generiert aus Stellenanzeige."
+            placeholder={t("motivationPlaceholder")}
             value={motivation}
             onChange={(e) => setMotivation(e.target.value)}
             data-testid="cl-motivation"
@@ -190,7 +190,7 @@ export function GenerateCoverLetterModal({
         {/* Tone */}
         <div>
           <label className="block text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-2">
-            Tonalität
+            {t("toneLabel")}
           </label>
           <div className="flex gap-2">
             {TONE_OPTIONS.map((opt) => (
@@ -233,7 +233,7 @@ export function GenerateCoverLetterModal({
             className="flex-[2] bg-blue-600 text-white rounded py-2.5 text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
             data-testid="cl-modal-generate"
           >
-            {loading ? t("generating") : `${t("generate")} →`}
+            {loading ? t("generating") : t("generateArrow")}
           </button>
         </div>
       </div>

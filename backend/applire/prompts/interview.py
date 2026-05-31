@@ -334,16 +334,20 @@ Schema:
       "graduation_year": "YYYY or null"
     }
   ],
-  "gap_resolution": "full or partial or none",
+  "gap_resolution": "full or partial or declined or none",
   "follow_up_hint": "Short suggestion for adjacent domain to probe, or null"
 }
 
 Rules:
 - Only include data EXPLICITLY stated in the answer — do not infer or fabricate
 - gap_resolution: "full" if the answer provides concrete, specific information about the gap;
-  "partial" if relevant but incomplete or vague; "none" if off-topic or empty
-- follow_up_hint: when gap_resolution is "partial" or "none", suggest a related domain or context
-  the candidate might have experience in. Set to null when gap_resolution is "full".
+  "partial" if relevant but incomplete or vague;
+  "declined" if the candidate clearly states they have NO experience with this gap and offers
+  no transferable/adjacent experience either (e.g. "I've never worked with that", "no IoT experience");
+  "none" if off-topic or empty
+- follow_up_hint: when gap_resolution is "partial", suggest a related domain or context the
+  candidate might have experience in. Set to null for "full" and "declined" — do not keep probing
+  a gap the candidate has explicitly ruled out.
 - Omit work_history_to_add entries where role is null or empty"""
 
 

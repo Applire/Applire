@@ -21,8 +21,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
@@ -137,7 +137,6 @@ function hasProfileGaps(profile: {
 export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
-  const tNav = useTranslations("nav");
   const tCommon = useTranslations("common");
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -263,41 +262,14 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
         <p className="text-critical mb-4">{error}</p>
-        <Button onClick={() => router.push("/")}>{t("backToHome")}</Button>
+        <Button onClick={() => router.push("/dashboard")}>{t("backToHome")}</Button>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push("/")}
-              className="text-sm text-teal hover:underline"
-            >
-              {t("back")}
-            </button>
-            <h1 className="font-heading text-2xl font-bold text-neutral-dark">{t("title")}</h1>
-          </div>
-          {profile && (
-            <span
-              className={cn(
-                "text-xs font-medium px-3 py-1 rounded-full",
-                completenessScore >= 0.8
-                  ? "bg-success text-white"
-                  : completenessScore >= 0.5
-                  ? "bg-warning text-white"
-                  : "bg-gray-400 text-white"
-              )}
-            >
-              {t("complete", { pct: Math.round(completenessScore * 100) })}
-            </span>
-          )}
-        </div>
-      </header>
+      <AppTopbar mode="section" titleKey="shell.profile" />
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
@@ -305,6 +277,19 @@ export default function ProfilePage() {
           {error && (
             <div className="p-4 rounded-lg bg-critical/10 border border-critical/20">
               <p className="text-sm text-critical">{error}</p>
+            </div>
+          )}
+
+          {profile && (
+            <div className="flex justify-end mb-2">
+              <span className={cn(
+                "text-xs font-medium px-3 py-1 rounded-full",
+                completenessScore >= 0.8 ? "bg-success text-white" :
+                completenessScore >= 0.5 ? "bg-warning text-white" :
+                "bg-gray-400 text-white"
+              )}>
+                {t("complete", { pct: Math.round(completenessScore * 100) })}
+              </span>
             </div>
           )}
 
@@ -317,7 +302,7 @@ export default function ProfilePage() {
             }`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">
-                  {t("completeness")}: {Math.round((profile.completeness ?? 0) * 100)}%
+                  {t("completenessLabel", { pct: Math.round((profile.completeness ?? 0) * 100) })}
                 </span>
                 {hasProfileGaps(profile.profile) && (
                   <Button size="sm" variant="outline" onClick={openEnrichForAll}>
@@ -406,7 +391,11 @@ export default function ProfilePage() {
                                       className="text-amber-500 hover:text-amber-600 text-xs h-7 px-2"
                                       onClick={() => openEnrichForEntry(company, role)}
                                     >
-                                      ⚠ {t("enrichEntry")}
+                                      <span className="flex items-center gap-1">
+                                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                                        <span aria-hidden="true">⚠</span>
+                                        {t("enrichEntry")}
+                                      </span>
                                     </Button>
                                   </div>
                                 )}
@@ -448,7 +437,7 @@ export default function ProfilePage() {
                     </div>
                     {record.changes.map((change, cIdx) => (
                       <p key={cIdx} className="text-gray-600">
-                        {change.action}: {change.section}/{change.field}
+                        {t("changeLog", { action: change.action, section: change.section, field: change.field })}
                       </p>
                     ))}
                   </div>
@@ -458,21 +447,6 @@ export default function ProfilePage() {
           )}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex justify-center gap-6">
-          <Link href="/" className="text-sm text-teal hover:underline">
-            {tNav("dashboard")}
-          </Link>
-          <Link href="/settings" className="text-sm text-teal hover:underline">
-            {tNav("settings")}
-          </Link>
-          <Link href="/help" className="text-sm text-gray-500 hover:underline">
-            {tNav("help")}
-          </Link>
-        </div>
-      </footer>
 
       <EnrichmentDrawer
         open={enrichDrawerOpen}

@@ -169,8 +169,10 @@ export function ApplicationCard({
                   onDelete();
                 }}
                 className="text-critical hover:text-critical/80"
+                aria-label={t("deleteConfirm")}
               >
-                🗑
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- delete emoji, not user-facing text */}
+                <span aria-hidden="true">🗑</span>
               </Button>
             )}
           </div>

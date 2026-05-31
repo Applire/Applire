@@ -18,6 +18,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { FineTunePanel } from "../FineTunePanel";
+import { withIntl } from "@/lib/test-utils/with-intl";
 
 const MOCK_SECTIONS_RESPONSE = {
   sections: [
@@ -59,12 +60,12 @@ describe("FineTunePanel", () => {
 
   it("shows loading skeleton while fetching sections", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     expect(document.querySelectorAll("[data-testid='section-skeleton']").length).toBeGreaterThan(0);
   });
 
   it("renders section list items after loading", async () => {
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     const items = await screen.findAllByTestId("section-list-item");
     expect(items).toHaveLength(2);
     expect(screen.getByText("Introduction")).toBeTruthy();
@@ -72,7 +73,7 @@ describe("FineTunePanel", () => {
   });
 
   it("shows gap badge with count for sections with gaps", async () => {
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     await screen.findAllByTestId("section-list-item");
     const badge = screen.getByTestId("gap-badge");
     expect(badge.textContent).toBe("1");
@@ -80,8 +81,8 @@ describe("FineTunePanel", () => {
 
   it("shows retry button on fetch error", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
-    render(<FineTunePanel {...BASE_PROPS} />);
-    await screen.findByText("Erneut versuchen");
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
+    await screen.findByText("Try again");
   });
 
   it("shows 'all gaps closed' when all section gaps are empty", async () => {
@@ -100,12 +101,12 @@ describe("FineTunePanel", () => {
         general_gaps: [],
       }),
     } as Response);
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     await screen.findByTestId("all-gaps-closed");
   });
 
   it("gap badge is shown for sections with gaps", async () => {
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     await screen.findAllByTestId("section-list-item");
     expect(screen.getByTestId("gap-badge")).toBeTruthy();
   });
@@ -121,7 +122,7 @@ describe("FineTunePanel", () => {
       })),
     });
 
-    render(<FineTunePanel {...BASE_PROPS} />);
+    render(withIntl(<FineTunePanel {...BASE_PROPS} />));
     await screen.findAllByTestId("section-list-item");
     expect(document.querySelector("[data-testid='mobile-accordion']")).toBeTruthy();
   });

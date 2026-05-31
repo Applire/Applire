@@ -44,7 +44,7 @@ async function runFullOnboardingFlow(page: Page): Promise<string> {
   const uniqueJD = `${JD_TEXT}\n\n<!-- felix-dashboard-test: ${Date.now()} -->`;
   await page.getByTestId("jd-mode-text").click();
   await page
-    .locator('textarea[placeholder="Paste the full job description here..."]')
+    .getByTestId('jd-text-input')
     .fill(uniqueJD);
 
   const fileInput = page.getByTestId("file-input");
@@ -98,11 +98,14 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
     await runFullOnboardingFlow(page);
     await page.goto("/dashboard");
 
-    await expect(page.getByRole("button", { name: /dashboard/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /profile|masterprofil/i }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /profil aktualisieren|update profile/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /documents|dokumente/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /settings|einstellungen/i })).toBeVisible();
+    // Scope to the sidebar nav landmark — the topbar also has an "Open settings"
+    // button, which would make an unscoped /settings/i match ambiguous.
+    const nav = page.getByRole("navigation");
+    await expect(nav.getByRole("button", { name: /dashboard/i })).toBeVisible();
+    await expect(nav.getByRole("button", { name: /profile|masterprofil/i }).first()).toBeVisible();
+    await expect(nav.getByRole("button", { name: /profil aktualisieren|update profile/i })).toBeVisible();
+    await expect(nav.getByRole("button", { name: /documents|dokumente/i })).toBeVisible();
+    await expect(nav.getByRole("button", { name: /settings|einstellungen/i })).toBeVisible();
   });
 
   test("dashboard shows the completed application card with CV Ready status", async ({ page }) => {

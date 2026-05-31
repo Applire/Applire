@@ -21,8 +21,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -68,7 +68,6 @@ export default function ApplicationDetailPage() {
   const params = useParams();
   const t = useTranslations("applications");
   const tDash = useTranslations("dashboard");
-  const tNav = useTranslations("nav");
   const appId = params.appId as string;
 
   const [loading, setLoading] = useState(true);
@@ -171,7 +170,7 @@ export default function ApplicationDetailPage() {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
         <p className="text-critical mb-4">{error}</p>
-        <Button onClick={() => router.push("/")}>{t("backToDashboard")}</Button>
+        <Button onClick={() => router.push("/dashboard")}>{t("backToDashboard")}</Button>
       </div>
     );
   }
@@ -185,33 +184,12 @@ export default function ApplicationDetailPage() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push("/")}
-              className="text-sm text-teal hover:underline"
-            >
-              {t("backToDashboard")}
-            </button>
-            <h1 className="font-heading text-2xl font-bold text-neutral-dark">
-              {application.role_title || t("unknownRole")}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge className={workflowConfig.className}>
-              {tDash(workflowConfig.labelKey)}
-            </Badge>
-            <Badge className={USER_STATUS_OPTIONS.find(s => s.value === userStatus)?.className ?? "bg-gray-400 text-white"}>
-              {(() => {
-                const opt = USER_STATUS_OPTIONS.find(s => s.value === userStatus);
-                return opt ? tDash(opt.labelKey) : userStatus;
-              })()}
-            </Badge>
-          </div>
-        </div>
-      </header>
+      <AppTopbar
+        mode="detail"
+        backHref="/dashboard"
+        backLabelKey="shell.dashboard"
+        pageTitle={application.role_title || t("unknownRole")}
+      />
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
@@ -228,6 +206,16 @@ export default function ApplicationDetailPage() {
             </div>
           )}
 
+          <div className="max-w-4xl mx-auto flex items-center gap-2 mb-4">
+            <Badge className={workflowConfig.className}>{tDash(workflowConfig.labelKey)}</Badge>
+            <Badge className={USER_STATUS_OPTIONS.find(s => s.value === userStatus)?.className ?? "bg-gray-400 text-white"}>
+              {(() => {
+                const opt = USER_STATUS_OPTIONS.find(s => s.value === userStatus);
+                return opt ? tDash(opt.labelKey) : userStatus;
+              })()}
+            </Badge>
+          </div>
+
           {/* Company Info */}
           <Card className="p-6">
             <h2 className="font-heading text-xl font-bold text-neutral-dark mb-4">
@@ -236,15 +224,13 @@ export default function ApplicationDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-500">{t("company")}</label>
-                <p className="text-base text-neutral-dark mt-1">
-                  {application.company_name || "—"}
-                </p>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <p className="text-base text-neutral-dark mt-1">{application.company_name || "—"}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-500">{t("role")}</label>
-                <p className="text-base text-neutral-dark mt-1">
-                  {application.role_title || "—"}
-                </p>
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                <p className="text-base text-neutral-dark mt-1">{application.role_title || "—"}</p>
               </div>
             </div>
           </Card>
@@ -327,9 +313,8 @@ export default function ApplicationDetailPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-500">{t("currentStep")}</span>
-                  <span className="text-sm font-medium text-neutral-dark">
-                    {application.flow_current_step || "—"}
-                  </span>
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                  <span className="text-sm font-medium text-neutral-dark">{application.flow_current_step || "—"}</span>
                 </div>
                 <div className="flex gap-2">
                   {application.flow_current_step && application.flow_current_step !== "complete" && (
@@ -378,20 +363,6 @@ export default function ApplicationDetailPage() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex justify-center gap-6">
-          <Link href="/" className="text-sm text-teal hover:underline">
-            {tNav("dashboard")}
-          </Link>
-          <Link href="/profile" className="text-sm text-teal hover:underline">
-            {tNav("profile")}
-          </Link>
-          <Link href="/settings" className="text-sm text-teal hover:underline">
-            {tNav("settings")}
-          </Link>
-        </div>
-      </footer>
     </div>
   );
 }

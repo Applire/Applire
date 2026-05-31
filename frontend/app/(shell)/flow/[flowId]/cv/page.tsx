@@ -29,6 +29,7 @@ import { RefinementPanel } from "@/components/cv/RefinementPanel";
 import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
+import { CVPageActionBar } from "@/components/cv/CVPageActionBar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -212,28 +213,35 @@ export default function CVPage({
     const expiryWarning = isExpired
       ? { level: "critical" as const, expiresIn: t("expired") }
       : flowState?.cv_summary
-        ? { level: "warning" as const, expiresIn: `${t("availableUntil")} ${new Date(flowState.cv_summary.expires_at).toLocaleDateString()}` }
+        ? {
+            level: "warning" as const,
+            expiresIn: `${t("availableUntil")} ${new Date(flowState.cv_summary.expires_at).toLocaleDateString()}`,
+          }
         : null;
 
     return (
-      <div className="min-h-screen bg-neutral-light" data-testid="cv-page">
+      <div className="min-h-screen bg-surface-dim" data-testid="cv-page">
         <div className="flex w-full h-[calc(100vh-56px)] gap-0">
-          <div className="flex-1 min-w-0 flex flex-col px-4 py-3 gap-3 bg-neutral-light overflow-hidden">
+          <div className="flex-1 min-w-0 flex flex-col px-4 py-3 gap-3 overflow-hidden">
             {flowState?.job_summary && (
-              <h2 className="text-lg font-heading font-bold text-neutral-dark leading-snug">
+              <h2 className="text-lg font-heading font-bold text-on-surface leading-snug">
                 {flowState.job_summary.role_title}
               </h2>
             )}
-            <CVDocument
-              cvId={cvId}
-              ref={cvDocRef}
-              className="flex-1"
+            <CVPageActionBar
+              flowId={flowId}
+              applicationId={flowState?.application_id ?? null}
+              coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
+              onDownloadPdf={() => void handleDownloadPdf()}
+              onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
+              onNext={() => setPhase("complete")}
             />
+            <CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />
           </div>
           <RefinementPanel
             cvId={cvId}
             flowId={flowId}
-            jobSummary={flowState?.job_summary?.role_title ?? null}
+            roleTitle={flowState?.job_summary?.role_title ?? null}
             gapSummary={{
               gaps: flowState?.gap_summary?.gaps ?? [],
               sections: flowState?.gap_summary?.sections ?? [],
@@ -241,35 +249,29 @@ export default function CVPage({
             cvSummary={{
               sections: flowState?.cv_summary?.sections ?? [],
             }}
-            template={{ label: template === "classic_german" ? t("templateClassic") : t("templateModern") }}
+            templateLabel={template === "classic_german" ? t("templateClassic") : t("templateModern")}
             matchScore={flowState?.gap_summary?.match_score ?? null}
             expiryWarning={expiryWarning}
-            coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
-            applicationId={flowState?.application_id ?? null}
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
-            currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#2b5fa8"}
+            currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#003399"}
             onHtmlRefresh={() => cvDocRef.current?.refresh()}
             onRegenerateSame={() => void handleGenerate(template)}
             onRegenerateDifferent={() => setPhase("template_select")}
-            onRegenerateWithTemplate={(tpl) => void handleGenerate(tpl as CVTemplate)}
-            onNext={() => setPhase("complete")}
-            onDownloadPdf={() => void handleDownloadPdf()}
-            onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
             collapsed={!panelOpen}
             onToggleCollapse={() => setPanelOpen((o) => !o)}
           />
         </div>
-      {showCoverLetterModal && flowState?.job_id && (
-        <GenerateCoverLetterModal
-          jobId={flowState.job_id.toString()}
-          onClose={() => setShowCoverLetterModal(false)}
-          onGenerated={(_clId) => {
-            setShowCoverLetterModal(false);
-            router.push(`/flow/${flowId}/cover-letter`);
-          }}
-        />
-      )}
-    </div>
+        {showCoverLetterModal && flowState?.job_id && (
+          <GenerateCoverLetterModal
+            jobId={flowState.job_id.toString()}
+            onClose={() => setShowCoverLetterModal(false)}
+            onGenerated={(_clId) => {
+              setShowCoverLetterModal(false);
+              router.push(`/flow/${flowId}/cover-letter`);
+            }}
+          />
+        )}
+      </div>
     );
   }
 

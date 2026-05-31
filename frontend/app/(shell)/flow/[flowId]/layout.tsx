@@ -22,7 +22,8 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
+import { AppTopbar } from "@/components/shell/AppTopbar";
+import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -36,11 +37,11 @@ const STEP_ROUTE: Record<string, string> = {
   complete:      "cv",
 };
 
-const STEP_KEYS: { step: string; labelKey: "stepProfile" | "stepGaps" | "stepInterview" | "stepCV" }[] = [
-  { step: "cv_import",     labelKey: "stepProfile" },
-  { step: "gap_analysis",  labelKey: "stepGaps" },
-  { step: "interview",     labelKey: "stepInterview" },
-  { step: "cv_generation", labelKey: "stepCV" },
+const STEP_KEYS: { step: string; labelKey: string }[] = [
+  { step: "cv_import",     labelKey: "flow.stepProfile" },
+  { step: "gap_analysis",  labelKey: "flow.stepGaps" },
+  { step: "interview",     labelKey: "flow.stepInterview" },
+  { step: "cv_generation", labelKey: "flow.stepCV" },
 ];
 
 interface FlowState {
@@ -52,68 +53,6 @@ interface FlowState {
   profile_completeness?: number | null;
 }
 
-const s = {
-  shell: {
-    minHeight: "100vh",
-    display: "flex",
-    flexDirection: "column" as const,
-    background: "#f5f5f5",
-  },
-  topBar: {
-    background: "#fff",
-    borderBottom: "1px solid #e5e7eb",
-    padding: "12px 24px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-  },
-  logo: { fontSize: 18, fontWeight: 700, color: "#1a1a2e", textDecoration: "none" },
-  jobBadge: {
-    fontSize: 12,
-    color: "#6b7280",
-    background: "#f3f4f6",
-    padding: "3px 10px",
-    borderRadius: 20,
-    maxWidth: 300,
-    overflow: "hidden" as const,
-    textOverflow: "ellipsis" as const,
-    whiteSpace: "nowrap" as const,
-  },
-  stepper: {
-    display: "flex",
-    gap: 4,
-    alignItems: "center",
-  },
-  stepBadge: (active: boolean, done: boolean) => ({
-    padding: "4px 12px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 600,
-    background: done ? "#22c55e" : active ? "#2563eb" : "#e2e8f0",
-    color: done || active ? "#fff" : "#64748b",
-  }),
-  main: {
-    flex: 1,
-    width: "100%",
-    overflow: "auto",
-  },
-  mainConstrained: {
-    flex: 1,
-    maxWidth: 960,
-    width: "100%",
-    margin: "0 auto",
-    padding: "32px 20px",
-  },
-  loading: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "60vh",
-    fontSize: 14,
-    color: "#6b7280",
-  },
-};
 
 export default function FlowLayout({
   children,
@@ -171,34 +110,32 @@ export default function FlowLayout({
     ? stepOrder.indexOf(flowState.current_step)
     : -1;
 
+  const steps = STEP_KEYS.map(({ step, labelKey }, idx) => ({
+    key: step,
+    labelKey,
+    state: (STEP_ROUTE[step] === currentSegment
+      ? "active"
+      : currentStepIndex > idx
+      ? "done"
+      : "pending") as "active" | "done" | "pending",
+  }));
+
   return (
-    <div style={s.shell}>
-      <div style={s.topBar}>
-        <Link href="/" style={s.logo}>
-          Applire
-        </Link>
-
-        <div style={s.stepper}>
-          {STEP_KEYS.map(({ step, labelKey }, idx) => {
-            const isActive = STEP_ROUTE[step] === currentSegment;
-            const isDone = currentStepIndex > idx;
-            return (
-              <span key={step} style={s.stepBadge(isActive, isDone)}>
-                {t(labelKey)}
-              </span>
-            );
-          })}
-        </div>
-
-        {flowState?.job_summary && (
-          <div style={s.jobBadge} title={flowState.job_summary.role_title}>
-            {flowState.job_summary.role_title}
+    <div className="flex flex-col flex-1 min-h-screen bg-surface-dim">
+      <AppTopbar
+        mode="flow"
+        steps={steps}
+        trailingBadge={flowState?.job_summary?.role_title}
+      />
+      <div className={cn(
+        "flex-1 w-full overflow-y-auto",
+        currentSegment === "cv" ? "" : "max-w-[960px] mx-auto px-5 py-8"
+      )}>
+        {ready ? children : (
+          <div className="flex items-center justify-center min-h-[60vh] text-sm text-gray-500">
+            {t("loading")}
           </div>
         )}
-      </div>
-
-      <div style={currentSegment === "cv" ? s.main : s.mainConstrained}>
-        {ready ? children : <div style={s.loading}>{t("loading")}</div>}
       </div>
     </div>
   );

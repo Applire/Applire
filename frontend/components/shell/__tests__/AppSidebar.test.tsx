@@ -39,7 +39,7 @@ describe("AppSidebar", () => {
 
   it("renders Applire logo image", () => {
     render(<AppSidebar />);
-    expect(screen.getByRole("img", { name: /applire/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /appName/i })).toBeInTheDocument();
   });
 
   it("renders Applire brand name", () => {
@@ -47,13 +47,14 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Applire")).toBeInTheDocument();
   });
 
-  it("renders all five nav items", () => {
+  it("renders all six nav items", () => {
     render(<AppSidebar />);
     expect(screen.getByRole("button", { name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /profile/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /import/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /documents/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /settings/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /admin/i })).toBeInTheDocument();
   });
 
   it("highlights Dashboard when pathname is /dashboard", () => {
@@ -119,9 +120,9 @@ describe("AppSidebar", () => {
     expect(screen.getByText("F")).toBeInTheDocument();
   });
 
-  it("shows '?' when userName is not provided", () => {
+  it("hides the user strip when no userName is provided", () => {
     render(<AppSidebar />);
-    expect(screen.getByText("?")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-user-strip")).toBeNull();
   });
 
   it("displays userName in the user strip", () => {
@@ -129,9 +130,20 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Tobias Rosenbaum")).toBeInTheDocument();
   });
 
-  it("shows em-dash when userName is null", () => {
+  it("hides the user strip when userName is null", () => {
     render(<AppSidebar userName={null} />);
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-user-strip")).toBeNull();
+  });
+
+  it("renders 2-letter initials when full name provided", () => {
+    render(<AppSidebar userName="Marcus Brandt" />);
+    expect(screen.getByText("MB")).toBeInTheDocument();
+  });
+
+  it("exposes an Admin nav entry", () => {
+    render(<AppSidebar />);
+    // The mock returns the key as-is, so t("admin") → "admin"
+    expect(screen.getByRole("button", { name: /admin/i })).toBeInTheDocument();
   });
 
   it("does not render a help button", () => {
@@ -144,5 +156,10 @@ describe("AppSidebar", () => {
     // NEXT_PUBLIC_APP_VERSION is undefined in test env — component falls back to empty string
     // We just check the footer element exists with the right test-id
     expect(screen.getByTestId("sidebar-version")).toBeInTheDocument();
+  });
+
+  it("computes correct initials when userName has a double space", () => {
+    render(<AppSidebar userName="Tobias  Rosenbaum" />);
+    expect(screen.getByText("TR")).toBeInTheDocument();
   });
 });

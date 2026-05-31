@@ -19,6 +19,7 @@
 
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface DropzoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDrop"> {
@@ -30,6 +31,7 @@ interface DropzoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDr
 
 const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
   ({ accept = ".pdf,.docx,.doc", multiple = true, onDrop, disabled, className, ...props }, ref) => {
+    const t = useTranslations("dropzone");
     const [isDragOver, setIsDragOver] = React.useState(false);
     const inputRef = React.useRef<HTMLInputElement>(null);
     
@@ -121,15 +123,15 @@ const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
         
         <div>
           <p className="text-sm font-semibold text-neutral-dark">
-            Drag & drop CVs here
+            {t("dragDropHeading")}
           </p>
           <p className="text-sm text-gray-500 mt-1">
-            or <span className="text-teal underline">click to browse</span>
+            {t("orPrefix")} <span className="text-teal underline">{t("clickToBrowse")}</span>
           </p>
         </div>
-        
+
         <p className="text-xs text-gray-400">
-          PDF, DOCX, DOC up to 10MB each
+          {t("formatHint")}
         </p>
       </div>
     );

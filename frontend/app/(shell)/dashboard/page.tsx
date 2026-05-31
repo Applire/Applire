@@ -87,16 +87,16 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <AppTopbar />
+      <AppTopbar mode="section" titleKey="shell.dashboard" />
 
       <main className="flex-1 overflow-y-auto px-8 py-7">
         {/* Page header */}
         <div className="mb-5">
           <h1 className="text-[22px] font-extrabold text-neutral-dark font-manrope tracking-tight">
-            {firstName ? `Welcome back, ${firstName} 👋` : t("welcomeBack")}
+            {firstName ? t("welcomeBackUser", { name: firstName }) : t("welcomeBack")}
           </h1>
           <p className="text-[13px] text-gray-500 mt-0.5">
-            {inProgress} active {inProgress === 1 ? "application" : "applications"}
+            {t("activeApplicationsSubtitle", { count: inProgress })}
           </p>
         </div>
 
@@ -116,7 +116,7 @@ export default function DashboardPage() {
               onClick={() => router.push("/documents")}
               className="text-[12px] font-bold text-teal hover:underline"
             >
-              View all in My Documents →
+              {t("viewAllInDocuments")}
             </button>
           )}
         </div>

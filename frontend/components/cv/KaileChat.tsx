@@ -93,7 +93,7 @@ export function KaileChat({
     return (
       <div className="border border-neutral-medium rounded-lg p-3 bg-white">
         <h4 className="text-sm font-medium text-neutral-dark mb-2">
-          Kailes Vorschlag
+          {t("kaileSuggestionHeading")}
         </h4>
         <p
           className="text-sm text-neutral-darker bg-neutral-light p-3 rounded whitespace-pre-wrap"
@@ -134,12 +134,12 @@ export function KaileChat({
   return (
     <div className="border border-neutral-medium rounded-lg p-3 bg-white">
       <h4 className="text-sm font-medium text-neutral-dark mb-2">
-        Anweisungen an Kaile
+        {t("kaileInstructionsHeading")}
       </h4>
       {gaps.length > 0 && (
         <>
           <p className="text-xs text-neutral-dark mb-2">
-            L&uuml;cken ber&uuml;cksichtigen:
+            {t("kaileGapsConsider")}
           </p>
           <div className="flex flex-wrap gap-1.5 mb-3">
             {gaps.map((gap) => (
@@ -178,7 +178,11 @@ export function KaileChat({
           {loading ? (
             <span data-testid="kaile-loading">{t("rewriting")}</span>
           ) : (
-            `↻ ${t("rewriteSection")}`
+            <span className="flex items-center gap-1">
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+              <span aria-hidden="true">↻</span>
+              {t("rewriteSection")}
+            </span>
           )}
         </button>
       </div>

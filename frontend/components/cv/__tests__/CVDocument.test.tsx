@@ -19,6 +19,7 @@ import { render, screen, act, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 import { createRef } from "react";
 import { CVDocument, type CVDocumentHandle } from "../CVDocument";
+import { withIntl } from "@/lib/test-utils/with-intl";
 
 const CV_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const TEST_HTML = "<html><body><p>Max Mustermann</p></body></html>";
@@ -30,7 +31,7 @@ describe("CVDocument", () => {
 
   it("shows loading skeleton while fetch is in flight", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
-    render(<CVDocument cvId={CV_ID} />);
+    render(withIntl(<CVDocument cvId={CV_ID} />));
     expect(screen.getByTestId("cv-loading")).toBeTruthy();
     expect(screen.queryByTestId("cv-iframe")).toBeNull();
   });
@@ -41,15 +42,15 @@ describe("CVDocument", () => {
       text: async () => TEST_HTML,
     } as Response);
 
-    render(<CVDocument cvId={CV_ID} />);
+    render(withIntl(<CVDocument cvId={CV_ID} />));
     const iframe = await screen.findByTestId("cv-iframe") as HTMLIFrameElement;
     expect(iframe.getAttribute("srcdoc")).toBe(TEST_HTML);
   });
 
   it("shows error state when fetch fails", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
-    render(<CVDocument cvId={CV_ID} />);
-    await screen.findByText("Vorschau konnte nicht geladen werden.");
+    render(withIntl(<CVDocument cvId={CV_ID} />));
+    await screen.findByText("Preview could not be loaded.");
   });
 
   it("retries fetch when error retry button clicked", async () => {
@@ -58,8 +59,8 @@ describe("CVDocument", () => {
       .mockRejectedValueOnce(new Error("fail"))
       .mockResolvedValueOnce({ ok: true, text: async () => TEST_HTML } as Response);
 
-    render(<CVDocument cvId={CV_ID} />);
-    const retryBtn = await screen.findByText("Erneut versuchen");
+    render(withIntl(<CVDocument cvId={CV_ID} />));
+    const retryBtn = await screen.findByText("Try again");
     act(() => retryBtn.click());
     await screen.findByTestId("cv-iframe");
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -72,7 +73,7 @@ describe("CVDocument", () => {
     } as Response);
 
     const ref = createRef<CVDocumentHandle>();
-    render(<CVDocument cvId={CV_ID} ref={ref} />);
+    render(withIntl(<CVDocument cvId={CV_ID} ref={ref} />));
     await screen.findByTestId("cv-iframe");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -86,7 +87,7 @@ describe("CVDocument", () => {
       text: async () => TEST_HTML,
     } as Response);
 
-    render(<CVDocument cvId={CV_ID} />);
+    render(withIntl(<CVDocument cvId={CV_ID} />));
     await screen.findByTestId("cv-iframe");
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`/api/cv/${CV_ID}/html`)

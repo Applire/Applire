@@ -19,6 +19,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { SectionEditor } from "./SectionEditor";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -49,6 +50,8 @@ interface FineTunePanelProps {
 }
 
 export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: FineTunePanelProps) {
+  const t = useTranslations("cv");
+  const tUnsaved = useTranslations("unsavedChanges");
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [generalGaps, setGeneralGaps] = useState<GapHintItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,7 +159,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-sm w-full mx-4">
             <p className="text-sm font-semibold text-neutral-dark mb-4">
-              Ungespeicherte Änderungen verwerfen?
+              {tUnsaved("title")}
             </p>
             <div className="flex gap-3">
               <button
@@ -165,7 +168,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
                 className="flex-1 bg-critical text-white font-semibold py-2 rounded-lg text-sm hover:opacity-90"
                 data-testid="discard-confirm"
               >
-                Verwerfen
+                {tUnsaved("discard")}
               </button>
               <button
                 type="button"
@@ -173,7 +176,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
                 className="flex-1 border border-teal text-teal font-semibold py-2 rounded-lg text-sm hover:opacity-90"
                 data-testid="keep-editing"
               >
-                Weiter bearbeiten
+                {tUnsaved("keepEditing")}
               </button>
             </div>
           </div>
@@ -188,10 +191,10 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
             <span className="text-sm font-bold text-neutral-dark">
               {allGapsClosed ? (
                 <span className="text-success" data-testid="all-gaps-closed">
-                  ✓ Alle Lücken geschlossen
+                  {t("allGapsClosedLabel")}
                 </span>
               ) : (
-                "Abschnitte bearbeiten"
+                t("editSections")
               )}
             </span>
             <button
@@ -199,7 +202,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
               onClick={handleCloseRequest}
               className="text-xs text-gray-500 hover:text-gray-700"
             >
-              Schließen ✕
+              {t("closeSections")}
             </button>
           </div>
 
@@ -209,7 +212,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
               <iframe
                 srcDoc={htmlContent}
                 sandbox="allow-same-origin"
-                title="Lebenslauf Vorschau"
+                title={t("iframeTitle")}
                 className="w-full h-[35vh] border-0"
               />
             ) : (
@@ -228,9 +231,9 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
 
           {error && !loading && (
             <div className="p-4 text-center">
-              <p className="text-sm text-gray-500 mb-2">Abschnitte konnten nicht geladen werden.</p>
+              <p className="text-sm text-gray-500 mb-2">{t("sectionsLoadFailed")}</p>
               <button type="button" onClick={() => void loadSections()} className="text-sm text-teal underline">
-                Erneut versuchen
+                {t("retryLoadSections")}
               </button>
             </div>
           )}
@@ -270,8 +273,10 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
                         {section.gaps.length}
                       </span>
                     ) : (
-                      <span className="text-success text-xs">✓</span>
+                      /* eslint-disable-next-line formatjs/no-literal-string-in-jsx */
+                      <span className="text-success text-xs" aria-hidden="true">✓</span>
                     )}
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- triangle symbols for accordion toggle */}
                     <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
                   </div>
                 </button>
@@ -300,10 +305,10 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
               <span className="text-sm font-bold text-neutral-dark">
                 {allGapsClosed ? (
                   <span className="text-success" data-testid="all-gaps-closed">
-                    ✓ Alle Lücken geschlossen
+                    {t("allGapsClosedLabel")}
                   </span>
                 ) : (
-                  "Abschnitte bearbeiten"
+                  t("editSections")
                 )}
               </span>
               <button
@@ -311,7 +316,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
                 onClick={handleCloseRequest}
                 className="text-xs text-gray-500 hover:text-gray-700"
               >
-                Schließen ✕
+                {t("closeSections")}
               </button>
             </div>
 
@@ -332,14 +337,14 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
               {error && !loading && (
                 <div className="p-4 text-center">
                   <p className="text-sm text-gray-500 mb-2">
-                    Abschnitte konnten nicht geladen werden.
+                    {t("sectionsLoadFailed")}
                   </p>
                   <button
                     type="button"
                     onClick={() => void loadSections()}
                     className="text-sm text-teal underline hover:opacity-80"
                   >
-                    Erneut versuchen
+                    {t("retryLoadSections")}
                   </button>
                 </div>
               )}
@@ -368,7 +373,8 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
                           {section.gaps.length}
                         </span>
                       ) : (
-                        <span className="text-success text-xs">✓</span>
+                        /* eslint-disable-next-line formatjs/no-literal-string-in-jsx */
+                        <span className="text-success text-xs" aria-hidden="true">✓</span>
                       )}
                     </span>
                   </button>
@@ -394,7 +400,7 @@ export function FineTunePanel({ cvId, initialHtml, onClose, onUnsavedChange }: F
               <iframe
                 srcDoc={htmlContent}
                 sandbox="allow-same-origin"
-                title="Lebenslauf Vorschau"
+                title={t("iframeTitle")}
                 className="w-full h-full border-0"
                 data-testid="finetune-preview-iframe"
               />

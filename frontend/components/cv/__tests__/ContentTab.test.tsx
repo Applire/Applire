@@ -68,7 +68,7 @@ describe("ContentTab", () => {
   it("Browse mode: renders gap count with role title", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() =>
-      expect(screen.getByText(/1 Lücke gefunden für "Senior Software Engineer"/)).toBeTruthy()
+      expect(screen.getByText(/1 gap found for "Senior Software Engineer"/)).toBeTruthy()
     );
   });
 
@@ -85,21 +85,57 @@ describe("ContentTab", () => {
     await waitFor(() => expect(screen.getByText("Skills")).toBeTruthy());
     fireEvent.click(screen.getByText("Skills"));
     // Should show back button and section label
-    expect(screen.getByText(/zur/)).toBeTruthy();
+    expect(screen.getByTestId("back-to-browse")).toBeTruthy();
   });
 
   it("Browse mode: clicking gap card navigates to owning section", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() => expect(screen.getByText("Python")).toBeTruthy());
     fireEvent.click(screen.getByText("Python"));
-    expect(screen.getByText(/zur/)).toBeTruthy();
+    expect(screen.getByTestId("back-to-browse")).toBeTruthy();
   });
 
   it("Edit mode: 'Back to overview' returns to Browse", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() => expect(screen.getByText("Skills")).toBeTruthy());
     fireEvent.click(screen.getByText("Skills"));
-    fireEvent.click(screen.getByText(/zur/i));
-    await waitFor(() => expect(screen.getByText(/Lücke gefunden/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("back-to-browse"));
+    await waitFor(() => expect(screen.getByText(/gap found/)).toBeTruthy());
+  });
+
+  it("Browse mode: deduplicates a gap repeated across sections (bug 4)", async () => {
+    // Simulate the pre-fix backend behaviour where the same gap id was emitted
+    // under multiple sections — the count and chip list must not double-count.
+    const DUP_SECTIONS = [
+      {
+        section_id: "introduction",
+        label: "Introduction",
+        content: "x",
+        has_override: false,
+        gaps: [
+          { id: "Industrial Design", label: "Industrial Design" },
+          { id: "IoT", label: "IoT" },
+        ],
+      },
+      {
+        section_id: "skills",
+        label: "Skills",
+        content: "y",
+        has_override: false,
+        gaps: [{ id: "Industrial Design", label: "Industrial Design" }],
+      },
+    ];
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sections: DUP_SECTIONS, general_gaps: [] }),
+    } as Response);
+
+    render(withIntl(<ContentTab {...BASE_PROPS} />));
+    // 2 distinct gaps, not 3
+    await waitFor(() =>
+      expect(screen.getByText(/2 gaps found for "Senior Software Engineer"/)).toBeTruthy()
+    );
+    // The repeated gap renders exactly one chip
+    expect(screen.getAllByText("Industrial Design")).toHaveLength(1);
   });
 });

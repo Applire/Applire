@@ -19,6 +19,7 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const CV_WIDTH = 794; // A4 at 96 dpi
@@ -34,6 +35,7 @@ interface CVDocumentProps {
 
 export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
   function CVDocument({ cvId, className }, ref) {
+    const t = useTranslations("cv");
     const containerRef = useRef<HTMLDivElement>(null);
     const [htmlContent, setHtmlContent] = useState<string | null>(null);
     const [error, setError] = useState(false);
@@ -89,17 +91,17 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
         {error ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <p className="text-sm text-gray-500">
-              Vorschau konnte nicht geladen werden.
+              {t("previewLoadFailed")}
             </p>
             <button
               type="button"
               onClick={() => {
                 setError(false);
-                setRetryToken((t) => t + 1);
+                setRetryToken((prev) => prev + 1);
               }}
               className="text-sm text-teal underline hover:opacity-80"
             >
-              Erneut versuchen
+              {t("retryPreview")}
             </button>
           </div>
         ) : !htmlContent ? (
@@ -111,7 +113,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
           <iframe
             srcDoc={htmlContent}
             sandbox="allow-same-origin"
-            title="Lebenslauf Vorschau"
+            title={t("iframeTitle")}
             style={{
               width: CV_WIDTH,
               height: containerHeight > 0 ? containerHeight / scale : "100%",
@@ -127,7 +129,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
           <iframe
             srcDoc={htmlContent}
             sandbox="allow-same-origin"
-            title="Lebenslauf Vorschau"
+            title={t("iframeTitle")}
             style={{
               width: CV_WIDTH,
               height: "100%",

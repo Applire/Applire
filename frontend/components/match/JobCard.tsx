@@ -19,6 +19,7 @@
 
 
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ function SeniorityBadge({ roleTitle }: { roleTitle: string }) {
 
 export function JobCard({ job, strengths = [], gaps = [] }: JobCardProps) {
   const router = useRouter();
+  const t = useTranslations("match");
   const color = scoreColor(job.combined_score);
   const barClass = scoreBarClass(job.combined_score);
   const scorePercent = Math.round(job.combined_score * 100);
@@ -113,7 +115,7 @@ export function JobCard({ job, strengths = [], gaps = [] }: JobCardProps) {
       {/* Combined score bar */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-500">Match score</span>
+          <span className="text-xs text-gray-500">{t("matchScore")}</span>
           <span
             className={cn(
               "text-xs font-semibold",
@@ -147,7 +149,7 @@ export function JobCard({ job, strengths = [], gaps = [] }: JobCardProps) {
               className="inline-flex items-center px-2 py-0.5 rounded-full bg-success/10 text-success text-xs font-medium"
               data-testid="strength-pill"
             >
-              ✓ {s}
+              {t("strengthPrefix", { label: s })}
             </span>
           ))}
           {gaps.slice(0, 3).map((g) => (
@@ -156,7 +158,7 @@ export function JobCard({ job, strengths = [], gaps = [] }: JobCardProps) {
               className="inline-flex items-center px-2 py-0.5 rounded-full bg-critical/10 text-critical text-xs font-medium"
               data-testid="gap-pill"
             >
-              ✗ {g}
+              {t("gapPrefix", { label: g })}
             </span>
           ))}
         </div>
@@ -170,7 +172,7 @@ export function JobCard({ job, strengths = [], gaps = [] }: JobCardProps) {
           onClick={handleRunGapAnalysis}
           data-testid="run-gap-analysis-btn"
         >
-          Run gap analysis →
+          {t("runGapAnalysis")}
         </Button>
       </div>
     </Card>
