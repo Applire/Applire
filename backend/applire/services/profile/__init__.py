@@ -209,6 +209,20 @@ async def import_from_pdf(
     return await _import_from_text(raw_text, db, provider, created_via="cv_upload", embedding_provider=embedding_provider)
 
 
+async def import_from_text(
+    raw_text: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> MasterProfileResponse:
+    """Public wrapper to seed/merge a profile from already-extracted CV text."""
+    if not raw_text or not raw_text.strip():
+        raise ValueError("text must not be empty")
+    return await _import_from_text(
+        raw_text.strip(), db, provider, created_via="cv_paste", embedding_provider=embedding_provider
+    )
+
+
 async def import_from_linkedin(
     linkedin_json: dict,
     db: AsyncSession,

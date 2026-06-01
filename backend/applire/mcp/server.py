@@ -42,9 +42,13 @@ Resources:
   flow://{flow_id}        — FlowStateResponse JSON
 """
 
+import base64
+import binascii
 import json
 import uuid
 from datetime import datetime
+
+MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
@@ -84,6 +88,20 @@ def _parse_uuid(value: str, param: str) -> uuid.UUID:
         raise invalid_input(f"{param} must be a valid UUID, got: {value!r}")
 
 
+def _profile_summary(profile_response) -> dict:
+    """Non-sensitive extraction summary for agents — never the raw profile."""
+    data = profile_response.model_dump(mode="json")
+    profile = data.get("profile") or {}
+    stats = data.get("stats") or {}
+    return {
+        "profile_id": data.get("id"),
+        "positions": stats.get("positions"),
+        "skills_count": len(profile.get("skills") or []),
+        "completeness": data.get("completeness"),
+        "merge_conflicts": len(data.get("merge_conflicts") or []),
+    }
+
+
 async def _current_user_id(db) -> uuid.UUID:
     """Resolve the single local user (Community single-user mode)."""
     result = await db.execute(select(User).limit(1))
@@ -96,6 +114,50 @@ async def _current_user_id(db) -> uuid.UUID:
 # ---------------------------------------------------------------------------
 # Tools (7.2 – 7.8)
 # ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description=(
+        "Seed or extend the Master Profile from a CV. Primary: file_base64 = a "
+        "base64-encoded PDF (<=10 MB). Call once per CV to merge multiple documents. "
+        "Fallback: text = already-extracted CV text. Returns an extraction summary "
+        "(never the raw profile). Oversize files: use REST POST /api/profile/upload."
+    )
+)
+async def import_cv(
+    file_base64: str | None = None,
+    filename: str | None = None,
+    text: str | None = None,
+) -> dict:
+    provider = get_provider()
+    if file_base64:
+        try:
+            raw = base64.b64decode(file_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise invalid_input("file_base64 is not valid base64")
+        if len(raw) > MAX_CV_BYTES:
+            raise invalid_input(
+                f"CV exceeds {MAX_CV_BYTES} bytes after decoding — "
+                "upload large files via REST POST /api/profile/upload instead."
+            )
+        async with get_db() as db:
+            try:
+                result = await profile_svc.import_from_pdf(raw, db, provider)
+            except ValueError as exc:
+                raise invalid_input(str(exc))
+            except Exception as exc:
+                raise internal(str(exc))
+    elif text and text.strip():
+        async with get_db() as db:
+            try:
+                result = await profile_svc.import_from_text(text.strip(), db, provider)
+            except ValueError as exc:
+                raise invalid_input(str(exc))
+            except Exception as exc:
+                raise internal(str(exc))
+    else:
+        raise invalid_input("Provide either file_base64 (base64 PDF) or text")
+    return _profile_summary(result)
 
 
 @mcp.tool(description="Analyse a job description text and return a structured JobAnalysis.")

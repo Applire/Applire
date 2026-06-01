@@ -591,3 +591,73 @@ async def test_create_application_duplicate_maps_to_invalid_input():
         with pytest.raises(McpError) as exc:
             await create_application(job_id=str(uuid.uuid4()))
     assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# import_from_text (profile service wrapper)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_import_from_text_wrapper_rejects_empty():
+    from applire.services.profile import import_from_text
+    with pytest.raises(ValueError):
+        await import_from_text("   ", db=MagicMock(), provider=MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# import_cv tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_import_cv_base64_happy_path():
+    import base64
+    from applire.mcp.server import import_cv
+
+    cm, _ = _mock_db()
+    profile = MagicMock()
+    profile.model_dump.return_value = {
+        "id": str(uuid.uuid4()),
+        "profile": {"work_experience": [{"id": "w1"}], "skills": ["python"]},
+        "completeness": 0.8,
+        "stats": {"positions": 1, "projects": 0, "certifications": 0, "data_points": 5},
+        "merge_conflicts": [],
+    }
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.profile_svc.import_from_pdf", AsyncMock(return_value=profile)),
+    ):
+        out = await import_cv(file_base64=base64.b64encode(b"%PDF-1.4 fake").decode())
+    assert out["positions"] == 1
+    assert out["completeness"] == 0.8
+    assert out["skills_count"] == 1
+    assert "profile" not in out  # black-box: never the raw profile
+
+
+@pytest.mark.asyncio
+async def test_import_cv_invalid_base64_raises():
+    from applire.mcp.server import import_cv
+    with pytest.raises(McpError) as exc:
+        await import_cv(file_base64="!!!not base64!!!")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_import_cv_oversize_points_to_rest():
+    import base64
+    from applire.mcp.server import import_cv, MAX_CV_BYTES
+    big = base64.b64encode(b"x" * (MAX_CV_BYTES + 1)).decode()
+    with pytest.raises(McpError) as exc:
+        await import_cv(file_base64=big)
+    assert exc.value.error.code == -32602
+    assert "profile/upload" in exc.value.error.message
+
+
+@pytest.mark.asyncio
+async def test_import_cv_requires_input():
+    from applire.mcp.server import import_cv
+    with pytest.raises(McpError) as exc:
+        await import_cv()
+    assert exc.value.error.code == -32602
