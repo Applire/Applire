@@ -21,6 +21,36 @@
 
 ---
 
+## 📸 See it in action
+
+From a CV and a job ad to a complete application package — in minutes.
+
+**1. Upload your CV & paste the job ad**
+
+![CV upload and job description](docs/images/workflow-1-upload.png)
+
+Drop in one or more CVs and add the job posting as text or URL.
+
+**2. Match score & gap analysis at a glance**
+
+![Match score and AI-powered gap analysis](docs/images/workflow-2-match-gaps.png)
+
+Applire builds your Master Profile and instantly shows your fit for the role (88% "Strong Fit" here) plus thematically grouped gaps.
+
+**3. Targeted AI interview**
+
+![AI interview that closes the gaps](docs/images/workflow-3-interview.png)
+
+A short, job-specific interview closes those gaps and sharpens your story — with editable answer suggestions, progress tracking and a live profile-completeness ring.
+
+**4. A tailored CV & matching cover letter**
+
+The result is a DACH-ready Lebenslauf tailored to the target role — in multiple templates (Modern, Classic, Executive) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
+
+> _Screenshots use synthetic demo data (example profile "Lea Hoffmann"); the app UI defaults to German for the DACH market._
+
+---
+
 ## 💡 What is Applire?
 
 **Applire** is an open-source AI platform that combines deep career intelligence with DACH-specific cultural expertise to automate high-quality CV tailoring.
@@ -121,8 +151,10 @@ Applire is the first career platform optimized for **AI agents as customers**:
 
 ### Model Context Protocol (MCP)
 - **Seamless Integration**: First-class support for Claude Desktop, ChatGPT, Cursor, and custom AI agents
-- **Stateful Sessions**: Agents can pause, resume, and recover from interruptions
+- **Agent-supplied documents**: Agents can ingest CVs (base64-encoded PDF, with a plain-text fallback) and job descriptions (raw text **or** a URL scraped server-side) directly over stdio — no UI required
+- **Stateful Sessions**: Agents can pause, resume, and recover from interruptions via a stable `flow_id`
 - **Flow Orchestrator**: Guides agents through the correct sequence (JD analysis → CV import → gap analysis → interview → generation)
+- **Privacy-preserving**: The Master Profile is a black box — tools return extraction summaries, never raw profile data
 - **Async Generation**: Non-blocking CV generation with polling-based status checks
 
 ### REST API
@@ -134,13 +166,16 @@ Applire is the first career platform optimized for **AI agents as customers**:
 # Start MCP server (stdio transport)
 python -m applire.mcp
 
-# Agent calls:
-1. start_flow() → flow_id
-2. analyze_jd(text="Senior Python Engineer...") → job_id
-3. analyze_gaps(job_id) → gap_report
-4. run_interview(session_id, message="I have 5 years...") → next_question
-5. generate_cv(job_id) → cv_id (async)
-6. get_cv_status(cv_id) → {status: "ready", pdf_url: "..."}
+# A typical agent session:
+1. start_flow()                              → flow_id  (stable recovery handle)
+2. import_cv(file_base64="<base64 PDF>")     → profile summary
+3. analyze_jd(url="https://.../job-posting") → job_id
+4. analyze_gaps(job_id)                      → gap_report
+5. run_interview(job_id)                     → session_id + first question
+6. send_message(session_id, "I have 5 yrs…") → next question / {complete: true}
+7. generate_cv(job_id)                       → cv_id  (async)
+8. get_cv_status(cv_id)                      → {status: "ready", pdf_url: "…"}
+9. create_application(job_id)                → application logged to pipeline
 ```
 
 ---
@@ -340,23 +375,43 @@ python -m applire.mcp
 
 #### MCP Tools
 
+**Ingestion & profile**
+
 | Tool | Description |
 |------|-------------|
-| `start_flow(job_id?)` | Create or resume a flow session |
-| `analyze_jd(text?, url?)` | Analyze a job description |
-| `analyze_gaps(job_id)` | Detect gaps between profile and JD |
-| `run_interview(session_id, message)` | Send a message in an interview session |
-| `generate_cv(job_id, options?)` | Initiate async CV generation |
-| `get_cv_status(cv_id)` | Poll CV generation status |
-| `advance_flow(flow_id, step, artifact_id?)` | Advance to next step in flow |
+| `import_cv(file_base64?, filename?, text?)` | Seed or extend the Master Profile from a CV. Primary: base64-encoded PDF (≤10 MB); fallback: pre-extracted text. Returns an extraction summary (never the raw profile) |
+| `analyze_jd(text?, url?)` | Analyze a job description. Provide exactly one of `text` (JD body) or `url` (scraped server-side) |
+| `get_profile()` | Return the current Master Profile |
+| `update_profile(section, data)` | Patch one section (`work_history`, `skills`, `education`, `languages`, `contact`) |
+| `add_role(title, company, start_date, location?, industry?, close_role_ids?)` | Add a new ongoing role (post-hire update); `close_role_ids` closes prior open roles |
+
+**Flow & tailoring**
+
+| Tool | Description |
+|------|-------------|
+| `start_flow(job_id?)` | Create or resume a flow session (idempotent per user+job); returns `flow_id` + state |
+| `advance_flow(flow_id, step, artifact_id?)` | Advance to the next step; artifact-producing steps require `artifact_id` |
 | `get_flow_state(flow_id)` | Get current flow state and available actions |
+| `analyze_gaps(job_id)` | Detect gaps between profile and JD |
+| `run_interview(job_id)` | Start a gap-fill interview; returns `session_id` + first question |
+| `send_message(session_id, message)` | Send a message in an active interview; returns next question or `{complete: true}` |
+| `generate_cv(job_id)` | Initiate async CV generation; returns `cv_id`, `html_url`, `pdf_url` |
+| `get_cv_status(cv_id)` | Poll CV generation status (`pending` / `generating` / `ready` / `failed`) |
+
+**Applications**
+
+| Tool | Description |
+|------|-------------|
+| `create_application(job_id, start_workflow?, company_name?, role_title?, deadline?)` | Log an application to the pipeline; `start_workflow=true` atomically creates the flow session |
+| `list_applications(status_filter?)` | List the application pipeline (`tracking`, `applied`, `rejected`, `offer`) |
+| `get_application(application_id)` | Get details for a specific application |
 
 #### MCP Resources
 
-- `profile://current` — User's Master Profile
+- `profile://current` — Current Master Profile (JSON)
 - `job://{job_id}` — Job analysis
-- `cv://{cv_id}` — Generated CV
 - `flow://{flow_id}` — Flow session state
+- `cv://{cv_id}` — Generated CV
 
 ---
 

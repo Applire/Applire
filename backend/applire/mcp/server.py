@@ -297,7 +297,9 @@ async def generate_cv(job_id: str) -> dict:
     provider = get_provider()
     async with get_db() as db:
         try:
-            result = await cv_svc.generate_cv(jid, db, provider, settings.applire_base_url)
+            result = await cv_svc.generate_cv(
+                jid, db, provider, base_url=settings.applire_base_url
+            )
         except LookupError as exc:
             raise not_found(str(exc))
         except Exception as exc:

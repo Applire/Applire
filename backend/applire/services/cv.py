@@ -140,11 +140,17 @@ async def generate_cv(
     job_id: uuid.UUID,
     db: AsyncSession,
     provider: LLMProvider,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks | None = None,
     template: CVTemplate = "classic_german",
     base_url: str = "http://localhost:8001",
 ) -> CVGenerateResponse:
-    """Create a pending GeneratedCV record and enqueue background rendering."""
+    """Create a GeneratedCV record and render it.
+
+    REST passes a ``BackgroundTasks`` so rendering runs after the response is
+    sent. The MCP/agent channel has no request lifecycle, so it omits it
+    (``background_tasks=None``) and we render inline before returning — the agent
+    polls ``get_cv_status`` and sees a terminal status on the first read.
+    """
     # Validate job exists
     job = await db.get(JobAnalysis, job_id)
     if job is None:
@@ -173,18 +179,23 @@ async def generate_cv(
     await db.commit()
     await db.refresh(record)
 
-    # Enqueue heavy work — runs after response is sent
-    background_tasks.add_task(
-        _render_cv_background,
-        record.id,
-        job_id,
-        profile.id,
-        template,
-    )
+    if background_tasks is None:
+        # Agent channel: no request lifecycle to defer to — render inline.
+        await _render_cv_background(record.id, job_id, profile.id, template)
+        await db.refresh(record)
+    else:
+        # REST: enqueue heavy work — runs after the response is sent.
+        background_tasks.add_task(
+            _render_cv_background,
+            record.id,
+            job_id,
+            profile.id,
+            template,
+        )
 
     return CVGenerateResponse(
         cv_id=record.id,
-        status=CVGenerationStatus.pending,
+        status=CVGenerationStatus(record.status),
         html_url=f"{base_url}/api/cv/{record.id}/html",
         pdf_url=f"{base_url}/api/cv/{record.id}/pdf",
         expires_at=record.expires_at,
