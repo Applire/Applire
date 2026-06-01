@@ -74,10 +74,14 @@ describe("CoverLetterDocument", () => {
     let roCallback: ResizeObserverCallback | undefined;
     vi.stubGlobal(
       "ResizeObserver",
-      vi.fn((cb: ResizeObserverCallback) => {
-        roCallback = cb;
-        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-      })
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          roCallback = cb;
+        }
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      }
     );
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
@@ -104,10 +108,14 @@ describe("CoverLetterDocument", () => {
     let roCallback: ResizeObserverCallback | undefined;
     vi.stubGlobal(
       "ResizeObserver",
-      vi.fn((cb: ResizeObserverCallback) => {
-        roCallback = cb;
-        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-      })
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          roCallback = cb;
+        }
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      }
     );
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
