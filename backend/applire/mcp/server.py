@@ -16,7 +16,7 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Applire MCP Server (Iteration 7, ADR 010)
+Applire MCP Server — Iteration 8 — Agent Flow & Ingestion (ADR-010 amended 2026-05-31)
 
 Exposes the full JD → profile → gap-fill → CV tailoring workflow as MCP tools
 and resources so AI agents can drive the process autonomously.
@@ -24,16 +24,22 @@ and resources so AI agents can drive the process autonomously.
 Transport: stdio (Community Edition).  SSE is reserved for Cloud Edition.
 
 Tools:
-  analyze_jd        — analyse a job description text
+  analyze_jd        — analyse a job description text or URL
   get_profile       — retrieve the current MasterProfile
   update_profile    — patch a section of the MasterProfile
   analyze_gaps      — compare profile against a job
   run_interview     — start a gap-fill interview session
   send_message      — advance an active interview session
   generate_cv       — generate a tailored CV
+  get_cv_status     — poll CV generation status and retrieve download URLs
   start_flow        — create or resume a flow session (US109)
   advance_flow      — advance a flow to the next step (US109)
   get_flow_state    — get current flow session state (US109)
+  import_cv         — seed or extend the Master Profile from a PDF or CV text
+  add_role          — add a new work-experience role to the Master Profile
+  create_application — create a new job application record
+  list_applications  — list all job applications for the current user
+  get_application    — retrieve a single job application by ID
 
 Resources:
   profile://current       — current MasterProfile JSON

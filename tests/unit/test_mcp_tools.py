@@ -854,3 +854,21 @@ async def test_analyze_jd_requires_text_or_url():
     with pytest.raises(McpError) as exc:
         await analyze_jd()
     assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# Tool registration smoke test
+# ---------------------------------------------------------------------------
+
+
+def test_all_agent_tools_registered():
+    from applire.mcp import server as srv
+    expected = {
+        "analyze_jd", "analyze_gaps", "get_profile", "update_profile",
+        "run_interview", "send_message", "generate_cv", "get_cv_status",
+        "start_flow", "advance_flow", "get_flow_state",
+        "import_cv", "add_role", "create_application",
+        "list_applications", "get_application",
+    }
+    for name in expected:
+        assert hasattr(srv, name), f"tool {name} not defined"
