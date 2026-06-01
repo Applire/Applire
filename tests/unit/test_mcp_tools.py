@@ -378,3 +378,37 @@ async def test_generate_cv_invalid_uuid_raises():
         await generate_cv(job_id="not-a-uuid")
 
     assert exc_info.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# _current_user_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_current_user_id_returns_uuid():
+    import uuid as _uuid
+    from applire.mcp.server import _current_user_id
+
+    cm, session = _mock_db()
+    uid = _uuid.uuid4()
+    user_row = MagicMock(); user_row.id = uid
+    res = MagicMock(); res.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=res)
+
+    async with cm as db:
+        assert await _current_user_id(db) == uid
+
+
+@pytest.mark.asyncio
+async def test_current_user_id_no_user_raises():
+    from applire.mcp.server import _current_user_id
+
+    cm, session = _mock_db()
+    res = MagicMock(); res.scalar_one_or_none.return_value = None
+    session.execute = AsyncMock(return_value=res)
+
+    with pytest.raises(McpError) as exc:
+        async with cm as db:
+            await _current_user_id(db)
+    assert exc.value.error.code == -32001

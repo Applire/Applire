@@ -49,6 +49,7 @@ from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
+from applire.models.user import User
 from applire.providers import get_provider
 from applire.schemas.application import ApplicationListResponse, ApplicationResponse
 from applire.schemas.cv import GeneratedCVResponse
@@ -73,6 +74,15 @@ def _parse_uuid(value: str, param: str) -> uuid.UUID:
         return uuid.UUID(value)
     except ValueError:
         raise invalid_input(f"{param} must be a valid UUID, got: {value!r}")
+
+
+async def _current_user_id(db) -> uuid.UUID:
+    """Resolve the single local user (Community single-user mode)."""
+    result = await db.execute(select(User).limit(1))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise not_found("No user found — import a CV first via import_cv")
+    return user.id
 
 
 # ---------------------------------------------------------------------------
