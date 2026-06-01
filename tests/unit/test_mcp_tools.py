@@ -700,3 +700,82 @@ async def test_import_cv_text_happy_path():
         out = await import_cv(text="Senior Python Engineer with 10 years experience")
     assert out["skills_count"] == 2
     assert "profile" not in out
+
+
+# ---------------------------------------------------------------------------
+# add_role_to_profile service
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_role_to_profile_persists_and_returns_response():
+    from applire.services.profile.role_add import add_role_to_profile
+    from applire.schemas.profile_roles import AddRoleRequest
+
+    cm, session = _mock_db()
+    record = MagicMock()
+    record.id = uuid.uuid4()
+    record.profile_json = {"work_experience": [], "skills": []}
+    res = MagicMock(); res.scalar_one_or_none.return_value = record
+    session.execute = AsyncMock(return_value=res)
+    session.commit = AsyncMock()
+
+    req = AddRoleRequest(
+        title="QA Director", company="Acme GmbH", start_date="2026-05-01", source="manual",
+    )
+    with patch("applire.services.profile.role_add.MasterProfileData") as MPD, \
+         patch("applire.services.profile.role_add.apply_add_role") as apply_mock:
+        prof = MagicMock(); prof.model_dump.return_value = {}; prof.calculate_completeness.return_value = 0.9
+        MPD.model_validate.return_value = prof
+        outcome = MagicMock(); outcome.profile = prof; outcome.new_role_id = "w-new"; outcome.closed_role_ids = []
+        apply_mock.return_value = outcome
+
+        async with cm as db:
+            resp = await add_role_to_profile(req, db)
+    assert resp.new_role_id == "w-new"
+    assert resp.completeness_score == 0.9
+
+
+# ---------------------------------------------------------------------------
+# add_role MCP tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_role_tool_happy_path():
+    from applire.mcp.server import add_role
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(profile_id="p1", new_role_id="w-new", closed_role_ids=[], completeness_score=0.9)
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.add_role_to_profile", AsyncMock(return_value=mock_result)),
+    ):
+        out = await add_role(title="QA Director", company="Acme GmbH", start_date="2026-05-01")
+    assert out["new_role_id"] == "w-new"
+
+
+@pytest.mark.asyncio
+async def test_add_role_tool_bad_start_date_raises():
+    from applire.mcp.server import add_role
+    with pytest.raises(McpError) as exc:
+        await add_role(title="X", company="Y", start_date="01.05.2026")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_add_role_tool_computes_close_end_date():
+    from applire.mcp.server import add_role
+    captured = {}
+
+    async def fake_service(req, db):
+        captured["req"] = req
+        return _mock_result(profile_id="p1", new_role_id="w", closed_role_ids=["w0"], completeness_score=1.0)
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.add_role_to_profile", fake_service),
+    ):
+        await add_role(title="X", company="Y", start_date="2026-05-01", close_role_ids=["w0"])
+    assert captured["req"].close_roles[0].end_date == "2026-04-30"

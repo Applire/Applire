@@ -22,6 +22,10 @@ that owns the session is responsible for loading and persisting the profile.
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from applire.models.profile import MasterProfile
 from applire.schemas.profile import (
     EnrichmentRecord,
     FieldChange,
@@ -29,7 +33,7 @@ from applire.schemas.profile import (
     ProfileMetadata,
     WorkEntry,
 )
-from applire.schemas.profile_roles import AddRoleRequest
+from applire.schemas.profile_roles import AddRoleRequest, AddRoleResponse
 
 
 class AddRoleValidationError(ValueError):
@@ -114,4 +118,34 @@ def apply_add_role(profile: MasterProfileData, req: AddRoleRequest) -> AddRoleRe
         profile=profile,
         new_role_id=new_entry.id,
         closed_role_ids=closed_ids,
+    )
+
+
+async def add_role_to_profile(req: AddRoleRequest, db: AsyncSession) -> AddRoleResponse:
+    """Load latest profile, apply the add-role request, persist, and return the response.
+
+    Shared by POST /api/profile/roles and the MCP add_role tool.
+    Raises LookupError (no profile) and AddRoleValidationError (invalid request).
+    """
+    result = await db.execute(
+        select(MasterProfile)
+        .where(MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc())
+        .limit(1)
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise LookupError("No master profile found")
+
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    outcome = apply_add_role(profile_data, req)  # raises AddRoleValidationError
+
+    record.profile_json = outcome.profile.model_dump(mode="json")
+    await db.commit()
+
+    return AddRoleResponse(
+        profile_id=str(record.id),
+        new_role_id=outcome.new_role_id,
+        closed_role_ids=outcome.closed_role_ids,
+        completeness_score=outcome.profile.calculate_completeness(),
     )

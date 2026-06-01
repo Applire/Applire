@@ -46,7 +46,7 @@ import base64
 import binascii
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
@@ -62,6 +62,8 @@ from applire.schemas.application import ApplicationListResponse, ApplicationResp
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
+from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
+from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
 from applire.services import application as app_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
@@ -436,6 +438,43 @@ async def create_application(
         try:
             result = await app_svc.create_application(uid, req, db)
         except app_svc.ConflictError as exc:
+            raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Add a new ongoing role to the Master Profile (post-hire update). "
+        "close_role_ids lists prior open roles to close; each is closed the day "
+        "before start_date. Dates are YYYY-MM-DD."
+    )
+)
+async def add_role(
+    title: str,
+    company: str,
+    start_date: str,
+    location: str | None = None,
+    industry: str | None = None,
+    close_role_ids: list[str] | None = None,
+) -> dict:
+    try:
+        start = date.fromisoformat(start_date)
+    except ValueError:
+        raise invalid_input("start_date must be YYYY-MM-DD")
+    close_end = (start - timedelta(days=1)).isoformat()
+    close_roles = [CloseRoleEntry(role_id=rid, end_date=close_end) for rid in (close_role_ids or [])]
+    req = AddRoleRequest(
+        title=title, company=company, start_date=start_date,
+        location=location, industry=industry, close_roles=close_roles, source="manual",
+    )
+    async with get_db() as db:
+        try:
+            result = await add_role_to_profile(req, db)
+        except AddRoleValidationError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
