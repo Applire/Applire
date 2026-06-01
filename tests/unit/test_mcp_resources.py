@@ -220,3 +220,23 @@ async def test_resource_cv_invalid_uuid_raises():
         await resource_cv(cv_id="not-a-uuid")
 
     assert exc_info.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# flow://{flow_id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resource_flow_returns_json():
+    import json
+    from applire.mcp.server import resource_flow
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(flow_id=str(uuid.uuid4()), current_step="gap_analysis")
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.get_flow_state", AsyncMock(return_value=mock_result)),
+    ):
+        out = await resource_flow(flow_id=str(uuid.uuid4()))
+    assert json.loads(out)["current_step"] == "gap_analysis"

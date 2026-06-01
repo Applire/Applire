@@ -441,3 +441,58 @@ async def test_get_cv_status_bad_uuid_raises():
     with pytest.raises(McpError) as exc:
         await get_cv_status(cv_id="not-a-uuid")
     assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# start_flow / advance_flow / get_flow_state
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_flow_happy_path():
+    from applire.mcp.server import start_flow
+
+    cm, session = _mock_db()
+    uid = uuid.uuid4()
+    user_row = MagicMock(); user_row.id = uid
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+    mock_result = _mock_result(flow_id=str(uuid.uuid4()), user_type="returning")
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.create_flow", AsyncMock(return_value=mock_result)),
+    ):
+        result = await start_flow(job_id=str(uuid.uuid4()))
+    assert "flow_id" in result
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_invalid_transition_maps_to_invalid_input():
+    from applire.mcp.server import advance_flow
+    from applire.services.flow.orchestrator import InvalidTransitionError
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.advance_flow",
+              AsyncMock(side_effect=InvalidTransitionError("jd_analysis", "complete", ["cv_import"]))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await advance_flow(flow_id=str(uuid.uuid4()), step="complete")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_get_flow_state_not_found():
+    from applire.mcp.server import get_flow_state
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.get_flow_state",
+              AsyncMock(side_effect=LookupError("Flow x not found"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_flow_state(flow_id=str(uuid.uuid4()))
+    assert exc.value.error.code == -32001

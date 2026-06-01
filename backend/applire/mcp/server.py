@@ -31,11 +31,15 @@ Tools:
   run_interview     — start a gap-fill interview session
   send_message      — advance an active interview session
   generate_cv       — generate a tailored CV
+  start_flow        — create or resume a flow session (US109)
+  advance_flow      — advance a flow to the next step (US109)
+  get_flow_state    — get current flow session state (US109)
 
 Resources:
   profile://current       — current MasterProfile JSON
   job://{job_id}          — JobAnalysis JSON
   cv://{cv_id}            — GeneratedCV metadata JSON
+  flow://{flow_id}        — FlowStateResponse JSON
 """
 
 import json
@@ -54,12 +58,15 @@ from applire.providers import get_provider
 from applire.schemas.application import ApplicationListResponse, ApplicationResponse
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
+from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.services import application as app_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
+from applire.services.flow import orchestrator as flow_svc
+from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTransitionError
 
 mcp = FastMCP("Applire")
 
@@ -226,6 +233,62 @@ async def get_cv_status(cv_id: str) -> dict:
 
 @mcp.tool(
     description=(
+        "Create or resume a flow session. Pass job_id to bind the flow to a job "
+        "(idempotent per user+job); omit it for a CV-only flow. Returns flow_id + state."
+    )
+)
+async def start_flow(job_id: str | None = None) -> dict:
+    jid = _parse_uuid(job_id, "job_id") if job_id else None
+    async with get_db() as db:
+        uid = await _current_user_id(db)
+        try:
+            result = await flow_svc.create_flow(
+                CreateFlowRequest(job_id=jid), uid, db, settings.applire_base_url
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Advance a flow to the next step. Steps that produce an artifact require "
+        "artifact_id (gap_analysis→gap_analysis_id, interview→interview_session_id, "
+        "complete→generated_cv_id). flow_id is the stable handle for session recovery."
+    )
+)
+async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) -> dict:
+    fid = _parse_uuid(flow_id, "flow_id")
+    aid = _parse_uuid(artifact_id, "artifact_id") if artifact_id else None
+    async with get_db() as db:
+        try:
+            result = await flow_svc.advance_flow(
+                fid, AdvanceFlowRequest(step=step, artifact_id=aid), db, settings.applire_base_url
+            )
+        except (InvalidTransitionError, ArtifactRequiredError) as exc:
+            raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(description="Get the current state of a flow session, including available actions.")
+async def get_flow_state(flow_id: str) -> dict:
+    fid = _parse_uuid(flow_id, "flow_id")
+    async with get_db() as db:
+        try:
+            result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
         "List the user's application pipeline. "
         "Optional status_filter: tracking, applied, rejected, offer."
     )
@@ -311,6 +374,21 @@ async def resource_job(job_id: str) -> str:
     if record is None:
         raise not_found(f"Job analysis {job_id} not found")
     return json.dumps(JobAnalysisResponse.model_validate(record).model_dump(mode="json"))
+
+
+@mcp.resource(
+    "flow://{flow_id}",
+    mime_type="application/json",
+    description="FlowStateResponse JSON for the given flow_id.",
+)
+async def resource_flow(flow_id: str) -> str:
+    fid = _parse_uuid(flow_id, "flow_id")
+    async with get_db() as db:
+        try:
+            result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
+        except LookupError:
+            raise not_found(f"Flow {flow_id} not found")
+    return json.dumps(result.model_dump(mode="json"))
 
 
 @mcp.resource(
