@@ -240,3 +240,11 @@ async def test_resource_flow_returns_json():
     ):
         out = await resource_flow(flow_id=str(uuid.uuid4()))
     assert json.loads(out)["current_step"] == "gap_analysis"
+
+
+@pytest.mark.asyncio
+async def test_resource_flow_invalid_uuid_raises():
+    from applire.mcp.server import resource_flow
+    with pytest.raises(McpError) as exc:
+        await resource_flow(flow_id="not-a-uuid")
+    assert exc.value.error.code == -32602

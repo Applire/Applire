@@ -496,3 +496,54 @@ async def test_get_flow_state_not_found():
         with pytest.raises(McpError) as exc:
             await get_flow_state(flow_id=str(uuid.uuid4()))
     assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_start_flow_without_job_id():
+    from applire.mcp.server import start_flow
+
+    cm, session = _mock_db()
+    user_row = MagicMock(); user_row.id = uuid.uuid4()
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+    mock_result = _mock_result(flow_id=str(uuid.uuid4()), user_type="new")
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.create_flow", AsyncMock(return_value=mock_result)) as create,
+    ):
+        result = await start_flow()
+    assert "flow_id" in result
+    # job_id omitted -> CreateFlowRequest.job_id is None
+    assert create.call_args.args[0].job_id is None
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_artifact_required_maps_to_invalid_input():
+    from applire.mcp.server import advance_flow
+    from applire.services.flow.orchestrator import ArtifactRequiredError
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.advance_flow",
+              AsyncMock(side_effect=ArtifactRequiredError("gap_analysis", "gap_analysis_id"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await advance_flow(flow_id=str(uuid.uuid4()), step="gap_analysis")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_not_found_maps_to_not_found():
+    from applire.mcp.server import advance_flow
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.advance_flow",
+              AsyncMock(side_effect=LookupError("Flow x not found"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await advance_flow(flow_id=str(uuid.uuid4()), step="complete")
+    assert exc.value.error.code == -32001

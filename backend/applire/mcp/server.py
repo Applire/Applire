@@ -240,6 +240,8 @@ async def get_cv_status(cv_id: str) -> dict:
 async def start_flow(job_id: str | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id") if job_id else None
     async with get_db() as db:
+        # _current_user_id raises McpError directly; keep it outside the try so a
+        # missing user stays -32001 NotFound rather than being remapped to -32603.
         uid = await _current_user_id(db)
         try:
             result = await flow_svc.create_flow(
@@ -386,8 +388,8 @@ async def resource_flow(flow_id: str) -> str:
     async with get_db() as db:
         try:
             result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
-        except LookupError:
-            raise not_found(f"Flow {flow_id} not found")
+        except LookupError as exc:
+            raise not_found(str(exc))
     return json.dumps(result.model_dump(mode="json"))
 
 
