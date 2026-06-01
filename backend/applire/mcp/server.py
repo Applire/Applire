@@ -64,6 +64,7 @@ from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
+from applire.services.scraper import ScraperError, scrape_job_url
 from applire.services import application as app_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
@@ -162,14 +163,32 @@ async def import_cv(
     return _profile_summary(result)
 
 
-@mcp.tool(description="Analyse a job description text and return a structured JobAnalysis.")
-async def analyze_jd(text: str) -> dict:
-    if not text.strip():
-        raise invalid_input("text must not be empty")
+@mcp.tool(
+    description=(
+        "Analyse a job description and return a structured JobAnalysis. "
+        "Provide exactly one of: text (the JD body) or url (scraped server-side)."
+    )
+)
+async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
+    if not text and not url:
+        raise invalid_input("Provide either text or url")
+    if text and url:
+        raise invalid_input("Provide only one of text or url")
     provider = get_provider()
+    source_url = None
+    if url:
+        try:
+            jd_text = await scrape_job_url(url)
+        except ScraperError as exc:
+            raise invalid_input(f"Could not scrape {url}: {exc}")
+        source_url = url
+    else:
+        jd_text = text.strip()
+        if not jd_text:
+            raise invalid_input("text must not be empty")
     async with get_db() as db:
         try:
-            result = await job_svc.analyze_jd(text.strip(), db, provider)
+            result = await job_svc.analyze_jd(jd_text, db, provider, source_url=source_url)
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")

@@ -810,3 +810,47 @@ async def test_add_role_tool_validation_error_maps_to_invalid_input():
         with pytest.raises(McpError) as exc:
             await add_role(title="X", company="Y", start_date="2026-05-01", close_role_ids=["w9"])
     assert exc.value.error.code == -32602  # invalid_input
+
+
+# ---------------------------------------------------------------------------
+# analyze_jd — URL scraping (US056)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_url_scrapes_then_analyzes():
+    from applire.mcp.server import analyze_jd
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), role_title="QA Manager")
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.scrape_job_url", AsyncMock(return_value="scraped JD body")),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=mock_result)) as analyze,
+    ):
+        result = await analyze_jd(url="https://jobs.example.com/123")
+    assert result["role_title"] == "QA Manager"
+    assert analyze.call_args.kwargs["source_url"] == "https://jobs.example.com/123"
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_scrape_failure_maps_to_invalid_input():
+    from applire.mcp.server import analyze_jd
+    from applire.services.scraper import ScraperError
+
+    with (
+        patch("applire.mcp.server.scrape_job_url", AsyncMock(side_effect=ScraperError("https://jobs.example.com/x", "403 Forbidden"))),
+        patch("applire.mcp.server.get_provider"),
+    ):
+        with pytest.raises(McpError) as exc:
+            await analyze_jd(url="https://jobs.example.com/x")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_requires_text_or_url():
+    from applire.mcp.server import analyze_jd
+    with pytest.raises(McpError) as exc:
+        await analyze_jd()
+    assert exc.value.error.code == -32602
