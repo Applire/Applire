@@ -661,3 +661,42 @@ async def test_import_cv_requires_input():
     with pytest.raises(McpError) as exc:
         await import_cv()
     assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# ProfileMetadata Literal regression — cv_paste must be accepted
+# ---------------------------------------------------------------------------
+
+
+def test_profile_metadata_accepts_cv_paste():
+    from applire.schemas.profile import ProfileMetadata
+    # Must not raise — import_cv's text fallback relies on this created_via value.
+    meta = ProfileMetadata(created_via="cv_paste")
+    assert meta.created_via == "cv_paste"
+
+
+# ---------------------------------------------------------------------------
+# import_cv text-path happy path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_import_cv_text_happy_path():
+    from applire.mcp.server import import_cv
+    cm, _ = _mock_db()
+    profile = MagicMock()
+    profile.model_dump.return_value = {
+        "id": str(uuid.uuid4()),
+        "profile": {"skills": ["python", "fastapi"]},
+        "completeness": 0.6,
+        "stats": {"positions": 0, "projects": 0, "certifications": 0, "data_points": 3},
+        "merge_conflicts": [],
+    }
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.profile_svc.import_from_text", AsyncMock(return_value=profile)),
+    ):
+        out = await import_cv(text="Senior Python Engineer with 10 years experience")
+    assert out["skills_count"] == 2
+    assert "profile" not in out

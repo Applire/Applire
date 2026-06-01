@@ -48,8 +48,6 @@ import json
 import uuid
 from datetime import datetime
 
-MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
-
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
 
@@ -72,6 +70,8 @@ from applire.services import profile as profile_svc
 from applire.services import session as session_svc
 from applire.services.flow import orchestrator as flow_svc
 from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTransitionError
+
+MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 mcp = FastMCP("Applire")
 
@@ -137,7 +137,7 @@ async def import_cv(
             raise invalid_input("file_base64 is not valid base64")
         if len(raw) > MAX_CV_BYTES:
             raise invalid_input(
-                f"CV exceeds {MAX_CV_BYTES} bytes after decoding — "
+                "CV exceeds 10 MB after decoding — "
                 "upload large files via REST POST /api/profile/upload instead."
             )
         async with get_db() as db:

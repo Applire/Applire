@@ -242,7 +242,7 @@ class FieldChange(BaseModel):
 
 class EnrichmentRecord(BaseModel):
     timestamp: datetime
-    source: Literal["cv_upload", "linkedin_import", "xing_import", "interview", "manual_edit", "manual_role_add"]
+    source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual_edit", "manual_role_add"]
     source_session_id: str | None = None
     changes: list[FieldChange] = Field(default_factory=list)
     confidence: float | None = None  # for LLM-extracted data
@@ -252,7 +252,7 @@ class EnrichmentRecord(BaseModel):
 
 class ProfileMetadata(BaseModel):
     completeness_score: float = 0.0  # 0.0 to 1.0
-    created_via: Literal["cv_upload", "linkedin_import", "xing_import", "interview", "manual"] = "manual"
+    created_via: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual"] = "manual"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     application_count: int = 0
