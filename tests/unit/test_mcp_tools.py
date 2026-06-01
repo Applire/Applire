@@ -734,6 +734,8 @@ async def test_add_role_to_profile_persists_and_returns_response():
             resp = await add_role_to_profile(req, db)
     assert resp.new_role_id == "w-new"
     assert resp.completeness_score == 0.9
+    session.commit.assert_called_once()
+    assert record.profile_json == {}  # outcome.profile.model_dump() returned {}
 
 
 # ---------------------------------------------------------------------------
@@ -779,3 +781,32 @@ async def test_add_role_tool_computes_close_end_date():
     ):
         await add_role(title="X", company="Y", start_date="2026-05-01", close_role_ids=["w0"])
     assert captured["req"].close_roles[0].end_date == "2026-04-30"
+
+
+@pytest.mark.asyncio
+async def test_add_role_tool_no_profile_raises_not_found():
+    from applire.mcp.server import add_role
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.add_role_to_profile",
+              AsyncMock(side_effect=LookupError("No master profile found"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await add_role(title="X", company="Y", start_date="2026-05-01")
+    assert exc.value.error.code == -32001  # not_found
+
+
+@pytest.mark.asyncio
+async def test_add_role_tool_validation_error_maps_to_invalid_input():
+    from applire.mcp.server import add_role
+    from applire.services.profile.role_add import AddRoleValidationError
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.add_role_to_profile",
+              AsyncMock(side_effect=AddRoleValidationError("unknown role_id: w9"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await add_role(title="X", company="Y", start_date="2026-05-01", close_role_ids=["w9"])
+    assert exc.value.error.code == -32602  # invalid_input

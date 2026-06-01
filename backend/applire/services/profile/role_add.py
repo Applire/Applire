@@ -15,9 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""Pure mutation logic for adding a new work entry and (optionally) closing
-existing open work entries on a MasterProfileData. No DB; the router/service
-that owns the session is responsible for loading and persisting the profile.
+"""Work-entry mutation logic for adding a new role to a master profile.
+
+Two public entry points:
+
+- ``apply_add_role(profile, req)`` — pure, no DB.  Validates and mutates an
+  in-memory ``MasterProfileData``; raises ``AddRoleValidationError`` on any
+  constraint violation before touching the profile.
+
+- ``add_role_to_profile(req, db)`` — DB-aware.  Loads the latest
+  ``MasterProfile`` row, calls ``apply_add_role``, persists the result via
+  ``db.commit()``, and returns an ``AddRoleResponse``.  Shared by the REST
+  router (``POST /api/profile/roles``) and the MCP ``add_role`` tool.
+  Raises ``LookupError`` when no profile exists and ``AddRoleValidationError``
+  when the request cannot be applied.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
