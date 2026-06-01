@@ -412,3 +412,32 @@ async def test_current_user_id_no_user_raises():
         async with cm as db:
             await _current_user_id(db)
     assert exc.value.error.code == -32001
+
+
+# ---------------------------------------------------------------------------
+# get_cv_status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_cv_status_happy_path():
+    from applire.mcp.server import get_cv_status
+
+    cm, _ = _mock_db()
+    cid = str(uuid.uuid4())
+    mock_result = _mock_result(cv_id=cid, status="ready", pdf_url="http://x/api/cv/%s/pdf" % cid)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.cv_svc.get_cv_status", AsyncMock(return_value=mock_result)),
+    ):
+        result = await get_cv_status(cv_id=cid)
+    assert result["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_get_cv_status_bad_uuid_raises():
+    from applire.mcp.server import get_cv_status
+    with pytest.raises(McpError) as exc:
+        await get_cv_status(cv_id="not-a-uuid")
+    assert exc.value.error.code == -32602

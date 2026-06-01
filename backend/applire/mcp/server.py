@@ -209,6 +209,23 @@ async def generate_cv(job_id: str) -> dict:
 
 @mcp.tool(
     description=(
+        "Poll the status of a CV generation. "
+        "Returns {cv_id, status, html_url?, pdf_url?, expires_at?}. "
+        "status: 'pending' | 'generating' | 'ready' | 'failed'."
+    )
+)
+async def get_cv_status(cv_id: str) -> dict:
+    cid = _parse_uuid(cv_id, "cv_id")
+    async with get_db() as db:
+        try:
+            result = await cv_svc.get_cv_status(cid, db, settings.applire_base_url)
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
         "List the user's application pipeline. "
         "Optional status_filter: tracking, applied, rejected, offer."
     )
