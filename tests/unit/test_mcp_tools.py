@@ -1,11 +1,11 @@
 """
-Iteration 7 — MCP Server: tool tests (unit)
+Iteration 8 — MCP Server: tool tests (unit)
 
 Each tool handler is a plain async function and can be called directly without
 going through the MCP protocol.  Services and the DB session are mocked.
 
 Run:
-    pytest tests/unit/test_iter7_mcp_tools.py -v
+    pytest tests/unit/test_mcp_tools.py -v
 """
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch

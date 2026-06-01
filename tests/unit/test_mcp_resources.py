@@ -1,11 +1,11 @@
 """
-Iteration 7 — MCP Server: resource tests (unit)
+Iteration 8 — MCP Server: resource tests (unit)
 
 Resource handlers are plain async functions and can be called directly.
 The DB and services are mocked — no Docker or real DB required.
 
 Run:
-    pytest tests/unit/test_iter7_mcp_resources.py -v
+    pytest tests/unit/test_mcp_resources.py -v
 """
 import json
 import uuid

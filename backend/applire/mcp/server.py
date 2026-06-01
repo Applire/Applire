@@ -138,6 +138,7 @@ async def import_cv(
     filename: str | None = None,
     text: str | None = None,
 ) -> dict:
+    # `filename` is reserved (arc42 §5.3.6a) for a future format hint; ignored for now.
     provider = get_provider()
     if file_base64:
         try:
@@ -398,10 +399,8 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
                 f"Must be one of: tracking, applied, rejected, offer."
             )
     # Retrieve the single user from the DB (MCP runs in single-user context).
-    from applire.models.user import User
-    from sqlalchemy import select as _select
     async with get_db() as db:
-        user_result = await db.execute(_select(User).limit(1))
+        user_result = await db.execute(select(User).limit(1))
         user = user_result.scalar_one_or_none()
         if user is None:
             raise not_found("No user found — create a user first")
