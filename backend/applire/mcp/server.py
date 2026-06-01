@@ -44,6 +44,7 @@ Resources:
 
 import json
 import uuid
+from datetime import datetime
 
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
@@ -55,7 +56,7 @@ from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
 from applire.models.user import User
 from applire.providers import get_provider
-from applire.schemas.application import ApplicationListResponse, ApplicationResponse
+from applire.schemas.application import ApplicationListResponse, ApplicationResponse, CreateApplicationRequest
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
@@ -333,6 +334,47 @@ async def get_application(application_id: str) -> dict:
     async with get_db() as db:
         try:
             result = await app_svc.get_application(aid, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Log an application to the user's pipeline. job_id is the JobAnalysis id; "
+        "company_name/role_title default from the job when omitted. "
+        "start_workflow=true atomically creates the flow session."
+    )
+)
+async def create_application(
+    job_id: str,
+    start_workflow: bool = False,
+    company_name: str | None = None,
+    role_title: str | None = None,
+    deadline: str | None = None,
+) -> dict:
+    jid = _parse_uuid(job_id, "job_id")
+    dl = None
+    if deadline:
+        try:
+            dl = datetime.fromisoformat(deadline)
+        except ValueError:
+            raise invalid_input("deadline must be ISO 8601 (e.g. 2026-07-01T00:00:00)")
+    req = CreateApplicationRequest(
+        job_analysis_id=jid,
+        start_workflow=start_workflow,
+        company_name=company_name,
+        role_title=role_title,
+        deadline=dl,
+    )
+    async with get_db() as db:
+        uid = await _current_user_id(db)
+        try:
+            result = await app_svc.create_application(uid, req, db)
+        except app_svc.ConflictError as exc:
+            raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
         except Exception as exc:

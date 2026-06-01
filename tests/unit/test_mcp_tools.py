@@ -547,3 +547,47 @@ async def test_advance_flow_not_found_maps_to_not_found():
         with pytest.raises(McpError) as exc:
             await advance_flow(flow_id=str(uuid.uuid4()), step="complete")
     assert exc.value.error.code == -32001
+
+
+# ---------------------------------------------------------------------------
+# create_application
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_application_happy_path():
+    from applire.mcp.server import create_application
+
+    cm, session = _mock_db()
+    uid = uuid.uuid4()
+    user_row = MagicMock(); user_row.id = uid
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+    mock_result = _mock_result(id=str(uuid.uuid4()), company_name="Acme GmbH")
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.create_application", AsyncMock(return_value=mock_result)),
+    ):
+        result = await create_application(job_id=str(uuid.uuid4()), start_workflow=True)
+    assert result["company_name"] == "Acme GmbH"
+
+
+@pytest.mark.asyncio
+async def test_create_application_duplicate_maps_to_invalid_input():
+    from applire.mcp.server import create_application
+    from applire.services import application as app_svc
+
+    cm, session = _mock_db()
+    user_row = MagicMock(); user_row.id = uuid.uuid4()
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.create_application",
+              AsyncMock(side_effect=app_svc.ConflictError("already exists"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await create_application(job_id=str(uuid.uuid4()))
+    assert exc.value.error.code == -32602
