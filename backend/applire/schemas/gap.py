@@ -27,7 +27,7 @@ class GapAnalysisResponse(BaseModel):
     id: uuid.UUID
     job_analysis_id: uuid.UUID
     profile_id: uuid.UUID
-    match_score: float = Field(ge=0.0, le=1.0)
+    match_score: float | None = Field(default=None, ge=0.0, le=1.0)
     critical_gaps: list[str]
     minor_gaps: list[str]
     strengths: list[str]
@@ -36,6 +36,7 @@ class GapAnalysisResponse(BaseModel):
     category_b: list[str] = Field(default_factory=list)
     category_c: list[str] = Field(default_factory=list)
     gap_clusters: list[GapClusterSchema] = Field(default_factory=list)
+    requirement_breakdown: list[dict] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}

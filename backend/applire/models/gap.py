@@ -37,7 +37,7 @@ class GapAnalysis(Base):
     profile_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("master_profiles.id"), nullable=False, index=True
     )
-    match_score: Mapped[float] = mapped_column(Float, nullable=False)
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Cosine similarity of job_analysis.embedding vs master_profile.embedding (migration 0017).
     # NULL if either embedding is absent or noop provider is active.
     embedding_similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -49,6 +49,7 @@ class GapAnalysis(Base):
     category_b: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     category_c: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     gap_clusters: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
+    requirement_breakdown: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
