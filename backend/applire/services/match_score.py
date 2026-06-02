@@ -1,0 +1,190 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+"""
+Deterministic match-score computation (ADR-035, US113).
+
+Turns per-requirement classifications (direct / partial / gap) produced by the
+gap-analysis LLM into a single normalised score and derived category lists.
+The JD requirement set is authoritative — sources and slot weights are assigned
+here, never by the LLM.
+"""
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Slot weights by JD source
+REQUIRED_SLOT = 1.0
+NICE_TO_HAVE_SLOT = 0.5
+
+# Earning factors by classification status
+_FACTOR: dict[str, float] = {"direct": 1.0, "partial": 0.5, "gap": 0.0}
+
+
+def _norm(s: str) -> str:
+    """Normalise a requirement string for case-insensitive matching."""
+    return (s or "").strip().casefold()
+
+
+def compute_match_score(
+    classifications: list[dict[str, Any]],
+    required_skills: list[str],
+    nice_to_have_skills: list[str],
+) -> dict[str, Any]:
+    """Compute a deterministic match score from LLM classifications.
+
+    Args:
+        classifications: List of dicts with keys ``requirement``, ``status``
+            (``"direct"`` | ``"partial"`` | ``"gap"``), and ``reason``.
+        required_skills: JD required-skills list (slot weight 1.0).
+        nice_to_have_skills: JD nice-to-have list (slot weight 0.5).
+
+    Returns:
+        Dict with keys:
+            match_score, category_a, category_b, category_c,
+            critical_gaps, minor_gaps, requirement_breakdown.
+        ``match_score`` is ``None`` when there are no JD requirements.
+    """
+    # Build a normalised lookup from the LLM classifications.
+    # If duplicates exist (same normalised key) keep the first occurrence.
+    cls_map: dict[str, dict[str, Any]] = {}
+    for item in classifications:
+        key = _norm(item.get("requirement", ""))
+        if key and key not in cls_map:
+            cls_map[key] = item
+
+    # Assemble the authoritative JD requirement set: (original_text, slot, source)
+    jd_requirements: list[tuple[str, float, str]] = [
+        (req, REQUIRED_SLOT, "required") for req in required_skills
+    ] + [
+        (req, NICE_TO_HAVE_SLOT, "nice_to_have") for req in nice_to_have_skills
+    ]
+
+    # Warn about LLM items that match no JD requirement.
+    for ckey in cls_map:
+        matched = any(
+            ckey == _norm(req) or ckey in _norm(req) or _norm(req) in ckey
+            for req, _, _ in jd_requirements
+        )
+        if not matched:
+            logger.warning(
+                "compute_match_score: LLM classification %r matches no JD requirement — dropped",
+                ckey,
+            )
+
+    if not jd_requirements:
+        return {
+            "match_score": None,
+            "category_a": [],
+            "category_b": [],
+            "category_c": [],
+            "critical_gaps": [],
+            "minor_gaps": [],
+            "requirement_breakdown": [],
+        }
+
+    # Iterate over each JD requirement, find its classification (or default gap).
+    category_a: list[str] = []
+    category_b: list[str] = []
+    category_c: list[str] = []
+    critical_gaps: list[str] = []
+    minor_gaps: list[str] = []
+    breakdown: list[dict[str, Any]] = []
+
+    earned_total = 0.0
+    n_total = 0.0
+
+    for req, slot, source in jd_requirements:
+        rkey = _norm(req)
+
+        # Fix 2: skip empty JD requirements — prevents "" from substring-matching everything.
+        if not rkey:
+            continue
+
+        # Find a matching classification using exact → longest-substring fallback.
+        # Longest-match prevents "React" from inheriting "React Native"'s classification
+        # when both appear in the JD (Fix 1).
+        matched_item: dict[str, Any] | None = None
+        if rkey in cls_map:
+            matched_item = cls_map[rkey]
+        else:
+            candidates = [
+                (len(ckey), item)
+                for ckey, item in cls_map.items()
+                if rkey in ckey or ckey in rkey
+            ]
+            matched_item = max(candidates, key=lambda c: c[0])[1] if candidates else None
+
+        status = matched_item["status"] if matched_item else "gap"
+        reason = matched_item.get("reason", "") if matched_item else ""
+
+        # Sanitise unknown statuses to "gap".
+        if status not in _FACTOR:
+            logger.warning(
+                "compute_match_score: unknown status %r for %r, treating as gap",
+                status,
+                req,
+            )
+            status = "gap"
+
+        factor = _FACTOR[status]
+        earned = slot * factor
+
+        n_total += slot
+        earned_total += earned
+
+        # Categorise.
+        # ADR-035: a `partial` on a required skill is half-credit and goes to
+        # minor_gaps, NOT critical_gaps — intentional design, do not change.
+        if status == "direct":
+            category_a.append(req)
+        elif status == "partial":
+            category_b.append(req)
+            minor_gaps.append(req)
+        else:  # gap
+            category_c.append(req)
+            if source == "required":
+                critical_gaps.append(req)
+            else:
+                minor_gaps.append(req)
+
+        breakdown.append(
+            {
+                "requirement": req,
+                "source": source,
+                "status": status,
+                "slot": slot,
+                "earned": earned,
+                "reason": reason,
+            }
+        )
+
+    # Compute and clamp the final score.
+    raw_score = earned_total / n_total
+    match_score = max(0.0, min(1.0, raw_score))  # algebraically bounded to [0,1]; clamped defensively
+
+    return {
+        "match_score": match_score,
+        "category_a": category_a,
+        "category_b": category_b,
+        "category_c": category_c,
+        "critical_gaps": critical_gaps,
+        "minor_gaps": minor_gaps,
+        "requirement_breakdown": breakdown,
+    }

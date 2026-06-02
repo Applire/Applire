@@ -41,6 +41,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
+from applire.services.match_score import compute_match_score
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +178,12 @@ async def _run_analysis(
         temperature=0.1,
     )
 
+    scored = compute_match_score(
+        data.get("classifications", []),
+        list(job.required_skills or []),
+        list(job.nice_to_have_skills or []),
+    )
+
     # Compute embedding similarity score (None when noop provider or embeddings absent)
     embedding_similarity_score = _compute_embedding_similarity(
         job.embedding,
@@ -186,15 +193,16 @@ async def _run_analysis(
     record = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
-        match_score=float(data.get("match_score", 0.0)),
+        match_score=scored["match_score"],
         embedding_similarity_score=embedding_similarity_score,
-        critical_gaps=data.get("critical_gaps", []),
-        minor_gaps=data.get("minor_gaps", []),
+        critical_gaps=scored["critical_gaps"],
+        minor_gaps=scored["minor_gaps"],
         strengths=data.get("strengths", []),
         keyword_gaps=data.get("keyword_gaps", []),
-        category_a=data.get("category_a", []),
-        category_b=data.get("category_b", []),
-        category_c=data.get("category_c", []),
+        category_a=scored["category_a"],
+        category_b=scored["category_b"],
+        category_c=scored["category_c"],
+        requirement_breakdown=scored["requirement_breakdown"],
     )
     db.add(record)
     await db.commit()

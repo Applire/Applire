@@ -47,7 +47,7 @@ from applire.providers.llm.base import LLMProvider
 _JOB_ANALYSIS_RESPONSE: dict[str, Any] = {
     "company_name": "TechVision GmbH",
     "role_title": "Senior Software Engineer",
-    "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs"],
+    "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs", "CI/CD pipelines", "5+ years Python experience"],
     "nice_to_have_skills": ["Kubernetes", "GraphQL", "Redis"],
     "keywords": ["backend", "microservices", "CI/CD", "agile", "DACH"],
     "seniority_level": "Senior",
@@ -112,14 +112,27 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
 }
 
 _GAP_ANALYSIS_RESPONSE: dict[str, Any] = {
-    "match_score": 0.68,
-    "critical_gaps": ["CI/CD pipelines", "5+ years Python experience"],
-    "minor_gaps": ["Kubernetes"],
-    "strengths": ["Python", "FastAPI", "PostgreSQL"],
-    "keyword_gaps": ["microservices architecture"],
-    "category_a": ["CI/CD pipelines"],
-    "category_b": ["Kubernetes", "microservices architecture"],
-    "category_c": ["5+ years Python experience"],
+    # One entry per JD requirement (required_skills + nice_to_have_skills).
+    # Statuses are grounded in _PROFILE_PARSE_RESPONSE for Anna Bauer.
+    # Score (REQUIRED_SLOT=1.0, NICE_TO_HAVE_SLOT=0.5, direct=1.0, partial=0.5, gap=0.0):
+    #   earned = 6×1.0 + 0×1.0 + 1×0.5×0.5 + 0×0.5 + 0×0.5 = 6.25
+    #   total  = 7×1.0 + 3×0.5 = 8.5  →  score ≈ 0.735
+    "classifications": [
+        # required_skills — all 7 must be covered
+        {"requirement": "Python",                    "status": "direct",  "reason": "listed as expert in skills"},
+        {"requirement": "FastAPI",                   "status": "direct",  "reason": "listed as advanced in skills"},
+        {"requirement": "PostgreSQL",                "status": "direct",  "reason": "listed as advanced in skills"},
+        {"requirement": "Docker",                    "status": "direct",  "reason": "listed as intermediate in skills"},
+        {"requirement": "REST APIs",                 "status": "direct",  "reason": "built REST APIs serving 50k DAU"},
+        {"requirement": "CI/CD pipelines",           "status": "direct",  "reason": "introduced CI/CD pipelines in current role"},
+        {"requirement": "5+ years Python experience","status": "gap",     "reason": "duration not explicitly stated in profile"},
+        # nice_to_have_skills — all 3 covered
+        {"requirement": "Kubernetes",                "status": "partial", "reason": "adjacent Docker experience, no Kubernetes explicitly"},
+        {"requirement": "GraphQL",                   "status": "gap",     "reason": "no signal in profile"},
+        {"requirement": "Redis",                     "status": "gap",     "reason": "no signal in profile"},
+    ],
+    "strengths": ["Python", "FastAPI", "PostgreSQL", "REST APIs", "CI/CD pipelines"],
+    "keyword_gaps": ["microservices architecture", "Kubernetes", "GraphQL"],
 }
 
 _CV_TAILORING_RESPONSE: dict[str, Any] = {

@@ -748,18 +748,16 @@ class TestGapServiceAsync:
 
         mock_provider = AsyncMock()
         mock_provider.aparse_json = AsyncMock(return_value={
-            "match_score": 0.75,
-            "critical_gaps": [],
-            "minor_gaps": [],
+            "classifications": [
+                {"requirement": "Python", "status": "direct", "reason": "listed in CV"},
+            ],
             "strengths": [],
             "keyword_gaps": [],
-            "category_a": [],
-            "category_b": [],
-            "category_c": [],
         })
 
         result = await analyze_gaps_for_session(session.id, sqlite_session, mock_provider)
-        assert result.match_score == 0.75
+        # match_score is now derived by compute_match_score, not taken from LLM output
+        assert result.match_score is not None
         assert result.job_analysis_id == job.id
 
     @pytest.mark.asyncio
@@ -776,18 +774,18 @@ class TestGapServiceAsync:
 
         mock_provider = AsyncMock()
         mock_provider.aparse_json = AsyncMock(return_value={
-            "match_score": 0.6,
-            "critical_gaps": ["Go"],
-            "minor_gaps": [],
+            "classifications": [
+                {"requirement": "Go", "status": "gap", "reason": "not mentioned"},
+            ],
             "strengths": ["Python"],
             "keyword_gaps": [],
-            "category_a": [],
-            "category_b": [],
-            "category_c": [],
         })
 
         result = await _run_analysis(job, profile, sqlite_session, mock_provider)
-        assert result.match_score == 0.6
+        # match_score is now derived by compute_match_score (not from LLM output);
+        # job has required_skills=["Python"] and "Go" classification doesn't match it,
+        # so Python defaults to gap → score = 0.0
+        assert result.match_score == 0.0
 
         # Check stored record
         from sqlalchemy import select
