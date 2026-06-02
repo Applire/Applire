@@ -6,6 +6,91 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0-beta] – 2026-06-02
+
+### Changed
+- **Match Score is now computed deterministically** (ADR-035). The LLM classifies each
+  job requirement as `direct` / `partial` / `gap`; Python computes the score as a weighted
+  ratio (required = 1.0, nice-to-have = 0.5). The headline percentage can no longer disagree
+  with the gap categories, is reproducible (same inputs → same score), and is explainable.
+- Recalibrated interview score bands: ≥ 60% (minor gaps), 40–59% (moderate), < 40% (low fit).
+
+### Added
+- `requirement_breakdown` field on gap analyses — stores `{requirement, source, status,
+  slot, earned, reason}` per requirement for explainability and audit.
+
+### Fixed
+- Admin appearance editor no longer blacks out the UI on exit; saturation ceiling lowered
+  (88 → 50) for legible palettes.
+- nginx re-resolves upstreams to avoid stale-DNS `502`s after container rebuilds (self-hosting).
+- Patched moderate XSS advisory in the `postcss` transitive dependency (#47).
+
+### Migration
+- Alembic migration 0029: `match_score` becomes nullable; adds `requirement_breakdown` column.
+  Existing rows keep their stored scores and are not retroactively recomputed.
+
+## [0.34.0-beta] – 2026-06-01
+
+### Added
+- **Continental Excellence design system** — Manrope type, glassmorphism, gold-pill accents,
+  and AI-card light-leak styling across the app.
+- Unified application shell: `AppTopbar` with section / detail / flow modes, sidebar user-strip,
+  and an Admin nav entry; `/admin` and `/match` now share the shell sidebar.
+- Reworked CV workspace: `CVPageActionBar` (Download · Anschreiben · Eingestellt · Weiter),
+  `RefinementHeader` with a match-score ring and expiry chip, and a 2-tab `RefinementPanel`.
+- **MCP agent channel expansion** — new tools `get_cv_status` (US048), `start_flow` /
+  `advance_flow` / `get_flow_state` with a `flow://` resource (US109), `create_application`
+  (US110), `import_cv` (US107), `add_role` (US108), and JD-URL scraping in `analyze_jd` (US056);
+  CV now renders inline over stdio.
+- `frontend-lint` CI job enforcing ESLint + de/en i18n key parity on every push.
+
+### Changed
+- Full i18n sweep: remaining hard-coded JSX strings replaced with `t()` calls, a11y aria-labels
+  localized, and de/en catalog parity enforced via `eslint-plugin-formatjs`.
+
+### Fixed
+- Flow advance is now idempotent; stop over-drilling a gap the candidate already declined.
+- Each gap maps to a single CV section; refinement panel de-duplicated.
+- Master-Profil tiles derive from real profile data; in-app back/home actions route to `/dashboard`.
+- Static assets (template thumbnails, favicon) served reliably in the standalone runner.
+
+### Security
+- Upgraded FastAPI 0.115.6 → 0.136.3 to patch Starlette CVEs.
+- Patched `ws` and `brace-expansion` advisories via npm audit; bumped Vitest 1.6 → 4.1.
+
+## [0.33.1-beta] – 2026-05-18
+
+### Added
+- **Post-hire flow** — "Mark as Hired" action on the dashboard, a `hired` user status, and a
+  `POST /applications/{id}/mark-hired` endpoint; `application_id` exposed in the flow state.
+- **Add-role / profile-update flow** — `ProfileUpdateChooser` and `AddRoleView` (manual entry,
+  JD-paste, multi-role close-out, and pre-fill from an application), backed by
+  `POST /api/profile/roles`; new `profileUpdate` i18n namespace.
+- Retry-refinement prompts for CV extraction, profile extraction, CV tailoring, and response
+  parsing — reviewers now quote source text in feedback.
+
+### Fixed
+- CI builds multi-arch images on native runners to avoid the 6-hour emulation timeout.
+
+## [0.32.0-beta] – 2026-05-15
+
+> Consolidates the self-hosting hardening line (tags `v0.32.0-beta`–`v0.32.4-beta`).
+
+### Added
+- **Self-hosting reverse proxy** — `applire-nginx` image with baked-in config plus a
+  pull-based `docker-compose.yml` for self-hosters and a build-from-source
+  `docker-compose.override.yml` for development.
+- Release pipeline now publishes `applire-backend`, `applire-frontend`, and `applire-nginx`
+  images to GHCR.
+
+### Fixed
+- API routing and CORS now work for non-localhost deployments.
+- Made the env file optional with a `DATABASE_URL` default for platform deployments;
+  renamed `.env.dev` → `.env`.
+
+### Changed
+- Bumped `next` 15.3.6 → 15.5.18, `next-intl` 4.9.1 → 4.9.2.
+
 ## [0.31.0-beta] – 2026-05-13 (First public release)
 
 ### Added
@@ -29,5 +114,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - AI: OpenRouter (multi-model), Mistral AI, MCP tool integration
 - Database: SQLite (dev), PostgreSQL (prod)
 
-[Unreleased]: https://github.com/tobias-rosenbaum/Applire/compare/v0.31.0-beta...HEAD
+[Unreleased]: https://github.com/tobias-rosenbaum/Applire/compare/v0.35.0-beta...HEAD
+[0.35.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.34.0-beta...v0.35.0-beta
+[0.34.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.33.1-beta...v0.34.0-beta
+[0.33.1-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.32.4-beta...v0.33.1-beta
+[0.32.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.31.2-beta...v0.32.4-beta
 [0.31.0-beta]: https://github.com/tobias-rosenbaum/Applire/releases/tag/v0.31.0-beta
