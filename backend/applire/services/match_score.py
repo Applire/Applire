@@ -76,9 +76,6 @@ def compute_match_score(
         (req, NICE_TO_HAVE_SLOT, "nice_to_have") for req in nice_to_have_skills
     ]
 
-    # Set of normalised JD keys — used to detect unmatched LLM items.
-    jd_keys: set[str] = {_norm(req) for req, _, _ in jd_requirements}
-
     # Warn about LLM items that match no JD requirement.
     for ckey in cls_map:
         matched = any(
@@ -116,15 +113,23 @@ def compute_match_score(
     for req, slot, source in jd_requirements:
         rkey = _norm(req)
 
-        # Find a matching classification using exact → substring fallback.
+        # Fix 2: skip empty JD requirements — prevents "" from substring-matching everything.
+        if not rkey:
+            continue
+
+        # Find a matching classification using exact → longest-substring fallback.
+        # Longest-match prevents "React" from inheriting "React Native"'s classification
+        # when both appear in the JD (Fix 1).
         matched_item: dict[str, Any] | None = None
         if rkey in cls_map:
             matched_item = cls_map[rkey]
         else:
-            for ckey, item in cls_map.items():
-                if rkey in ckey or ckey in rkey:
-                    matched_item = item
-                    break
+            candidates = [
+                (len(ckey), item)
+                for ckey, item in cls_map.items()
+                if rkey in ckey or ckey in rkey
+            ]
+            matched_item = max(candidates, key=lambda c: c[0])[1] if candidates else None
 
         status = matched_item["status"] if matched_item else "gap"
         reason = matched_item.get("reason", "") if matched_item else ""
@@ -145,6 +150,8 @@ def compute_match_score(
         earned_total += earned
 
         # Categorise.
+        # ADR-035: a `partial` on a required skill is half-credit and goes to
+        # minor_gaps, NOT critical_gaps — intentional design, do not change.
         if status == "direct":
             category_a.append(req)
         elif status == "partial":
@@ -170,7 +177,7 @@ def compute_match_score(
 
     # Compute and clamp the final score.
     raw_score = earned_total / n_total
-    match_score = max(0.0, min(1.0, raw_score))
+    match_score = max(0.0, min(1.0, raw_score))  # algebraically bounded to [0,1]; clamped defensively
 
     return {
         "match_score": match_score,
