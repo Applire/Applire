@@ -114,6 +114,27 @@ class TestColorSchemeSchemas:
                 surface_lightness=1.5,
             )
 
+    def test_create_schema_accepts_lower_saturation_bound(self):
+        # The surface-tint lower bound was relaxed from 0.88 to 0.50 so admins
+        # can pick noticeably more saturated backgrounds.
+        from applire.schemas.color_scheme import ColorSchemeCreate
+        obj = ColorSchemeCreate(
+            name="Test", seed_primary="#1B4F72",
+            seed_accent="#2A8F9D", seed_secondary="#C9A84C",
+            surface_lightness=0.50,
+        )
+        assert obj.surface_lightness == 0.50
+
+    def test_create_schema_rejects_below_lower_bound(self):
+        from applire.schemas.color_scheme import ColorSchemeCreate
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            ColorSchemeCreate(
+                name="Test", seed_primary="#1B4F72",
+                seed_accent="#2A8F9D", seed_secondary="#C9A84C",
+                surface_lightness=0.49,
+            )
+
     def test_create_schema_empty_name(self):
         from applire.schemas.color_scheme import ColorSchemeCreate
         import pydantic

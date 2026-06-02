@@ -25,6 +25,27 @@ export interface SeedColors {
 
 export type DerivedScheme = Record<string, string>;
 
+/** Canonical list of CSS custom properties produced by {@link deriveScheme}.
+ *  Shared so consumers (e.g. the ThemeProvider) can cleanly remove every
+ *  editor-applied override and fall back to the static globals.css palette. */
+export const DERIVED_SCHEME_KEYS = [
+  "--color-primary",
+  "--color-primary-container",
+  "--color-teal",
+  "--color-teal-dim",
+  "--color-teal-container",
+  "--color-teal-container-light",
+  "--color-gold",
+  "--color-gold-dim",
+  "--color-gold-container",
+  "--color-surface-dim",
+  "--color-surface-bright",
+  "--color-surface-container",
+  "--color-surface-container-high",
+  "--color-surface-container-highest",
+  "--color-neutral-light",
+] as const;
+
 /** Blend hex_color into white at the given opacity (0-1).
  *
  *  opacity=0 → #ffffff, opacity=0.2 → 20% primary + 80% white.
