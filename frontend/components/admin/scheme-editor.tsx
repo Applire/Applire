@@ -261,7 +261,7 @@ export function SchemeEditor() {
         </div>
         <input
           type="range"
-          min={88}
+          min={50}
           max={99}
           step={1}
           value={Math.round(surfaceLightness * 100)}

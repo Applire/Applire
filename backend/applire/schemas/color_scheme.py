@@ -46,8 +46,8 @@ class ColorSchemeCreate(BaseModel):
     @field_validator("surface_lightness")
     @classmethod
     def validate_lightness(cls, v: float) -> float:
-        if not 0.88 <= v <= 0.99:
-            raise ValueError("surface_lightness must be between 0.88 and 0.99")
+        if not 0.50 <= v <= 0.99:
+            raise ValueError("surface_lightness must be between 0.50 and 0.99")
         return v
 
     @field_validator("name")
@@ -75,8 +75,8 @@ class ColorSchemePreviewRequest(BaseModel):
     @field_validator("surface_lightness")
     @classmethod
     def validate_lightness(cls, v: float) -> float:
-        if not 0.88 <= v <= 0.99:
-            raise ValueError("surface_lightness must be between 0.88 and 0.99")
+        if not 0.50 <= v <= 0.99:
+            raise ValueError("surface_lightness must be between 0.50 and 0.99")
         return v
 
 
