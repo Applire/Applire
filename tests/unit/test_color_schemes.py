@@ -243,3 +243,40 @@ class TestServiceFunctions:
         # Now scheme is active (not builtin), should raise SchemeIsActive
         with pytest.raises(SchemeIsActive):
             await delete_scheme(db, scheme.id)
+
+
+# --- Migration 0030: re-color the mislabeled EU Blue built-in (GH #30) ---
+
+class TestEuBlueRecolorMigration:
+    """The original 0021 seed labeled a murky slate-teal palette "EU Blue".
+    Migration 0030 corrects it to the canonical Continental Excellence EU
+    palette (#003399 primary / #fecb00 gold, per docs/DESIGN.md). The shipped
+    `derived` map must stay byte-consistent with derive_scheme() so the seed
+    never drifts from the algorithm the editor/preview use."""
+
+    def _migration(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "backend" / "alembic" / "versions" / "0030_recolor_eu_blue.py"
+        )
+        spec = importlib.util.spec_from_file_location("migration_0030", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_seeds_are_canonical_eu_palette(self):
+        m = self._migration()
+        assert m._EU_BLUE_SEEDS == ("#003399", "#3557bc", "#fecb00")
+
+    def test_derived_is_consistent_with_derive_scheme(self):
+        m = self._migration()
+        sp, sa, ss = m._EU_BLUE_SEEDS
+        assert m._EU_BLUE_DERIVED == derive_scheme(sp, sa, ss, m._EU_BLUE_SURFACE_LIGHTNESS)
+
+    def test_derived_carries_eu_blue_and_gold(self):
+        m = self._migration()
+        assert m._EU_BLUE_DERIVED["--color-primary"] == "#003399"
+        assert m._EU_BLUE_DERIVED["--color-gold"] == "#fecb00"

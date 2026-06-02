@@ -18,19 +18,27 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { loadActiveSchemeVars } from "@/lib/active-theme";
 
 export const metadata: Metadata = {
   title: "Applire — DACH CV Tailoring",
   description: "AI-powered Lebenslauf tailoring for the DACH market",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Inline the active scheme's CSS variables on <html> during SSR so the first
+  // paint already uses the DB palette. Inline custom properties override the
+  // globals.css :root defaults, eliminating the flash where the static palette
+  // shows briefly before the client ThemeProvider applies the active scheme
+  // (GitHub issue #30). null → no inline vars, the globals.css default is used.
+  const schemeVars = await loadActiveSchemeVars();
+
   return (
-    <html lang="de">
+    <html lang="de" style={(schemeVars ?? undefined) as React.CSSProperties | undefined}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

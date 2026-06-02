@@ -6,6 +6,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.1-beta] – 2026-06-02
+
+### Fixed
+- **UI color-scheme flash on load** (#30). The active palette is now injected server-side
+  onto `<html>` during SSR, so the first paint already uses it. Previously the static
+  `globals.css` default rendered first and the client `ThemeProvider` swapped in the DB
+  scheme a few frames later — a visible flash.
+- Corrected the mislabeled **"EU Blue"** built-in scheme: it now carries the canonical
+  Continental Excellence EU palette (`#003399` / `#fecb00`) instead of an unrelated
+  murky slate-teal. "GNOME Blue" is unchanged — its name accurately describes its palette.
+
+### Migration
+- Alembic migration 0030: re-colors the EU Blue built-in scheme in place (idempotent
+  `UPDATE` by id); fixes both fresh and existing databases. No schema change.
+
 ## [0.35.0-beta] – 2026-06-02
 
 ### Changed
