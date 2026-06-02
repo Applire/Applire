@@ -26,6 +26,9 @@
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.2"
   },
+  "overrides": {
+    "postcss": "^8.5.15"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.15",
     "@testing-library/jest-dom": "^6.9.1",
