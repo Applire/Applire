@@ -33,9 +33,9 @@ def test_mock_gap_response_has_no_llm_score_and_scores_consistently():
         list(_JOB_ANALYSIS_RESPONSE.get("required_skills", [])),
         list(_JOB_ANALYSIS_RESPONSE.get("nice_to_have_skills", [])),
     )
-    # With the three mock classifications mapping onto JD requirements,
-    # at least one direct match exists so the score is a real number in [0,1].
-    assert out["match_score"] is None or 0.0 <= out["match_score"] <= 1.0
-    # The three mock requirements are classified (not all dropped):
+    # All JD requirements are covered so the score is a real float in [0,1].
+    assert isinstance(out["match_score"], float)
+    assert 0.0 <= out["match_score"] <= 1.0
+    # All three classification buckets must be present in the mock output:
     classified = set(out["category_a"]) | set(out["category_b"]) | set(out["category_c"])
-    assert {"CI/CD pipelines", "Kubernetes", "5+ years Python experience"} & classified
+    assert {"CI/CD pipelines", "Kubernetes", "5+ years Python experience"} <= classified
