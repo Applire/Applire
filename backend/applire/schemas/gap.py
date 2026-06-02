@@ -23,6 +23,15 @@ from pydantic import BaseModel, Field
 from applire.schemas.gap_cluster import GapClusterSchema
 
 
+class RequirementBreakdownItem(BaseModel):
+    requirement: str
+    source: str  # "required" | "nice_to_have"
+    status: str  # "direct" | "partial" | "gap"
+    slot: float
+    earned: float
+    reason: str = ""
+
+
 class GapAnalysisResponse(BaseModel):
     id: uuid.UUID
     job_analysis_id: uuid.UUID
@@ -36,7 +45,7 @@ class GapAnalysisResponse(BaseModel):
     category_b: list[str] = Field(default_factory=list)
     category_c: list[str] = Field(default_factory=list)
     gap_clusters: list[GapClusterSchema] = Field(default_factory=list)
-    requirement_breakdown: list[dict] = Field(default_factory=list)
+    requirement_breakdown: list[RequirementBreakdownItem] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
