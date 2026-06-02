@@ -47,7 +47,7 @@ from applire.providers.llm.base import LLMProvider
 _JOB_ANALYSIS_RESPONSE: dict[str, Any] = {
     "company_name": "TechVision GmbH",
     "role_title": "Senior Software Engineer",
-    "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs"],
+    "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs", "CI/CD pipelines", "5+ years Python experience"],
     "nice_to_have_skills": ["Kubernetes", "GraphQL", "Redis"],
     "keywords": ["backend", "microservices", "CI/CD", "agile", "DACH"],
     "seniority_level": "Senior",
@@ -112,14 +112,13 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
 }
 
 _GAP_ANALYSIS_RESPONSE: dict[str, Any] = {
-    "match_score": 0.68,
-    "critical_gaps": ["CI/CD pipelines", "5+ years Python experience"],
-    "minor_gaps": ["Kubernetes"],
+    "classifications": [
+        {"requirement": "CI/CD pipelines", "status": "direct", "reason": "explicit in CV"},
+        {"requirement": "Kubernetes", "status": "partial", "reason": "adjacent Docker experience"},
+        {"requirement": "5+ years Python experience", "status": "gap", "reason": "no signal"},
+    ],
     "strengths": ["Python", "FastAPI", "PostgreSQL"],
     "keyword_gaps": ["microservices architecture"],
-    "category_a": ["CI/CD pipelines"],
-    "category_b": ["Kubernetes", "microservices architecture"],
-    "category_c": ["5+ years Python experience"],
 }
 
 _CV_TAILORING_RESPONSE: dict[str, Any] = {
