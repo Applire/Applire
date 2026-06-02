@@ -150,6 +150,7 @@ class TestJobScopedGap:
         the displayed categories are always derived from the same classifications.
         """
         bd = {e["requirement"]: e["status"] for e in gap_body.get("requirement_breakdown", [])}
+        assert len(bd) > 0, "requirement_breakdown is empty; cannot verify category consistency"
         for r in gap_body.get("category_a", []):
             assert bd.get(r) == "direct", (
                 f"category_a item {r!r} has breakdown status {bd.get(r)!r}, expected 'direct'"
