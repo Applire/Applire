@@ -105,10 +105,15 @@ class TestJobScopedGap:
         r = requests.post(f"{api}/api/job/{job_id}/gaps", timeout=60)
         assert r.status_code == 200, r.text
 
-    def test_match_score_is_float_in_range(self, gap_body):
+    def test_match_score_is_float_or_none_in_range(self, gap_body):
+        # ADR-035: match_score is computed deterministically in Python; it is
+        # None only when the JD has zero requirements (never in practice here).
         score = gap_body["match_score"]
-        assert isinstance(score, float), f"match_score must be float, got {type(score)}"
-        assert 0.0 <= score <= 1.0, f"match_score {score} out of range"
+        assert score is None or isinstance(score, float), (
+            f"match_score must be float or None, got {type(score)}"
+        )
+        if score is not None:
+            assert 0.0 <= score <= 1.0, f"match_score {score} out of range"
 
     def test_category_fields_present(self, gap_body):
         assert isinstance(gap_body.get("category_a"), list), "category_a missing"
@@ -125,6 +130,39 @@ class TestJobScopedGap:
             assert field in gap_body, f"{field} missing from response"
             assert isinstance(gap_body[field], list)
 
+    def test_requirement_breakdown_present_and_structured(self, gap_body):
+        """ADR-035: requirement_breakdown must be a list of per-requirement entries."""
+        breakdown = gap_body.get("requirement_breakdown")
+        assert isinstance(breakdown, list), "requirement_breakdown must be a list"
+        for entry in breakdown:
+            for key in ("requirement", "source", "status", "slot", "earned"):
+                assert key in entry, f"breakdown entry missing key '{key}': {entry}"
+            assert entry["status"] in ("direct", "partial", "gap"), (
+                f"unexpected status: {entry['status']}"
+            )
+            assert entry["source"] in ("required", "nice_to_have"), (
+                f"unexpected source: {entry['source']}"
+            )
+
+    def test_category_consistency_with_breakdown(self, gap_body):
+        """ADR-035: every A/B/C item must have a matching breakdown entry with the
+        correct status (direct / partial / gap) — guarantees the Python score and
+        the displayed categories are always derived from the same classifications.
+        """
+        bd = {e["requirement"]: e["status"] for e in gap_body.get("requirement_breakdown", [])}
+        for r in gap_body.get("category_a", []):
+            assert bd.get(r) == "direct", (
+                f"category_a item {r!r} has breakdown status {bd.get(r)!r}, expected 'direct'"
+            )
+        for r in gap_body.get("category_b", []):
+            assert bd.get(r) == "partial", (
+                f"category_b item {r!r} has breakdown status {bd.get(r)!r}, expected 'partial'"
+            )
+        for r in gap_body.get("category_c", []):
+            assert bd.get(r) == "gap", (
+                f"category_c item {r!r} has breakdown status {bd.get(r)!r}, expected 'gap'"
+            )
+
     def test_all_requirements_classified(self, gap_body):
         """Every JD requirement should end up in exactly one of A, B, or C."""
         a = set(gap_body["category_a"])
@@ -137,7 +175,9 @@ class TestJobScopedGap:
 
     def test_dach_profile_gets_reasonable_match(self, gap_body):
         """DACH senior profile with Python/FastAPI should achieve >0.3 match."""
-        assert gap_body["match_score"] >= 0.3, "Expected reasonable match for DACH senior profile"
+        score = gap_body["match_score"]
+        if score is not None:
+            assert score >= 0.3, "Expected reasonable match for DACH senior profile"
 
     def test_unknown_job_returns_404(self, api):
         r = requests.post(f"{api}/api/job/00000000-0000-0000-0000-000000000000/gaps", timeout=30)
@@ -154,10 +194,20 @@ class TestSessionScopedGap:
         r = requests.post(f"{api}/api/session/{session_id}/analyze-gaps", timeout=60)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert isinstance(body.get("match_score"), float)
+        # ADR-035: match_score is None only when JD has zero requirements.
+        score = body.get("match_score")
+        assert score is None or isinstance(score, float), (
+            f"match_score must be float or None, got {type(score)}"
+        )
+        if score is not None:
+            assert 0.0 <= score <= 1.0, f"match_score {score} out of range"
         assert isinstance(body.get("category_a"), list)
         assert isinstance(body.get("category_b"), list)
         assert isinstance(body.get("category_c"), list)
+        # requirement_breakdown must be present (may be empty if JD has no requirements).
+        assert isinstance(body.get("requirement_breakdown"), list), (
+            "requirement_breakdown must be a list"
+        )
 
     def test_unknown_session_returns_404(self, api):
         r = requests.post(

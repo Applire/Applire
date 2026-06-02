@@ -109,7 +109,12 @@ def test_gaps_response_structure(gap_body):
     assert isinstance(gap_body.get("id"), str) and len(gap_body["id"]) == 36
     assert isinstance(gap_body.get("job_analysis_id"), str) and len(gap_body["job_analysis_id"]) == 36
     assert isinstance(gap_body.get("profile_id"), str) and len(gap_body["profile_id"]) == 36
-    assert isinstance(gap_body.get("match_score"), float)
+    # ADR-035: match_score is computed deterministically in Python; None only when JD
+    # has zero requirements (never in practice here).
+    score = gap_body.get("match_score")
+    assert score is None or isinstance(score, float), (
+        f"match_score must be float or None, got {type(score)}"
+    )
     assert isinstance(gap_body.get("critical_gaps"), list)
     assert isinstance(gap_body.get("minor_gaps"), list)
     assert isinstance(gap_body.get("strengths"), list)
@@ -117,12 +122,17 @@ def test_gaps_response_structure(gap_body):
     assert isinstance(gap_body.get("category_a"), list)
     assert isinstance(gap_body.get("category_b"), list)
     assert isinstance(gap_body.get("category_c"), list)
+    # ADR-035: requirement_breakdown is always present in new responses.
+    assert isinstance(gap_body.get("requirement_breakdown"), list), (
+        "requirement_breakdown must be a list"
+    )
     assert isinstance(gap_body.get("created_at"), str)
 
 
 def test_gaps_match_score_in_range(gap_body):
     score = gap_body["match_score"]
-    assert 0.0 <= score <= 1.0, f"match_score {score} out of range [0.0, 1.0]"
+    if score is not None:
+        assert 0.0 <= score <= 1.0, f"match_score {score} out of range [0.0, 1.0]"
 
 
 def test_gaps_lists_contain_strings(gap_body):
