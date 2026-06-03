@@ -13,7 +13,7 @@ We provide security fixes for the latest released version only.
 
 **Do not report security vulnerabilities through public GitHub issues.**
 
-Please email: **applire@posteo.com**
+Please email: **kontakt@applire.de**
 
 Include in your report:
 - A description of the vulnerability

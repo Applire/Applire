@@ -593,7 +593,7 @@ We chose AGPL to ensure that:
 
 ### Commercial Licensing
 
-For organizations that cannot comply with AGPL requirements (e.g., proprietary SaaS offerings), commercial licenses are available. Contact **applire@posteo.com** for details.
+For organizations that cannot comply with AGPL requirements (e.g., proprietary SaaS offerings), commercial licenses are available. Contact **kontakt@applire.de** for details.
 
 ---
 
@@ -610,9 +610,9 @@ For organizations that cannot comply with AGPL requirements (e.g., proprietary S
 ## 📬 Contact
 
 - **Website**: [applire.de](https://applire.de) *(coming soon)*
-- **Email**: applire@posteo.com
+- **Email**: kontakt@applire.de
 - **Issues**: [GitHub Issues](https://github.com/tobias-rosenbaum/Applire/issues)
-- **Security**: applire@posteo.com (see [SECURITY.md](SECURITY.md))
+- **Security**: kontakt@applire.de (see [SECURITY.md](SECURITY.md))
 
 ---
 

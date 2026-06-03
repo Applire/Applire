@@ -32,4 +32,4 @@ This CLA does not transfer ownership of your contribution. You retain copyright 
 
 By submitting a pull request you confirm you have read and agree to these terms.
 
-For questions: applire@posteo.com
+For questions: kontakt@applire.de
