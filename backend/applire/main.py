@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from applire import __version__
+from applire._version import __version__
 from applire.config import resolve_static_dir, settings
 
 # Attach a StreamHandler directly to the applire logger so records don't rely on the

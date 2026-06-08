@@ -14,8 +14,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
+"""Package version lookup.
 
-from importlib.metadata import version, PackageNotFoundError
+Lives in a real submodule (not the top-level package marker) because `applire`
+is a PEP 420 namespace package — it has no top-level `__init__.py`, so it cannot
+carry module-level attributes itself. Consumed by `applire.main` and
+`applire.routers.health`. (ADR-031, amended 2026-06-03.)
+"""
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("applire")

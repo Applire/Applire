@@ -13,3 +13,6 @@ dependencies = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["applire*"]
+# `applire` is a PEP 420 namespace package (no top-level __init__.py) so Cloud's
+# `applire.cloud.*` can attach in a second editable-install root (ADR-031, amended 2026-06-03).
+namespaces = true

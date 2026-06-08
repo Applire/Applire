@@ -18,7 +18,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from applire import __version__
+from applire._version import __version__
 from applire.config import HAS_CLOUD, settings
 
 router = APIRouter()
