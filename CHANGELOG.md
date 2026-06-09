@@ -6,6 +6,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.0-beta] – 2026-06-09
+
+### Fixed
+- **Interview & enrichment questions now follow the UI language** (ADR-038, US137).
+  Previously the gap-interview and profile-enrichment questions drifted to whatever
+  language the input material was in — e.g. an English-UI user who pasted a German job
+  description was interviewed in German, because the JD-language `jd_context` was injected
+  into the question prompt with no output-language directive. Questions and their answer
+  choices are now generated in the user's `ui_language` regardless of the profile/JD/context
+  language. The split is explicit: **conversation** (interview/enrichment questions) follows
+  the **UI language**; **documents** (tailored CV, cover letter) continue to follow the
+  **job-description language**.
+
+### Added
+- `with_language()` directive applied to all question system prompts (MODE A targeted,
+  MODE B guided, follow-up probes, Mode C enrichment), forcing the output language and
+  instructing the model never to mirror the context language.
+- Language-verification pass over generated questions, reusing the ADR-021
+  `review_and_refine` loop (`prompts/review_question_language.py`), gated by
+  `INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES` (default 1; `0` disables).
+
+### Changed
+- `UserSettings.ui_language` is now **non-nullable, default `en`** and is the single
+  authoritative source for conversation language (resolved via `get_ui_language()`).
+- Removed the now-dead `Accept-Language` auto-detect branch in `GET /api/settings`; the
+  settings response `ui_language` is now non-optional.
+
+### Migration
+- Alembic migration 0031: backfills `user_settings.ui_language` NULL → `'en'`, then sets
+  the column `NOT NULL` with server default `'en'`. No data loss; reversible.
+
 ## [0.35.1-beta] – 2026-06-02
 
 ### Fixed
