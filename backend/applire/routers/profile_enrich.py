@@ -54,6 +54,7 @@ from applire.services.interview_graph import (
     response_parser,
 )
 from applire.services.reviewer import review_and_refine
+from applire.services.session import get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
 
@@ -143,7 +144,8 @@ async def _next_question_or_done(
         return None, True
 
     state["current_gap_index"] = idx
-    q_data = await question_generator_with_profile(state, profile_data, provider)
+    lang = await get_ui_language(db)
+    q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     question = q_data["question"]
     state["current_question"] = question
     state["messages"].append({"role": "assistant", "content": question})
@@ -198,7 +200,8 @@ async def start_enrich_session(
         "na_gaps": [],
     }
 
-    q_data = await question_generator_with_profile(state, profile_data, provider)
+    lang = await get_ui_language(db)
+    q_data = await question_generator_with_profile(state, profile_data, provider, lang=lang)
     first_question = q_data["question"]
     state["current_question"] = first_question
     state["messages"].append({"role": "assistant", "content": first_question})
