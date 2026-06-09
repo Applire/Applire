@@ -309,6 +309,9 @@ class MockLLMProvider(LLMProvider):
     ) -> Any:
         system_lower = (system or "").lower()
 
+        if "language reviewer" in system_lower:
+            return {"approved": True, "issues": [], "feedback": ""}
+
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)
 
