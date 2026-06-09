@@ -55,6 +55,11 @@ def with_language(system_prompt: str, lang: str) -> str:
     )
 
 
+def language_name(lang: str) -> str:
+    """Human-readable language name for a UI locale code (defaults to English)."""
+    return _LANG_NAMES.get(lang, "English")
+
+
 # ---------------------------------------------------------------------------
 # QuestionGenerator node — MODE A (Targeted Gap-Fill)
 # ---------------------------------------------------------------------------
