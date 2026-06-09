@@ -53,7 +53,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     fetch(`${API_BASE}/api/settings`)
       .then((r) => r.json())
       .then((data) => {
-        const lang = data.ui_language as Locale | null;
+        const lang = data.ui_language as Locale;
         if (lang === "de" || lang === "en") {
           setLocaleState(lang);
           document.documentElement.lang = lang;

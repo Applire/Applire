@@ -64,7 +64,7 @@ async def review_and_refine(
         max_retries: Maximum number of generator retries. 0 = review layer disabled.
         generator_max_tokens: Token budget for the generator retry calls.
         chain_id: Identifier for the calling chain (cv_extraction, profile_extraction,
-                  cv_tailoring, interview_response). Used for log dimensionality.
+                  cv_tailoring, interview_response, interview_question). Used for log dimensionality.
 
     Returns:
         The approved draft, or the last generated draft if retries are exhausted.

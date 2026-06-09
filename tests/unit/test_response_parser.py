@@ -417,27 +417,6 @@ class TestGapDetectorModeB:
 
 class TestQuestionGenerator:
     @pytest.mark.asyncio
-    async def test_question_generator_calls_provider(self):
-        from applire.services.interview_graph import question_generator
-
-        state = {
-            "mode": "targeted",
-            "critical_gaps": ["cluster-python"],
-            "current_gap_index": 0,
-            "messages": [],
-            "gap_clusters_by_id": {
-                "cluster-python": {"id": "cluster-python", "label": "Python experience", "category": "C", "gaps": ["Python experience"], "jd_skills": [], "jd_context": ""}
-            },
-        }
-        provider = _make_mock_provider({"question": "Tell me about Python?", "choices": None})
-
-        result = await question_generator(state, provider)
-
-        assert isinstance(result, dict)
-        assert result["question"] == "Tell me about Python?"
-        provider.aparse_json.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_question_generator_with_profile_targeted_mode(self):
         from applire.services.interview_graph import question_generator_with_profile
 

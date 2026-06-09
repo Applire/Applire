@@ -257,36 +257,6 @@ async def question_generator_with_profile(
     return reviewed
 
 
-async def question_generator(
-    state: InterviewState,
-    provider: LLMProvider,
-    lang: str = "en",
-) -> dict:
-    """Generate a targeted question for the current gap (no profile context).
-
-    Kept for backwards compatibility — prefer ``question_generator_with_profile``,
-    which additionally runs the language-review pass (ADR-038).
-
-    This function applies the output-language directive via ``with_language()``
-    but intentionally does NOT run ``_review_question_language``.  It is
-    deprecated and will be removed once all call sites are migrated.
-
-    Returns: {"question": str, "choices": None}
-    """
-    cluster_id = state["critical_gaps"][state["current_gap_index"]]
-    clusters_by_id = state.get("gap_clusters_by_id") or {}
-    cluster = clusters_by_id.get(
-        cluster_id,
-        {"id": cluster_id, "label": cluster_id, "gaps": [], "jd_skills": [], "jd_context": ""},
-    )
-    data: dict = await provider.aparse_json(
-        build_question_prompt(cluster, {}, state["messages"]),
-        system=with_language(QUESTION_SYSTEM_PROMPT, lang),
-        temperature=0.4,
-    )
-    return {"question": str(data.get("question", "")).strip(), "choices": None}
-
-
 # ---------------------------------------------------------------------------
 # Node: ResponseParser
 # ---------------------------------------------------------------------------
