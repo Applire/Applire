@@ -54,9 +54,19 @@ async def sqlite_session():
 
 
 def _make_mock_provider(return_value: dict) -> MagicMock:
-    """Return a mock LLMProvider whose aparse_json returns *return_value*."""
+    """Return a mock LLMProvider whose aparse_json returns *return_value*.
+
+    The language-review pass (ADR-038) calls aparse_json with the reviewer
+    system prompt; approve it so review_and_refine returns the draft unchanged.
+    """
     provider = MagicMock()
-    provider.aparse_json = AsyncMock(return_value=return_value)
+
+    async def _aparse_json(prompt, *, system=None, **kwargs):
+        if "language reviewer" in (system or "").lower():
+            return {"approved": True, "issues": [], "feedback": ""}
+        return return_value
+
+    provider.aparse_json = AsyncMock(side_effect=_aparse_json)
     provider.acomplete = AsyncMock(return_value="What is your experience with Python?")
     provider.__class__.__name__ = "MockProvider"
     return provider
@@ -448,7 +458,9 @@ class TestQuestionGenerator:
 
         assert isinstance(result, dict)
         assert "Docker" in result["question"]
-        provider.aparse_json.assert_called_once()
+        # ADR-038: aparse_json is called twice — once for generation, once for
+        # the language-reviewer pass — so assert_called() instead of once.
+        provider.aparse_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_question_generator_with_profile_guided_mode(self):
