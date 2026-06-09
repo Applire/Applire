@@ -78,34 +78,19 @@ class TestSettingsEndpoint:
 
 class TestLanguageSettings:
     @pytest.mark.asyncio
-    async def test_get_settings_detects_german_from_accept_language(self, db):
+    async def test_get_settings_defaults_to_english_when_no_row(self, db):
+        # ADR-038: ui_language is NOT NULL; no row → default 'en'
         from applire.routers.settings import get_settings
-        result = await get_settings(db, accept_language="de-DE,de;q=0.9,en;q=0.8")
-        assert result["ui_language"] == "de"
-
-    @pytest.mark.asyncio
-    async def test_get_settings_detects_english_for_non_german(self, db):
-        from applire.routers.settings import get_settings
-        result = await get_settings(db, accept_language="fr-FR,fr;q=0.9")
+        result = await get_settings(db)
         assert result["ui_language"] == "en"
 
     @pytest.mark.asyncio
-    async def test_get_settings_defaults_to_english_with_no_header(self, db):
-        from applire.routers.settings import get_settings
-        result = await get_settings(db, accept_language="")
-        assert result["ui_language"] == "en"
-
-    @pytest.mark.asyncio
-    async def test_get_settings_persists_detected_language_when_row_exists(self, db):
+    async def test_get_settings_returns_persisted_language(self, db):
+        # Row with ui_language='de' should be returned as-is
         from applire.routers.settings import get_settings, update_settings
-        # Create a row first via a color update
-        await update_settings(db, accent_hex="#112233")
-        # GET with German header — should detect and persist
-        result = await get_settings(db, accept_language="de-AT")
+        await update_settings(db, ui_language="de")
+        result = await get_settings(db)
         assert result["ui_language"] == "de"
-        # Second GET without header — should return persisted value
-        result2 = await get_settings(db, accept_language="")
-        assert result2["ui_language"] == "de"
 
     @pytest.mark.asyncio
     async def test_patch_settings_stores_ui_language(self, db):
