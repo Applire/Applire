@@ -21,3 +21,26 @@ def test_with_language_en_names_english():
 def test_with_language_unknown_falls_back_to_english():
     out = with_language(QUESTION_SYSTEM_PROMPT, "fr")
     assert "English" in out
+
+
+from applire.prompts.review_question_language import (
+    build_question_language_review_prompt,
+    build_question_language_refinement_prompt,
+)
+
+
+def test_review_prompt_mentions_required_language_and_content():
+    p = build_question_language_review_prompt(
+        "English", {"question": "Was ist Ihre Erfahrung?", "choices": ["Ja", "Nein"]}
+    )
+    assert "English" in p
+    assert "Was ist Ihre Erfahrung?" in p
+    assert "Ja" in p
+
+
+def test_refinement_prompt_includes_feedback_and_draft():
+    p = build_question_language_refinement_prompt(
+        {"question": "Was ist...?", "choices": None}, "Rewrite in English."
+    )
+    assert "Rewrite in English." in p
+    assert "Was ist...?" in p
