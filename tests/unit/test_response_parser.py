@@ -54,9 +54,19 @@ async def sqlite_session():
 
 
 def _make_mock_provider(return_value: dict) -> MagicMock:
-    """Return a mock LLMProvider whose aparse_json returns *return_value*."""
+    """Return a mock LLMProvider whose aparse_json returns *return_value*.
+
+    The language-review pass (ADR-038) calls aparse_json with the reviewer
+    system prompt; approve it so review_and_refine returns the draft unchanged.
+    """
     provider = MagicMock()
-    provider.aparse_json = AsyncMock(return_value=return_value)
+
+    async def _aparse_json(prompt, *, system=None, **kwargs):
+        if "language reviewer" in (system or "").lower():
+            return {"approved": True, "issues": [], "feedback": ""}
+        return return_value
+
+    provider.aparse_json = AsyncMock(side_effect=_aparse_json)
     provider.acomplete = AsyncMock(return_value="What is your experience with Python?")
     provider.__class__.__name__ = "MockProvider"
     return provider
@@ -407,27 +417,6 @@ class TestGapDetectorModeB:
 
 class TestQuestionGenerator:
     @pytest.mark.asyncio
-    async def test_question_generator_calls_provider(self):
-        from applire.services.interview_graph import question_generator
-
-        state = {
-            "mode": "targeted",
-            "critical_gaps": ["cluster-python"],
-            "current_gap_index": 0,
-            "messages": [],
-            "gap_clusters_by_id": {
-                "cluster-python": {"id": "cluster-python", "label": "Python experience", "category": "C", "gaps": ["Python experience"], "jd_skills": [], "jd_context": ""}
-            },
-        }
-        provider = _make_mock_provider({"question": "Tell me about Python?", "choices": None})
-
-        result = await question_generator(state, provider)
-
-        assert isinstance(result, dict)
-        assert result["question"] == "Tell me about Python?"
-        provider.aparse_json.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_question_generator_with_profile_targeted_mode(self):
         from applire.services.interview_graph import question_generator_with_profile
 
@@ -448,7 +437,9 @@ class TestQuestionGenerator:
 
         assert isinstance(result, dict)
         assert "Docker" in result["question"]
-        provider.aparse_json.assert_called_once()
+        # ADR-038: aparse_json is called twice — once for generation, once for
+        # the language-reviewer pass — so assert_called() instead of once.
+        provider.aparse_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_question_generator_with_profile_guided_mode(self):

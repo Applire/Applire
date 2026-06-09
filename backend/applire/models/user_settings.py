@@ -34,8 +34,8 @@ class UserSettings(Base):
     default_color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
-    ui_language: Mapped[str | None] = mapped_column(
-        String(5), nullable=True, default=None
+    ui_language: Mapped[str] = mapped_column(
+        String(5), nullable=False, server_default="en", default="en"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

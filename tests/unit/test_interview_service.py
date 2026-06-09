@@ -261,6 +261,8 @@ async def test_question_generator_routes_to_followup_when_hint_present():
 
     provider = MagicMock()
     provider.acomplete = AsyncMock(return_value="Have you worked in GMP-regulated environments?")
+    # Language review pass requires aparse_json; mock it to approve immediately.
+    provider.aparse_json = AsyncMock(return_value={"approved": True, "issues": [], "feedback": ""})
 
     state = {
         "mode": "targeted",

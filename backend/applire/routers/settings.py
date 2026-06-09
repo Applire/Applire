@@ -20,7 +20,7 @@ import re
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,21 +36,10 @@ _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _VALID_LANGUAGES = {"de", "en"}
 
 
-def _detect_language(accept_language: str) -> str:
-    """Extract primary language from Accept-Language header.
-
-    Returns 'de' if the primary tag starts with 'de', 'en' otherwise.
-    """
-    if not accept_language:
-        return "en"
-    primary = accept_language.split(",")[0].split(";")[0].strip().lower()
-    return "de" if primary.startswith("de") else "en"
-
-
 class SettingsResponse(BaseModel):
     default_color_profile_id: uuid.UUID | None
     default_accent_hex: str | None
-    ui_language: str | None
+    ui_language: str
 
 
 class SettingsPatchRequest(BaseModel):
@@ -58,11 +47,10 @@ class SettingsPatchRequest(BaseModel):
     ui_language: Literal["de", "en"] | None = None
 
 
-async def get_settings(db: AsyncSession, accept_language: str = "") -> dict:
+async def get_settings(db: AsyncSession) -> dict:
     """Service logic — returns current settings for the CE stub user.
 
-    If ui_language is NULL and an accept_language header is provided,
-    detects and persists the language before returning.
+    ui_language is NOT NULL in the DB (ADR-038); defaults to 'en' if no row exists.
     """
     from applire.models.user_settings import UserSettings
     from applire.models.color_profile import ColorProfile
@@ -72,13 +60,8 @@ async def get_settings(db: AsyncSession, accept_language: str = "") -> dict:
     )
     row = result.scalar_one_or_none()
 
-    # Auto-detect and persist language on first visit (row exists but language not set)
-    if row is not None and row.ui_language is None:
-        row.ui_language = _detect_language(accept_language)
-        await db.commit()
-
     # Build response
-    ui_language = row.ui_language if row else _detect_language(accept_language)
+    ui_language = row.ui_language if row else "en"
 
     if row is None or row.default_color_profile_id is None:
         return {
@@ -139,7 +122,7 @@ async def update_settings(
 
     await db.commit()
 
-    response: dict = {"ui_language": row.ui_language}
+    response: dict = {"ui_language": row.ui_language or "en"}
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
         response["default_color_profile_id"] = cp.id if cp else None
@@ -153,11 +136,10 @@ async def update_settings(
 
 @router.get("", response_model=SettingsResponse)
 async def api_get_settings(
-    request: Request,
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SettingsResponse:
-    result = await get_settings(db, request.headers.get("accept-language", ""))
+    result = await get_settings(db)
     return SettingsResponse(**result)
 
 

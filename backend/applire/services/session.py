@@ -51,6 +51,8 @@ from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
+from applire.models.user_settings import UserSettings
+from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData
 from applire.schemas.session import (
@@ -70,6 +72,24 @@ from applire.services.interview_graph import (
     question_generator_with_profile,
     response_parser,
 )
+
+
+# ---------------------------------------------------------------------------
+# UI language resolver
+# ---------------------------------------------------------------------------
+
+
+async def get_ui_language(db: AsyncSession) -> str:
+    """Resolve the user's UI language for conversational LLM output (ADR-038).
+
+    Reads the CE stub user's settings; returns 'en' when no row exists.
+    Single seam for the future multi-user (OIDC) lookup.
+    """
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+    )
+    row = result.scalar_one_or_none()
+    return (row.ui_language if row else None) or "en"
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +130,12 @@ async def create_session(
     else:
         resolved_mode = _auto_detect_mode(profile_record)
 
+    # Resolve UI language once per request (ADR-038)
+    lang = await get_ui_language(db)
+
     # --- Micro-session: target_gap scopes to a single gap (Gap-Click mode, 19.9) ---
     if request.target_gap and resolved_mode == "targeted":
-        return await _create_micro_session(job_id, job, profile_record, request.target_gap, db, provider)
+        return await _create_micro_session(job_id, job, profile_record, request.target_gap, db, provider, lang)
 
     # --- Idempotency: return existing active session if one exists for this job ---
     existing = await _get_active_session(job_id, db)
@@ -137,10 +160,10 @@ async def create_session(
 
     # --- MODE A: Targeted Gap-Fill ---
     if resolved_mode == "targeted":
-        return await _create_targeted_session(job_id, job, profile_record, db, provider)
+        return await _create_targeted_session(job_id, job, profile_record, db, provider, lang)
 
     # --- MODE B: Guided Build ---
-    return await _create_guided_session(job_id, job, profile_record, db, provider)
+    return await _create_guided_session(job_id, job, profile_record, db, provider, lang)
 
 
 async def _create_targeted_session(
@@ -149,6 +172,7 @@ async def _create_targeted_session(
     profile_record: MasterProfile | None,
     db: AsyncSession,
     provider: LLMProvider,
+    lang: str = "en",
 ) -> SessionCreateResponse:
     if profile_record is None:
         raise LookupError(
@@ -224,7 +248,7 @@ async def _create_targeted_session(
         hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
     )
     q_data = await question_generator_with_profile(
-        state, profile_record.profile_json, provider, gap_category=first_category
+        state, profile_record.profile_json, provider, gap_category=first_category, lang=lang
     )
     first_question = q_data["question"]
     first_choices = q_data["choices"]
@@ -265,6 +289,7 @@ async def _create_guided_session(
     profile_record: MasterProfile | None,
     db: AsyncSession,
     provider: LLMProvider,
+    lang: str = "en",
 ) -> SessionCreateResponse:
     # MODE B can start without a profile — create an empty stub if needed
     if profile_record is None:
@@ -296,6 +321,7 @@ async def _create_guided_session(
         provider,
         gap_category=None,
         job_context=job_context,
+        lang=lang,
     )
     first_question = q_data["question"]
     state["current_question"] = first_question
@@ -335,6 +361,7 @@ async def _create_micro_session(
     target_cluster_id: str,
     db: AsyncSession,
     provider: LLMProvider,
+    lang: str = "en",
 ) -> SessionCreateResponse:
     """Create a 1-question micro-session scoped to a single cluster (Gap-Click mode)."""
     if profile_record is None:
@@ -383,7 +410,7 @@ async def _create_micro_session(
         hard_ceiling=_MICRO_CEILING,
     )
     q_data = await question_generator_with_profile(
-        state, profile_record.profile_json, provider, gap_category=gap_category
+        state, profile_record.profile_json, provider, gap_category=gap_category, lang=lang
     )
     first_question = q_data["question"]
     first_choices = q_data["choices"]
@@ -447,6 +474,9 @@ async def send_message(
         raise LookupError(f"Session {session_id} not found")
     if record.status == "complete":
         raise ValueError("Session is already complete")
+
+    # Resolve UI language once for this turn (ADR-038)
+    lang = await get_ui_language(db)
 
     state: InterviewState = dict(record.state)
     state["messages"].append({"role": "user", "content": message})
@@ -526,6 +556,7 @@ async def send_message(
             provider,
             gap_category=next_category,
             job_context=job_context,
+            lang=lang,
         )
         next_question = next_q_data["question"]
         next_choices = next_q_data["choices"]
@@ -562,6 +593,7 @@ async def send_message(
             provider,
             gap_category=gap_category,
             follow_up_hint=follow_up_hint,
+            lang=lang,
         )
         follow_up_question = follow_up_data["question"]
         state["current_question"] = follow_up_question

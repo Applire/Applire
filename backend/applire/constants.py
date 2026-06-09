@@ -43,6 +43,12 @@ LLM_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("LLM_REVIEW_MAX_RETRIES", "2")
 )
 
+# Interview/enrichment question language-review retries (ADR-038).
+# 0 disables the language reviewer (directive-only).
+INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
+    os.environ.get("INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES", "1")
+)
+
 # GDPR retention TTLs — configurable via environment variables (ADR-005 amendment, Sprint 25)
 GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_DAYS", "90"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))

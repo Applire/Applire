@@ -38,6 +38,7 @@ import hashlib
 
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
+from applire.constants import INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES
 from applire.prompts.interview import (
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
@@ -47,9 +48,18 @@ from applire.prompts.interview import (
     build_guided_question_prompt,
     build_question_prompt,
     build_response_parser_prompt,
+    language_name,
+    with_language,
+)
+from applire.prompts.review_question_language import (
+    QUESTION_LANGUAGE_REFINEMENT_PROMPT,
+    QUESTION_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+    build_question_language_refinement_prompt,
+    build_question_language_review_prompt,
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.session import ConflictSummary, InterviewState
+from applire.services.reviewer import review_and_refine
 
 # Sections included in a MODE B guided build, in default priority order.
 # JD-relevance weighting is applied in gap_detector_mode_b() at session creation.
@@ -144,6 +154,31 @@ def gap_detector_mode_b(job_analysis: JobAnalysis) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+async def _review_question_language(
+    draft: dict, lang: str, provider: LLMProvider
+) -> dict:
+    """Verify the drafted question/choices are in `lang`; regenerate on mismatch.
+
+    Reuses the ADR-021 review_and_refine loop. Never raises; returns the last
+    draft on retry exhaustion. No-op when the retry budget is 0.
+    """
+    if INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES <= 0:
+        return draft
+    lang_name = language_name(lang)
+    return await review_and_refine(
+        source=lang_name,
+        draft=draft,
+        generator_prompt_fn=build_question_language_refinement_prompt,
+        generator_system=QUESTION_LANGUAGE_REFINEMENT_PROMPT,
+        reviewer_prompt_fn=build_question_language_review_prompt,
+        reviewer_system=QUESTION_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+        provider=provider,
+        max_retries=INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES,
+        generator_max_tokens=256,
+        chain_id="interview_question",
+    )
+
+
 async def question_generator_with_profile(
     state: InterviewState,
     profile: dict,
@@ -151,6 +186,7 @@ async def question_generator_with_profile(
     gap_category: str | None = None,
     job_context: dict | None = None,
     follow_up_hint: str | None = None,
+    lang: str = "en",
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -176,11 +212,12 @@ async def question_generator_with_profile(
                 state["messages"],
                 gap_category=gap_category,
             ),
-            system=FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
+            system=with_language(FOLLOW_UP_QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,
             max_tokens=256,
         )
-        return {"question": text.strip(), "choices": None}
+        draft = {"question": text.strip(), "choices": None}
+        return await _review_question_language(draft, lang, provider)
 
     if mode == "guided":
         section = state["critical_gaps"][state["current_gap_index"]]
@@ -190,11 +227,12 @@ async def question_generator_with_profile(
                 job_context or {},
                 state["messages"],
             ),
-            system=GUIDED_QUESTION_SYSTEM_PROMPT,
+            system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,
             max_tokens=256,
         )
-        return {"question": text.strip(), "choices": None}
+        draft = {"question": text.strip(), "choices": None}
+        return await _review_question_language(draft, lang, provider)
 
     # MODE A: cluster-aware question with potential choices
     cluster_id = state["critical_gaps"][state["current_gap_index"]]
@@ -206,36 +244,17 @@ async def question_generator_with_profile(
 
     data: dict = await provider.aparse_json(
         build_question_prompt(cluster, profile, state["messages"], gap_category=gap_category),
-        system=QUESTION_SYSTEM_PROMPT,
+        system=with_language(QUESTION_SYSTEM_PROMPT, lang),
         temperature=0.4,
     )
     question = str(data.get("question", "")).strip()
     raw_choices = data.get("choices")
-    choices = raw_choices if isinstance(raw_choices, list) and raw_choices else None
-    return {"question": question, "choices": choices}
-
-
-async def question_generator(
-    state: InterviewState,
-    provider: LLMProvider,
-) -> dict:
-    """Generate a targeted question for the current gap (no profile context).
-
-    Kept for backwards compatibility — prefer question_generator_with_profile.
-    Returns: {"question": str, "choices": None}
-    """
-    cluster_id = state["critical_gaps"][state["current_gap_index"]]
-    clusters_by_id = state.get("gap_clusters_by_id") or {}
-    cluster = clusters_by_id.get(
-        cluster_id,
-        {"id": cluster_id, "label": cluster_id, "gaps": [], "jd_skills": [], "jd_context": ""},
-    )
-    data: dict = await provider.aparse_json(
-        build_question_prompt(cluster, {}, state["messages"]),
-        system=QUESTION_SYSTEM_PROMPT,
-        temperature=0.4,
-    )
-    return {"question": str(data.get("question", "")).strip(), "choices": None}
+    draft = {"question": question, "choices": raw_choices if isinstance(raw_choices, list) and raw_choices else None}
+    reviewed = await _review_question_language(draft, lang, provider)
+    rc = reviewed.get("choices")
+    reviewed["choices"] = rc if isinstance(rc, list) and rc else None
+    reviewed["question"] = str(reviewed.get("question", "")).strip()
+    return reviewed
 
 
 # ---------------------------------------------------------------------------
