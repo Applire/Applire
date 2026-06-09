@@ -18,6 +18,8 @@
 # Prompt version: v1
 # Used by: services/interview_graph.py → _review_question_language()
 #          wrapped with services/reviewer.review_and_refine (ADR-021, ADR-038)
+#          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
+#          so `source` binds to `required_language` (e.g. "English", "German").
 
 import json
 
@@ -46,6 +48,10 @@ Output ONLY the corrected JSON in the same schema {"question": str, "choices": l
 
 
 def build_question_language_review_prompt(required_language: str, draft: dict) -> str:
+    """Return a user-turn prompt asking the LLM to check language compliance.
+
+    ``draft`` shape: ``{"question": str, "choices": list[str] | None}``
+    """
     choices = draft.get("choices") or []
     return (
         f"Required language: {required_language}\n\n"
@@ -57,6 +63,10 @@ def build_question_language_review_prompt(required_language: str, draft: dict) -
 
 
 def build_question_language_refinement_prompt(previous_draft: dict, feedback: str) -> str:
+    """Return a user-turn prompt asking the LLM to rewrite ``previous_draft`` per reviewer feedback.
+
+    ``previous_draft`` shape: ``{"question": str, "choices": list[str] | None}``
+    """
     return (
         f"Reviewer feedback: {feedback}\n\n"
         f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"

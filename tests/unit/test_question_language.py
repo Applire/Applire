@@ -44,3 +44,11 @@ def test_refinement_prompt_includes_feedback_and_draft():
     )
     assert "Rewrite in English." in p
     assert "Was ist...?" in p
+
+
+def test_review_prompt_handles_null_choices():
+    p = build_question_language_review_prompt(
+        "German", {"question": "Wie lange sind Sie dabei?", "choices": None}
+    )
+    assert "null" not in p  # None -> [] not serialised as JSON null
+    assert "[]" in p
