@@ -13,9 +13,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-15+-black.svg)](https://nextjs.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
-[![GitHub Stars](https://img.shields.io/github/stars/tobias-rosenbaum/Applire?style=social)](https://github.com/tobias-rosenbaum/Applire)
+[![GitHub Stars](https://img.shields.io/github/stars/Applire/Applire?style=social)](https://github.com/Applire/Applire)
 
-[🚀 Quick Start](#-installation) • [📖 Documentation](docs/) • [💬 Community](#-community--support) • [🐛 Report Bug](https://github.com/tobias-rosenbaum/Applire/issues)
+[🚀 Quick Start](#-installation) • [📖 Documentation](docs/) • [💬 Community](#-community--support) • [🐛 Report Bug](https://github.com/Applire/Applire/issues)
 
 </div>
 
@@ -232,8 +232,8 @@ python -m applire.mcp
 
 ```bash
 # 1. Download the two required files
-curl -O https://raw.githubusercontent.com/tobias-rosenbaum/Applire/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/tobias-rosenbaum/Applire/main/.env.example
+curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
 
 # 2. Configure your environment
 cp .env.example .env
@@ -573,8 +573,8 @@ By submitting a pull request you agree to the [Applire CLA](CLA.md). This allows
 ### Get Help
 
 - 📖 **[Documentation](docs/)** — Testing, CI/CD, and architecture guides
-- 🐛 **[GitHub Issues](https://github.com/tobias-rosenbaum/Applire/issues)** — Report bugs and request features
-- 💬 **[GitHub Discussions](https://github.com/tobias-rosenbaum/Applire/discussions)** — Ask questions and share ideas
+- 🐛 **[GitHub Issues](https://github.com/Applire/Applire/issues)** — Report bugs and request features
+- 💬 **[GitHub Discussions](https://github.com/Applire/Applire/discussions)** — Ask questions and share ideas
 
 ---
 
@@ -611,7 +611,7 @@ For organizations that cannot comply with AGPL requirements (e.g., proprietary S
 
 - **Website**: [applire.de](https://applire.de) *(coming soon)*
 - **Email**: kontakt@applire.de
-- **Issues**: [GitHub Issues](https://github.com/tobias-rosenbaum/Applire/issues)
+- **Issues**: [GitHub Issues](https://github.com/Applire/Applire/issues)
 - **Security**: kontakt@applire.de (see [SECURITY.md](SECURITY.md))
 
 ---
@@ -622,6 +622,6 @@ For organizations that cannot comply with AGPL requirements (e.g., proprietary S
 
 *Open-source career intelligence. Privacy-first. Agent-ready.*
 
-[⭐ Star us on GitHub](https://github.com/tobias-rosenbaum/Applire)
+[⭐ Star us on GitHub](https://github.com/Applire/Applire)
 
 </div>
