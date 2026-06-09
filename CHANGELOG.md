@@ -6,6 +6,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.1-beta] – 2026-06-09
+
+Documentation-only patch release — no runtime code changes.
+
+### Changed
+- **Public docs audited and repositioned.** README reframes LLM providers as
+  bring-your-own-key (no advertised default; "EU-hosted" kept as a neutral note on
+  Mistral), rewrites "Who is Applire for" around use cases (multi-version CV, DACH
+  conversion, agent-first), corrects the CV template list to the 7 real templates,
+  bumps the roadmap to v0.36.0-beta, and notes the conversation-vs-document language
+  split (ADR-038).
+- `docs/ARCHITECTURE.md` is now the canonical home of the port topology (new port
+  table); ADR-009 summary made provider-neutral; temperature defaults grounded in code.
+- GitHub org move completed: GHCR images now publish under `ghcr.io/applire/*` and all
+  repo links point to `Applire/Applire` (compose files, release CI, badges,
+  issue templates, `package.json`).
+
+### Fixed
+- Self-host quickstart actually works again: download `nginx/self-hosted.conf` and
+  access the app via `http://localhost` (backend/frontend are internal-only).
+- Corrected the gap-analysis REST path in the README to `/api/session/{id}/analyze-gaps`.
+- Removed dangling references to `docs/TRACEABILITY.md` (TESTING.md) and `docs/mcp.md`
+  (docker-compose.yml).
+- `backend/pyproject.toml` version brought back in sync with the release tag (the
+  0.36.0-beta tag shipped with the version still reading 0.35.1-beta).
+
 ## [0.36.0-beta] – 2026-06-09
 
 ### Fixed
