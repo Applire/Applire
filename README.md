@@ -47,7 +47,7 @@ A short, job-specific interview closes those gaps and sharpens your story — wi
 
 The result is a DACH-ready Lebenslauf tailored to the target role — in multiple templates (Modern, Classic, Executive) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
 
-> _Screenshots use synthetic demo data (example profile "Lea Hoffmann"); the app UI defaults to German for the DACH market._
+> _Screenshots use synthetic demo data (example profile "Lea Hoffmann") and show the German UI; Applire ships in both German and English (English by default, switchable in Settings)._
 
 ---
 

@@ -30,8 +30,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/tobias-rosenbaum/applire-backend
-  FRONTEND_IMAGE: ghcr.io/tobias-rosenbaum/applire-frontend
+  BACKEND_IMAGE: ghcr.io/applire/applire-backend
+  FRONTEND_IMAGE: ghcr.io/applire/applire-frontend
 
 jobs:
   build-backend:

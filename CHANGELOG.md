@@ -160,9 +160,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - AI: OpenRouter (multi-model), Mistral AI, MCP tool integration
 - Database: SQLite (dev), PostgreSQL (prod)
 
-[Unreleased]: https://github.com/tobias-rosenbaum/Applire/compare/v0.35.0-beta...HEAD
-[0.35.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.34.0-beta...v0.35.0-beta
-[0.34.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.33.1-beta...v0.34.0-beta
-[0.33.1-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.32.4-beta...v0.33.1-beta
-[0.32.0-beta]: https://github.com/tobias-rosenbaum/Applire/compare/v0.31.2-beta...v0.32.4-beta
-[0.31.0-beta]: https://github.com/tobias-rosenbaum/Applire/releases/tag/v0.31.0-beta
+[Unreleased]: https://github.com/Applire/Applire/compare/v0.35.0-beta...HEAD
+[0.35.0-beta]: https://github.com/Applire/Applire/compare/v0.34.0-beta...v0.35.0-beta
+[0.34.0-beta]: https://github.com/Applire/Applire/compare/v0.33.1-beta...v0.34.0-beta
+[0.33.1-beta]: https://github.com/Applire/Applire/compare/v0.32.4-beta...v0.33.1-beta
+[0.32.0-beta]: https://github.com/Applire/Applire/compare/v0.31.2-beta...v0.32.4-beta
+[0.31.0-beta]: https://github.com/Applire/Applire/releases/tag/v0.31.0-beta
