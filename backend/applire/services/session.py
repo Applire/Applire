@@ -51,6 +51,8 @@ from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
+from applire.models.user_settings import UserSettings
+from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData
 from applire.schemas.session import (
@@ -70,6 +72,24 @@ from applire.services.interview_graph import (
     question_generator_with_profile,
     response_parser,
 )
+
+
+# ---------------------------------------------------------------------------
+# UI language resolver
+# ---------------------------------------------------------------------------
+
+
+async def get_ui_language(db: AsyncSession) -> str:
+    """Resolve the user's UI language for conversational LLM output (ADR-038).
+
+    Reads the CE stub user's settings; returns 'en' when no row exists.
+    Single seam for the future multi-user (OIDC) lookup.
+    """
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+    )
+    row = result.scalar_one_or_none()
+    return (row.ui_language if row else None) or "en"
 
 
 # ---------------------------------------------------------------------------

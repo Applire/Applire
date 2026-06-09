@@ -2,6 +2,9 @@
 #
 # This file is part of Applire. AGPL-3.0-or-later — see LICENSE.
 
+import pytest
+from types import SimpleNamespace
+
 from applire.prompts.interview import with_language, QUESTION_SYSTEM_PROMPT
 
 
@@ -52,3 +55,34 @@ def test_review_prompt_handles_null_choices():
     )
     assert "null" not in p  # None -> [] not serialised as JSON null
     assert "[]" in p
+
+
+from applire.services.session import get_ui_language
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def scalar_one_or_none(self):
+        return self._row
+
+
+class _FakeDB:
+    def __init__(self, row):
+        self._row = row
+
+    async def execute(self, *args, **kwargs):
+        return _FakeResult(self._row)
+
+
+@pytest.mark.asyncio
+async def test_get_ui_language_returns_stored_value():
+    db = _FakeDB(SimpleNamespace(ui_language="de"))
+    assert await get_ui_language(db) == "de"
+
+
+@pytest.mark.asyncio
+async def test_get_ui_language_defaults_en_when_no_row():
+    db = _FakeDB(None)
+    assert await get_ui_language(db) == "en"
