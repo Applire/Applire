@@ -36,6 +36,25 @@
 
 import json
 
+_LANG_NAMES = {"de": "German", "en": "English"}
+
+
+def with_language(system_prompt: str, lang: str) -> str:
+    """Append an explicit output-language directive to a question system prompt.
+
+    The directive is placed at the end of the system prompt and instructs the
+    model to write the question (and choices) in the UI language regardless of
+    the language of any context — overriding the JD-language ``jd_context``.
+    """
+    name = _LANG_NAMES.get(lang, "English")
+    return system_prompt + (
+        f"\n\nIMPORTANT — OUTPUT LANGUAGE: Write the question and any answer "
+        f"choices in {name}. This is fixed regardless of the language of the "
+        f"candidate's profile, the job description, or any context provided "
+        f"below. Translate any context as needed; never mirror its language."
+    )
+
+
 # ---------------------------------------------------------------------------
 # QuestionGenerator node — MODE A (Targeted Gap-Fill)
 # ---------------------------------------------------------------------------
