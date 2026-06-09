@@ -112,3 +112,11 @@ class TestLanguageSettings:
         result = await get_settings(db)
         assert result["default_accent_hex"] == "#aabbcc"
         assert result["ui_language"] == "en"
+
+    @pytest.mark.asyncio
+    async def test_update_settings_empty_patch_new_row_defaults_en(self, db):
+        # Regression: empty PATCH when no row exists must not crash with None ui_language
+        # (DB server_default='en' is not reflected in-memory before commit; guard with `or "en"`)
+        from applire.routers.settings import update_settings
+        result = await update_settings(db)  # no accent_hex, no ui_language
+        assert result["ui_language"] == "en"

@@ -122,7 +122,7 @@ async def update_settings(
 
     await db.commit()
 
-    response: dict = {"ui_language": row.ui_language}
+    response: dict = {"ui_language": row.ui_language or "en"}
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
         response["default_color_profile_id"] = cp.id if cp else None
