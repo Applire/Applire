@@ -14,7 +14,7 @@ Applire is a JD-driven CV tailoring platform with three first-class consumers:
 |---|---|---|
 | Human (browser) | Next.js frontend → nginx → FastAPI | `NoAuthProvider` in Community (single-user) |
 | AI Agent (local) | MCP stdio server (`python -m applire.mcp`) | `NoAuthProvider` in Community |
-| Developer | REST API at `:8001/docs` | `NoAuthProvider` in Community |
+| Developer | REST API via nginx (`/api/*`); Swagger `/docs` in standalone dev | `NoAuthProvider` in Community |
 
 The core workflow is always: **JD analysis → CV import → Gap analysis → Interview → CV generation**.
 
@@ -85,7 +85,7 @@ Mode is auto-detected at session creation from `completeness_score` vs `MODE_B_C
 
 ---
 
-### ADR-005 — GDPR Retention Worker
+### ADR-005 / ADR-017 — GDPR Retention Worker
 
 **Decision:** A dedicated `retention` service in Docker Compose runs `python -m applire.retention` daily and enforces four TTL rules:
 
@@ -96,9 +96,13 @@ Mode is auto-detected at session creation from `completeness_score` vs `MODE_B_C
 | `generated_cvs` / `generated_cover_letters` | 90 days (human) / 24 hours (agent) | Hard delete at `expires_at` |
 | `master_profiles` / `users` | 730 days inactivity | Soft delete (`deleted_at`) |
 
-**Why a separate service:** Data hygiene is a core operational concern, not an optional feature. The retention service is never profile-gated.
+**Why a separate service:** Data hygiene is a core operational concern (ADR-017 formalises the worker as a first-class operational building block, not a peripheral add-on). Each run emits a JSON report to stdout for audit.
 
-**Consequence:** Every model that holds personal data must carry `expires_at` (transient data) or `updated_at` + `deleted_at` (permanent data) from the first migration. This is non-negotiable.
+**Consequence:** Every model that holds personal data must carry `expires_at` (transient data) or `updated_at` + `deleted_at` (permanent data) from the first migration.
+
+**Two distinct concerns, gated differently (Community vs. Cloud):**
+- **Right to erasure** (`DELETE /api/profile`, exposed in the UI) is always available in every edition. It is a baseline data-subject right and does not depend on the background worker running.
+- **The automated daily worker** lives in Core but applies edition-specific defaults. In a single-user self-host you manage your *own* data (candidate-side only, see ADR-015), so transient-data cleanup (`uploads` 7d, `interview_sessions` 30d) stays on by default as hygiene, but **automated deletion of your own generated artifacts (`generated_cvs`, `generated_cover_letters`) defaults to disabled** (`GENERATED_DOCUMENTS_TTL_DAYS=0` ⇒ no auto-expiry) so you keep your own CVs. A self-hoster who operates the instance *for others* should re-enable strict TTLs.
 
 All TTL values are configurable via environment variables in `applire/constants.py` — self-hosters can adjust them for jurisdiction-specific requirements.
 
@@ -145,18 +149,18 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 ### ADR-009 — LLM Provider Abstraction
 
-**Decision:** An `LLMProvider` abstract base class with `acomplete()` and `aparse_json()` methods. Backend selected via `LLM_PROVIDER` environment variable.
+**Decision:** An `LLMProvider` abstract base class with `acomplete()` and `aparse_json()` methods. Backend selected via `LLM_PROVIDER` environment variable. Applire is **bring-your-own-key** — no provider is privileged. `mistral` is the shipped fallback in `config.py`/`.env.example`, but any backend works with the matching key, and the choice is the operator's to make.
 
 | `LLM_PROVIDER` | Provider | Notes |
 |---|---|---|
-| `openrouter` (default) | OpenRouter API | Multi-model gateway; access Mistral, Claude, and others with one key |
-| `mistral` | Mistral AI SDK | EU-hosted, GDPR-native, strong German proficiency |
+| `mistral` (shipped fallback) | Mistral AI SDK | EU-hosted, strong German proficiency |
+| `openrouter` | OpenRouter API | Multi-model gateway; access Mistral, Claude, and others with one key |
 | `openai` | OpenAI SDK | Also supports LM Studio and any OpenAI-compatible endpoint via `OPENAI_BASE_URL` |
-| `ollama` | Ollama REST API | Fully offline, no API costs |
+| `ollama` | Ollama REST API | Fully offline, no API costs, no key required |
 
 **Why direct SDKs over LangChain:** Consistent with the decision not to use LangGraph (ADR-004). Reduces the dependency surface and keeps the provider contract narrow and testable.
 
-**Temperature defaults:** `0.4` for question generation, `0.1` for structured JSON parsing.
+**Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
 
 ---
 
@@ -222,6 +226,14 @@ Source tracking (an `EnrichmentRecord` for every change) is mandatory — every 
 
 ---
 
+### ADR-015 — EU AI Act Compliance Boundary
+
+**Decision:** The candidate-side workflow (tailoring your *own* CV) is **minimal risk** under the EU AI Act — the candidate is both the data subject and the controller of the process, and no employer decision is influenced. Recruiter-side functionality (ranking, scoring, candidate-mandate matching) is high-risk under Annex III Category 4 and is **not part of the Community Edition** at all.
+
+**Why this matters for contributors:** Community Edition is deliberately **candidate-side only**. Any feature that profiles candidates against a vacancy, ranks/shortlists applicants, or otherwise materially influences a hiring decision is out of scope here — it belongs to the regulated Cloud recruiter module with its own compliance posture. Keep contributions inside the minimal-risk candidate boundary.
+
+---
+
 ### ADR-016 — Flow Orchestrator State Machine
 
 **Decision:** A `flow_sessions` table tracks the end-to-end user journey. Step transitions are validated against a `VALID_TRANSITIONS` dict in `applire/services/flow/orchestrator.py`.
@@ -237,6 +249,16 @@ Key invariants:
 - Steps that produce artifacts (gap analysis, interview, cv generation) require `artifact_id` in `AdvanceFlowRequest` — missing `artifact_id` returns HTTP 422.
 - Invalid step transitions return HTTP 409 with `allowed_transitions` for client recovery.
 - `flow_sessions` carries no PII — it is a routing record. GDPR TTLs live on child records.
+
+---
+
+### ADR-018 — Contributor License Agreement (CLA)
+
+**Decision:** External contributions to this AGPL-3.0 repository require a lightweight **DCO + CLA hybrid**:
+- **DCO** (`Signed-off-by` trailer on every commit) — the low-friction gate for docs, typos, and minor fixes.
+- **CLA** (signed once via CLA Assistant on first qualifying PR) — required for changes touching core service logic (`applire/services/`, `applire/models/`, `applire/routers/`).
+
+The CLA is a **license grant, not a copyright transfer** — you keep copyright of your contribution, and it remains available to the community under AGPL-3.0. The grant lets Applire also dual-license the code into the proprietary Cloud Edition, which is what keeps the open-core model viable.
 
 ---
 
@@ -256,18 +278,94 @@ Re-rendering on section save uses Jinja2 only (fast, no Playwright). Playwright 
 
 ---
 
-### ADR on Frontend API Routing (arc42 §7.1)
+### ADR-021 — LLM Review Layer (Retry-with-Critique)
 
-**Decision:** `NEXT_PUBLIC_API_URL` is set to `""` (empty string) in Docker Compose. All frontend `fetch()` calls use relative paths (e.g. `/api/profile/exists`). The browser resolves these against the current origin — no configuration needed regardless of hostname, IP, or DHCP lease.
+**Decision:** A generic `review_and_refine()` function (`services/reviewer.py`) wraps high-risk LLM generations. After the generator produces a draft, a second *reviewer* LLM call receives the original source material plus the draft and returns `{ approved, issues, feedback }`. On rejection (with retries remaining), the feedback is prepended to the generator prompt and a new draft is produced. The loop exits on approval or when `LLM_REVIEW_MAX_RETRIES` (default `2`) is exhausted — it **never raises**; a degraded last draft is preferable to a broken flow.
 
-**Why this matters:** Self-hosters do not need to know or configure their server's IP address. The nginx reverse proxy at port 80 routes `/api/*` to the backend container. This is the recommended access point for the full stack.
+**Where applied:** profile extraction and CV tailoring (the two places hallucinations were observed — phantom work entries, JD-matching bullets with no CV basis). Setting `LLM_REVIEW_MAX_RETRIES=0` disables the layer entirely for cost-constrained self-hosters.
 
-| Host port | Purpose |
+---
+
+### ADR-027 — Cover Letter as a Parallel Document Artifact
+
+**Decision:** Cover letters are a fully separate pipeline — their own `generated_cover_letters` table, service, router, and Jinja2 templates — **not** a discriminator column on `generated_cvs`. Each of the CV templates has a matching cover letter template (shared header style, typography, color profile) for a coherent application package.
+
+Cover letters are **post-CV add-ons**: triggered from the CV page after the CV is ready, one per `job_analysis_id`. The flow state machine is not extended. Pre-generation inputs surface DACH conventions (Gehaltswunsch, Eintrittstermin, tone). They inherit the same 90-day/24-hour retention as generated CVs (ADR-005).
+
+---
+
+### ADR-028 — Profile Enrichment (Mode C Interview)
+
+**Decision:** A third GapDetector strategy ("Mode C", Profile Enrich) lets users improve Master Profile completeness **without a job description** — scanning the profile JSONB for missing achievements, context fields (team_size, budget_managed, industry_context), and summary. The four-node interview graph topology (ADR-004) is unchanged; Mode C is a new entry into the GapDetector node only. ResponseParser is wrapped with the ADR-021 reviewer for all Mode C sessions (highest corruption risk to the profile).
+
+Dedicated `/api/profile/enrich/*` endpoints own the Mode C lifecycle; sessions reuse `interview_sessions` (its `job_analysis_id` is nullable). "N/A" decisions persist to `profile_json._meta.na_fields` — a private namespace excluded from CV rendering and future gap detection.
+
+---
+
+### ADR-029 — Proactive Gap Clustering & Interview UX
+
+**Decision:** After gap analysis, a lightweight second LLM call (`cluster_gaps()`) groups the raw B/C gaps into 5–12 semantic clusters, stored in a `gap_clusters` JSONB column on `gap_analyses`. Users see meaningful topic clusters (each carrying its JD rationale: `jd_context`, `jd_skills`) instead of dozens of near-duplicate gap items. The original gap-analysis prompt is untouched (no regression risk).
+
+Question generation returns `{ question, choices }` — optional multiple-choice (generated when a cluster has ≥2 gaps or is Category B) pre-fills an editable textarea; free-text is always available. The interview page is a 65/35 split: question/choices on the left, a live match-score gauge and per-cluster JD tracker on the right.
+
+---
+
+### ADR-035 — Deterministic Match-Score Computation
+
+**Decision:** The headline "Match Score: NN%" is **computed in Python**, not emitted by the LLM. The LLM only *classifies* each JD requirement into one bucket — `direct` (1.0), `partial` (0.5), `gap` (0.0) — and Python decides each requirement's weight by membership in the JD's own lists (`required_skills` → 1.0, `nice_to_have_skills` → 0.5). The score is then `earned / N` over those weighted requirements (`services/match_score.py::compute_match_score()`, a pure, unit-testable function).
+
+**Why:** An LLM classifies a single requirement well but should not be trusted to do arithmetic over its own classifications — the previous free-form score drifted badly (e.g. 88% emitted where the categories implied ~61%). The score and the displayed categories can now never disagree, it is reproducible, and it is explainable via a per-requirement `requirement_breakdown` JSONB column. Unclassified requirements default to `gap` (never silent credit); `N == 0` yields a `NULL` score.
+
+---
+
+### ADR-037 — Authentication Gate Placement (Up-Front)
+
+**Decision:** Authentication happens **up-front**, before any CV upload or LLM processing. There are **no anonymous/guest sessions** and no "claim anonymous work on login" migration — a deliberate non-feature. First successful login provisions the `User` plus an empty Master Profile in one shot (create-on-first-login, ADR-008; 1:1 User↔Profile, ADR-022 rejected the alternative).
+
+**Why:** The first user action is a CV upload — sensitive PII immediately processed by an LLM. Gating up-front means no anonymous PII is ever stored or processed pre-consent (cleanest GDPR / EU AI Act posture, ADR-015) and avoids an anonymous-session + claim-migration engine that would also collide with the 1-User→1-Profile invariant. In Community with `NoAuthProvider` the gate is transparent (the stub user auto-resolves); it is enforced where an OIDC provider is configured.
+
+---
+
+### ADR-038 — LLM Output-Language Routing
+
+**Decision:** Two language domains, routed by output kind:
+- **Conversation** (interview questions and choices, MODE B questions, follow-up probes, Mode C enrichment questions) is generated in the user's **UI language** (`UserSettings.ui_language`, non-nullable, default `en`) — *regardless* of the language of the profile, JD, or injected context.
+- **Documents** (tailored CV, cover letter) follow the **target-job language**, unchanged.
+
+**Why:** A user picks a UI language because that is the language they want to *operate in*; a CV/cover letter must be in the *employer's* language to be usable. Previously the conversation generators carried no language directive and drifted to whatever language the source material (e.g. a German JD's `jd_context`) happened to be in. The directive is enforced at the system-prompt level (`with_language()`) and verified by the ADR-021 reviewer loop (`INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES`, default 1). Scope: English/German only.
+
+---
+
+### CV Theming & Color (ADR-020, 023, 024, 025, 026)
+
+A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
+
+- **ADR-020 — Icon Set Registry:** Optional inline SVG icons live in a Python dict registry (`applire/icon_sets.py`); `icon_set` is `none | outline | filled`. All SVGs use `currentColor`, so icons recolour automatically with the template's CSS accent. New sets = one dict block.
+- **ADR-023 — CV color profiles are a separate system from app color schemes.** App `color_schemes` are instance-wide UI theming (operator-managed, long-lived); CV `color_profiles` are per-document artifacts generated at CV-creation time and garbage-collected with the 90-day `generated_cvs` TTL. The two are not linked at the data-model level.
+- **ADR-024 — Companies Registry:** A `companies` table caches scraped brand data by domain (favicon/meta colors) so repeated applications to the same employer cost zero marginal scraping. Intentionally more than a cache — a foundation for future company-level intelligence.
+- **ADR-025 — Color detection cascade:** favicon-first → meta-tag → LLM last resort → user default → system default `#2b5fa8`. No paid brand API in Community (Brandfetch/Clearbit are deferred to Cloud — they would add a US sub-processor). EU-hosted Mistral only for the LLM fallback.
+- **ADR-026 — Multi-slot color schema:** `ColorContext` exposes `primary`/`surface`/`secondary`/`surface_text` etc., all derived at render time from a single seed hex (Phase 1, no DB migration). `surface_text` is auto-derived via WCAG luminance so no template can pick a low-contrast color.
+
+---
+
+### ADR-033 / ADR-034 — nginx Reverse Proxy as Standard Entry Point
+
+**Decision:** An `nginx` service is the standard entry point for Community Edition (config at `nginx/self-hosted.conf`). All external traffic enters on port 80; nginx routes `/api/`, `/static/`, and `/health` to the backend container and everything else to the frontend. `NEXT_PUBLIC_API_URL` is set to `""` (empty string), so all frontend `fetch()` calls use relative paths (e.g. `/api/profile/exists`). The browser resolves these against the current origin — no configuration needed regardless of hostname, IP, or DHCP lease.
+
+**Why this matters:** Same-origin routing eliminates CORS as a problem class entirely. Self-hosters do not need to know or configure their server's IP address; `docker compose up` produces a working stack reachable from any machine on the network.
+
+**Why nginx over Traefik (ADR-034):** The four-service topology (`postgres`, `backend`, `frontend`, `nginx`) is static, so Traefik's Docker-label auto-discovery adds no benefit — and it would require Docker-socket access (effectively host root), an unjustified liability for a privacy-conscious self-host product. A single ~40-line config file is auditable and universally familiar to operators.
+
+**TLS:** Out of scope for Community (self-hosters run on a LAN or behind their own proxy). The Cloud Edition terminates TLS via **Caddy** (ADR-036) — a Cloud-only concern not present in this repository.
+
+**Ports** (canonical list — other docs reference this table rather than restating it):
+
+| Port | Purpose |
 |---|---|
-| **80** | nginx — primary entry point (recommended) |
-| 3000 | Next.js frontend (dev convenience) |
-| 8001 | FastAPI backend (dev convenience) |
-| 5433 | PostgreSQL (dev convenience) |
+| **80** | nginx — the entry point for the whole stack; this is the URL you use (`http://localhost`) |
+| 5433 | PostgreSQL — published for direct DB access / inspection |
+| 11434 | Ollama — only when started with `docker compose --profile ollama up` |
+| 3000 / 8001 | Frontend / backend **only when run standalone in development** (`next dev` / `uvicorn --port 8001`). In the Docker stack these stay internal (`expose`d, not published) and are reached through nginx on port 80. |
 
 ---
 
@@ -325,13 +423,18 @@ This repository is the Community Edition. The table below documents what is and 
 | Master Profile (JSONB, enrichment, conflicts) | ✅ | ✅ |
 | JD analysis + gap detection | ✅ | ✅ |
 | Interview Orchestrator (Mode A + B) | ✅ | ✅ |
-| CV generation (Classic German, Modern Swiss) | ✅ | ✅ (+ premium themes) |
+| CV generation (7 templates: Classic German, Modern Swiss, Executive, Academic, …) | ✅ | ✅ (+ premium themes) |
 | CV Section Editor (Finetuner) | ✅ | ✅ |
 | Cover letter generation | ✅ | ✅ |
+| Profile Enrichment (Mode C, no-JD) | ✅ | ✅ |
+| Deterministic match score | ✅ | ✅ |
 | MCP Server (stdio) | ✅ | ✅ |
 | Flow Orchestrator | ✅ | ✅ |
-| GDPR Retention Worker | ✅ | ✅ |
-| Auth enforcement (OIDC/Zitadel) | Interface only | ✅ |
+| GDPR Retention Worker | ✅ (configurable; user-artifact auto-delete off by default) | ✅ (strict, mandatory) |
+| Right to erasure (`DELETE /api/profile`) | ✅ | ✅ |
+| Auth provider abstraction | Interface + `NoAuthProvider`; OIDC self-host opt-in (Keycloak/Authentik) | ✅ |
+| Auth enforcement (managed Zitadel OIDC) | ❌ | ✅ |
+| Recruiter features (ranking, matching, scoring — EU AI Act high-risk) | ❌ (candidate-side only, minimal risk) | ✅ (regulated module) |
 | Managed hosting | ❌ | ✅ |
 | MCP Cloud Layer (SSE + auth + metering) | ❌ | ✅ |
 | B2B multi-tenancy (RLS) | ❌ | ✅ |

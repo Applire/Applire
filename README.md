@@ -45,7 +45,7 @@ A short, job-specific interview closes those gaps and sharpens your story — wi
 
 **4. A tailored CV & matching cover letter**
 
-The result is a DACH-ready Lebenslauf tailored to the target role — in multiple templates (Modern, Classic, Executive) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
+The result is a DACH-ready Lebenslauf tailored to the target role — in seven templates (Classic German, Modern Swiss, Executive, Academic, and more) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
 
 > _Screenshots use synthetic demo data (example profile "Lea Hoffmann") and show the German UI; Applire ships in both German and English (English by default, switchable in Settings)._
 
@@ -73,19 +73,16 @@ Unlike generic CV builders, Applire:
 
 ## 👥 Who is Applire for?
 
-Applire serves diverse personas across the DACH job market:
+Applire is built around two everyday problems job seekers actually have — plus a third, agent-first way to solve them.
 
-### 💼 **Marcus - The Expert**
-Experienced professional with deep domain expertise who needs precision tailoring for demanding roles. Values efficiency and quality over hand-holding.
+### 📚 "I have five versions of my CV and I'm afraid of copy-paste mistakes"
+Most professionals keep several CVs — some in English, some in their native language — and every new application means copy-pasting fragments between them, rebuilding the layout, and hoping nothing important slipped through. Applire stores **every fact about your career in one place**, retrieves exactly the parts that fit a specific job, and interviews you to close the remaining gaps as well as possible — so each CV is complete, consistent, and tailored without the manual shuffle.
 
-### 🌍 **Priya - The Relocator**
-International candidate moving to DACH who needs cultural "translation" of their career history to meet local CV conventions and recruiter expectations.
+### 🌍 "I want to apply in the DACH region, but my CV is from somewhere else"
+You have your existing CV — say, an Indian one — but how do you turn it into something a German, Austrian, or Swiss recruiter expects? Applire converts your profile into a CV fine-tuned for DACH conventions (Lebenslauf structure, expected sections, cultural signals), so you compete on equal footing.
 
-### ✏️ **Felix - The Finetuner**
-Any user who wants surgical, section-level control over their CV. Trusts AI to draft but wants to fine-tune the output to sound authentic and personal.
-
-### 🤖 **Kaile - The AI Agent**
-AI assistant (Claude, ChatGPT, custom agents) calling Applire on behalf of human users via MCP or REST API for seamless career intelligence integration.
+### 🤖 "Let my AI agent handle it"
+Applire is **agent-first**. Connect your AI agent — Claude, ChatGPT, or any MCP-capable assistant — and have it run the whole loop for you interactively over the Model Context Protocol: import your CVs, analyse the job ad, fill gaps, and generate the finished CV. No UI required.
 
 ---
 
@@ -130,7 +127,7 @@ AI assistant (Claude, ChatGPT, custom agents) calling Applire on behalf of human
 
 - **Market-Specific Formatting**: Lebenslauf vs. international CV formats
 - **Cultural Signal Detection**: Identifies when a CV needs adaptation (e.g., Indian → German pharma standards)
-- **Multilingual Support**: German and English UI; French and Spanish planned
+- **Multilingual Support**: German and English UI (English by default, switchable in Settings). Interview questions follow your UI language, while the generated CV and cover letter follow the job ad's language. French and Spanish planned.
 - **Regulatory Industry Depth**: Specialized knowledge for Pharma, GxP, Medtech roles
 
 ### 🔒 Privacy & GDPR Compliance
@@ -200,8 +197,8 @@ python -m applire.mcp
 
 ### AI/ML
 
-- **OpenRouter** (default): Multi-model gateway giving access to Mistral, Claude, and others with a single API key
-- **LLM Provider Abstraction**: Pluggable backends for Mistral, OpenAI, Ollama (self-hosted)
+- **Bring your own key**: You choose the LLM provider and supply the API key — your data goes only where you point it
+- **LLM Provider Abstraction**: Pluggable backends — OpenRouter (multi-model gateway), Mistral, OpenAI (or any OpenAI-compatible endpoint), and Ollama (fully offline, self-hosted)
 - **Custom State Machine**: Async interview orchestrator (no LangGraph dependency)
 - **Playwright**: Headless Chromium for PDF generation
 
@@ -226,14 +223,15 @@ python -m applire.mcp
 ### Prerequisites
 
 - **Docker & Docker Compose**
-- **LLM API Key**: Mistral AI (default), OpenRouter, OpenAI, or Ollama (local/free)
+- **An LLM provider of your choice** (bring your own key): OpenRouter, Mistral, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
 
 ### Self-hosting (no clone required)
 
 ```bash
-# 1. Download the two required files
+# 1. Download the required files (compose, env template, and nginx config)
 curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
 curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
+mkdir -p nginx && curl -o nginx/self-hosted.conf https://raw.githubusercontent.com/Applire/Applire/main/nginx/self-hosted.conf
 
 # 2. Configure your environment
 cp .env.example .env
@@ -246,9 +244,7 @@ docker compose up -d
 docker compose exec backend alembic upgrade head
 ```
 
-Access the application:
-- **Frontend**: http://localhost:3000
-- **API docs**: http://localhost:8001/docs
+Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 To update to the latest release:
 ```bash
@@ -263,7 +259,7 @@ docker compose pull && docker compose up -d
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+Applire is **bring-your-own-key**: pick any supported provider and supply its key — your data goes only to the provider you choose. Copy `.env.example` to `.env` and configure:
 
 ```env
 # Database
@@ -272,11 +268,11 @@ DATABASE_URL=postgresql+asyncpg://applire:applire@postgres:5432/applire
 # LLM Provider — choose one: mistral | openrouter | openai | ollama
 LLM_PROVIDER=mistral
 
-# Mistral AI — EU-hosted, GDPR-native, default
+# Mistral AI — EU-hosted, strong German proficiency
 MISTRAL_API_KEY=your-mistral-api-key-here
 MISTRAL_MODEL=mistral-medium-latest
 
-# OpenRouter — multi-model gateway, recommended alternative
+# OpenRouter — multi-model gateway: one key for Mistral, Claude, and more
 # Get a key at https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
 OPENROUTER_MODEL=mistralai/mistral-medium-3
@@ -297,7 +293,8 @@ LLM_TIMEOUT=180
 AUTH_PROVIDER=none
 
 # CORS — comma-separated list of allowed origins
-CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+# Default "*" (allow all) is fine for single-user self-hosting with AUTH_PROVIDER=none
+#CORS_ORIGINS=*
 
 # nginx proxy timeout — must be greater than LLM_TIMEOUT
 #NGINX_PROXY_TIMEOUT=300
@@ -310,14 +307,14 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 
 ### LLM Provider Options
 
-Applire supports multiple LLM backends via a pluggable abstraction layer:
+Applire is bring-your-own-key — no provider is privileged. Pick whichever fits your needs and supply the matching key via a pluggable abstraction layer:
 
 | Provider | Configuration | Use Case |
 |----------|---------------|----------|
-| **OpenRouter** (default) | `LLM_PROVIDER=openrouter`<br>`OPENROUTER_API_KEY=...` | Multi-model gateway; access Mistral, Claude, and others with one key |
-| **Mistral AI** | `LLM_PROVIDER=mistral`<br>`MISTRAL_API_KEY=...` | EU-hosted, GDPR-native, strong German proficiency |
+| **OpenRouter** | `LLM_PROVIDER=openrouter`<br>`OPENROUTER_API_KEY=...` | Multi-model gateway; access Mistral, Claude, and others with one key |
+| **Mistral AI** | `LLM_PROVIDER=mistral`<br>`MISTRAL_API_KEY=...` | EU-hosted, strong German proficiency |
 | **OpenAI** | `LLM_PROVIDER=openai`<br>`OPENAI_API_KEY=...` | High quality, widely available; also supports LM Studio via `OPENAI_BASE_URL` |
-| **Ollama** (local) | `LLM_PROVIDER=ollama`<br>`OLLAMA_BASE_URL=http://localhost:11434` | Fully offline, no API costs, privacy-first |
+| **Ollama** (local) | `LLM_PROVIDER=ollama`<br>`OLLAMA_BASE_URL=http://localhost:11434` | Fully offline, no API costs, no key required |
 
 ---
 
@@ -325,7 +322,7 @@ Applire supports multiple LLM backends via a pluggable abstraction layer:
 
 ### REST API
 
-Full OpenAPI documentation available at `http://localhost:8001/docs` (Swagger UI).
+In the Docker stack the REST API is reached through nginx at `http://localhost/api/*`; the interactive Swagger UI is available when running the backend standalone in development. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the entry-point and port topology.
 
 #### Core Endpoints
 
@@ -342,9 +339,8 @@ POST /api/profile/upload
 Content-Type: multipart/form-data
 files: [cv1.pdf, cv2.pdf]
 
-# Gap Analysis
-POST /api/gap/analyze
-{ "job_id": "uuid" }
+# Gap Analysis (session-scoped)
+POST /api/session/{session_id}/analyze-gaps
 
 # Start Interview Session
 POST /api/session
@@ -484,8 +480,7 @@ Applire/
 │   └── public/
 ├── docs/
 │   ├── TESTING.md               # Testing strategy and commands
-│   ├── CI_CD_GUIDE.md           # CI/CD pipeline documentation
-│   └── TRACEABILITY.md          # Requirements traceability
+│   └── CI_CD_GUIDE.md           # CI/CD pipeline documentation
 ├── tests/                       # Integration and E2E tests
 ├── docker-compose.yml
 ├── .env.example
@@ -496,7 +491,7 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.31.0-beta)
+### ✅ Current Release (v0.36.0-beta)
 
 - [x] Multi-CV upload and parsing (PDF, DOCX, images via OCR)
 - [x] Master Profile consolidation with conflict resolution

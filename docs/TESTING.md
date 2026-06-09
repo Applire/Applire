@@ -132,9 +132,7 @@ Test files are named after the module or feature they test, not the sprint they 
 ## Coverage Gate
 
 - Backend unit: **≥ 75%** (`--cov-fail-under=75`)
-- No coverage gate on Playwright tests (covered by traceability matrix instead)
-
-See `docs/TRACEABILITY.md` for mapping of functional spec items to test IDs.
+- No coverage gate on Playwright tests — functional coverage is tracked by the IQ/OQ/PQ tier structure above.
 
 ---
 

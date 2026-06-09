@@ -103,7 +103,7 @@ services:
 
   # MCP server — stdio transport for agent integration (ADR 010).
   # For actual agent use, launch directly: python -m applire.mcp
-  # See docs/mcp.md for Claude Desktop / Cursor configuration.
+  # See the README (Model Context Protocol section) for Claude Desktop / Cursor configuration.
   mcp:
     image: ghcr.io/applire/applire-backend:latest
     profiles: [mcp]
