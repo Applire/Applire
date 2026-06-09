@@ -264,7 +264,13 @@ async def question_generator(
 ) -> dict:
     """Generate a targeted question for the current gap (no profile context).
 
-    Kept for backwards compatibility — prefer question_generator_with_profile.
+    Kept for backwards compatibility — prefer ``question_generator_with_profile``,
+    which additionally runs the language-review pass (ADR-038).
+
+    This function applies the output-language directive via ``with_language()``
+    but intentionally does NOT run ``_review_question_language``.  It is
+    deprecated and will be removed once all call sites are migrated.
+
     Returns: {"question": str, "choices": None}
     """
     cluster_id = state["critical_gaps"][state["current_gap_index"]]

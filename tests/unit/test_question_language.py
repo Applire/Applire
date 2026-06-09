@@ -203,3 +203,62 @@ async def test_reviewer_regenerates_on_wrong_language(monkeypatch):
     out = await ig._review_question_language({"question": "Frage?", "choices": None}, "en", p)
     assert p.regenerated is True
     assert out["question"] == "Corrected question?"
+
+
+@pytest.mark.asyncio
+async def test_mode_a_choices_survive_review_round_trip():
+    class _ChoicesProvider(LLMProvider):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+            return ""
+
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+            if "language reviewer" in (system or "").lower():
+                return {"approved": True, "issues": [], "feedback": ""}
+            return {"question": "Pick one?", "choices": ["A", "B", "C"]}
+
+    out = await question_generator_with_profile(_mode_a_state(), {}, _ChoicesProvider(), lang="en")
+    assert out["question"] == "Pick one?"
+    assert out["choices"] == ["A", "B", "C"]
+
+
+@pytest.mark.asyncio
+async def test_e2e_reject_then_regenerate_through_question_generator_with_profile():
+    """Full round-trip: generation → reviewer rejects → refinement → corrected question returned.
+
+    Call order within aparse_json:
+      1. Generation call:   system contains "expert career coach" (QUESTION_SYSTEM_PROMPT)
+      2. Reviewer call:     system contains "language reviewer"
+      3. Refinement call:   system contains "rewrite" (QUESTION_LANGUAGE_REFINEMENT_PROMPT)
+
+    The three fingerprints are mutually exclusive across the real prompt constants,
+    so call-order tracking is only used as a guard; substring matching drives routing.
+    """
+
+    class _RejectOnFirstReview(LLMProvider):
+        def __init__(self):
+            super().__init__()
+            self._reviewer_calls = 0
+
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+            return ""
+
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+            sys_lower = (system or "").lower()
+            if "language reviewer" in sys_lower:
+                # First reviewer call → reject; any subsequent call → approve
+                self._reviewer_calls += 1
+                if self._reviewer_calls == 1:
+                    return {
+                        "approved": False,
+                        "issues": ["wrong language"],
+                        "feedback": "Rewrite in English.",
+                    }
+                return {"approved": True, "issues": [], "feedback": ""}
+            if "rewrite" in sys_lower:
+                # Refinement call
+                return {"question": "Corrected?", "choices": None}
+            # Generation call (expert career coach system prompt)
+            return {"question": "Ursprungsfrage?", "choices": None}
+
+    out = await question_generator_with_profile(_mode_a_state(), {}, _RejectOnFirstReview(), lang="en")
+    assert out["question"] == "Corrected?"
