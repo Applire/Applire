@@ -6,6 +6,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.2-beta] – 2026-06-10
+
+Bug-fix release driven by a full Milan-persona QA run (English CVs + German job ad,
+real LLM) that exercised the ADR-038 document-language path end-to-end.
+
+### Fixed
+- **Cover-letter date is now system-injected.** The prompt asked the LLM for "today's
+  date", which it cannot know — every letter was dated "10. Oktober 2023". The date now
+  comes from the server clock, formatted per document language ("10. Juni 2026" /
+  "10 June 2026") with locale-independent month names.
+- **Document language is routed deterministically** (ADR-038 amended). The cover letter
+  resolved its language from `language_requirement` — an LLM-extracted *candidate*
+  requirement (e.g. "Bilingual DE/EN"), which misrouted a German job ad to an English
+  letter — and CV tailoring had no language input at all. A new `job_analyses.jd_language`
+  column (migration 0032) stores the language the job ad is *written in*, detected in code
+  by a dependency-free stopword/umlaut scorer; both document generators route on it, with
+  raw-text fallback for pre-migration rows.
+- **CV tailoring now translates.** The hallucination guards ("keep facts EXACTLY as
+  provided") read as a translation ban, so work-history bullets stayed in the source-CV
+  language. The prompt (v3) carries an explicit `OUTPUT LANGUAGE` directive and states
+  that translating prose is required and is not invention; proper nouns, dates, and
+  metrics stay unchanged.
+- **Interview answers no longer duplicate positions.** An answer mentioning a known
+  employer by a shortened name ("TWENTYONE" vs "TWENTYONE Digital") with a loose title
+  created a spurious undated position. The interview enrichment path now shares the
+  CV-upload merge's fuzzy employer matching: known employers are enriched in place
+  (bullets accumulate as achievements, differing titles become role aliases); only dated,
+  non-overlapping stints or new employers create new entries. Answer bullets — previously
+  discarded on match and stored under a schema-invisible key on append — now land in
+  `achievements` in both cases.
+- **A null CV summary no longer fails the whole generation.** The tailoring LLM
+  occasionally returns `"summary": null`; this now degrades to an empty section instead
+  of a validation error requiring a manual retry.
+- **The sidebar version label matches the release.** It was frozen at v0.31.0-beta
+  (read from `frontend/package.json`, which releases never bumped). Release images now
+  bake the GitHub tag in via an `APP_VERSION` build arg (release workflow → Dockerfile →
+  `next.config.ts`); dev builds fall back to `package.json`, now kept in sync.
+
+### Changed
+- Database schema: migration 0032 adds nullable `job_analyses.jd_language` — applied
+  automatically on backend startup, no manual action needed.
+
 ## [0.36.1-beta] – 2026-06-09
 
 Documentation-only patch release — no runtime code changes.

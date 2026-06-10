@@ -127,7 +127,7 @@ Applire is **agent-first**. Connect your AI agent — Claude, ChatGPT, or any MC
 
 - **Market-Specific Formatting**: Lebenslauf vs. international CV formats
 - **Cultural Signal Detection**: Identifies when a CV needs adaptation (e.g., Indian → German pharma standards)
-- **Multilingual Support**: German and English UI (English by default, switchable in Settings). Interview questions follow your UI language, while the generated CV and cover letter follow the job ad's language. French and Spanish planned.
+- **Multilingual Support**: German and English UI (English by default, switchable in Settings). Interview questions follow your UI language, while the generated CV and cover letter follow the language the job ad is written in — detected from the ad itself, so an English source CV becomes a German Lebenslauf for a German posting. French and Spanish planned.
 - **Regulatory Industry Depth**: Specialized knowledge for Pharma, GxP, Medtech roles
 
 ### 🔒 Privacy & GDPR Compliance
@@ -491,7 +491,7 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.36.0-beta)
+### ✅ Current Release (v0.36.2-beta)
 
 - [x] Multi-CV upload and parsing (PDF, DOCX, images via OCR)
 - [x] Master Profile consolidation with conflict resolution
