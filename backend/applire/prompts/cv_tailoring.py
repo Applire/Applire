@@ -51,9 +51,12 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    CANDIDATE PROFILE. When in doubt, leave it out.
 6. The number of work_history entries in your output must equal exactly the number in CANDIDATE
    PROFILE. Do not add, remove, or split entries.
-7. Output language: write the entire CV (summary, bullets, skills) in the OUTPUT LANGUAGE stated
-   in the user message. Never mirror the language of CANDIDATE PROFILE or the job description
-   when it differs from the OUTPUT LANGUAGE.
+7. Output language: write ALL prose — summary, every work_history bullet, and skill names — in the
+   OUTPUT LANGUAGE stated in the user message. If CANDIDATE PROFILE is written in a different
+   language, you MUST translate its content; translating is NOT inventing (Rules 1 and 5 protect
+   facts, not the source language). Keep company names, product names, technology names, dates,
+   and metrics unchanged. Never copy bullets verbatim in the source language and never mirror the
+   language of CANDIDATE PROFILE or the job description when it differs from the OUTPUT LANGUAGE.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations:
 
@@ -101,7 +104,9 @@ def build_user_prompt(
     language_name = "GERMAN" if output_language == "de" else "ENGLISH"
     return (
         "Tailor the candidate's profile for the job below.\n\n"
-        f"OUTPUT LANGUAGE: {language_name}\n\n"
+        f"OUTPUT LANGUAGE: {language_name} — write the summary, all work_history bullets, and "
+        f"skills in {language_name}, translating from the profile's language where needed; keep "
+        "company names, product names, dates, and metrics unchanged.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
