@@ -55,7 +55,7 @@ The result is a DACH-ready Lebenslauf tailored to the target role — in seven t
 
 **Applire** is an open-source AI platform that combines deep career intelligence with DACH-specific cultural expertise to automate high-quality CV tailoring.
 
-Built for **all job seekers in the DACH market**, with unmatched depth in regulated industries (Pharma, GxP, Medtech) — a specialization that proves our precision for every user.
+Built for **all job seekers in the DACH market** — from career changers consolidating years of CV versions to international professionals adapting to German application conventions.
 
 Unlike generic CV builders, Applire:
 - 🧠 **Learns from you**: Builds a persistent Master Profile that gets smarter with every CV you upload
@@ -126,9 +126,8 @@ Applire is **agent-first**. Connect your AI agent — Claude, ChatGPT, or any MC
 ### 🗺️ DACH Cultural Intelligence
 
 - **Market-Specific Formatting**: Lebenslauf vs. international CV formats
-- **Cultural Signal Detection**: Identifies when a CV needs adaptation (e.g., Indian → German pharma standards)
+- **Cultural Signal Detection**: Identifies when a CV needs adaptation (e.g., Indian-format CV → German Lebenslauf conventions)
 - **Multilingual Support**: German and English UI (English by default, switchable in Settings). Interview questions follow your UI language, while the generated CV and cover letter follow the language the job ad is written in — detected from the ad itself, so an English source CV becomes a German Lebenslauf for a German posting. French and Spanish planned.
-- **Regulatory Industry Depth**: Specialized knowledge for Pharma, GxP, Medtech roles
 
 ### 🔒 Privacy & GDPR Compliance
 
