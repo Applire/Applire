@@ -19,10 +19,19 @@ import type { NextConfig } from "next";
 
 import { version } from "./package.json";
 
+// Release builds bake the GitHub tag in via the APP_VERSION build arg
+// (.github/workflows/release.yml → frontend/Dockerfile); dev and local
+// builds fall back to package.json. Inlined at build time.
+const appVersion = process.env.APP_VERSION
+  ? process.env.APP_VERSION.startsWith("v")
+    ? process.env.APP_VERSION
+    : `v${process.env.APP_VERSION}`
+  : `v${version}`;
+
 const nextConfig: NextConfig = {
   output: "standalone",
   env: {
-    NEXT_PUBLIC_APP_VERSION: `v${version}`,
+    NEXT_PUBLIC_APP_VERSION: appVersion,
   },
   experimental: {
     // LLM operations (CV extraction, gap analysis) can take 30-60s+;
