@@ -204,3 +204,22 @@ async def test_get_pdf_filename_contains_role_slug(db):
 
     filename = await get_pdf_filename(cv_id, db)
     assert filename == f"lebenslauf-qa-manager-21-cfr-{str(cv_id)[:8]}.pdf"
+
+
+# ---------------------------------------------------------------------------
+# TailoredCVData resilience — LLM occasionally returns null for summary
+# (observed live 2026-06-10: ValidationError failed the whole generation)
+# ---------------------------------------------------------------------------
+
+def test_tailored_cv_data_coerces_null_summary_to_empty_string():
+    from applire.schemas.cv import TailoredCVData
+
+    data = TailoredCVData.model_validate({
+        "contact": {"name": "Milan Novak"},
+        "summary": None,
+        "work_history": [],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    assert data.summary == ""

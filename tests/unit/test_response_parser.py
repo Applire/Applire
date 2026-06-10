@@ -616,6 +616,138 @@ class TestProfileUpdater:
         # Entry with empty role should be skipped
         assert updated["work_experience"] == []
 
+    def test_profile_updater_enriches_existing_company_instead_of_duplicating(self):
+        """Regression (Milan run 2026-06-10): an interview answer mentioning an
+        existing employer by a shortened name ('TWENTYONE' vs 'TWENTYONE Digital')
+        with a loose role title created a spurious undated position. Undated
+        answer entries for a known employer must enrich the existing entry."""
+        from applire.services.interview_graph import profile_updater
+
+        profile = {
+            "skills": [],
+            "work_experience": [
+                {
+                    "company": "TWENTYONE Digital",
+                    "role": "Art Director",
+                    "start_date": "2018-08",
+                    "end_date": "2022-04",
+                    "achievements": ["Existing achievement"],
+                    "role_aliases": [],
+                }
+            ],
+        }
+        patch = {
+            "skills_to_add": [],
+            "work_history_to_add": [
+                {
+                    "company": "TWENTYONE",
+                    "role": "Creative Lead",
+                    "start_date": None,
+                    "end_date": None,
+                    "bullets": ["Won 4 of 6 new-business pitches"],
+                }
+            ],
+        }
+
+        updated, conflicts = profile_updater(profile, patch)
+
+        assert len(updated["work_experience"]) == 1
+        entry = updated["work_experience"][0]
+        assert "Won 4 of 6 new-business pitches" in entry["achievements"]
+        assert "Creative Lead" in entry["role_aliases"]
+        assert conflicts == []
+
+    def test_profile_updater_merges_bullets_into_exact_match_entry(self):
+        from applire.services.interview_graph import profile_updater
+
+        profile = {
+            "skills": [],
+            "work_experience": [
+                {
+                    "company": "Acme",
+                    "role": "Developer",
+                    "start_date": "2020-01",
+                    "achievements": ["Shipped v1"],
+                }
+            ],
+        }
+        patch = {
+            "skills_to_add": [],
+            "work_history_to_add": [
+                {
+                    "company": "Acme",
+                    "role": "Developer",
+                    "start_date": "2020-01",
+                    "bullets": ["Led migration to Kubernetes", "Shipped v1"],
+                }
+            ],
+        }
+
+        updated, conflicts = profile_updater(profile, patch)
+
+        assert len(updated["work_experience"]) == 1
+        achievements = updated["work_experience"][0]["achievements"]
+        assert "Led migration to Kubernetes" in achievements
+        assert achievements.count("Shipped v1") == 1
+
+    def test_profile_updater_appends_dated_non_overlapping_entry_at_same_company(self):
+        """A dated entry at a known employer that does NOT overlap any existing
+        stint is a genuine separate position (e.g. a return to the company)."""
+        from applire.services.interview_graph import profile_updater
+
+        profile = {
+            "skills": [],
+            "work_experience": [
+                {
+                    "company": "Acme",
+                    "role": "Developer",
+                    "start_date": "2014-01",
+                    "end_date": "2016-12",
+                }
+            ],
+        }
+        patch = {
+            "skills_to_add": [],
+            "work_history_to_add": [
+                {
+                    "company": "Acme",
+                    "role": "Lead Developer",
+                    "start_date": "2020-01",
+                    "end_date": None,
+                    "bullets": ["Built the platform team"],
+                }
+            ],
+        }
+
+        updated, conflicts = profile_updater(profile, patch)
+
+        assert len(updated["work_experience"]) == 2
+
+    def test_profile_updater_appended_entry_maps_bullets_to_achievements(self):
+        """Appended entries must use the WorkEntry field name 'achievements' —
+        a raw 'bullets' key is silently dropped by schema validation, which
+        produced empty positions in the generated CV."""
+        from applire.services.interview_graph import profile_updater
+
+        profile = {"skills": [], "work_experience": []}
+        patch = {
+            "skills_to_add": [],
+            "work_history_to_add": [
+                {
+                    "company": "Acme",
+                    "role": "Developer",
+                    "start_date": "2020-01",
+                    "bullets": ["Did the thing"],
+                }
+            ],
+        }
+
+        updated, conflicts = profile_updater(profile, patch)
+
+        entry = updated["work_experience"][0]
+        assert entry["achievements"] == ["Did the thing"]
+        assert "bullets" not in entry
+
     def test_skill_name_helper_handles_dict_and_str(self):
         from applire.services.interview_graph import _skill_name
 

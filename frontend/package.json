@@ -1,6 +1,6 @@
 {
   "name": "applire-frontend",
-  "version": "0.31.0-beta",
+  "version": "0.36.2-beta",
   "private": true,
   "type": "module",
   "scripts": {

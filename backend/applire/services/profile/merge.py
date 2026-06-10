@@ -147,6 +147,13 @@ def _company_names_match(a: str, b: str) -> bool:
     return ta <= tb or tb <= ta
 
 
+# Public aliases — shared with the interview enrichment path
+# (services/interview_graph.profile_updater), which must apply the same
+# employer-identity and date-overlap semantics as the CV-upload merge.
+company_names_match = _company_names_match
+dates_overlap = _dates_overlap
+
+
 def _sort_work_by_date(entries: list[WorkEntry]) -> list[WorkEntry]:
     """Sort work entries reverse-chronologically (most recent first).
 

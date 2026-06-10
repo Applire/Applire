@@ -72,6 +72,7 @@ from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.cv import CVGenerateResponse, CVStatusResponse, CVTemplate, TailoredCVData
 from applire.services.reviewer import review_and_refine
+from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
 from applire.constants import LLM_REVIEW_MAX_RETRIES
 
@@ -400,7 +401,13 @@ async def _render_cv_background(
 
             provider: LLMProvider = get_provider()
             tailored_raw: dict = await provider.aparse_json(
-                build_user_prompt(job_dict, profile_json, keyword_gaps, critical_gaps),
+                build_user_prompt(
+                    job_dict,
+                    profile_json,
+                    keyword_gaps,
+                    critical_gaps,
+                    output_language=resolve_jd_language(job),
+                ),
                 system=SYSTEM_PROMPT,
                 temperature=0.3,
                 max_tokens=8192,

@@ -16,8 +16,12 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 ARG BACKEND_URL=http://backend:8000
 ARG NEXT_PUBLIC_API_URL=
+# Release tag baked into the UI version label (next.config.ts);
+# empty = fall back to package.json version.
+ARG APP_VERSION=
 ENV BACKEND_URL=$BACKEND_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV APP_VERSION=$APP_VERSION
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

@@ -112,6 +112,10 @@ class TailoredCVData(BaseModel):
     languages: list[TailoredLanguage] = []
     show_photo: bool = True  # country-aware photo rendering hook (ADR-021); True for all DACH jobs
 
+    # The LLM occasionally returns an explicit null summary; degrade to an
+    # empty section instead of failing the whole CV generation.
+    _coerce_fields = field_validator("summary", mode="before")(_coerce_none_str)
+
 
 class GeneratedCVResponse(BaseModel):
     id: uuid.UUID

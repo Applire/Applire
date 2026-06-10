@@ -209,6 +209,7 @@ jobs:
           build-args: |
             BACKEND_URL=http://backend:8000
             NEXT_PUBLIC_API_URL=
+            APP_VERSION=${{ github.event.release.tag_name || github.ref_name }}
           cache-from: type=gha,scope=frontend-${{ env.PLATFORM_PAIR }}
           cache-to: type=gha,mode=max,scope=frontend-${{ env.PLATFORM_PAIR }}
 
