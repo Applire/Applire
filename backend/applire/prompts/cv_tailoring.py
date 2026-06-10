@@ -15,12 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v2
+# Prompt version: v3
 # Used by: services/cv.py → LLMProvider.aparse_json + reviewer.review_and_refine
 # Changes from v1: Rules 1, 3, 5 hardened against hallucination;
 #                  Rule 6 added (entry count constraint);
 #                  Rule 7 added (language, was Rule 6);
 #                  build_retry_prompt added for review layer retries.
+# Changes from v2: Rule 7 no longer delegates language detection to the model —
+#                  build_user_prompt now takes output_language (resolved
+#                  deterministically from job_analyses.jd_language, ADR-038)
+#                  and emits an explicit OUTPUT LANGUAGE directive.
 # Added in retry-refinement work: CV_TAILORING_REFINEMENT_PROMPT — refinement-mode
 #                  system prompt used on review-loop retries (patch the previous tailored
 #                  CV JSON; the reviewer quotes profile content when needed).
@@ -47,7 +51,9 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    CANDIDATE PROFILE. When in doubt, leave it out.
 6. The number of work_history entries in your output must equal exactly the number in CANDIDATE
    PROFILE. Do not add, remove, or split entries.
-7. Output language: match the job description language (German if German JD, English otherwise).
+7. Output language: write the entire CV (summary, bullets, skills) in the OUTPUT LANGUAGE stated
+   in the user message. Never mirror the language of CANDIDATE PROFILE or the job description
+   when it differs from the OUTPUT LANGUAGE.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations:
 
@@ -90,9 +96,12 @@ def build_user_prompt(
     profile: dict,
     keyword_gaps: list[str],
     critical_gaps: list[str],
+    output_language: str = "de",
 ) -> str:
+    language_name = "GERMAN" if output_language == "de" else "ENGLISH"
     return (
         "Tailor the candidate's profile for the job below.\n\n"
+        f"OUTPUT LANGUAGE: {language_name}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"

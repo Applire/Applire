@@ -45,6 +45,11 @@ class JobAnalysis(Base):
     seniority_level: Mapped[str] = mapped_column(Text, nullable=False)
     company_culture_signals: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     language_requirement: Mapped[str] = mapped_column(Text, nullable=False)
+    # Language the JD document is *written in* ('de'/'en'), detected
+    # deterministically at analysis time — the routing source for document
+    # outputs per ADR-038. NULL for rows that pre-date migration 0032
+    # (resolved at use time via utils.language_detection.resolve_jd_language).
+    jd_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # LLM-extracted best-effort; nullable (recruiter-anonymised JDs omit company)
     company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     # DACH occupation classification — KldB 2020 (BA-Klassifikation der Berufe 2020).

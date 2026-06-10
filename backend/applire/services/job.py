@@ -29,6 +29,7 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.job import JobAnalysisResponse
+from applire.utils.language_detection import detect_language
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ async def analyze_jd(
         seniority_level=data.get("seniority_level") or "",
         company_culture_signals=data.get("company_culture_signals", []),
         language_requirement=data.get("language_requirement") or "",
+        jd_language=detect_language(text),
         berufsbild_code=berufsbild_code,
         berufsbild_label=berufsbild_label,
         embedding=embedding,

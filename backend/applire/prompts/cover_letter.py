@@ -41,7 +41,7 @@ The JSON must match this schema exactly:
     "title": "string or null",
     "company": "string or null",
     "address": "string or null",
-    "date": "string — today's date formatted DD. Month YYYY in German"
+    "date": "null — the system inserts the letter date after generation; always output null"
   },
   "body": {
     "paragraphs": ["opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
@@ -53,7 +53,8 @@ The JSON must match this schema exactly:
 }
 
 Rules:
-- Write in the detected language (DE or EN).
+- Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
+  Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.

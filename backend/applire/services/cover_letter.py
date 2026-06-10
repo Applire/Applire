@@ -33,7 +33,7 @@ Mirrors services/cv.py:
 import copy
 import logging
 import uuid
-from datetime import timezone
+from datetime import date, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks
@@ -55,6 +55,8 @@ from applire.schemas.cover_letter import (
     CoverLetterGenerateResponse,
     CoverLetterStatusResponse,
 )
+from applire.utils.language_detection import resolve_jd_language
+from applire.utils.letter_date import format_letter_date
 from applire.utils.recipient_extraction import extract_recipient_from_jd
 
 logger = logging.getLogger(__name__)
@@ -288,6 +290,13 @@ def _default_color_context() -> dict:
     }
 
 
+def _inject_letter_date(letter_data: dict, language: str, today: date | None = None) -> dict:
+    """Set recipient.date from the system clock, overwriting any LLM value —
+    the model cannot know today's date and hallucinates one if asked."""
+    letter_data.setdefault("recipient", {})["date"] = format_letter_date(language, today)
+    return letter_data
+
+
 def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
     """Return a copy of letter_data with manual section overrides applied."""
     data = copy.deepcopy(letter_data)
@@ -359,9 +368,10 @@ async def _render_cover_letter_background(
             if not pre_gen.get("recipient_company") and hasattr(job, "company_name") and job.company_name:
                 pre_gen["recipient_company"] = job.company_name
 
-            # Detect language
-            lang_req = job.language_requirement or "de"
-            detected_language = "de" if lang_req.lower().startswith("de") else "en"
+            # ADR-038: the letter follows the language the JD is written in —
+            # not language_requirement, which is the candidate requirement
+            # (e.g. "Bilingual DE/EN") and misroutes.
+            detected_language = resolve_jd_language(job)
 
             # Call LLM
             provider = get_provider()
@@ -372,6 +382,7 @@ async def _render_cover_letter_background(
                 detected_language=detected_language,
             )
             letter_data = await provider.aparse_json(user_prompt, system=SYSTEM_PROMPT)
+            letter_data = _inject_letter_date(letter_data, detected_language)
 
             # Store and mark ready
             cl.letter_data = letter_data
