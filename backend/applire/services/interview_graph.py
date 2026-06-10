@@ -59,6 +59,7 @@ from applire.prompts.review_question_language import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.session import ConflictSummary, InterviewState
+from applire.services.profile.merge import company_names_match, dates_overlap
 from applire.services.reviewer import review_and_refine
 
 # Sections included in a MODE B guided build, in default priority order.
@@ -310,8 +311,12 @@ def profile_updater(
 
     Rules (ADR 013):
     - skills: union — add new skills, never remove existing ones
-    - work_experience: append entries whose (company, role) pair is not already present;
-      date contradictions on matching entries are reported as ConflictSummary records
+    - work_experience: an entry naming a known employer (fuzzy company match,
+      shared with the CV-upload merge) enriches the existing entry — bullets
+      accumulate into achievements, a differing title becomes a role_alias.
+      Only a dated entry that does not overlap any stint at that employer
+      (or a new employer entirely) is appended as a new position. Date
+      contradictions on matching entries are reported as ConflictSummary records.
     - No field is ever overwritten if it already has a non-empty value
     """
     profile = dict(current_profile)
@@ -325,23 +330,49 @@ def profile_updater(
     if new_skills:
         profile["skills"] = list(profile.get("skills", [])) + new_skills
 
-    # --- Work experience: append-only, detect date conflicts on matching entries ---
-    existing_work = profile.get("work_experience", [])
-    existing_by_key: dict[tuple[str, str], dict] = {
-        (_norm(e.get("company")), _norm(e.get("role"))): e for e in existing_work
-    }
-    additions = []
+    # --- Work experience: enrich matching employers, append only genuine new positions ---
+    existing_work = [dict(e) for e in profile.get("work_experience", [])]
     for entry in patch.get("work_history_to_add", []):
-        key = (_norm(entry.get("company")), _norm(entry.get("role")))
-        if not key[1]:
+        if not _norm(entry.get("role")):
             continue
-        if key in existing_by_key:
-            existing_entry = existing_by_key[key]
-            # Detect contradicting start_date
-            old_start = existing_entry.get("start_date") or ""
+        bullets = [
+            b.strip() for b in (entry.get("bullets") or [])
+            if isinstance(b, str) and b.strip()
+        ]
+
+        match = _find_matching_work_entry(existing_work, entry)
+        if match is None:
+            # New employer (or a dated, non-overlapping stint at a known one)
+            addition = {k: v for k, v in entry.items() if k != "bullets"}
+            if bullets:
+                addition["achievements"] = bullets
+            existing_work.append(addition)
+            continue
+
+        # Known employer → enrich the existing entry, never create a duplicate
+        existing_achievements = list(match.get("achievements") or [])
+        seen = {a.strip().lower() for a in existing_achievements}
+        for b in bullets:
+            if b.lower() not in seen:
+                existing_achievements.append(b)
+                seen.add(b.lower())
+        match["achievements"] = existing_achievements
+
+        new_role = (entry.get("role") or "").strip()
+        known_titles = {
+            t.strip().lower()
+            for t in [match.get("role") or ""] + list(match.get("role_aliases") or [])
+        }
+        if new_role and new_role.lower() not in known_titles:
+            match["role_aliases"] = list(match.get("role_aliases") or []) + [new_role]
+
+        # Detect contradicting start_date on same-role entries only — a loose
+        # role paraphrase from an answer is not evidence about dates.
+        if _norm(entry.get("role")) == _norm(match.get("role")):
+            old_start = match.get("start_date") or ""
             new_start = entry.get("start_date") or ""
             if old_start and new_start and (old_start + "-01")[:7] != (new_start + "-01")[:7]:
-                field = f"{key[0]} / {key[1]} start_date"
+                field = f"{_norm(match.get('company'))} / {_norm(match.get('role'))} start_date"
                 conflict_id = hashlib.md5(f"{field}:{old_start}".encode()).hexdigest()[:12]
                 conflicts.append(
                     ConflictSummary(
@@ -351,12 +382,8 @@ def profile_updater(
                         new_value=new_start,
                     )
                 )
-        else:
-            additions.append(entry)
-            existing_by_key[key] = entry
 
-    if additions:
-        profile["work_experience"] = list(existing_work) + additions
+    profile["work_experience"] = existing_work
 
     # --- Certifications: append if name not already present (case-insensitive) ---
     existing_cert_names = {
@@ -393,6 +420,45 @@ def profile_updater(
         profile["education"] = list(profile.get("education", [])) + new_edu
 
     return profile, conflicts
+
+
+def _find_matching_work_entry(existing: list[dict], entry: dict) -> dict | None:
+    """Return the existing work entry an answer-extracted entry refers to.
+
+    Same employer (fuzzy, shared with the CV-upload merge) + same role/alias
+    wins; otherwise same employer with overlapping or unknown dates — an
+    undated answer mentioning a known employer describes an existing stint,
+    not a new position. Returns None for a genuinely new position.
+    """
+    candidates = [
+        ex for ex in existing
+        if company_names_match(ex.get("company") or "", entry.get("company") or "")
+    ]
+    if not candidates:
+        return None
+
+    role = _norm(entry.get("role"))
+    for ex in candidates:
+        known_titles = {_norm(ex.get("role"))} | {
+            _norm(a) for a in (ex.get("role_aliases") or [])
+        }
+        if role in known_titles:
+            return ex
+
+    overlapping = [
+        ex for ex in candidates
+        if dates_overlap(
+            ex.get("start_date"), ex.get("end_date"),
+            entry.get("start_date"), entry.get("end_date"),
+        )
+    ]
+    if not overlapping:
+        return None
+    # Prefer the current (open-ended) or most recent stint
+    overlapping.sort(
+        key=lambda ex: ((ex.get("end_date") or "9999-12") + "-12")[:7], reverse=True
+    )
+    return overlapping[0]
 
 
 def _skill_name(s: str | dict) -> str:
