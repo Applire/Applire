@@ -522,13 +522,18 @@ async def test_letter_background_persists_report(db_with_cover_letter):
     mock_provider = AsyncMock()
     mock_provider.aparse_json.return_value = letter_raw
 
+    mock_render_pdf = AsyncMock(return_value=b"%PDF-fake")
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
-         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
          patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report):
         mock_session_local.return_value.__aenter__.return_value = session
         from applire.services.cover_letter import _render_cover_letter_background
         await _render_cover_letter_background(cl_id, None, job_id)
+
+    # render_pdf must be called exactly once — smoke render bytes are reused by
+    # _update_ats_report_letter; a second Playwright launch must NOT occur.
+    mock_render_pdf.assert_called_once()
 
     cl = await session.get(GeneratedCoverLetter, cl_id)
     assert cl.status == "ready", f"expected status 'ready', got {cl.status!r}"

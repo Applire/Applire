@@ -394,14 +394,15 @@ async def _render_cover_letter_background(
             await db.commit()
 
             # Generate PDF via Playwright
+            pdf_bytes: bytes | None = None
             try:
                 from applire.services.cover_letter_pdf import render_pdf
-                await render_pdf(cl_id)
+                pdf_bytes = await render_pdf(cl_id)
             except Exception as pdf_err:
                 logger.warning("PDF render failed for CL %s: %s", cl_id, pdf_err)
                 # HTML preview still works; PDF download will fail gracefully
 
-            await _update_ats_report_letter(cl, db)   # ADR-039
+            await _update_ats_report_letter(cl, db, pdf=pdf_bytes)   # ADR-039
 
         except Exception as exc:
             logger.exception("Cover letter generation failed for %s: %s", cl_id, exc)
@@ -421,7 +422,11 @@ async def _render_cover_letter_background(
 # ---------------------------------------------------------------------------
 
 
-async def _update_ats_report_letter(cl: GeneratedCoverLetter, db: AsyncSession) -> None:
+async def _update_ats_report_letter(
+    cl: GeneratedCoverLetter,
+    db: AsyncSession,
+    pdf: bytes | None = None,
+) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
     Engine errors leave ats_report NULL, never raise — an audit failure must
@@ -430,12 +435,20 @@ async def _update_ats_report_letter(cl: GeneratedCoverLetter, db: AsyncSession) 
     Deliberately wipes any previous report on error: ADR-039 forbids a persisted
     report describing a document state it was not computed from (no stale reports).
     A NULL report is always preferable to a report computed from old content.
+
+    Args:
+        cl:  The cover letter ORM object (already in *db*'s session).
+        db:  The active async session.
+        pdf: Pre-rendered PDF bytes from the generation path's smoke render.
+             When provided, the render is reused and no second Playwright
+             launch is needed.  The BackgroundTasks patch path leaves this
+             None, triggering a fresh render inside the try block.
     """
     try:
         from applire.services.ats_audit import audit_cover_letter
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf = await render_pdf(cl.id)
+        pdf = pdf if pdf is not None else await render_pdf(cl.id)
         job = await db.get(JobAnalysis, cl.job_analysis_id)
         letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
         cl.ats_report = audit_cover_letter(
