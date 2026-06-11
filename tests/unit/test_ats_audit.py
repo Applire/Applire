@@ -202,3 +202,18 @@ def test_duplicate_keywords_deduplicated():
     report = _audit_cv_text(_full_text(), _CV, keywords=["Python", "python", "Python"])
     assert report.keywords.present == ["Python"], \
         f"duplicates must be collapsed to one entry; got {report.keywords.present}"
+
+
+def test_empty_letter_paragraph_skipped():
+    letter = {
+        "header": {"name": "Anna Bauer", "email": None, "phone": None, "address": "Berlin"},
+        "recipient": {"company": None, "name": None, "title": None, "address": None, "date": None},
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "", "   "]},
+        "signature": {"name": "Anna Bauer"},
+    }
+    text = "Anna Bauer Berlin Sehr geehrte Damen und Herren,"
+    report = _audit_letter_text(text, letter, keywords=[])
+    ids = {c.id for c in report.checks}
+    assert "body-0" in ids
+    assert "body-1" not in ids and "body-2" not in ids
+    assert report.failed == 0

@@ -164,6 +164,8 @@ def _audit_letter_text(text: str, letter_data: dict[str, Any], keywords: list[st
     paragraphs = (letter_data.get("body") or {}).get("paragraphs") or []
     for i, p in enumerate(paragraphs):
         probe = p[:60]
+        if not _norm(probe):
+            continue  # empty/whitespace paragraph — nothing to verify (mirrors the CV-side empty-field guard)
         _check(checks, f"body-{i}", _find(probe, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
 
     return _finish("cover_letter", checks, _keyword_coverage(t, keywords))
