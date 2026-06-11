@@ -30,6 +30,14 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio pytest-mock requests
 
+      - name: Install Playwright Chromium (ATS round-trip renderer)
+        run: python -m playwright install --with-deps chromium
+
+      - name: ATS round-trip guarantee (ADR-039)
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
+        run: PYTHONPATH=backend pytest tests/ats/ -v
+
       - name: Run unit tests with coverage
         run: |
           PYTHONPATH=backend pytest tests/unit/ backend/tests/unit/ \
