@@ -693,6 +693,23 @@
     "errorLoadFailed": "Failed to load job matches. Please try again.",
     "errorBackendUnreachable": "Could not reach the server. Is the backend running?"
   },
+  "ats": {
+    "title": "ATS checks",
+    "unavailable": "ATS report not available for this document.",
+    "keywordCoverage": "{present} of {total} job keywords present",
+    "missingKeywords": "Missing keywords ({count}):",
+    "checks": {
+      "contact-name": "Name is machine-readable",
+      "contact-email": "Email is machine-readable",
+      "contact-phone": "Phone number is machine-readable",
+      "work": "Work history entry parsed",
+      "reading-order": "Sections parse in the correct order",
+      "education": "Education entry parsed",
+      "skills": "All skills are machine-readable",
+      "recipient-company": "Recipient company parsed",
+      "body": "Letter paragraph parsed"
+    }
+  },
   "admin": {
     "appearanceTitle": "Appearance",
     "schemeEditor": {

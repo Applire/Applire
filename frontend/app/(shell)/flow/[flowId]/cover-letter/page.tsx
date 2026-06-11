@@ -26,6 +26,7 @@ import { CoverLetterRefinementPanel } from "@/components/cover-letter/CoverLette
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
+import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
 type CLTemplate =
   | "classic_german"
@@ -67,6 +68,7 @@ export default function CoverLetterPage({
   const [showModal, setShowModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [atsReport, setAtsReport] = useState<ATSReport>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const init = useCallback(async () => {
@@ -122,6 +124,22 @@ export default function CoverLetterPage({
     init();
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [init]);
+
+  // Fetch ATS report once cover letter is ready
+  useEffect(() => {
+    if (phase !== "ready" || !clState?.coverLetterId) return;
+    async function fetchAtsReport() {
+      try {
+        const res = await fetch(`${API_BASE}/api/cover-letter/${clState!.coverLetterId}/ats-report`);
+        if (!res.ok) return;
+        const data: { report: ATSReport } = await res.json();
+        setAtsReport(data.report ?? null);
+      } catch {
+        // Non-fatal — panel shows unavailable state
+      }
+    }
+    void fetchAtsReport();
+  }, [phase, clState?.coverLetterId]);
 
   function startPolling(clId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -250,11 +268,12 @@ export default function CoverLetterPage({
       ) : (
         <div className="flex flex-1 min-h-0">
           {/* LEFT: preview */}
-          <div className="flex-1 min-w-0 flex flex-col border-r border-neutral-200 bg-neutral-50 p-3">
+          <div className="flex-1 min-w-0 flex flex-col border-r border-neutral-200 bg-neutral-50 p-3 gap-3">
             <CoverLetterDocument
               key={previewKey}
               coverLetterId={clState!.coverLetterId}
             />
+            <ATSChecksPanel report={atsReport} />
           </div>
 
           {/* RIGHT: controls */}

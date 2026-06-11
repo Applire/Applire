@@ -30,6 +30,7 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { CVPageActionBar } from "@/components/cv/CVPageActionBar";
+import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -68,6 +69,7 @@ export default function CVPage({
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [atsReport, setAtsReport] = useState<ATSReport>(null);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
@@ -151,6 +153,22 @@ export default function CVPage({
     }
     void init();
   }, [flowId]);
+
+  // Fetch ATS report once a CV is ready
+  useEffect(() => {
+    if (!cvId) return;
+    async function fetchAtsReport() {
+      try {
+        const res = await fetch(`${API_BASE}/api/cv/${cvId}/ats-report`);
+        if (!res.ok) return;
+        const data: { report: ATSReport } = await res.json();
+        setAtsReport(data.report ?? null);
+      } catch {
+        // Non-fatal — panel shows unavailable state
+      }
+    }
+    void fetchAtsReport();
+  }, [cvId]);
 
   async function handleGenerate(tpl: CVTemplate) {
     if (!flowState) return;
@@ -236,6 +254,7 @@ export default function CVPage({
               onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
               onNext={() => setPhase("complete")}
             />
+            <ATSChecksPanel report={atsReport} />
             <CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />
           </div>
           <RefinementPanel

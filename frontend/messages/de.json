@@ -693,6 +693,23 @@
     "errorLoadFailed": "Stellen konnten nicht geladen werden. Bitte erneut versuchen.",
     "errorBackendUnreachable": "Server nicht erreichbar. Läuft das Backend?"
   },
+  "ats": {
+    "title": "ATS-Prüfungen",
+    "unavailable": "ATS-Bericht für dieses Dokument nicht verfügbar.",
+    "keywordCoverage": "{present} von {total} Stellen-Keywords enthalten",
+    "missingKeywords": "Fehlende Keywords ({count}):",
+    "checks": {
+      "contact-name": "Name ist maschinenlesbar",
+      "contact-email": "E-Mail ist maschinenlesbar",
+      "contact-phone": "Telefonnummer ist maschinenlesbar",
+      "work": "Berufserfahrungseintrag erkannt",
+      "reading-order": "Abschnitte werden in der richtigen Reihenfolge erkannt",
+      "education": "Ausbildungseintrag erkannt",
+      "skills": "Alle Fähigkeiten sind maschinenlesbar",
+      "recipient-company": "Empfängerunternehmen erkannt",
+      "body": "Anschreiben-Absatz erkannt"
+    }
+  },
   "admin": {
     "appearanceTitle": "Erscheinungsbild",
     "schemeEditor": {
