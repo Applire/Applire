@@ -698,6 +698,10 @@
     "unavailable": "ATS report not available for this document.",
     "keywordCoverage": "{present} of {total} job keywords present",
     "missingKeywords": "Missing keywords ({count}):",
+    "structureOk": "ATS structure — all checks passed",
+    "structureIssues": "{count, plural, one {# ATS check failed} other {# ATS checks failed}}",
+    "detailsButton": "Details",
+    "groupCount": "({passed} of {total} parsed)",
     "checks": {
       "contact-name": "Name is machine-readable",
       "contact-email": "Email is machine-readable",

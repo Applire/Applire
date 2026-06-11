@@ -698,6 +698,10 @@
     "unavailable": "ATS-Bericht für dieses Dokument nicht verfügbar.",
     "keywordCoverage": "{present} von {total} Stellen-Keywords enthalten",
     "missingKeywords": "Fehlende Keywords ({count}):",
+    "structureOk": "ATS-Struktur — alle Prüfungen bestanden",
+    "structureIssues": "{count, plural, one {# ATS-Prüfung fehlgeschlagen} other {# ATS-Prüfungen fehlgeschlagen}}",
+    "detailsButton": "Details",
+    "groupCount": "({passed} von {total} erkannt)",
     "checks": {
       "contact-name": "Name ist maschinenlesbar",
       "contact-email": "E-Mail ist maschinenlesbar",

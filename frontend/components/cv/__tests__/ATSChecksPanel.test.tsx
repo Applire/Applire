@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import ATSChecksPanel, { type ATSReport } from "../ATSChecksPanel";
@@ -39,6 +39,8 @@ const REPORT_ALL_PASS: ATSReport = {
   checks: [
     { id: "contact-name", status: "pass" },
     { id: "contact-email", status: "pass" },
+    { id: "work-0", status: "pass" },
+    { id: "work-1", status: "pass" },
     { id: "skills", status: "pass" },
   ],
   keywords: {
@@ -48,31 +50,28 @@ const REPORT_ALL_PASS: ATSReport = {
 };
 
 describe("ATSChecksPanel", () => {
-  // Case 1: renders one row per check with pass/fail indication
-  it("renders one row per check with data-testid ats-check-<id>", () => {
-    render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
-    for (const check of REPORT_WITH_FAILURES.checks) {
-      expect(screen.getByTestId(`ats-check-${check.id}`)).toBeInTheDocument();
-    }
-    expect(screen.getAllByTestId(/^ats-check-/)).toHaveLength(
-      REPORT_WITH_FAILURES.checks.length
-    );
-  });
-
-  // Case 2: failed checks render visibly and show details text when present
-  it("renders failed checks visibly and shows details when present", () => {
+  // Case 1: failed checks render inline on the compact card — visible without any interaction
+  it("renders failed checks inline with data-testid ats-check-<id> and details", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
     const phoneCheck = screen.getByTestId("ats-check-contact-phone");
     expect(phoneCheck).toBeInTheDocument();
-    // Details text must appear for the phone check
     expect(phoneCheck.textContent).toContain("No phone found");
 
     // Failed check without details must still render
-    const readingCheck = screen.getByTestId("ats-check-reading-order");
-    expect(readingCheck).toBeInTheDocument();
+    expect(screen.getByTestId("ats-check-reading-order")).toBeInTheDocument();
+
+    // Only the FAILED checks render inline — passing checks live in the drawer
+    expect(screen.getAllByTestId(/^ats-check-/)).toHaveLength(2);
   });
 
-  // Case 3: missing keywords listed
+  // Case 2: all-pass report renders the compact happy path — no inline check rows
+  it("renders no inline check rows when every check passes", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+    expect(screen.queryAllByTestId(/^ats-check-/)).toHaveLength(0);
+    expect(screen.getByTestId("ats-structure-status")).toBeInTheDocument();
+  });
+
+  // Case 3: missing keywords listed on the card
   it("lists missing keywords by name in ats-keywords-missing", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
     const missingEl = screen.getByTestId("ats-keywords-missing");
@@ -80,14 +79,13 @@ describe("ATSChecksPanel", () => {
     expect(missingEl.textContent).toContain("Docker");
   });
 
-  // Case 4: keyword coverage "X of Y" — counts, not a percentage
+  // Case 4: keyword coverage ring shows X/Y counts — never a percentage
   it("renders keyword coverage as X of Y counts in ats-keywords-coverage", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
     const coverageEl = screen.getByTestId("ats-keywords-coverage");
     // present=2, total=4
     expect(coverageEl.textContent).toMatch(/2/);
     expect(coverageEl.textContent).toMatch(/4/);
-    // Must not be a percentage
     expect(coverageEl.textContent).not.toContain("%");
   });
 
@@ -98,25 +96,54 @@ describe("ATSChecksPanel", () => {
     expect(screen.queryByTestId("ats-panel")).toBeNull();
   });
 
-  // Case 6: no aggregate score — no "%" character anywhere in output
-  it("renders no percentage/aggregate score even with failures", () => {
+  // Case 6: no aggregate score — no "%" character anywhere, even with the drawer open
+  it("renders no percentage/aggregate score anywhere", () => {
     const { container } = render(
       withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />)
     );
+    fireEvent.click(screen.getByTestId("ats-details-button"));
     expect(container.textContent).not.toContain("%");
   });
 
-  // Bonus: all-pass report shows no missing keywords section
+  // Case 7: details button opens the drawer with the full grouped checks list
+  it("opens the drawer with grouped checks via the details button", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+    expect(screen.queryByTestId("ats-drawer")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("ats-details-button"));
+    expect(screen.getByTestId("ats-drawer")).toBeInTheDocument();
+
+    // work-0 + work-1 collapse into ONE grouped row with a (2 of 2) count
+    const workGroup = screen.getByTestId("ats-drawer-check-work");
+    expect(workGroup.textContent).toMatch(/2/);
+    // Single-instance checks render one row each
+    expect(screen.getByTestId("ats-drawer-check-contact-name")).toBeInTheDocument();
+    expect(screen.getByTestId("ats-drawer-check-skills")).toBeInTheDocument();
+    // Keyword section is present in the drawer
+    expect(screen.getByTestId("ats-drawer-coverage")).toBeInTheDocument();
+  });
+
+  // Case 8: drawer closes via the close button
+  it("closes the drawer via the close button", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+    fireEvent.click(screen.getByTestId("ats-details-button"));
+    expect(screen.getByTestId("ats-drawer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("ats-drawer-close"));
+    expect(screen.queryByTestId("ats-drawer")).toBeNull();
+  });
+
+  // Case 9: failed checks surface in the drawer's grouped rows with details
+  it("shows failure details inside the drawer groups", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
+    fireEvent.click(screen.getByTestId("ats-details-button"));
+    const phoneGroup = screen.getByTestId("ats-drawer-check-contact-phone");
+    expect(phoneGroup.textContent).toContain("No phone found");
+  });
+
+  // Bonus: all-pass report shows no missing keywords line
   it("does not render ats-keywords-missing when there are no missing keywords", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
     expect(screen.queryByTestId("ats-keywords-missing")).toBeNull();
-  });
-
-  // Bonus: coverage shows correctly for all-pass
-  it("shows correct coverage counts for all-pass report", () => {
-    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
-    const coverageEl = screen.getByTestId("ats-keywords-coverage");
-    // present=3, total=3
-    expect(coverageEl.textContent).toMatch(/3/);
   });
 });
