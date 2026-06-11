@@ -246,6 +246,7 @@ async def patch_cover_letter_section(
     section: str,
     content: str,
     db: AsyncSession,
+    background_tasks: BackgroundTasks | None = None,
 ) -> None:
     result = await db.execute(
         select(GeneratedCoverLetter).where(
@@ -261,6 +262,9 @@ async def patch_cover_letter_section(
     overrides[section] = content
     cl.section_overrides = overrides
     await db.commit()
+
+    if background_tasks is not None:
+        background_tasks.add_task(_update_ats_report_letter_by_id, cl_id)
 
 
 async def get_cover_letter_by_job(
@@ -397,6 +401,8 @@ async def _render_cover_letter_background(
                 logger.warning("PDF render failed for CL %s: %s", cl_id, pdf_err)
                 # HTML preview still works; PDF download will fail gracefully
 
+            await _update_ats_report_letter(cl, db)   # ADR-039
+
         except Exception as exc:
             logger.exception("Cover letter generation failed for %s: %s", cl_id, exc)
             async with AsyncSessionLocal() as err_db:
@@ -408,3 +414,62 @@ async def _render_cover_letter_background(
                     err_cl.status = CoverLetterStatus.failed.value
                     err_cl.error_message = str(exc)[:500]
                     await err_db.commit()
+
+
+# ---------------------------------------------------------------------------
+# ADR-039: ATS audit persistence helpers (letter twin of services/cv.py)
+# ---------------------------------------------------------------------------
+
+
+async def _update_ats_report_letter(cl: GeneratedCoverLetter, db: AsyncSession) -> None:
+    """ADR-039 — letter twin of services/cv.py:_update_ats_report.
+
+    Engine errors leave ats_report NULL, never raise — an audit failure must
+    NEVER fail or alter generation status.
+
+    Deliberately wipes any previous report on error: ADR-039 forbids a persisted
+    report describing a document state it was not computed from (no stale reports).
+    A NULL report is always preferable to a report computed from old content.
+    """
+    try:
+        from applire.services.ats_audit import audit_cover_letter
+        from applire.services.cover_letter_pdf import render_pdf
+
+        pdf = await render_pdf(cl.id)
+        job = await db.get(JobAnalysis, cl.job_analysis_id)
+        letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+        cl.ats_report = audit_cover_letter(
+            pdf, letter_data, list(job.keywords or []) if job else []
+        ).model_dump()
+    except Exception:
+        logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
+        cl.ats_report = None
+    await db.commit()
+
+
+async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
+    """BackgroundTasks entrypoint — own session (request session gone by run time)."""
+    async with AsyncSessionLocal() as db:
+        cl = await db.get(GeneratedCoverLetter, cl_id)
+        if cl is not None:
+            await _update_ats_report_letter(cl, db)
+
+
+async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
+    """Return the persisted ATS report for a cover letter (ADR-039).
+
+    Raises LookupError if the cover letter is not found (→ 404 in the router).
+    """
+    from applire.schemas.ats import ATSReport, ATSReportResponse
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    report = ATSReport.model_validate(cl.ats_report) if cl.ats_report else None
+    return ATSReportResponse(document_id=cl.id, status=cl.status, report=report)

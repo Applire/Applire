@@ -144,11 +144,12 @@ async def get_pdf(
 async def patch_section(
     cl_id: uuid.UUID,
     body: SectionOverridePatch,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SectionOverridePatchResponse:
     try:
-        await patch_cover_letter_section(cl_id, body.section, body.content, db)
+        await patch_cover_letter_section(cl_id, body.section, body.content, db, background_tasks)
         return SectionOverridePatchResponse(cover_letter_id=cl_id, section=body.section)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

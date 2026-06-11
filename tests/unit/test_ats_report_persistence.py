@@ -402,3 +402,258 @@ async def test_get_cv_ats_report_returns_persisted_report(db_with_cv):
     # Unknown uuid must raise LookupError (→ 404 in router)
     with pytest.raises(LookupError):
         await get_cv_ats_report(uuid.uuid4(), session)
+
+
+# ===========================================================================
+# ADR-039 Task 4: Cover-letter pipeline persistence hooks (TDD)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Helpers — cover-letter stubs
+# ---------------------------------------------------------------------------
+
+def _stub_letter_data() -> dict:
+    return {
+        "header": {
+            "name": "Max Mustermann",
+            "email": "max@example.com",
+            "phone": "+49 30 12345678",
+            "location": "Berlin",
+        },
+        "recipient": {
+            "name": "Dr. Anna Schmidt",
+            "company": "Acme GmbH",
+            "date": "11. Juni 2026",
+        },
+        "subject": "Bewerbung als Python Developer",
+        "salutation": "Sehr geehrte Frau Dr. Schmidt,",
+        "body": {
+            "paragraphs": [
+                "ich bewerbe mich hiermit um die Stelle als Python Developer.",
+                "Mit fünf Jahren Erfahrung in der Backend-Entwicklung bringe ich alle geforderten Kenntnisse mit.",
+            ]
+        },
+        "closing": "Mit freundlichen Grüßen",
+        "signature": "Max Mustermann",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fixture — db_with_cover_letter
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def db_with_cover_letter(db):
+    """User → Job → Profile → GeneratedCoverLetter (ready, no ats_report)."""
+    from applire.models.user import User
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
+
+    user_id = uuid.UUID("00000000-0000-0000-0000-000000000011")
+    job_id  = uuid.UUID("00000000-0000-0000-0000-000000000012")
+    profile_id = uuid.UUID("00000000-0000-0000-0000-000000000013")
+    cl_id  = uuid.UUID("00000000-0000-0000-0000-000000000015")
+
+    user = User(
+        id=user_id,
+        email="cl-test@applire.community",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    job = JobAnalysis(
+        id=job_id,
+        raw_text_hash="cl_abc123",
+        raw_text="Python developer job",
+        role_title="Python Developer",
+        required_skills=["Python"],
+        nice_to_have_skills=[],
+        keywords=["Python"],
+        seniority_level="mid",
+        company_culture_signals=[],
+        language_requirement="de",
+    )
+    profile = MasterProfile(
+        id=profile_id,
+        profile_json=_stub_profile_json(),
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    cl = GeneratedCoverLetter(
+        id=cl_id,
+        job_analysis_id=job_id,
+        profile_id=profile_id,
+        template="classic_german",
+        letter_data=_stub_letter_data(),
+        pre_gen_inputs={"tone": "formal"},
+        status=CoverLetterStatus.ready.value,
+        section_overrides=None,
+        ats_report=None,
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        expires_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add_all([user, job, profile, cl])
+    await db.commit()
+
+    return {
+        "db": db,
+        "cl_id": cl_id,
+        "job_id": job_id,
+        "profile_id": profile_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Test CL-1: _render_cover_letter_background persists ats_report
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_letter_background_persists_report(db_with_cover_letter):
+    """After _render_cover_letter_background succeeds, cl.ats_report is populated and status='ready'."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    known_report = _make_ats_report("cover_letter")
+    letter_raw = _stub_letter_data()
+
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = letter_raw
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready", f"expected status 'ready', got {cl.status!r}"
+    assert cl.ats_report is not None, "ats_report should be populated after successful generation"
+    assert cl.ats_report["document"] == "cover_letter"
+
+
+# ---------------------------------------------------------------------------
+# Test CL-2: audit error leaves ats_report NULL, status still ready
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_letter_audit_error_leaves_null_and_status_ready(db_with_cover_letter):
+    """If audit_cover_letter raises, ats_report stays NULL but status must still be 'ready'."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    letter_raw = _stub_letter_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = letter_raw
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cover_letter", side_effect=RuntimeError("boom")):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready", f"status must remain 'ready' even when audit fails, got {cl.status!r}"
+    assert cl.ats_report is None, "ats_report must be NULL when audit engine errors"
+
+
+# ---------------------------------------------------------------------------
+# Test CL-3: patch_cover_letter_section enqueues ATS re-audit via BackgroundTasks
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_letter_section_patch_enqueues_reaudit(db_with_cover_letter):
+    """patch_cover_letter_section enqueues one background task; executing it updates ats_report."""
+    from fastapi import BackgroundTasks
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services.cover_letter import patch_cover_letter_section
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+
+    # Seed an initial report so we can detect the change
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    cl.ats_report = {
+        "version": 1,
+        "document": "cover_letter",
+        "checks": [],
+        "keywords": {"present": [], "missing": []},
+        "passed": 0,
+        "failed": 0,
+    }
+    await session.commit()
+
+    from applire.schemas.ats import ATSReport
+    sentinel_report = ATSReport.model_validate({
+        **_make_ats_report("cover_letter").model_dump(),
+        "passed": 77,
+    })
+
+    bg = BackgroundTasks()
+
+    with patch("applire.services.ats_audit.audit_cover_letter", return_value=sentinel_report), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
+        await patch_cover_letter_section(cl_id, "body", "Neuer Absatz", session, bg)
+
+    # One task must have been enqueued
+    assert len(bg.tasks) == 1, f"expected 1 background task, got {len(bg.tasks)}"
+
+    # Execute it — it opens its own AsyncSessionLocal; patch that to use our test DB
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=sentinel_report), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
+        mock_session_local.return_value.__aenter__.return_value = session
+        await bg.tasks[0]()
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.ats_report is not None, "ats_report should be recomputed after background task runs"
+    assert cl.ats_report.get("passed") == 77, (
+        f"ats_report should reflect the sentinel audit (passed=77), got {cl.ats_report}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test CL-4: get_cover_letter_ats_report returns persisted report
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report(db_with_cover_letter):
+    """get_cover_letter_ats_report returns ATSReportResponse; NULL column → report None; unknown id → LookupError."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services.cover_letter import get_cover_letter_ats_report
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+
+    # Case 1: ready letter, ats_report is NULL → report should be None
+    response = await get_cover_letter_ats_report(cl_id, session)
+    assert response.document_id == cl_id
+    assert response.report is None, "report should be None when ats_report column is NULL"
+    assert response.status == "ready"
+
+    # Case 2: store a known report → round-trip should return it
+    stored = _make_ats_report("cover_letter")
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    cl.ats_report = stored.model_dump()
+    await session.commit()
+
+    response = await get_cover_letter_ats_report(cl_id, session)
+    assert response.document_id == cl_id
+    assert response.report is not None
+    assert response.report.document == "cover_letter"
+
+    # Case 3: unknown id → LookupError (→ 404 in router)
+    with pytest.raises(LookupError):
+        await get_cover_letter_ats_report(uuid.uuid4(), session)

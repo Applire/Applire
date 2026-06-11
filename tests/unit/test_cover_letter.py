@@ -596,6 +596,7 @@ async def test_router_patch_section_404_unknown(cl_client):
 
 @pytest.mark.asyncio
 async def test_router_patch_section_ok(cl_client):
+    from unittest.mock import AsyncMock, patch as mock_patch
     client, db, _ = cl_client
     from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
 
@@ -611,8 +612,13 @@ async def test_router_patch_section_ok(cl_client):
     await db.commit()
     await db.refresh(cl)
 
-    payload = {"section": "body", "content": "Updated text"}
-    resp = await client.patch(f"/api/cover-letter/{cl.id}/section", json=payload)
+    # Patch the background ATS re-audit to avoid PostgreSQL connection in unit tests
+    with mock_patch(
+        "applire.services.cover_letter._update_ats_report_letter_by_id",
+        new=AsyncMock(),
+    ):
+        payload = {"section": "body", "content": "Updated text"}
+        resp = await client.patch(f"/api/cover-letter/{cl.id}/section", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     assert data["cover_letter_id"] == str(cl.id)
