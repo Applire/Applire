@@ -285,6 +285,10 @@ async def patch_cv_section(
     template = _jinja_env.get_template(template_file)
     html = template.render(cv=tailored_with_overrides, color=color_ctx)
 
+    # ADR-039: recompute ATS report after section edit (function-level import to avoid circular)
+    from applire.services.cv import _update_ats_report
+    await _update_ats_report(record, db)
+
     return SectionPatchResponse(
         html=html,
         overrides_applied=list(overrides.keys()),

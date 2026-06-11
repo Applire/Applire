@@ -447,6 +447,8 @@ async def _render_cv_background(
             record.error_message = None
             await db.commit()
 
+            await _update_ats_report(record, db)   # ADR-039
+
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
             try:
@@ -497,3 +499,46 @@ async def _html_to_pdf(html: str) -> bytes:
         )
         await browser.close()
     return pdf_bytes
+
+
+# ---------------------------------------------------------------------------
+# ADR-039: ATS audit persistence helpers
+# ---------------------------------------------------------------------------
+
+
+async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
+    """ADR-039: render → extract → audit → persist.
+
+    Engine errors leave ats_report NULL, never raise — an audit failure must
+    NEVER fail or alter generation status.
+    """
+    try:
+        from applire.services.ats_audit import audit_cv
+        from applire.services.cv_section_editor import apply_overrides_to_tailored
+
+        html = await get_cv_html(record.id, db)
+        pdf = await _html_to_pdf(html)
+        job = await db.get(JobAnalysis, record.job_analysis_id)
+        tailored = TailoredCVData.model_validate(record.tailored_data)
+        tailored = apply_overrides_to_tailored(
+            tailored, record.content_snapshot, record.section_overrides
+        )
+        record.ats_report = audit_cv(
+            pdf, tailored, list(job.keywords or []) if job else []
+        ).model_dump()
+    except Exception:
+        logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
+        record.ats_report = None
+    await db.commit()
+
+
+async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
+    """Return the persisted ATS report for a CV (ADR-039).
+
+    Raises LookupError if the CV is not found (→ 404 in the router).
+    """
+    from applire.schemas.ats import ATSReport, ATSReportResponse
+
+    record = await _load_cv(cv_id, db)   # raises LookupError → 404 in the router
+    report = ATSReport.model_validate(record.ats_report) if record.ats_report else None
+    return ATSReportResponse(document_id=record.id, status=record.status, report=report)
