@@ -14,7 +14,10 @@
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 22mm 20mm 25mm; }
     .header { background: var(--surface); color: var(--surface-text); padding: 14px 20px; margin: -20mm -22mm 16mm -25mm; }
     .header-name { font-size: 15pt; font-weight: bold; letter-spacing: 1px; }
-    .header-contact { font-size: 9pt; opacity: 0.85; margin-top: 4px; }
+    /* ADR-039: sans-serif for the contact line — Georgia's serif glyph metrics
+       made pypdf insert a phantom space inside the e-mail address ("joer g…"),
+       failing the local extraction audit. Sans metrics extract the e-mail intact. */
+    .header-contact { font-size: 9pt; opacity: 0.85; margin-top: 4px; font-family: Arial, Helvetica, sans-serif; }
     .accent-rule { height: 2px; background: var(--primary); margin-bottom: 14mm; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; line-height: 1.5; }
     .date { text-align: right; margin-bottom: 6mm; font-size: 10pt; color: #555; }
