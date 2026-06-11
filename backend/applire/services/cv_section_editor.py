@@ -26,6 +26,7 @@ Responsibilities:
 """
 import uuid
 
+from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -240,6 +241,7 @@ async def patch_cv_section(
     content: str,
     save_to_profile: bool,
     db: AsyncSession,
+    background_tasks: BackgroundTasks | None = None,
 ) -> SectionPatchResponse:
     """Write a section override and re-render the CV HTML.
 
@@ -285,9 +287,10 @@ async def patch_cv_section(
     template = _jinja_env.get_template(template_file)
     html = template.render(cv=tailored_with_overrides, color=color_ctx)
 
-    # ADR-039: recompute ATS report after section edit (function-level import to avoid circular)
-    from applire.services.cv import _update_ats_report
-    await _update_ats_report(record, db)
+    if background_tasks is not None:
+        # ADR-039: re-audit off-thread; the report must never describe a stale document
+        from applire.services.cv import _update_ats_report_by_id
+        background_tasks.add_task(_update_ats_report_by_id, record.id)
 
     return SectionPatchResponse(
         html=html,

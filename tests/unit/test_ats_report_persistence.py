@@ -310,12 +310,13 @@ async def test_audit_engine_error_leaves_report_null_and_status_ready(db_with_cv
 
 
 # ---------------------------------------------------------------------------
-# Test 3: patch_cv_section recomputes ats_report
+# Test 3: patch_cv_section enqueues ATS re-audit via BackgroundTasks
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_section_patch_recomputes_report(db_with_cv):
-    """After patch_cv_section, ats_report should be updated (recomputed by _update_ats_report)."""
+    """patch_cv_section enqueues one background task; executing it updates ats_report."""
+    from fastapi import BackgroundTasks
     from applire.models.cv import GeneratedCV
     from applire.services.cv_section_editor import patch_cv_section
 
@@ -323,26 +324,34 @@ async def test_section_patch_recomputes_report(db_with_cv):
     session = ctx["db"]
     cv_id = ctx["cv_id"]
 
-    # Set an initial ats_report on the record
+    # Set an initial ats_report on the record so we can verify it changes
     record = await session.get(GeneratedCV, cv_id)
     record.ats_report = {"document": "cv", "version": 1, "checks": [], "keywords": {"present": [], "missing": []}, "passed": 0, "failed": 0}
     await session.commit()
 
-    # New report that is clearly distinct
-    new_report = _make_ats_report("cv")
-    new_report_dict = new_report.model_dump()
-    new_report_dict["passed"] = 99  # sentinel to tell old from new
-
     from applire.schemas.ats import ATSReport
-    distinguishable_report = ATSReport.model_validate({**new_report.model_dump(), "passed": 99})
+    distinguishable_report = ATSReport.model_validate({**_make_ats_report("cv").model_dump(), "passed": 99})
+
+    bg = BackgroundTasks()
 
     with patch("applire.services.ats_audit.audit_cv", return_value=distinguishable_report), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
-        await patch_cv_section(cv_id, "introduction", "Neues Profil", False, session)
+        await patch_cv_section(cv_id, "introduction", "Neues Profil", False, session, bg)
+
+    # One task must have been enqueued
+    assert len(bg.tasks) == 1, f"expected 1 background task, got {len(bg.tasks)}"
+
+    # Execute it — it opens its own AsyncSessionLocal session; patch that to use our test DB
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.ats_audit.audit_cv", return_value=distinguishable_report), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
+        mock_session_local.return_value.__aenter__.return_value = session
+        await bg.tasks[0]()
 
     record = await session.get(GeneratedCV, cv_id)
-    assert record.ats_report is not None, "ats_report should be recomputed after section patch"
+    assert record.ats_report is not None, "ats_report should be recomputed after background task runs"
     assert record.ats_report.get("passed") == 99, (
         f"ats_report should reflect the new audit (passed=99), got {record.ats_report}"
     )
@@ -351,6 +360,22 @@ async def test_section_patch_recomputes_report(db_with_cv):
 # ---------------------------------------------------------------------------
 # Test 4: get_cv_ats_report returns persisted report
 # ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_null_report(db_with_cv):
+    """A ready CV whose ats_report is NULL → get_cv_ats_report returns report=None with status passed through."""
+    from applire.services.cv import get_cv_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+
+    # db_with_cv seeds the record with ats_report=None already
+    response = await get_cv_ats_report(cv_id, session)
+    assert response.document_id == cv_id
+    assert response.report is None, "report should be None when ats_report is NULL"
+    assert response.status == "ready", f"status should be 'ready', got {response.status!r}"
+
 
 @pytest.mark.asyncio
 async def test_get_cv_ats_report_returns_persisted_report(db_with_cv):

@@ -255,6 +255,7 @@ async def patch_section(
     cv_id: uuid.UUID,
     section_id: str,
     body: SectionPatchRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SectionPatchResponse:
@@ -265,7 +266,7 @@ async def patch_section(
     """
     try:
         return await patch_cv_section(
-            cv_id, section_id, body.content, body.save_to_profile, db
+            cv_id, section_id, body.content, body.save_to_profile, db, background_tasks
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

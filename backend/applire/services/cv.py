@@ -511,6 +511,10 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
 
     Engine errors leave ats_report NULL, never raise — an audit failure must
     NEVER fail or alter generation status.
+
+    Deliberately wipes any previous report on error: ADR-039 forbids a persisted
+    report describing a document state it was not computed from (no stale reports).
+    A NULL report is always preferable to a report computed from old content.
     """
     try:
         from applire.services.ats_audit import audit_cv
@@ -530,6 +534,14 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
         record.ats_report = None
     await db.commit()
+
+
+async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
+    """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time)."""
+    async with AsyncSessionLocal() as db:
+        record = await db.get(GeneratedCV, cv_id)
+        if record is not None:
+            await _update_ats_report(record, db)
 
 
 async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
