@@ -326,6 +326,24 @@ async def get_cv_status(cv_id: str) -> dict:
 
 @mcp.tool(
     description=(
+        "Get the persisted ATS audit report for a generated CV (ADR-039). "
+        "Returns {document_id, status, report}; report is null while generation/audit "
+        "is pending or unavailable. report = {checks: [{id, status, details?}], "
+        "keywords: {present, missing}} — named checks, no aggregate score."
+    )
+)
+async def get_cv_ats_report(cv_id: str) -> dict:
+    cid = _parse_uuid(cv_id, "cv_id")
+    async with get_db() as db:
+        try:
+            result = await cv_svc.get_cv_ats_report(cid, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
         "Create or resume a flow session. Pass job_id to bind the flow to a job "
         "(idempotent per user+job); omit it for a CV-only flow. Returns flow_id + state."
     )

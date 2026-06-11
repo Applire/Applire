@@ -444,6 +444,61 @@ async def test_get_cv_status_bad_uuid_raises():
 
 
 # ---------------------------------------------------------------------------
+# get_cv_ats_report
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_returns_report():
+    from applire.mcp.server import get_cv_ats_report
+
+    cm, _ = _mock_db()
+    cid = str(uuid.uuid4())
+    mock_result = _mock_result(
+        document_id=cid,
+        status="ready",
+        report={"document": "cv", "checks": [], "keywords": {"present": [], "missing": []}},
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.cv_svc.get_cv_ats_report", AsyncMock(return_value=mock_result)),
+    ):
+        result = await get_cv_ats_report(cv_id=cid)
+
+    assert result["status"] == "ready"
+    assert result["report"]["document"] == "cv"
+
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_unknown_id_raises():
+    from applire.mcp.server import get_cv_ats_report
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cv_svc.get_cv_ats_report",
+            AsyncMock(side_effect=LookupError("CV not found")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_cv_ats_report(cv_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_bad_uuid_raises():
+    from applire.mcp.server import get_cv_ats_report
+
+    with pytest.raises(McpError) as exc:
+        await get_cv_ats_report(cv_id="not-a-uuid")
+    assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
 # start_flow / advance_flow / get_flow_state
 # ---------------------------------------------------------------------------
 
@@ -866,6 +921,7 @@ def test_all_agent_tools_registered():
     expected = {
         "analyze_jd", "analyze_gaps", "get_profile", "update_profile",
         "run_interview", "send_message", "generate_cv", "get_cv_status",
+        "get_cv_ats_report",
         "start_flow", "advance_flow", "get_flow_state",
         "import_cv", "add_role", "create_application",
         "list_applications", "get_application",
