@@ -61,6 +61,8 @@ class GeneratedCV(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_snapshot: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
+    ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

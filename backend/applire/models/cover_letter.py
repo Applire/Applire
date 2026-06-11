@@ -56,6 +56,8 @@ class GeneratedCoverLetter(Base):
     letter_data: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)
     pre_gen_inputs: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
+    ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
