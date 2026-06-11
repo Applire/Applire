@@ -56,9 +56,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
           <li
             key={c.id}
             data-testid={`ats-check-${c.id}`}
-            className={`flex items-start gap-2 text-sm ${
-              c.status === "pass" ? "text-on-surface" : "text-on-surface"
-            }`}
+            className="flex items-start gap-2 text-sm text-on-surface"
           >
             <span
               aria-hidden="true"
@@ -66,12 +64,17 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                 c.status === "pass" ? "text-success" : "text-critical"
               }`}
             >
+              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
               {c.status === "pass" ? "✓" : "✗"}
             </span>
             <span>
               {t(labelKey(c.id))}
               {c.status === "fail" && c.details ? (
-                <span className="text-on-surface-variant"> — {c.details}</span>
+                <span className="text-on-surface-variant">
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
+                  {" — "}
+                  {c.details}
+                </span>
               ) : null}
             </span>
           </li>
@@ -80,7 +83,9 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
 
       {report.keywords.missing.length > 0 && (
         <p data-testid="ats-keywords-missing" className="text-sm text-on-surface-variant">
-          {t("missingKeywords", { count: report.keywords.missing.length })}{" "}
+          {t("missingKeywords", { count: report.keywords.missing.length })}
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+          {" "}
           <span className="text-on-surface">{report.keywords.missing.join(", ")}</span>
         </p>
       )}

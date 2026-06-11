@@ -70,6 +70,8 @@ export default function CVPage({
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
+  // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
+  const [atsRefresh, setAtsRefresh] = useState(0);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
@@ -154,7 +156,7 @@ export default function CVPage({
     void init();
   }, [flowId]);
 
-  // Fetch ATS report once a CV is ready
+  // Fetch ATS report once a CV is ready; re-fetch when atsRefresh is bumped (e.g. after section save)
   useEffect(() => {
     if (!cvId) return;
     async function fetchAtsReport() {
@@ -168,7 +170,7 @@ export default function CVPage({
       }
     }
     void fetchAtsReport();
-  }, [cvId]);
+  }, [cvId, atsRefresh]);
 
   async function handleGenerate(tpl: CVTemplate) {
     if (!flowState) return;
@@ -273,7 +275,11 @@ export default function CVPage({
             expiryWarning={expiryWarning}
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
             currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#003399"}
-            onHtmlRefresh={() => cvDocRef.current?.refresh()}
+            onHtmlRefresh={() => {
+              cvDocRef.current?.refresh();
+              // Re-fetch ATS report after a short delay so the backend re-audit (BackgroundTask ~1s) has landed
+              setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
+            }}
             onRegenerateSame={() => void handleGenerate(template)}
             onRegenerateDifferent={() => setPhase("template_select")}
             collapsed={!panelOpen}
