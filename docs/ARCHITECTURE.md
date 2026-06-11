@@ -338,6 +338,18 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-039 — ATS Parseability (Every Template, Local Audit, CI Guarantee)
+
+**Decision:** Every CV and cover-letter template must be ATS-parseable — there is no dedicated "ATS template" (the "Universal ATS" theme once named in ADR-006 was withdrawn; a user has no reason to pick a template that hurts their application). A deterministic, fully local audit engine (`applire/services/ats_audit.py`, pypdf text extraction — no LLM, no network, no external checker services) verifies after each render that contact details, every work-history entry, education, and skills survive machine parsing in the correct reading order, and reports which of the job's ATS keywords appear in the final text.
+
+- The audit runs inside the async generation job; its report is persisted alongside the document (nullable `ats_report` JSONB on `generated_cvs` / `generated_cover_letters`, sharing the document's retention TTL) and exposed via REST and MCP as a **checks panel** — named pass/fail checks and missing keywords, deliberately **no aggregate 0–100 score** (same no-synthetic-numbers philosophy as ADR-035).
+- An audit-engine error never fails generation: the report stays `NULL` and the error is logged.
+- **CI guarantee:** a parametrised suite renders every template with DE and EN fixture documents and asserts every audit check passes. Where a template's visual layout conflicts with extraction order, the layout changes.
+
+**Why:** An ATS parses the CV before any human reads it. Keyword *content* was already covered (JD keyword extraction → gap detection → guarded incorporation in tailoring, ADR-021); this decision closes the *format* half with verifiable, sovereignty-friendly evidence — documents never leave the system to be checked.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
