@@ -5,7 +5,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --primary: {{ color.primary }}; }
-    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10pt; line-height: 1.5; color: #111; background: #fff; }
+    /* ADR-039: disable ligatures — the fallback font's "ti"/"fi" ligature glyph
+       extracts as a NUL byte in pypdf ("Posi<NUL>on"), corrupting the body text
+       and failing the local extraction audit. No meaningful visual change. */
+    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10pt; line-height: 1.5; color: #111; background: #fff; font-variant-ligatures: none; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 22mm 16mm 25mm; }
     .header { border-bottom: 2px solid var(--primary); padding-bottom: 6px; margin-bottom: 10mm; display: flex; justify-content: space-between; align-items: flex-end; }
     .header-name { font-size: 14pt; font-weight: 700; }
