@@ -9,8 +9,13 @@
     .page { width: 210mm; min-height: 297mm; margin: 0 auto; display: flex; }
     .sidebar { width: 55mm; background: var(--surface); color: var(--surface-text); padding: 16mm 8mm 16mm 10mm; flex-shrink: 0; }
     .sidebar-name { font-size: 12pt; font-weight: bold; margin-bottom: 8mm; }
-    .sidebar-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; margin-bottom: 2mm; margin-top: 6mm; }
-    .sidebar-value { font-size: 8.5pt; opacity: 0.9; }
+    /* ADR-039: the muted look is baked into an OPAQUE colour via color-mix
+       instead of `opacity`. A sub-1 opacity layer made Chromium emit the
+       sidebar text as a separate group that pypdf extracted glyph-by-glyph
+       ("j o e r g . m u e l l e r @ …") and reordered after the body — both
+       failing the local extraction audit. Opaque colour extracts intact. */
+    .sidebar-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 1px; color: color-mix(in srgb, var(--surface-text) 70%, var(--surface)); margin-bottom: 2mm; margin-top: 6mm; }
+    .sidebar-value { font-size: 8.5pt; color: color-mix(in srgb, var(--surface-text) 90%, var(--surface)); }
     .main { flex: 1; padding: 16mm 14mm 16mm 12mm; }
     .recipient { margin-bottom: 8mm; font-size: 10pt; }
     .date { text-align: right; margin-bottom: 6mm; color: #666; }

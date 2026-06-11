@@ -168,7 +168,12 @@
     <div class="sidebar-avatar-placeholder"></div>
     {% endif %}
 
-    <div class="sidebar-name">{{ cv.contact.name }}</div>
+    {# ADR-039: wrap each name token in a nowrap span so a hyphenated surname
+       (e.g. "Müller-Lüdenscheidt") never breaks at the hyphen. A hyphen break
+       inserts a stray space in the extracted PDF text ("Müller- Lüdenscheidt"),
+       failing the contact-name extraction audit. The line still wraps between
+       tokens, preserving the centred multi-line look. #}
+    <div class="sidebar-name">{% for tok in cv.contact.name.split() %}<span style="white-space: nowrap;">{{ tok }}</span>{% if not loop.last %} {% endif %}{% endfor %}</div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Kontakt</div>
