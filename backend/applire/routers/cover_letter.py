@@ -26,6 +26,7 @@ from applire.auth.base import AuthProvider
 from applire.db.session import get_db
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.schemas.ats import ATSReportResponse
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
@@ -35,6 +36,7 @@ from applire.schemas.cover_letter import (
 )
 from applire.services.cover_letter import (
     generate_cover_letter,
+    get_cover_letter_ats_report,
     get_cover_letter_by_job,
     get_cover_letter_html,
     get_cover_letter_status,
@@ -95,6 +97,19 @@ async def get_cl_status(
     base_url = str(request.base_url).rstrip("/")
     try:
         return await get_cover_letter_status(cl_id, db, base_url)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{cl_id}/ats-report", response_model=ATSReportResponse)
+async def get_cl_ats_report(
+    cl_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> ATSReportResponse:
+    """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
+    try:
+        return await get_cover_letter_ats_report(cl_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

@@ -28,6 +28,7 @@ from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.schemas.ats import ATSReportResponse
 from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
     AssistAnswerRequest,
@@ -40,7 +41,7 @@ from applire.schemas.cv_sections import (
     SectionPatchRequest,
     SectionPatchResponse,
 )
-from applire.services.cv import generate_cv, get_cv_html, get_cv_pdf, get_cv_status, get_pdf_filename, list_cvs_for_job
+from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_html, get_cv_pdf, get_cv_status, get_pdf_filename, list_cvs_for_job
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
 
@@ -90,6 +91,19 @@ async def get_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.get("/{cv_id}/ats-report", response_model=ATSReportResponse)
+async def get_cv_ats_report_handler(
+    cv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> ATSReportResponse:
+    """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
+    try:
+        return await get_cv_ats_report(cv_id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.get("/{cv_id}/html", response_class=HTMLResponse)
