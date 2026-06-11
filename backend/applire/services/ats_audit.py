@@ -23,7 +23,9 @@ enforced by tests/ats/test_roundtrip.py.
 """
 
 import re
+import unicodedata
 from io import BytesIO
+from typing import Any, Literal
 
 from pypdf import PdfReader
 
@@ -37,13 +39,17 @@ def extract_text(pdf_bytes: bytes) -> str:
 
 
 def _norm(s: str) -> str:
+    s = s.replace("­", "")  # soft hyphens from PDF line-breaking
+    s = unicodedata.normalize("NFKC", s)
     return re.sub(r"\s+", " ", s).lower().strip()
 
 
 def _find(needle: str, haystack_norm: str) -> int:
-    """First index of normalised needle in pre-normalised haystack; -1 if absent."""
+    """First index of normalised needle in pre-normalised haystack; -1 if absent or empty."""
     n = _norm(needle)
-    return haystack_norm.find(n) if n else 0
+    if not n:
+        return -1
+    return haystack_norm.find(n)
 
 
 def _years(date_str: str | None) -> list[str]:
@@ -55,14 +61,20 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
 
 
 def _keyword_coverage(text_norm: str, keywords: list[str]) -> ATSKeywordCoverage:
-    present = [k for k in keywords if _find(k, text_norm) >= 0]
-    missing = [k for k in keywords if k not in present]
+    seen: set[str] = set()
+    unique: list[str] = []
+    for k in keywords:
+        if k and k.lower() not in seen:
+            seen.add(k.lower())
+            unique.append(k)
+    present = [k for k in unique if _find(k, text_norm) >= 0]
+    missing = [k for k in unique if _find(k, text_norm) < 0]
     return ATSKeywordCoverage(present=present, missing=missing)
 
 
-def _finish(document: str, checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
+def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
     return ATSReport(
-        document=document,  # type: ignore[arg-type]
+        document=document,
         checks=checks,
         keywords=coverage,
         passed=sum(1 for c in checks if c.status == "pass"),
@@ -85,15 +97,25 @@ def _audit_cv_text(text: str, tailored: TailoredCVData, keywords: list[str]) -> 
 
     entry_positions: list[int] = []
     for i, w in enumerate(tailored.work_history):
-        pos_company = _find(w.company, t)
-        pos_role = _find(w.role, t)
+        company_norm = _norm(w.company)
+        role_norm = _norm(w.role)
+        # Skip the check entirely when BOTH fields are empty
+        if not company_norm and not role_norm:
+            continue
+        pos_company = _find(w.company, t) if company_norm else None
+        pos_role = _find(w.role, t) if role_norm else None
         years_ok = all(y in text for y in _years(w.start_date))
-        ok = pos_company >= 0 and pos_role >= 0 and years_ok
+        # Each non-empty field must be present; empty fields are not required
+        company_ok = pos_company is None or pos_company >= 0
+        role_ok = pos_role is None or pos_role >= 0
+        ok = company_ok and role_ok and years_ok
         _check(checks, f"work-{i}", ok,
                f"entry '{w.role} @ {w.company}' incomplete in extracted text "
-               f"(company={'ok' if pos_company >= 0 else 'missing'}, role={'ok' if pos_role >= 0 else 'missing'}, "
+               f"(company={'ok' if company_ok else 'missing'}, role={'ok' if role_ok else 'missing'}, "
                f"year={'ok' if years_ok else 'missing'})")
-        entry_positions.append(pos_company)
+        # Use whichever position is available for reading-order tracking
+        anchor = pos_company if pos_company is not None else (pos_role if pos_role is not None else -1)
+        entry_positions.append(anchor)
 
     if len(entry_positions) > 1 and all(p >= 0 for p in entry_positions):
         ordered = all(a <= b for a, b in zip(entry_positions, entry_positions[1:]))
@@ -101,7 +123,14 @@ def _audit_cv_text(text: str, tailored: TailoredCVData, keywords: list[str]) -> 
                "work-history entries appear out of order in the extracted text (column interleaving?)")
 
     for i, e in enumerate(tailored.education):
-        ok = _find(e.institution, t) >= 0 and _find(e.degree, t) >= 0
+        institution_norm = _norm(e.institution)
+        degree_norm = _norm(e.degree)
+        # Skip entirely if both fields are empty
+        if not institution_norm and not degree_norm:
+            continue
+        institution_ok = not institution_norm or _find(e.institution, t) >= 0
+        degree_ok = not degree_norm or _find(e.degree, t) >= 0
+        ok = institution_ok and degree_ok
         _check(checks, f"education-{i}", ok, f"education entry '{e.degree} {e.institution}' not fully found")
 
     if tailored.skills:
@@ -113,10 +142,11 @@ def _audit_cv_text(text: str, tailored: TailoredCVData, keywords: list[str]) -> 
 
 
 def audit_cv(pdf_bytes: bytes, tailored: TailoredCVData, keywords: list[str]) -> ATSReport:
+    """Audit a rendered CV PDF against the structured CV data and a list of keywords."""
     return _audit_cv_text(extract_text(pdf_bytes), tailored, keywords)
 
 
-def _audit_letter_text(text: str, letter_data: dict, keywords: list[str]) -> ATSReport:
+def _audit_letter_text(text: str, letter_data: dict[str, Any], keywords: list[str]) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
 
@@ -139,5 +169,6 @@ def _audit_letter_text(text: str, letter_data: dict, keywords: list[str]) -> ATS
     return _finish("cover_letter", checks, _keyword_coverage(t, keywords))
 
 
-def audit_cover_letter(pdf_bytes: bytes, letter_data: dict, keywords: list[str]) -> ATSReport:
+def audit_cover_letter(pdf_bytes: bytes, letter_data: dict[str, Any], keywords: list[str]) -> ATSReport:
+    """Audit a rendered cover letter PDF against the structured letter data and a list of keywords."""
     return _audit_letter_text(extract_text(pdf_bytes), letter_data, keywords)

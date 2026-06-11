@@ -87,3 +87,118 @@ def test_letter_audit():
     report = _audit_letter_text(text, letter, keywords=["Cloud"])
     assert report.document == "cover_letter"
     assert report.failed == 0
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: empty-field guards
+# ---------------------------------------------------------------------------
+
+def test_empty_fields_do_not_false_pass():
+    """Fix 1: empty company/role should not silently pass; real role not in text must FAIL."""
+    from applire.schemas.cv import TailoredCVData
+
+    # Work entry with empty company but real role "Engineer" that is NOT in the text
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Test User", "email": None, "phone": None, "location": None},
+        "summary": "",
+        "work_history": [
+            {"company": "", "role": "Engineer", "start_date": None, "end_date": None, "bullets": []},
+        ],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    # Text does NOT contain "Engineer"
+    text = "Test User some unrelated text"
+    report = _audit_cv_text(text, cv, keywords=[])
+    failed_ids = {c.id for c in report.checks if c.status == "fail"}
+    assert "work-0" in failed_ids, "work entry with real role not in text must FAIL, not silently pass"
+
+    # Work entry with BOTH company="" and role="" → no check emitted at all
+    cv_both_empty = TailoredCVData.model_validate({
+        "contact": {"name": "Test User", "email": None, "phone": None, "location": None},
+        "summary": "",
+        "work_history": [
+            {"company": "", "role": "", "start_date": None, "end_date": None, "bullets": []},
+        ],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    report2 = _audit_cv_text("Test User", cv_both_empty, keywords=[])
+    ids = {c.id for c in report2.checks}
+    assert "work-0" not in ids, "work entry with both company and role empty must emit no check"
+
+
+def test_empty_keyword_not_counted_present():
+    """Fix 1: empty string keyword must not appear in present or missing."""
+    report = _audit_cv_text(_full_text(), _CV, keywords=[""])
+    assert report.keywords.present == [], "empty keyword must not appear as present"
+    assert report.keywords.missing == [], "empty keyword must not appear as missing"
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Unicode robustness
+# ---------------------------------------------------------------------------
+
+def test_unicode_extraction_variants():
+    """Fix 2: decomposed umlauts, soft hyphens, and ligatures must all match."""
+    import unicodedata
+    from applire.schemas.cv import TailoredCVData
+
+    # Decomposed "Müller": M + u + combining diaeresis + ller
+    decomposed_mueller = "Müller"
+    assert decomposed_mueller != "Müller"  # confirm they differ at the string level
+
+    cv_mueller = TailoredCVData.model_validate({
+        "contact": {"name": "Jörg Müller", "email": None, "phone": None, "location": None},
+        "summary": "",
+        "work_history": [],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    # Text contains decomposed form of the name
+    text_decomposed = f"Jörg Müller"
+    report = _audit_cv_text(text_decomposed, cv_mueller, keywords=[])
+    assert all(c.status == "pass" for c in report.checks), \
+        f"decomposed umlaut in text should still match; checks: {report.checks}"
+
+    # Soft hyphen in text: "Pro­fil" (U+00AD between o and f)
+    cv_profil = TailoredCVData.model_validate({
+        "contact": {"name": "Profil Expert", "email": None, "phone": None, "location": None},
+        "summary": "",
+        "work_history": [],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    text_softhyphen = "Pro­fil Expert"
+    report2 = _audit_cv_text(text_softhyphen, cv_profil, keywords=[])
+    assert all(c.status == "pass" for c in report2.checks), \
+        f"soft hyphen in text should be stripped before matching; checks: {report2.checks}"
+
+    # Ligature fi (U+FB01): "Proﬁ" (P-r-o-U+FB01) in text, needle is "Profi"
+    cv_profi = TailoredCVData.model_validate({
+        "contact": {"name": "Profi Engineer", "email": None, "phone": None, "location": None},
+        "summary": "",
+        "work_history": [],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    text_ligature = "Proﬁ Engineer"  # U+FB01 = ﬁ ligature → NFKC → "fi"
+    report3 = _audit_cv_text(text_ligature, cv_profi, keywords=[])
+    assert all(c.status == "pass" for c in report3.checks), \
+        f"fi-ligature in text should expand to 'fi' before matching; checks: {report3.checks}"
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: keyword de-duplication
+# ---------------------------------------------------------------------------
+
+def test_duplicate_keywords_deduplicated():
+    """Fix 3: duplicate keywords (case-insensitive) should appear only once in present."""
+    report = _audit_cv_text(_full_text(), _CV, keywords=["Python", "python", "Python"])
+    assert report.keywords.present == ["Python"], \
+        f"duplicates must be collapsed to one entry; got {report.keywords.present}"
