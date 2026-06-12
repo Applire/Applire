@@ -67,7 +67,9 @@ export function QuickTailorWidget() {
         return;
       }
       const appData = await createRes.json();
-      router.push(`/flow/${appData.flow_session_id}/import`);
+      // Route via the flow index — it advances the state machine and picks
+      // the correct step (returning users skip cv_import entirely).
+      router.push(`/flow/${appData.flow_session_id}`);
     } catch {
       setError(tDash("errorUnexpected"));
     } finally {

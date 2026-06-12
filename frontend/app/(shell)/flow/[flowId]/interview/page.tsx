@@ -36,6 +36,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 
 interface FlowState {
   job_id: string;
+  current_step: string;
   job_summary?: { role_title: string; required_skills?: string[] } | null;
   interview_summary?: { session_id: string; mode: string } | null;
 }
@@ -334,7 +335,13 @@ export default function InterviewPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ step: "interview", artifact_id: sessionData.session_id }),
         });
-        // 409 = already at interview step — expected on resume
+        // 409 is benign only when the flow really is at the interview step
+        // (resume).  Otherwise the transition was rejected — the flow is on a
+        // different step, so let the flow index re-route to the real one.
+        if (advRes.status === 409 && fs.current_step !== "interview") {
+          router.replace(`/flow/${flowId}`);
+          return;
+        }
         if (!advRes.ok && advRes.status !== 409) {
           console.warn("advance_flow:", await advRes.text());
         }
@@ -345,7 +352,8 @@ export default function InterviewPage({
       }
     }
     void init();
-  }, [flowId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tErrors is not identity-stable; re-running init would re-create sessions
+  }, [flowId, router]);
 
   // Set first cluster as current once gap analysis is loaded
   useEffect(() => {

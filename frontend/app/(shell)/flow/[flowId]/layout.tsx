@@ -24,18 +24,9 @@ import { use } from "react";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { cn } from "@/lib/utils";
+import { STEP_ROUTE, resolveFlowRedirect } from "@/lib/flow-routing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
-
-// Maps backend current_step to the sub-route segment
-const STEP_ROUTE: Record<string, string> = {
-  jd_analysis:   "",          // back to landing — should not normally appear
-  cv_import:     "import",
-  gap_analysis:  "gaps",
-  interview:     "interview",
-  cv_generation: "cv",
-  complete:      "cv",
-};
 
 const STEP_KEYS: { step: string; labelKey: string }[] = [
   { step: "cv_import",     labelKey: "flow.stepProfile" },
@@ -79,19 +70,12 @@ export default function FlowLayout({
         const state: FlowState = await res.json();
         setFlowState(state);
 
-        // Redirect guard: ensure URL matches backend step
-        // Side-routes (e.g. cover-letter) are valid at any step and bypass the guard.
-        const SIDE_ROUTES = new Set(["cover-letter"]);
-        const expectedSegment = STEP_ROUTE[state.current_step];
-        const currentSegment = pathname.split("/").pop() ?? "";
-
-        if (
-          expectedSegment &&
-          currentSegment !== expectedSegment &&
-          state.current_step !== "jd_analysis" &&
-          !SIDE_ROUTES.has(currentSegment)
-        ) {
-          router.replace(`/flow/${flowId}/${expectedSegment}`);
+        // Redirect guard: ensure URL matches backend step.  At jd_analysis
+        // this bounces sub-routes back to the flow index, which advances the
+        // state machine — landing on a step page directly would desync it.
+        const redirect = resolveFlowRedirect(flowId, pathname, state.current_step);
+        if (redirect) {
+          router.replace(redirect);
           return;
         }
       } catch {

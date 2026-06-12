@@ -23,13 +23,17 @@ import { QuickTailorWidget } from "../QuickTailorWidget";
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
+
+const mockPush = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }));
 
 describe("QuickTailorWidget", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockPush.mockReset();
   });
 
   it("renders URL tab by default", () => {
@@ -67,5 +71,23 @@ describe("QuickTailorWidget", () => {
     });
     fireEvent.click(screen.getByText("analyseButton"));
     await waitFor(() => expect(screen.getByText("Bad URL")).toBeInTheDocument());
+  });
+
+  it("routes to the flow index (not a hard-coded step) after creating the application", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "app-1", flow_session_id: "flow-1" }),
+      });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://example.de/job" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    // The flow index page owns step routing; pushing a step directly
+    // desyncs the flow state machine for returning users.
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
   });
 });

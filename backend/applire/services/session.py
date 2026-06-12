@@ -36,6 +36,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import (
@@ -140,30 +141,45 @@ async def create_session(
     # --- Idempotency: return existing active session if one exists for this job ---
     existing = await _get_active_session(job_id, db)
     if existing is not None:
-        state: InterviewState = dict(existing.state)
-        gaps_total = len(state.get("critical_gaps", []))
-        gaps_remaining = gaps_total - state.get("current_gap_index", 0)
-        estimated = _estimated_questions(existing.mode)
-        current_q = state.get("current_question", "")
-        current_choices = state.get("current_choices")
-        return SessionCreateResponse(
-            session_id=existing.id,
-            mode=existing.mode,
-            first_question=current_q,
-            question=current_q,
-            estimated_questions=estimated,
-            gaps_total=gaps_total,
-            gaps_remaining=gaps_remaining,
-            choices=current_choices,
-            resumed=True,
-        )
+        return _resumed_response(existing)
 
-    # --- MODE A: Targeted Gap-Fill ---
-    if resolved_mode == "targeted":
-        return await _create_targeted_session(job_id, job, profile_record, db, provider, lang)
+    try:
+        # --- MODE A: Targeted Gap-Fill ---
+        if resolved_mode == "targeted":
+            return await _create_targeted_session(job_id, job, profile_record, db, provider, lang)
 
-    # --- MODE B: Guided Build ---
-    return await _create_guided_session(job_id, job, profile_record, db, provider, lang)
+        # --- MODE B: Guided Build ---
+        return await _create_guided_session(job_id, job, profile_record, db, provider, lang)
+    except IntegrityError:
+        # Lost a create race: a concurrent request (e.g. React StrictMode
+        # double-fire) committed its session after our idempotency check but
+        # before our insert.  The unique active-per-job index rejected ours —
+        # return the winner instead of surfacing a 500.
+        await db.rollback()
+        winner = await _get_active_session(job_id, db)
+        if winner is None:
+            raise
+        return _resumed_response(winner)
+
+
+def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
+    state: InterviewState = dict(existing.state)
+    gaps_total = len(state.get("critical_gaps", []))
+    gaps_remaining = gaps_total - state.get("current_gap_index", 0)
+    estimated = _estimated_questions(existing.mode)
+    current_q = state.get("current_question", "")
+    current_choices = state.get("current_choices")
+    return SessionCreateResponse(
+        session_id=existing.id,
+        mode=existing.mode,
+        first_question=current_q,
+        question=current_q,
+        estimated_questions=estimated,
+        gaps_total=gaps_total,
+        gaps_remaining=gaps_remaining,
+        choices=current_choices,
+        resumed=True,
+    )
 
 
 async def _create_targeted_session(
@@ -804,14 +820,18 @@ def _make_session_record(
 async def _get_active_session(
     job_id: uuid.UUID, db: AsyncSession
 ) -> InterviewSession | None:
+    # Newest-first + first(): pre-migration databases may still hold
+    # duplicate active sessions; never raise MultipleResultsFound here.
     result = await db.execute(
-        select(InterviewSession).where(
+        select(InterviewSession)
+        .where(
             InterviewSession.job_analysis_id == job_id,
             InterviewSession.status == "active",
             InterviewSession.deleted_at.is_(None),
         )
+        .order_by(InterviewSession.created_at.desc())
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def _load_profile(profile_id: str, db: AsyncSession) -> MasterProfile:

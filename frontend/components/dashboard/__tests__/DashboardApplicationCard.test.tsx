@@ -121,16 +121,25 @@ describe("DashboardApplicationCard", () => {
 
   // ── Action button routing ────────────────────────────────────────────────
 
-  it("Open button navigates to /flow/{flowSessionId}/cv", () => {
+  // All flow actions route via the flow index — the layout guard / index page
+  // resolve the real current_step; hard-coded steps desync the state machine.
+
+  it("Open button navigates to the flow index", () => {
     renderCard({ workflowStatus: "completed", flowSessionId: "flow-99" });
     fireEvent.click(screen.getByRole("button", { name: /open/i }));
-    expect(mockPush).toHaveBeenCalledWith("/flow/flow-99/cv");
+    expect(mockPush).toHaveBeenCalledWith("/flow/flow-99");
   });
 
-  it("Resume button navigates to /flow/{flowSessionId}/interview", () => {
+  it("Resume button navigates to the flow index", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: NOW, flowSessionId: "flow-42" });
     fireEvent.click(screen.getByRole("button", { name: /resume/i }));
-    expect(mockPush).toHaveBeenCalledWith("/flow/flow-42/interview");
+    expect(mockPush).toHaveBeenCalledWith("/flow/flow-42");
+  });
+
+  it("Continue button (interrupted) navigates to the flow index", () => {
+    renderCard({ workflowStatus: "analyzing", updatedAt: STALE_48H, flowSessionId: "flow-7" });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(mockPush).toHaveBeenCalledWith("/flow/flow-7");
   });
 
   it("Start Flow button calls onStartFlow callback", () => {
