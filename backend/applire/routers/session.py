@@ -16,6 +16,7 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,6 +38,8 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.session import create_session, get_session_state, send_message
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
@@ -66,6 +69,7 @@ async def start_session(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
+        logger.exception("create_session failed for job %s", body.job_id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
@@ -84,6 +88,7 @@ async def get_session(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
+        logger.exception("get_session failed for session %s", session_id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
@@ -112,6 +117,7 @@ async def analyze_session_gaps(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
+        logger.exception("analyze_session_gaps failed for session %s", session_id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
@@ -148,4 +154,5 @@ async def post_message(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
+        logger.exception("post_message failed for session %s", session_id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
