@@ -37,6 +37,18 @@ if str(_backend) not in sys.path:
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def docker_environment():
+    """Override the parent conftest's Docker-stack fixture (mirrors tests/unit/).
+
+    The round-trip suite renders PDFs in-process via Playwright — it never
+    talks to the API, so it must not wait for (or start) the Docker stack.
+    Without this override, environments without a running stack (CI's
+    backend-unit-tests job) fail with "API did not become ready within 120s".
+    """
+    yield
+
+
 def pytest_collection_modifyitems(config, items):
     try:
         from playwright.sync_api import sync_playwright
