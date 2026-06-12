@@ -102,8 +102,9 @@ export function DashboardApplicationCard({
     if (status === "tracking") {
       onStartFlow?.();
     } else if (flowSessionId) {
-      const dest = status === "cv_ready" ? `/flow/${flowSessionId}/cv` : `/flow/${flowSessionId}/interview`;
-      router.push(dest);
+      // Always enter via the flow index — the layout guard redirects to the
+      // backend's actual current_step; hard-coding a step desyncs the flow.
+      router.push(`/flow/${flowSessionId}`);
     }
   }
 

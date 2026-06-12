@@ -21,17 +21,9 @@
 import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { STEP_ROUTE } from "@/lib/flow-routing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
-
-// Mirrors STEP_ROUTE in layout.tsx
-const STEP_ROUTE: Record<string, string> = {
-  cv_import: "import",
-  gap_analysis: "gaps",
-  interview: "interview",
-  cv_generation: "cv",
-  complete: "cv",
-};
 
 /**
  * Entry-point page for /flow/[flowId].
