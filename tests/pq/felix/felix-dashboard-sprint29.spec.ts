@@ -169,8 +169,10 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
     const analyseBtn = page.getByRole("button", { name: /analysieren|analyse/i });
     await expect(analyseBtn).toBeEnabled({ timeout: 3000 });
 
-    // Click and wait for navigation to import page (new flow started)
+    // A new flow starts via the flow index, which advances the state machine.
+    // Felix already has a profile, so the flow skips cv_import and lands on
+    // the gap analysis step.
     await analyseBtn.click();
-    await expect(page).toHaveURL(/\/flow\/.+\/import/, { timeout: 60000 });
+    await expect(page).toHaveURL(/\/flow\/.+\/gaps/, { timeout: 60000 });
   });
 });
