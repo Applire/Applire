@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProgressLinear } from "@/components/ui/progress";
+import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -518,6 +519,11 @@ export default function InterviewPage({
           {/* Animated gauge */}
           <div className="flex justify-center mb-8">
             <CompletenessGauge score={completion.completeness_score} />
+          </div>
+
+          {/* What we added from your answers — before generation (ADR-040, US148 / JF-M-5.2) */}
+          <div className="mb-8" data-testid="interview-summary-section">
+            <DecisionTrailReview mode="interview" onFix={() => router.push("/profile")} />
           </div>
 
           {/* CTAs */}
