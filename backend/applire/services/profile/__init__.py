@@ -67,6 +67,7 @@ from applire.schemas.profile import (
     FieldChange,
     MasterProfileData,
     MasterProfileResponse,
+    ProfileChangesResponse,
     ProfileMetadata,
 )
 
@@ -197,6 +198,25 @@ def _make_enrichment_record(
     )
 
 
+def _enrichment_from_merge(merge_result, source, session_id: str | None = None) -> EnrichmentRecord:
+    """Build an EnrichmentRecord carrying the merge's *structured* per-decision changes
+    (US145 / ADR-040) so the "what changed & why" surfaces render from data. Falls back
+    to a single summary FieldChange only if the merge produced no structured changes."""
+    changes = list(merge_result.changes) if merge_result.changes else [
+        FieldChange(
+            section="*", field="*", action="merged",
+            new_value={"added": merge_result.added, "conflicts": len(merge_result.conflicts)},
+            rationale="Profile updated from this source.",
+        )
+    ]
+    return EnrichmentRecord(
+        timestamp=datetime.now(timezone.utc),
+        source=source,
+        source_session_id=session_id,
+        changes=changes,
+    )
+
+
 async def import_from_pdf(
     file_bytes: bytes,
     db: AsyncSession,
@@ -289,12 +309,7 @@ async def _import_from_text(
         merge_result = merge_profiles(existing_data, incoming, source=created_via)
 
         merged = merge_result.merged_profile
-        enrichment = _make_enrichment_record(
-            source=created_via,
-            section="*",
-            action="merged",
-            new_value={"added": merge_result.added, "conflicts": len(merge_result.conflicts)},
-        )
+        enrichment = _enrichment_from_merge(merge_result, source=created_via)
 
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
@@ -431,6 +446,22 @@ async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:
     if not profile_data.metadata:
         return []
     return profile_data.metadata.enrichment_history
+
+
+async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
+    """US145 / ADR-040 — the combined "what changed & why" surface contract:
+    the decision trail plus any pending conflicts, read from the Master Profile only.
+    Never touches the source uploads (retention-independent — ADR-005)."""
+    record = await _get_latest(db)
+    if not record:
+        return ProfileChangesResponse()
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    if not profile_data.metadata:
+        return ProfileChangesResponse()
+    return ProfileChangesResponse(
+        enrichment_history=profile_data.metadata.enrichment_history,
+        pending_conflicts=profile_data.metadata.pending_conflicts,
+    )
 
 
 async def resolve_conflict(
@@ -623,12 +654,7 @@ async def upload_cv(
         merge_result = merge_profiles(existing_data, incoming, source="cv_upload")
         merged = merge_result.merged_profile
 
-        enrichment = _make_enrichment_record(
-            source="cv_upload",
-            section="*",
-            action="merged",
-            new_value={"added": merge_result.added, "conflicts": len(merge_result.conflicts)},
-        )
+        enrichment = _enrichment_from_merge(merge_result, source="cv_upload")
         # Patch enrichment_id onto the record for traceability
         enrichment_id = uuid.uuid4()
 

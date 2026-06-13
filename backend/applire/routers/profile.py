@@ -45,10 +45,12 @@ from applire.schemas.profile import (
     EnrichmentRecord,
     LinkedInImportRequest,
     MasterProfileResponse,
+    ProfileChangesResponse,
     UploadHistoryItem,
 )
 from applire.services.profile import (
     get_enrichment_history,
+    get_profile_changes,
     get_profile,
     import_from_linkedin,
     import_from_linkedin_pdf,
@@ -362,6 +364,20 @@ async def get_profile_enrichment_history(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> list[EnrichmentRecord]:
     return await get_enrichment_history(db)
+
+
+@router.get(
+    "/changes",
+    response_model=ProfileChangesResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_profile_changes_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> ProfileChangesResponse:
+    """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
+    plus pending conflicts, read from the Master Profile only (retention-independent)."""
+    return await get_profile_changes(db)
 
 
 @router.post(

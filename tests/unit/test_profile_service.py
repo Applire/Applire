@@ -322,7 +322,9 @@ class TestDateHelpers:
 class TestMergeWorkExperience:
     def _merge(self, existing, incoming, source="cv_upload"):
         from applire.services.profile.merge import _merge_work_experience
-        return _merge_work_experience(existing, incoming, source)
+        # [:3] — these tests predate the US145 structured-changes 4th element
+        merged, added, conflicts, _changes = _merge_work_experience(existing, incoming, source)
+        return merged, added, conflicts
 
     def test_same_company_same_period_accumulates_into_one_entry(self):
         existing = [_work_entry(company="Acme", start_date="2020-01", end_date="2022-12")]

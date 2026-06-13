@@ -30,6 +30,7 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { CVPageActionBar } from "@/components/cv/CVPageActionBar";
+import { PreDownloadReview } from "@/components/review/PreDownloadReview";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -68,6 +69,9 @@ export default function CVPage({
   const [isGenerating, setIsGenerating] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
+  // US147 / ADR-040 — pre-download grounding review + attestation (nudge, not gate).
+  const [showDownloadReview, setShowDownloadReview] = useState(false);
+  const [attested, setAttested] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
@@ -252,10 +256,35 @@ export default function CVPage({
               flowId={flowId}
               applicationId={flowState?.application_id ?? null}
               coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
-              onDownloadPdf={() => void handleDownloadPdf()}
+              onDownloadPdf={() => {
+                if (attested) void handleDownloadPdf();
+                else setShowDownloadReview(true);
+              }}
               onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
               onNext={() => setPhase("complete")}
             />
+            {showDownloadReview && cvId && (
+              <div
+                className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                onClick={() => setShowDownloadReview(false)}
+                data-testid="download-review-overlay"
+              >
+                <div className="max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+                  <PreDownloadReview
+                    cvId={cvId}
+                    onAttested={() => {
+                      setAttested(true);
+                      setShowDownloadReview(false);
+                      void handleDownloadPdf();
+                    }}
+                    onFix={() => {
+                      setShowDownloadReview(false);
+                      router.push("/profile");
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             <ATSChecksPanel report={atsReport} />
             <CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />
           </div>

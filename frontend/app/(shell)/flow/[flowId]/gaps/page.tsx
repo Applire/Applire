@@ -27,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { StatCard } from "@/components/ui/stat-card";
+import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 
@@ -299,6 +300,7 @@ export default function GapsPage({
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
+  const [profileReviewDismissed, setProfileReviewDismissed] = useState(false);
   const [profileStats, setProfileStats] = useState<ProfileStats>({
     positions: 0, projects: 0, certifications: 0, data_points: 0,
   });
@@ -530,6 +532,18 @@ export default function GapsPage({
           <StatCard value={profileStats.data_points} label={t("statDataPoints")} />
         </div>
       </div>
+
+      {/* Section 1b: Truthful-Output review — what we read & assumed (ADR-040, US148/US149) */}
+      {!profileReviewDismissed && (
+        <div className="mb-8" data-testid="profile-review-section">
+          <DecisionTrailReview
+            mode="merge"
+            onConfirm={() => setProfileReviewDismissed(true)}
+            onDismiss={() => setProfileReviewDismissed(true)}
+            onFix={() => router.push("/profile")}
+          />
+        </div>
+      )}
 
       {/* Section 2: Match Score */}
       <Card className="p-6 mb-8">

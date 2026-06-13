@@ -22,6 +22,7 @@ import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { FineTunePanel } from "./FineTunePanel";
+import { PreDownloadReview } from "@/components/review/PreDownloadReview";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -81,6 +82,9 @@ export function CVPreview({
   const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isZoomed, setIsZoomed] = useState(false);
+  // US147 / ADR-040 — pre-download grounding review + attestation (nudge, not gate).
+  const [showDownloadReview, setShowDownloadReview] = useState(false);
+  const [attested, setAttested] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
@@ -169,6 +173,30 @@ export function CVPreview({
 
   return (
     <div className="flex flex-col md:flex-row gap-4 md:gap-6 animate-fade-in">
+      {/* US147 — pre-download grounding review + attestation (ADR-040, nudge not gate) */}
+      {showDownloadReview && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowDownloadReview(false)}
+          data-testid="download-review-overlay"
+        >
+          <div className="max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <PreDownloadReview
+              cvId={cvId}
+              onAttested={() => {
+                setAttested(true);
+                setShowDownloadReview(false);
+                void handleDownload();
+              }}
+              onFix={() => {
+                setShowDownloadReview(false);
+                setFineTuneOpen(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Page-level leave guard dialog */}
       {showLeaveGuard && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
@@ -239,7 +267,10 @@ export function CVPreview({
         <div className="flex flex-col gap-2 mt-auto">
           <button
             type="button"
-            onClick={() => void handleDownload()}
+            onClick={() => {
+              if (attested) void handleDownload();
+              else setShowDownloadReview(true);
+            }}
             data-testid="download-button"
             className="w-full bg-success text-white font-semibold py-3 rounded-lg text-sm hover:opacity-90 transition-opacity"
           >

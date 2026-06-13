@@ -237,7 +237,10 @@ class FieldChange(BaseModel):
     field: str
     action: Literal["added", "updated", "merged"]
     old_value: Any | None = None
-    new_value: Any
+    new_value: Any = None
+    # ADR-040: a human-readable "why" note shown on the "what changed & why" surfaces
+    # (e.g. "auto-resolved: kept most recent title", "accumulated from a second CV").
+    rationale: str | None = None
 
 
 class EnrichmentRecord(BaseModel):
@@ -249,6 +252,16 @@ class EnrichmentRecord(BaseModel):
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────
+
+class ProfileChangesResponse(BaseModel):
+    """US145 / ADR-040 — the "what changed & why" surface data contract.
+
+    Sourced from the Master Profile only (decision trail + flagged conflicts), never
+    from the source uploads, which hard-delete after 7 days (ADR-005).
+    """
+    enrichment_history: list["EnrichmentRecord"] = Field(default_factory=list)
+    pending_conflicts: list["Conflict"] = Field(default_factory=list)
+
 
 class ProfileMetadata(BaseModel):
     completeness_score: float = 0.0  # 0.0 to 1.0

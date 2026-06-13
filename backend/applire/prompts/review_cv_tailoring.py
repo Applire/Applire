@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1
+# Prompt version: v2 (US142 — named FMEA failure classes: certifications, oversell)
 # Used by: services/cv.py → reviewer.review_and_refine
 
 import json
@@ -35,6 +35,14 @@ Check for ALL of the following:
 4. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
    explicitly supported by the candidate's work history or skills. Flag any keyword added
    without clear supporting evidence in the source material.
+5. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, degree or formal
+   qualification named anywhere in the output must appear in the CANDIDATE PROFILE. Flag any
+   certification or qualification not explicitly present in the source — these are the most
+   damaging fabrications because a recruiter can verify them.
+6. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
+   beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
+   or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
+   profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {

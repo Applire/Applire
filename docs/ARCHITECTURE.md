@@ -350,6 +350,17 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-040 — Truthful Output (Attestation & Transparency Tier)
+
+**Decision:** LLM-derived content that can leave the system as a truth claim (profile facts from extraction/merge/interview; delivered CV/cover-letter bullets) must carry **two** controls, not one: the existing ADR-021 prevention reviewer *and* a user-facing **transparency/attestation surface**. A single reusable "what changed & why" component is shown at four touchpoints — a skippable confirm of what was read from a CV, the auto-resolved assumptions after a merge, an answer→field change summary after the interview, and a generated-CV-vs-Master-Profile diff with an attestation nudge before download.
+
+- The surfaces are sourced **only** from the durable decision trail (the `EnrichmentRecord` / `FieldChange` history mandated by ADR-013) and the current persisted artifacts — **never** the source upload, which is hard-deleted after 7 days (ADR-005). Transparency therefore survives for the full life of the profile.
+- Attestation is an active **nudge, not a hard gate**: the user is prompted to confirm but the flow is never blocked.
+
+**Why:** A self-checking LLM reviewer reduces how often a fabrication occurs but cannot, by itself, let the *user* catch one — and false content in a CV reaches a real recruiter under the user's name. A prevention reviewer plus an animated user review are complementary: one lowers how often the failure happens, the other lets a human stop it before it ships.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
