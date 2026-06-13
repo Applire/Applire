@@ -30,9 +30,9 @@
 <div class="page">
   <div class="sidebar">
     <div class="sidebar-name">{{ letter.header.name }}</div>
-    {% if letter.header.email %}<div class="sidebar-label">E-Mail</div><div class="sidebar-value">{{ letter.header.email }}</div>{% endif %}
-    {% if letter.header.phone %}<div class="sidebar-label">Telefon</div><div class="sidebar-value">{{ letter.header.phone }}</div>{% endif %}
-    {% if letter.header.address %}<div class="sidebar-label">Adresse</div><div class="sidebar-value">{{ letter.header.address }}</div>{% endif %}
+    {% if letter.header.email %}<div class="sidebar-label">{{ labels.email }}</div><div class="sidebar-value">{{ letter.header.email }}</div>{% endif %}
+    {% if letter.header.phone %}<div class="sidebar-label">{{ labels.phone }}</div><div class="sidebar-value">{{ letter.header.phone }}</div>{% endif %}
+    {% if letter.header.address %}<div class="sidebar-label">{{ labels.address }}</div><div class="sidebar-value">{{ letter.header.address }}</div>{% endif %}
   </div>
   <div class="main">
     <div class="recipient">{% if letter.recipient.name %}{{ letter.recipient.name }}<br>{% endif %}{% if letter.recipient.company %}{{ letter.recipient.company }}<br>{% endif %}{% if letter.recipient.address %}{{ letter.recipient.address }}{% endif %}</div>

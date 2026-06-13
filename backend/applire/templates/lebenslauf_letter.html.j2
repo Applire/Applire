@@ -47,7 +47,7 @@
 
   <div class="date">{{ letter.recipient.date }}</div>
 
-  <div class="subject">{{ labels.subject_prefix }} {% if letter.recipient.company %}bei {{ letter.recipient.company }}{% endif %}</div>
+  <div class="subject">{{ labels.subject_prefix }} {% if letter.recipient.company %}{{ labels.subject_at }} {{ letter.recipient.company }}{% endif %}</div>
 
   <div class="body">
     {% for para in letter.body.paragraphs %}
