@@ -71,10 +71,39 @@ from applire.prompts.review_cv_tailoring import (
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.cv import CVGenerateResponse, CVStatusResponse, CVTemplate, TailoredCVData
+from applire.prompts.review_cv_language import (
+    CV_LANGUAGE_REFINEMENT_PROMPT,
+    CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+    build_cv_language_refinement_prompt,
+    build_cv_language_review_prompt,
+)
+from applire.prompts.interview import language_name
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
-from applire.constants import LLM_REVIEW_MAX_RETRIES
+from applire.constants import CV_LANGUAGE_REVIEW_MAX_RETRIES, LLM_REVIEW_MAX_RETRIES
+
+
+async def _review_cv_language(draft: dict, output_language: str, provider) -> dict:
+    """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
+    language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
+    directive alone leaks discipline-skill phrases; this is the enforcing pass — the same
+    fix ADR-038 applied to interview questions. Never raises; no-op when the budget is 0.
+    """
+    if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
+        return draft
+    return await review_and_refine(
+        source=language_name(output_language),
+        draft=draft,
+        generator_prompt_fn=build_cv_language_refinement_prompt,
+        generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
+        reviewer_prompt_fn=build_cv_language_review_prompt,
+        reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+        provider=provider,
+        max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
+        generator_max_tokens=8192,
+        chain_id="cv_language",
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -426,6 +455,12 @@ async def _render_cv_background(
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 generator_max_tokens=8192,
                 chain_id="cv_tailoring",
+            )
+
+            # ADR-038 enforcement: ensure skill tags + prose are all in the target-job
+            # language (the directive alone leaks discipline-skill phrases — #1).
+            tailored_raw = await _review_cv_language(
+                tailored_raw, resolve_jd_language(job), provider
             )
 
             tailored = TailoredCVData.model_validate(tailored_raw)

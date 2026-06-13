@@ -49,6 +49,13 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES", "1")
 )
 
+# Generated-document (CV + cover letter) output-language-review retries (ADR-038).
+# Enforces that skill tags + prose land in the target-job language; the tailoring
+# directive alone leaks discipline-skill phrases. 0 disables (directive-only).
+CV_LANGUAGE_REVIEW_MAX_RETRIES: int = int(
+    os.environ.get("CV_LANGUAGE_REVIEW_MAX_RETRIES", "1")
+)
+
 # GDPR retention TTLs — configurable via environment variables (ADR-005 amendment, Sprint 25)
 GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_DAYS", "90"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))

@@ -54,9 +54,12 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
 7. Output language: write ALL prose — summary, every work_history bullet, and skill names — in the
    OUTPUT LANGUAGE stated in the user message. If CANDIDATE PROFILE is written in a different
    language, you MUST translate its content; translating is NOT inventing (Rules 1 and 5 protect
-   facts, not the source language). Keep company names, product names, technology names, dates,
-   and metrics unchanged. Never copy bullets verbatim in the source language and never mirror the
-   language of CANDIDATE PROFILE or the job description when it differs from the OUTPUT LANGUAGE.
+   facts, not the source language). Skill and discipline PHRASES are ordinary language and MUST be
+   translated (e.g. "Brand Identity", "Art Direction", "Motion Design", "Team Leadership"). Only
+   genuinely language-invariant PROPER NOUNS stay unchanged: company names, product/tool/framework
+   names (Figma, Adobe Photoshop, Python, AWS), dates and metrics. Never copy bullets or skills
+   verbatim in the source language and never mirror the language of CANDIDATE PROFILE or the job
+   description when it differs from the OUTPUT LANGUAGE.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations:
 
