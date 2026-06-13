@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 
 from applire.schemas.profile import (
     Conflict,
+    FieldChange,
     MasterProfileData,
     Skill,
     WorkEntry,
@@ -52,6 +53,10 @@ class MergeResult:
     merged_profile: MasterProfileData
     added: list[str] = field(default_factory=list)   # descriptions of auto-added / enriched items
     conflicts: list[Conflict] = field(default_factory=list)
+    # ADR-040 / US145: structured, per-decision change records (one FieldChange per
+    # auto-decision) so the "what changed & why" surfaces render from data, not from
+    # parsing the human-readable `added` strings. `added` is retained for back-compat.
+    changes: list[FieldChange] = field(default_factory=list)
 
 
 def _dates_overlap(
@@ -147,6 +152,28 @@ def _company_names_match(a: str, b: str) -> bool:
     return ta <= tb or tb <= ta
 
 
+def _dates_determinately_overlap(
+    a_start: str | None,
+    a_end: str | None,
+    b_start: str | None,
+    b_end: str | None,
+) -> bool:
+    """Positive, evidence-based overlap: both ranges have a start date AND actually
+    overlap. Unlike `_dates_overlap`, a missing date is NOT treated as overlap.
+
+    Used to gate fusion on *loose* (subset) company matches (JF-M-3.4 chimera guard):
+    a short-form/long-form company match is weak evidence, so it must be corroborated
+    by a real date overlap before two entries are merged into one.
+    """
+    if not a_start or not b_start:
+        return False
+    return _dates_overlap(a_start, a_end, b_start, b_end)
+
+
+def _company_names_match_exact(a: str, b: str) -> bool:
+    return a.strip().lower() == b.strip().lower()
+
+
 # Public aliases — shared with the interview enrichment path
 # (services/interview_graph.profile_updater), which must apply the same
 # employer-identity and date-overlap semantics as the CV-upload merge.
@@ -171,7 +198,7 @@ def _merge_work_experience(
     existing: list[WorkEntry],
     incoming: list[WorkEntry],
     source: str,
-) -> tuple[list[WorkEntry], list[str], list[Conflict]]:
+) -> tuple[list[WorkEntry], list[str], list[Conflict], list[FieldChange]]:
     """
     Same company + overlapping dates = same position with different facets.
 
@@ -189,6 +216,7 @@ def _merge_work_experience(
     result = list(existing)
     added: list[str] = []
     conflicts: list[Conflict] = []
+    changes: list[FieldChange] = []
 
     for inc in incoming:
         # Drop shell entries: no company, or no dates AND no content — these are
@@ -210,6 +238,12 @@ def _merge_work_experience(
                             new_aliases.append(title)
                     result[idx] = result[idx].model_copy(update={"role_aliases": new_aliases})
                     added.append(f"role_alias '{inc.role}' → {inc.company}")
+                    changes.append(FieldChange(
+                        section="work_experience", field="role_aliases", action="merged",
+                        new_value=f"{inc.role} @ {inc.company}",
+                        rationale=f"'{inc.role}' looked like a job title within your {inc.company} "
+                                  f"role, so we added it as an alias rather than a separate position.",
+                    ))
                     break
             continue
 
@@ -217,6 +251,15 @@ def _merge_work_experience(
         for idx, ex in enumerate(result):
             if not _company_names_match(ex.company, inc.company):
                 continue
+            # Chimera guard (JF-M-3.4): a *loose* subset company match ("Apple" ⊆
+            # "Apple Bank") is weak evidence of the same employer. Require a real,
+            # determinate date overlap before fusing. An *exact* company name is
+            # strong enough to merge even with fuzzy/missing dates.
+            if not _company_names_match_exact(ex.company, inc.company):
+                if not _dates_determinately_overlap(
+                    ex.start_date, ex.end_date, inc.start_date, inc.end_date
+                ):
+                    continue
             if not _dates_overlap(ex.start_date, ex.end_date, inc.start_date, inc.end_date):
                 continue
 
@@ -269,14 +312,33 @@ def _merge_work_experience(
                     suggested_resolution=f"Verify end date for '{ex.company}'",
                 ))
 
+            # Record the (otherwise silent) accumulation so the user can see it and
+            # split it if our same-position assumption was wrong (JF-M-3.2 / 3.4).
+            exact = _company_names_match_exact(ex.company, inc.company)
+            changes.append(FieldChange(
+                section="work_experience", field="work_experience", action="merged",
+                old_value=f"{ex.role} @ {ex.company}",
+                new_value=f"{inc.role} @ {inc.company}",
+                rationale=(
+                    f"Treated as the same position at {ex.company} "
+                    f"({'same employer name' if exact else 'matching employer name'} + overlapping dates) "
+                    f"and combined the titles and details. Not the same job? You can split it."
+                ),
+            ))
+
             result[idx] = merged
             break
 
         if not matched:
             result.append(inc)
             added.append(f"work_experience: {inc.role} at {inc.company}")
+            changes.append(FieldChange(
+                section="work_experience", field="work_experience", action="added",
+                new_value=f"{inc.role} at {inc.company}",
+                rationale="New position added from this source.",
+            ))
 
-    return _sort_work_by_date(result), added, conflicts
+    return _sort_work_by_date(result), added, conflicts, changes
 
 
 def _merge_skills(
@@ -334,19 +396,26 @@ def merge_profiles(
     """
     all_added: list[str] = []
     all_conflicts: list[Conflict] = []
+    all_changes: list[FieldChange] = []
 
     # Work experience
-    merged_work, work_added, work_conflicts = _merge_work_experience(
+    merged_work, work_added, work_conflicts, work_changes = _merge_work_experience(
         existing.work_experience, incoming.work_experience, source
     )
     all_added.extend(work_added)
     all_conflicts.extend(work_conflicts)
+    all_changes.extend(work_changes)
 
     # Skills
     merged_skills, skills_added, _ = _merge_skills(
         existing.skills, incoming.skills, source
     )
     all_added.extend(skills_added)
+    for _s in skills_added:
+        all_changes.append(FieldChange(
+            section="skills", field="skills", action="added",
+            new_value=_s, rationale="New skill from this source.",
+        ))
 
     # Education — append non-duplicate entries (match on institution + degree)
     merged_edu = list(existing.education)
@@ -359,6 +428,11 @@ def merge_profiles(
         if not duplicate:
             merged_edu.append(inc_e)
             all_added.append(f"education: {inc_e.degree} at {inc_e.institution}")
+            all_changes.append(FieldChange(
+                section="education", field="education", action="added",
+                new_value=f"{inc_e.degree} at {inc_e.institution}",
+                rationale="New education entry from this source.",
+            ))
 
     # Languages — keep higher/new levels
     merged_langs = list(existing.languages)
@@ -370,6 +444,10 @@ def merge_profiles(
         if match is None:
             merged_langs.append(inc_l)
             all_added.append(f"language: {inc_l.language}")
+            all_changes.append(FieldChange(
+                section="languages", field="languages", action="added",
+                new_value=inc_l.language, rationale="New language from this source.",
+            ))
         # else keep existing level (user can patch manually)
 
     # Certifications — append non-duplicate (match on name)
@@ -378,6 +456,10 @@ def merge_profiles(
         if not any(c.name.lower() == inc_c.name.lower() for c in merged_certs):
             merged_certs.append(inc_c)
             all_added.append(f"certification: {inc_c.name}")
+            all_changes.append(FieldChange(
+                section="certifications", field="certifications", action="added",
+                new_value=inc_c.name, rationale="New certification from this source.",
+            ))
 
     # Personal info — fill gaps; flag only populated-vs-different values
     merged_pi = existing.personal_info.model_copy(deep=True)
@@ -442,8 +524,18 @@ def merge_profiles(
         },
     )
 
+    # Flagged conflicts are auto-decisions too — surface them as "we kept X, you may
+    # want to verify" rows on the review surface (JF-M-3.2).
+    for _c in all_conflicts:
+        all_changes.append(FieldChange(
+            section=_c.section, field=_c.field, action="updated",
+            old_value=_c.existing_value, new_value=_c.incoming_value,
+            rationale="Values differ between sources — flagged for your review.",
+        ))
+
     return MergeResult(
         merged_profile=merged_profile,
         added=all_added,
         conflicts=all_conflicts,
+        changes=all_changes,
     )

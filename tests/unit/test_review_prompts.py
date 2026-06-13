@@ -217,6 +217,36 @@ class TestCVTailoringReviewPrompts:
 # ---------------------------------------------------------------------------
 
 
+class TestGroundingJudgeFailureClasses:
+    """US142 (ADR-040 prevention tier) — the shipped ADR-021 judges must explicitly
+    name the FMEA failure classes so they actively look for them.
+
+    JF-M-3.1 (extraction): garbled/invented dates, fabricated certifications, employers.
+    JF-M-6.1/6.2 (tailoring): fabricated certs, overstated claim strength (oversell).
+    """
+
+    def test_cv_extraction_review_flags_fabricated_certifications(self):
+        from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "certification" in low or "qualification" in low  # JF-M-3.1 (certs)
+
+    def test_cv_extraction_review_flags_garbled_values(self):
+        from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT as p
+        # not just *invented* — *garbled* (mis-transcribed) employers/dates too (JF-M-3.1)
+        assert "garbl" in p.lower()
+
+    def test_cv_tailoring_review_flags_fabricated_certifications(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "certification" in low or "qualification" in low  # JF-M-6.1
+
+    def test_cv_tailoring_review_flags_oversell(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        # claim-strength / seniority inflation beyond profile evidence (JF-M-6.2)
+        assert "overstate" in low or "exaggerat" in low or "claim strength" in low
+
+
 class TestCVTailoringGeneratorPrompts:
     def test_build_user_prompt_returns_nonempty_string(self):
         from applire.prompts.cv_tailoring import build_user_prompt

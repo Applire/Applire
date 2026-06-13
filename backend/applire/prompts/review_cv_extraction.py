@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1
+# Prompt version: v2 (US142 — named FMEA failure classes: certifications, garbled values)
 # Used by: services/profile/__init__.py → upload_cv() → reviewer.review_and_refine
 #
 # Mirrors review_profile_extraction.py but uses work_experience field names
@@ -45,6 +45,14 @@ Check for ALL of the following:
 6. MISPLACED ROLE ALIASES: Flag any work_experience entry that has a company name but is missing
    BOTH start_date AND responsibilities/achievements. These are almost certainly role titles mentioned
    within another position and should appear in that position's role_aliases list, not as a separate entry.
+7. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, or formal qualification
+   in the extracted profile must have a clear corresponding mention in the source text. Flag any
+   certification or qualification with no basis in the source — never upgrade "experience with X"
+   into "X certified".
+8. GARBLED / MIS-TRANSCRIBED VALUES: Beyond wholly invented data, flag values that are garbled or
+   mis-transcribed from the source — a company name, role title, date, or certification that is
+   present in the source but distorted (wrong characters, merged words, transposed digits). The
+   extracted value must faithfully reproduce the source, not approximate it.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
