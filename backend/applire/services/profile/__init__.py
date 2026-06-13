@@ -207,6 +207,7 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
             section="*", field="*", action="merged",
             new_value={"added": merge_result.added, "conflicts": len(merge_result.conflicts)},
             rationale="Profile updated from this source.",
+            rationale_key="profile_updated",
         )
     ]
     return EnrichmentRecord(

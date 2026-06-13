@@ -40,7 +40,10 @@ export interface ReviewChange {
   action: "added" | "updated" | "merged";
   oldValue?: unknown;
   newValue?: unknown;
+  /** English fallback / audit string (legacy records). */
   rationale?: string | null;
+  /** Stable key localized via `review.rationale.<key>` (ADR-038). Preferred over `rationale`. */
+  rationaleKey?: string | null;
 }
 
 export interface WhatChangedReviewProps {
@@ -107,8 +110,10 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                 {change.newValue != null && (
                   <p className="mt-1 truncate text-sm font-medium text-foreground">{stringify(change.newValue)}</p>
                 )}
-                {change.rationale && (
-                  <p className="mt-1 text-sm text-muted-foreground">{change.rationale}</p>
+                {(change.rationaleKey || change.rationale) && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {change.rationaleKey ? t(`rationale.${change.rationaleKey}`) : change.rationale}
+                  </p>
                 )}
               </div>
               {onFix && (

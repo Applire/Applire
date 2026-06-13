@@ -28,6 +28,7 @@ export interface ApiFieldChange {
   old_value?: unknown;
   new_value?: unknown;
   rationale?: string | null;
+  rationale_key?: string | null;
 }
 
 /** Map a backend FieldChange to the component's camelCase ReviewChange. */
@@ -39,6 +40,7 @@ export function toReviewChange(fc: ApiFieldChange): ReviewChange {
     oldValue: fc.old_value,
     newValue: fc.new_value,
     rationale: fc.rationale ?? null,
+    rationaleKey: fc.rationale_key ?? null,
   };
 }
 

@@ -25,9 +25,9 @@ function fetchMock(body: object, ok = true, status = 200) {
 }
 
 describe("toReviewChange", () => {
-  it("maps snake_case wire shape to camelCase", () => {
-    const r = toReviewChange({ section: "skills", field: "skills", action: "added", old_value: null, new_value: "Rust", rationale: "why" });
-    expect(r).toEqual({ section: "skills", field: "skills", action: "added", oldValue: null, newValue: "Rust", rationale: "why" });
+  it("maps snake_case wire shape to camelCase (incl. rationale_key)", () => {
+    const r = toReviewChange({ section: "skills", field: "skills", action: "added", old_value: null, new_value: "Rust", rationale: "why", rationale_key: "new_skill" });
+    expect(r).toEqual({ section: "skills", field: "skills", action: "added", oldValue: null, newValue: "Rust", rationale: "why", rationaleKey: "new_skill" });
   });
 });
 

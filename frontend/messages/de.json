@@ -801,6 +801,20 @@
       "personal_info": "Persönliche Daten",
       "professional_summary": "Profil",
       "*": "Profil"
+    },
+    "rationale": {
+      "merged_same_position": "Als dieselbe Position zusammengeführt – Titel und Details kombiniert. Nicht korrekt? Aufteilen.",
+      "role_alias_added": "Als weiterer Titel zu dieser Position ergänzt.",
+      "new_position": "Neue Position aus dieser Quelle.",
+      "new_skill": "Neue Fähigkeit aus dieser Quelle.",
+      "new_education": "Neuer Ausbildungseintrag aus dieser Quelle.",
+      "new_language": "Neue Sprache aus dieser Quelle.",
+      "new_certification": "Neues Zertifikat aus dieser Quelle.",
+      "conflict_flagged": "Werte unterscheiden sich zwischen Quellen – zur Prüfung markiert.",
+      "interview_added": "Aus deiner Interview-Antwort ergänzt.",
+      "interview_new_position": "Neue Position aus deiner Interview-Antwort.",
+      "interview_details_added": "Details zu dieser Position aus deiner Interview-Antwort ergänzt.",
+      "profile_updated": "Profil aus dieser Quelle aktualisiert."
     }
   }
 }

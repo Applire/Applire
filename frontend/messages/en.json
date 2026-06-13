@@ -801,6 +801,20 @@
       "personal_info": "Personal details",
       "professional_summary": "Profile",
       "*": "Profile"
+    },
+    "rationale": {
+      "merged_same_position": "Treated as the same position — titles and details combined. Not the same job? Split it.",
+      "role_alias_added": "Added as another title for this position.",
+      "new_position": "New position from this source.",
+      "new_skill": "New skill from this source.",
+      "new_education": "New education entry from this source.",
+      "new_language": "New language from this source.",
+      "new_certification": "New certification from this source.",
+      "conflict_flagged": "Values differ between sources — flagged for your review.",
+      "interview_added": "Added from your interview answer.",
+      "interview_new_position": "New position from your interview answer.",
+      "interview_details_added": "Details added to this position from your interview answer.",
+      "profile_updated": "Profile updated from this source."
     }
   }
 }
