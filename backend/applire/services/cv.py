@@ -78,6 +78,7 @@ from applire.prompts.review_cv_language import (
     build_cv_language_review_prompt,
 )
 from applire.prompts.interview import language_name
+from applire.templates.labels import cv_labels
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
@@ -346,7 +347,11 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
 
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
-    return template.render(cv=tailored, color=color_ctx)
+    # #4 (ADR-038): section headings follow the document's output language, resolved
+    # from the target job. Injected as `labels`/`lang` so template chrome matches content.
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    lang = resolve_jd_language(job) if job else "de"
+    return template.render(cv=tailored, color=color_ctx, lang=lang, labels=cv_labels(lang))
 
 
 # ---------------------------------------------------------------------------

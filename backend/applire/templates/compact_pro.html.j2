@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8" />
   <title>Lebenslauf – {{ cv.contact.name }}</title>
@@ -145,7 +145,7 @@
 
   {% if cv.summary %}
   <div class="profile-section">
-    <div class="section-title">Profil</div>
+    <div class="section-title">{{ labels.summary }}</div>
     <p class="summary-text">{{ cv.summary }}</p>
   </div>
   {% endif %}
@@ -154,12 +154,12 @@
     <div>
       {% if cv.work_history %}
       <div class="section">
-        <div class="section-title">Berufserfahrung</div>
+        <div class="section-title">{{ labels.experience }}</div>
         {% for job in cv.work_history %}
         <div class="entry">
           <div class="entry-header">
             <div class="entry-title">{{ job.role }}</div>
-            <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else "heute" }}</div>
+            <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else labels.present }}</div>
           </div>
           <div class="entry-subtitle">{{ job.company }}</div>
           {% if job.bullets %}
@@ -174,12 +174,12 @@
 
       {% if cv.education %}
       <div class="section">
-        <div class="section-title">Ausbildung</div>
+        <div class="section-title">{{ labels.education }}</div>
         {% for edu in cv.education %}
         <div class="entry">
           <div class="entry-header">
             <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
-            <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else ("heute" if edu.start_date else "") }}</div>
+            <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else (labels.present if edu.start_date else "") }}</div>
           </div>
           <div class="entry-subtitle">{{ edu.institution }}</div>
         </div>
@@ -191,14 +191,14 @@
     <div>
       {% if cv.skills %}
       <div class="section">
-        <div class="section-title">Kompetenzen</div>
+        <div class="section-title">{{ labels.skills }}</div>
         <div class="skills-compact">{{ cv.skills | join(" · ") }}</div>
       </div>
       {% endif %}
 
       {% if cv.languages %}
       <div class="section">
-        <div class="section-title">Sprachen</div>
+        <div class="section-title">{{ labels.languages }}</div>
         {% for lang in cv.languages %}
         <div class="lang-row">
           <span class="lang-name">{{ lang.language }}</span>

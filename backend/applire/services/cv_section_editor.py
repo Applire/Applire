@@ -285,7 +285,16 @@ async def patch_cv_section(
     color_ctx = await resolve_color_context(record, db)
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
-    html = template.render(cv=tailored_with_overrides, color=color_ctx)
+    # #4 (ADR-038): section headings follow the document's output language (mirrors
+    # cv.get_cv_html). The templates require `lang`/`labels` in their render context.
+    from applire.models.job import JobAnalysis
+    from applire.utils.language_detection import resolve_jd_language
+    from applire.templates.labels import cv_labels
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    lang = resolve_jd_language(job) if job else "de"
+    html = template.render(
+        cv=tailored_with_overrides, color=color_ctx, lang=lang, labels=cv_labels(lang)
+    )
 
     if background_tasks is not None:
         # ADR-039: re-audit off-thread; the report must never describe a stale document

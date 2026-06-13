@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8" />
   <title>CV – {{ cv.contact.name }}</title>
@@ -176,7 +176,7 @@
     <div class="sidebar-name">{% for tok in cv.contact.name.split() %}<span style="white-space: nowrap;">{{ tok }}</span>{% if not loop.last %} {% endif %}{% endfor %}</div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Kontakt</div>
+      <div class="sidebar-section-title">{{ labels.contact }}</div>
       {% if cv.contact.location %}<div class="sidebar-item">{{ cv.contact.location }}</div>{% endif %}
       {% if cv.contact.phone %}<div class="sidebar-item">{{ cv.contact.phone }}</div>{% endif %}
       {% if cv.contact.email %}<div class="sidebar-item">{{ cv.contact.email }}</div>{% endif %}
@@ -185,7 +185,7 @@
 
     {% if cv.skills %}
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Skills</div>
+      <div class="sidebar-section-title">{{ labels.skills }}</div>
       {% for skill in cv.skills %}
       <div class="sidebar-skill">{{ skill }}</div>
       {% endfor %}
@@ -194,7 +194,7 @@
 
     {% if cv.languages %}
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Sprachen</div>
+      <div class="sidebar-section-title">{{ labels.languages }}</div>
       {% for lang in cv.languages %}
       <div class="sidebar-item">{{ lang.language }} · {{ lang.level }}</div>
       {% endfor %}
@@ -205,19 +205,19 @@
   <main class="main">
     {% if cv.summary %}
     <div class="section">
-      <div class="section-title">Profil</div>
+      <div class="section-title">{{ labels.summary }}</div>
       <p class="summary-text">{{ cv.summary }}</p>
     </div>
     {% endif %}
 
     {% if cv.work_history %}
     <div class="section">
-      <div class="section-title">Berufserfahrung</div>
+      <div class="section-title">{{ labels.experience }}</div>
       {% for job in cv.work_history %}
       <div class="entry">
         <div class="entry-header">
           <div class="entry-title">{{ job.role }}</div>
-          <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else "heute" }}</div>
+          <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else labels.present }}</div>
         </div>
         <div class="entry-subtitle">{{ job.company }}</div>
         {% if job.bullets %}
@@ -234,12 +234,12 @@
 
     {% if cv.education %}
     <div class="section">
-      <div class="section-title">Ausbildung</div>
+      <div class="section-title">{{ labels.education }}</div>
       {% for edu in cv.education %}
       <div class="entry">
         <div class="entry-header">
           <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
-          <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else ("heute" if edu.start_date else "") }}</div>
+          <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else (labels.present if edu.start_date else "") }}</div>
         </div>
         <div class="entry-subtitle">{{ edu.institution }}</div>
       </div>

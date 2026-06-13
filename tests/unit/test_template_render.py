@@ -86,8 +86,9 @@ def test_template_renders_without_error(
     template_key, template_file, jinja_env, minimal_cv, minimal_color
 ):
     """Each template must render to a non-empty HTML string with no Jinja2 errors."""
+    from applire.templates.labels import cv_labels
     template = jinja_env.get_template(template_file)
-    html = template.render(cv=minimal_cv, color=minimal_color)
+    html = template.render(cv=minimal_cv, color=minimal_color, lang="de", labels=cv_labels("de"))
     assert html, f"{template_key}: rendered HTML is empty"
     assert "Anna Musterfrau" in html, f"{template_key}: contact name missing from output"
     assert "Beispiel GmbH" in html, f"{template_key}: work history missing from output"
@@ -98,6 +99,7 @@ def test_template_uses_color_variables(template_key, template_file, jinja_env, m
     """Rendered HTML must contain the primary colour hex value."""
     template = jinja_env.get_template(template_file)
     from applire.schemas.cv import TailoredCVData, TailoredContact
+    from applire.templates.labels import cv_labels
     cv = TailoredCVData(contact=TailoredContact(name="Test", location="Berlin"), show_photo=False)
-    html = template.render(cv=cv, color=minimal_color)
+    html = template.render(cv=cv, color=minimal_color, lang="de", labels=cv_labels("de"))
     assert "#2b5fa8" in html, f"{template_key}: primary colour not found in rendered HTML"
