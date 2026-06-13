@@ -55,7 +55,7 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import EnrichmentRecord, MasterProfileData
 from applire.schemas.session import (
     ConflictSummary,
     InterviewState,
@@ -69,6 +69,7 @@ from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
     gap_detector,
     gap_detector_mode_b,
+    interview_field_changes,
     profile_updater,
     question_generator_with_profile,
     response_parser,
@@ -518,7 +519,27 @@ async def send_message(
 
     # --- ProfileUpdater ---
     profile_record = await _load_profile(state["profile_id"], db)
-    updated_profile, merge_conflicts = profile_updater(profile_record.profile_json, patch)
+    before_profile = profile_record.profile_json
+    updated_profile, merge_conflicts = profile_updater(before_profile, patch)
+
+    # US148/ADR-040 (JF-M-5.2): record what the answer actually added to the profile
+    # as a structured interview EnrichmentRecord, so the "what we added from your
+    # answers" surface (and the durable trail) have data. Only when something changed.
+    trail_changes = interview_field_changes(before_profile, updated_profile)
+    if trail_changes:
+        meta = dict(updated_profile.get("metadata") or {})
+        history = list(meta.get("enrichment_history") or [])
+        history.append(
+            EnrichmentRecord(
+                timestamp=datetime.now(timezone.utc),
+                source="interview",
+                source_session_id=str(record.id),
+                changes=trail_changes,
+            ).model_dump(mode="json")
+        )
+        meta["enrichment_history"] = history
+        updated_profile = {**updated_profile, "metadata": meta}
+
     profile_record.profile_json = updated_profile
     profile_record.updated_at = datetime.now(timezone.utc)
 

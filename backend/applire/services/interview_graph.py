@@ -58,6 +58,7 @@ from applire.prompts.review_question_language import (
     build_question_language_review_prompt,
 )
 from applire.providers.llm.base import LLMProvider
+from applire.schemas.profile import FieldChange
 from applire.schemas.session import ConflictSummary, InterviewState
 from applire.services.profile.merge import company_names_match, dates_overlap
 from applire.services.reviewer import review_and_refine
@@ -420,6 +421,62 @@ def profile_updater(
         profile["education"] = list(profile.get("education", [])) + new_edu
 
     return profile, conflicts
+
+
+def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
+    """US148/ADR-040 (JF-M-5.2) — structured record of what an interview answer added
+    to the profile, for the "what we added from your answers" surface and the durable
+    decision trail. Diffs the merged profile against the pre-merge one so only genuine
+    additions are recorded (a paraphrase already in the profile is not).
+    """
+    changes: list[FieldChange] = []
+    _added = "Added from your interview answer."
+
+    # Skills (string or {name}) added
+    before_skills = {_skill_name(s).strip().lower() for s in (before.get("skills") or [])}
+    for s in after.get("skills") or []:
+        name = _skill_name(s).strip()
+        if name and name.lower() not in before_skills:
+            changes.append(FieldChange(
+                section="skills", field="skills", action="added",
+                new_value=name, rationale=_added,
+            ))
+
+    # Certifications added
+    before_certs = {(c.get("name") or "").strip().lower() for c in (before.get("certifications") or [])}
+    for c in after.get("certifications") or []:
+        name = (c.get("name") or "").strip()
+        if name and name.lower() not in before_certs:
+            changes.append(FieldChange(
+                section="certifications", field="certifications", action="added",
+                new_value=name, rationale=_added,
+            ))
+
+    # Work experience — new positions (added) and enriched existing ones (merged)
+    before_by_company: dict[str, list[dict]] = {}
+    for e in before.get("work_experience") or []:
+        before_by_company.setdefault((e.get("company") or "").strip().lower(), []).append(e)
+    for e in after.get("work_experience") or []:
+        company = (e.get("company") or "").strip()
+        ckey = company.lower()
+        role = (e.get("role") or "").strip()
+        if ckey not in before_by_company:
+            changes.append(FieldChange(
+                section="work_experience", field="work_experience", action="added",
+                new_value=f"{role} @ {company}".strip(" @"),
+                rationale="New position from your interview answer.",
+            ))
+            continue
+        # Known employer — record if achievements grew (details added from the answer)
+        before_ach = max((len(x.get("achievements") or []) for x in before_by_company[ckey]), default=0)
+        if len(e.get("achievements") or []) > before_ach:
+            changes.append(FieldChange(
+                section="work_experience", field="achievements", action="merged",
+                new_value=f"{role} @ {company}".strip(" @"),
+                rationale="Details added to this position from your interview answer.",
+            ))
+
+    return changes
 
 
 def _find_matching_work_entry(existing: list[dict], entry: dict) -> dict | None:
