@@ -29,7 +29,7 @@ from applire.exceptions import LLMRateLimitError, LLMTimeoutError
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.ats import ATSReportResponse
-from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVStatusResponse
+from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVProfileDiffResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
     AssistAnswerRequest,
     AssistAnswerResponse,
@@ -42,6 +42,7 @@ from applire.schemas.cv_sections import (
     SectionPatchResponse,
 )
 from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_html, get_cv_pdf, get_cv_status, get_pdf_filename, list_cvs_for_job
+from applire.services.cv_diff import get_cv_profile_diff
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
 
@@ -103,6 +104,20 @@ async def get_cv_ats_report_handler(
     try:
         return await get_cv_ats_report(cv_id, db)
     except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{cv_id}/profile-diff", response_model=CVProfileDiffResponse)
+async def get_cv_profile_diff_handler(
+    cv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> CVProfileDiffResponse:
+    """US147 / ADR-040: deterministic diff of the generated CV vs the Master Profile,
+    for the pre-download review. No LLM; reads persisted artifacts only (retention-safe)."""
+    try:
+        return await get_cv_profile_diff(cv_id, db)
+    except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 

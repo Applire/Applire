@@ -773,5 +773,34 @@
     "generatedOn": "Erstellt am {date}",
     "page": "Seite {page} von {total}",
     "showing": "{from}–{to} von {total} Dokumenten"
+  },
+  "review": {
+    "titleExtraction": "Das haben wir aus deinem Lebenslauf gelesen",
+    "titleMerge": "Was wir kombiniert und angenommen haben",
+    "titleInterview": "Was wir aus deinen Antworten übernommen haben",
+    "titleDownload": "Bevor du herunterlädst – spiegelt das dich wider?",
+    "subtitle": "Prüfe kurz, was Applire automatisch entschieden hat.",
+    "empty": "Nichts zu prüfen.",
+    "fix": "Stimmt nicht? Korrigieren",
+    "skip": "Überspringen",
+    "confirmExtraction": "Sieht gut aus",
+    "confirmDownload": "Ja, das entspricht meiner Erfahrung",
+    "confirmDefault": "Sieht gut aus",
+    "attestationNote": "Mit dem Download bestätigst du, dass der Inhalt deine tatsächliche Erfahrung widerspiegelt.",
+    "action": {
+      "added": "hinzugefügt",
+      "updated": "geändert",
+      "merged": "zusammengeführt"
+    },
+    "section": {
+      "work_experience": "Berufserfahrung",
+      "skills": "Fähigkeiten",
+      "education": "Ausbildung",
+      "languages": "Sprachen",
+      "certifications": "Zertifikate",
+      "personal_info": "Persönliche Daten",
+      "professional_summary": "Profil",
+      "*": "Profil"
+    }
   }
 }

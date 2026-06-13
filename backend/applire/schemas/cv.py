@@ -22,6 +22,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, field_validator
 
 from applire.models.cv import CVGenerationStatus
+from applire.schemas.profile import FieldChange
 
 CVTemplate = Literal[
     "classic_german",
@@ -37,6 +38,13 @@ CVTemplate = Literal[
 class CVGenerateRequest(BaseModel):
     job_id: uuid.UUID
     template: CVTemplate = "classic_german"
+
+
+class CVProfileDiffResponse(BaseModel):
+    """US147 / ADR-040 — deterministic divergences of a generated CV from the Master
+    Profile, for the pre-download review surface. `grounded` is True when nothing diverges."""
+    items: list[FieldChange] = []
+    grounded: bool = True
 
 
 class CVGenerateResponse(BaseModel):

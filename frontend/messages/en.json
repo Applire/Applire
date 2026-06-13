@@ -773,5 +773,34 @@
     "generatedOn": "Generated {date}",
     "page": "Page {page} of {total}",
     "showing": "{from}–{to} of {total} documents"
+  },
+  "review": {
+    "titleExtraction": "Here's what we read from your CV",
+    "titleMerge": "What we combined and assumed",
+    "titleInterview": "What we added from your answers",
+    "titleDownload": "Before you download — does this reflect you?",
+    "subtitle": "A quick look at what Applire decided automatically.",
+    "empty": "Nothing to review.",
+    "fix": "Not right? Fix this",
+    "skip": "Skip",
+    "confirmExtraction": "Looks good",
+    "confirmDownload": "Yes, this reflects my experience",
+    "confirmDefault": "Looks good",
+    "attestationNote": "By downloading you confirm the content reflects your actual experience.",
+    "action": {
+      "added": "added",
+      "updated": "updated",
+      "merged": "merged"
+    },
+    "section": {
+      "work_experience": "Work experience",
+      "skills": "Skills",
+      "education": "Education",
+      "languages": "Languages",
+      "certifications": "Certifications",
+      "personal_info": "Personal details",
+      "professional_summary": "Profile",
+      "*": "Profile"
+    }
   }
 }
