@@ -116,16 +116,32 @@ test.describe('CV View — 70/30 layout rendering', () => {
       });
     });
 
+    // The download is gated by the pre-download grounding review + attestation
+    // (US147 / ADR-040): clicking download opens a modal that fetches the CV↔profile
+    // diff first, and only the attestation confirm triggers the actual PDF fetch.
+    await page.route(`**/api/cv/${TEST_CV_ID}/profile-diff`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], grounded: true }),
+      });
+    });
+
     await page.goto(CV_PAGE_URL);
 
     await expect(page.locator('[data-testid="cv-iframe"]')).toBeVisible({
       timeout: 10_000,
     });
 
-    // Download button is on the page action bar above the CV
+    // Clicking download opens the attestation review (a nudge, not a gate) — no
+    // immediate download. Attesting ("Yes, this reflects my experience") fires the PDF.
+    await page.click('[data-testid="page-action-download"]');
+    const attest = page.locator('[data-testid="what-changed-confirm"]');
+    await expect(attest).toBeVisible({ timeout: 10_000 });
+
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.click('[data-testid="page-action-download"]'),
+      attest.click(),
     ]);
 
     expect(download).toBeTruthy();
