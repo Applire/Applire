@@ -37,6 +37,16 @@ def test_clustering_system_prompt_exists():
     assert "JSON" in CLUSTERING_SYSTEM_PROMPT
 
 
+def test_build_clustering_prompt_localizes_jd_context_to_ui_language():
+    """#3 (ADR-038): the gaps page is conversational — cluster descriptions follow the
+    UI language, not the JD language. The prompt must carry an explicit output-language
+    directive."""
+    from applire.prompts.gap_clustering import build_clustering_prompt
+    common = dict(category_b=[], category_c=["X"], required_skills=[], nice_to_have_skills=[])
+    assert "ENGLISH" in build_clustering_prompt(**common, lang="en")
+    assert "GERMAN" in build_clustering_prompt(**common, lang="de")
+
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 import pytest
@@ -82,7 +92,10 @@ async def test_cluster_gaps_persists_clusters():
     db = MagicMock()
     db.commit = AsyncMock()
 
-    await cluster_gaps(gap_analysis, job, provider, db)
+    # cluster_gaps now resolves the UI language for jd_context (#3, ADR-038).
+    from unittest.mock import patch
+    with patch("applire.services.session.get_ui_language", new=AsyncMock(return_value="de")):
+        await cluster_gaps(gap_analysis, job, provider, db)
 
     assert gap_analysis.gap_clusters == clusters_raw
     db.commit.assert_awaited_once()
