@@ -17,6 +17,8 @@
 
 [🚀 Quick Start](#-installation) • [📖 Documentation](docs/) • [💬 Community](#-community--support) • [🐛 Report Bug](https://github.com/Applire/Applire/issues)
 
+**🌐 English · [Deutsch](README.de.md)**
+
 </div>
 
 ---
@@ -25,29 +27,25 @@
 
 From a CV and a job ad to a complete application package — in minutes.
 
-**1. Upload your CV & paste the job ad**
+**1. Upload your CVs & paste the job ad**
 
-![CV upload and job description](docs/images/workflow-1-upload.png)
+![Upload your CVs and paste the job description](docs/images/screenshots/en-upload.png)
 
-Drop in one or more CVs and add the job posting as text or URL.
+Drop in one or more CVs and add the job posting as text or URL. Applire merges them into a Master Profile, scores your fit for the role, and groups what's missing into a handful of themes.
 
-**2. Match score & gap analysis at a glance**
+**2. A short, targeted AI interview closes the gaps**
 
-![Match score and AI-powered gap analysis](docs/images/workflow-2-match-gaps.png)
+![A targeted AI interview that closes the gaps](docs/images/screenshots/en-interview.png)
 
-Applire builds your Master Profile and instantly shows your fit for the role (88% "Strong Fit" here) plus thematically grouped gaps.
+A job-specific interview fills the gaps and sharpens your story — with editable answer starters, progress tracking, and a live role-requirements checklist on the side.
 
-**3. Targeted AI interview**
+**3. Pick a template — get a tailored CV & matching cover letter**
 
-![AI interview that closes the gaps](docs/images/workflow-3-interview.png)
+![Choose from seven DACH-ready CV templates](docs/images/screenshots/en-templates.png)
 
-A short, job-specific interview closes those gaps and sharpens your story — with editable answer suggestions, progress tracking and a live profile-completeness ring.
+Generate a DACH-ready Lebenslauf in seven templates (Classic German, Modern Swiss, Executive, Tech, Academic, and more) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
 
-**4. A tailored CV & matching cover letter**
-
-The result is a DACH-ready Lebenslauf tailored to the target role — in seven templates (Classic German, Modern Swiss, Executive, Academic, and more) and colour variants — plus, on request, a matching cover letter (Anschreiben) in the same design, with recipient and subject auto-extracted from the job ad.
-
-> _Screenshots use synthetic demo data (example profile "Lea Hoffmann") and show the German UI; Applire ships in both German and English (English by default, switchable in Settings)._
+> _Screenshots use synthetic demo data (example profile "Milan Novak"). Applire ships in German and English — see the [German README](README.de.md) for German-UI screenshots. Output documents follow the job ad's language, so an English source CV becomes a German Lebenslauf for a German posting._
 
 ---
 
@@ -197,7 +195,7 @@ python -m applire.mcp
 ### AI/ML
 
 - **Bring your own key**: You choose the LLM provider and supply the API key — your data goes only where you point it
-- **LLM Provider Abstraction**: Pluggable backends — OpenRouter (multi-model gateway), Mistral, OpenAI (or any OpenAI-compatible endpoint), and Ollama (fully offline, self-hosted)
+- **LLM Provider Abstraction**: Pluggable backends — Mistral (EU-hosted), Requesty (EU-hosted gateway), OpenRouter, Anthropic (Claude, BYO-API-key), OpenAI (or any OpenAI-compatible endpoint), and Ollama (fully offline, self-hosted)
 - **Custom State Machine**: Async interview orchestrator (no LangGraph dependency)
 - **Playwright**: Headless Chromium for PDF generation
 
@@ -318,8 +316,10 @@ Applire is bring-your-own-key — no provider is privileged. Pick whichever fits
 
 | Provider | Configuration | Use Case |
 |----------|---------------|----------|
-| **OpenRouter** | `LLM_PROVIDER=openrouter`<br>`OPENROUTER_API_KEY=...` | Multi-model gateway; access Mistral, Claude, and others with one key |
 | **Mistral AI** | `LLM_PROVIDER=mistral`<br>`MISTRAL_API_KEY=...` | EU-hosted, strong German proficiency |
+| **Requesty** | `LLM_PROVIDER=requesty`<br>`REQUESTY_API_KEY=...` | EU-hosted gateway (Frankfurt, zero-retention); an EU-resident path to Claude/GPT/Gemini via EU-region deployments |
+| **OpenRouter** | `LLM_PROVIDER=openrouter`<br>`OPENROUTER_API_KEY=...` | Multi-model gateway; access Mistral, Claude, and others with one key (not EU-hosted) |
+| **Anthropic** (Claude) | `LLM_PROVIDER=anthropic`<br>`ANTHROPIC_API_KEY=...` | Claude via a Console API key (BYO-key) — a Claude Pro/Max subscription cannot be used. US-hosted |
 | **OpenAI** | `LLM_PROVIDER=openai`<br>`OPENAI_API_KEY=...` | High quality, widely available; also supports LM Studio via `OPENAI_BASE_URL` |
 | **Ollama** (local) | `LLM_PROVIDER=ollama`<br>`OLLAMA_BASE_URL=http://localhost:11434` | Fully offline, no API costs, no key required |
 

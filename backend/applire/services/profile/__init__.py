@@ -557,6 +557,39 @@ async def resolve_conflict(
     return _to_response(record)
 
 
+def _normalize_name(name: str) -> str:
+    import unicodedata
+    decomposed = unicodedata.normalize("NFKD", name or "")
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(stripped.lower().split())
+
+
+def _names_clearly_differ(existing: str, incoming: str) -> bool:
+    """Warn about a possible third-person CV (FMEA JF-M-2.4) only when both names
+    are present and share NO token. Conservative — a shared surname, or accent/
+    casing variants, suppress the warning to avoid false positives."""
+    a, b = _normalize_name(existing), _normalize_name(incoming)
+    if not a or not b or a == b:
+        return False
+    return set(a.split()).isdisjoint(set(b.split()))
+
+
+def _looks_like_cv(data: MasterProfileData) -> bool:
+    """Heuristic (FMEA JF-M-2.3): a real CV yields work history, education, or a
+    name together with skills. A JD / cover letter / slide deck extracts to
+    ~nothing of these."""
+    return bool(
+        data.work_experience
+        or data.education
+        or (data.personal_info.name.strip() and data.skills)
+    )
+
+
+def _undated_positions(data: MasterProfileData) -> int:
+    """Count work entries missing a start date (FMEA JF-M-2.7)."""
+    return sum(1 for w in data.work_experience if not (w.start_date and w.start_date.strip()))
+
+
 async def upload_cv(
     file_bytes: bytes,
     filename: str,
@@ -646,12 +679,22 @@ async def upload_cv(
     now = datetime.now(timezone.utc)
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
 
+    # Upload-time input-plausibility signals (Input Integrity sprint, issue #43):
+    # document-type (US154/2.3) and per-CV completeness (US157/2.7) come from the
+    # just-extracted CV; the name-mismatch check (US155/2.4) needs an existing name.
+    looks_like_cv = _looks_like_cv(incoming)
+    undated_positions = _undated_positions(incoming)
+    name_mismatch = False
+
     # 4. Merge with existing profile (or create first profile)
     enrichment_id = uuid.uuid4()
     existing = await _get_latest(db)
 
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
+        name_mismatch = _names_clearly_differ(
+            existing_data.personal_info.name, incoming.personal_info.name
+        )
         merge_result = merge_profiles(existing_data, incoming, source="cv_upload")
         merged = merge_result.merged_profile
 
@@ -746,4 +789,7 @@ async def upload_cv(
         conflicts=conflict_summaries,
         enrichment_record_id=enrichment_id,
         expires_at=upload_record.expires_at,
+        looks_like_cv=looks_like_cv,
+        name_mismatch=name_mismatch,
+        undated_positions=undated_positions,
     )

@@ -45,24 +45,34 @@ interface Props {
   jdUrl: string;
   jdText: string;
   onCancel: () => void;
+  // No-CV guided onboarding (US156): skip uploads and go straight to the guided
+  // interview that builds the profile from scratch against the job ad.
+  guided?: boolean;
 }
 
-export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Props) {
+export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guided = false }: Props) {
   const router = useRouter();
   const t = useTranslations("processing");
 
-  const [steps, setSteps] = useState<ProgressStep[]>(() => [
-    { label: t("analyzingJD"), status: "pending" },
-    ...files.map((_, i) => ({
-      label:
-        files.length === 1
-          ? t("uploadingCV")
-          : t("uploadingCVN", { n: i + 1, total: files.length }),
-      status: "pending" as const,
-    })),
-    { label: t("buildingProfile"), status: "pending" },
-    { label: t("detectingGaps"), status: "pending" },
-  ]);
+  const [steps, setSteps] = useState<ProgressStep[]>(() =>
+    guided
+      ? [
+          { label: t("analyzingJD"), status: "pending" as const },
+          { label: t("preparingInterview"), status: "pending" as const },
+        ]
+      : [
+          { label: t("analyzingJD"), status: "pending" as const },
+          ...files.map((_, i) => ({
+            label:
+              files.length === 1
+                ? t("uploadingCV")
+                : t("uploadingCVN", { n: i + 1, total: files.length }),
+            status: "pending" as const,
+          })),
+          { label: t("buildingProfile"), status: "pending" as const },
+          { label: t("detectingGaps"), status: "pending" as const },
+        ]
+  );
 
   const [jdNote, setJdNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -165,19 +175,70 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
           flowId = flow.flow_id;
         }
 
-        // Steps 1..N: one upload step per file
+        // No-CV guided onboarding (US156, FMEA 2.6): no uploads — the guided
+        // interview builds the profile. It needs a job (create_session requires
+        // one), so a JD is mandatory here. We create the guided session and
+        // advance the flow jd_analysis → interview (ADR-016 amended) BEFORE
+        // routing — otherwise the step-order guard bounces /interview to /import.
+        if (guided) {
+          if (!jobId) throw new Error(t("noCvNeedJd"));
+          const sessRes = await fetch(`${API_BASE}/api/session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: jobId, mode: "guided" }),
+          });
+          if (!sessRes.ok) throw new Error(await apiErrorMessage(sessRes));
+          const sess = await sessRes.json();
+          await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ step: "interview", artifact_id: sess.session_id }),
+          });
+          setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
+          await new Promise((r) => setTimeout(r, 400));
+          router.push(`/flow/${flowId}/interview`);
+          return;
+        }
+
+        // Steps 1..N: one upload step per file.
+        // A single failed file must NOT abort onboarding (FMEA JF-M-2.2): we
+        // continue with the CVs that parsed and surface "N of M" on the summary.
+        // Only a total failure (zero parsed) is a hard stop.
+        let parsedCount = 0;
+        // Upload-time input-plausibility signals (US154/155/157, issue #43)
+        let anyNameMismatch = false;
+        let anyNotCv = false;
+        let totalUndated = 0;
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = 1 + i;
           if (i > 0) setStepStatus(uploadIdx, "active");
           const formData = new FormData();
           formData.append("file", files[i]);
-          const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
-            method: "POST",
-            body: formData,
-          });
-          if (!uploadRes.ok) throw new Error(await apiErrorMessage(uploadRes));
-          setStepStatus(uploadIdx, "done");
+          try {
+            const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
+              method: "POST",
+              body: formData,
+            });
+            if (!uploadRes.ok) {
+              setStepStatus(uploadIdx, "error");
+              continue;
+            }
+            const body = await uploadRes.json().catch(() => null);
+            if (body) {
+              if (body.name_mismatch) anyNameMismatch = true;
+              if (body.looks_like_cv === false) anyNotCv = true;
+              if (typeof body.undated_positions === "number") totalUndated += body.undated_positions;
+            }
+            setStepStatus(uploadIdx, "done");
+            parsedCount += 1;
+          } catch {
+            setStepStatus(uploadIdx, "error");
+          }
         }
+        if (parsedCount === 0) {
+          throw new Error(t("allCvsFailed"));
+        }
+        const cvFailedCount = files.length - parsedCount;
 
         // Build profile (instant — upload already did the work)
         setStepStatus(profileIdx, "active");
@@ -187,13 +248,25 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
         // Detect gaps
         setStepStatus(gapsIdx, "active");
 
+        // Carry JD-recovery + per-file CV parse status to the gaps summary.
+        const gapsQuery = (() => {
+          const p = new URLSearchParams();
+          if (jdFailReason) p.set("jd_status", jdFailReason);
+          if (cvFailedCount > 0) {
+            p.set("cv_parsed", String(parsedCount));
+            p.set("cv_total", String(files.length));
+          }
+          if (anyNameMismatch) p.set("name_warning", "1");
+          if (anyNotCv) p.set("doc_warning", "1");
+          if (totalUndated > 0) p.set("undated", String(totalUndated));
+          const qs = p.toString();
+          return qs ? `?${qs}` : "";
+        })();
+
         if (!jobId) {
           setStepStatus(gapsIdx, "done");
           await new Promise((r) => setTimeout(r, 400));
-          const gapsUrl = jdFailReason
-            ? `/flow/${flowId}/gaps?jd_status=${jdFailReason}`
-            : `/flow/${flowId}/gaps`;
-          router.push(gapsUrl);
+          router.push(`/flow/${flowId}/gaps${gapsQuery}`);
           return;
         }
 
@@ -217,10 +290,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
         setStepStatus(gapsIdx, "done");
 
         await new Promise((r) => setTimeout(r, 400));
-        const gapsUrl = jdFailReason
-          ? `/flow/${flowId}/gaps?jd_status=${jdFailReason}`
-          : `/flow/${flowId}/gaps`;
-        router.push(gapsUrl);
+        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "An error occurred. Please try again.");
       }

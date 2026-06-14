@@ -120,10 +120,17 @@ async def analyze_jd(
         embedding = None
 
     role_title = (data.get("role_title") or "").strip()
-    if not role_title:
+    required = data.get("required_skills") or []
+    nice = data.get("nice_to_have_skills") or []
+    # US159 / FMEA JF-M-4.5: validity must not hinge solely on the title. A real
+    # JD that merely lacks an explicit title line is still valid when requirements
+    # were extracted — the UI asks for the title inline (see the JD echo, US158).
+    # Reject only true garbage (no title AND nothing JD-like), so this — our only
+    # garbage detector — keeps surfacing a 422 instead of a 500.
+    if not role_title and not required and not nice:
         raise ValueError(
-            "The provided text does not appear to be a valid job description "
-            "(role_title was not detected by the LLM)."
+            "The provided text does not appear to be a job description "
+            "(no role title or requirements could be detected)."
         )
 
     berufsbild_code, berufsbild_label = _validate_berufsbild(

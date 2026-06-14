@@ -35,6 +35,14 @@ class ProfessionalSummary(BaseModel):
 class PersonalInfo(BaseModel):
     name: str = ""
     email: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _coerce_name(cls, v: object) -> str:
+        # The LLM returns explicit null for a nameless document (e.g. a JD uploaded
+        # as a CV). Coerce None → "" so extraction doesn't crash with a Pydantic
+        # error — the document-type warning (US154/FMEA 2.3) then handles it.
+        return v if isinstance(v, str) else ""
     phone: str | None = None
     location: str | None = None
     address: str | None = None
@@ -454,6 +462,10 @@ class CVUploadResponse(BaseModel):
     conflicts: list[ConflictSummary] = Field(default_factory=list)
     enrichment_record_id: uuid.UUID
     expires_at: datetime
+    # Input-plausibility signals (Input Integrity sprint, issue #43)
+    looks_like_cv: bool = True          # US154 / FMEA 2.3
+    name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
+    undated_positions: int = 0          # US157 / FMEA 2.7
 
 
 class UploadHistoryItem(BaseModel):

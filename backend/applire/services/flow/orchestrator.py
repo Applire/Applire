@@ -65,7 +65,10 @@ from applire.schemas.profile import MasterProfileData
 # ---------------------------------------------------------------------------
 
 VALID_TRANSITIONS: dict[str, list[str]] = {
-    "jd_analysis":   ["cv_import", "gap_analysis"],   # returning users skip cv_import
+    # "interview" target: no-CV guided onboarding (US156 / FMEA JF-M-2.6, ADR-016
+    # amended) — a user with a job but no CV skips cv_import + gap_analysis and the
+    # guided interview builds the Master Profile from scratch.
+    "jd_analysis":   ["cv_import", "gap_analysis", "interview"],
     "cv_import":     ["gap_analysis"],
     "gap_analysis":  ["interview", "cv_generation"],   # returning users may skip interview
     "interview":     ["cv_generation"],

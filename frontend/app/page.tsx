@@ -45,6 +45,7 @@ export default function Home() {
   const [jdText, setJdText] = useState("");
   const [error, setError] = useState("");
   const [showOverlay, setShowOverlay] = useState(false);
+  const [guided, setGuided] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -85,6 +86,21 @@ export default function Home() {
       return;
     }
     setError("");
+    setGuided(false);
+    setShowOverlay(true);
+  }
+
+  // No-CV onboarding (US156, FMEA 2.6): build the profile through a guided
+  // interview instead of an upload. The guided interview needs a job, so a JD
+  // is required to start.
+  function handleNoCv() {
+    const jd = jdMode === "url" ? jdUrl.trim() : jdText.trim();
+    if (!jd) {
+      setError(t("noCvNeedJd"));
+      return;
+    }
+    setError("");
+    setGuided(true);
     setShowOverlay(true);
   }
 
@@ -110,10 +126,11 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-surface-dim">
       {showOverlay && (
         <ProcessingOverlay
-          files={files.map(({ file }) => file)}
+          files={guided ? [] : files.map(({ file }) => file)}
           jdMode={jdMode}
           jdUrl={jdUrl}
           jdText={jdText}
+          guided={guided}
           onCancel={() => setShowOverlay(false)}
         />
       )}
@@ -150,6 +167,8 @@ export default function Home() {
                 multiple
                 disabled={showOverlay}
               />
+
+              <p className="text-xs text-gray-500 mt-2">{t("linkedinHint")}</p>
 
               {/* File chips */}
               {files.length > 0 && (
@@ -269,6 +288,20 @@ export default function Home() {
             <p className="text-xs text-gray-500 mt-3">
               {t("usuallyTakes")}
             </p>
+
+            {/* No-CV onboarding entry (US156, FMEA 2.6) — first-class, not hidden behind a failed upload */}
+            <div className="mt-6 flex flex-col items-center border-t border-gray-200 pt-5 w-full max-w-[420px]">
+              <button
+                type="button"
+                data-testid="no-cv-button"
+                onClick={handleNoCv}
+                disabled={showOverlay}
+                className="text-sm font-medium text-teal underline hover:no-underline disabled:opacity-50"
+              >
+                {t("noCv")}
+              </button>
+              <p className="text-xs text-gray-500 mt-1 text-center">{t("noCvSub")}</p>
+            </div>
           </div>
         </div>
       </main>

@@ -21,7 +21,7 @@
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
-export type ProgressStepStatus = "done" | "active" | "pending";
+export type ProgressStepStatus = "done" | "active" | "pending" | "error";
 
 export interface ProgressStep {
   label: string;
@@ -52,6 +52,15 @@ function StepIcon({ status }: { status: ProgressStepStatus }) {
     return (
       <div className="flex-shrink-0 w-4 h-4 rounded-full border-2 border-gold-dim flex items-center justify-center">
         <div className="w-1.5 h-1.5 rounded-full bg-gold-dim animate-pulse" />
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="flex-shrink-0 w-4 h-4 rounded-full bg-critical flex items-center justify-center">
+        <svg className="w-2.5 h-2.5 stroke-white" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 6l12 12M18 6L6 18" />
+        </svg>
       </div>
     );
   }
@@ -115,6 +124,7 @@ export function ProgressWidget({ steps, title, subtitle, className }: ProgressWi
               "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200",
               step.status === "done" && "bg-primary-container/20",
               step.status === "active" && "animate-shimmer border border-gold/40",
+              step.status === "error" && "bg-critical/10 border border-critical/20",
               step.status === "pending" && "opacity-40"
             )}
           >
