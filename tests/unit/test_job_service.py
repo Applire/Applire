@@ -74,31 +74,51 @@ _VALID_JD_RESPONSE = {
 
 
 # ---------------------------------------------------------------------------
-# Null role_title guard
+# JD validity guard (US159 / FMEA JF-M-4.5)
 # ---------------------------------------------------------------------------
 
 
-class TestNullRoleTitleGuard:
+class TestJdValidityGuard:
     """
-    When the scraped content is a cookie wall or other non-JD page, the LLM
-    returns null for role_title. The service must raise ValueError before
-    attempting the DB insert so the router can surface a 422 instead of a 500.
+    Validity must NOT hinge solely on role_title. A real JD without an explicit
+    title line (requirements extracted) is accepted — the UI asks for the title
+    inline. Only true garbage (no title AND no requirements/skills) is rejected,
+    so the only garbage detector still functions (router surfaces 422, not 500).
     """
 
     @pytest.mark.asyncio
-    async def test_null_role_title_raises_value_error(self, db):
-        response = {**_VALID_JD_RESPONSE, "role_title": None}
+    async def test_no_title_and_no_requirements_raises(self, db):
+        # Cookie wall / non-JD page: neither a title nor any requirements.
+        response = {
+            **_VALID_JD_RESPONSE,
+            "role_title": None,
+            "required_skills": [],
+            "nice_to_have_skills": [],
+        }
         provider = _make_provider(response)
         with pytest.raises(ValueError, match="job description"):
             await analyze_jd("cookie consent page content", db, provider)
 
     @pytest.mark.asyncio
-    async def test_empty_string_role_title_raises_value_error(self, db):
-        """Empty string after strip should also be rejected."""
-        response = {**_VALID_JD_RESPONSE, "role_title": "   "}
+    async def test_empty_title_and_no_requirements_raises(self, db):
+        response = {
+            **_VALID_JD_RESPONSE,
+            "role_title": "   ",
+            "required_skills": [],
+            "nice_to_have_skills": [],
+        }
         provider = _make_provider(response)
         with pytest.raises(ValueError, match="job description"):
             await analyze_jd("some scraped text", db, provider)
+
+    @pytest.mark.asyncio
+    async def test_no_title_but_with_requirements_is_accepted(self, db):
+        """FMEA 4.5: a plausible JD missing only its title line is accepted
+        (title left empty for the UI to fill inline), not hard-rejected."""
+        response = {**_VALID_JD_RESPONSE, "role_title": None}  # keeps GMP/LIMS requirements
+        provider = _make_provider(response)
+        result = await analyze_jd("a genuine job ad without an explicit title line", db, provider)
+        assert result.role_title == ""
 
     @pytest.mark.asyncio
     async def test_valid_role_title_does_not_raise(self, db):
