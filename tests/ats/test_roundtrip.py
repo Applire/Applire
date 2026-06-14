@@ -32,6 +32,7 @@ from applire.services.cover_letter import _TEMPLATE_FILES as LETTER_TEMPLATES
 from applire.services.cover_letter import _default_color_context
 from applire.services.cv import _TEMPLATE_FILES as CV_TEMPLATES
 from applire.services.cv import _html_to_pdf, _jinja_env
+from applire.templates.labels import cover_letter_labels, cv_labels
 
 KEYWORDS = ["Python", "Kubernetes", "Projektmanagement"]
 
@@ -295,11 +296,11 @@ LETTER_EN = {
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fixture", [CV_DE, CV_EN], ids=["de", "en"])
+@pytest.mark.parametrize("fixture,lang", [(CV_DE, "de"), (CV_EN, "en")], ids=["de", "en"])
 @pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
-async def test_cv_template_roundtrip(template, fixture):
+async def test_cv_template_roundtrip(template, fixture, lang):
     html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
-        cv=fixture, color=_default_context()
+        cv=fixture, color=_default_context(), lang=lang, labels=cv_labels(lang)
     )
     pdf = await _html_to_pdf(html)
     report = audit_cv(pdf, fixture, KEYWORDS)
@@ -308,11 +309,11 @@ async def test_cv_template_roundtrip(template, fixture):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fixture", [LETTER_DE, LETTER_EN], ids=["de", "en"])
+@pytest.mark.parametrize("fixture,lang", [(LETTER_DE, "de"), (LETTER_EN, "en")], ids=["de", "en"])
 @pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
-async def test_letter_template_roundtrip(template, fixture):
+async def test_letter_template_roundtrip(template, fixture, lang):
     html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
-        letter=fixture, color=_default_color_context()
+        letter=fixture, color=_default_color_context(), lang=lang, labels=cover_letter_labels(lang)
     )
     pdf = await _html_to_pdf(html)
     report = audit_cover_letter(pdf, fixture, KEYWORDS)
