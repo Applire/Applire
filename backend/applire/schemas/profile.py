@@ -35,6 +35,14 @@ class ProfessionalSummary(BaseModel):
 class PersonalInfo(BaseModel):
     name: str = ""
     email: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _coerce_name(cls, v: object) -> str:
+        # The LLM returns explicit null for a nameless document (e.g. a JD uploaded
+        # as a CV). Coerce None → "" so extraction doesn't crash with a Pydantic
+        # error — the document-type warning (US154/FMEA 2.3) then handles it.
+        return v if isinstance(v, str) else ""
     phone: str | None = None
     location: str | None = None
     address: str | None = None

@@ -76,6 +76,11 @@ async def analyze_job_description(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
+    except ValueError as exc:
+        # Not-a-JD / unprocessable input (US159 / FMEA 4.5) — a user-input problem,
+        # so surface a 422, not a 500. (JSONDecodeError, a ValueError subclass, is
+        # handled above and stays a 502.)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 

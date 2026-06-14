@@ -63,6 +63,16 @@ class TestLooksLikeCv:
         assert _looks_like_cv(_profile()) is False
 
 
+class TestNamelessExtraction:
+    def test_personal_info_name_coerces_none_to_empty(self):
+        # The LLM returns null name for a nameless document (a JD uploaded as a
+        # CV). Extraction must not crash — coerce to "" so US154's looks_like_cv
+        # warning can run instead of a 422 Pydantic error. (PQ find, 2026-06-14.)
+        p = MasterProfileData.model_validate({"personal_info": {"name": None}})
+        assert p.personal_info.name == ""
+        assert _looks_like_cv(p) is False
+
+
 class TestUndatedPositions:
     def test_counts_positions_missing_a_start_date(self):
         p = _profile(
