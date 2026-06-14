@@ -164,11 +164,11 @@ python -m applire.mcp
 Set in `.env` (copy from `.env.example`):
 
 ```env
-LLM_PROVIDER=openrouter          # openrouter | mistral | openai | ollama
+LLM_PROVIDER=openrouter          # mistral | requesty | openrouter | anthropic | openai | ollama
 OPENROUTER_API_KEY=your-key      # get one at openrouter.ai/keys
 ```
 
-For fully offline use: `LLM_PROVIDER=ollama` and `docker compose --profile ollama up`.
+EU-resident options: `mistral` (EU-hosted) or `requesty` (EU endpoint, also an EU path to Claude/GPT/Gemini). `anthropic` is BYO-API-key only — a Claude subscription cannot be used. For fully offline use: `LLM_PROVIDER=ollama` and `docker compose --profile ollama up`.
 
 ---
 

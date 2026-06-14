@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     openrouter_model: str = "mistralai/mistral-large-latest"
     openrouter_base_url: str = ""          # empty = use https://openrouter.ai/api/v1
     openrouter_disable_thinking: bool = False  # set True for Qwen3/DeepSeek-R1 to skip reasoning overhead
+    # Requesty — EU-hosted OpenAI-compat gateway (ADR-009 amended 2026-06-14)
+    requesty_api_key: str = ""
+    requesty_model: str = "mistralai/mistral-large-latest"  # set an EU-region model for full residency
+    requesty_base_url: str = ""            # empty = use https://router.eu.requesty.ai/v1 (EU residency)
+    # Anthropic — native Messages API; BYO-API-key only (Claude subscriptions are not usable)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
     llm_timeout: int = 120                 # seconds; raise for thinking/reasoning models (e.g. Qwen3, o3)
     embedding_provider: str = "noop"
     embedding_model: str = ""             # empty = use provider default

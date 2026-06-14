@@ -40,6 +40,14 @@ def get_provider() -> LLMProvider:
         from applire.providers.llm.openrouter import OpenRouterProvider
         return OpenRouterProvider(timeout=settings.llm_timeout)
 
+    if provider == "requesty":
+        from applire.providers.llm.requesty import RequestyProvider
+        return RequestyProvider(timeout=settings.llm_timeout)
+
+    if provider == "anthropic":
+        from applire.providers.llm.anthropic import AnthropicProvider
+        return AnthropicProvider(timeout=settings.llm_timeout)
+
     if provider == "openai":
         from applire.providers.llm.openai import OpenAIProvider
         return OpenAIProvider(timeout=settings.llm_timeout)
@@ -54,5 +62,5 @@ def get_provider() -> LLMProvider:
 
     raise ValueError(
         f"Unknown LLM_PROVIDER '{settings.llm_provider}'. "
-        "Valid values: mistral, openrouter, openai, ollama"
+        "Valid values: mistral, openrouter, requesty, anthropic, openai, ollama"
     )

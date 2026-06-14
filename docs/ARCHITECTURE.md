@@ -154,9 +154,13 @@ All TTL values are configurable via environment variables in `applire/constants.
 | `LLM_PROVIDER` | Provider | Notes |
 |---|---|---|
 | `mistral` (shipped fallback) | Mistral AI SDK | EU-hosted, strong German proficiency |
-| `openrouter` | OpenRouter API | Multi-model gateway; access Mistral, Claude, and others with one key |
+| `requesty` | Requesty (OpenAI-compat gateway) | EU-hosted (Frankfurt, zero-retention); defaults to the EU endpoint. An EU-resident path to Claude/GPT/Gemini via Bedrock/Azure/Vertex EU deployments |
+| `openrouter` | OpenRouter API | Multi-model gateway; access Mistral, Claude, and others with one key (not EU-hosted) |
+| `anthropic` | Anthropic Messages API | Claude via a Console **API key** (BYO-key) — a Claude Pro/Max/Team *subscription* cannot be used. US-hosted |
 | `openai` | OpenAI SDK | Also supports LM Studio and any OpenAI-compatible endpoint via `OPENAI_BASE_URL` |
 | `ollama` | Ollama REST API | Fully offline, no API costs, no key required |
+
+> **EU data residency:** `mistral` (EU-hosted) and `requesty` (EU endpoint) keep data in-region, and a local `ollama` needs no cloud at all; `anthropic`/`openai` are US-hosted BYO-key options. A Claude *subscription* (Pro/Max/Team) is **not** usable — Anthropic permits only Console API keys (or Bedrock/Vertex, which `requesty`-EU routes through) in third-party apps.
 
 **Why direct SDKs over LangChain:** Consistent with the decision not to use LangGraph (ADR-004). Reduces the dependency surface and keeps the provider contract narrow and testable.
 
