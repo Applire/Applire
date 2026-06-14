@@ -37,12 +37,18 @@
     "analyzeButton": "Analyze & Build Profile",
     "uploadAtLeastOne": "Upload at least one CV to continue",
     "usuallyTakes": "This usually takes about 30 seconds",
-    "addMoreFiles": "Add more files for a richer profile"
+    "addMoreFiles": "Add more files for a richer profile",
+    "linkedinHint": "Tip: a LinkedIn profile PDF export works as a CV.",
+    "noCv": "No CV at hand?",
+    "noCvSub": "Start with the job ad — we'll build your profile through a quick interview.",
+    "noCvNeedJd": "Paste the job you're applying for to start without a CV."
   },
   "processing": {
     "analyzingJD": "Analyzing job description…",
     "buildingProfile": "Building profile…",
     "allCvsFailed": "We couldn't read any of your CVs. Please check the files and try again.",
+    "preparingInterview": "Preparing your interview…",
+    "noCvNeedJd": "Paste the job you're applying for to start without a CV.",
     "jdSkipped": "Job description skipped",
     "jdUrlInvalid": "That doesn't look like a valid URL — you can add it later",
     "jdFetchFailed": "The site blocked us — you can paste the text later",

@@ -45,24 +45,34 @@ interface Props {
   jdUrl: string;
   jdText: string;
   onCancel: () => void;
+  // No-CV guided onboarding (US156): skip uploads and go straight to the guided
+  // interview that builds the profile from scratch against the job ad.
+  guided?: boolean;
 }
 
-export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Props) {
+export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guided = false }: Props) {
   const router = useRouter();
   const t = useTranslations("processing");
 
-  const [steps, setSteps] = useState<ProgressStep[]>(() => [
-    { label: t("analyzingJD"), status: "pending" },
-    ...files.map((_, i) => ({
-      label:
-        files.length === 1
-          ? t("uploadingCV")
-          : t("uploadingCVN", { n: i + 1, total: files.length }),
-      status: "pending" as const,
-    })),
-    { label: t("buildingProfile"), status: "pending" },
-    { label: t("detectingGaps"), status: "pending" },
-  ]);
+  const [steps, setSteps] = useState<ProgressStep[]>(() =>
+    guided
+      ? [
+          { label: t("analyzingJD"), status: "pending" as const },
+          { label: t("preparingInterview"), status: "pending" as const },
+        ]
+      : [
+          { label: t("analyzingJD"), status: "pending" as const },
+          ...files.map((_, i) => ({
+            label:
+              files.length === 1
+                ? t("uploadingCV")
+                : t("uploadingCVN", { n: i + 1, total: files.length }),
+            status: "pending" as const,
+          })),
+          { label: t("buildingProfile"), status: "pending" as const },
+          { label: t("detectingGaps"), status: "pending" as const },
+        ]
+  );
 
   const [jdNote, setJdNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +173,17 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
           if (!flowRes.ok) throw new Error(await apiErrorMessage(flowRes));
           const flow = await flowRes.json();
           flowId = flow.flow_id;
+        }
+
+        // No-CV guided onboarding (US156, FMEA 2.6): no uploads — the guided
+        // interview builds the profile. It needs a job (create_session requires
+        // one), so a JD is mandatory here.
+        if (guided) {
+          if (!jobId) throw new Error(t("noCvNeedJd"));
+          setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
+          await new Promise((r) => setTimeout(r, 400));
+          router.push(`/flow/${flowId}/interview`);
+          return;
         }
 
         // Steps 1..N: one upload step per file.
