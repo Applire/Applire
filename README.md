@@ -264,17 +264,25 @@ Applire is **bring-your-own-key**: pick any supported provider and supply its ke
 # Database
 DATABASE_URL=postgresql+asyncpg://applire:applire@postgres:5432/applire
 
-# LLM Provider — choose one: mistral | openrouter | openai | ollama
+# LLM Provider — choose one: mistral | requesty | openrouter | anthropic | openai | ollama
 LLM_PROVIDER=mistral
 
 # Mistral AI — EU-hosted, strong German proficiency
 MISTRAL_API_KEY=your-mistral-api-key-here
 MISTRAL_MODEL=mistral-medium-latest
 
-# OpenRouter — multi-model gateway: one key for Mistral, Claude, and more
+# Requesty — EU-hosted gateway (Frankfurt); also an EU-resident path to Claude/GPT/Gemini
+REQUESTY_API_KEY=your-requesty-api-key-here
+REQUESTY_MODEL=mistralai/mistral-large-latest   # EU-region model for full residency
+
+# OpenRouter — multi-model gateway: one key for Mistral, Claude, and more (not EU-hosted)
 # Get a key at https://openrouter.ai/keys
 OPENROUTER_API_KEY=your-openrouter-api-key-here
 OPENROUTER_MODEL=mistralai/mistral-medium-3
+
+# Anthropic (Claude) — native API, BYO-API-key only (a Claude subscription cannot be used)
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+#ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # OpenAI or any OpenAI-compatible server (e.g. LM Studio)
 OPENAI_API_KEY=your-openai-api-key-here
