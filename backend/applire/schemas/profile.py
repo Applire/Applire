@@ -454,6 +454,10 @@ class CVUploadResponse(BaseModel):
     conflicts: list[ConflictSummary] = Field(default_factory=list)
     enrichment_record_id: uuid.UUID
     expires_at: datetime
+    # Input-plausibility signals (Input Integrity sprint, issue #43)
+    looks_like_cv: bool = True          # US154 / FMEA 2.3
+    name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
+    undated_positions: int = 0          # US157 / FMEA 2.7
 
 
 class UploadHistoryItem(BaseModel):

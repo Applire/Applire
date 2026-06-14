@@ -239,6 +239,90 @@ function CvParseBanner() {
 }
 
 // ---------------------------------------------------------------------------
+// Input Warnings Banner — name-mismatch (US155/2.4), document-type (US154/2.3)
+// and per-CV completeness (US157/2.7), surfaced via query params from upload.
+// ---------------------------------------------------------------------------
+
+function InputWarningsBannerInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const t = useTranslations("gaps");
+  const tc = useTranslations("common");
+  const [dismissed, setDismissed] = useState(false);
+
+  const nameWarning = searchParams.get("name_warning") === "1";
+  const docWarning = searchParams.get("doc_warning") === "1";
+  const undatedRaw = searchParams.get("undated");
+  const undated = undatedRaw ? Number(undatedRaw) : 0;
+  const hasUndated = Number.isFinite(undated) && undated > 0;
+
+  if (dismissed || (!nameWarning && !docWarning && !hasUndated)) return null;
+
+  return (
+    <div
+      data-testid="input-warnings-banner"
+      className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
+    >
+      <svg
+        className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+        />
+      </svg>
+      <div className="min-w-0 flex-1 space-y-1">
+        {nameWarning && (
+          <p data-testid="warn-name" className="text-sm text-amber-800">{t("nameMismatchWarning")}</p>
+        )}
+        {docWarning && (
+          <p data-testid="warn-doc" className="text-sm text-amber-800">{t("docTypeWarning")}</p>
+        )}
+        {hasUndated && (
+          <p data-testid="warn-undated" className="text-sm text-amber-700">
+            {t("undatedPositionsNote", { count: undated })}
+          </p>
+        )}
+        {(nameWarning || docWarning) && (
+          <button
+            data-testid="input-warnings-review"
+            type="button"
+            className="text-sm font-medium text-amber-700 underline hover:no-underline"
+            onClick={() => router.push("/profile")}
+          >
+            {t("reviewProfile")}
+          </button>
+        )}
+      </div>
+      <button
+        data-testid="input-warnings-dismiss"
+        type="button"
+        aria-label={tc("ariaDismiss")}
+        className="shrink-0 text-amber-500 transition-colors hover:text-amber-700"
+        onClick={() => setDismissed(true)}
+      >
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative close symbol */}
+        {"×"}
+      </button>
+    </div>
+  );
+}
+
+function InputWarningsBanner() {
+  return (
+    <Suspense fallback={null}>
+      <InputWarningsBannerInner />
+    </Suspense>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // GapClickPanel — inline micro-session for a single cluster
 // ---------------------------------------------------------------------------
 
@@ -604,6 +688,7 @@ export default function GapsPage({
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
       <JdRecoveryBanner />
       <CvParseBanner />
+      <InputWarningsBanner />
       {/* Section 1: Master Profile Summary */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">

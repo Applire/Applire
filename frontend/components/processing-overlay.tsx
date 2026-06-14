@@ -170,6 +170,10 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
         // continue with the CVs that parsed and surface "N of M" on the summary.
         // Only a total failure (zero parsed) is a hard stop.
         let parsedCount = 0;
+        // Upload-time input-plausibility signals (US154/155/157, issue #43)
+        let anyNameMismatch = false;
+        let anyNotCv = false;
+        let totalUndated = 0;
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = 1 + i;
           if (i > 0) setStepStatus(uploadIdx, "active");
@@ -183,6 +187,12 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
             if (!uploadRes.ok) {
               setStepStatus(uploadIdx, "error");
               continue;
+            }
+            const body = await uploadRes.json().catch(() => null);
+            if (body) {
+              if (body.name_mismatch) anyNameMismatch = true;
+              if (body.looks_like_cv === false) anyNotCv = true;
+              if (typeof body.undated_positions === "number") totalUndated += body.undated_positions;
             }
             setStepStatus(uploadIdx, "done");
             parsedCount += 1;
@@ -211,6 +221,9 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
             p.set("cv_parsed", String(parsedCount));
             p.set("cv_total", String(files.length));
           }
+          if (anyNameMismatch) p.set("name_warning", "1");
+          if (anyNotCv) p.set("doc_warning", "1");
+          if (totalUndated > 0) p.set("undated", String(totalUndated));
           const qs = p.toString();
           return qs ? `?${qs}` : "";
         })();
