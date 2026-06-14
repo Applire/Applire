@@ -340,15 +340,26 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     expect(screen.queryByTestId("processing-error")).toBeNull();
   });
 
-  it("guided onboarding skips uploads and routes to the interview (US156)", async () => {
+  it("guided onboarding skips uploads, creates a guided session, advances to interview, and routes there (US156)", async () => {
     let uploadCalled = false;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    let guidedSession: unknown = null;
+    let advancedToInterview = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/api/job/analyze")) {
         return { ok: true, status: 200, json: async () => ({ id: "job-g", role_title: "X" }) } as Response;
       }
       if (url.includes("/api/applications")) {
         return { ok: true, status: 200, json: async () => ({ flow_session_id: "flow-guided" }) } as Response;
+      }
+      if (url.includes("/api/session")) {
+        guidedSession = JSON.parse((init?.body as string) ?? "{}");
+        return { ok: true, status: 201, json: async () => ({ session_id: "sess-g", question: "Q1" }) } as Response;
+      }
+      if (url.includes("/api/flow/flow-guided/advance")) {
+        const adv = JSON.parse((init?.body as string) ?? "{}");
+        if (adv.step === "interview") advancedToInterview = true;
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
       }
       if (url.includes("/api/profile/upload")) {
         uploadCalled = true;
@@ -377,6 +388,8 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       { timeout: 5000 }
     );
     expect(uploadCalled).toBe(false);
+    expect(guidedSession).toEqual({ job_id: "job-g", mode: "guided" });
+    expect(advancedToInterview).toBe(true);
   });
 
   it("hard-stops (no navigation) when ALL CV uploads fail", async () => {

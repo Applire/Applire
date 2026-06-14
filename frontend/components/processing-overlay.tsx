@@ -177,9 +177,23 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
 
         // No-CV guided onboarding (US156, FMEA 2.6): no uploads — the guided
         // interview builds the profile. It needs a job (create_session requires
-        // one), so a JD is mandatory here.
+        // one), so a JD is mandatory here. We create the guided session and
+        // advance the flow jd_analysis → interview (ADR-016 amended) BEFORE
+        // routing — otherwise the step-order guard bounces /interview to /import.
         if (guided) {
           if (!jobId) throw new Error(t("noCvNeedJd"));
+          const sessRes = await fetch(`${API_BASE}/api/session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: jobId, mode: "guided" }),
+          });
+          if (!sessRes.ok) throw new Error(await apiErrorMessage(sessRes));
+          const sess = await sessRes.json();
+          await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ step: "interview", artifact_id: sess.session_id }),
+          });
           setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
           await new Promise((r) => setTimeout(r, 400));
           router.push(`/flow/${flowId}/interview`);

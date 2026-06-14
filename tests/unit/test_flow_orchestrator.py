@@ -134,6 +134,12 @@ def test_valid_transitions_returning_user_skips():
     assert "cv_generation" in VALID_TRANSITIONS["gap_analysis"]
 
 
+def test_valid_transitions_no_cv_guided_onboarding():
+    # US156 / FMEA 2.6 (ADR-016 amended): a user with a job but no CV skips
+    # cv_import + gap_analysis — the guided interview builds the profile.
+    assert "interview" in VALID_TRANSITIONS["jd_analysis"]
+
+
 # ---------------------------------------------------------------------------
 # _compute_actions
 # ---------------------------------------------------------------------------
