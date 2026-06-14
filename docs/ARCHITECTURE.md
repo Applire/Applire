@@ -247,6 +247,8 @@ Source tracking (an `EnrichmentRecord` for every change) is mandatory — every 
 jd_analysis → cv_import → gap_analysis → interview → cv_generation → complete
 ```
 
+Returning users skip `cv_import`; users with a sufficiently complete profile may skip `interview`. A user with a job but **no CV** takes the no-CV onboarding path `jd_analysis → interview` (skipping `cv_import` + `gap_analysis`) — the guided interview builds the Master Profile from scratch, then `interview → cv_generation` as usual.
+
 Key invariants:
 - One `flow_session` per `(user_id, job_id)`, enforced by a unique constraint.
 - `user_type` (`"new"` | `"returning"`) is resolved once at flow creation and is **immutable** for the lifetime of the flow.
