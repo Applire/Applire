@@ -27,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { StatCard } from "@/components/ui/stat-card";
+import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
@@ -376,6 +377,13 @@ export default function GapsPage({
   const [resolvedGaps, setResolvedGaps] = useState<Set<string>>(new Set());
   // Animated match score (refreshed after gap resolution)
   const [matchScore, setMatchScore] = useState(0);
+  // Parsed-JD echo for the pre-interview review surface (US158, FMEA 4.3/4.4)
+  const [jobEcho, setJobEcho] = useState<{
+    role_title: string;
+    company_name: string | null;
+    required_skills: string[];
+    nice_to_have_skills: string[];
+  } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -384,6 +392,24 @@ export default function GapsPage({
         if (!fsRes.ok) throw new Error("Flow not found");
         const fs: FlowState = await fsRes.json();
         setFlowState(fs);
+
+        // Best-effort: echo what we read from the job ad (US158, FMEA 4.3/4.4).
+        if (fs.job_id) {
+          try {
+            const jRes = await fetch(`${API_BASE}/api/job/${fs.job_id}`);
+            if (jRes.ok) {
+              const j = await jRes.json();
+              setJobEcho({
+                role_title: j.role_title ?? "",
+                company_name: j.company_name ?? null,
+                required_skills: j.required_skills ?? [],
+                nice_to_have_skills: j.nice_to_have_skills ?? [],
+              });
+            }
+          } catch {
+            // echo is non-critical; never block gap analysis on it
+          }
+        }
 
         let gapData: GapAnalysis;
         if (fs.gap_summary?.gap_analysis_id) {
@@ -606,6 +632,16 @@ export default function GapsPage({
             onFix={() => router.push("/profile")}
           />
         </div>
+      )}
+
+      {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4) */}
+      {jobEcho && (
+        <JobEchoCard
+          companyName={jobEcho.company_name}
+          roleTitle={jobEcho.role_title}
+          requiredSkills={jobEcho.required_skills}
+          niceToHaveSkills={jobEcho.nice_to_have_skills}
+        />
       )}
 
       {/* Section 2: Match Score */}
