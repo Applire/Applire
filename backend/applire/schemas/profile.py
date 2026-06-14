@@ -238,9 +238,12 @@ class FieldChange(BaseModel):
     action: Literal["added", "updated", "merged"]
     old_value: Any | None = None
     new_value: Any = None
-    # ADR-040: a human-readable "why" note shown on the "what changed & why" surfaces
-    # (e.g. "auto-resolved: kept most recent title", "accumulated from a second CV").
+    # ADR-040: a human-readable "why" note shown on the "what changed & why" surfaces.
+    # `rationale` is an English fallback / audit string; the frontend localizes via
+    # `rationale_key` (ADR-038 — the surface follows the user's UI language). Legacy
+    # records without a key fall back to the stored `rationale` prose.
     rationale: str | None = None
+    rationale_key: str | None = None
 
 
 class EnrichmentRecord(BaseModel):

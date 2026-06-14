@@ -68,6 +68,8 @@ class TestMergeEmitsStructuredChanges:
         result = merge_profiles(existing, incoming, source="cv_upload")
         assert result.changes
         assert all(c.rationale for c in result.changes), "ADR-040: each change needs a why-note"
+        # #2 (ADR-038): each change also carries a localizable key for the UI.
+        assert all(c.rationale_key for c in result.changes), "each change needs a rationale_key for i18n"
 
     def test_added_list_still_populated_for_backward_compat(self):
         existing = _profile()

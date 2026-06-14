@@ -35,6 +35,41 @@ _SAMPLE_PROFILE = {
 _SAMPLE_RAW_CV = "Acme GmbH — Software Developer (Jan 2020 – Dec 2022)\n- Built APIs\n- Led migrations"
 
 
+class TestCVLanguageReviewPrompt:
+    """#1 — the CV tailoring path needs a language-consistency reviewer (mirrors the
+    ADR-038 question-language reviewer) so skill tags + prose all land in the output
+    language. The system prompt must disambiguate the translate-vs-keep boundary that
+    the tailoring prompt left ambiguous (discipline phrases translate; product/tool
+    names stay)."""
+
+    _DRAFT = {
+        "summary": "Experienced designer.",
+        "work_history": [{"company": "Acme", "role": "Designer", "bullets": ["Led brand work"]}],
+        "skills": ["Brand Identity", "Kampagnenentwicklung", "Figma"],
+    }
+
+    def test_review_prompt_names_language_and_surfaces_skills(self):
+        from applire.prompts.review_cv_language import build_cv_language_review_prompt
+
+        p = build_cv_language_review_prompt("German", self._DRAFT)
+        assert "German" in p
+        assert "Brand Identity" in p  # the leak candidate is shown to the reviewer
+
+    def test_system_prompt_states_translate_vs_keep_boundary(self):
+        from applire.prompts.review_cv_language import CV_LANGUAGE_REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "skill" in low
+        # discipline/skill phrases translate; genuine product/tool/technology names stay
+        assert "product" in low or "tool" in low or "technology" in low
+
+    def test_refinement_prompt_includes_feedback_and_draft(self):
+        from applire.prompts.review_cv_language import build_cv_language_refinement_prompt
+
+        p = build_cv_language_refinement_prompt({"skills": ["Brand Identity"]}, "Translate skills to German")
+        assert "Translate skills to German" in p
+        assert "Brand Identity" in p
+
+
 class TestProfileExtractionReviewPrompts:
     def test_build_review_prompt_returns_nonempty_string(self):
         from applire.prompts.review_profile_extraction import build_review_prompt
@@ -308,10 +343,10 @@ class TestCVServiceReviewIntegration:
             "languages": [],
         }
 
-        captured: dict = {}
+        calls: list[dict] = []
 
         async def fake_review(**kwargs):
-            captured.update(kwargs)
+            calls.append(kwargs)
             return kwargs["draft"]
 
         mock_cv_id = uuid.uuid4()
@@ -357,6 +392,11 @@ class TestCVServiceReviewIntegration:
             await _render_cv_background(mock_cv_id, mock_job_id, mock_profile_id, "classic_german")
 
         expected_source = json.dumps(profile_json, ensure_ascii=False, indent=2)
-        assert captured.get("source") == expected_source
-        assert captured.get("draft") == tailored_raw
-        assert captured.get("max_retries") == 2
+        # Grounding review (review_cv_tailoring) gets the serialised master profile as source.
+        grounding = [c for c in calls if c.get("source") == expected_source]
+        assert grounding, "grounding review_and_refine not called with the profile source"
+        assert grounding[0]["draft"] == tailored_raw
+        assert grounding[0]["max_retries"] == 2
+        # #1: a second, language-enforcement pass runs (ADR-038) — source is a language name.
+        assert any(c.get("chain_id") == "cv_language" for c in calls), \
+            "CV language-review pass not wired into generation"

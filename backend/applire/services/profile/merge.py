@@ -243,6 +243,7 @@ def _merge_work_experience(
                         new_value=f"{inc.role} @ {inc.company}",
                         rationale=f"'{inc.role}' looked like a job title within your {inc.company} "
                                   f"role, so we added it as an alias rather than a separate position.",
+                        rationale_key="role_alias_added",
                     ))
                     break
             continue
@@ -324,6 +325,7 @@ def _merge_work_experience(
                     f"({'same employer name' if exact else 'matching employer name'} + overlapping dates) "
                     f"and combined the titles and details. Not the same job? You can split it."
                 ),
+                rationale_key="merged_same_position",
             ))
 
             result[idx] = merged
@@ -336,6 +338,7 @@ def _merge_work_experience(
                 section="work_experience", field="work_experience", action="added",
                 new_value=f"{inc.role} at {inc.company}",
                 rationale="New position added from this source.",
+                rationale_key="new_position",
             ))
 
     return _sort_work_by_date(result), added, conflicts, changes
@@ -415,6 +418,7 @@ def merge_profiles(
         all_changes.append(FieldChange(
             section="skills", field="skills", action="added",
             new_value=_s, rationale="New skill from this source.",
+            rationale_key="new_skill",
         ))
 
     # Education — append non-duplicate entries (match on institution + degree)
@@ -432,6 +436,7 @@ def merge_profiles(
                 section="education", field="education", action="added",
                 new_value=f"{inc_e.degree} at {inc_e.institution}",
                 rationale="New education entry from this source.",
+                rationale_key="new_education",
             ))
 
     # Languages — keep higher/new levels
@@ -447,6 +452,7 @@ def merge_profiles(
             all_changes.append(FieldChange(
                 section="languages", field="languages", action="added",
                 new_value=inc_l.language, rationale="New language from this source.",
+                rationale_key="new_language",
             ))
         # else keep existing level (user can patch manually)
 
@@ -459,6 +465,7 @@ def merge_profiles(
             all_changes.append(FieldChange(
                 section="certifications", field="certifications", action="added",
                 new_value=inc_c.name, rationale="New certification from this source.",
+                rationale_key="new_certification",
             ))
 
     # Personal info — fill gaps; flag only populated-vs-different values
@@ -531,6 +538,7 @@ def merge_profiles(
             section=_c.section, field=_c.field, action="updated",
             old_value=_c.existing_value, new_value=_c.incoming_value,
             rationale="Values differ between sources — flagged for your review.",
+            rationale_key="conflict_flagged",
         ))
 
     return MergeResult(

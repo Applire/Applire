@@ -238,7 +238,15 @@ async def get_cover_letter_html(
     letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
     template_file = _TEMPLATE_FILES.get(cl.template, "lebenslauf_letter.html.j2")
     tmpl = _jinja_env.get_template(template_file)
-    return tmpl.render(letter=letter_data, color=color_ctx)
+    # #4 (ADR-038): the subject prefix + html lang follow the document's output language
+    # (resolved from the target job, like the CV), not a hardcoded German "Bewerbung".
+    from applire.models.job import JobAnalysis
+    from applire.templates.labels import cover_letter_labels
+    job = await db.get(JobAnalysis, cl.job_analysis_id)
+    lang = resolve_jd_language(job) if job else "de"
+    return tmpl.render(
+        letter=letter_data, color=color_ctx, lang=lang, labels=cover_letter_labels(lang)
+    )
 
 
 async def patch_cover_letter_section(

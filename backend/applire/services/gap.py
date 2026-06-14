@@ -110,12 +110,18 @@ async def cluster_gaps(
     db: AsyncSession,
 ) -> None:
     """Run clustering LLM call and persist result to gap_analysis.gap_clusters."""
+    # #3 (ADR-038): cluster descriptions (jd_context) render on the conversational gaps
+    # page, so they follow the candidate's UI language. Local import avoids the
+    # session<->gap circular dependency.
+    from applire.services.session import get_ui_language
+    lang = await get_ui_language(db)
     raw_clusters: list = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(gap_analysis.category_b or []),
             category_c=list(gap_analysis.category_c or []),
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
+            lang=lang,
         ),
         system=CLUSTERING_SYSTEM_PROMPT,
         temperature=0.1,

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -200,7 +200,7 @@
   <!-- ===== BERUFLICHES PROFIL / SUMMARY ===== -->
   {% if cv.summary %}
   <section class="section">
-    <h2 class="section-title">Berufliches Profil</h2>
+    <h2 class="section-title">{{ labels.summary }}</h2>
     <p class="summary-text">{{ cv.summary }}</p>
   </section>
   {% endif %}
@@ -208,11 +208,11 @@
   <!-- ===== BERUFSERFAHRUNG ===== -->
   {% if cv.work_history %}
   <section class="section">
-    <h2 class="section-title">Berufserfahrung</h2>
+    <h2 class="section-title">{{ labels.experience }}</h2>
     {% for job in cv.work_history %}
     <div class="entry">
       <div class="entry-dates">
-        {{ job.start_date }}&nbsp;–&nbsp;{{ job.end_date if job.end_date else "heute" }}
+        {{ job.start_date }}&nbsp;–&nbsp;{{ job.end_date if job.end_date else labels.present }}
       </div>
       <div class="entry-body">
         <div class="entry-title">{{ job.role }}</div>
@@ -233,11 +233,11 @@
   <!-- ===== AUSBILDUNG ===== -->
   {% if cv.education %}
   <section class="section">
-    <h2 class="section-title">Ausbildung</h2>
+    <h2 class="section-title">{{ labels.education }}</h2>
     {% for edu in cv.education %}
     <div class="entry">
       <div class="entry-dates">
-        {{ edu.start_date }}{% if edu.start_date %}&nbsp;–&nbsp;{% endif %}{{ edu.end_date if edu.end_date else ("heute" if edu.start_date else "") }}
+        {{ edu.start_date }}{% if edu.start_date %}&nbsp;–&nbsp;{% endif %}{{ edu.end_date if edu.end_date else (labels.present if edu.start_date else "") }}
       </div>
       <div class="entry-body">
         <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
@@ -251,7 +251,7 @@
   <!-- ===== KENNTNISSE ===== -->
   {% if cv.skills %}
   <section class="section">
-    <h2 class="section-title">Kenntnisse</h2>
+    <h2 class="section-title">{{ labels.skills }}</h2>
     <ul class="skills-list">
       {% for skill in cv.skills %}
       <li>{{ skill }}</li>
@@ -263,7 +263,7 @@
   <!-- ===== SPRACHEN ===== -->
   {% if cv.languages %}
   <section class="section">
-    <h2 class="section-title">Sprachkenntnisse</h2>
+    <h2 class="section-title">{{ labels.languages }}</h2>
     {% for lang in cv.languages %}
     <div class="lang-entry">
       <span class="lang-name">{{ lang.language }}:</span>

@@ -121,7 +121,12 @@ async def ensure_thumbnails(static_dir: Path) -> None:
         for name, tpl_file in missing:
             try:
                 template = jinja_env.get_template(tpl_file)
-                html = template.render(cv=_SAMPLE_DATA, color=_DEFAULT_COLOR)
+                # #4 (ADR-038): templates now require lang/labels in context. Thumbnails are
+                # language-agnostic previews — render in the DACH default (German).
+                from applire.templates.labels import cv_labels
+                html = template.render(
+                    cv=_SAMPLE_DATA, color=_DEFAULT_COLOR, lang="de", labels=cv_labels("de")
+                )
                 page = await browser.new_page()
                 await page.set_viewport_size({"width": 794, "height": 1123})
                 await page.set_content(html, wait_until="networkidle")

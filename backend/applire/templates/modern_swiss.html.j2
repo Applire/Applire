@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -221,8 +221,7 @@
   {% if cv.summary %}
   <section class="section">
     <div class="section-header">
-      <span class="section-title-en">Profile</span>
-      <span class="section-title-de">Berufliches Profil</span>
+      <span class="section-title-en">{{ labels.summary }}</span>
       <div class="section-rule"></div>
     </div>
     <p class="summary-text">{{ cv.summary }}</p>
@@ -233,15 +232,14 @@
   {% if cv.work_history %}
   <section class="section">
     <div class="section-header">
-      <span class="section-title-en">Experience</span>
-      <span class="section-title-de">Berufserfahrung</span>
+      <span class="section-title-en">{{ labels.experience }}</span>
       <div class="section-rule"></div>
     </div>
     {% for job in cv.work_history %}
     <div class="entry">
       <div class="entry-meta">
         <div class="entry-title">{{ job.role }}</div>
-        <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else "present" }}</div>
+        <div class="entry-dates">{{ job.start_date }} – {{ job.end_date if job.end_date else labels.present }}</div>
       </div>
       <div class="entry-subtitle">{{ job.company }}</div>
       {% if job.bullets %}
@@ -260,15 +258,14 @@
   {% if cv.education %}
   <section class="section">
     <div class="section-header">
-      <span class="section-title-en">Education</span>
-      <span class="section-title-de">Ausbildung</span>
+      <span class="section-title-en">{{ labels.education }}</span>
       <div class="section-rule"></div>
     </div>
     {% for edu in cv.education %}
     <div class="entry">
       <div class="entry-meta">
         <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
-        <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else ("present" if edu.start_date else "") }}</div>
+        <div class="entry-dates">{{ edu.start_date }}{% if edu.start_date %} – {% endif %}{{ edu.end_date if edu.end_date else (labels.present if edu.start_date else "") }}</div>
       </div>
       <div class="entry-subtitle">{{ edu.institution }}</div>
     </div>
@@ -280,8 +277,7 @@
   {% if cv.skills %}
   <section class="section">
     <div class="section-header">
-      <span class="section-title-en">Skills</span>
-      <span class="section-title-de">Kenntnisse</span>
+      <span class="section-title-en">{{ labels.skills }}</span>
       <div class="section-rule"></div>
     </div>
     <ul class="skills-grid">
@@ -296,8 +292,7 @@
   {% if cv.languages %}
   <section class="section">
     <div class="section-header">
-      <span class="section-title-en">Languages</span>
-      <span class="section-title-de">Sprachkenntnisse</span>
+      <span class="section-title-en">{{ labels.languages }}</span>
       <div class="section-rule"></div>
     </div>
     <div class="lang-table">

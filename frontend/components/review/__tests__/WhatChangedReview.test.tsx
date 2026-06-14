@@ -41,6 +41,28 @@ const CHANGES: ReviewChange[] = [
 ];
 
 describe("WhatChangedReview", () => {
+  it("localizes rationale via rationaleKey when present (#2/ADR-038)", () => {
+    render(
+      <WhatChangedReview
+        mode="merge"
+        changes={[{ section: "skills", field: "skills", action: "added", newValue: "Rust", rationaleKey: "new_skill", rationale: "English fallback prose." }]}
+      />,
+    );
+    // mocked t() returns the key path → proves the localized lookup is used, not the literal
+    expect(screen.getByText("rationale.new_skill")).toBeInTheDocument();
+    expect(screen.queryByText("English fallback prose.")).toBeNull();
+  });
+
+  it("falls back to the stored rationale when no rationaleKey (legacy records)", () => {
+    render(
+      <WhatChangedReview
+        mode="merge"
+        changes={[{ section: "skills", field: "skills", action: "added", newValue: "Rust", rationale: "legacy prose" }]}
+      />,
+    );
+    expect(screen.getByText("legacy prose")).toBeInTheDocument();
+  });
+
   it("renders the per-mode title", () => {
     render(<WhatChangedReview mode="extraction" changes={CHANGES} />);
     expect(screen.getByTestId("what-changed-title")).toHaveTextContent("titleExtraction");

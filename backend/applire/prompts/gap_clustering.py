@@ -37,14 +37,14 @@ Schema for each cluster object:
   "category": "C or B (C if any member gap is Category C, else B)",
   "gaps": ["exact gap strings absorbed into this cluster"],
   "jd_skills": ["matching entries from required_skills or nice_to_have_skills"],
-  "jd_context": "One sentence, first-person role perspective, in the language of the job description, explaining why this cluster matters for the role."
+  "jd_context": "One sentence, first-person role perspective, written in the OUTPUT LANGUAGE stated in the user message, explaining why this cluster matters for the role."
 }
 
 Rules:
 - Merge gaps that share the same semantic domain (not just keywords)
 - category = "C" if any constituent gap is Category C, else "B"
 - jd_skills: only include skills that directly motivate this cluster (may be empty)
-- jd_context: one sentence, written in the same language as the job description (German or English)
+- jd_context: one sentence, written entirely in the OUTPUT LANGUAGE stated in the user message (the candidate's UI language), regardless of the language of the gaps or the job description
 - Target 5-12 clusters; never more clusters than input gaps
 - Every input gap must appear in exactly one cluster
 - Respond ONLY with a valid JSON array - no markdown, no explanations"""
@@ -55,11 +55,16 @@ def build_clustering_prompt(
     category_c: list[str],
     required_skills: list[str],
     nice_to_have_skills: list[str],
+    lang: str = "de",
 ) -> str:
+    # #3 (ADR-038): the gaps page is conversational — jd_context follows the candidate's
+    # UI language, not the JD's. An explicit directive is more reliable than "the JD's language".
+    language_name = "GERMAN" if lang == "de" else "ENGLISH"
     return (
         f"Category C gaps (missing evidence):\n{json.dumps(category_c, ensure_ascii=False)}\n\n"
         f"Category B gaps (likely but unstated):\n{json.dumps(category_b, ensure_ascii=False)}\n\n"
         f"Required skills from JD:\n{json.dumps(required_skills, ensure_ascii=False)}\n\n"
         f"Nice-to-have skills from JD:\n{json.dumps(nice_to_have_skills, ensure_ascii=False)}\n\n"
+        f"OUTPUT LANGUAGE: write every cluster's jd_context entirely in {language_name}.\n\n"
         "Group the gaps into semantic clusters. Return a JSON array."
     )

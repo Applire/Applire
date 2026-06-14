@@ -440,6 +440,7 @@ def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
             changes.append(FieldChange(
                 section="skills", field="skills", action="added",
                 new_value=name, rationale=_added,
+                rationale_key="interview_added",
             ))
 
     # Certifications added
@@ -450,6 +451,7 @@ def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
             changes.append(FieldChange(
                 section="certifications", field="certifications", action="added",
                 new_value=name, rationale=_added,
+                rationale_key="interview_added",
             ))
 
     # Work experience — new positions (added) and enriched existing ones (merged)
@@ -465,6 +467,7 @@ def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
                 section="work_experience", field="work_experience", action="added",
                 new_value=f"{role} @ {company}".strip(" @"),
                 rationale="New position from your interview answer.",
+                rationale_key="interview_new_position",
             ))
             continue
         # Known employer — record if achievements grew (details added from the answer)
@@ -474,6 +477,7 @@ def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
                 section="work_experience", field="achievements", action="merged",
                 new_value=f"{role} @ {company}".strip(" @"),
                 rationale="Details added to this position from your interview answer.",
+                rationale_key="interview_details_added",
             ))
 
     return changes
