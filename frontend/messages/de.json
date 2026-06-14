@@ -42,6 +42,7 @@
   "processing": {
     "analyzingJD": "Stellenbeschreibung wird analysiert…",
     "buildingProfile": "Profil wird erstellt…",
+    "allCvsFailed": "Wir konnten keinen deiner Lebensläufe lesen. Bitte prüfe die Dateien und versuche es erneut.",
     "jdSkipped": "Stellenbeschreibung übersprungen",
     "jdUrlInvalid": "Diese URL sieht nicht gültig aus — du kannst sie später hinzufügen",
     "jdFetchFailed": "Die Seite hat uns blockiert — du kannst den Text später einfügen",
@@ -96,6 +97,7 @@
     "addJobDescription": "Stellenbeschreibung hinzufügen →",
     "analyzing": "Profil wird analysiert…",
     "masterProfileCreated": "Master-Profil erstellt",
+    "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "statPositions": "Positionen",
     "statProjects": "Projekte",
     "statCertifications": "Zertifikate",

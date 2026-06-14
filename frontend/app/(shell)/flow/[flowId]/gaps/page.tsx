@@ -176,6 +176,68 @@ function JdRecoveryBanner() {
 }
 
 // ---------------------------------------------------------------------------
+// CV Parse-Status Banner — shown when some (not all) uploaded CVs failed to
+// parse, surfaced via cv_parsed/cv_total query params (US153, FMEA JF-M-2.2)
+// ---------------------------------------------------------------------------
+
+function CvParseBannerInner() {
+  const searchParams = useSearchParams();
+  const t = useTranslations("gaps");
+  const tc = useTranslations("common");
+  const [dismissed, setDismissed] = useState(false);
+
+  const parsedRaw = searchParams.get("cv_parsed");
+  const totalRaw = searchParams.get("cv_total");
+  if (!parsedRaw || !totalRaw || dismissed) return null;
+  const parsed = Number(parsedRaw);
+  const total = Number(totalRaw);
+  if (!Number.isFinite(parsed) || !Number.isFinite(total) || parsed >= total) return null;
+
+  return (
+    <div
+      data-testid="cv-parse-banner"
+      className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
+    >
+      <svg
+        className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+        />
+      </svg>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-amber-800">{t("cvParsedPartial", { parsed, total })}</p>
+      </div>
+      <button
+        data-testid="cv-parse-dismiss"
+        type="button"
+        aria-label={tc("ariaDismiss")}
+        className="shrink-0 text-amber-500 hover:text-amber-700 transition-colors"
+        onClick={() => setDismissed(true)}
+      >
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative close symbol */}
+        {"×"}
+      </button>
+    </div>
+  );
+}
+
+function CvParseBanner() {
+  return (
+    <Suspense fallback={null}>
+      <CvParseBannerInner />
+    </Suspense>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // GapClickPanel — inline micro-session for a single cluster
 // ---------------------------------------------------------------------------
 
@@ -515,6 +577,7 @@ export default function GapsPage({
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
       <JdRecoveryBanner />
+      <CvParseBanner />
       {/* Section 1: Master Profile Summary */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">

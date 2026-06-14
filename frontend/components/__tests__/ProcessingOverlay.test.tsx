@@ -292,3 +292,79 @@ describe("ProcessingOverlay — happy path navigation", () => {
     );
   });
 });
+
+describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  it("continues with the parsed CVs and routes with cv_parsed/cv_total when one of two fails", async () => {
+    let uploadCall = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-partial" }) } as Response;
+      }
+      if (url.includes("/api/profile/upload")) {
+        uploadCall++;
+        if (uploadCall === 2) {
+          return {
+            ok: false,
+            status: 422,
+            statusText: "Unprocessable Entity",
+            json: async () => ({ detail: "could not parse" }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    const f2 = new File(["cv2"], "cv2.pdf", { type: "application/pdf" });
+    render(
+      withIntl(<ProcessingOverlay files={[f1, f2]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />)
+    );
+
+    await waitFor(
+      () => {
+        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial/gaps"));
+      },
+      { timeout: 5000 }
+    );
+    const pushedUrl = mockPush.mock.calls[0][0] as string;
+    expect(pushedUrl).toContain("cv_parsed=1");
+    expect(pushedUrl).toContain("cv_total=2");
+    // Partial failure must NOT surface the hard-error block
+    expect(screen.queryByTestId("processing-error")).toBeNull();
+  });
+
+  it("hard-stops (no navigation) when ALL CV uploads fail", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-allfail" }) } as Response;
+      }
+      if (url.includes("/api/profile/upload")) {
+        return {
+          ok: false,
+          status: 422,
+          statusText: "Unprocessable Entity",
+          json: async () => ({ detail: "could not parse" }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} jdMode="text" jdUrl="" jdText="" />));
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("processing-error")).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});

@@ -42,6 +42,7 @@
   "processing": {
     "analyzingJD": "Analyzing job description…",
     "buildingProfile": "Building profile…",
+    "allCvsFailed": "We couldn't read any of your CVs. Please check the files and try again.",
     "jdSkipped": "Job description skipped",
     "jdUrlInvalid": "That doesn't look like a valid URL — you can add it later",
     "jdFetchFailed": "The site blocked us — you can paste the text later",
@@ -96,6 +97,7 @@
     "addJobDescription": "Add job description →",
     "analyzing": "Analyzing your profile…",
     "masterProfileCreated": "Master Profile Created",
+    "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "statPositions": "Positions",
     "statProjects": "Projects",
     "statCertifications": "Certifications",

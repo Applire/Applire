@@ -165,19 +165,35 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
           flowId = flow.flow_id;
         }
 
-        // Steps 1..N: one upload step per file
+        // Steps 1..N: one upload step per file.
+        // A single failed file must NOT abort onboarding (FMEA JF-M-2.2): we
+        // continue with the CVs that parsed and surface "N of M" on the summary.
+        // Only a total failure (zero parsed) is a hard stop.
+        let parsedCount = 0;
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = 1 + i;
           if (i > 0) setStepStatus(uploadIdx, "active");
           const formData = new FormData();
           formData.append("file", files[i]);
-          const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
-            method: "POST",
-            body: formData,
-          });
-          if (!uploadRes.ok) throw new Error(await apiErrorMessage(uploadRes));
-          setStepStatus(uploadIdx, "done");
+          try {
+            const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
+              method: "POST",
+              body: formData,
+            });
+            if (!uploadRes.ok) {
+              setStepStatus(uploadIdx, "error");
+              continue;
+            }
+            setStepStatus(uploadIdx, "done");
+            parsedCount += 1;
+          } catch {
+            setStepStatus(uploadIdx, "error");
+          }
         }
+        if (parsedCount === 0) {
+          throw new Error(t("allCvsFailed"));
+        }
+        const cvFailedCount = files.length - parsedCount;
 
         // Build profile (instant — upload already did the work)
         setStepStatus(profileIdx, "active");
@@ -187,13 +203,22 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
         // Detect gaps
         setStepStatus(gapsIdx, "active");
 
+        // Carry JD-recovery + per-file CV parse status to the gaps summary.
+        const gapsQuery = (() => {
+          const p = new URLSearchParams();
+          if (jdFailReason) p.set("jd_status", jdFailReason);
+          if (cvFailedCount > 0) {
+            p.set("cv_parsed", String(parsedCount));
+            p.set("cv_total", String(files.length));
+          }
+          const qs = p.toString();
+          return qs ? `?${qs}` : "";
+        })();
+
         if (!jobId) {
           setStepStatus(gapsIdx, "done");
           await new Promise((r) => setTimeout(r, 400));
-          const gapsUrl = jdFailReason
-            ? `/flow/${flowId}/gaps?jd_status=${jdFailReason}`
-            : `/flow/${flowId}/gaps`;
-          router.push(gapsUrl);
+          router.push(`/flow/${flowId}/gaps${gapsQuery}`);
           return;
         }
 
@@ -217,10 +242,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel }: Pr
         setStepStatus(gapsIdx, "done");
 
         await new Promise((r) => setTimeout(r, 400));
-        const gapsUrl = jdFailReason
-          ? `/flow/${flowId}/gaps?jd_status=${jdFailReason}`
-          : `/flow/${flowId}/gaps`;
-        router.push(gapsUrl);
+        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "An error occurred. Please try again.");
       }
