@@ -835,5 +835,19 @@
       "interview_details_added": "Details added to this position from your interview answer.",
       "profile_updated": "Profile updated from this source."
     }
+  },
+  "mergeGate": {
+    "titleDivergence": "The name doesn’t match",
+    "titleNotCv": "This doesn’t look like a CV",
+    "bodyDivergence": "The name in this document is “{cvName}”, but your profile is under “{accountName}”. Do you still want to merge this data into your profile?",
+    "bodyDivergenceNoAccount": "The name in this document (“{cvName}”) differs from the name on your profile. Do you still want to merge it?",
+    "bodyNotCv": "We couldn’t recognise a CV in this document. Do you still want to merge it into your profile?",
+    "mergeAnyway": "Merge anyway",
+    "discard": "Discard",
+    "cancel": "Cancel",
+    "resolving": "Processing…",
+    "resolveError": "The action could not be completed.",
+    "badge": "Needs review",
+    "reviewAction": "Review"
   }
 }

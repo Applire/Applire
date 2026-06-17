@@ -501,3 +501,8 @@ class UploadHistoryItem(BaseModel):
     byte_size: int
     created_at: datetime
     completeness_score: float | None = None  # TODO: join to EnrichmentRecord when score persistence is wired
+    # Pre-merge gate (US167). Open states (not_a_cv / name_divergence) badge the
+    # row as "needs resolution"; resolved_* / None are inert. staged_name is the
+    # parked CV's extracted name, shown when re-opening the resolve dialog.
+    gate_status: str | None = None
+    staged_name: str | None = None

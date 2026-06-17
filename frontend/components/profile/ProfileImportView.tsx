@@ -22,6 +22,15 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import {
+  MergeGateDialog,
+  type MergeGate,
+  type ResolveAction,
+  type StagedResolveResult,
+} from "@/components/profile/MergeGateDialog";
+
+// Open gate states still require the user to merge or discard; resolved_* are inert.
+const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
 
 // Empty string default lets Next.js rewrites handle /api/* routing in all environments
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -33,6 +42,15 @@ interface UploadHistoryItem {
   byte_size: number;
   created_at: string;
   completeness_score: number | null;
+  gate_status?: string | null;
+  staged_name?: string | null;
+}
+
+interface GateInfo {
+  gate: MergeGate;
+  stagedId: string;
+  accountName?: string | null;
+  cvName?: string | null;
 }
 
 interface ProfileImportViewProps {
@@ -55,6 +73,7 @@ async function readApiError(res: Response): Promise<string> {
 export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
   const tp = useTranslations("profileUpdate");
+  const tg = useTranslations("mergeGate");
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -63,6 +82,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   const [completenessScore, setCompletenessScore] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
+  const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
   const mainInputRef = useRef<HTMLInputElement>(null);
   const linkedinInputRef = useRef<HTMLInputElement>(null);
@@ -97,24 +117,61 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
       if (!res.ok) throw new Error(await readApiError(res));
 
       const data = await res.json();
-      setCompletenessScore(data.completeness_score ?? null);
-      setUploadSuccess(true);
-      refreshHistory();
 
-      if (flowId) {
-        try {
-          await proceedToGaps(flowId);
-        } catch (fe: unknown) {
-          setFlowError(fe instanceof Error ? fe.message : t("flowErrorGeneric"));
-        }
-      } else {
-        router.push("/profile");
+      // US167: the pre-merge gate held the merge. Park nothing happened to the
+      // profile — open the resolve dialog instead of treating it as a success.
+      if (data.status === "GATED") {
+        setGateInfo({
+          gate: data.gate as MergeGate,
+          stagedId: data.staged_id,
+          accountName: data.account_name,
+          cvName: data.cv_name,
+        });
+        refreshHistory();
+        return;
       }
+
+      await proceedAfterUpdate(data.completeness_score ?? null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("uploadErrorGeneric"));
     } finally {
       setLoading(false);
     }
+  }
+
+  /** Shared post-merge path: surface the success strip, refresh history, advance. */
+  async function proceedAfterUpdate(completeness: number | null) {
+    setCompletenessScore(completeness);
+    setUploadSuccess(true);
+    refreshHistory();
+
+    if (flowId) {
+      try {
+        await proceedToGaps(flowId);
+      } catch (fe: unknown) {
+        setFlowError(fe instanceof Error ? fe.message : t("flowErrorGeneric"));
+      }
+    } else {
+      router.push("/profile");
+    }
+  }
+
+  async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
+    setGateInfo(null);
+    if (action === "merge") {
+      await proceedAfterUpdate(_data.completeness_score ?? null);
+    } else {
+      refreshHistory();
+    }
+  }
+
+  function reviewParkedUpload(item: UploadHistoryItem) {
+    if (!item.gate_status || !OPEN_GATES.has(item.gate_status)) return;
+    setGateInfo({
+      gate: item.gate_status as MergeGate,
+      stagedId: item.id,
+      cvName: item.staged_name,
+    });
   }
 
   async function proceedToGaps(fId: string) {
@@ -289,40 +346,68 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                   const isLinkedIn =
                     item.mime_type === "application/zip" ||
                     item.original_filename.toLowerCase().endsWith(".zip");
+                  const isOpenGate =
+                    !!item.gate_status && OPEN_GATES.has(item.gate_status);
                   return (
                     <li
                       key={item.id}
-                      className="flex items-center gap-2.5 px-2.5 py-2 bg-surface-container-low rounded-lg"
+                      className={cn(
+                        "flex items-center gap-2.5 px-2.5 py-2 rounded-lg",
+                        isOpenGate
+                          ? "bg-amber-50 border border-amber-200"
+                          : "bg-surface-container-low"
+                      )}
                     >
                       <span
                         aria-hidden="true"
                         className={cn(
                           "material-symbols-outlined text-[20px]",
-                          isLinkedIn ? "text-[#0077b5]" : "text-primary"
+                          isOpenGate
+                            ? "text-amber-600"
+                            : isLinkedIn
+                              ? "text-[#0077b5]"
+                              : "text-primary"
                         )}
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
                         {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon names */}
-                        {isLinkedIn ? "link" : "description"}
+                        {isOpenGate ? "error" : isLinkedIn ? "link" : "description"}
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[12px] font-semibold text-primary truncate">
                           {item.original_filename}
                         </p>
-                        <p className="text-[10px] text-on-surface-variant mt-0.5">
-                          {new Date(item.created_at).toLocaleDateString()}
-                          {item.completeness_score !== null && (
-                            <>
-                              {" · "}{Math.round(item.completeness_score * 100)}{" %"}
-                            </>
-                          )}
-                        </p>
+                        {isOpenGate ? (
+                          <p className="text-[10px] font-semibold text-amber-700 mt-0.5">
+                            {tg("badge")}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-on-surface-variant mt-0.5">
+                            {new Date(item.created_at).toLocaleDateString()}
+                            {item.completeness_score !== null && (
+                              <>
+                                {" · "}{Math.round(item.completeness_score * 100)}{" %"}
+                              </>
+                            )}
+                          </p>
+                        )}
                       </div>
-                      {/* Decorative only — no action */}
-                      <span className="material-symbols-outlined text-[16px] text-outline-variant" aria-hidden="true">
-                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon names */}
-                        {isLinkedIn ? "refresh" : "download"}
-                      </span>
+                      {isOpenGate ? (
+                        <button
+                          type="button"
+                          data-testid="gate-review-btn"
+                          onClick={() => reviewParkedUpload(item)}
+                          className="flex-shrink-0 text-[11px] font-bold text-amber-700 px-2 py-1 rounded-md hover:bg-amber-100"
+                        >
+                          {tg("reviewAction")}
+                        </button>
+                      ) : (
+                        /* Decorative only — no action */
+                        <span className="material-symbols-outlined text-[16px] text-outline-variant" aria-hidden="true">
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon names */}
+                          {isLinkedIn ? "refresh" : "download"}
+                        </span>
+                      )}
                     </li>
                   );
                 })}
@@ -358,6 +443,17 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
         </div>
       </div>
     </div>
+
+    {gateInfo && (
+      <MergeGateDialog
+        gate={gateInfo.gate}
+        stagedId={gateInfo.stagedId}
+        accountName={gateInfo.accountName}
+        cvName={gateInfo.cvName}
+        onResolved={handleGateResolved}
+        onCancel={() => setGateInfo(null)}
+      />
+    )}
     </>
   );
 }

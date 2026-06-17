@@ -835,5 +835,19 @@
       "interview_details_added": "Details zu dieser Position aus deiner Interview-Antwort ergänzt.",
       "profile_updated": "Profil aus dieser Quelle aktualisiert."
     }
+  },
+  "mergeGate": {
+    "titleDivergence": "Name stimmt nicht überein",
+    "titleNotCv": "Das sieht nicht nach einem Lebenslauf aus",
+    "bodyDivergence": "Der Name in diesem Dokument lautet „{cvName}“, dein Profil läuft aber auf „{accountName}“. Möchtest du die Daten trotzdem in dein Profil übernehmen?",
+    "bodyDivergenceNoAccount": "Der Name in diesem Dokument („{cvName}“) unterscheidet sich vom Namen in deinem Profil. Möchtest du die Daten trotzdem übernehmen?",
+    "bodyNotCv": "In diesem Dokument konnten wir keinen Lebenslauf erkennen. Möchtest du es trotzdem in dein Profil übernehmen?",
+    "mergeAnyway": "Trotzdem übernehmen",
+    "discard": "Verwerfen",
+    "cancel": "Abbrechen",
+    "resolving": "Wird verarbeitet …",
+    "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
+    "badge": "Prüfung nötig",
+    "reviewAction": "Prüfen"
   }
 }

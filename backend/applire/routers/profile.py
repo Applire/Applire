@@ -387,6 +387,12 @@ async def get_upload_history(
             byte_size=r.byte_size,
             created_at=r.created_at,
             completeness_score=None,  # TODO: link to EnrichmentRecord for actual score
+            gate_status=r.gate_status,
+            staged_name=(
+                (r.staged_extraction or {}).get("personal_info", {}).get("name")
+                if r.staged_extraction
+                else None
+            ),
         )
         for r in records
     ]

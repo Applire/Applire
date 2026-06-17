@@ -212,6 +212,127 @@ describe("ProfileImportView", () => {
     });
   });
 
+  it("opens the merge-gate dialog on a GATED upload instead of navigating", async () => {
+    global.fetch = vi.fn((url: unknown) => {
+      const u = url as string;
+      if (u.includes("/api/profile/uploads"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      if (u.includes("/api/profile/upload"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              status: "GATED",
+              gate: "name_divergence",
+              account_name: "Max Muster",
+              cv_name: "Markus Brandt",
+              staged_id: "staged-1",
+              completeness_score: 0,
+            }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }) as unknown as typeof fetch;
+
+    render(<ProfileImportView />);
+    const input = screen.getByTestId("main-file-input");
+    const file = new File(["content"], "markus.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("navigates to /profile after merging from the gate dialog", async () => {
+    global.fetch = vi.fn((url: unknown) => {
+      const u = url as string;
+      if (u.includes("/api/profile/uploads"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      if (u.includes("/resolve"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ action: "merge", profile_id: "p1", completeness_score: 0.9 }),
+        });
+      if (u.includes("/api/profile/upload"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              status: "GATED",
+              gate: "name_divergence",
+              account_name: "Max Muster",
+              cv_name: "Markus Brandt",
+              staged_id: "staged-1",
+              completeness_score: 0,
+            }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }) as unknown as typeof fetch;
+
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "markus.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("gate-merge-btn"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/profile"));
+  });
+
+  it("closes the gate dialog and stays put after discarding", async () => {
+    global.fetch = vi.fn((url: unknown) => {
+      const u = url as string;
+      if (u.includes("/api/profile/uploads"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      if (u.includes("/resolve"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ action: "discard" }) });
+      if (u.includes("/api/profile/upload"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              status: "GATED",
+              gate: "not_a_cv",
+              staged_id: "staged-2",
+              completeness_score: 0,
+            }),
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }) as unknown as typeof fetch;
+
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["c"], "manual.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("gate-discard-btn"));
+    await waitFor(() => expect(screen.queryByTestId("merge-gate-dialog")).not.toBeInTheDocument());
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("badges a parked open-gate upload and re-opens the dialog via Review", async () => {
+    const historyItems = [
+      {
+        id: "staged-7",
+        original_filename: "Markus_Brandt_CV.pdf",
+        mime_type: "application/pdf",
+        byte_size: 102400,
+        created_at: "2026-06-17T10:00:00Z",
+        completeness_score: null,
+        gate_status: "name_divergence",
+        staged_name: "Markus Brandt",
+      },
+    ];
+    global.fetch = makeFetchMock(historyItems);
+    render(<ProfileImportView />);
+
+    await waitFor(() => expect(screen.getByTestId("gate-review-btn")).toBeInTheDocument());
+    expect(screen.getByText("badge")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("gate-review-btn"));
+    expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument();
+  });
+
   it("renders history items from API response", async () => {
     const historyItems = [
       {
