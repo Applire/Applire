@@ -46,6 +46,8 @@ from applire.schemas.profile import (
     LinkedInImportRequest,
     MasterProfileResponse,
     ProfileChangesResponse,
+    StagedResolveRequest,
+    StagedResolveResponse,
     UploadHistoryItem,
 )
 from applire.services.profile import (
@@ -59,6 +61,9 @@ from applire.services.profile import (
     patch_profile_section,
     profile_exists,
     resolve_conflict,
+    resolve_staged_extraction,
+    StagedExtractionAlreadyResolved,
+    StagedExtractionNotFound,
     upload_cv,
 )
 from applire.storage import get_storage
@@ -155,6 +160,34 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         )
+
+
+@router.post(
+    "/staged/{staged_id}/resolve",
+    response_model=StagedResolveResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def resolve_staged_extraction_endpoint(
+    staged_id: uuid.UUID,
+    body: StagedResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> StagedResolveResponse:
+    """Resolve a CV upload that the pre-merge integrity gate held (US167).
+
+    ``action="merge"`` applies the parked extraction additively to the Master
+    Profile (re-using the original LLM result — no re-extraction); ``"discard"``
+    drops it, leaving the profile untouched. Resolving is idempotent: a second
+    attempt on an already-resolved item returns HTTP 409.
+    """
+    try:
+        return await resolve_staged_extraction(db, staged_id, action=body.action)
+    except StagedExtractionNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except StagedExtractionAlreadyResolved as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
 
 @router.post("/import", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)

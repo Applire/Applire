@@ -18,11 +18,15 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
 from applire.constants import UPLOAD_TTL_DAYS as _UPLOAD_TTL_DAYS
+
+# JSONB on PostgreSQL (binary, indexed); JSON fallback on SQLite for unit tests.
+_StagedJSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class UploadRecord(Base):
@@ -50,3 +54,11 @@ class UploadRecord(Base):
         default=lambda: datetime.now(timezone.utc) + timedelta(days=_UPLOAD_TTL_DAYS),
         nullable=False,
     )
+    # US167 (E033 / ADR-041 amended) — pre-merge gate parking.
+    # NULL for a normal merged upload. When the gate holds the merge, holds the
+    # gate verdict ("not_a_cv" | "name_divergence"); the resolve endpoint flips it
+    # to "resolved_merged" | "resolved_discarded". The staged extraction is parked
+    # here (the already-extracted JSON, not the source PDF) so resolving re-merges
+    # without re-running the LLM (ADR-005 source-file independence).
+    gate_status: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    staged_extraction: Mapped[dict | None] = mapped_column(_StagedJSON, nullable=True)

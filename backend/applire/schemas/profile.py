@@ -459,16 +459,39 @@ class CVUploadResponse(BaseModel):
     transient DRAFT/COMPLETE status, GDPR expiry, and traceability back to
     the EnrichmentRecord. MasterProfileResponse remains unchanged.
     """
-    profile_id: uuid.UUID
-    status: Literal["DRAFT", "COMPLETE"]
+    # GATED (US167): the pre-merge gate held the merge. profile_id /
+    # enrichment_record_id are absent because nothing was committed.
+    profile_id: uuid.UUID | None = None
+    status: Literal["DRAFT", "COMPLETE", "GATED"]
     completeness_score: float
     conflicts: list[ConflictSummary] = Field(default_factory=list)
-    enrichment_record_id: uuid.UUID
+    enrichment_record_id: uuid.UUID | None = None
     expires_at: datetime
     # Input-plausibility signals (Input Integrity sprint, issue #43)
     looks_like_cv: bool = True          # US154 / FMEA 2.3
     name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
     undated_positions: int = 0          # US157 / FMEA 2.7
+    # Pre-merge gate (US167 / ADR-041 amended). "none" on a clean merge.
+    gate: Literal["none", "not_a_cv", "name_divergence"] = "none"
+    account_name: str | None = None     # existing profile's name (divergence prompt)
+    cv_name: str | None = None          # uploaded CV's name (divergence prompt)
+    staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)
+
+
+class StagedResolveRequest(BaseModel):
+    """Request body for POST /api/profile/staged/{id}/resolve (US167)."""
+
+    action: Literal["merge", "discard"]
+
+
+class StagedResolveResponse(BaseModel):
+    """Response for POST /api/profile/staged/{id}/resolve (US167 / ADR-041 amended)."""
+
+    staged_id: uuid.UUID
+    action: Literal["merge", "discard"]
+    profile_id: uuid.UUID | None = None         # set when action == "merge"
+    completeness_score: float | None = None     # set when action == "merge"
+    conflicts: list[ConflictSummary] = Field(default_factory=list)
 
 
 class UploadHistoryItem(BaseModel):

@@ -69,6 +69,7 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     ProfileChangesResponse,
     ProfileMetadata,
+    StagedResolveResponse,
 )
 
 _DEFAULT_EMBEDDING_PROVIDER = NoopEmbeddingProvider()
@@ -562,9 +563,22 @@ async def resolve_conflict(
 # merge_gate module (US167 / ADR-041 amended) — re-exported here so the upload-time
 # warning path and the existing tests keep importing them from this package.
 from applire.services.profile.merge_gate import (  # noqa: E402
+    evaluate_merge_gate,
     looks_like_cv as _looks_like_cv,
     names_clearly_differ as _names_clearly_differ,
 )
+
+
+class StagedExtractionNotFound(Exception):
+    """No parked (gated) upload exists for the given id."""
+
+
+class StagedExtractionAlreadyResolved(Exception):
+    """The parked upload was already merged or discarded."""
+
+
+# A parked gate is "open" until the user resolves it (US167 / ADR-041 amended).
+_OPEN_GATES = {"not_a_cv", "name_divergence"}
 
 
 def _undated_positions(data: MasterProfileData) -> int:
@@ -663,79 +677,40 @@ async def upload_cv(
 
     # Upload-time input-plausibility signals (Input Integrity sprint, issue #43):
     # document-type (US154/2.3) and per-CV completeness (US157/2.7) come from the
-    # just-extracted CV; the name-mismatch check (US155/2.4) needs an existing name.
+    # just-extracted CV.
     looks_like_cv = _looks_like_cv(incoming)
     undated_positions = _undated_positions(incoming)
-    name_mismatch = False
 
-    # 4. Merge with existing profile (or create first profile)
-    enrichment_id = uuid.uuid4()
+    # 4. Pre-merge integrity gate (US167 / ADR-041 amended) — HOLD before commit.
+    #    not-a-CV and account-vs-CV name divergence are caught *before* the additive
+    #    merge can overwrite anything; safe default = don't merge. A held merge parks
+    #    the staged extraction for the user to resolve (merge / discard).
     existing = await _get_latest(db)
-
-    if existing:
-        existing_data = MasterProfileData.model_validate(existing.profile_json)
-        name_mismatch = _names_clearly_differ(
-            existing_data.personal_info.name, incoming.personal_info.name
-        )
-        merge_result = merge_profiles(existing_data, incoming, source="cv_upload")
-        merged = merge_result.merged_profile
-
-        enrichment = _enrichment_from_merge(merge_result, source="cv_upload")
-        # Patch enrichment_id onto the record for traceability
-        enrichment_id = uuid.uuid4()
-
-        if merged.metadata is None:
-            merged.metadata = ProfileMetadata(
-                completeness_score=merged.calculate_completeness(),
-                created_via="cv_upload",
-                created_at=existing.created_at,
-                last_updated=now,
-                enrichment_history=[enrichment],
-                pending_conflicts=merge_result.conflicts,
-            )
-        else:
-            merged.metadata.completeness_score = merged.calculate_completeness()
-            merged.metadata.last_updated = now
-            merged.metadata.enrichment_history.append(enrichment)
-            merged.metadata.pending_conflicts = merge_result.conflicts
-
-        merged_json = merged.model_dump(mode="json")
-        existing.profile_json = merged_json
-        existing.embedding = await _compute_embedding(merged_json, emb_provider)
-        existing.updated_at = now
-        await db.commit()
-        await db.refresh(existing)
-
-        profile_id = existing.id
-        completeness = merged.calculate_completeness()
-        conflicts = merge_result.conflicts
-    else:
-        # First upload — create the profile
-        enrichment = _make_enrichment_record(
-            source="cv_upload",
-            action="added",
-            new_value="initial import",
-        )
-        incoming.metadata = ProfileMetadata(
-            completeness_score=incoming.calculate_completeness(),
-            created_via="cv_upload",
-            created_at=now,
-            last_updated=now,
-            enrichment_history=[enrichment],
+    account_name = (
+        MasterProfileData.model_validate(existing.profile_json).personal_info.name
+        if existing
+        else None
+    )
+    gate = evaluate_merge_gate(account_name, incoming)
+    if gate.gate != "none":
+        return await _park_gated_upload(
+            db,
+            gate,
+            incoming,
+            file_bytes=file_bytes,
+            filename=filename,
+            content_type=content_type,
+            storage=storage,
+            user_id=user_id,
+            provider=provider,
         )
 
-        profile_json = incoming.model_dump(mode="json")
-        embedding = await _compute_embedding(profile_json, emb_provider)
-        record = MasterProfile(profile_json=profile_json, embedding=embedding)
-        db.add(record)
-        await db.commit()
-        await db.refresh(record)
+    # 5. Clean CV — additive merge commits (or first profile is created).
+    profile_id, completeness, conflicts, enrichment_id = await _apply_merge(
+        db, incoming, source="cv_upload", emb_provider=emb_provider, now=now
+    )
 
-        profile_id = record.id
-        completeness = incoming.calculate_completeness()
-        conflicts = []
-
-    # 5. Persist file + cost metadata
+    # 6. Persist file + cost metadata
     content_hash = hashlib.sha256(file_bytes).hexdigest()
     file_path = await storage.save(file_bytes, filename)
 
@@ -752,7 +727,7 @@ async def upload_cv(
     db.add(upload_record)
     await db.commit()
 
-    # 6. Build response
+    # 7. Build response
     status = "DRAFT" if (completeness < 0.5 or bool(conflicts)) else "COMPLETE"
     conflict_summaries = [
         ConflictSummary(
@@ -772,6 +747,175 @@ async def upload_cv(
         enrichment_record_id=enrichment_id,
         expires_at=upload_record.expires_at,
         looks_like_cv=looks_like_cv,
-        name_mismatch=name_mismatch,
+        name_mismatch=False,  # a clean merge by definition had no name divergence
         undated_positions=undated_positions,
+        gate="none",
     )
+
+
+async def _apply_merge(
+    db: AsyncSession,
+    incoming: MasterProfileData,
+    *,
+    source: str,
+    emb_provider: EmbeddingProvider,
+    now: datetime | None = None,
+) -> tuple[uuid.UUID, float, list, uuid.UUID]:
+    """Additively merge ``incoming`` into the latest profile (or create the first),
+    commit, and return ``(profile_id, completeness, conflicts, enrichment_id)``.
+
+    The pre-merge gate (US167) is the caller's responsibility — by the time this
+    runs the merge is authorised (clean upload, or a user-resolved staged merge).
+    """
+    now = now or datetime.now(timezone.utc)
+    enrichment_id = uuid.uuid4()
+    existing = await _get_latest(db)
+
+    if existing:
+        existing_data = MasterProfileData.model_validate(existing.profile_json)
+        merge_result = merge_profiles(existing_data, incoming, source=source)
+        merged = merge_result.merged_profile
+        enrichment = _enrichment_from_merge(merge_result, source=source)
+
+        if merged.metadata is None:
+            merged.metadata = ProfileMetadata(
+                completeness_score=merged.calculate_completeness(),
+                created_via=source,
+                created_at=existing.created_at,
+                last_updated=now,
+                enrichment_history=[enrichment],
+                pending_conflicts=merge_result.conflicts,
+            )
+        else:
+            merged.metadata.completeness_score = merged.calculate_completeness()
+            merged.metadata.last_updated = now
+            merged.metadata.enrichment_history.append(enrichment)
+            merged.metadata.pending_conflicts = merge_result.conflicts
+
+        merged_json = merged.model_dump(mode="json")
+        existing.profile_json = merged_json
+        existing.embedding = await _compute_embedding(merged_json, emb_provider)
+        existing.updated_at = now
+        await db.commit()
+        await db.refresh(existing)
+        return existing.id, merged.calculate_completeness(), merge_result.conflicts, enrichment_id
+
+    # First upload — create the profile
+    enrichment = _make_enrichment_record(
+        source=source, action="added", new_value="initial import"
+    )
+    incoming.metadata = ProfileMetadata(
+        completeness_score=incoming.calculate_completeness(),
+        created_via=source,
+        created_at=now,
+        last_updated=now,
+        enrichment_history=[enrichment],
+    )
+    profile_json = incoming.model_dump(mode="json")
+    embedding = await _compute_embedding(profile_json, emb_provider)
+    record = MasterProfile(profile_json=profile_json, embedding=embedding)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record.id, incoming.calculate_completeness(), [], enrichment_id
+
+
+async def _park_gated_upload(
+    db: AsyncSession,
+    gate,
+    incoming: MasterProfileData,
+    *,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    storage,
+    user_id: uuid.UUID | None,
+    provider: LLMProvider,
+) -> CVUploadResponse:
+    """HOLD the merge (US167): persist the source file, park the already-extracted
+    profile JSON on the upload row, and return a GATED response. Nothing is merged
+    — the user resolves it via ``resolve_staged_extraction``."""
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    file_path = await storage.save(file_bytes, filename)
+
+    upload_record = UploadRecord(
+        user_id=user_id,
+        original_filename=filename,
+        content_hash=content_hash,
+        mime_type=content_type,
+        file_path=file_path,
+        byte_size=len(file_bytes),
+        llm_provider=provider.__class__.__name__,
+        gate_status=gate.gate,
+        staged_extraction=incoming.model_dump(mode="json"),
+    )
+    db.add(upload_record)
+    await db.commit()
+    await db.refresh(upload_record)
+
+    return CVUploadResponse(
+        profile_id=None,
+        status="GATED",
+        completeness_score=0.0,
+        conflicts=[],
+        enrichment_record_id=None,
+        expires_at=upload_record.expires_at,
+        looks_like_cv=(gate.gate != "not_a_cv"),
+        name_mismatch=(gate.gate == "name_divergence"),
+        undated_positions=_undated_positions(incoming),
+        gate=gate.gate,
+        account_name=gate.account_name,
+        cv_name=gate.cv_name,
+        staged_id=upload_record.id,
+    )
+
+
+async def resolve_staged_extraction(
+    db: AsyncSession,
+    staged_id: uuid.UUID,
+    *,
+    action: str,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> StagedResolveResponse:
+    """Resolve a parked (gated) upload (US167). ``action`` is ``"merge"`` (apply the
+    staged extraction additively, re-using the original LLM result) or ``"discard"``
+    (drop it, leaving the profile untouched). Idempotency is enforced: a second
+    resolve raises ``StagedExtractionAlreadyResolved``."""
+    rec = (
+        await db.execute(select(UploadRecord).where(UploadRecord.id == staged_id))
+    ).scalar_one_or_none()
+    if rec is None or rec.gate_status is None:
+        raise StagedExtractionNotFound(str(staged_id))
+    if rec.gate_status not in _OPEN_GATES:
+        raise StagedExtractionAlreadyResolved(rec.gate_status)
+
+    if action == "discard":
+        rec.gate_status = "resolved_discarded"
+        await db.commit()
+        return StagedResolveResponse(staged_id=staged_id, action="discard")
+
+    if action == "merge":
+        emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
+        incoming = MasterProfileData.model_validate(rec.staged_extraction)
+        profile_id, completeness, conflicts, _ = await _apply_merge(
+            db, incoming, source="cv_upload", emb_provider=emb_provider
+        )
+        rec.gate_status = "resolved_merged"
+        await db.commit()
+        return StagedResolveResponse(
+            staged_id=staged_id,
+            action="merge",
+            profile_id=profile_id,
+            completeness_score=completeness,
+            conflicts=[
+                ConflictSummary(
+                    conflict_id=c.conflict_id,
+                    section=c.section,
+                    field=c.field,
+                    source=c.source,
+                )
+                for c in conflicts
+            ],
+        )
+
+    raise ValueError(f"unknown resolve action: {action!r}")
