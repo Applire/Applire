@@ -46,6 +46,10 @@ async def db_session():
     await engine.dispose()
 
 
+# Fixed authenticated user so seeded uploads share the owner the endpoint resolves.
+TEST_USER_ID = uuid.uuid4()
+
+
 @pytest_asyncio.fixture
 async def client(db_session):
     from applire.auth import get_auth_provider
@@ -58,7 +62,7 @@ async def client(db_session):
     app.dependency_overrides[get_db] = lambda: db_session
 
     auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+    auth.get_current_user = AsyncMock(return_value=MagicMock(id=TEST_USER_ID))
     app.dependency_overrides[get_auth_provider] = lambda: auth
 
     transport = ASGITransport(app=app)
@@ -66,10 +70,13 @@ async def client(db_session):
         yield ac
 
 
-async def _park(db_session, name="Marcus Weber", company="SAP", gate="name_divergence"):
+async def _park(
+    db_session, name="Marcus Weber", company="SAP", gate="name_divergence", user_id=TEST_USER_ID
+):
     from applire.models.uploads import UploadRecord
 
     rec = UploadRecord(
+        user_id=user_id,
         original_filename="cv.pdf",
         content_hash="x",
         mime_type="application/pdf",
@@ -116,6 +123,16 @@ async def test_resolve_twice_returns_409(client, db_session):
         f"/api/profile/staged/{staged_id}/resolve", json={"action": "merge"}
     )
     assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_resolve_foreign_upload_returns_404(client, db_session):
+    """IDOR guard: another user's parked upload is not resolvable (looks missing)."""
+    staged_id = await _park(db_session, user_id=uuid.uuid4())  # different owner
+    resp = await client.post(
+        f"/api/profile/staged/{staged_id}/resolve", json={"action": "merge"}
+    )
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -875,15 +875,22 @@ async def resolve_staged_extraction(
     staged_id: uuid.UUID,
     *,
     action: str,
+    user_id: uuid.UUID | None = None,
     embedding_provider: EmbeddingProvider | None = None,
 ) -> StagedResolveResponse:
     """Resolve a parked (gated) upload (US167). ``action`` is ``"merge"`` (apply the
     staged extraction additively, re-using the original LLM result) or ``"discard"``
     (drop it, leaving the profile untouched). Idempotency is enforced: a second
-    resolve raises ``StagedExtractionAlreadyResolved``."""
-    rec = (
-        await db.execute(select(UploadRecord).where(UploadRecord.id == staged_id))
-    ).scalar_one_or_none()
+    resolve raises ``StagedExtractionAlreadyResolved``.
+
+    When ``user_id`` is given the lookup is scoped to that owner, so a foreign
+    upload is indistinguishable from a missing one (IDOR guard) — a parked CV
+    can only be resolved by the account that uploaded it.
+    """
+    query = select(UploadRecord).where(UploadRecord.id == staged_id)
+    if user_id is not None:
+        query = query.where(UploadRecord.user_id == user_id)
+    rec = (await db.execute(query)).scalar_one_or_none()
     if rec is None or rec.gate_status is None:
         raise StagedExtractionNotFound(str(staged_id))
     if rec.gate_status not in _OPEN_GATES:

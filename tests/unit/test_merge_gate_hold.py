@@ -63,7 +63,7 @@ def _cv_dict(name: str, *, company: str = "Acme GmbH", with_content: bool = True
     return data
 
 
-async def _upload(session, storage, name_or_dict, *, company="Acme GmbH", with_content=True):
+async def _upload(session, storage, name_or_dict, *, company="Acme GmbH", with_content=True, user_id=None):
     """Run upload_cv with a mocked provider returning the given extraction."""
     from applire.services.profile import upload_cv
 
@@ -94,6 +94,7 @@ async def _upload(session, storage, name_or_dict, *, company="Acme GmbH", with_c
             provider=provider,
             storage=storage,
             ocr_extractor=AsyncMock(),
+            user_id=user_id,
         )
 
 
@@ -212,6 +213,26 @@ class TestResolveStagedExtraction:
             )
         ).scalar_one()
         assert rec.gate_status == "resolved_discarded"
+
+    @pytest.mark.asyncio
+    async def test_resolve_is_scoped_to_owner(self, sqlite_session, storage):
+        """IDOR guard: a foreign user cannot resolve someone else's parked CV."""
+        from applire.services.profile import (
+            StagedExtractionNotFound,
+            resolve_staged_extraction,
+        )
+
+        owner = uuid.uuid4()
+        attacker = uuid.uuid4()
+        await _upload(sqlite_session, storage, "Anna Schmidt", company="BMW", user_id=owner)
+        gated = await _upload(
+            sqlite_session, storage, "Marcus Weber", company="SAP", user_id=owner
+        )
+
+        with pytest.raises(StagedExtractionNotFound):
+            await resolve_staged_extraction(
+                sqlite_session, gated.staged_id, action="merge", user_id=attacker
+            )
 
     @pytest.mark.asyncio
     async def test_resolve_unknown_id_raises(self, sqlite_session, storage):

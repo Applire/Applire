@@ -170,18 +170,23 @@ async def upload_cv_endpoint(
 async def resolve_staged_extraction_endpoint(
     staged_id: uuid.UUID,
     body: StagedResolveRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
 
     ``action="merge"`` applies the parked extraction additively to the Master
     Profile (re-using the original LLM result — no re-extraction); ``"discard"``
     drops it, leaving the profile untouched. Resolving is idempotent: a second
-    attempt on an already-resolved item returns HTTP 409.
+    attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
+    the authenticated user, so a foreign upload returns 404 (IDOR guard).
     """
+    user = await auth.get_current_user(request)
     try:
-        return await resolve_staged_extraction(db, staged_id, action=body.action)
+        return await resolve_staged_extraction(
+            db, staged_id, action=body.action, user_id=user.id
+        )
     except StagedExtractionNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except StagedExtractionAlreadyResolved as exc:
