@@ -367,6 +367,33 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-041 — Master Profile Health (Integrity Tiering & Standalone Review)
+
+**Decision:** The Master Profile gains a deterministic **health assessment** that classifies issues — merge *conflicts*, *accuracy / merge-loss* (an extracted-vs-stored data-point reconciliation), and *completeness* gaps — each at a **severity** of `info`, `review`, or `critical`. A standalone **"profile review"** interview (no job description required) and a Master Profile **Health panel** let the user resolve them, reusing the existing interview engine (guided Mode B, conflict questions, Mode C enrichment) and the ADR-040 correction routing.
+
+- **`review` / `info`** issues stay optional (a dismissible nudge), preserving the friction-free happy path (ADR-037).
+
+**Why:** Previously, merge conflicts and extraction errors only surfaced when a job application happened to make them relevant — so a profile could carry a silent error indefinitely, with no way to review the profile on its own. Severity tiering forces the serious cases to be corrected while keeping the common case frictionless.
+
+**Amended (2026-06-17) — reversibility tiering.** Designing for the user who errs *by accident*, the model is organised around **reversibility** rather than a severity number:
+
+- **Pre-merge gate** (destructive if merged): a file that doesn't look like a CV (e.g. an accidentally-uploaded manual) or a CV whose **name doesn't match the profile** are confirmed *before* the additive merge commits — the safe default is *don't merge*. Name divergence is detected **deterministically** (no LLM): the system flags the *difference*, the **user** decides whether it's really their CV. A deferred gate parks the CV in the uploaded-documents list with a *Continue* action.
+- **Post-merge staged review** (non-destructive): ordinary discrepancies (same role, different dates/titles) **never overwrite** existing data — they are staged as conflicts and surfaced in the Health panel. Such contradictions are `review`, not `critical`.
+- *Completeness* is a separate, never-blocking **score**, not a severity-tagged issue. The severity field is `profile_mismatch_severity` (distinct from the ADR-021 reviewer severity).
+
+---
+
+### ADR-042 — Master Profile Versioning & Merge Undo
+
+**Decision:** Before any CV merge commits, the current Master Profile is **snapshotted** (a copy of `profile_json`, keyed to that merge's enrichment record, in a dedicated `profile_snapshots` table). An **"undo last merge"** action restores the most recent snapshot, clears the conflicts that merge introduced, and recomputes profile health. Snapshot *capture* is unconditional on every merge; the MVP exposes undo of the last merge (a full version-history UI is a later addition).
+
+- If edits were made *after* the merge being undone, undo still restores the pre-merge state but **warns** that those later changes will be discarded (a coarse whole-profile restore; per-field revert is deferred).
+- Snapshots are bounded per profile and are profile-derived data — purged with the profile under the existing retention/erasure rules, with no dependency on the (already-deleted) source upload.
+
+**Why:** The ADR-041 pre-merge gate reduces bad merges but cannot eliminate regret — a user can confirm "merge anyway" and later wish they hadn't. Because the Master Profile is a single JSON document, a pre-merge snapshot is a near-free, reliable escape hatch, reusing the existing enrichment-record trail rather than a parallel history system.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
