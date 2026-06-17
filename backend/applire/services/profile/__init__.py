@@ -558,32 +558,13 @@ async def resolve_conflict(
     return _to_response(record)
 
 
-def _normalize_name(name: str) -> str:
-    import unicodedata
-    decomposed = unicodedata.normalize("NFKD", name or "")
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return " ".join(stripped.lower().split())
-
-
-def _names_clearly_differ(existing: str, incoming: str) -> bool:
-    """Warn about a possible third-person CV (FMEA JF-M-2.4) only when both names
-    are present and share NO token. Conservative — a shared surname, or accent/
-    casing variants, suppress the warning to avoid false positives."""
-    a, b = _normalize_name(existing), _normalize_name(incoming)
-    if not a or not b or a == b:
-        return False
-    return set(a.split()).isdisjoint(set(b.split()))
-
-
-def _looks_like_cv(data: MasterProfileData) -> bool:
-    """Heuristic (FMEA JF-M-2.3): a real CV yields work history, education, or a
-    name together with skills. A JD / cover letter / slide deck extracts to
-    ~nothing of these."""
-    return bool(
-        data.work_experience
-        or data.education
-        or (data.personal_info.name.strip() and data.skills)
-    )
+# US154 (document-type) and US155 (name-mismatch) detection live in the canonical
+# merge_gate module (US167 / ADR-041 amended) — re-exported here so the upload-time
+# warning path and the existing tests keep importing them from this package.
+from applire.services.profile.merge_gate import (  # noqa: E402
+    looks_like_cv as _looks_like_cv,
+    names_clearly_differ as _names_clearly_differ,
+)
 
 
 def _undated_positions(data: MasterProfileData) -> int:

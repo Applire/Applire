@@ -52,13 +52,27 @@ def _name_tokens(name: str | None) -> set[str]:
     return {t for t in cleaned.casefold().split() if t}
 
 
-def _is_near_empty(extracted: MasterProfileData) -> bool:
-    """A real CV has at least one professional section. None → not a CV."""
-    return not (
-        extracted.work_experience
-        or extracted.education
-        or extracted.skills
-        or extracted.certifications
+def names_clearly_differ(account_name: str | None, cv_name: str | None) -> bool:
+    """True only when both names are present and share NO normalised token — a
+    likely third-person CV (FMEA JF-M-2.4). Conservative: a shared surname,
+    reordering, accents/transliteration, nicknames or a maiden-name change all
+    suppress it, so a false 'different person' never re-adds friction (ADR-037).
+    Canonical home for the check US154/155 first surfaced as a warning.
+    """
+    a, b = _name_tokens(account_name), _name_tokens(cv_name)
+    if not a or not b:
+        return False
+    return a.isdisjoint(b)
+
+
+def looks_like_cv(data: MasterProfileData) -> bool:
+    """Heuristic (FMEA JF-M-2.3): a real CV yields work history, education, or a
+    name together with skills. A JD / cover letter / slide deck extracts to
+    ~nothing of these."""
+    return bool(
+        data.work_experience
+        or data.education
+        or (data.personal_info.name.strip() and data.skills)
     )
 
 
@@ -69,12 +83,10 @@ def evaluate_merge_gate(
     cv_name = extracted.personal_info.name or None
 
     # not-a-CV takes precedence: a near-empty doc has no reliable name to compare.
-    if _is_near_empty(extracted):
+    if not looks_like_cv(extracted):
         return GateResult(gate="not_a_cv", account_name=account_name, cv_name=cv_name)
 
-    account_tokens = _name_tokens(account_name)
-    cv_tokens = _name_tokens(cv_name)
-    if account_tokens and cv_tokens and account_tokens.isdisjoint(cv_tokens):
+    if names_clearly_differ(account_name, cv_name):
         return GateResult(
             gate="name_divergence", account_name=account_name, cv_name=cv_name
         )
