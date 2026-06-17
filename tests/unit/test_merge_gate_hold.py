@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 @pytest_asyncio.fixture
 async def sqlite_session():
     from applire.db.session import Base
-    from applire.models.profile import MasterProfile
+    from applire.models.profile import MasterProfile, ProfileSnapshot
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
 
@@ -44,7 +44,12 @@ async def sqlite_session():
         await conn.run_sync(
             lambda c: Base.metadata.create_all(
                 c,
-                tables=[MasterProfile.__table__, UploadRecord.__table__, User.__table__],
+                tables=[
+                    MasterProfile.__table__,
+                    ProfileSnapshot.__table__,  # US168: _apply_merge snapshots pre-merge
+                    UploadRecord.__table__,
+                    User.__table__,
+                ],
             )
         )
     factory = async_sessionmaker(engine, expire_on_commit=False)

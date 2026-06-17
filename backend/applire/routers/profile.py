@@ -48,8 +48,10 @@ from applire.schemas.profile import (
     ProfileChangesResponse,
     StagedResolveRequest,
     StagedResolveResponse,
+    UndoLastMergeResponse,
     UploadHistoryItem,
 )
+from applire.services.profile.snapshots import undo_last_merge
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
@@ -193,6 +195,32 @@ async def resolve_staged_extraction_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+@router.post(
+    "/undo-last-merge",
+    response_model=UndoLastMergeResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def undo_last_merge_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> UndoLastMergeResponse:
+    """Undo the last Master Profile merge (US168 / ADR-042).
+
+    Restores the most recent pre-merge snapshot, clearing the conflicts that merge
+    introduced. If edits occurred after the merge, the restore still proceeds but
+    ``discarded_later_edits`` warns that those changes were dropped (coarse
+    whole-profile restore; per-field revert deferred). Idempotent: a repeat call
+    with nothing left to undo returns ``restored=false``.
+    """
+    await auth.get_current_user(request)
+    result = await undo_last_merge(db)
+    return UndoLastMergeResponse(
+        restored=result.restored,
+        discarded_later_edits=result.discarded_later_edits,
+    )
 
 
 @router.post("/import", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)

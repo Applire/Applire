@@ -69,6 +69,12 @@ MERGE_CONFIDENCE_REVIEW_THRESHOLD: float = float(
     os.environ.get("MERGE_CONFIDENCE_REVIEW_THRESHOLD", "0.75")
 )
 
+# Master Profile pre-merge snapshots (US168 / E033 / ADR-042). Bounded per profile;
+# the most-recent N survive, older ones are pruned. Env-overridable.
+SNAPSHOT_MAX_PER_PROFILE: int = int(
+    os.environ.get("SNAPSHOT_MAX_PER_PROFILE", "10")
+)
+
 # GDPR retention TTLs — configurable via environment variables (ADR-005 amendment, Sprint 25)
 GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_DAYS", "90"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))

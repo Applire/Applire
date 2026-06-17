@@ -255,6 +255,9 @@ class FieldChange(BaseModel):
 
 
 class EnrichmentRecord(BaseModel):
+    # Stable id so a pre-merge snapshot (US168 / ADR-042) can key to the merge
+    # this record represents, and undo can detect whether it is still the head.
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
     source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual_edit", "manual_role_add"]
     source_session_id: str | None = None
@@ -492,6 +495,13 @@ class StagedResolveResponse(BaseModel):
     profile_id: uuid.UUID | None = None         # set when action == "merge"
     completeness_score: float | None = None     # set when action == "merge"
     conflicts: list[ConflictSummary] = Field(default_factory=list)
+
+
+class UndoLastMergeResponse(BaseModel):
+    """Response for POST /api/profile/undo-last-merge (US168 / ADR-042)."""
+
+    restored: bool                          # False when there was nothing to undo
+    discarded_later_edits: bool = False     # True when edits after the merge were dropped
 
 
 class UploadHistoryItem(BaseModel):

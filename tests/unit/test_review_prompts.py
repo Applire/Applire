@@ -173,6 +173,7 @@ class TestProfileServiceReviewIntegration:
 
         with patch("applire.services.profile.review_and_refine", side_effect=fake_review), \
              patch("applire.services.profile._get_latest", new=AsyncMock(return_value=mock_record)), \
+             patch("applire.services.profile.capture_pre_merge_snapshot", new=AsyncMock()), \
              patch("applire.services.profile.LLM_REVIEW_MAX_RETRIES", 2):
             await _import_from_text("Acme Dev 2020-2022", mock_db, mock_provider)
 

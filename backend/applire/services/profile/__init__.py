@@ -58,6 +58,7 @@ from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
 from applire.services.profile.merge import merge_profiles
+from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills
 from applire.schemas.profile import (
@@ -329,6 +330,14 @@ async def _import_from_text(
             merged.metadata.enrichment_history.append(enrichment)
             # Replace pending conflicts with latest round (user resolves via endpoint)
             merged.metadata.pending_conflicts = merge_result.conflicts
+
+        # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
+        await capture_pre_merge_snapshot(
+            db,
+            profile_id=existing.id,
+            profile_json=existing.profile_json,
+            enrichment_record_id=enrichment.id,
+        )
 
         merged_json = merged.model_dump(mode="json")
         existing.profile_json = merged_json
@@ -776,6 +785,9 @@ async def _apply_merge(
         merge_result = merge_profiles(existing_data, incoming, source=source)
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=source)
+        # Key the merge record to the id we return so the pre-merge snapshot,
+        # the stored record, and the response all agree (US168 / ADR-042).
+        enrichment.id = str(enrichment_id)
 
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
@@ -791,6 +803,14 @@ async def _apply_merge(
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
             merged.metadata.pending_conflicts = merge_result.conflicts
+
+        # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
+        await capture_pre_merge_snapshot(
+            db,
+            profile_id=existing.id,
+            profile_json=existing.profile_json,
+            enrichment_record_id=str(enrichment_id),
+        )
 
         merged_json = merged.model_dump(mode="json")
         existing.profile_json = merged_json
