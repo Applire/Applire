@@ -260,6 +260,9 @@ class EnrichmentRecord(BaseModel):
     source_session_id: str | None = None
     changes: list[FieldChange] = Field(default_factory=list)
     confidence: float | None = None  # for LLM-extracted data
+    # US161 (ADR-041 amended) — per-entity {extracted, stored, delta} captured at
+    # merge time so silent data-loss (FMEA JF-M-3.3) is detectable. Merge records only.
+    reconciliation: dict[str, dict[str, int]] | None = None
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────

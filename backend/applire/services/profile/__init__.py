@@ -215,6 +215,7 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
         source=source,
         source_session_id=session_id,
         changes=changes,
+        reconciliation=merge_result.reconciliation or None,
     )
 
 
