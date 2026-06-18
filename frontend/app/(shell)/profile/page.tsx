@@ -27,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
+import { HealthPanel, type ProfileHealth } from "@/components/profile/HealthPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -140,6 +141,7 @@ export default function ProfilePage() {
   const tCommon = useTranslations("common");
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [health, setHealth] = useState<ProfileHealth | null>(null);
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -161,9 +163,10 @@ export default function ProfilePage() {
 
   const loadProfile = useCallback(async () => {
     try {
-      const [profileRes, enrichmentRes] = await Promise.all([
+      const [profileRes, enrichmentRes, healthRes] = await Promise.all([
         fetch(`${API_BASE}/api/profile`),
         fetch(`${API_BASE}/api/profile/enrichment-history`),
+        fetch(`${API_BASE}/api/profile/health`),
       ]);
 
       if (profileRes.ok) {
@@ -179,6 +182,10 @@ export default function ProfilePage() {
       if (enrichmentRes.ok) {
         const data: EnrichmentRecord[] = await enrichmentRes.json();
         setEnrichmentHistory(data.slice(-10).reverse());
+      }
+
+      if (healthRes.ok) {
+        setHealth(await healthRes.json());
       }
     } catch (err) {
       console.error("Failed to load profile:", err);
@@ -278,6 +285,11 @@ export default function ProfilePage() {
             <div className="p-4 rounded-lg bg-critical/10 border border-critical/20">
               <p className="text-sm text-critical">{error}</p>
             </div>
+          )}
+
+          {/* US164: Master Profile Health panel — health read + nudge + Resolve */}
+          {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
+            <HealthPanel health={health} onResolve={() => openEnrichForAll()} />
           )}
 
           {profile && (

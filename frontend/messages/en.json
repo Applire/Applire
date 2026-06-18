@@ -539,6 +539,22 @@
       "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
     }
   },
+  "health": {
+    "title": "Profile health",
+    "completeness": "Completeness: {pct}%",
+    "allClear": "Your profile is in good shape — nothing needs attention.",
+    "issuesSummary": "{count, plural, one {# item needs your attention} other {# items need your attention}}",
+    "nudge": "{count, plural, one {# item is waiting for you} other {# items are waiting for you}}",
+    "criticalHeading": "Needs your attention",
+    "resolve": "Resolve",
+    "dismissNudge": "Dismiss",
+    "gapsLabel": "Missing sections: {sections}",
+    "severityCritical": "Critical",
+    "severityReview": "Review",
+    "severityInfo": "Info",
+    "threadConflict": "Conflict",
+    "threadAccuracy": "Accuracy"
+  },
   "applications": {
     "loadingDetails": "Loading application details...",
     "notFound": "Application not found.",

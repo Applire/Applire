@@ -539,6 +539,22 @@
       "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
     }
   },
+  "health": {
+    "title": "Profilzustand",
+    "completeness": "Vollständigkeit: {pct}%",
+    "allClear": "Dein Profil ist in gutem Zustand – keine offenen Hinweise.",
+    "issuesSummary": "{count, plural, one {# Hinweis zu deinem Profil} other {# Hinweise zu deinem Profil}}",
+    "nudge": "{count, plural, one {# Hinweis wartet auf dich} other {# Hinweise warten auf dich}}",
+    "criticalHeading": "Dringend zu prüfen",
+    "resolve": "Beheben",
+    "dismissNudge": "Ausblenden",
+    "gapsLabel": "Fehlende Abschnitte: {sections}",
+    "severityCritical": "Kritisch",
+    "severityReview": "Zu prüfen",
+    "severityInfo": "Hinweis",
+    "threadConflict": "Konflikt",
+    "threadAccuracy": "Datenabgleich"
+  },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",
     "notFound": "Bewerbung nicht gefunden.",
