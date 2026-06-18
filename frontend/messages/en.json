@@ -637,6 +637,7 @@
     "send": "Send",
     "sending": "Sending…",
     "done": "Profile enriched — great work!",
+    "noGaps": "Nothing to enrich here right now — your profile is complete.",
     "close": "Close"
   },
   "shell": {

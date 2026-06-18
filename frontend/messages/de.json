@@ -637,6 +637,7 @@
     "send": "Senden",
     "sending": "Wird gesendet…",
     "done": "Profil ergänzt — gut gemacht!",
+    "noGaps": "Hier gibt es gerade nichts zu ergänzen — dein Profil ist vollständig.",
     "close": "Schließen"
   },
   "shell": {
