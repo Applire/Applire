@@ -549,6 +549,7 @@
     "resolve": "Beheben",
     "dismissNudge": "Ausblenden",
     "gapsLabel": "Fehlende Abschnitte: {sections}",
+    "improve": "Verbessern",
     "severityCritical": "Kritisch",
     "severityReview": "Zu prüfen",
     "severityInfo": "Hinweis",

@@ -100,9 +100,13 @@ function IssueCard({
 export function HealthPanel({
   health,
   onResolve,
+  onImprove,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
+  // US166 — launch the standalone Mode C (ADR-028) enrichment conversation in
+  // context from the completeness block. Optional: growth, never blocking.
+  onImprove?: () => void;
 }) {
   const t = useTranslations("health");
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
@@ -167,9 +171,22 @@ export function HealthPanel({
       )}
 
       {health.completeness.gaps.length > 0 && (
-        <p className="mt-3 text-xs text-gray-500">
-          {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-xs text-gray-500">
+            {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
+          </p>
+          {onImprove && (
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="health-improve"
+              className="shrink-0"
+              onClick={onImprove}
+            >
+              {t("improve")}
+            </Button>
+          )}
+        </div>
       )}
     </Card>
   );

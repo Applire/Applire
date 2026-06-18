@@ -291,9 +291,14 @@ export default function ProfilePage() {
           )}
 
           {/* US164: Master Profile Health panel — health read + nudge + Resolve.
-              US165: Resolve launches the standalone profile-review interview. */}
+              US165: Resolve launches the standalone profile-review interview.
+              US166: Improve launches the standalone Mode C enrichment conversation. */}
           {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
-            <HealthPanel health={health} onResolve={() => setReviewDrawerOpen(true)} />
+            <HealthPanel
+              health={health}
+              onResolve={() => setReviewDrawerOpen(true)}
+              onImprove={openEnrichForAll}
+            />
           )}
 
           {profile && (

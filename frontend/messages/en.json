@@ -549,6 +549,7 @@
     "resolve": "Resolve",
     "dismissNudge": "Dismiss",
     "gapsLabel": "Missing sections: {sections}",
+    "improve": "Improve",
     "severityCritical": "Critical",
     "severityReview": "Review",
     "severityInfo": "Info",

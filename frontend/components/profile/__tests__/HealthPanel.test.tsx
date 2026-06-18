@@ -103,4 +103,43 @@ describe("HealthPanel", () => {
     render(withIntl(<HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} />, "de"));
     expect(screen.getByText("Profilzustand")).toBeInTheDocument();
   });
+
+  // US166 — the completeness block is the in-context launch point for the
+  // standalone Mode C (ADR-028) enrichment conversation (growth, not correctness).
+  it("renders an Improve action in the completeness block when gaps exist and calls onImprove", () => {
+    const onImprove = vi.fn();
+    render(
+      withIntl(
+        <HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} onImprove={onImprove} />,
+        "en",
+      ),
+    );
+
+    const improve = screen.getByTestId("health-improve");
+    expect(improve).toBeInTheDocument();
+    fireEvent.click(improve);
+    expect(onImprove).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no Improve action when there are no completeness gaps", () => {
+    render(
+      withIntl(<HealthPanel health={CRITICAL_HEALTH} onResolve={vi.fn()} onImprove={vi.fn()} />, "en"),
+    );
+    expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
+  });
+
+  it("renders no Improve action when onImprove is not provided", () => {
+    render(withIntl(<HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} />, "en"));
+    expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
+  });
+
+  it("labels the Improve action in German under the de locale", () => {
+    render(
+      withIntl(
+        <HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} onImprove={vi.fn()} />,
+        "de",
+      ),
+    );
+    expect(screen.getByText("Verbessern")).toBeInTheDocument();
+  });
 });
