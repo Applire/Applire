@@ -124,3 +124,6 @@ class InterviewState(TypedDict):
     skipped_gaps: list[str]   # gaps resolved transitively via cross-gap answer
     full_gaps: list[str]      # full gap list from analysis; set for micro-sessions only
     na_gaps: list[str]        # gaps dismissed as N/A by the user (Mode C)
+    # US163: descriptors for any deferred Tier-1 gate prepended to critical_gaps,
+    # keyed by "gate:<upload_id>" — present only when a parked gate was injected.
+    gate_clusters: dict

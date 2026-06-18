@@ -142,7 +142,9 @@ async def create_flow(
             )
 
     user_type = await _resolve_user_type(db)
-    available_actions = _compute_actions("jd_analysis", user_type)
+    available_actions = _compute_actions(
+        "jd_analysis", user_type, await _has_open_gate(db)
+    )
 
     flow = FlowSession(
         user_id=user_id,
@@ -227,7 +229,9 @@ async def advance_flow(
         setattr(flow, field, request.artifact_id)
 
     flow.current_step = target
-    flow.available_actions = _compute_actions(target, flow.user_type)
+    flow.available_actions = _compute_actions(
+        target, flow.user_type, await _has_open_gate(db)
+    )
     flow.updated_at = datetime.now(timezone.utc)
     if target == "complete":
         flow.completed_at = datetime.now(timezone.utc)
@@ -285,15 +289,34 @@ async def _resolve_user_type(db: AsyncSession) -> str:
     return "returning" if score >= MODE_B_COMPLETENESS_THRESHOLD else "new"
 
 
-def _compute_actions(step: str, user_type: str) -> dict[str, str]:
-    """Return available_actions dict for a given (step, user_type)."""
+async def _has_open_gate(db: AsyncSession) -> bool:
+    """True if a deferred Tier-1 integrity gate is parked (US167 / US163).
+
+    While one is open a returning user must not be allowed to skip the interview
+    — that interview is where the gate is confirmed (ADR-041 amended).
+    """
+    from applire.services.profile import list_open_gates  # lazy: avoid import cycle
+
+    return bool(await list_open_gates(db))
+
+
+def _compute_actions(
+    step: str, user_type: str, has_open_gate: bool = False
+) -> dict[str, str]:
+    """Return available_actions dict for a given (step, user_type).
+
+    ``has_open_gate`` withdraws the returning-user skip-to-generation shortcut so
+    a parked integrity gate is always confirmed in the interview first (US163).
+    """
     if step == "jd_analysis":
         return {"next": "gap_analysis"} if user_type == "returning" else {"next": "cv_import"}
     if step == "cv_import":
         return {"next": "gap_analysis"}
     if step == "gap_analysis":
-        if user_type == "returning":
+        if user_type == "returning" and not has_open_gate:
             return {"next": "cv_generation"}
+        if user_type == "returning":
+            return {"next": "interview"}
         return {"next": "interview", "skip": "cv_generation"}
     if step == "interview":
         return {"next": "cv_generation"}

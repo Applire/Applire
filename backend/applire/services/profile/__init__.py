@@ -607,6 +607,24 @@ class StagedExtractionAlreadyResolved(Exception):
 _OPEN_GATES = {"not_a_cv", "name_divergence"}
 
 
+async def list_open_gates(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> list[UploadRecord]:
+    """Return parked uploads still holding an unresolved integrity gate (US167).
+
+    These are the deferred Tier-1 gates US163 escalates into the JD interview —
+    oldest first, so the longest-parked confirmation is asked first.
+    """
+    query = (
+        select(UploadRecord)
+        .where(UploadRecord.gate_status.in_(tuple(_OPEN_GATES)))
+        .order_by(UploadRecord.created_at.asc())
+    )
+    if user_id is not None:
+        query = query.where(UploadRecord.user_id == user_id)
+    return list((await db.execute(query)).scalars().all())
+
+
 def _undated_positions(data: MasterProfileData) -> int:
     """Count work entries missing a start date (FMEA JF-M-2.7)."""
     return sum(1 for w in data.work_experience if not (w.start_date and w.start_date.strip()))
