@@ -555,6 +555,15 @@
     "threadConflict": "Konflikt",
     "threadAccuracy": "Datenabgleich"
   },
+  "profileReview": {
+    "title": "Profil prüfen",
+    "loading": "Deine Prüfung wird vorbereitet…",
+    "done": "Alles erledigt – dein Profil ist aktuell.",
+    "close": "Schließen",
+    "placeholder": "Antwort eingeben…",
+    "send": "Senden",
+    "sending": "Wird gesendet…"
+  },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",
     "notFound": "Bewerbung nicht gefunden.",

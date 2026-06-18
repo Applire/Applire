@@ -27,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
+import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth } from "@/components/profile/HealthPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -150,6 +151,8 @@ export default function ProfilePage() {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [enrichDrawerOpen, setEnrichDrawerOpen] = useState(false);
   const [enrichScope, setEnrichScope] = useState<string | undefined>(undefined);
+  // US165: the standalone profile-review interview, launched from a health issue.
+  const [reviewDrawerOpen, setReviewDrawerOpen] = useState(false);
 
   const openEnrichForAll = () => {
     setEnrichScope(undefined);
@@ -287,9 +290,10 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* US164: Master Profile Health panel — health read + nudge + Resolve */}
+          {/* US164: Master Profile Health panel — health read + nudge + Resolve.
+              US165: Resolve launches the standalone profile-review interview. */}
           {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
-            <HealthPanel health={health} onResolve={() => openEnrichForAll()} />
+            <HealthPanel health={health} onResolve={() => setReviewDrawerOpen(true)} />
           )}
 
           {profile && (
@@ -465,6 +469,14 @@ export default function ProfilePage() {
         scope={enrichScope}
         onClose={() => {
           setEnrichDrawerOpen(false);
+          loadProfile();
+        }}
+      />
+
+      <ProfileReviewDrawer
+        open={reviewDrawerOpen}
+        onClose={() => {
+          setReviewDrawerOpen(false);
           loadProfile();
         }}
       />

@@ -555,6 +555,15 @@
     "threadConflict": "Conflict",
     "threadAccuracy": "Accuracy"
   },
+  "profileReview": {
+    "title": "Review profile",
+    "loading": "Preparing your review…",
+    "done": "All done — your profile is up to date.",
+    "close": "Close",
+    "placeholder": "Type your answer…",
+    "send": "Send",
+    "sending": "Sending…"
+  },
   "applications": {
     "loadingDetails": "Loading application details...",
     "notFound": "Application not found.",

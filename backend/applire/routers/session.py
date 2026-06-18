@@ -37,7 +37,12 @@ from applire.schemas.session import (
     SessionStateResponse,
 )
 from applire.services.gap import analyze_gaps_for_session
-from applire.services.session import create_session, get_session_state, send_message
+from applire.services.session import (
+    create_profile_review_session,
+    create_session,
+    get_session_state,
+    send_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,30 @@ async def start_session(
         )
     except Exception as exc:
         logger.exception("create_session failed for job %s", body.job_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.post(
+    "/profile-review",
+    response_model=SessionCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_profile_review_session(
+    db: AsyncSession = Depends(get_db),
+    provider: LLMProvider = Depends(_get_provider),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> SessionCreateResponse:
+    """US165 — launch the standalone profile-review interview (no JD)."""
+    try:
+        return await create_profile_review_session(db, provider)
+    except LLMTimeoutError as exc:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
+    except LLMRateLimitError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.exception("create_profile_review_session failed")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 

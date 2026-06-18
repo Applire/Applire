@@ -84,7 +84,7 @@ class SessionStateResponse(BaseModel):
     """Returned by GET /api/session/{id} — used for agent recovery and pause/resume."""
 
     session_id: uuid.UUID
-    job_id: uuid.UUID
+    job_id: uuid.UUID | None  # None for a standalone profile-review session (US165)
     mode: Literal["targeted", "guided"]
     status: Literal["active", "complete", "expired"]
     questions_asked: int
@@ -127,3 +127,6 @@ class InterviewState(TypedDict):
     # US163: descriptors for any deferred Tier-1 gate prepended to critical_gaps,
     # keyed by "gate:<upload_id>" — present only when a parked gate was injected.
     gate_clusters: dict
+    # US165: descriptors for the open Tier-2 conflicts a standalone profile-review
+    # session walks, keyed by "conflict:<conflict_id>". Present only for that entry.
+    conflict_clusters: dict

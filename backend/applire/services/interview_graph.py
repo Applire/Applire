@@ -716,3 +716,137 @@ def interpret_gate_answer(answer: str) -> str:
     if discard and not merge:
         return "discard"
     return "unclear"
+
+
+# ---------------------------------------------------------------------------
+# US165 (E033 / ADR-041) — a pending Tier-2 conflict as a profile-review question
+# ---------------------------------------------------------------------------
+#
+# In the standalone profile-review interview (no JD), each unresolved ADR-013
+# ``Conflict`` becomes a deterministic two-choice question: keep the value the
+# profile already holds, or adopt the value an import proposed. The prompt is
+# generated without the LLM — the system surfaces both values and asks the user
+# to choose; it never decides a factual correction itself. The chosen side is
+# applied through ``resolve_conflict`` (manual_edit EnrichmentRecord).
+
+CONFLICT_CATEGORY = "CONFLICT"
+_CONFLICT_PREFIX = "conflict:"
+
+_CONFLICT_COPY = {
+    "en": {
+        "question": (
+            "Your profile has two values for {section}.{field}: currently "
+            "'{existing}', but an import suggested '{incoming}'. Which is correct?"
+        ),
+        "keep": "Keep current: {existing}",
+        "use": "Use imported: {incoming}",
+    },
+    "de": {
+        "question": (
+            "Dein Profil hat zwei Werte für {section}.{field}: aktuell "
+            "'{existing}', ein Import schlug aber '{incoming}' vor. Welcher stimmt?"
+        ),
+        "keep": "Aktuellen behalten: {existing}",
+        "use": "Importierten übernehmen: {incoming}",
+    },
+}
+
+# Answer interpretation. "keep" words map to the existing value, "use" words to
+# the incoming one. Symmetric and conservative: a mixed or empty answer that also
+# matches neither value verbatim is "unclear" so the caller re-asks.
+_KEEP_WORDS = frozenset({
+    "keep", "current", "currently", "existing", "mine", "original", "old", "leave",
+    "behalten", "aktuell", "aktuellen", "beibehalten", "bisherig", "bisherigen",
+    "alt", "alten", "lassen",
+})
+_USE_WORDS = frozenset({
+    "use", "new", "imported", "import", "update", "change", "replace", "adopt",
+    "übernehmen", "uebernehmen", "neu", "neuen", "importiert", "importierten",
+    "aktualisieren", "ersetzen", "ändern", "aendern",
+})
+
+
+def is_conflict_cluster(cluster_id: str) -> bool:
+    """True if a critical-gaps entry is a pending-conflict pseudo-gap (US165)."""
+    return isinstance(cluster_id, str) and cluster_id.startswith(_CONFLICT_PREFIX)
+
+
+def conflict_question(
+    section: str,
+    field: str,
+    existing_value,
+    incoming_value,
+    lang: str = "en",
+) -> dict:
+    """Deterministic (no-LLM) correction prompt + the two value choices."""
+    copy = _CONFLICT_COPY.get(lang, _CONFLICT_COPY["en"])
+    fmt = dict(
+        section=section, field=field,
+        existing=existing_value, incoming=incoming_value,
+    )
+    return {
+        "question": copy["question"].format(**fmt),
+        "choices": [copy["keep"].format(**fmt), copy["use"].format(**fmt)],
+    }
+
+
+def build_conflict_clusters(
+    conflicts: list[dict],
+    lang: str = "en",
+) -> tuple[list[str], dict, dict]:
+    """Turn unresolved conflicts into profile-review pseudo-clusters.
+
+    ``conflicts`` items: ``{conflict_id, section, field, existing_value,
+    incoming_value}``. Returns the GapDetector-shaped ``(ids, categories,
+    clusters_by_id)`` so the ids can populate ``critical_gaps`` directly.
+    """
+    cluster_ids: list[str] = []
+    categories: dict[str, str] = {}
+    by_id: dict[str, dict] = {}
+    for c in conflicts:
+        cid = f"{_CONFLICT_PREFIX}{c['conflict_id']}"
+        q = conflict_question(
+            c["section"], c["field"],
+            c["existing_value"], c["incoming_value"], lang,
+        )
+        cluster_ids.append(cid)
+        categories[cid] = CONFLICT_CATEGORY
+        by_id[cid] = {
+            "id": cid,
+            "kind": "conflict",
+            "conflict_id": c["conflict_id"],
+            "section": c["section"],
+            "field": c["field"],
+            "existing_value": c["existing_value"],
+            "incoming_value": c["incoming_value"],
+            "label": q["question"],
+            "question": q["question"],
+            "choices": q["choices"],
+        }
+    return cluster_ids, categories, by_id
+
+
+def interpret_conflict_answer(answer: str, existing_value, incoming_value) -> str:
+    """Map an answer to ``"existing" | "incoming" | "unclear"``.
+
+    First tries keep/use intent words; falls back to a verbatim match of the
+    answer against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+    """
+    text = (answer or "").strip()
+    tokens = set(re.findall(r"\w+", text.casefold()))
+    keep = bool(tokens & _KEEP_WORDS)
+    use = bool(tokens & _USE_WORDS)
+    if keep and not use:
+        return "existing"
+    if use and not keep:
+        return "incoming"
+
+    # Verbatim value match (the user just typed the correct value).
+    norm = text.casefold()
+    matches_existing = bool(norm) and norm == str(existing_value or "").strip().casefold()
+    matches_incoming = bool(norm) and norm == str(incoming_value or "").strip().casefold()
+    if matches_existing and not matches_incoming:
+        return "existing"
+    if matches_incoming and not matches_existing:
+        return "incoming"
+    return "unclear"
