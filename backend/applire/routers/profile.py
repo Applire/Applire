@@ -46,6 +46,7 @@ from applire.schemas.profile import (
     LinkedInImportRequest,
     MasterProfileResponse,
     ProfileChangesResponse,
+    ProfileHealthResponse,
     StagedResolveRequest,
     StagedResolveResponse,
     UndoLastMergeResponse,
@@ -55,6 +56,7 @@ from applire.services.profile.snapshots import undo_last_merge
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
+    get_profile_health,
     get_profile,
     import_from_linkedin,
     import_from_linkedin_pdf,
@@ -450,6 +452,21 @@ async def get_profile_changes_endpoint(
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
     return await get_profile_changes(db)
+
+
+@router.get(
+    "/health",
+    response_model=ProfileHealthResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_profile_health_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> ProfileHealthResponse:
+    """US160 (E033 / ADR-041 amended) — deterministic Profile Health: conflict +
+    accuracy issues (severity-tagged) plus a completeness block. No LLM; reads
+    only the durable Master Profile (never the 7-day upload — ADR-005)."""
+    return await get_profile_health(db)
 
 
 @router.post(

@@ -375,6 +375,19 @@ class MasterProfileData(BaseModel):
                 score += weight
         return round(score, 2)
 
+    def completeness_gaps(self) -> list[str]:
+        """Weighted sections that still lack meaningful data (US104 / E026).
+
+        The flip side of ``calculate_completeness`` — the sections whose absence
+        docks the score. Deterministic and JD-independent; the health endpoint
+        surfaces these as a nudge, never as a severity-tagged issue.
+        """
+        return [
+            section
+            for section in _COMPLETENESS_WEIGHTS
+            if not _has_meaningful_data(self, section)
+        ]
+
     def calculate_stats(self) -> "ProfileStats":
         """Derive the gap-page summary tiles from real profile data.
 
@@ -502,6 +515,38 @@ class UndoLastMergeResponse(BaseModel):
 
     restored: bool                          # False when there was nothing to undo
     discarded_later_edits: bool = False     # True when edits after the merge were dropped
+
+
+class HealthIssue(BaseModel):
+    """One Tier-2 profile-health issue (US160 / ADR-041 amended).
+
+    ``profile_mismatch_severity`` is the US162 axis (info|review|critical), kept
+    deliberately distinct from the ADR-021 *reviewer* severity. The literal is
+    inlined (not imported from ``services.profile.severity``) to avoid a schema↔
+    service import cycle.
+    """
+
+    id: str                                       # stable, deterministic
+    thread: Literal["conflict", "accuracy"]
+    profile_mismatch_severity: Literal["info", "review", "critical"]
+    summary: str
+    field_ref: str | None = None
+    source_record_ref: str | None = None
+
+
+class CompletenessBlock(BaseModel):
+    """Completeness is a score + the missing sections — never severity-tagged
+    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch."""
+
+    score: float                                  # 0.0 to 1.0
+    gaps: list[str] = Field(default_factory=list)
+
+
+class ProfileHealthResponse(BaseModel):
+    """GET /api/profile/health — one deterministic read of profile health."""
+
+    issues: list[HealthIssue] = Field(default_factory=list)
+    completeness: CompletenessBlock
 
 
 class UploadHistoryItem(BaseModel):

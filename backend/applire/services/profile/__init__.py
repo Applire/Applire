@@ -62,6 +62,7 @@ from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills
 from applire.schemas.profile import (
+    CompletenessBlock,
     ConflictSummary,
     CVUploadResponse,
     EnrichmentRecord,
@@ -69,9 +70,11 @@ from applire.schemas.profile import (
     MasterProfileData,
     MasterProfileResponse,
     ProfileChangesResponse,
+    ProfileHealthResponse,
     ProfileMetadata,
     StagedResolveResponse,
 )
+from applire.services.profile.health import assess_health
 
 _DEFAULT_EMBEDDING_PROVIDER = NoopEmbeddingProvider()
 
@@ -474,6 +477,20 @@ async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
         enrichment_history=profile_data.metadata.enrichment_history,
         pending_conflicts=profile_data.metadata.pending_conflicts,
     )
+
+
+async def get_profile_health(db: AsyncSession) -> ProfileHealthResponse:
+    """US160 (E033 / ADR-041 amended) — deterministic Tier-2 health for the
+    current profile: conflict + accuracy issues plus a completeness block.
+
+    No LLM; reads only the durable Master Profile (never the 7-day upload —
+    ADR-005). An absent profile is reported as empty health, not a 404, so the
+    Health panel renders uniformly."""
+    record = await _get_latest(db)
+    if not record:
+        return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    return assess_health(profile_data)
 
 
 async def resolve_conflict(
