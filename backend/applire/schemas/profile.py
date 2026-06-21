@@ -255,11 +255,17 @@ class FieldChange(BaseModel):
 
 
 class EnrichmentRecord(BaseModel):
+    # Stable id so a pre-merge snapshot (US168 / ADR-042) can key to the merge
+    # this record represents, and undo can detect whether it is still the head.
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
     source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual_edit", "manual_role_add"]
     source_session_id: str | None = None
     changes: list[FieldChange] = Field(default_factory=list)
     confidence: float | None = None  # for LLM-extracted data
+    # US161 (ADR-041 amended) — per-entity {extracted, stored, delta} captured at
+    # merge time so silent data-loss (FMEA JF-M-3.3) is detectable. Merge records only.
+    reconciliation: dict[str, dict[str, int]] | None = None
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────
@@ -369,6 +375,19 @@ class MasterProfileData(BaseModel):
                 score += weight
         return round(score, 2)
 
+    def completeness_gaps(self) -> list[str]:
+        """Weighted sections that still lack meaningful data (US104 / E026).
+
+        The flip side of ``calculate_completeness`` — the sections whose absence
+        docks the score. Deterministic and JD-independent; the health endpoint
+        surfaces these as a nudge, never as a severity-tagged issue.
+        """
+        return [
+            section
+            for section in _COMPLETENESS_WEIGHTS
+            if not _has_meaningful_data(self, section)
+        ]
+
     def calculate_stats(self) -> "ProfileStats":
         """Derive the gap-page summary tiles from real profile data.
 
@@ -456,16 +475,78 @@ class CVUploadResponse(BaseModel):
     transient DRAFT/COMPLETE status, GDPR expiry, and traceability back to
     the EnrichmentRecord. MasterProfileResponse remains unchanged.
     """
-    profile_id: uuid.UUID
-    status: Literal["DRAFT", "COMPLETE"]
+    # GATED (US167): the pre-merge gate held the merge. profile_id /
+    # enrichment_record_id are absent because nothing was committed.
+    profile_id: uuid.UUID | None = None
+    status: Literal["DRAFT", "COMPLETE", "GATED"]
     completeness_score: float
     conflicts: list[ConflictSummary] = Field(default_factory=list)
-    enrichment_record_id: uuid.UUID
+    enrichment_record_id: uuid.UUID | None = None
     expires_at: datetime
     # Input-plausibility signals (Input Integrity sprint, issue #43)
     looks_like_cv: bool = True          # US154 / FMEA 2.3
     name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
     undated_positions: int = 0          # US157 / FMEA 2.7
+    # Pre-merge gate (US167 / ADR-041 amended). "none" on a clean merge.
+    gate: Literal["none", "not_a_cv", "name_divergence"] = "none"
+    account_name: str | None = None     # existing profile's name (divergence prompt)
+    cv_name: str | None = None          # uploaded CV's name (divergence prompt)
+    staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)
+
+
+class StagedResolveRequest(BaseModel):
+    """Request body for POST /api/profile/staged/{id}/resolve (US167)."""
+
+    action: Literal["merge", "discard"]
+
+
+class StagedResolveResponse(BaseModel):
+    """Response for POST /api/profile/staged/{id}/resolve (US167 / ADR-041 amended)."""
+
+    staged_id: uuid.UUID
+    action: Literal["merge", "discard"]
+    profile_id: uuid.UUID | None = None         # set when action == "merge"
+    completeness_score: float | None = None     # set when action == "merge"
+    conflicts: list[ConflictSummary] = Field(default_factory=list)
+
+
+class UndoLastMergeResponse(BaseModel):
+    """Response for POST /api/profile/undo-last-merge (US168 / ADR-042)."""
+
+    restored: bool                          # False when there was nothing to undo
+    discarded_later_edits: bool = False     # True when edits after the merge were dropped
+
+
+class HealthIssue(BaseModel):
+    """One Tier-2 profile-health issue (US160 / ADR-041 amended).
+
+    ``profile_mismatch_severity`` is the US162 axis (info|review|critical), kept
+    deliberately distinct from the ADR-021 *reviewer* severity. The literal is
+    inlined (not imported from ``services.profile.severity``) to avoid a schema↔
+    service import cycle.
+    """
+
+    id: str                                       # stable, deterministic
+    thread: Literal["conflict", "accuracy"]
+    profile_mismatch_severity: Literal["info", "review", "critical"]
+    summary: str
+    field_ref: str | None = None
+    source_record_ref: str | None = None
+
+
+class CompletenessBlock(BaseModel):
+    """Completeness is a score + the missing sections — never severity-tagged
+    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch."""
+
+    score: float                                  # 0.0 to 1.0
+    gaps: list[str] = Field(default_factory=list)
+
+
+class ProfileHealthResponse(BaseModel):
+    """GET /api/profile/health — one deterministic read of profile health."""
+
+    issues: list[HealthIssue] = Field(default_factory=list)
+    completeness: CompletenessBlock
 
 
 class UploadHistoryItem(BaseModel):
@@ -475,3 +556,8 @@ class UploadHistoryItem(BaseModel):
     byte_size: int
     created_at: datetime
     completeness_score: float | None = None  # TODO: join to EnrichmentRecord when score persistence is wired
+    # Pre-merge gate (US167). Open states (not_a_cv / name_divergence) badge the
+    # row as "needs resolution"; resolved_* / None are inert. staged_name is the
+    # parked CV's extracted name, shown when re-opening the resolve dialog.
+    gate_status: str | None = None
+    staged_name: str | None = None

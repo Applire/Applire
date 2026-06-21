@@ -39,13 +39,21 @@ class _MockAuth:
         return user
 
 
-def _make_upload_record(filename: str, mime: str = "application/pdf") -> MagicMock:
+def _make_upload_record(
+    filename: str,
+    mime: str = "application/pdf",
+    *,
+    gate_status: str | None = None,
+    staged_extraction: dict | None = None,
+) -> MagicMock:
     r = MagicMock()
     r.id = uuid.uuid4()
     r.original_filename = filename
     r.mime_type = mime
     r.byte_size = 102400
     r.created_at = _NOW
+    r.gate_status = gate_status
+    r.staged_extraction = staged_extraction
     return r
 
 
@@ -76,6 +84,53 @@ def test_get_uploads_returns_200_with_records(client):
     assert len(data) == 1
     assert data[0]["original_filename"] == "Lebenslauf.pdf"
     assert data[0]["completeness_score"] is None
+
+
+def test_get_uploads_exposes_open_gate_and_staged_name(client):
+    """US167: parked gated uploads expose gate_status + the staged CV name so the
+    frontend can badge them and re-open the resolve dialog."""
+    record = _make_upload_record(
+        "Markus_Brandt_CV.pdf",
+        gate_status="name_divergence",
+        staged_extraction={"personal_info": {"name": "Markus Brandt"}},
+    )
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [record]
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = mock_result
+
+    async def _stub_db():
+        yield mock_db
+
+    client.dependency_overrides[get_db] = _stub_db
+    tc = TestClient(client, raise_server_exceptions=True)
+    resp = tc.get("/api/profile/uploads")
+
+    assert resp.status_code == 200
+    item = resp.json()[0]
+    assert item["gate_status"] == "name_divergence"
+    assert item["staged_name"] == "Markus Brandt"
+
+
+def test_get_uploads_clean_record_has_no_gate(client):
+    """A normally-merged upload reports no open gate."""
+    record = _make_upload_record("clean.pdf")
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [record]
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = mock_result
+
+    async def _stub_db():
+        yield mock_db
+
+    client.dependency_overrides[get_db] = _stub_db
+    tc = TestClient(client, raise_server_exceptions=True)
+    resp = tc.get("/api/profile/uploads")
+
+    assert resp.status_code == 200
+    item = resp.json()[0]
+    assert item["gate_status"] is None
+    assert item["staged_name"] is None
 
 
 def test_get_uploads_returns_empty_list_when_no_records(client):

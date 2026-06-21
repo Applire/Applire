@@ -54,3 +54,32 @@ class MasterProfile(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ProfileSnapshot(Base):
+    """Pre-merge snapshot of a Master Profile (US168 / ADR-042).
+
+    Captured unconditionally before every merge commit so an accidental bad merge
+    is recoverable via ``undo_last_merge``. Keyed to the merge's ``EnrichmentRecord``
+    so undo can detect later edits. Profile-derived PII: cascades on profile delete,
+    so it is purged with the profile under existing GDPR erasure (ADR-040) — no new
+    retention surface. Bounded per profile (``SNAPSHOT_MAX_PER_PROFILE``).
+    """
+
+    __tablename__ = "profile_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("master_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The merge enrichment record this snapshot precedes (ADR-042). UUID-as-text:
+    # EnrichmentRecords live inside profile_json, not their own table — no FK.
+    enrichment_record_id: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    profile_json: Mapped[dict] = mapped_column(_ProfileJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

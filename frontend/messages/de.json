@@ -539,6 +539,32 @@
       "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
     }
   },
+  "health": {
+    "title": "Profilzustand",
+    "completeness": "Vollständigkeit: {pct}%",
+    "allClear": "Dein Profil ist in gutem Zustand – keine offenen Hinweise.",
+    "issuesSummary": "{count, plural, one {# Hinweis zu deinem Profil} other {# Hinweise zu deinem Profil}}",
+    "nudge": "{count, plural, one {# Hinweis wartet auf dich} other {# Hinweise warten auf dich}}",
+    "criticalHeading": "Dringend zu prüfen",
+    "resolve": "Beheben",
+    "dismissNudge": "Ausblenden",
+    "gapsLabel": "Fehlende Abschnitte: {sections}",
+    "improve": "Verbessern",
+    "severityCritical": "Kritisch",
+    "severityReview": "Zu prüfen",
+    "severityInfo": "Hinweis",
+    "threadConflict": "Konflikt",
+    "threadAccuracy": "Datenabgleich"
+  },
+  "profileReview": {
+    "title": "Profil prüfen",
+    "loading": "Deine Prüfung wird vorbereitet…",
+    "done": "Alles erledigt – dein Profil ist aktuell.",
+    "close": "Schließen",
+    "placeholder": "Antwort eingeben…",
+    "send": "Senden",
+    "sending": "Wird gesendet…"
+  },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",
     "notFound": "Bewerbung nicht gefunden.",
@@ -611,6 +637,7 @@
     "send": "Senden",
     "sending": "Wird gesendet…",
     "done": "Profil ergänzt — gut gemacht!",
+    "noGaps": "Hier gibt es gerade nichts zu ergänzen — dein Profil ist vollständig.",
     "close": "Schließen"
   },
   "shell": {
@@ -835,5 +862,19 @@
       "interview_details_added": "Details zu dieser Position aus deiner Interview-Antwort ergänzt.",
       "profile_updated": "Profil aus dieser Quelle aktualisiert."
     }
+  },
+  "mergeGate": {
+    "titleDivergence": "Name stimmt nicht überein",
+    "titleNotCv": "Das sieht nicht nach einem Lebenslauf aus",
+    "bodyDivergence": "Der Name in diesem Dokument lautet „{cvName}“, dein Profil läuft aber auf „{accountName}“. Möchtest du die Daten trotzdem in dein Profil übernehmen?",
+    "bodyDivergenceNoAccount": "Der Name in diesem Dokument („{cvName}“) unterscheidet sich vom Namen in deinem Profil. Möchtest du die Daten trotzdem übernehmen?",
+    "bodyNotCv": "In diesem Dokument konnten wir keinen Lebenslauf erkennen. Möchtest du es trotzdem in dein Profil übernehmen?",
+    "mergeAnyway": "Trotzdem übernehmen",
+    "discard": "Verwerfen",
+    "cancel": "Abbrechen",
+    "resolving": "Wird verarbeitet …",
+    "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
+    "badge": "Prüfung nötig",
+    "reviewAction": "Prüfen"
   }
 }

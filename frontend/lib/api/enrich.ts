@@ -32,6 +32,20 @@ export interface EnrichSession {
   estimated_questions: number;
 }
 
+// US166 — the completeness panel surfaces section-level gaps, but the Mode C
+// engine keys off finer work-entry gaps; when none remain the backend 404s.
+// We model that as a benign "nothing to enrich" sentinel rather than an error,
+// so launching enrichment from the health hub can land on a friendly state.
+export interface EnrichNoGaps {
+  noGaps: true;
+}
+
+export function isEnrichNoGaps(
+  result: EnrichSession | EnrichNoGaps,
+): result is EnrichNoGaps {
+  return "noGaps" in result;
+}
+
 export interface EnrichRespondResult {
   next_question: string | null;
   gaps: GapItem[];
@@ -45,12 +59,19 @@ export interface EnrichActionResult {
   done: boolean;
 }
 
-export async function startEnrichSession(scope?: string): Promise<EnrichSession> {
+export async function startEnrichSession(
+  scope?: string,
+): Promise<EnrichSession | EnrichNoGaps> {
   const res = await fetch(`${API_BASE}/api/profile/enrich/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope: scope ?? null }),
   });
+  // 404 = no completeness gaps to enrich (or no profile): a benign state, not
+  // an error to surface in red. Every other non-2xx is a genuine failure.
+  if (res.status === 404) {
+    return { noGaps: true };
+  }
   if (!res.ok) {
     const errorMsg = await getApiErrorMessage(res);
     throw new Error(errorMsg);

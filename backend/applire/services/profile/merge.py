@@ -42,6 +42,7 @@ from applire.schemas.profile import (
     Skill,
     WorkEntry,
 )
+from applire.services.profile.reconciliation import compute_merge_reconciliation
 
 # Personal-info fields that are user-managed and must never be flagged as
 # LLM-import conflicts. Gap-fill (empty → value) is still applied normally.
@@ -57,6 +58,8 @@ class MergeResult:
     # auto-decision) so the "what changed & why" surfaces render from data, not from
     # parsing the human-readable `added` strings. `added` is retained for back-compat.
     changes: list[FieldChange] = field(default_factory=list)
+    # US161 (ADR-041 amended) — per-entity {extracted, stored, delta}; observational.
+    reconciliation: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 def _dates_overlap(
@@ -546,4 +549,5 @@ def merge_profiles(
         added=all_added,
         conflicts=all_conflicts,
         changes=all_changes,
+        reconciliation=compute_merge_reconciliation(incoming, merged_profile),
     )

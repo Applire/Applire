@@ -593,3 +593,260 @@ def gap_detector_mode_c(
 
 def _norm(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+# ---------------------------------------------------------------------------
+# US163 (E033 / ADR-041 amended) — deferred integrity gate as a blocking question
+# ---------------------------------------------------------------------------
+#
+# A parked US167 gate (not-a-CV / name divergence) is the ONLY non-job-relevant
+# forcing left in the interview. It is injected ahead of every JD gap as a
+# mandatory pseudo-gap so the user can never tailor a CV from a profile whose
+# origin they never confirmed. The prompt is deterministic (no LLM) — the system
+# only asks the user to decide; it never decides identity itself.
+
+import re
+
+GATE_CATEGORY = "GATE"
+_GATE_PREFIX = "gate:"
+
+# Deterministic confirm copy, bilingual (ADR-038). Mirrors the US167 dialog text.
+_GATE_COPY = {
+    "en": {
+        "name_divergence": (
+            "Before we tailor your CV: a parked upload is for '{cv}', but your "
+            "profile is '{account}'. Is that CV yours and should we add it?"
+        ),
+        "not_a_cv": (
+            "Before we tailor your CV: a parked upload doesn't look like a CV. "
+            "Add it to your profile anyway?"
+        ),
+        "merge": "Yes — it's mine, add it",
+        "discard": "No — discard it",
+    },
+    "de": {
+        "name_divergence": (
+            "Bevor wir deinen Lebenslauf anpassen: Ein zurückgestellter Upload "
+            "lautet auf '{cv}', dein Profil aber auf '{account}'. Gehört dieser "
+            "Lebenslauf dir und sollen wir ihn übernehmen?"
+        ),
+        "not_a_cv": (
+            "Bevor wir deinen Lebenslauf anpassen: Ein zurückgestellter Upload "
+            "sieht nicht wie ein Lebenslauf aus. Trotzdem zum Profil hinzufügen?"
+        ),
+        "merge": "Ja — er ist meiner, übernehmen",
+        "discard": "Nein — verwerfen",
+    },
+}
+
+# Answer interpretation. Possessive words are deliberately excluded so that a
+# negation like "nein, der ist nicht meiner" resolves to discard, not ambiguity.
+_MERGE_WORDS = frozenset({
+    "yes", "yep", "yeah", "sure", "merge", "keep", "add", "anyway", "correct",
+    "ja", "jap", "übernehmen", "uebernehmen", "behalten", "hinzufügen",
+    "hinzufuegen", "richtig", "stimmt", "trotzdem",
+})
+_DISCARD_WORDS = frozenset({
+    "no", "nope", "discard", "drop", "delete", "remove", "wrong",
+    "nein", "verwerfen", "löschen", "loeschen", "entfernen", "falsch",
+})
+
+
+def is_gate_cluster(cluster_id: str) -> bool:
+    """True if a critical-gaps entry is a deferred-gate pseudo-gap (US163)."""
+    return isinstance(cluster_id, str) and cluster_id.startswith(_GATE_PREFIX)
+
+
+def gate_question(
+    gate: str,
+    account_name: str | None,
+    cv_name: str | None,
+    lang: str = "en",
+) -> dict:
+    """Deterministic (no-LLM) confirm prompt + two safe choices for a held gate."""
+    copy = _GATE_COPY.get(lang, _GATE_COPY["en"])
+    template = copy.get(gate, copy["name_divergence"])
+    question = template.format(cv=cv_name or "—", account=account_name or "—")
+    return {"question": question, "choices": [copy["merge"], copy["discard"]]}
+
+
+def build_gate_clusters(
+    gates: list[dict],
+    lang: str = "en",
+) -> tuple[list[str], dict, dict]:
+    """Turn open parked gates into gate-first pseudo-clusters.
+
+    ``gates`` items: ``{upload_id, gate, account_name, cv_name}``. Returns the
+    same ``(cluster_ids, categories, clusters_by_id)`` shape the GapDetector
+    yields, so the gate ids can be prepended to ``critical_gaps`` directly.
+    """
+    cluster_ids: list[str] = []
+    categories: dict[str, str] = {}
+    by_id: dict[str, dict] = {}
+    for g in gates:
+        cid = f"{_GATE_PREFIX}{g['upload_id']}"
+        q = gate_question(g["gate"], g.get("account_name"), g.get("cv_name"), lang)
+        cluster_ids.append(cid)
+        categories[cid] = GATE_CATEGORY
+        by_id[cid] = {
+            "id": cid,
+            "kind": "gate",
+            "gate": g["gate"],
+            "upload_id": str(g["upload_id"]),
+            "account_name": g.get("account_name"),
+            "cv_name": g.get("cv_name"),
+            "label": q["question"],
+            "question": q["question"],
+            "choices": q["choices"],
+        }
+    return cluster_ids, categories, by_id
+
+
+def interpret_gate_answer(answer: str) -> str:
+    """Map a free-text / choice answer to ``"merge" | "discard" | "unclear"``.
+
+    Conservative: a mixed or empty answer is ``"unclear"`` so the caller re-asks
+    rather than guessing — the safe default is never to merge unconfirmed data.
+    """
+    tokens = set(re.findall(r"\w+", (answer or "").casefold()))
+    merge = bool(tokens & _MERGE_WORDS)
+    discard = bool(tokens & _DISCARD_WORDS)
+    if merge and not discard:
+        return "merge"
+    if discard and not merge:
+        return "discard"
+    return "unclear"
+
+
+# ---------------------------------------------------------------------------
+# US165 (E033 / ADR-041) — a pending Tier-2 conflict as a profile-review question
+# ---------------------------------------------------------------------------
+#
+# In the standalone profile-review interview (no JD), each unresolved ADR-013
+# ``Conflict`` becomes a deterministic two-choice question: keep the value the
+# profile already holds, or adopt the value an import proposed. The prompt is
+# generated without the LLM — the system surfaces both values and asks the user
+# to choose; it never decides a factual correction itself. The chosen side is
+# applied through ``resolve_conflict`` (manual_edit EnrichmentRecord).
+
+CONFLICT_CATEGORY = "CONFLICT"
+_CONFLICT_PREFIX = "conflict:"
+
+_CONFLICT_COPY = {
+    "en": {
+        "question": (
+            "Your profile has two values for {section}.{field}: currently "
+            "'{existing}', but an import suggested '{incoming}'. Which is correct?"
+        ),
+        "keep": "Keep current: {existing}",
+        "use": "Use imported: {incoming}",
+    },
+    "de": {
+        "question": (
+            "Dein Profil hat zwei Werte für {section}.{field}: aktuell "
+            "'{existing}', ein Import schlug aber '{incoming}' vor. Welcher stimmt?"
+        ),
+        "keep": "Aktuellen behalten: {existing}",
+        "use": "Importierten übernehmen: {incoming}",
+    },
+}
+
+# Answer interpretation. "keep" words map to the existing value, "use" words to
+# the incoming one. Symmetric and conservative: a mixed or empty answer that also
+# matches neither value verbatim is "unclear" so the caller re-asks.
+_KEEP_WORDS = frozenset({
+    "keep", "current", "currently", "existing", "mine", "original", "old", "leave",
+    "behalten", "aktuell", "aktuellen", "beibehalten", "bisherig", "bisherigen",
+    "alt", "alten", "lassen",
+})
+_USE_WORDS = frozenset({
+    "use", "new", "imported", "import", "update", "change", "replace", "adopt",
+    "übernehmen", "uebernehmen", "neu", "neuen", "importiert", "importierten",
+    "aktualisieren", "ersetzen", "ändern", "aendern",
+})
+
+
+def is_conflict_cluster(cluster_id: str) -> bool:
+    """True if a critical-gaps entry is a pending-conflict pseudo-gap (US165)."""
+    return isinstance(cluster_id, str) and cluster_id.startswith(_CONFLICT_PREFIX)
+
+
+def conflict_question(
+    section: str,
+    field: str,
+    existing_value,
+    incoming_value,
+    lang: str = "en",
+) -> dict:
+    """Deterministic (no-LLM) correction prompt + the two value choices."""
+    copy = _CONFLICT_COPY.get(lang, _CONFLICT_COPY["en"])
+    fmt = dict(
+        section=section, field=field,
+        existing=existing_value, incoming=incoming_value,
+    )
+    return {
+        "question": copy["question"].format(**fmt),
+        "choices": [copy["keep"].format(**fmt), copy["use"].format(**fmt)],
+    }
+
+
+def build_conflict_clusters(
+    conflicts: list[dict],
+    lang: str = "en",
+) -> tuple[list[str], dict, dict]:
+    """Turn unresolved conflicts into profile-review pseudo-clusters.
+
+    ``conflicts`` items: ``{conflict_id, section, field, existing_value,
+    incoming_value}``. Returns the GapDetector-shaped ``(ids, categories,
+    clusters_by_id)`` so the ids can populate ``critical_gaps`` directly.
+    """
+    cluster_ids: list[str] = []
+    categories: dict[str, str] = {}
+    by_id: dict[str, dict] = {}
+    for c in conflicts:
+        cid = f"{_CONFLICT_PREFIX}{c['conflict_id']}"
+        q = conflict_question(
+            c["section"], c["field"],
+            c["existing_value"], c["incoming_value"], lang,
+        )
+        cluster_ids.append(cid)
+        categories[cid] = CONFLICT_CATEGORY
+        by_id[cid] = {
+            "id": cid,
+            "kind": "conflict",
+            "conflict_id": c["conflict_id"],
+            "section": c["section"],
+            "field": c["field"],
+            "existing_value": c["existing_value"],
+            "incoming_value": c["incoming_value"],
+            "label": q["question"],
+            "question": q["question"],
+            "choices": q["choices"],
+        }
+    return cluster_ids, categories, by_id
+
+
+def interpret_conflict_answer(answer: str, existing_value, incoming_value) -> str:
+    """Map an answer to ``"existing" | "incoming" | "unclear"``.
+
+    First tries keep/use intent words; falls back to a verbatim match of the
+    answer against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+    """
+    text = (answer or "").strip()
+    tokens = set(re.findall(r"\w+", text.casefold()))
+    keep = bool(tokens & _KEEP_WORDS)
+    use = bool(tokens & _USE_WORDS)
+    if keep and not use:
+        return "existing"
+    if use and not keep:
+        return "incoming"
+
+    # Verbatim value match (the user just typed the correct value).
+    norm = text.casefold()
+    matches_existing = bool(norm) and norm == str(existing_value or "").strip().casefold()
+    matches_incoming = bool(norm) and norm == str(incoming_value or "").strip().casefold()
+    if matches_existing and not matches_incoming:
+        return "existing"
+    if matches_incoming and not matches_existing:
+        return "incoming"
+    return "unclear"

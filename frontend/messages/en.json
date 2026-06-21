@@ -539,6 +539,32 @@
       "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
     }
   },
+  "health": {
+    "title": "Profile health",
+    "completeness": "Completeness: {pct}%",
+    "allClear": "Your profile is in good shape — nothing needs attention.",
+    "issuesSummary": "{count, plural, one {# item needs your attention} other {# items need your attention}}",
+    "nudge": "{count, plural, one {# item is waiting for you} other {# items are waiting for you}}",
+    "criticalHeading": "Needs your attention",
+    "resolve": "Resolve",
+    "dismissNudge": "Dismiss",
+    "gapsLabel": "Missing sections: {sections}",
+    "improve": "Improve",
+    "severityCritical": "Critical",
+    "severityReview": "Review",
+    "severityInfo": "Info",
+    "threadConflict": "Conflict",
+    "threadAccuracy": "Accuracy"
+  },
+  "profileReview": {
+    "title": "Review profile",
+    "loading": "Preparing your review…",
+    "done": "All done — your profile is up to date.",
+    "close": "Close",
+    "placeholder": "Type your answer…",
+    "send": "Send",
+    "sending": "Sending…"
+  },
   "applications": {
     "loadingDetails": "Loading application details...",
     "notFound": "Application not found.",
@@ -611,6 +637,7 @@
     "send": "Send",
     "sending": "Sending…",
     "done": "Profile enriched — great work!",
+    "noGaps": "Nothing to enrich here right now — your profile is complete.",
     "close": "Close"
   },
   "shell": {
@@ -835,5 +862,19 @@
       "interview_details_added": "Details added to this position from your interview answer.",
       "profile_updated": "Profile updated from this source."
     }
+  },
+  "mergeGate": {
+    "titleDivergence": "The name doesn’t match",
+    "titleNotCv": "This doesn’t look like a CV",
+    "bodyDivergence": "The name in this document is “{cvName}”, but your profile is under “{accountName}”. Do you still want to merge this data into your profile?",
+    "bodyDivergenceNoAccount": "The name in this document (“{cvName}”) differs from the name on your profile. Do you still want to merge it?",
+    "bodyNotCv": "We couldn’t recognise a CV in this document. Do you still want to merge it into your profile?",
+    "mergeAnyway": "Merge anyway",
+    "discard": "Discard",
+    "cancel": "Cancel",
+    "resolving": "Processing…",
+    "resolveError": "The action could not be completed.",
+    "badge": "Needs review",
+    "reviewAction": "Review"
   }
 }

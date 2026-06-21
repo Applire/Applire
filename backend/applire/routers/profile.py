@@ -46,11 +46,17 @@ from applire.schemas.profile import (
     LinkedInImportRequest,
     MasterProfileResponse,
     ProfileChangesResponse,
+    ProfileHealthResponse,
+    StagedResolveRequest,
+    StagedResolveResponse,
+    UndoLastMergeResponse,
     UploadHistoryItem,
 )
+from applire.services.profile.snapshots import undo_last_merge
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
+    get_profile_health,
     get_profile,
     import_from_linkedin,
     import_from_linkedin_pdf,
@@ -59,6 +65,9 @@ from applire.services.profile import (
     patch_profile_section,
     profile_exists,
     resolve_conflict,
+    resolve_staged_extraction,
+    StagedExtractionAlreadyResolved,
+    StagedExtractionNotFound,
     upload_cv,
 )
 from applire.storage import get_storage
@@ -155,6 +164,65 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         )
+
+
+@router.post(
+    "/staged/{staged_id}/resolve",
+    response_model=StagedResolveResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def resolve_staged_extraction_endpoint(
+    staged_id: uuid.UUID,
+    body: StagedResolveRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> StagedResolveResponse:
+    """Resolve a CV upload that the pre-merge integrity gate held (US167).
+
+    ``action="merge"`` applies the parked extraction additively to the Master
+    Profile (re-using the original LLM result — no re-extraction); ``"discard"``
+    drops it, leaving the profile untouched. Resolving is idempotent: a second
+    attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
+    the authenticated user, so a foreign upload returns 404 (IDOR guard).
+    """
+    user = await auth.get_current_user(request)
+    try:
+        return await resolve_staged_extraction(
+            db, staged_id, action=body.action, user_id=user.id
+        )
+    except StagedExtractionNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except StagedExtractionAlreadyResolved as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+@router.post(
+    "/undo-last-merge",
+    response_model=UndoLastMergeResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def undo_last_merge_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> UndoLastMergeResponse:
+    """Undo the last Master Profile merge (US168 / ADR-042).
+
+    Restores the most recent pre-merge snapshot, clearing the conflicts that merge
+    introduced. If edits occurred after the merge, the restore still proceeds but
+    ``discarded_later_edits`` warns that those changes were dropped (coarse
+    whole-profile restore; per-field revert deferred). Idempotent: a repeat call
+    with nothing left to undo returns ``restored=false``.
+    """
+    await auth.get_current_user(request)
+    result = await undo_last_merge(db)
+    return UndoLastMergeResponse(
+        restored=result.restored,
+        discarded_later_edits=result.discarded_later_edits,
+    )
 
 
 @router.post("/import", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)
@@ -349,6 +417,12 @@ async def get_upload_history(
             byte_size=r.byte_size,
             created_at=r.created_at,
             completeness_score=None,  # TODO: link to EnrichmentRecord for actual score
+            gate_status=r.gate_status,
+            staged_name=(
+                (r.staged_extraction or {}).get("personal_info", {}).get("name")
+                if r.staged_extraction
+                else None
+            ),
         )
         for r in records
     ]
@@ -378,6 +452,21 @@ async def get_profile_changes_endpoint(
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
     return await get_profile_changes(db)
+
+
+@router.get(
+    "/health",
+    response_model=ProfileHealthResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_profile_health_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> ProfileHealthResponse:
+    """US160 (E033 / ADR-041 amended) — deterministic Profile Health: conflict +
+    accuracy issues (severity-tagged) plus a completeness block. No LLM; reads
+    only the durable Master Profile (never the 7-day upload — ADR-005)."""
+    return await get_profile_health(db)
 
 
 @router.post(

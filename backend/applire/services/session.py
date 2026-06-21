@@ -67,9 +67,15 @@ from applire.schemas.session import (
 from applire.services.gap import analyze_gaps
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
+    build_conflict_clusters,
+    build_gate_clusters,
     gap_detector,
     gap_detector_mode_b,
+    interpret_conflict_answer,
+    interpret_gate_answer,
     interview_field_changes,
+    is_conflict_cluster,
+    is_gate_cluster,
     profile_updater,
     question_generator_with_profile,
     response_parser,
@@ -92,6 +98,385 @@ async def get_ui_language(db: AsyncSession) -> str:
     )
     row = result.scalar_one_or_none()
     return (row.ui_language if row else None) or "en"
+
+
+# ---------------------------------------------------------------------------
+# US163 — deferred integrity gate injection (ADR-041 amended)
+# ---------------------------------------------------------------------------
+
+
+def _account_name(profile_record: MasterProfile | None) -> str | None:
+    if profile_record is None:
+        return None
+    return ((profile_record.profile_json or {}).get("personal_info") or {}).get("name")
+
+
+async def _pending_gate_clusters(
+    db: AsyncSession, lang: str, account_name: str | None
+) -> tuple[list[str], dict, dict]:
+    """Build gate-first pseudo-clusters for every open parked gate (US167).
+
+    Returns the GapDetector-shaped ``(ids, categories, clusters_by_id)`` so the
+    caller can prepend the gate ids ahead of the JD gaps, mandatory and
+    job-irrelevant. Empty when nothing is parked — the no-gate path is unchanged.
+    """
+    from applire.services.profile import list_open_gates  # lazy: avoid import cycle
+
+    records = await list_open_gates(db)
+    if not records:
+        return [], {}, {}
+    inputs = [
+        {
+            "upload_id": r.id,
+            "gate": r.gate_status,
+            "account_name": account_name,
+            "cv_name": ((r.staged_extraction or {}).get("personal_info") or {}).get("name"),
+        }
+        for r in records
+    ]
+    return build_gate_clusters(inputs, lang)
+
+
+def _gate_entry(state: InterviewState, cluster_id: str) -> dict | None:
+    """The stored gate descriptor for a critical-gaps entry, or None if not a gate."""
+    if not is_gate_cluster(cluster_id):
+        return None
+    return (state.get("gate_clusters") or {}).get(cluster_id)
+
+
+async def _resolve_gate(db: AsyncSession, upload_id: str, action: str) -> None:
+    """Apply the user's gate decision, tolerating an already-resolved upload."""
+    from applire.services.profile import (  # lazy: avoid import cycle
+        StagedExtractionAlreadyResolved,
+        StagedExtractionNotFound,
+        resolve_staged_extraction,
+    )
+
+    try:
+        await resolve_staged_extraction(db, uuid.UUID(upload_id), action=action)
+    except (StagedExtractionAlreadyResolved, StagedExtractionNotFound):
+        # Idempotent on resume / TTL eviction — the gate is no longer open, so
+        # there is nothing to apply; advancing past it is the correct behaviour.
+        pass
+
+
+async def _ask_or_complete_at(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    next_index: int,
+    lang: str,
+) -> SessionMessageResponse:
+    """Position the session at ``next_index`` and emit its question (gate-aware)
+    or complete when no gaps remain. Used after a gate is resolved."""
+    skipped = set(state.get("skipped_gaps", []))
+    next_index = _next_valid_index(state["critical_gaps"], next_index, skipped)
+    state["current_gap_index"] = next_index
+    gaps_remaining = _count_remaining(state["critical_gaps"], next_index, skipped)
+
+    profile_record = await _load_profile(state["profile_id"], db)
+    if gaps_remaining <= 0:
+        return await _complete_session(record, state, db, "gaps_resolved", profile_record)
+
+    next_gap = state["critical_gaps"][next_index]
+    gate_entry = _gate_entry(state, next_gap)
+    conflict_entry = _conflict_entry(state, next_gap)
+    if gate_entry is not None:
+        next_question = gate_entry["question"]
+        next_choices = gate_entry["choices"]
+    elif conflict_entry is not None:
+        next_question = conflict_entry["question"]
+        next_choices = conflict_entry["choices"]
+    else:
+        next_category = (state.get("gap_categories") or {}).get(next_gap)
+        job_context = (
+            await _load_job_context(state["job_id"], db)
+            if state.get("mode") == "guided"
+            else None
+        )
+        q_data = await question_generator_with_profile(
+            state, profile_record.profile_json, provider,
+            gap_category=next_category, job_context=job_context, lang=lang,
+        )
+        next_question = q_data["question"]
+        next_choices = q_data["choices"]
+
+    state["current_question"] = next_question
+    state["current_choices"] = next_choices
+    state["messages"].append({"role": "assistant", "content": next_question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return SessionMessageResponse(
+        complete=False,
+        question=next_question,
+        gaps_remaining=gaps_remaining,
+        choices=next_choices,
+    )
+
+
+async def _handle_gate_answer(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_idx: int,
+    gate_entry: dict,
+    message: str,
+) -> SessionMessageResponse:
+    """Resolve a deferred Tier-1 gate from the user's answer (US163).
+
+    A clear yes/no merges or discards the parked upload and advances; an unclear
+    answer re-asks the same blocking question (safe default: never auto-merge).
+    """
+    decision = interpret_gate_answer(message)
+
+    if decision == "unclear":
+        question = gate_entry["question"]
+        choices = gate_entry["choices"]
+        state["current_question"] = question
+        state["current_choices"] = choices
+        state["messages"].append({"role": "assistant", "content": question})
+        record.state = state
+        record.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        gaps_remaining = _count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        )
+        return SessionMessageResponse(
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+        )
+
+    action = "merge" if decision == "merge" else "discard"
+    await _resolve_gate(db, gate_entry["upload_id"], action)
+
+    current_gap = state["critical_gaps"][current_idx]
+    state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+    state["questions_asked"] = state.get("questions_asked", 0) + 1
+    record.questions_asked = state["questions_asked"]
+
+    lang = await get_ui_language(db)
+    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+
+
+# ---------------------------------------------------------------------------
+# US165 — standalone profile-review interview (no JD): conflict resolution
+# ---------------------------------------------------------------------------
+
+
+def _conflict_entry(state: InterviewState, cluster_id: str) -> dict | None:
+    """The stored conflict descriptor for a critical-gaps entry, or None."""
+    if not is_conflict_cluster(cluster_id):
+        return None
+    return (state.get("conflict_clusters") or {}).get(cluster_id)
+
+
+async def _resolve_conflict_safely(
+    db: AsyncSession, conflict_id: str, resolution: str
+) -> None:
+    """Apply the user's correction, tolerating an already-resolved conflict."""
+    from applire.services.profile import resolve_conflict  # lazy: avoid import cycle
+
+    try:
+        await resolve_conflict(conflict_id, resolution, None, db)
+    except LookupError:
+        # Idempotent on resume: the conflict is already gone from pending, so
+        # advancing past it is correct.
+        pass
+
+
+async def _handle_conflict_answer(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_idx: int,
+    conflict_entry: dict,
+    message: str,
+) -> SessionMessageResponse:
+    """Resolve a pending Tier-2 conflict from the user's answer (US165).
+
+    A clear keep/use choice writes through the ADR-013 merge (manual_edit
+    EnrichmentRecord) and advances; an ambiguous answer re-asks the same
+    question (safe default: never guess a factual correction)."""
+    decision = interpret_conflict_answer(
+        message, conflict_entry["existing_value"], conflict_entry["incoming_value"]
+    )
+
+    if decision == "unclear":
+        question = conflict_entry["question"]
+        choices = conflict_entry["choices"]
+        state["current_question"] = question
+        state["current_choices"] = choices
+        state["messages"].append({"role": "assistant", "content": question})
+        record.state = state
+        record.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        gaps_remaining = _count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        )
+        return SessionMessageResponse(
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+        )
+
+    resolution = "existing" if decision == "existing" else "incoming"
+    await _resolve_conflict_safely(db, conflict_entry["conflict_id"], resolution)
+
+    current_gap = state["critical_gaps"][current_idx]
+    state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+    state["questions_asked"] = state.get("questions_asked", 0) + 1
+    record.questions_asked = state["questions_asked"]
+
+    lang = await get_ui_language(db)
+    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+
+
+async def _get_active_profile_review_session(
+    db: AsyncSession,
+) -> InterviewSession | None:
+    """The active standalone profile-review session, if one is in flight.
+
+    A profile-review session is recorded as ``mode='guided'`` with no
+    ``job_analysis_id``. Real guided (JD) sessions always carry a job, and the
+    Mode-C enrichment sessions are ``mode='profile_enrich'``, so
+    "guided + job IS NULL" identifies a profile review uniquely (resume-safe,
+    ADR-004)."""
+    result = await db.execute(
+        select(InterviewSession)
+        .where(
+            InterviewSession.job_analysis_id.is_(None),
+            InterviewSession.mode == "guided",
+            InterviewSession.status == "active",
+            InterviewSession.deleted_at.is_(None),
+        )
+        .order_by(InterviewSession.created_at.desc())
+    )
+    return result.scalars().first()
+
+
+async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
+    """Unresolved ADR-013 conflicts on the profile, shaped for the cluster builder."""
+    profile_data = MasterProfileData.model_validate(profile_record.profile_json)
+    if profile_data.metadata is None:
+        return []
+    return [
+        {
+            "conflict_id": c.conflict_id,
+            "section": c.section,
+            "field": c.field,
+            "existing_value": c.existing_value,
+            "incoming_value": c.incoming_value,
+        }
+        for c in profile_data.metadata.pending_conflicts
+        if not c.resolved
+    ]
+
+
+async def create_profile_review_session(
+    db: AsyncSession,
+    provider: LLMProvider,
+    lang: str | None = None,
+) -> SessionCreateResponse:
+    """Launch the standalone profile-review interview (US165).
+
+    No ``job_id``: the session walks the user's open Tier-2 conflicts and resolves
+    each in place through the ADR-013 merge. Resume-safe — a second call returns
+    the in-flight session rather than starting a new one.
+    """
+    profile_result = await db.execute(
+        select(MasterProfile)
+        .where(MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc())
+        .limit(1)
+    )
+    profile_record = profile_result.scalar_one_or_none()
+    if profile_record is None:
+        raise LookupError("No profile found — upload a CV first")
+
+    if lang is None:
+        lang = await get_ui_language(db)
+
+    existing = await _get_active_profile_review_session(db)
+    if existing is not None:
+        return _resumed_response(existing)
+
+    conflicts = await _open_conflicts(profile_record)
+    conflict_ids, conflict_categories, conflict_by_id = build_conflict_clusters(
+        conflicts, lang
+    )
+
+    state: InterviewState = _build_state(
+        mode="guided",
+        job_id=None,
+        gap_analysis_id=None,
+        profile_id=profile_record.id,
+        critical_gaps=conflict_ids,
+        gap_categories=conflict_categories,
+        gap_clusters_by_id=conflict_by_id,
+        current_question="",
+        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+    )
+    state["entry"] = "profile_review"
+    state["conflict_clusters"] = conflict_by_id
+
+    # Nothing flagged — record a complete session and tell the user they're clear.
+    if not conflict_ids:
+        record = _make_session_record(
+            job_id=None,
+            gap_analysis_id=None,
+            profile_id=profile_record.id,
+            mode="guided",
+            status="complete",
+            state=state,
+            hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        )
+        db.add(record)
+        await db.commit()
+        await db.refresh(record)
+        all_clear = "No open issues to review — your Master Profile is in good shape!"
+        return SessionCreateResponse(
+            session_id=record.id,
+            mode="guided",
+            first_question=all_clear,
+            question=all_clear,
+            estimated_questions=0,
+            gaps_total=0,
+            gaps_remaining=0,
+        )
+
+    first_entry = conflict_by_id[conflict_ids[0]]
+    first_question = first_entry["question"]
+    first_choices = first_entry["choices"]
+    state["current_question"] = first_question
+    state["current_choices"] = first_choices
+    state["messages"].append({"role": "assistant", "content": first_question})
+    state["questions_asked"] = 1
+
+    record = _make_session_record(
+        job_id=None,
+        gap_analysis_id=None,
+        profile_id=profile_record.id,
+        mode="guided",
+        status="active",
+        state=state,
+        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        questions_asked=1,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    return SessionCreateResponse(
+        session_id=record.id,
+        mode="guided",
+        first_question=first_question,
+        question=first_question,
+        estimated_questions=_estimated_questions("guided"),
+        gaps_total=len(conflict_ids),
+        gaps_remaining=len(conflict_ids),
+        choices=first_choices,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +601,16 @@ async def _create_targeted_session(
 
     cluster_ids, cluster_categories, clusters_by_id = gap_detector(gap_analysis)
 
-    if not cluster_ids:
+    # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
+    # mandatory and job-irrelevant.
+    gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
+        db, lang, _account_name(profile_record)
+    )
+    critical_gaps = gate_ids + cluster_ids
+    gap_categories = {**cluster_categories, **gate_categories}
+    gap_clusters_by_id = {**clusters_by_id, **gate_by_id}
+
+    if not critical_gaps:
         state: InterviewState = _build_state(
             mode="targeted",
             job_id=job_id,
@@ -251,24 +645,32 @@ async def _create_targeted_session(
             gaps_remaining=0,
         )
 
-    first_cluster_id = cluster_ids[0]
-    first_category = cluster_categories.get(first_cluster_id)
     state = _build_state(
         mode="targeted",
         job_id=job_id,
         gap_analysis_id=gap_analysis.id,
         profile_id=profile_record.id,
-        critical_gaps=cluster_ids,
-        gap_categories=cluster_categories,
-        gap_clusters_by_id=clusters_by_id,
+        critical_gaps=critical_gaps,
+        gap_categories=gap_categories,
+        gap_clusters_by_id=gap_clusters_by_id,
         current_question="",
         hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
     )
-    q_data = await question_generator_with_profile(
-        state, profile_record.profile_json, provider, gap_category=first_category, lang=lang
-    )
-    first_question = q_data["question"]
-    first_choices = q_data["choices"]
+    state["gate_clusters"] = gate_by_id
+
+    first_cluster_id = critical_gaps[0]
+    gate_entry = gate_by_id.get(first_cluster_id)
+    if gate_entry is not None:
+        first_question = gate_entry["question"]
+        first_choices = gate_entry["choices"]
+    else:
+        first_category = gap_categories.get(first_cluster_id)
+        q_data = await question_generator_with_profile(
+            state, profile_record.profile_json, provider,
+            gap_category=first_category, lang=lang,
+        )
+        first_question = q_data["question"]
+        first_choices = q_data["choices"]
     state["current_question"] = first_question
     state["current_choices"] = first_choices
     state["messages"].append({"role": "assistant", "content": first_question})
@@ -294,8 +696,8 @@ async def _create_targeted_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("targeted"),
-        gaps_total=len(cluster_ids),
-        gaps_remaining=len(cluster_ids),
+        gaps_total=len(critical_gaps),
+        gaps_remaining=len(critical_gaps),
         choices=first_choices,
     )
 
@@ -321,28 +723,43 @@ async def _create_guided_session(
         "seniority_level": job.seniority_level or "",
     }
 
+    # US163: an open deferred gate blocks even a from-scratch guided build.
+    gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
+        db, lang, _account_name(profile_record)
+    )
+    critical_gaps = gate_ids + sections
+
     state: InterviewState = _build_state(
         mode="guided",
         job_id=job_id,
         gap_analysis_id=None,
         profile_id=profile_record.id,
-        critical_gaps=sections,
-        gap_categories={},
-        gap_clusters_by_id={},
+        critical_gaps=critical_gaps,
+        gap_categories=gate_categories,
+        gap_clusters_by_id=gate_by_id,
         current_question="",
         hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
     )
-    q_data = await question_generator_with_profile(
-        state,
-        profile_record.profile_json,
-        provider,
-        gap_category=None,
-        job_context=job_context,
-        lang=lang,
-    )
-    first_question = q_data["question"]
+    state["gate_clusters"] = gate_by_id
+
+    first_cluster_id = critical_gaps[0]
+    gate_entry = gate_by_id.get(first_cluster_id)
+    if gate_entry is not None:
+        first_question = gate_entry["question"]
+        first_choices = gate_entry["choices"]
+    else:
+        q_data = await question_generator_with_profile(
+            state,
+            profile_record.profile_json,
+            provider,
+            gap_category=None,
+            job_context=job_context,
+            lang=lang,
+        )
+        first_question = q_data["question"]
+        first_choices = None
     state["current_question"] = first_question
-    state["current_choices"] = None
+    state["current_choices"] = first_choices
     state["messages"].append({"role": "assistant", "content": first_question})
     state["questions_asked"] = 1
 
@@ -366,8 +783,9 @@ async def _create_guided_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
-        gaps_total=len(sections),
-        gaps_remaining=len(sections),
+        gaps_total=len(critical_gaps),
+        gaps_remaining=len(critical_gaps),
+        choices=first_choices,
     )
 
 
@@ -505,6 +923,22 @@ async def send_message(
     current_idx = state["current_gap_index"]
     current_gap = state["critical_gaps"][current_idx]
     current_question = state["current_question"]
+
+    # --- US163: a deferred Tier-1 gate is resolved deterministically (no LLM),
+    # never run through the gap response parser / profile updater. ---
+    gate_entry = _gate_entry(state, current_gap)
+    if gate_entry is not None:
+        return await _handle_gate_answer(
+            record, state, db, provider, current_idx, gate_entry, message
+        )
+
+    # --- US165: a pending Tier-2 conflict is resolved deterministically (no LLM),
+    # through the ADR-013 merge — never the gap response parser / profile updater. ---
+    conflict_entry = _conflict_entry(state, current_gap)
+    if conflict_entry is not None:
+        return await _handle_conflict_answer(
+            record, state, db, provider, current_idx, conflict_entry, message
+        )
 
     skipped_set = set(state.get("skipped_gaps", []))
     addressed_set = set(state.get("addressed_gaps", []))
@@ -693,10 +1127,14 @@ async def get_session_state(
             skipped,
         )
 
-    # Treat expired sessions (past expires_at) as "expired" status
+    # Treat expired sessions (past expires_at) as "expired" status. Coerce a
+    # naive timestamp (some backends/drivers drop tzinfo) to UTC before comparing.
+    expires_at = record.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
     if (
-        record.expires_at is not None
-        and datetime.now(timezone.utc) > record.expires_at
+        expires_at is not None
+        and datetime.now(timezone.utc) > expires_at
         and record.status != "complete"
     ):
         status_str = "expired"
@@ -782,7 +1220,7 @@ def _estimated_questions(mode: str) -> int:
 def _build_state(
     *,
     mode: str,
-    job_id: uuid.UUID,
+    job_id: uuid.UUID | None,
     gap_analysis_id: uuid.UUID | None,
     profile_id: uuid.UUID,
     critical_gaps: list[str],
@@ -793,7 +1231,7 @@ def _build_state(
 ) -> InterviewState:
     return {
         "mode": mode,
-        "job_id": str(job_id),
+        "job_id": str(job_id) if job_id else None,
         "gap_analysis_id": str(gap_analysis_id) if gap_analysis_id else None,
         "profile_id": str(profile_id),
         "critical_gaps": critical_gaps,
@@ -865,7 +1303,9 @@ async def _load_profile(profile_id: str, db: AsyncSession) -> MasterProfile:
     return record
 
 
-async def _load_job_context(job_id: str, db: AsyncSession) -> dict:
+async def _load_job_context(job_id: str | None, db: AsyncSession) -> dict:
+    if not job_id:
+        return {}
     result = await db.execute(
         select(JobAnalysis).where(JobAnalysis.id == uuid.UUID(job_id))
     )

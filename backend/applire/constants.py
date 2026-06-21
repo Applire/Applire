@@ -56,6 +56,25 @@ CV_LANGUAGE_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("CV_LANGUAGE_REVIEW_MAX_RETRIES", "1")
 )
 
+# Master Profile Health — post-merge severity classifier thresholds
+# (US162 / E033 / ADR-041 amended; tunable per the ADR-035 precedent).
+# Total reconciliation delta (extracted-but-not-stored data points, summed across
+# work/skills/certs/education) STRICTLY ABOVE this → critical; a smaller non-zero
+# loss stays a dismissible review. Set MERGE_DATALOSS_CRITICAL_THRESHOLD to override.
+MERGE_DATALOSS_CRITICAL_THRESHOLD: int = int(
+    os.environ.get("MERGE_DATALOSS_CRITICAL_THRESHOLD", "3")
+)
+# Merge confidence BELOW this → review. Set MERGE_CONFIDENCE_REVIEW_THRESHOLD to override.
+MERGE_CONFIDENCE_REVIEW_THRESHOLD: float = float(
+    os.environ.get("MERGE_CONFIDENCE_REVIEW_THRESHOLD", "0.75")
+)
+
+# Master Profile pre-merge snapshots (US168 / E033 / ADR-042). Bounded per profile;
+# the most-recent N survive, older ones are pruned. Env-overridable.
+SNAPSHOT_MAX_PER_PROFILE: int = int(
+    os.environ.get("SNAPSHOT_MAX_PER_PROFILE", "10")
+)
+
 # GDPR retention TTLs — configurable via environment variables (ADR-005 amendment, Sprint 25)
 GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_DAYS", "90"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))

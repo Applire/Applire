@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   startEnrichSession,
+  isEnrichNoGaps,
   respondToEnrich,
   skipGap,
   markGapNA,
@@ -77,11 +78,20 @@ describe("startEnrichSession", () => {
     );
   });
 
-  it("throws with backend detail on error", async () => {
-    mockError("No completeness gaps detected in profile", 422);
+  it("throws with backend detail on a non-404 error", async () => {
+    mockError("Session in an invalid state", 422);
     await expect(startEnrichSession()).rejects.toThrow(
-      "No completeness gaps detected"
+      "Session in an invalid state"
     );
+  });
+
+  // US166 — the completeness panel surfaces section-level gaps, but Mode C keys
+  // off work-entry gaps; when none exist the backend 404s. Clicking Improve must
+  // land on a friendly "nothing to enrich" state, never a raw error.
+  it("returns a noGaps sentinel (not a throw) on a 404 no-gaps response", async () => {
+    mockError("No completeness gaps detected in profile", 404);
+    const result = await startEnrichSession();
+    expect(isEnrichNoGaps(result)).toBe(true);
   });
 
   it("returns EnrichSession with all fields", async () => {
@@ -95,6 +105,7 @@ describe("startEnrichSession", () => {
     };
     mockOk(session);
     const result = await startEnrichSession();
+    if (isEnrichNoGaps(result)) throw new Error("expected a real session");
     expect(result).toEqual(session);
     expect(result.session_id).toBe("sess-1");
     expect(result.estimated_questions).toBe(5);

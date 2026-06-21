@@ -26,6 +26,7 @@ import {
   type EnrichActionResult,
   type EnrichSession,
   type GapItem,
+  isEnrichNoGaps,
   markGapNA,
   respondToEnrich,
   skipGap,
@@ -52,6 +53,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [noGaps, setNoGaps] = useState(false);
   const [error, setError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,11 +64,18 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
     setMessages([]);
     setAnswer("");
     setDone(false);
+    setNoGaps(false);
     setError("");
     setLoading(true);
 
     startEnrichSession(scope)
       .then((s) => {
+        // No work-entry gaps to enrich (or no profile): a benign state — land on
+        // a friendly "complete" message rather than treating the 404 as an error.
+        if (isEnrichNoGaps(s)) {
+          setNoGaps(true);
+          return;
+        }
         setSession(s);
         setGaps(s.gaps);
         setMessages([{ role: "assistant", content: s.first_question }]);
@@ -76,7 +85,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
   }, [open, scope]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    chatEndRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
@@ -207,6 +216,18 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
             <div className="text-3xl text-success" aria-hidden="true">✓</div>
             <p className="text-sm font-medium text-neutral-dark">{t("done")}</p>
+            <Button variant="outline" onClick={onClose}>{t("close")}</Button>
+          </div>
+        )}
+
+        {noGaps && !error && (
+          <div
+            data-testid="enrich-no-gaps"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
+          >
+            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+            <div className="text-3xl text-success" aria-hidden="true">✓</div>
+            <p className="text-sm font-medium text-neutral-dark">{t("noGaps")}</p>
             <Button variant="outline" onClick={onClose}>{t("close")}</Button>
           </div>
         )}
