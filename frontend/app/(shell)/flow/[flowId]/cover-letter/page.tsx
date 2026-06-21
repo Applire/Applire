@@ -27,6 +27,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { CoverLetterPreDownloadReview } from "@/components/review/CoverLetterPreDownloadReview";
 
 type CLTemplate =
   | "classic_german"
@@ -67,6 +68,9 @@ export default function CoverLetterPage({
   const [previewKey, setPreviewKey] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // US170 / ADR-040 §3/§4 — pre-download attestation nudge (nudge, not gate).
+  const [attested, setAttested] = useState(false);
+  const [showDownloadReview, setShowDownloadReview] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -188,6 +192,13 @@ export default function CoverLetterPage({
     }
   }
 
+  // Route every download through the attestation nudge once (US170 / ADR-040 §4):
+  // after the user has attested, subsequent downloads go straight through.
+  function requestDownload() {
+    if (attested) void handleDownloadPdf();
+    else setShowDownloadReview(true);
+  }
+
   function handleTemplateChange(_template: CLTemplate) {
     setShowModal(true);
   }
@@ -245,7 +256,7 @@ export default function CoverLetterPage({
           </Link>
           <button
             type="button"
-            onClick={() => void handleDownloadPdf()}
+            onClick={requestDownload}
             disabled={downloading || phase !== "ready"}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
             data-testid="cl-topbar-download-btn"
@@ -254,6 +265,25 @@ export default function CoverLetterPage({
           </button>
         </div>
       </div>
+
+      {showDownloadReview && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowDownloadReview(false)}
+          data-testid="cl-download-review-overlay"
+        >
+          <div className="max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <CoverLetterPreDownloadReview
+              onAttested={() => {
+                setAttested(true);
+                setShowDownloadReview(false);
+                void handleDownloadPdf();
+              }}
+              onDismiss={() => setShowDownloadReview(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Body */}
       {phase === "generating" ? (
@@ -286,7 +316,7 @@ export default function CoverLetterPage({
               onSectionSaved={handleSectionSaved}
               onTemplateChange={handleTemplateChange}
               onRegenerateCoverLetter={() => setShowModal(true)}
-              onDownloadPdf={() => void handleDownloadPdf()}
+              onDownloadPdf={requestDownload}
               downloading={downloading}
               collapsed={!panelOpen}
               onToggleCollapse={() => setPanelOpen((o) => !o)}

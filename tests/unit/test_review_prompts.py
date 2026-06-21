@@ -6,6 +6,7 @@ No LLM calls. No Docker.
 Run:
     pytest tests/unit/test_review_prompts.py -v
 """
+import json
 import sys
 from pathlib import Path
 
@@ -291,6 +292,20 @@ class TestCVTailoringGeneratorPrompts:
         assert isinstance(result, str)
         assert "Backend Engineer" in result
 
+    def test_system_prompt_constrains_claim_strength(self):
+        """US169 (JF-M-6.2) — generator-side prevention. The reviewer already flags
+        oversell (rule 6, US142), but the *generator* prompt never told the model not
+        to inflate. Prevention lowers O before the draft exists; detection alone leaves
+        an unnecessary over-claim→reject→retry round-trip."""
+        from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+
+        low = SYSTEM_PROMPT.lower()
+        # the rule must forbid inflating claim strength / seniority beyond evidence
+        assert "inflate" in low or "overstate" in low
+        assert "seniority" in low
+        # and must anchor verb strength to the source (don't upgrade "supported" → "led")
+        assert "led" in low and "supported" in low
+
     def test_build_retry_prompt_includes_feedback(self):
         from applire.prompts.cv_tailoring import build_retry_prompt
 
@@ -401,3 +416,168 @@ class TestCVServiceReviewIntegration:
         # #1: a second, language-enforcement pass runs (ADR-038) — source is a language name.
         assert any(c.get("chain_id") == "cv_language" for c in calls), \
             "CV language-review pass not wired into generation"
+
+
+# ---------------------------------------------------------------------------
+# US170 (#54): cover-letter grounding reviewer prompts + service integration
+# ---------------------------------------------------------------------------
+
+
+_SAMPLE_LETTER_SOURCE = (
+    '{"work_history": [{"company": "Acme GmbH", "role": "Software Developer", '
+    '"start_date": "2020-01", "end_date": "2022-12", "bullets": ["Built REST APIs"]}], '
+    '"skills": ["Python", "FastAPI"]}'
+)
+
+_SAMPLE_LETTER = {
+    "header": {"name": "Max Muster", "address": "Berlin"},
+    "recipient": {"name": "Dr. Müller", "company": "Roche", "date": None},
+    "body": {
+        "paragraphs": [
+            "Sehr geehrte Frau Dr. Müller,",
+            "als Software Developer bei Acme GmbH habe ich REST-APIs entwickelt.",
+            "Ich freue mich auf das Gespräch.",
+        ]
+    },
+    "signature": {"closing": "Mit freundlichen Grüßen", "name": "Max Muster"},
+}
+
+
+class TestCoverLetterReviewPrompts:
+    def test_review_system_prompt_is_nonempty_string(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+
+        assert isinstance(REVIEW_SYSTEM_PROMPT, str)
+        assert len(REVIEW_SYSTEM_PROMPT) > 100
+
+    def test_review_system_prompt_names_grounding_classes(self):
+        """The judge must actively look for the FMEA JF-M-8.1 fabrication classes."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "date" in low                      # the observed date-hallucination class
+        assert "employ" in low or "company" in low
+        assert "achievement" in low
+        assert "invent" in low or "fabricat" in low or "ungrounded" in low
+
+    def test_build_review_prompt_includes_source_and_letter_body(self):
+        from applire.prompts.review_cover_letter import build_review_prompt
+
+        result = build_review_prompt(_SAMPLE_LETTER_SOURCE, _SAMPLE_LETTER)
+        assert "Acme GmbH" in result          # the source of truth is shown to the judge
+        assert "REST-APIs" in result          # the letter body is shown to the judge
+
+    def test_build_review_prompt_hands_judge_source_and_fabricated_achievement(self):
+        """US170 (JF-M-8.1) — fabricated-achievement regression. The necessary condition
+        for the judge to catch a fabrication is that the prompt carries BOTH the truthful
+        source and the ungrounded claim. The source has no such achievement; the body does."""
+        from applire.prompts.review_cover_letter import build_review_prompt
+
+        fabricated = "led the company's €4M cloud migration"
+        assert fabricated not in _SAMPLE_LETTER_SOURCE   # genuinely ungrounded
+        letter = json.loads(json.dumps(_SAMPLE_LETTER))
+        letter["body"]["paragraphs"][1] = f"In meiner Rolle habe ich {fabricated}."
+
+        result = build_review_prompt(_SAMPLE_LETTER_SOURCE, letter)
+        assert "Acme GmbH" in result        # truthful source present
+        assert fabricated in result          # the claim to be caught present
+
+    def test_refinement_prompt_is_nonempty_and_restricts_invention(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        assert isinstance(p, str) and len(p) > 100
+        low = p.lower()
+        assert "invent" in low or "fabricat" in low
+
+    def test_build_retry_prompt_includes_feedback_and_previous_draft(self):
+        from applire.prompts.review_cover_letter import build_retry_prompt
+
+        result = build_retry_prompt(
+            previous_draft=_SAMPLE_LETTER,
+            feedback="Remove the invented 'Head of Engineering' claim in paragraph 2",
+        )
+        assert "Head of Engineering" in result
+        assert "REST-APIs" in result          # the previous draft is carried forward
+
+
+class TestCoverLetterServiceReviewIntegration:
+    """US170 — _render_cover_letter_background must run the grounding reviewer over the
+    generated letter, with the CV/profile/user-inputs as the source of truth."""
+
+    @pytest.mark.asyncio
+    async def test_render_passes_grounding_source_to_reviewer(self):
+        import json
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        cv_tailored = {
+            "contact": {"name": "Max Muster"},
+            "summary": "Backend developer.",
+            "work_history": [{"company": "Acme GmbH", "role": "Software Developer",
+                              "start_date": "2020-01", "end_date": "2022-12",
+                              "bullets": ["Built REST APIs"]}],
+            "skills": ["Python", "FastAPI"],
+        }
+        # The model hallucinates a letter date (the 2026-06-10 failure class). The system
+        # must overwrite it AFTER review — never let an LLM-set date reach the document.
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+        letter_raw["recipient"]["date"] = "10. Oktober 2023"
+
+        mock_cl = MagicMock()
+        mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}
+        mock_cl.section_overrides = {}
+
+        mock_job = MagicMock()
+        mock_job.raw_text = "We are hiring a Backend Engineer."
+        mock_job.company_name = "Roche"
+        mock_job.keywords = []
+
+        mock_cv = MagicMock()
+        mock_cv.tailored_data = cv_tailored
+
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {"work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"]}
+
+        # The render loads cl, job, cv, profile — four db.execute() → scalar_one_or_none()
+        # calls in order. One shared result object carries the sequence.
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [mock_cl, mock_job, mock_cv, mock_profile]
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="de"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": "Dr. Müller"}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls, "review_and_refine was not called — the letter ships ungrounded"
+        c = calls[0]
+        assert c["chain_id"] == "cover_letter"
+        assert c["draft"] == letter_raw
+        # the source must carry the grounded CV facts the judge checks the letter against
+        assert "Acme GmbH" in c["source"]
+        # date-hallucination regression (2026-06-10): the model's date is overwritten by
+        # the system clock AFTER review — the LLM value never survives to the document.
+        assert mock_cl.letter_data["recipient"]["date"] != "10. Oktober 2023"
+        assert "2026" in mock_cl.letter_data["recipient"]["date"]

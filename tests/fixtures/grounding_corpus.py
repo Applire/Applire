@@ -178,6 +178,25 @@ TAILORING_CASES = [
         "why": "Title inflated from 'Software Developer'; 'Led' overstates 'Contributed to'.",
     },
     {
+        "id": "tail-oversell-verb-magnitude",
+        "failure_class": "JF-M-6.2",
+        "source": _TAILORING_SOURCE,
+        "source_anchor": "Contributed to",
+        "draft": {
+            "contact": {"name": "Max Muster"},
+            "summary": "Backend engineer.",
+            "work_history": [
+                {"company": "Acme GmbH", "role": "Software Developer",
+                 "start_date": "2020-01", "end_date": "2022-12",
+                 "bullets": ["Built REST APIs", "Led a team of 12 on a database migration"]}
+            ],
+            "skills": ["Python", "PostgreSQL"],
+        },
+        "fabricated_token": "Led a team of 12",
+        "why": "Verb + magnitude oversell (US169): source says 'Contributed to a database "
+               "migration' — no leadership, no team size. 'Led a team of 12' inflates both.",
+    },
+    {
         "id": "tail-mutated-date",
         "failure_class": "JF-M-6.1",
         "source": _TAILORING_SOURCE,

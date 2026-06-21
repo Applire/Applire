@@ -53,6 +53,18 @@ The JSON must match this schema exactly:
 }
 
 Rules:
+- GROUNDING CONTRACT (this letter is signed and sent — false statements are the worst failure):
+  Every factual claim in the body must trace to the CANDIDATE PROFILE section of the user message
+  (or to the candidate's own PRE-GENERATION INPUTS). Do NOT invent or fabricate facts. In particular:
+  * Never invent or alter dates, durations, or tenure.
+  * Never invent employers, companies, job titles, degrees, certifications, or named projects.
+  * Never invent achievements, metrics, team sizes, budgets, or technologies the candidate has not
+    stated, and never overstate the seniority/impact the candidate data supports.
+  * The JOB DESCRIPTION states what the employer WANTS — it is NOT a source of facts about the
+    candidate. Express motivation and fit using only what the candidate data actually contains;
+    do not claim the candidate already has a requirement that the candidate data does not show.
+  When in doubt, leave it out — write a sincere letter from the real material rather than a
+  stronger letter from invented material.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
