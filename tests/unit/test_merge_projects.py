@@ -218,6 +218,30 @@ class TestMergeProjectsAdditive:
         assert set(alpha.technologies) == {"T1", "T2"}
         assert alpha.technologies.count("T1") == 1
 
+    def test_intra_incoming_duplicates_are_folded(self):
+        """Two same-named projects within the INCOMING list fold into one (no loss)."""
+        existing = _profile()
+        incoming = _profile(
+            ProjectEntry(name="Alpha", responsibilities=["r1"]),
+            ProjectEntry(name="Alpha", responsibilities=["r2"]),
+        )
+        result = merge_profiles(existing, incoming, source="cv_upload")
+        projects = result.merged_profile.projects
+        assert len(projects) == 1, f"intra-incoming dups must fold; got {[p.name for p in projects]}"
+        assert set(projects[0].responsibilities) == {"r1", "r2"}
+
+    def test_blank_name_projects_are_not_folded_together(self):
+        """Blank-name projects have no usable identity — they must NOT collapse into one
+        (that would silently drop content). Each is kept."""
+        existing = _profile()
+        incoming = _profile(
+            ProjectEntry(name="", achievements=["did A"]),
+            ProjectEntry(name="", achievements=["did B"]),
+        )
+        result = merge_profiles(existing, incoming, source="cv_upload")
+        projects = result.merged_profile.projects
+        assert len(projects) == 2, "blank-name projects must not be folded together"
+
 
 class TestProjectsReconciliation:
     def test_projects_reported_in_reconciliation(self):

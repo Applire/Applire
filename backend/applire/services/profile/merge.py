@@ -413,6 +413,12 @@ def _merge_projects(
         # Normalised name for identity matching
         inc_key = inc.name.strip().casefold()
 
+        # A blank-name project has no usable identity — never fold blank names
+        # together (that would silently drop one). Append and move on.
+        if not inc_key:
+            result.append(inc)
+            continue
+
         match_idx: int | None = None
         for idx, ex in enumerate(result):
             if ex.name.strip().casefold() == inc_key:
