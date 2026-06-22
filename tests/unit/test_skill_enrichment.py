@@ -487,6 +487,26 @@ class TestCrossKindSkillAccrual:
         assert len(unmatched) == 1
         assert unmatched[0].name == "Kubernetes"
 
+    def test_blank_org_label_not_stored_in_experience_refs(self):
+        """A work entry with company="" (org_label() == "") must still accrue years but
+        must NOT pollute experience_refs with an empty string (the `if label` guard)."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
+            work_experience=[{
+                "company": "",  # freelance / unnamed → org_label() == ""
+                "role": "Freelancer",
+                "start_date": "2021-01",
+                "end_date": "2023-01",
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        assert skill.years_experience > 0          # years still accrue
+        assert "" not in skill.experience_refs      # empty label not stored
+
 
 # ---------------------------------------------------------------------------
 # Task 6: LLM estimation phase and enrich_skills()

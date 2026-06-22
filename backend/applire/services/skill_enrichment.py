@@ -138,7 +138,8 @@ def _match_and_enrich(
     Returns:
         enriched:  Matched technical/soft skills (years calculated) +
                    language/domain skills (passed through unchanged).
-        unmatched: Technical/soft skills with no match in any WorkEntry.technologies.
+        unmatched: Technical/soft skills with no match in any experience
+                   entry's technologies (jobs, projects, or volunteering).
     """
     today = date.today()
     enriched: list[Skill] = []
@@ -202,12 +203,13 @@ async def enrich_skills(
 ) -> MasterProfileData:
     """Enrich all skills with deterministic calculation and LLM estimation.
 
-    Phase 1 (deterministic): Match each technical/soft skill against
-        WorkEntry.technologies. Calculate non-overlapping years from date ranges.
-        Derive proficiency from years, apply floor. Record experience_refs.
+    Phase 1 (deterministic): Match each technical/soft skill against the
+        technologies of every experience entry (jobs, projects, volunteering).
+        Calculate non-overlapping years from date ranges. Derive proficiency
+        from years, apply floor. Record experience_refs (org_label per entry).
 
     Phase 2 (LLM): For unmatched technical/soft skills, make a single batch
-        LLM call with the full work history. Apply same floor rule.
+        LLM call with the full experience history. Apply same floor rule.
 
     language/domain skills are passed through unchanged in both phases.
 
