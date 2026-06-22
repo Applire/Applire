@@ -46,6 +46,7 @@ _ENTITY_KEYS: dict[str, tuple[str, ...]] = {
     "skills": ("name",),
     "certifications": ("name",),
     "education": ("institution", "degree"),
+    "projects": ("name",),
 }
 
 

@@ -39,6 +39,7 @@ from applire.schemas.profile import (
     Conflict,
     FieldChange,
     MasterProfileData,
+    ProjectEntry,
     Skill,
     WorkEntry,
 )
@@ -391,6 +392,59 @@ def _merge_skills(
     return result, added, []
 
 
+def _merge_projects(
+    existing: list[ProjectEntry],
+    incoming: list[ProjectEntry],
+) -> list[ProjectEntry]:
+    """Additive merge for projects (US172 / ADR-013 accumulation-first).
+
+    Identity/dedup key: project name (trimmed, casefolded).
+    - New name → append.
+    - Matching name → accumulate responsibilities/achievements/technologies
+      (union via _merge_str_lists, preserve order, no duplicates); fill
+      empty scalar fields (description, url, start_date, end_date,
+      associated_experience, role) from incoming ONLY when the existing
+      value is empty/None. Never overwrite a non-empty existing value.
+      Keep the existing id.
+    """
+    result: list[ProjectEntry] = list(existing)
+
+    for inc in incoming:
+        # Normalised name for identity matching
+        inc_key = inc.name.strip().casefold()
+
+        match_idx: int | None = None
+        for idx, ex in enumerate(result):
+            if ex.name.strip().casefold() == inc_key:
+                match_idx = idx
+                break
+
+        if match_idx is None:
+            # New project — append as-is
+            result.append(inc)
+        else:
+            # Matching project — accumulate lists; gap-fill empty scalars; keep id
+            ex = result[match_idx]
+            updates: dict = {
+                "responsibilities": _merge_str_lists(ex.responsibilities, inc.responsibilities),
+                "achievements": _merge_str_lists(ex.achievements, inc.achievements),
+                "technologies": _merge_str_lists(ex.technologies, inc.technologies),
+            }
+
+            # Gap-fill: only fill when existing is empty/None
+            for attr in ("description", "url", "start_date", "end_date",
+                         "associated_experience", "role"):
+                ex_val = getattr(ex, attr)
+                inc_val = getattr(inc, attr)
+                # For role, empty string ("") is also considered empty
+                if not ex_val and inc_val:
+                    updates[attr] = inc_val
+
+            result[match_idx] = ex.model_copy(update=updates)
+
+    return result
+
+
 def merge_profiles(
     existing: MasterProfileData,
     incoming: MasterProfileData,
@@ -519,6 +573,9 @@ def merge_profiles(
         )
     ]
 
+    # Projects — additive merge (US172 / ADR-013)
+    merged_projects = _merge_projects(existing.projects, incoming.projects)
+
     merged_profile = existing.model_copy(
         deep=True,
         update={
@@ -531,6 +588,7 @@ def merge_profiles(
             "languages": merged_langs,
             "publications": merged_pubs,
             "volunteer_activities": merged_vol,
+            "projects": merged_projects,
         },
     )
 
