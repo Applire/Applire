@@ -48,6 +48,8 @@ from grounding_corpus import (  # noqa: E402
     TAILORING_CASES,
     LEGITIMATE_EXTRACTION_CASES,
     MISATTRIBUTION_EXTRACTION_CASES,
+    LEGITIMATE_PROJECT_CASES,
+    REJECT_PROJECT_CASES,
 )
 from applire.prompts.review_cv_extraction import build_cv_extraction_review_prompt  # noqa: E402
 from applire.prompts.review_cv_tailoring import build_review_prompt as build_tailoring_review_prompt  # noqa: E402
@@ -143,3 +145,69 @@ class TestMisattributionCorpus:
         prompt = build_cv_extraction_review_prompt(case["source"], case["draft"])
         assert case["source_anchor"] in prompt
         assert case["misattributed_content"] in prompt
+
+
+class TestLegitimateProjectCorpus:
+    """US172 (ADR-044) — false-positive guard for the projects block.
+
+    A standalone personal project with no employer field must NOT be flagged as
+    a shell/fabricated/empty entry by the recalibrated reviewer.  The real-LLM
+    `approved is True` assertion lives in test_grounding_corpus_llm.py."""
+
+    def test_corpus_is_non_empty(self):
+        assert len(LEGITIMATE_PROJECT_CASES) >= 1
+
+    @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_source_anchor_is_genuinely_in_source(self, case):
+        assert case["source_anchor"].lower() in case["source"].lower()
+
+    @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_paraphrase_not_verbatim_but_in_draft(self, case):
+        assert case["paraphrase_token"].lower() not in case["source"].lower(), (
+            f"{case['id']}: paraphrase token is verbatim in source — does not exercise tolerance"
+        )
+        draft = json.dumps(case["draft"], ensure_ascii=False)
+        assert case["paraphrase_token"] in draft
+
+    @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_project_entry_has_no_employer(self, case):
+        # guards the corpus itself: these cases genuinely lack an employer
+        for entry in case["draft"].get("projects", []):
+            assert entry.get("employer") is None, (
+                f"{case['id']}: project entry has an employer — does not test the no-employer path"
+            )
+
+    @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_prompt_embeds_source_and_paraphrased_draft(self, case):
+        prompt = build_cv_extraction_review_prompt(case["source"], case["draft"])
+        assert case["source_anchor"] in prompt
+        assert case["paraphrase_token"] in prompt
+
+
+class TestRejectProjectCorpus:
+    """US172 (ADR-044) — must-REJECT cases for the projects block.
+
+    A project with an invented date (absent from the source) must be rejected.
+    The real-LLM `approved is False` assertion lives in test_grounding_corpus_llm.py."""
+
+    def test_corpus_is_non_empty(self):
+        assert len(REJECT_PROJECT_CASES) >= 1
+
+    @pytest.mark.parametrize("case", REJECT_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_fabricated_token_absent_from_source(self, case):
+        assert case["fabricated_token"].lower() not in case["source"].lower(), (
+            f"{case['id']}: fabricated token must be ungrounded (absent from source)"
+        )
+
+    @pytest.mark.parametrize("case", REJECT_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_fabricated_token_present_in_draft(self, case):
+        draft = json.dumps(case["draft"], ensure_ascii=False)
+        assert case["fabricated_token"] in draft, (
+            f"{case['id']}: fabricated token must be present in draft"
+        )
+
+    @pytest.mark.parametrize("case", REJECT_PROJECT_CASES, ids=lambda c: c["id"])
+    def test_prompt_embeds_source_and_fabrication(self, case):
+        prompt = build_cv_extraction_review_prompt(case["source"], case["draft"])
+        assert case["source_anchor"] in prompt
+        assert case["fabricated_token"] in prompt

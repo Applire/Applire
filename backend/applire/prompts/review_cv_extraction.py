@@ -15,7 +15,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v3 (US171 — precision recalibration: verbatim → semantic faithfulness;
+# Prompt version: v4 (US172 — additive projects clause: anti-fabrication checks + no employer required.
+#                  ADR-044)
+#            v3 (US171 — precision recalibration: verbatim → semantic faithfulness;
 #                  promote cross-role misattribution + invented dates to priority checks. ADR-021 amended)
 #            v2 (US142 — named FMEA failure classes: certifications, garbled values)
 # Used by: services/profile/__init__.py → upload_cv() → reviewer.review_and_refine
@@ -74,6 +76,21 @@ Also check for ALL of the following:
    mis-transcribed from the source — a company name, role title, date, or certification that is
    present in the source but distorted (wrong characters, merged words, transposed digits). A faithful
    paraphrase of a responsibility is NOT garbling; this rule is about distorted proper nouns/values.
+
+PROJECTS BLOCK (US172 — additive clause): If the extracted profile contains a `projects` array,
+apply the same anti-fabrication checks to every project entry:
+- INVENTED DATES: start_date and end_date for a project must match what the source states exactly.
+  If a date is absent from the source, the field must be null — never inferred or invented.
+- INVENTED CONTENT: achievements, technologies, and descriptions within a project must be
+  semantically supported by the source. Flag any metric, technology, or achievement with no
+  basis in the source.
+- CROSS-ENTITY MISATTRIBUTION: An achievement or technology that IS present in the source but
+  belongs to a different project or work role must not be misattributed to this project.
+- NO EMPLOYER REQUIRED: Projects do not require an employer or company name. A standalone
+  personal project (e.g. an open-source library or freelance side project) is a valid entry
+  even without an employer — do not flag it as a shell, fabricated, or empty entry merely
+  because it lacks an employer. Only flag a project as empty/shell if it also lacks a name,
+  description, and all other substantive fields.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {

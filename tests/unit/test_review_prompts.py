@@ -284,6 +284,59 @@ class TestGroundingJudgeFailureClasses:
         assert "overstate" in low or "exaggerat" in low or "claim strength" in low
 
 
+class TestCVExtractionReviewerProjectsClause:
+    """US172 (E034, ADR-044) — additive projects clause for the CV-extraction reviewer.
+
+    The reviewer previously only covered work_experience.  Projects now have their own
+    block in extracted profiles, so the reviewer must:
+      (a) apply the same anti-fabrication checks (invented dates → null, no fabricated
+          metrics/achievements/technologies without source support, semantic faithfulness)
+          to `projects` entries, AND
+      (b) explicitly allow standalone personal projects that have no employer/company —
+          absence of an employer must NOT be treated as a shell/fabricated/empty entry.
+
+    These tests guard the prompt CONTRACT.  The real-LLM behavioural proof lives in
+    test_grounding_corpus_llm.py (INTEGRATION_LLM=1).
+    """
+
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT
+        return CV_EXTRACTION_REVIEW_SYSTEM_PROMPT.lower()
+
+    def test_prompt_mentions_projects(self):
+        # the reviewer must explicitly address the `projects` block
+        assert "project" in self._prompt
+
+    def test_projects_no_employer_required(self):
+        # the key difference from work_experience: no employer is required for a project
+        low = self._prompt
+        assert (
+            "no employer" in low
+            or "standalone" in low
+            or "do not require" in low
+            or "does not require" in low
+            or "without an employer" in low
+        )
+
+    def test_projects_invented_date_rule_applies(self):
+        # invented dates apply to projects too (redundant check — "null" rule already present
+        # from US171 but this confirms the clause doesn't carve projects out)
+        low = self._prompt
+        assert "date" in low and "null" in low
+
+    def test_projects_anti_fabrication_covers_content(self):
+        # metrics / achievements / technologies must be source-supported for projects too
+        low = self._prompt
+        # "metric" OR "achievement" OR "technolog" shows fabrication scope extends to content
+        assert "metric" in low or "achievement" in low or "technolog" in low
+
+    def test_projects_cross_entity_misattribution_applies(self):
+        # priority check A (cross-role misattribution) must extend to projects as well
+        low = self._prompt
+        assert "misattribut" in low
+
+
 class TestCVExtractionReviewerPrecision:
     """US171 (E034, ADR-021 amended) — the CV-extraction reviewer was over-flagging:
     its verbatim/'explicitly stated' fabrication test rejected legitimate paraphrase,

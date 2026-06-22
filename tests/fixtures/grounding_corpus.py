@@ -205,6 +205,76 @@ MISATTRIBUTION_EXTRACTION_CASES = [
 ]
 
 
+# ── Projects-block cases (US172 — ADR-044) ─────────────────────────────────────
+# Standalone personal project with NO employer — must be APPROVED (the key false-positive
+# guard: absence of employer must NOT trigger shell/fabricated/empty flagging).
+
+_PROJECT_LEGIT_SOURCE = (
+    "Open-source project: csv-utils (2021 – 2023)\n"
+    "- Maintained a Python library for CSV parsing and transformation.\n"
+    "- Used by 200+ developers on GitHub.\n"
+)
+
+LEGITIMATE_PROJECT_CASES = [
+    {
+        "id": "proj-legit-standalone-no-employer",
+        "source": _PROJECT_LEGIT_SOURCE,
+        "source_anchor": "csv-utils",
+        # paraphrase: "Used by 200+ developers" → "Adopted by over 200 developers"
+        "paraphrase_token": "Adopted by over 200 developers",
+        "draft": {
+            "work_experience": [],
+            "projects": [
+                {
+                    "name": "csv-utils",
+                    "employer": None,
+                    "start_date": "2021",
+                    "end_date": "2023",
+                    "description": "Maintained a Python library for CSV parsing and transformation.",
+                    "achievements": ["Adopted by over 200 developers on GitHub"],
+                    "technologies": ["Python", "CSV"],
+                }
+            ],
+        },
+        "why": "Standalone personal project with no employer — paraphrase OK, nothing invented. "
+               "Must NOT be flagged as a shell/empty/fabricated entry due to missing employer.",
+    },
+]
+
+# Project with an invented date — must be REJECTED.
+
+_PROJECT_REJECT_SOURCE = (
+    "Side project: DataViz Dashboard\n"
+    "- Built an interactive dashboard for visualising sales data.\n"
+    "- No dates provided.\n"
+)
+
+REJECT_PROJECT_CASES = [
+    {
+        "id": "proj-invented-date",
+        "failure_class": "JF-M-3.1",
+        "source": _PROJECT_REJECT_SOURCE,
+        "source_anchor": "DataViz Dashboard",
+        "draft": {
+            "work_experience": [],
+            "projects": [
+                {
+                    "name": "DataViz Dashboard",
+                    "employer": None,
+                    "start_date": "2020-06",
+                    "end_date": "2021-03",
+                    "description": "Built an interactive dashboard for visualising sales data.",
+                    "achievements": [],
+                    "technologies": [],
+                }
+            ],
+        },
+        "fabricated_token": "2020-06",
+        "why": "Source states no dates for this project; start_date must be null, not invented.",
+    },
+]
+
+
 # ── Tailoring-side fabrications (JF-M-6.1 / 6.2) ───────────────────────────────
 # build_review_prompt(source_material: str, tailored_json: dict)  (source serialised to JSON)
 
