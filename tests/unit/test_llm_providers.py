@@ -321,6 +321,46 @@ async def test_mock_cover_letter_grounding_reviewer_approves():
 
 
 @pytest.mark.asyncio
+async def test_mock_cv_extraction_reviewer_approves():
+    """US171 — the CV-extraction grounding reviewer (review_cv_extraction) must be a
+    recognised chain. Unrecognised → {mock:...} fallback (approved=None) → review_and_refine
+    treats it as a rejection and retries to exhaustion on every mock CV upload (the PQ
+    timeout class). The mock must approve so the extraction path completes cleanly."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT
+
+    result = await MockLLMProvider().aparse_json("review this", system=CV_EXTRACTION_REVIEW_SYSTEM_PROMPT)
+    assert result.get("approved") is True
+    assert "issues" in result and "feedback" in result
+
+
+@pytest.mark.asyncio
+async def test_mock_profile_extraction_reviewer_approves():
+    """US171 — the LinkedIn-side profile-extraction reviewer (review_profile_extraction)
+    shares the 'CV data quality auditor' opener and was equally unrecognised; recognising
+    the auditor family fixes both extraction reviewers."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.review_profile_extraction import REVIEW_SYSTEM_PROMPT
+
+    result = await MockLLMProvider().aparse_json("review this", system=REVIEW_SYSTEM_PROMPT)
+    assert result.get("approved") is True
+    assert "issues" in result and "feedback" in result
+
+
+@pytest.mark.asyncio
+async def test_mock_cv_tailoring_reviewer_approves():
+    """US171 (sibling gap) — the CV-tailoring grounding reviewer (review_cv_tailoring,
+    'CV quality auditor') was also unrecognised by the mock, the same retry-to-exhaustion
+    class on the generation path. Recognise it too."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT
+
+    result = await MockLLMProvider().aparse_json("review this", system=REVIEW_SYSTEM_PROMPT)
+    assert result.get("approved") is True
+    assert "issues" in result and "feedback" in result
+
+
+@pytest.mark.asyncio
 async def test_mock_cover_letter_refinement_returns_valid_letter():
     """US170 — the cover-letter corrector (COVER_LETTER_REFINEMENT_PROMPT) must also be
     recognised, so a retry returns a schema-valid letter, not the {mock:...} fallback."""

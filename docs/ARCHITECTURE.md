@@ -290,6 +290,8 @@ Re-rendering on section save uses Jinja2 only (fast, no Playwright). Playwright 
 
 **Where applied:** profile extraction and CV tailoring (the two places hallucinations were observed — phantom work entries, JD-matching bullets with no CV basis). Setting `LLM_REVIEW_MAX_RETRIES=0` disables the layer entirely for cost-constrained self-hosters.
 
+**Amended (2026-06-22):** the CV-extraction reviewer's fabrication test was recalibrated from *verbatim* matching to *semantic* faithfulness — paraphrase, sentence splits, and de-duplication merges are no longer flagged as "invented content" (they were exhausting both retries on nearly every upload, ~doubling latency, and crowding out real errors). In exchange, **cross-role content misattribution** (an achievement landing under the wrong employer/role on a multi-role CV) and **invented dates** (any date absent from the source must be `null`) are promoted to priority checks. The loop, schema, and retry default are unchanged.
+
 ---
 
 ### ADR-027 — Cover Letter as a Parallel Document Artifact
@@ -394,6 +396,14 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-044 — Unified Experience Abstraction (supersedes ADR-043)
+
+**Decision:** Jobs, projects, and volunteering share one capability contract — a base `ExperienceBase` (role, dates, location, responsibilities, achievements, technologies) that `WorkEntry`, `ProjectEntry`, and `VolunteerActivity` each extend with kind-specific fields (`WorkEntry`: company, team size, budget; `ProjectEntry`: name, description, url, `associated_experience`; `VolunteerActivity`: organization, cause). Each kind keeps its own section-mapped list on the profile (mirroring CV sections), all stored additively in `profile_json` (ADR-002 JSONB — no new table, no migration; legacy profiles load via the `model_validator`). The profile-side derived computations — experience-years, skill accrual, and profile stats — iterate **all** experiences via a single `all_experiences` accessor (so volunteering/projects count toward domain experience). A project may link to *any* parent experience (a job or a volunteer role, by name/label) or stand alone. (Tailored-output rendering of projects in the PDF templates is a deferred follow-up; the field is captured, stored, and available to the tailoring input now.)
+
+**Why:** The capability set (time span, applied skills, achievements, can-contain-projects) is orthogonal to the *kind* of engagement. The previous separate-entity model (a) wrongly denied volunteering achievements and skills, and (b) counted only `work_experience` toward experience-years and skill accrual — so e.g. managing software for an NGO never counted toward domain experience, a correctness defect for a tailoring product. CV extraction and the ADR-021 reviewer still capture projects **as projects** (not folded into work experience), with kind-appropriate anti-fabrication rules. A profile headline and an education `notes` field are deferred extensions; **references are deliberately not stored** (third-party personal data — data minimisation), and the reviewer treats their absence as correct, not as data loss.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
@@ -444,6 +454,16 @@ A cluster of Community rendering decisions a contributor will encounter in the C
     "responsibilities": ["bullet 1", "bullet 2"],
     "achievements": ["achievement 1"],
     "technologies": ["Python", "FastAPI"]
+  }],
+  "projects": [{
+    "id": "uuid",
+    "name": "string",
+    "description": "string",
+    "technologies": ["string"],
+    "achievements": ["quantified outcome"],
+    "start_date": "2021-03",
+    "end_date": null,
+    "associated_experience": "name/label of a work or volunteer entry (optional)"
   }],
   "skills": [{ "name": "Python", "proficiency": "expert", "years_experience": 8 }],
   "education": [{ "id": "uuid", "degree": "M.Sc.", "institution": "string", "year": 2015 }],

@@ -15,7 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v2 (US142 — named FMEA failure classes: certifications, garbled values)
+# Prompt version: v4 (US172 — additive projects clause: anti-fabrication checks + no employer required.
+#                  ADR-044)
+#            v3 (US171 — precision recalibration: verbatim → semantic faithfulness;
+#                  promote cross-role misattribution + invented dates to priority checks. ADR-021 amended)
+#            v2 (US142 — named FMEA failure classes: certifications, garbled values)
 # Used by: services/profile/__init__.py → upload_cv() → reviewer.review_and_refine
 #
 # Mirrors review_profile_extraction.py but uses work_experience field names
@@ -27,37 +31,71 @@ import json
 from typing import Any
 
 CV_EXTRACTION_REVIEW_SYSTEM_PROMPT = """\
-You are a strict CV data quality auditor. Your task is to verify that an extracted
-profile JSON faithfully represents the source CV text — nothing more, nothing less.
+You are a CV data quality auditor. Your task is to verify that an extracted profile JSON
+is SEMANTICALLY FAITHFUL to the source CV text — that it preserves the source's meaning
+without inventing facts. Judge meaning, not surface form.
 
-Check for ALL of the following:
+LEGITIMATE TRANSFORMATIONS — these are NOT invention; do NOT flag them:
+- Paraphrasing or rewording a responsibility/achievement while keeping its meaning.
+- Sentence splits or joins (one source sentence rendered as two bullets, or vice versa).
+- De-duplication merges (the same role stated twice in the source consolidated into one entry).
+- Reformatting, reordering, capitalisation, and tidying of wording.
+A bullet is only "invented" when it asserts an employer, role, date, certification, metric,
+or responsibility with NO support anywhere in the source — not merely because its wording
+differs from the source. Closely-paraphrased content that the source clearly supports is faithful.
+
+PRIORITY CHECKS — the two highest-harm errors; look for these first:
+A. CROSS-ROLE MISATTRIBUTION: A responsibility, achievement, or technology that IS present in
+   the source but has been attached to the WRONG employer/role. On a multi-role CV, content
+   belonging to one position must not be misattributed to another. Flag it with the index of
+   the entry it was wrongly placed under and the employer/role it actually belongs to.
+B. INVENTED DATES: start_date and end_date must match exactly what is stated in the source.
+   If a date is absent from the source, the field must be null — never inferred or invented.
+
+Also check for ALL of the following:
 1. DUPLICATE ENTRIES: Each employer and role must appear exactly once in work_experience.
    Flag any entry that is a duplicate or variant of another entry (same company/role,
-   different or missing dates).
+   different or missing dates) — but a single entry that consolidates a role stated twice
+   is a correct de-duplication, not a duplicate.
 2. FABRICATED ENTRIES: Every work_experience entry must have a clear corresponding passage
    in the source text. Flag any entry with no basis in the source.
-3. INVENTED DATES: start_date and end_date must match exactly what is stated in the source.
-   If a date is absent from the source, the field must be null — never inferred or invented.
-4. INVENTED CONTENT: responsibilities, achievements, and technologies must reflect what is
-   explicitly stated in the source text. Flag any item that adds content not present in the source.
-5. EMPTY/SHELL ENTRIES: Flag any work_experience entry with an empty or null company name ("").
+3. INVENTED CONTENT: responsibilities, achievements, and technologies must be semantically
+   supported by the source. Flag an item only when it adds a fact (a claim, metric, technology,
+   or responsibility) that has no basis in the source — NOT when it merely paraphrases, splits,
+   merges, or reformats content the source supports.
+4. EMPTY/SHELL ENTRIES: Flag any work_experience entry with an empty or null company name ("").
    These are invalid — the role should either be removed or placed as a role_alias on an existing entry.
-6. MISPLACED ROLE ALIASES: Flag any work_experience entry that has a company name but is missing
+5. MISPLACED ROLE ALIASES: Flag any work_experience entry that has a company name but is missing
    BOTH start_date AND responsibilities/achievements. These are almost certainly role titles mentioned
    within another position and should appear in that position's role_aliases list, not as a separate entry.
-7. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, or formal qualification
+6. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, or formal qualification
    in the extracted profile must have a clear corresponding mention in the source text. Flag any
    certification or qualification with no basis in the source — never upgrade "experience with X"
    into "X certified".
-8. GARBLED / MIS-TRANSCRIBED VALUES: Beyond wholly invented data, flag values that are garbled or
+7. GARBLED / MIS-TRANSCRIBED VALUES: Beyond wholly invented data, flag values that are garbled or
    mis-transcribed from the source — a company name, role title, date, or certification that is
-   present in the source but distorted (wrong characters, merged words, transposed digits). The
-   extracted value must faithfully reproduce the source, not approximate it.
+   present in the source but distorted (wrong characters, merged words, transposed digits). A faithful
+   paraphrase of a responsibility is NOT garbling; this rule is about distorted proper nouns/values.
+
+PROJECTS BLOCK (US172 — additive clause): If the extracted profile contains a `projects` array,
+apply the same anti-fabrication checks to every project entry:
+- INVENTED DATES: start_date and end_date for a project must match what the source states exactly.
+  If a date is absent from the source, the field must be null — never inferred or invented.
+- INVENTED CONTENT: achievements, technologies, and descriptions within a project must be
+  semantically supported by the source. Flag any metric, technology, or achievement with no
+  basis in the source.
+- CROSS-ENTITY MISATTRIBUTION: An achievement or technology that IS present in the source but
+  belongs to a different project or work role must not be misattributed to this project.
+- NO EMPLOYER REQUIRED: Projects do not require an employer or company name. A standalone
+  personal project (e.g. an open-source library or freelance side project) is a valid entry
+  even without an employer — do not flag it as a shell, fabricated, or empty entry merely
+  because it lacks an employer. Only flag a project as empty/shell if it also lacks a name,
+  description, and all other substantive fields.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
   "approved": true or false,
-  "issues": ["list of specific issues with work_experience index and description — empty array if approved"],
+  "issues": ["list of specific issues with the entry index and description (work_experience or projects) — empty array if approved"],
   "feedback": "concise instruction for the extractor to correct all issues — empty string if approved"
 }
 

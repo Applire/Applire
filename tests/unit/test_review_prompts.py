@@ -284,6 +284,112 @@ class TestGroundingJudgeFailureClasses:
         assert "overstate" in low or "exaggerat" in low or "claim strength" in low
 
 
+class TestCVExtractionReviewerProjectsClause:
+    """US172 (E034, ADR-044) — additive projects clause for the CV-extraction reviewer.
+
+    The reviewer previously only covered work_experience.  Projects now have their own
+    block in extracted profiles, so the reviewer must:
+      (a) apply the same anti-fabrication checks (invented dates → null, no fabricated
+          metrics/achievements/technologies without source support, semantic faithfulness)
+          to `projects` entries, AND
+      (b) explicitly allow standalone personal projects that have no employer/company —
+          absence of an employer must NOT be treated as a shell/fabricated/empty entry.
+
+    These tests guard the prompt CONTRACT.  The real-LLM behavioural proof lives in
+    test_grounding_corpus_llm.py (INTEGRATION_LLM=1).
+    """
+
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT
+        return CV_EXTRACTION_REVIEW_SYSTEM_PROMPT.lower()
+
+    def test_prompt_mentions_projects(self):
+        # the reviewer must explicitly address the `projects` block
+        assert "project" in self._prompt
+
+    def test_projects_no_employer_required(self):
+        # the key difference from work_experience: no employer is required for a project
+        low = self._prompt
+        assert (
+            "no employer" in low
+            or "standalone" in low
+            or "do not require" in low
+            or "does not require" in low
+            or "without an employer" in low
+        )
+
+    def test_projects_invented_date_rule_applies(self):
+        # the invented-date/null rule must appear WITHIN the projects clause itself,
+        # not merely elsewhere in the prompt (bind to the clause so deleting it fails).
+        low = self._prompt
+        assert "projects block" in low
+        projects_section = low.split("projects block", 1)[1]
+        assert "date" in projects_section and "null" in projects_section
+
+    def test_projects_anti_fabrication_covers_content(self):
+        # metrics / achievements / technologies must be source-supported for projects too
+        low = self._prompt
+        # "metric" OR "achievement" OR "technolog" shows fabrication scope extends to content
+        assert "metric" in low or "achievement" in low or "technolog" in low
+
+    def test_projects_cross_entity_misattribution_applies(self):
+        # priority check A (cross-role misattribution) must extend to projects as well
+        low = self._prompt
+        assert "misattribut" in low
+
+
+class TestCVExtractionReviewerPrecision:
+    """US171 (E034, ADR-021 amended) — the CV-extraction reviewer was over-flagging:
+    its verbatim/'explicitly stated' fabrication test rejected legitimate paraphrase,
+    sentence splits and de-dup merges, exhausting both retries on nearly every upload
+    so real errors survived the budget. The recalibration reframes the fabrication test
+    from *verbatim* to *semantic* faithfulness and promotes two high-harm checks —
+    cross-role content misattribution and invented dates — to named priority checks.
+
+    The behavioural proof (paraphrase stays approved; misattribution/invented-date get
+    rejected) is a real-LLM corpus assertion in test_grounding_corpus_llm.py. These
+    deterministic tests guard the *prompt contract* that makes that behaviour possible.
+    """
+
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cv_extraction import CV_EXTRACTION_REVIEW_SYSTEM_PROMPT
+        return CV_EXTRACTION_REVIEW_SYSTEM_PROMPT.lower()
+
+    def test_reframes_fabrication_from_verbatim_to_semantic(self):
+        # the core recalibration: judge meaning-fidelity, not surface form
+        assert "semantic" in self._prompt or "meaning" in self._prompt
+
+    def test_allows_paraphrase_as_legitimate_transformation(self):
+        low = self._prompt
+        assert "paraphrase" in low
+        # framed as permitted, not as invention (mirrors review_cv_language
+        # "Translating is not inventing" and review_cover_letter's "not fabrications")
+        assert "not invention" in low or "not fabricat" in low or "legitimate" in low or "allowed" in low
+
+    def test_allows_sentence_split_and_dedup_merge(self):
+        low = self._prompt
+        assert "split" in low      # one source sentence rendered as two bullets
+        assert "merge" in low      # de-duplicated / consolidated entries
+
+    def test_names_cross_role_misattribution_as_priority_check(self):
+        # genuinely new (no prior art): an achievement landing under the wrong employer/role
+        low = self._prompt
+        assert "misattribut" in low
+        assert "role" in low or "employer" in low
+
+    def test_frames_priority_checks_including_dates(self):
+        # the two high-harm checks are promoted/named as priorities
+        low = self._prompt
+        assert "priorit" in low
+
+    def test_retains_invented_date_null_rule(self):
+        # regression guard — the recalibration must NOT drop the invented-date rule
+        low = self._prompt
+        assert "date" in low and "null" in low
+
+
 class TestCVTailoringGeneratorPrompts:
     def test_build_user_prompt_returns_nonempty_string(self):
         from applire.prompts.cv_tailoring import build_user_prompt

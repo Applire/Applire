@@ -109,6 +109,20 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
         {"language": "German", "level": "Native"},
         {"language": "English", "level": "C1"},
     ],
+    "projects": [
+        {
+            "name": "CI/CD Migration",
+            "description": "Migrated legacy Jenkins pipelines to GitHub Actions.",
+            "role": "Lead Developer",
+            "start_date": "2022-01",
+            "end_date": "2022-06",
+            "responsibilities": ["Designed pipeline architecture", "Wrote reusable workflow templates"],
+            "achievements": ["Reduced average build time from 18 min to 4 min (−78%)"],
+            "technologies": ["GitHub Actions", "Docker", "Python"],
+            "url": None,
+            "associated_experience": "TechVision GmbH",
+        }
+    ],
 }
 
 _GAP_ANALYSIS_RESPONSE: dict[str, Any] = {
@@ -341,6 +355,13 @@ class MockLLMProvider(LLMProvider):
         # ({"mock": ...}, approved=None), which fails review_and_refine and ships a
         # corrupt letter under the mock provider.
         if "cover-letter quality auditor" in system_lower:
+            return {"approved": True, "issues": [], "feedback": ""}
+
+        # US171 — CV grounding reviewers (review_cv_extraction + review_profile_extraction
+        # both open "CV data quality auditor"; review_cv_tailoring opens "CV quality auditor").
+        # Unrecognised → fallback approved=None → review_and_refine retries to exhaustion on
+        # every mock CV upload / generation (the PQ-timeout class). The mock approves them.
+        if "cv data quality auditor" in system_lower or "cv quality auditor" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
         if "cover-letter corrector" in system_lower:

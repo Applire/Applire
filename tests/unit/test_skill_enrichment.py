@@ -4,34 +4,34 @@ from datetime import date
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Skill schema — work_entry_refs field
+# Task 1: Skill schema — experience_refs field (US172: renamed from work_entry_refs)
 # ---------------------------------------------------------------------------
 
 class TestSkillWorkEntryRefs:
-    def test_work_entry_refs_defaults_to_empty_list(self):
+    def test_experience_refs_defaults_to_empty_list(self):
         from applire.schemas.profile import Skill
         skill = Skill(name="Python", category="technical", proficiency="advanced")
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
-    def test_work_entry_refs_coerces_null_to_empty_list(self):
+    def test_experience_refs_coerces_null_to_empty_list(self):
         from applire.schemas.profile import Skill
         skill = Skill(
             name="Python",
             category="technical",
             proficiency="advanced",
-            work_entry_refs=None,
+            experience_refs=None,
         )
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
-    def test_work_entry_refs_accepts_list_of_strings(self):
+    def test_experience_refs_accepts_list_of_strings(self):
         from applire.schemas.profile import Skill
         skill = Skill(
             name="Python",
             category="technical",
             proficiency="advanced",
-            work_entry_refs=["Siemens AG", "BMW Group"],
+            experience_refs=["Siemens AG", "BMW Group"],
         )
-        assert skill.work_entry_refs == ["Siemens AG", "BMW Group"]
+        assert skill.experience_refs == ["Siemens AG", "BMW Group"]
 
     def test_existing_jsonb_without_field_loads_cleanly(self):
         """Simulate a legacy JSONB record that has no work_entry_refs key."""
@@ -39,7 +39,7 @@ class TestSkillWorkEntryRefs:
         skill = Skill.model_validate(
             {"name": "Django", "category": "technical", "proficiency": "intermediate"}
         )
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ class TestMatchAndEnrich:
         assert len(enriched) == 1
         assert len(unmatched) == 0
         skill = enriched[0]
-        assert skill.work_entry_refs == ["Siemens AG"]
+        assert skill.experience_refs == ["Siemens AG"]
         assert skill.source == "deterministic"
         assert skill.years_experience == 1
 
@@ -252,7 +252,7 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         assert len(enriched) == 1
         skill = enriched[0]
-        assert set(skill.work_entry_refs) == {"Siemens AG", "BMW Group"}
+        assert set(skill.experience_refs) == {"Siemens AG", "BMW Group"}
         assert skill.years_experience == 5  # 2 + 3 non-overlapping
         assert skill.proficiency == "advanced"  # 5 years → advanced
 
@@ -311,7 +311,7 @@ class TestMatchAndEnrich:
         assert len(unmatched) == 0
         skill = enriched[0]
         assert skill.source is None  # unchanged — no source tag added
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
     def test_domain_skills_passed_through_unchanged(self):
         from applire.services.skill_enrichment import _match_and_enrich
@@ -322,7 +322,7 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         assert len(enriched) == 1
         assert enriched[0].name == "Healthcare"
-        assert enriched[0].work_entry_refs == []
+        assert enriched[0].experience_refs == []
 
     def test_entry_with_null_start_date_skipped(self):
         from applire.services.skill_enrichment import _match_and_enrich
@@ -340,6 +340,172 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         assert len(unmatched) == 1
         assert unmatched[0].name == "Python"
+
+
+# ---------------------------------------------------------------------------
+# Task ST-B: Cross-kind skill accrual (US172 / ADR-044)
+# Skills from volunteering and projects must also accrue years + experience_refs
+# ---------------------------------------------------------------------------
+
+class TestCrossKindSkillAccrual:
+    """Regression tests for ADR-044 correctness fix: skill accrual via all_experiences."""
+
+    def _make_profile_with_kinds(
+        self,
+        skills,
+        work_experience=None,
+        projects=None,
+        volunteer_activities=None,
+    ):
+        from applire.schemas.profile import (
+            MasterProfileData, Skill, WorkEntry, ProjectEntry, VolunteerActivity,
+        )
+        return MasterProfileData(
+            skills=[Skill(**s) for s in skills],
+            work_experience=[WorkEntry(**w) for w in (work_experience or [])],
+            projects=[ProjectEntry(**p) for p in (projects or [])],
+            volunteer_activities=[VolunteerActivity(**v) for v in (volunteer_activities or [])],
+        )
+
+    def test_skill_only_in_volunteer_activity_accrues(self):
+        """NGO-software case: Python used ONLY in volunteering → must yield years > 0."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
+            work_experience=[],  # no paid work with Python
+            volunteer_activities=[{
+                "organization": "Code for Good e.V.",
+                "role": "Software Volunteer",
+                "start_date": "2021-01",
+                "end_date": "2023-01",
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0, "Python must be matched via VolunteerActivity"
+        skill = enriched[0]
+        assert skill.years_experience > 0
+        assert "Code for Good e.V." in skill.experience_refs
+        assert skill.source == "deterministic"
+
+    def test_skill_only_in_project_entry_accrues(self):
+        """Skill used ONLY in a ProjectEntry must accrue years and reference the project name."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Rust", "category": "technical", "proficiency": "basic"}],
+            projects=[{
+                "name": "OpenPerfMon",
+                "role": "Lead Developer",
+                "start_date": "2022-03",
+                "end_date": "2024-03",
+                "technologies": ["Rust"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0, "Rust must be matched via ProjectEntry"
+        skill = enriched[0]
+        assert skill.years_experience > 0
+        assert "OpenPerfMon" in skill.experience_refs
+        assert skill.source == "deterministic"
+
+    def test_skill_across_work_and_volunteer_combines_non_overlapping_years(self):
+        """Skill in both WorkEntry and VolunteerActivity: ranges merged, org_labels from both."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Python", "category": "technical", "proficiency": "intermediate"}],
+            work_experience=[{
+                "company": "Siemens AG",
+                "role": "Engineer",
+                "start_date": "2018-01",
+                "end_date": "2020-01",
+                "technologies": ["Python"],
+            }],
+            volunteer_activities=[{
+                "organization": "Code for Good e.V.",
+                "role": "Software Volunteer",
+                "start_date": "2021-01",
+                "end_date": "2023-01",
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        # 2 years Siemens + 2 years NGO, non-overlapping → 4 years
+        assert skill.years_experience == 4
+        assert "Siemens AG" in skill.experience_refs
+        assert "Code for Good e.V." in skill.experience_refs
+
+    def test_work_entry_accrual_still_works_after_refactor(self):
+        """Regression: WorkEntry-based accrual must be unaffected by the cross-kind change."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Django", "category": "technical", "proficiency": "intermediate"}],
+            work_experience=[{
+                "company": "BMW Group",
+                "role": "Backend Dev",
+                "start_date": "2019-01",
+                "end_date": "2022-01",
+                "technologies": ["Django"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        assert skill.years_experience == 3
+        assert skill.experience_refs == ["BMW Group"]
+        assert skill.source == "deterministic"
+
+    def test_skill_not_in_any_kind_goes_to_unmatched(self):
+        """Skill not found in work, projects, or volunteering → still goes to unmatched."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Kubernetes", "category": "technical", "proficiency": "basic"}],
+            work_experience=[{
+                "company": "Some Corp",
+                "role": "Dev",
+                "start_date": "2020-01",
+                "end_date": "2022-01",
+                "technologies": ["Docker"],
+            }],
+            projects=[{
+                "name": "My Project",
+                "role": "Author",
+                "start_date": "2021-01",
+                "end_date": "2022-01",
+                "technologies": ["Terraform"],
+            }],
+            volunteer_activities=[{
+                "organization": "Open Source Org",
+                "role": "Contributor",
+                "start_date": "2021-06",
+                "end_date": "2022-06",
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 1
+        assert unmatched[0].name == "Kubernetes"
+
+    def test_blank_org_label_not_stored_in_experience_refs(self):
+        """A work entry with company="" (org_label() == "") must still accrue years but
+        must NOT pollute experience_refs with an empty string (the `if label` guard)."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile_with_kinds(
+            skills=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
+            work_experience=[{
+                "company": "",  # freelance / unnamed → org_label() == ""
+                "role": "Freelancer",
+                "start_date": "2021-01",
+                "end_date": "2023-01",
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        assert skill.years_experience > 0          # years still accrue
+        assert "" not in skill.experience_refs      # empty label not stored
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +560,7 @@ async def test_enrich_skills_unmatched_calls_llm_estimation():
     assert skill.years_experience == 4
     assert skill.source == "llm_estimated"
     assert skill.proficiency == "advanced"  # 4 years → advanced
-    assert skill.work_entry_refs == []
+    assert skill.experience_refs == []
 
 
 @pytest.mark.asyncio
@@ -488,7 +654,7 @@ async def test_enrich_skills_language_skills_not_sent_to_llm():
     # German skill passes through unchanged
     german = next(s for s in result.skills if s.name == "German")
     assert german.source is None
-    assert german.work_entry_refs == []
+    assert german.experience_refs == []
 
 
 # ---------------------------------------------------------------------------

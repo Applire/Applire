@@ -21,12 +21,15 @@ Public API:
     enrich_skills(profile, provider) -> MasterProfileData
 
 Pipeline:
-  1. Match each technical/soft skill against WorkEntry.technologies (case-insensitive).
+  1. Match each technical/soft skill against all experience kinds
+     (WorkEntry, ProjectEntry, VolunteerActivity) via profile.all_experiences.
+     Uses org_label() for provenance so project names and volunteer orgs are
+     recorded in experience_refs alongside company names (ADR-044 / US172).
      Calculate non-overlapping years from matched date ranges.
      Derive proficiency from years, apply floor (never downgrade).
-     Record provenance in work_entry_refs.
-  2. For unmatched technical/soft skills, make a single batch LLM call with full
-     work history. Apply same floor rule. Source = "llm_estimated".
+     Record provenance in experience_refs.
+  2. For unmatched technical/soft skills, make a single batch LLM call with all
+     experience entries. Apply same floor rule. Source = "llm_estimated".
   3. language/domain skills are passed through unchanged.
 """
 from __future__ import annotations
@@ -135,7 +138,8 @@ def _match_and_enrich(
     Returns:
         enriched:  Matched technical/soft skills (years calculated) +
                    language/domain skills (passed through unchanged).
-        unmatched: Technical/soft skills with no match in any WorkEntry.technologies.
+        unmatched: Technical/soft skills with no match in any experience
+                   entry's technologies (jobs, projects, or volunteering).
     """
     today = date.today()
     enriched: list[Skill] = []
@@ -148,9 +152,9 @@ def _match_and_enrich(
             continue
 
         matched_ranges: list[tuple[date, date]] = []
-        matched_companies: list[str] = []
+        matched_orgs: list[str] = []
 
-        for entry in profile.work_experience:
+        for entry in profile.all_experiences:
             technologies_lower = [t.lower() for t in (entry.technologies or [])]
             if skill.name.lower() not in technologies_lower:
                 continue
@@ -163,7 +167,7 @@ def _match_and_enrich(
             except (ValueError, AttributeError):
                 continue
 
-            # Parse end date — null means current role → today
+            # Parse end date — null means current role/engagement → today
             if entry.end_date is None:
                 end = today
             else:
@@ -173,8 +177,9 @@ def _match_and_enrich(
                     end = today
 
             matched_ranges.append((start, end))
-            if entry.company and entry.company not in matched_companies:
-                matched_companies.append(entry.company)
+            label = entry.org_label()
+            if label and label not in matched_orgs:
+                matched_orgs.append(label)
 
         if matched_ranges:
             years = _calculate_years(matched_ranges)
@@ -183,7 +188,7 @@ def _match_and_enrich(
             enriched.append(skill.model_copy(update={
                 "years_experience": years,
                 "proficiency": final_prof,
-                "work_entry_refs": matched_companies,
+                "experience_refs": matched_orgs,
                 "source": "deterministic",
             }))
         else:
@@ -198,12 +203,13 @@ async def enrich_skills(
 ) -> MasterProfileData:
     """Enrich all skills with deterministic calculation and LLM estimation.
 
-    Phase 1 (deterministic): Match each technical/soft skill against
-        WorkEntry.technologies. Calculate non-overlapping years from date ranges.
-        Derive proficiency from years, apply floor. Record work_entry_refs.
+    Phase 1 (deterministic): Match each technical/soft skill against the
+        technologies of every experience entry (jobs, projects, volunteering).
+        Calculate non-overlapping years from date ranges. Derive proficiency
+        from years, apply floor. Record experience_refs (org_label per entry).
 
     Phase 2 (LLM): For unmatched technical/soft skills, make a single batch
-        LLM call with the full work history. Apply same floor rule.
+        LLM call with the full experience history. Apply same floor rule.
 
     language/domain skills are passed through unchanged in both phases.
 
@@ -215,12 +221,12 @@ async def enrich_skills(
     enriched_skills, unmatched_skills = _match_and_enrich(profile)
 
     if unmatched_skills:
-        work_exp_dicts = [e.model_dump(mode="json") for e in profile.work_experience]
+        all_exp_dicts = [e.model_dump(mode="json") for e in profile.all_experiences]
         skill_names = [s.name for s in unmatched_skills]
 
         try:
             estimates: dict = await provider.aparse_json(
-                build_skill_estimation_prompt(work_exp_dicts, skill_names),
+                build_skill_estimation_prompt(all_exp_dicts, skill_names),
                 system=SKILL_ESTIMATION_SYSTEM_PROMPT,
                 temperature=0.1,
             )
@@ -239,12 +245,12 @@ async def enrich_skills(
                 enriched_skills.append(skill.model_copy(update={
                     "years_experience": years,
                     "proficiency": final_prof,
-                    "work_entry_refs": [],
+                    "experience_refs": [],
                     "source": "llm_estimated",
                 }))
             else:
                 enriched_skills.append(skill.model_copy(update={
-                    "work_entry_refs": [],
+                    "experience_refs": [],
                     "source": "llm_estimated",
                 }))
 

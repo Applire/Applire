@@ -81,6 +81,8 @@ def pre_classify(job_analysis: dict, profile: dict) -> PreClassification:
 
     profile_skill_names = _extract_skill_names(profile)
     work_entries: list[dict] = profile.get("work_experience", [])
+    project_entries: list[dict] = profile.get("projects", [])
+    volunteer_entries: list[dict] = profile.get("volunteer_activities", [])
     education_entries: list[dict] = profile.get("education", [])
     languages: list[dict] = profile.get("languages", [])
 
@@ -97,10 +99,14 @@ def pre_classify(job_analysis: dict, profile: dict) -> PreClassification:
     unmatched = [r for r in all_requirements if r.lower() not in matched_set]
 
     # --- Rule 2: Tenure ≥ 4 years signals domain depth (Category B candidate) ---
+    # Intentionally work-only: this feeds employment-seniority gap inference,
+    # which is role/job-oriented (tenure at a company, not volunteer tenure).
     long_tenures = _roles_with_long_tenure(work_entries, min_years=4)
 
     # --- Rule 3: Seniority threshold (Category B candidate) ---
-    total_experience_years = _total_experience_years(work_entries)
+    # Cross-kind: projects and volunteering count toward total years (ADR-044 / US172).
+    all_experience_entries = work_entries + project_entries + volunteer_entries
+    total_experience_years = _total_experience_years(all_experience_entries)
     seniority_met = _seniority_threshold_met(seniority, total_experience_years)
 
     # --- Rule 4: DACH context signal (Category B candidate for cultural/market reqs) ---
@@ -244,9 +250,32 @@ def _roles_with_long_tenure(work_entries: list[dict], min_years: float) -> list[
     return result
 
 
-def _total_experience_years(work_entries: list[dict]) -> float:
-    """Sum of all work entry durations (may double-count overlapping roles)."""
-    return sum(_tenure_years(e) for e in work_entries)
+def _total_experience_years(entries: list[dict]) -> float:
+    """Total experience as the de-overlapped union of all entry date-spans
+    (jobs, projects, volunteering). Concurrent spans are NOT double-counted."""
+    spans = []
+    for e in entries:
+        start = _parse_date(e.get("start_date"))
+        if start is None:
+            continue
+        end_raw = e.get("end_date")
+        end = _parse_date(end_raw) if end_raw else date.today()
+        if end is None or end < start:
+            continue
+        spans.append((start, end))
+    if not spans:
+        return 0.0
+    spans.sort()
+    merged_days = 0
+    cur_start, cur_end = spans[0]
+    for s, e in spans[1:]:
+        if s <= cur_end:
+            cur_end = max(cur_end, e)
+        else:
+            merged_days += (cur_end - cur_start).days
+            cur_start, cur_end = s, e
+    merged_days += (cur_end - cur_start).days
+    return max(0.0, merged_days / 365.25)
 
 
 _SENIORITY_THRESHOLDS: dict[str, float] = {
