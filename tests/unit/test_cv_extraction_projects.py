@@ -70,21 +70,27 @@ def test_generic_prompt_no_folding_instruction():
     from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
     lowered = GENERIC_CV_EXTRACTION_PROMPT.lower()
-    # Must mention projects and warn about folding into work_experience
-    assert "project" in lowered
-    assert "work_experience" in lowered or "work experience" in lowered
-    # Must include a prohibition word
-    assert any(word in lowered for word in ("not", "never", "must not", "do not")), (
+    # Assert the SPECIFIC projects-routing prohibition, not just any negation word
+    # (a global "not" would pass even if the PROJECTS rule were deleted).
+    assert "not folded into" in lowered and "work_experience" in lowered, (
         "Prompt must explicitly prohibit folding projects into work_experience"
     )
+
+
+def test_generic_prompt_single_home_dedup_instruction():
+    """Projects block must instruct single-home/dedup against work_experience (ADR-044)."""
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
+
+    lowered = GENERIC_CV_EXTRACTION_PROMPT.lower()
+    assert "single home" in lowered or "exactly one place" in lowered
 
 
 def test_generic_prompt_null_dates_instruction():
     """Projects block must instruct: absent dates must be null, never inferred."""
     from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
-    lowered = GENERIC_CV_EXTRACTION_PROMPT.lower()
-    assert "null" in lowered  # used in the projects block date instruction
+    # Assert the SPECIFIC date-inference prohibition, not any global "null" usage.
+    assert "never infer" in GENERIC_CV_EXTRACTION_PROMPT.lower()
 
 
 def test_build_generic_prompt_output_contains_cv_text():
@@ -167,6 +173,8 @@ async def test_mock_cv_analyst_projects_schema_valid():
     # Must validate without error
     profile = MasterProfileData.model_validate(raw)
     assert len(profile.projects) >= 1
+    # Non-displacement: the project must NOT have consumed/replaced a work entry
+    assert len(profile.work_experience) == 2
 
     # Spot-check the first project
     project = profile.projects[0]

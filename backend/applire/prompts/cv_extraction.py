@@ -116,8 +116,8 @@ _SCHEMA_DESCRIPTION = """\
       "role": "Volunteer role title",
       "organization": "Organisation name",
       "location": "City/country or null",
-      "start_date": "ISO date YYYY-MM-DD or null",
-      "end_date": "ISO date YYYY-MM-DD or null",
+      "start_date": "e.g. '2022-03' or null",
+      "end_date": "e.g. '2022-09' or null",
       "description": "Activity description or null",
       "cause": "Cause area e.g. 'Education', 'Environment' or null",
       "responsibilities": ["Day-to-day duties in this volunteer role"],
@@ -165,6 +165,9 @@ Rules:
   work_experience. A project done within a job or volunteer role should set `associated_experience`
   to the company/organisation name. Standalone projects set `associated_experience` to null.
   If project dates are absent from the source, set start_date and end_date to null — NEVER infer them.
+  SINGLE HOME: each accomplishment lives in exactly one place. If the same accomplishment appears both
+  as a work_experience bullet and in the Projects section, keep it as the project (set
+  `associated_experience`) and do NOT also duplicate it as a work_experience responsibility/achievement.
 
 Output schema:
 """ + _SCHEMA_DESCRIPTION
