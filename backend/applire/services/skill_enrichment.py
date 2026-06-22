@@ -24,7 +24,7 @@ Pipeline:
   1. Match each technical/soft skill against WorkEntry.technologies (case-insensitive).
      Calculate non-overlapping years from matched date ranges.
      Derive proficiency from years, apply floor (never downgrade).
-     Record provenance in work_entry_refs.
+     Record provenance in experience_refs.
   2. For unmatched technical/soft skills, make a single batch LLM call with full
      work history. Apply same floor rule. Source = "llm_estimated".
   3. language/domain skills are passed through unchanged.
@@ -183,7 +183,7 @@ def _match_and_enrich(
             enriched.append(skill.model_copy(update={
                 "years_experience": years,
                 "proficiency": final_prof,
-                "work_entry_refs": matched_companies,
+                "experience_refs": matched_companies,
                 "source": "deterministic",
             }))
         else:
@@ -200,7 +200,7 @@ async def enrich_skills(
 
     Phase 1 (deterministic): Match each technical/soft skill against
         WorkEntry.technologies. Calculate non-overlapping years from date ranges.
-        Derive proficiency from years, apply floor. Record work_entry_refs.
+        Derive proficiency from years, apply floor. Record experience_refs.
 
     Phase 2 (LLM): For unmatched technical/soft skills, make a single batch
         LLM call with the full work history. Apply same floor rule.
@@ -239,12 +239,12 @@ async def enrich_skills(
                 enriched_skills.append(skill.model_copy(update={
                     "years_experience": years,
                     "proficiency": final_prof,
-                    "work_entry_refs": [],
+                    "experience_refs": [],
                     "source": "llm_estimated",
                 }))
             else:
                 enriched_skills.append(skill.model_copy(update={
-                    "work_entry_refs": [],
+                    "experience_refs": [],
                     "source": "llm_estimated",
                 }))
 

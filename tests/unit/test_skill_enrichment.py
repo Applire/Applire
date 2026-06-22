@@ -4,34 +4,34 @@ from datetime import date
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Skill schema — work_entry_refs field
+# Task 1: Skill schema — experience_refs field (US172: renamed from work_entry_refs)
 # ---------------------------------------------------------------------------
 
 class TestSkillWorkEntryRefs:
-    def test_work_entry_refs_defaults_to_empty_list(self):
+    def test_experience_refs_defaults_to_empty_list(self):
         from applire.schemas.profile import Skill
         skill = Skill(name="Python", category="technical", proficiency="advanced")
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
-    def test_work_entry_refs_coerces_null_to_empty_list(self):
+    def test_experience_refs_coerces_null_to_empty_list(self):
         from applire.schemas.profile import Skill
         skill = Skill(
             name="Python",
             category="technical",
             proficiency="advanced",
-            work_entry_refs=None,
+            experience_refs=None,
         )
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
-    def test_work_entry_refs_accepts_list_of_strings(self):
+    def test_experience_refs_accepts_list_of_strings(self):
         from applire.schemas.profile import Skill
         skill = Skill(
             name="Python",
             category="technical",
             proficiency="advanced",
-            work_entry_refs=["Siemens AG", "BMW Group"],
+            experience_refs=["Siemens AG", "BMW Group"],
         )
-        assert skill.work_entry_refs == ["Siemens AG", "BMW Group"]
+        assert skill.experience_refs == ["Siemens AG", "BMW Group"]
 
     def test_existing_jsonb_without_field_loads_cleanly(self):
         """Simulate a legacy JSONB record that has no work_entry_refs key."""
@@ -39,7 +39,7 @@ class TestSkillWorkEntryRefs:
         skill = Skill.model_validate(
             {"name": "Django", "category": "technical", "proficiency": "intermediate"}
         )
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ class TestMatchAndEnrich:
         assert len(enriched) == 1
         assert len(unmatched) == 0
         skill = enriched[0]
-        assert skill.work_entry_refs == ["Siemens AG"]
+        assert skill.experience_refs == ["Siemens AG"]
         assert skill.source == "deterministic"
         assert skill.years_experience == 1
 
@@ -252,7 +252,7 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         assert len(enriched) == 1
         skill = enriched[0]
-        assert set(skill.work_entry_refs) == {"Siemens AG", "BMW Group"}
+        assert set(skill.experience_refs) == {"Siemens AG", "BMW Group"}
         assert skill.years_experience == 5  # 2 + 3 non-overlapping
         assert skill.proficiency == "advanced"  # 5 years → advanced
 
@@ -311,7 +311,7 @@ class TestMatchAndEnrich:
         assert len(unmatched) == 0
         skill = enriched[0]
         assert skill.source is None  # unchanged — no source tag added
-        assert skill.work_entry_refs == []
+        assert skill.experience_refs == []
 
     def test_domain_skills_passed_through_unchanged(self):
         from applire.services.skill_enrichment import _match_and_enrich
@@ -322,7 +322,7 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         assert len(enriched) == 1
         assert enriched[0].name == "Healthcare"
-        assert enriched[0].work_entry_refs == []
+        assert enriched[0].experience_refs == []
 
     def test_entry_with_null_start_date_skipped(self):
         from applire.services.skill_enrichment import _match_and_enrich
@@ -394,7 +394,7 @@ async def test_enrich_skills_unmatched_calls_llm_estimation():
     assert skill.years_experience == 4
     assert skill.source == "llm_estimated"
     assert skill.proficiency == "advanced"  # 4 years → advanced
-    assert skill.work_entry_refs == []
+    assert skill.experience_refs == []
 
 
 @pytest.mark.asyncio
@@ -488,7 +488,7 @@ async def test_enrich_skills_language_skills_not_sent_to_llm():
     # German skill passes through unchanged
     german = next(s for s in result.skills if s.name == "German")
     assert german.source is None
-    assert german.work_entry_refs == []
+    assert german.experience_refs == []
 
 
 # ---------------------------------------------------------------------------

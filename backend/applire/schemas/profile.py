@@ -71,25 +71,17 @@ class PersonalInfo(BaseModel):
 Contact = PersonalInfo
 
 
-class WorkEntry(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    company: str = ""
+class ExperienceBase(BaseModel):
+    """Shared capability set for any kind of engagement (ADR-044).
+
+    Jobs, projects, and volunteering all carry a time span, applied
+    skills/technologies, and achievements — orthogonal to the *kind* of
+    engagement. WorkEntry, ProjectEntry, and VolunteerActivity extend this.
+    The three remain separate section-mapped lists on the profile (we do NOT
+    collapse them into one kind-discriminated list).
+    """
+
     role: str = ""
-
-    @field_validator("company", "role", mode="before")
-    @classmethod
-    def coerce_company(cls, v: object) -> str:
-        return v if isinstance(v, str) else ""
-
-    @field_validator("role_aliases", "responsibilities", "achievements", "technologies", mode="before")
-    @classmethod
-    def coerce_list_fields(cls, v: object) -> list:
-        return v if isinstance(v, list) else []
-
-    # All role titles ever used for this position across different CVs/applications.
-    # Enables the CV tailoring engine to pick the most relevant title per application
-    # (e.g. "Team Lead" for leadership roles, "2nd Level Support" for technical roles).
-    role_aliases: list[str] = Field(default_factory=list)
     location: str | None = None
     # str — LLM returns partial dates like "2020-01"; not valid ISO date
     start_date: str | None = None
@@ -97,9 +89,41 @@ class WorkEntry(BaseModel):
     responsibilities: list[str] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     technologies: list[str] = Field(default_factory=list)
+
+    @field_validator("responsibilities", "achievements", "technologies", mode="before")
+    @classmethod
+    def coerce_experience_list_fields(cls, v: object) -> list:
+        return v if isinstance(v, list) else []
+
+    def org_label(self) -> str:
+        """Human label for the engagement's "where" — subclasses override."""
+        return ""
+
+
+class WorkEntry(ExperienceBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    company: str = ""
+
+    @field_validator("company", "role", mode="before")
+    @classmethod
+    def coerce_company(cls, v: object) -> str:
+        return v if isinstance(v, str) else ""
+
+    @field_validator("role_aliases", mode="before")
+    @classmethod
+    def coerce_role_aliases(cls, v: object) -> list:
+        return v if isinstance(v, list) else []
+
+    # All role titles ever used for this position across different CVs/applications.
+    # Enables the CV tailoring engine to pick the most relevant title per application
+    # (e.g. "Team Lead" for leadership roles, "2nd Level Support" for technical roles).
+    role_aliases: list[str] = Field(default_factory=list)
     industry_context: str | None = None
     team_size: int | None = None
     budget_managed: str | None = None
+
+    def org_label(self) -> str:
+        return self.company
 
 
 class EducationEntry(BaseModel):
@@ -165,11 +189,24 @@ class Skill(BaseModel):
     years_experience: int | None = None
     source: str | None = None  # which role/interview surfaced this
     last_used: date | None = None
-    work_entry_refs: list[str] = Field(default_factory=list)
+    # Provenance: ids/labels of the experiences (work, project, volunteer) that
+    # surfaced this skill. Renamed from work_entry_refs (US172 / ADR-044) now
+    # that experiences are unified; legacy JSONB with the old key still loads.
+    experience_refs: list[str] = Field(default_factory=list)
 
-    @field_validator("work_entry_refs", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def coerce_work_entry_refs(cls, v: object) -> list:
+    def _migrate_legacy_fields(cls, data: Any) -> Any:
+        """Map the legacy JSONB key work_entry_refs → experience_refs."""
+        if not isinstance(data, dict):
+            return data
+        if "work_entry_refs" in data and "experience_refs" not in data:
+            data["experience_refs"] = data.pop("work_entry_refs")
+        return data
+
+    @field_validator("experience_refs", mode="before")
+    @classmethod
+    def coerce_experience_refs(cls, v: object) -> list:
         return v if isinstance(v, list) else []
 
     @field_validator("category", mode="before")
@@ -215,14 +252,29 @@ class Publication(BaseModel):
     patent_number: str | None = None
 
 
-class VolunteerActivity(BaseModel):
-    role: str
-    organization: str
-    location: str | None = None
-    start_date: date | None = None
-    end_date: date | None = None  # None means ongoing
+class VolunteerActivity(ExperienceBase):
+    organization: str = ""
+    # start_date/end_date inherited from ExperienceBase as str | None (ADR-044
+    # refinement): JSONB stores ISO strings, so legacy `date` values load fine.
     description: str | None = None
     cause: str | None = None  # e.g. "Education", "Environment"
+
+    def org_label(self) -> str:
+        return self.organization
+
+
+class ProjectEntry(ExperienceBase):
+    """A project — standalone or associated with a job/volunteer engagement (ADR-044)."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    description: str | None = None
+    url: str | None = None
+    # Optional id/label linking to a work OR volunteer entry; None = standalone.
+    associated_experience: str | None = None
+
+    def org_label(self) -> str:
+        return self.name
 
 
 # ─── Merge conflict model (stored in metadata, resolved by user) ──────────────
@@ -329,8 +381,18 @@ class MasterProfileData(BaseModel):
     skills: list[Skill] = Field(default_factory=list)
     languages: list[Language] = Field(default_factory=list)
     publications: list[Publication] = Field(default_factory=list)
+    projects: list[ProjectEntry] = Field(default_factory=list)
     volunteer_activities: list[VolunteerActivity] = Field(default_factory=list)
     metadata: ProfileMetadata | None = None
+
+    @property
+    def all_experiences(self) -> list[ExperienceBase]:
+        """All engagements (work, projects, volunteering) as a flat list (ADR-044).
+
+        Order is stable: work experience, then projects, then volunteering. The
+        three remain distinct section-mapped lists; this is a read accessor only.
+        """
+        return [*self.work_experience, *self.projects, *self.volunteer_activities]
 
     @model_validator(mode="before")
     @classmethod
