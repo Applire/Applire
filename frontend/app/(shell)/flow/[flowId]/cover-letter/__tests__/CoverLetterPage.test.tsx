@@ -173,6 +173,40 @@ describe("CoverLetterPage — polling loop", () => {
     );
   });
 
+  it("gates download behind the attestation nudge, then downloads on confirm (US170)", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    let pdfFetched = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/pdf")) {
+        pdfFetched = true;
+        return { ok: true, blob: async () => new Blob(["pdf"]) } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+
+    // Clicking download opens the attestation overlay — it does NOT download yet (nudge first).
+    await act(async () => { fireEvent.click(screen.getByTestId("cl-topbar-download-btn")); });
+    expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument();
+    expect(pdfFetched).toBe(false);
+
+    // Attesting proceeds with the download (nudge, not gate).
+    await act(async () => { fireEvent.click(screen.getByTestId("what-changed-confirm")); });
+    await waitFor(() => expect(pdfFetched).toBe(true));
+  });
+
   it("shows not-found state when flow has no cover letter summary", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,

@@ -31,6 +31,7 @@ Mirrors services/cv.py:
 """
 
 import copy
+import json
 import logging
 import uuid
 from datetime import date, timezone
@@ -47,9 +48,17 @@ from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
+from applire.constants import LLM_REVIEW_MAX_RETRIES
 from applire.prompts.cover_letter import SYSTEM_PROMPT, build_cover_letter_prompt
+from applire.prompts.review_cover_letter import (
+    COVER_LETTER_REFINEMENT_PROMPT,
+    REVIEW_SYSTEM_PROMPT,
+    build_retry_prompt,
+    build_review_prompt,
+)
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.services.reviewer import review_and_refine
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
@@ -394,6 +403,40 @@ async def _render_cover_letter_background(
                 detected_language=detected_language,
             )
             letter_data = await provider.aparse_json(user_prompt, system=SYSTEM_PROMPT)
+
+            # ADR-040 §1 / US170 (JF-M-8.1): the letter is signed and sent, so it carries
+            # the same two-tier truthfulness contract as the CV. Prevention tier — a grounding
+            # reviewer audits the body for invented dates/employers/achievements before the
+            # letter is shown. Source of truth = the grounded CV data + profile + the
+            # candidate's OWN inputs (so user-stated facts are not false-flagged).
+            grounding_source = json.dumps(
+                {
+                    "cv_data": cv_data,
+                    "profile": profile.profile_json if profile is not None else {},
+                    "candidate_inputs": {
+                        k: pre_gen.get(k)
+                        for k in ("motivation", "salary", "availability")
+                        if pre_gen.get(k)
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            letter_data = await review_and_refine(
+                source=grounding_source,
+                draft=letter_data,
+                generator_prompt_fn=build_retry_prompt,
+                generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                reviewer_prompt_fn=build_review_prompt,
+                reviewer_system=REVIEW_SYSTEM_PROMPT,
+                provider=provider,
+                max_retries=LLM_REVIEW_MAX_RETRIES,
+                chain_id="cover_letter",
+            )
+
+            # The letter date is system-injected AFTER review — the model never sets it
+            # (the prior date-hallucination fix, 2026-06-10). recipient.date stays null
+            # through generation + review, then is stamped here from the system clock.
             letter_data = _inject_letter_date(letter_data, detected_language)
 
             # Store and mark ready

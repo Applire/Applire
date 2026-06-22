@@ -219,6 +219,23 @@ def test_build_cover_letter_prompt_returns_system_and_user():
     assert len(prompt) > 100
 
 
+def test_system_prompt_states_grounding_contract():
+    """US170 (JF-M-8.1) — the letter goes out signed, so the body must contain only
+    claims grounded in the candidate's data. The prompt is the prevention tier: it must
+    forbid inventing facts and name the high-risk classes (dates, employers, achievements)."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    # must explicitly forbid invention/fabrication
+    assert "invent" in low or "fabricat" in low
+    # must name the high-risk fact classes the FMEA observed
+    assert "date" in low
+    assert "employ" in low or "company" in low
+    assert "achievement" in low
+    # claims must be tied back to the provided candidate data, not the JD's wish-list
+    assert "candidate profile" in low or "candidate data" in low
+
+
 # ---------------------------------------------------------------------------
 # Task 8 — Generation service
 # ---------------------------------------------------------------------------

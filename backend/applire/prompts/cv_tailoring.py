@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v3
+# Prompt version: v4
 # Used by: services/cv.py → LLMProvider.aparse_json + reviewer.review_and_refine
 # Changes from v1: Rules 1, 3, 5 hardened against hallucination;
 #                  Rule 6 added (entry count constraint);
@@ -25,6 +25,8 @@
 #                  build_user_prompt now takes output_language (resolved
 #                  deterministically from job_analyses.jd_language, ADR-038)
 #                  and emits an explicit OUTPUT LANGUAGE directive.
+# Changes from v3: Rule 8 added (US169 / FMEA JF-M-6.2) — claim-strength calibration
+#                  (generator-side oversell prevention; the reviewer already detects it).
 # Added in retry-refinement work: CV_TAILORING_REFINEMENT_PROMPT — refinement-mode
 #                  system prompt used on review-loop retries (patch the previous tailored
 #                  CV JSON; the reviewer quotes profile content when needed).
@@ -60,6 +62,16 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    names (Figma, Adobe Photoshop, Python, AWS), dates and metrics. Never copy bullets or skills
    verbatim in the source language and never mirror the language of CANDIDATE PROFILE or the job
    description when it differs from the OUTPUT LANGUAGE.
+8. Claim-strength calibration — do NOT inflate. A bullet drawn from a truthful source but with
+   misleading emphasis is still a defect: the candidate will be exposed in the interview. Stay
+   within the seniority, scope, and impact the CANDIDATE PROFILE actually evidences:
+   - Mirror the source's verb strength. If the profile says "supported", "contributed to",
+     "assisted with", or "was part of", do NOT upgrade it to "led", "owned", "drove", or
+     "spearheaded". Use a leadership verb only where the profile states the candidate led.
+   - Never invent or enlarge team sizes, budgets, user counts, or other magnitudes.
+   - Never assign a more senior role/title than the profile states.
+   Strong action verbs (Rule 1) means vivid, not inflated — re-emphasise relevance without
+   overstating the candidate's actual depth.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations:
 

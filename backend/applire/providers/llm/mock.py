@@ -336,6 +336,16 @@ class MockLLMProvider(LLMProvider):
         if "dach career coach" in system_lower:
             return dict(_COVER_LETTER_RESPONSE)
 
+        # US170 — cover-letter grounding reviewer + corrector (review_cover_letter).
+        # Must be recognised: an unrecognised reviewer falls through to the fallback
+        # ({"mock": ...}, approved=None), which fails review_and_refine and ships a
+        # corrupt letter under the mock provider.
+        if "cover-letter quality auditor" in system_lower:
+            return {"approved": True, "issues": [], "feedback": ""}
+
+        if "cover-letter corrector" in system_lower:
+            return dict(_COVER_LETTER_RESPONSE)
+
         if "cv profile corrector" in system_lower:
             return dict(_PROFILE_PARSE_RESPONSE)
 
