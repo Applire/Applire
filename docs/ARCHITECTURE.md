@@ -396,11 +396,11 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
-### ADR-043 — Master Profile Schema Extension for CV-Import Fidelity
+### ADR-044 — Unified Experience Abstraction (supersedes ADR-043)
 
-**Decision:** `projects` becomes a first-class Master Profile entity (`ProjectEntry`: name, description, optional role, technologies, quantified achievements, nullable dates, optional URL and associated-employer link), stored additively in `profile_json` (the ADR-002 JSONB pattern — no new table) and loaded by the legacy `model_validator` so existing profiles need no migration. CV extraction and the ADR-021 reviewer now capture projects **as projects** (not folded into work experience), and the tailoring engine and PDF templates can render them.
+**Decision:** Jobs, projects, and volunteering share one capability contract — a base `ExperienceEntry` (role, dates, location, responsibilities, achievements, technologies) that `WorkEntry`, `ProjectEntry`, and `VolunteerActivity` each extend with kind-specific fields (`WorkEntry`: company, team size, budget; `ProjectEntry`: name, description, url, `associated_experience`; `VolunteerActivity`: organization, cause). Each kind keeps its own section-mapped list on the profile (mirroring CV sections), all stored additively in `profile_json` (ADR-002 JSONB — no new table, no migration; legacy profiles load via the `model_validator`). Every derived computation — experience-years, skill accrual, profile stats, and the tailoring engine's relevance selection — iterates **all** experiences via a single `all_experiences` accessor. A project may link to *any* parent experience (a job or a volunteer role) or stand alone.
 
-**Why:** Extraction silently discarded any CV content with no matching field — most painfully the **Projects** block, which often holds the strongest *quantified* outcomes and is independently selectable for a given target role. A headline/title field and an education `notes` field are recorded as deferred extensions of the same decision. **References are deliberately not stored** (third-party personal data — data minimisation), and the reviewer treats their absence as correct, not as data loss.
+**Why:** The capability set (time span, applied skills, achievements, can-contain-projects) is orthogonal to the *kind* of engagement. The previous separate-entity model (a) wrongly denied volunteering achievements and skills, and (b) counted only `work_experience` toward experience-years and skill accrual — so e.g. managing software for an NGO never counted toward domain experience, a correctness defect for a tailoring product. CV extraction and the ADR-021 reviewer still capture projects **as projects** (not folded into work experience), with kind-appropriate anti-fabrication rules. A profile headline and an education `notes` field are deferred extensions; **references are deliberately not stored** (third-party personal data — data minimisation), and the reviewer treats their absence as correct, not as data loss.
 
 ---
 
@@ -463,7 +463,7 @@ A cluster of Community rendering decisions a contributor will encounter in the C
     "achievements": ["quantified outcome"],
     "start_date": "2021-03",
     "end_date": null,
-    "associated_employer": "string (optional)"
+    "associated_experience": "id of a work/volunteer entry (optional)"
   }],
   "skills": [{ "name": "Python", "proficiency": "expert", "years_experience": 8 }],
   "education": [{ "id": "uuid", "degree": "M.Sc.", "institution": "string", "year": 2015 }],
