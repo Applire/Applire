@@ -252,6 +252,115 @@ class TestSeniorityInference:
         total = _total_experience_years(work)
         assert 3.5 < total < 4.5
 
+    # --- cross-kind total-years (US172 / ADR-044) ---
+
+    def test_volunteer_only_profile_counts_toward_total_experience_years(self):
+        """
+        A profile with only volunteer_activities (no work_experience) must yield
+        _total_experience_years > 0. This is the NGO-candidate case from ADR-044.
+        """
+        volunteer_entry = {
+            "role": "Technical Volunteer",
+            "organization": "Code for Good e.V.",
+            "start_date": "2020-01",
+            "end_date": "2022-01",  # ~2 years
+            "technologies": ["Python", "Django"],
+        }
+        profile = {
+            "work_experience": [],
+            "projects": [],
+            "volunteer_activities": [volunteer_entry],
+            "skills": [],
+            "education": [],
+            "languages": [],
+        }
+        job = _job(required=["Senior leadership"], seniority="Senior")
+        result = pre_classify(job, profile)
+        # total years must be > 0 even with empty work_experience
+        # We verify via the public API: seniority_met uses total_experience_years internally.
+        # Also test the helper directly.
+        total = _total_experience_years(profile.get("work_experience", [])
+                                        + profile.get("projects", [])
+                                        + profile.get("volunteer_activities", []))
+        assert total > 0, "Volunteer experience must count toward total years"
+
+    def test_project_only_profile_counts_toward_total_experience_years(self):
+        """
+        A profile with only project entries (no work_experience) must yield
+        _total_experience_years > 0.
+        """
+        project_entry = {
+            "name": "Open-source contribution",
+            "role": "Core maintainer",
+            "start_date": "2019-03",
+            "end_date": "2021-03",  # ~2 years
+            "technologies": ["Rust"],
+        }
+        combined = [project_entry]
+        total = _total_experience_years(combined)
+        assert total > 0, "Project experience must count toward total years"
+
+    def test_work_plus_volunteer_non_overlapping_sums_correctly(self):
+        """
+        Work 2021-2023 (2 y) + volunteer 2019-2021 (2 y) with no overlap
+        should total ~4 years.
+        """
+        work_entry = {
+            "role": "Software Engineer",
+            "company": "TechCorp",
+            "start_date": "2021-01",
+            "end_date": "2023-01",
+        }
+        volunteer_entry = {
+            "role": "Volunteer Coder",
+            "organization": "NGO",
+            "start_date": "2019-01",
+            "end_date": "2021-01",
+        }
+        combined = [work_entry, volunteer_entry]
+        total = _total_experience_years(combined)
+        assert 3.5 < total < 4.5, f"Expected ~4 years, got {total:.2f}"
+
+    def test_pre_classify_counts_volunteer_toward_seniority_signal(self):
+        """
+        End-to-end: a profile with only volunteer_activities providing 6 years
+        of experience should trigger seniority inference for a 'Senior' role.
+        """
+        volunteer_entry = {
+            "role": "Lead Volunteer Engineer",
+            "organization": "NGO Tech",
+            "start_date": "2018-01",
+            "end_date": "2024-01",  # 6 years
+            "technologies": [],
+        }
+        profile = {
+            "work_experience": [],
+            "projects": [],
+            "volunteer_activities": [volunteer_entry],
+            "skills": [],
+            "education": [],
+            "languages": [],
+        }
+        job = _job(required=["Senior leadership"], seniority="Senior")
+        result = pre_classify(job, profile)
+        requirements = [c.requirement for c in result.inferred_b]
+        assert "Senior leadership" in requirements, (
+            "6 years volunteer experience should satisfy the 'Senior' seniority threshold"
+        )
+
+    def test_work_only_regression_still_works(self):
+        """Regression guard: work-only profiles behave exactly as before."""
+        work = [
+            _work_entry(start_years_ago=4, end_years_ago=2),  # ~2 years
+            _work_entry(start_years_ago=2, end_years_ago=0),  # ~2 years
+        ]
+        profile = _profile(work=work)
+        job = _job(required=["Senior leadership"], seniority="Senior")
+        result = pre_classify(job, profile)
+        # ~4 years total → does NOT meet 5y Senior threshold
+        requirements = [c.requirement for c in result.inferred_b]
+        assert "Senior leadership" not in requirements
+
 
 # ---------------------------------------------------------------------------
 # Category B: DACH context

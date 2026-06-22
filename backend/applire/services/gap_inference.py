@@ -81,6 +81,8 @@ def pre_classify(job_analysis: dict, profile: dict) -> PreClassification:
 
     profile_skill_names = _extract_skill_names(profile)
     work_entries: list[dict] = profile.get("work_experience", [])
+    project_entries: list[dict] = profile.get("projects", [])
+    volunteer_entries: list[dict] = profile.get("volunteer_activities", [])
     education_entries: list[dict] = profile.get("education", [])
     languages: list[dict] = profile.get("languages", [])
 
@@ -97,10 +99,14 @@ def pre_classify(job_analysis: dict, profile: dict) -> PreClassification:
     unmatched = [r for r in all_requirements if r.lower() not in matched_set]
 
     # --- Rule 2: Tenure ≥ 4 years signals domain depth (Category B candidate) ---
+    # Intentionally work-only: this feeds employment-seniority gap inference,
+    # which is role/job-oriented (tenure at a company, not volunteer tenure).
     long_tenures = _roles_with_long_tenure(work_entries, min_years=4)
 
     # --- Rule 3: Seniority threshold (Category B candidate) ---
-    total_experience_years = _total_experience_years(work_entries)
+    # Cross-kind: projects and volunteering count toward total years (ADR-044 / US172).
+    all_experience_entries = work_entries + project_entries + volunteer_entries
+    total_experience_years = _total_experience_years(all_experience_entries)
     seniority_met = _seniority_threshold_met(seniority, total_experience_years)
 
     # --- Rule 4: DACH context signal (Category B candidate for cultural/market reqs) ---
