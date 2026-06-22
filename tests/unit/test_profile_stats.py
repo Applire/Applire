@@ -175,6 +175,7 @@ def test_data_points_increases_with_project_entries():
             "projects": [
                 {
                     "role": "Author",
+                    "responsibilities": ["maintained the build"],
                     "achievements": ["shipped MVP"],
                     "technologies": ["Rust", "WASM"],
                 }
@@ -183,6 +184,6 @@ def test_data_points_increases_with_project_entries():
     )
     base_dp = base.calculate_stats().data_points
     new_dp = with_project.calculate_stats().data_points
-    # +1 project entry + 1 achievement + 2 technologies = +4 data_points
-    assert new_dp == base_dp + 4
+    # +1 project entry + 1 responsibility + 1 achievement + 2 technologies = +5 data_points
+    assert new_dp == base_dp + 5
     assert with_project.calculate_stats().projects == 1

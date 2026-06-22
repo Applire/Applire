@@ -477,10 +477,12 @@ class MasterProfileData(BaseModel):
             + sum(len(w.technologies) for w in self.work_experience)
             # project entries (new; zero for legacy profiles)
             + projects
+            + sum(len(p.responsibilities) for p in self.projects)
             + sum(len(p.achievements) for p in self.projects)
             + sum(len(p.technologies) for p in self.projects)
-            # volunteer activities (count was already included; achievements/tech new)
+            # volunteer activities (count was already included; responsibilities/achievements/tech new)
             + len(self.volunteer_activities)
+            + sum(len(v.responsibilities) for v in self.volunteer_activities)
             + sum(len(v.achievements) for v in self.volunteer_activities)
             + sum(len(v.technologies) for v in self.volunteer_activities)
             # other sections
