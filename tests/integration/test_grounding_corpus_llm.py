@@ -38,7 +38,12 @@ _fixtures = Path(__file__).parent.parent / "fixtures"
 if str(_fixtures) not in sys.path:
     sys.path.insert(0, str(_fixtures))
 
-from grounding_corpus import EXTRACTION_CASES, TAILORING_CASES  # noqa: E402
+from grounding_corpus import (  # noqa: E402
+    EXTRACTION_CASES,
+    TAILORING_CASES,
+    LEGITIMATE_EXTRACTION_CASES,
+    MISATTRIBUTION_EXTRACTION_CASES,
+)
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("INTEGRATION_LLM"),
@@ -67,6 +72,48 @@ async def test_extraction_judge_rejects_fabrication(case):
     )
     assert review.get("approved") is False, (
         f"{case['id']}: judge approved a known fabrication ({case['why']}). "
+        f"issues={review.get('issues')}"
+    )
+    assert review.get("issues"), f"{case['id']}: rejected but gave no issues"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", LEGITIMATE_EXTRACTION_CASES, ids=lambda c: c["id"])
+async def test_extraction_judge_approves_legitimate_paraphrase(case):
+    """US171 false-positive guard — the recalibrated judge must NOT reject a faithful
+    paraphrase / sentence-split / merge. This is the regression the recalibration exists
+    to prevent (verbatim matching exhausted retries on exactly this shape)."""
+    from applire.prompts.review_cv_extraction import (
+        CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+        build_cv_extraction_review_prompt,
+    )
+
+    review = await _judge(
+        CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+        build_cv_extraction_review_prompt(case["source"], case["draft"]),
+    )
+    assert review.get("approved") is True, (
+        f"{case['id']}: judge over-flagged a legitimate paraphrase ({case['why']}). "
+        f"issues={review.get('issues')}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", MISATTRIBUTION_EXTRACTION_CASES, ids=lambda c: c["id"])
+async def test_extraction_judge_rejects_cross_role_misattribution(case):
+    """US171 priority check A — content that is real but attached to the wrong employer/role
+    must be rejected, even though it is not a pure fabrication."""
+    from applire.prompts.review_cv_extraction import (
+        CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+        build_cv_extraction_review_prompt,
+    )
+
+    review = await _judge(
+        CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+        build_cv_extraction_review_prompt(case["source"], case["draft"]),
+    )
+    assert review.get("approved") is False, (
+        f"{case['id']}: judge missed a cross-role misattribution ({case['why']}). "
         f"issues={review.get('issues')}"
     )
     assert review.get("issues"), f"{case['id']}: rejected but gave no issues"

@@ -290,6 +290,8 @@ Re-rendering on section save uses Jinja2 only (fast, no Playwright). Playwright 
 
 **Where applied:** profile extraction and CV tailoring (the two places hallucinations were observed — phantom work entries, JD-matching bullets with no CV basis). Setting `LLM_REVIEW_MAX_RETRIES=0` disables the layer entirely for cost-constrained self-hosters.
 
+**Amended (2026-06-22):** the CV-extraction reviewer's fabrication test was recalibrated from *verbatim* matching to *semantic* faithfulness — paraphrase, sentence splits, and de-duplication merges are no longer flagged as "invented content" (they were exhausting both retries on nearly every upload, ~doubling latency, and crowding out real errors). In exchange, **cross-role content misattribution** (an achievement landing under the wrong employer/role on a multi-role CV) and **invented dates** (any date absent from the source must be `null`) are promoted to priority checks. The loop, schema, and retry default are unchanged.
+
 ---
 
 ### ADR-027 — Cover Letter as a Parallel Document Artifact
@@ -394,6 +396,14 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-043 — Master Profile Schema Extension for CV-Import Fidelity
+
+**Decision:** `projects` becomes a first-class Master Profile entity (`ProjectEntry`: name, description, optional role, technologies, quantified achievements, nullable dates, optional URL and associated-employer link), stored additively in `profile_json` (the ADR-002 JSONB pattern — no new table) and loaded by the legacy `model_validator` so existing profiles need no migration. CV extraction and the ADR-021 reviewer now capture projects **as projects** (not folded into work experience), and the tailoring engine and PDF templates can render them.
+
+**Why:** Extraction silently discarded any CV content with no matching field — most painfully the **Projects** block, which often holds the strongest *quantified* outcomes and is independently selectable for a given target role. A headline/title field and an education `notes` field are recorded as deferred extensions of the same decision. **References are deliberately not stored** (third-party personal data — data minimisation), and the reviewer treats their absence as correct, not as data loss.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
@@ -444,6 +454,16 @@ A cluster of Community rendering decisions a contributor will encounter in the C
     "responsibilities": ["bullet 1", "bullet 2"],
     "achievements": ["achievement 1"],
     "technologies": ["Python", "FastAPI"]
+  }],
+  "projects": [{
+    "id": "uuid",
+    "name": "string",
+    "description": "string",
+    "technologies": ["string"],
+    "achievements": ["quantified outcome"],
+    "start_date": "2021-03",
+    "end_date": null,
+    "associated_employer": "string (optional)"
   }],
   "skills": [{ "name": "Python", "proficiency": "expert", "years_experience": 8 }],
   "education": [{ "id": "uuid", "degree": "M.Sc.", "institution": "string", "year": 2015 }],

@@ -109,6 +109,102 @@ EXTRACTION_CASES = [
 ]
 
 
+# ── Legitimate extractions that MUST be approved (US171 false-positive guard) ──
+# These drafts faithfully paraphrase / split / merge the source and invent nothing.
+# The pre-US171 verbatim reviewer over-flagged exactly this shape, exhausting retries.
+# `paraphrase_token` is a draft string that is NOT a verbatim copy of the source (so it
+# genuinely exercises paraphrase tolerance) yet is fully supported by the source's meaning.
+
+_LEGIT_SOURCE = (
+    "Müller GmbH — Backend Developer (2019 – 2022)\n"
+    "- Responsible for designing and maintaining the company's REST API platform.\n"
+    "- Mentored two junior developers and ran the on-call rotation.\n"
+)
+
+LEGITIMATE_EXTRACTION_CASES = [
+    {
+        "id": "legit-paraphrase-split",
+        "source": _LEGIT_SOURCE,
+        "source_anchor": "REST API platform",
+        # paraphrase ("Responsible for designing and maintaining" → "Designed and maintained"),
+        # plus a sentence split ("Mentored …" / "ran the on-call rotation" → two bullets) and a
+        # reword ("ran" → "Managed"). Nothing here is invented.
+        "draft": {
+            "work_experience": [
+                {
+                    "company": "Müller GmbH",
+                    "role": "Backend Developer",
+                    "start_date": "2019",
+                    "end_date": "2022",
+                    "responsibilities": [
+                        "Designed and maintained the REST API platform",
+                        "Mentored two junior developers",
+                        "Managed the on-call rotation",
+                    ],
+                    "achievements": [],
+                    "technologies": ["REST"],
+                }
+            ],
+        },
+        "paraphrase_token": "Managed the on-call rotation",
+        "why": "Paraphrase + sentence split + reword, all source-supported — must NOT be flagged.",
+    },
+]
+
+
+# ── Cross-role misattribution that MUST be rejected (US171 priority check A) ────
+# The moved content IS present in the source (so it is not a pure fabrication) but is
+# attached to the WRONG employer/role on a multi-role CV.
+
+_MISATTRIB_SOURCE = (
+    "Acme GmbH — Software Developer (2015 – 2018)\n"
+    "- Built internal reporting tools in Python.\n"
+    "\n"
+    "Globex AG — Engineering Manager (2018 – 2022)\n"
+    "- Led a team of 8 engineers and cut deployment time by 40%.\n"
+)
+
+MISATTRIBUTION_EXTRACTION_CASES = [
+    {
+        "id": "ext-misattributed-leadership",
+        "failure_class": "JF-M-3.1",
+        "source": _MISATTRIB_SOURCE,
+        "source_anchor": "Globex AG",
+        "draft": {
+            "work_experience": [
+                {
+                    "company": "Acme GmbH",
+                    "role": "Software Developer",
+                    "start_date": "2015",
+                    "end_date": "2018",
+                    # leadership belongs to the Globex Engineering Manager role, not here
+                    "responsibilities": [
+                        "Built internal reporting tools in Python",
+                        "Led a team of 8 engineers",
+                    ],
+                    "achievements": [],
+                    "technologies": ["Python"],
+                },
+                {
+                    "company": "Globex AG",
+                    "role": "Engineering Manager",
+                    "start_date": "2018",
+                    "end_date": "2022",
+                    "responsibilities": ["Cut deployment time by 40%"],
+                    "achievements": [],
+                    "technologies": [],
+                },
+            ],
+        },
+        "misattributed_content": "Led a team of 8 engineers",
+        "correct_employer": "Globex AG",
+        "wrong_employer": "Acme GmbH",
+        "why": "Leadership of 8 engineers is real (under Globex) but misattributed to the Acme "
+               "Software Developer role — the achievement landed under the wrong employer.",
+    },
+]
+
+
 # ── Tailoring-side fabrications (JF-M-6.1 / 6.2) ───────────────────────────────
 # build_review_prompt(source_material: str, tailored_json: dict)  (source serialised to JSON)
 

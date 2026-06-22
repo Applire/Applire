@@ -343,6 +343,13 @@ class MockLLMProvider(LLMProvider):
         if "cover-letter quality auditor" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
+        # US171 — CV grounding reviewers (review_cv_extraction + review_profile_extraction
+        # both open "CV data quality auditor"; review_cv_tailoring opens "CV quality auditor").
+        # Unrecognised → fallback approved=None → review_and_refine retries to exhaustion on
+        # every mock CV upload / generation (the PQ-timeout class). The mock approves them.
+        if "cv data quality auditor" in system_lower or "cv quality auditor" in system_lower:
+            return {"approved": True, "issues": [], "feedback": ""}
+
         if "cover-letter corrector" in system_lower:
             return dict(_COVER_LETTER_RESPONSE)
 
