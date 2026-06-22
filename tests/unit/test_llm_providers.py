@@ -304,3 +304,30 @@ async def test_mock_cover_letter_fingerprint():
 
     signature = result["signature"]
     assert "closing" in signature and "name" in signature
+
+
+@pytest.mark.asyncio
+async def test_mock_cover_letter_grounding_reviewer_approves():
+    """US170 — the cover-letter grounding reviewer (review_cover_letter) must be a
+    recognised chain so CI's mock approves it. An unrecognised reviewer falls through to
+    the {mock:...} fallback (approved=None), which fails the review_and_refine loop and
+    ships a corrupt letter under the mock provider — the cause of the PQ timeout."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+
+    result = await MockLLMProvider().aparse_json("review this", system=REVIEW_SYSTEM_PROMPT)
+    assert result.get("approved") is True
+    assert "issues" in result and "feedback" in result
+
+
+@pytest.mark.asyncio
+async def test_mock_cover_letter_refinement_returns_valid_letter():
+    """US170 — the cover-letter corrector (COVER_LETTER_REFINEMENT_PROMPT) must also be
+    recognised, so a retry returns a schema-valid letter, not the {mock:...} fallback."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT
+
+    result = await MockLLMProvider().aparse_json("fix it", system=COVER_LETTER_REFINEMENT_PROMPT)
+    for key in ("header", "recipient", "body", "signature"):
+        assert key in result, f"Missing key: {key}"
+    assert isinstance(result["body"].get("paragraphs"), list)
