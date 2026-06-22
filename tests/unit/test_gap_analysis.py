@@ -283,6 +283,7 @@ class TestSeniorityInference:
                                         + profile.get("projects", [])
                                         + profile.get("volunteer_activities", []))
         assert total > 0, "Volunteer experience must count toward total years"
+        assert isinstance(result, PreClassification), "pre_classify must return a PreClassification"
 
     def test_project_only_profile_counts_toward_total_experience_years(self):
         """
@@ -360,6 +361,15 @@ class TestSeniorityInference:
         # ~4 years total → does NOT meet 5y Senior threshold
         requirements = [c.requirement for c in result.inferred_b]
         assert "Senior leadership" not in requirements
+
+    def test_concurrent_work_and_volunteer_not_double_counted(self):
+        """Volunteering held concurrently with a job must NOT inflate total years."""
+        work = {"role": "Engineer", "company": "Acme",
+                "start_date": "2019-01", "end_date": "2023-01"}      # 4y
+        volunteer = {"role": "Weekend Volunteer", "organization": "NGO",
+                     "start_date": "2019-01", "end_date": "2023-01"}  # same 4y, concurrent
+        total = _total_experience_years([work, volunteer])
+        assert 3.5 < total < 4.5, f"Concurrent spans must de-overlap; got {total:.2f}"
 
 
 # ---------------------------------------------------------------------------

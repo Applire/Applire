@@ -250,9 +250,32 @@ def _roles_with_long_tenure(work_entries: list[dict], min_years: float) -> list[
     return result
 
 
-def _total_experience_years(work_entries: list[dict]) -> float:
-    """Sum of all work entry durations (may double-count overlapping roles)."""
-    return sum(_tenure_years(e) for e in work_entries)
+def _total_experience_years(entries: list[dict]) -> float:
+    """Total experience as the de-overlapped union of all entry date-spans
+    (jobs, projects, volunteering). Concurrent spans are NOT double-counted."""
+    spans = []
+    for e in entries:
+        start = _parse_date(e.get("start_date"))
+        if start is None:
+            continue
+        end_raw = e.get("end_date")
+        end = _parse_date(end_raw) if end_raw else date.today()
+        if end is None or end < start:
+            continue
+        spans.append((start, end))
+    if not spans:
+        return 0.0
+    spans.sort()
+    merged_days = 0
+    cur_start, cur_end = spans[0]
+    for s, e in spans[1:]:
+        if s <= cur_end:
+            cur_end = max(cur_end, e)
+        else:
+            merged_days += (cur_end - cur_start).days
+            cur_start, cur_end = s, e
+    merged_days += (cur_end - cur_start).days
+    return max(0.0, merged_days / 365.25)
 
 
 _SENIORITY_THRESHOLDS: dict[str, float] = {
