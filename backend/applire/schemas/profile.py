@@ -455,26 +455,41 @@ class MasterProfileData(BaseModel):
 
         Replaces the hard-coded persona example numbers (5 / 12 / 3 / 47).
         - positions:      number of work-experience entries
-        - projects:       total achievements across all roles (concrete wins)
+        - projects:       number of real ProjectEntry items (US172 / ADR-044)
         - certifications: number of certifications
         - data_points:    every atomic fact held in the profile
+
+        data_points is stable for legacy profiles (projects == [] and no
+        volunteer achievements/technologies): the old ``projects`` variable
+        was Σ work achievements, so we keep that term explicit below.
+        New atomic facts from ProjectEntry and volunteer achievements/technologies
+        are additive and zero for legacy data.
         """
         positions = len(self.work_experience)
-        projects = sum(len(w.achievements) for w in self.work_experience)
+        projects = len(self.projects)  # real project entries, not work achievements
         certifications = len(self.certifications)
 
         data_points = (
+            # work experience section (unchanged from legacy formula)
             positions
             + sum(len(w.responsibilities) for w in self.work_experience)
-            + projects
+            + sum(len(w.achievements) for w in self.work_experience)  # was the misnomer `projects`
             + sum(len(w.technologies) for w in self.work_experience)
+            # project entries (new; zero for legacy profiles)
+            + projects
+            + sum(len(p.achievements) for p in self.projects)
+            + sum(len(p.technologies) for p in self.projects)
+            # volunteer activities (count was already included; achievements/tech new)
+            + len(self.volunteer_activities)
+            + sum(len(v.achievements) for v in self.volunteer_activities)
+            + sum(len(v.technologies) for v in self.volunteer_activities)
+            # other sections
             + len(self.skills)
             + len(self.education)
             + sum(len(e.relevant_coursework) for e in self.education)
             + certifications
             + len(self.languages)
             + len(self.publications)
-            + len(self.volunteer_activities)
         )
 
         return ProfileStats(
