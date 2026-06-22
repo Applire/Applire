@@ -320,10 +320,12 @@ class TestCVExtractionReviewerProjectsClause:
         )
 
     def test_projects_invented_date_rule_applies(self):
-        # invented dates apply to projects too (redundant check — "null" rule already present
-        # from US171 but this confirms the clause doesn't carve projects out)
+        # the invented-date/null rule must appear WITHIN the projects clause itself,
+        # not merely elsewhere in the prompt (bind to the clause so deleting it fails).
         low = self._prompt
-        assert "date" in low and "null" in low
+        assert "projects block" in low
+        projects_section = low.split("projects block", 1)[1]
+        assert "date" in projects_section and "null" in projects_section
 
     def test_projects_anti_fabrication_covers_content(self):
         # metrics / achievements / technologies must be source-supported for projects too

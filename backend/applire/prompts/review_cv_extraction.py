@@ -95,7 +95,7 @@ apply the same anti-fabrication checks to every project entry:
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
   "approved": true or false,
-  "issues": ["list of specific issues with work_experience index and description — empty array if approved"],
+  "issues": ["list of specific issues with the entry index and description (work_experience or projects) — empty array if approved"],
   "feedback": "concise instruction for the extractor to correct all issues — empty string if approved"
 }
 

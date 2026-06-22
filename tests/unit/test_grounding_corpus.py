@@ -171,10 +171,10 @@ class TestLegitimateProjectCorpus:
 
     @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])
     def test_project_entry_has_no_employer(self, case):
-        # guards the corpus itself: these cases genuinely lack an employer
+        # guards the corpus itself: these cases genuinely stand alone (no parent experience)
         for entry in case["draft"].get("projects", []):
-            assert entry.get("employer") is None, (
-                f"{case['id']}: project entry has an employer — does not test the no-employer path"
+            assert entry.get("associated_experience") is None, (
+                f"{case['id']}: project links to a parent experience — does not test the standalone path"
             )
 
     @pytest.mark.parametrize("case", LEGITIMATE_PROJECT_CASES, ids=lambda c: c["id"])

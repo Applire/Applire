@@ -227,7 +227,7 @@ LEGITIMATE_PROJECT_CASES = [
             "projects": [
                 {
                     "name": "csv-utils",
-                    "employer": None,
+                    "associated_experience": None,
                     "start_date": "2021",
                     "end_date": "2023",
                     "description": "Maintained a Python library for CSV parsing and transformation.",
@@ -244,9 +244,10 @@ LEGITIMATE_PROJECT_CASES = [
 # Project with an invented date — must be REJECTED.
 
 _PROJECT_REJECT_SOURCE = (
+    # Deliberately date-SILENT (no date line at all) — the realistic failure mode.
+    # A source that announced "no dates" would over-signpost the date-null rule.
     "Side project: DataViz Dashboard\n"
     "- Built an interactive dashboard for visualising sales data.\n"
-    "- No dates provided.\n"
 )
 
 REJECT_PROJECT_CASES = [
@@ -260,7 +261,7 @@ REJECT_PROJECT_CASES = [
             "projects": [
                 {
                     "name": "DataViz Dashboard",
-                    "employer": None,
+                    "associated_experience": None,
                     "start_date": "2020-06",
                     "end_date": "2021-03",
                     "description": "Built an interactive dashboard for visualising sales data.",
