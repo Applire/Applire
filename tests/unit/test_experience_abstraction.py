@@ -116,6 +116,15 @@ class TestSkillExperienceRefs:
         )
         assert skill.experience_refs == ["Siemens AG"]
 
+    def test_both_refs_keys_present_does_not_clobber_new(self):
+        # non-clobber guarantee: an explicit experience_refs wins over the legacy key
+        from applire.schemas.profile import Skill
+
+        skill = Skill.model_validate(
+            {"name": "Python", "work_entry_refs": ["old"], "experience_refs": ["new"]}
+        )
+        assert skill.experience_refs == ["new"]
+
     def test_experience_refs_defaults_empty(self):
         from applire.schemas.profile import Skill
 
