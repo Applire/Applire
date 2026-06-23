@@ -267,7 +267,7 @@ class TestProfileReviewSessionCreation:
         assert resp.gaps_remaining == 0
 
     @pytest.mark.asyncio
-    async def test_second_create_resumes_the_active_no_job_session(self, sqlite_session):
+    async def test_second_create_returns_the_active_no_job_session(self, sqlite_session):
         from applire.services.session import create_profile_review_session
 
         prof = _make_profile_with_conflicts(_conflict())
@@ -278,8 +278,11 @@ class TestProfileReviewSessionCreation:
         first = await create_profile_review_session(sqlite_session, provider)
         second = await create_profile_review_session(sqlite_session, provider)
 
+        # Idempotent: the second create returns the same session, not a new row.
         assert second.session_id == first.session_id
-        assert second.resumed is True
+        # The user has answered nothing between the two calls, so this is a fresh
+        # start, not a resume — no "Willkommen zurück" banner (issue #44).
+        assert second.resumed is False
         from applire.models.session import InterviewSession
         rows = (await sqlite_session.execute(select(InterviewSession))).scalars().all()
         assert len(rows) == 1

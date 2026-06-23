@@ -555,6 +555,14 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
     estimated = _estimated_questions(existing.mode)
     current_q = state.get("current_question", "")
     current_choices = state.get("current_choices")
+    # `resumed` must reflect genuine in-progress work, not mere session
+    # pre-existence (issue #44).  The onboarding overlay pre-creates the guided
+    # session before routing to /interview, so the interview page's own
+    # idempotent create call always lands here — but the user has answered
+    # nothing yet.  A freshly created session sits at questions_asked == 1 (first
+    # question generated, zero answers); only once the user has answered at least
+    # one question (questions_asked > 1) is there somewhere to "continue from".
+    answered = (state.get("questions_asked", existing.questions_asked) or 0) > 1
     return SessionCreateResponse(
         session_id=existing.id,
         mode=existing.mode,
@@ -564,7 +572,7 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
         gaps_total=gaps_total,
         gaps_remaining=gaps_remaining,
         choices=current_choices,
-        resumed=True,
+        resumed=answered,
     )
 
 
