@@ -200,9 +200,11 @@ class TestUniqueActiveSessionIndex:
 
 class TestCreateSessionRace:
     @pytest.mark.asyncio
-    async def test_lost_race_returns_winner_as_resumed(self, sqlite_session):
+    async def test_lost_race_returns_winner_session(self, sqlite_session):
         """Both StrictMode requests pass the active-session check; the loser's
-        insert must surface the winner's session instead of raising 500."""
+        insert must surface the winner's session instead of raising 500.  The
+        winner is freshly created (the user has answered nothing yet), so it is
+        NOT reported as a resume — no "Willkommen zurück" banner (issue #44)."""
         from applire.services import session as session_service
         from applire.schemas.session import SessionCreateRequest
 
@@ -239,7 +241,7 @@ class TestCreateSessionRace:
             )
 
         assert result.session_id == winner.id
-        assert result.resumed is True
+        assert result.resumed is False
 
 
 class TestLegacyDuplicateTolerance:

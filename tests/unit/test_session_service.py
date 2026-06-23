@@ -347,7 +347,12 @@ class TestCreateSession:
         sqlite_session.add(profile)
         await sqlite_session.flush()
 
-        session_record = _make_active_session(job.id, profile.id)
+        # A genuine resume: the user has already answered at least one question,
+        # so questions_asked has advanced past the initial 1.
+        session_record = _make_active_session(
+            job.id, profile.id, state={"questions_asked": 2}
+        )
+        session_record.questions_asked = 2
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
@@ -355,6 +360,32 @@ class TestCreateSession:
         result = await create_session(req, sqlite_session, _mock_provider())
         assert result.session_id == session_record.id
         assert result.resumed is True
+
+    @pytest.mark.asyncio
+    async def test_freshly_created_session_is_not_marked_resumed(self, sqlite_session):
+        """Issue #44: the onboarding overlay pre-creates the guided session, so the
+        interview page's own (idempotent) create call always hits the existing
+        session.  A session the user has not answered yet (questions_asked == 1)
+        is still at its first question — it must NOT report resumed=True, or the
+        page greets a brand-new user with "Willkommen zurück"."""
+        from applire.services.session import create_session
+        from applire.schemas.session import SessionCreateRequest
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        # Default helper state mirrors a just-created session: questions_asked == 1.
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+        result = await create_session(req, sqlite_session, _mock_provider())
+        assert result.session_id == session_record.id
+        assert result.resumed is False
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_with_existing_gap_analysis(self, sqlite_session):

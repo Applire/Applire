@@ -54,7 +54,9 @@ class SessionCreateResponse(BaseModel):
     gaps_total: int
     gaps_remaining: int
     choices: list[str] | None = None
-    resumed: bool = False  # True if an existing active session was returned
+    resumed: bool = False  # True only when resuming an in-progress session the
+    # user has already answered at least one question in (drives the "welcome
+    # back" banner). A freshly created/idempotently-returned session is False.
 
 
 class ConflictSummary(BaseModel):
