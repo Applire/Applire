@@ -32,9 +32,12 @@ from applire.services.flow.orchestrator import (
     InvalidTransitionError,
     _compute_actions,
     advance_flow,
+    advance_flow_on_interview_complete,
     create_flow,
 )
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
+from applire.models.flow import FlowSession
+from applire.models.session import InterviewSession
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -543,3 +546,63 @@ async def test_unique_constraint_enforced(db, user_and_job):
     db.add(flow2)
     with pytest.raises(IntegrityError):
         await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# advance_flow_on_interview_complete
+# ---------------------------------------------------------------------------
+
+
+async def _make_completed_interview_flow(db, user, job, *, current_step="interview"):
+    sess = InterviewSession(
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),   # FK not enforced on in-memory sqlite
+        status="complete",
+        state={},
+    )
+    db.add(sess)
+    await db.commit()
+    await db.refresh(sess)
+
+    flow = FlowSession(
+        user_id=user.id,
+        job_id=job.id,
+        current_step=current_step,
+        user_type="new",
+        available_actions={"next": "cv_generation"},
+        interview_session_id=sess.id,
+    )
+    db.add(flow)
+    await db.commit()
+    await db.refresh(flow)
+    return sess, flow
+
+
+@pytest.mark.asyncio
+async def test_complete_interview_advances_flow_to_cv_generation(db, user_and_job):
+    user, job = user_and_job
+    sess, flow = await _make_completed_interview_flow(db, user, job)
+
+    await advance_flow_on_interview_complete(sess.id, db)
+
+    await db.refresh(flow)
+    assert flow.current_step == "cv_generation"
+
+
+@pytest.mark.asyncio
+async def test_complete_interview_no_owning_flow_is_noop(db):
+    # Mode C / profile-enrich: no flow points at this session — must not raise.
+    await advance_flow_on_interview_complete(uuid.uuid4(), db)
+
+
+@pytest.mark.asyncio
+async def test_complete_interview_flow_not_on_interview_step_unchanged(db, user_and_job):
+    user, job = user_and_job
+    sess, flow = await _make_completed_interview_flow(
+        db, user, job, current_step="cv_generation"
+    )
+
+    await advance_flow_on_interview_complete(sess.id, db)
+
+    await db.refresh(flow)
+    assert flow.current_step == "cv_generation"  # untouched
