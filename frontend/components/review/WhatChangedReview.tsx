@@ -108,7 +108,20 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                   <Badge variant="outline">{t(`action.${change.action}`)}</Badge>
                 </div>
                 {change.newValue != null && (
-                  <p className="mt-1 truncate text-sm font-medium text-foreground">{stringify(change.newValue)}</p>
+                  <p className="mt-1 flex items-center gap-2 text-sm">
+                    {change.oldValue != null && stringify(change.oldValue) !== "" && (
+                      <>
+                        <span
+                          data-testid="what-changed-oldvalue"
+                          className="truncate text-muted-foreground line-through"
+                        >
+                          {stringify(change.oldValue)}
+                        </span>
+                        <span aria-hidden className="text-muted-foreground">→</span>
+                      </>
+                    )}
+                    <span className="truncate font-medium text-foreground">{stringify(change.newValue)}</span>
+                  </p>
                 )}
                 {(change.rationaleKey || change.rationale) && (
                   <p className="mt-1 text-sm text-muted-foreground">
