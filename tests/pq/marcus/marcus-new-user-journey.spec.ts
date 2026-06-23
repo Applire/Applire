@@ -556,6 +556,23 @@ test.describe('Session Resume', () => {
     await expect(page).toHaveURL(/\/flow\/.*\/interview/, { timeout: 30000 });
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
 
+    // Answer one question so the session is *genuinely* in progress. Per issue
+    // #44 the resume banner is gated on real progress (questions_asked > 1), not
+    // mere session pre-existence (the onboarding overlay pre-creates a session
+    // with zero answers) — so a true "resume" requires at least one answer.
+    await expect(page.getByTestId('interview-question')).toBeVisible({ timeout: 30000 });
+    const answer = page.getByTestId('answer-textarea');
+    await answer.fill('I have 6 years of Python experience with FastAPI and async frameworks.');
+    // The answer POST is the deterministic signal the question was recorded
+    // (questions_asked increments server-side regardless of the next prompt).
+    const answerPost = page.waitForResponse(
+      (r) => /\/api\/session\/.*\/message$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 30000 },
+    );
+    await page.getByTestId('send-button').click();
+    await answerPost;
+    await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
+
     // Extract flowId
     const url = page.url();
     const match = url.match(/\/flow\/([^/]+)\//);
@@ -570,7 +587,7 @@ test.describe('Session Resume', () => {
     await page.goto(`/flow/${flowId}/interview`);
     await expect(page.getByTestId('interview-loading')).not.toBeVisible({ timeout: 30000 });
 
-    // Resume banner should appear (session was already active)
+    // Resume banner should appear (session has genuine in-progress work, #44).
     await expect(page.getByTestId('resume-banner')).toBeVisible({ timeout: 10000 });
   });
 });
