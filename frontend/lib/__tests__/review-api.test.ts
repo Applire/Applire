@@ -102,4 +102,16 @@ describe("hasMergeReview", () => {
       hasMergeReview(trail({ enrichmentHistory: [{ source: "interview", timestamp: "t", changes: [change("merged")] }] })),
     ).toBe(false);
   });
+
+  it("returns false for a manual_edit 'updated' change with no import-source merge (#67)", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "manual_edit", timestamp: "t", changes: [change("updated")] }] })),
+    ).toBe(false);
+  });
+
+  it("returns true for a cv_upload 'merged' change (import source still counts)", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "t", changes: [change("merged")] }] })),
+    ).toBe(true);
+  });
 });
