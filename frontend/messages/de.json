@@ -147,7 +147,10 @@
     "clusterCardConstituentLabel": "Umfasst:",
     "clusterStatusResolved": "Beantwortet",
     "choiceCardHint": "Wähle einen Startpunkt (editierbar):",
-    "matchScoreDisplay": "{label}: {score}%"
+    "matchScoreDisplay": "{label}: {score}%",
+    "mergeMovedTitle": "Wir haben deine Importe zusammengeführt",
+    "mergeMovedBody": "Applire hat die hochgeladenen Lebensläufe zu einem Master-Profil zusammengeführt.",
+    "mergeMovedLink": "Im Profil ansehen, was zusammengeführt wurde"
   },
   "interview": {
     "loading": "Interview wird gestartet…",

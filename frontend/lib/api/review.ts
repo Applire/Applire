@@ -92,3 +92,18 @@ export async function getProfileChanges(): Promise<ProfileChanges> {
     ),
   };
 }
+
+/**
+ * True when an actual merge happened (a second import combined into existing data):
+ * a non-interview change with action "merged"/"updated", or a pending conflict.
+ * A first single-CV import yields only "added" changes → false (#67).
+ */
+export function hasMergeReview(trail: ProfileChanges): boolean {
+  const records = trail.enrichmentHistory ?? [];
+  const mergeChanges = records
+    .filter((r) => r.source !== "interview")
+    .flatMap((r) => r.changes ?? [])
+    .filter((c) => c.action === "merged" || c.action === "updated");
+  const conflicts = trail.pendingConflicts ?? [];
+  return mergeChanges.length > 0 || conflicts.length > 0;
+}

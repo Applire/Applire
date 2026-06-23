@@ -16,7 +16,8 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { toReviewChange, getCvProfileDiff, getProfileChanges } from "../api/review";
+import { toReviewChange, getCvProfileDiff, getProfileChanges, hasMergeReview } from "../api/review";
+import type { ProfileChanges } from "../api/review";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -59,5 +60,46 @@ describe("getProfileChanges", () => {
     expect(result.enrichmentHistory).toHaveLength(1);
     expect(result.enrichmentHistory[0].changes[0].newValue).toBe("X");
     expect(result.pendingConflicts[0]).toMatchObject({ action: "updated", oldValue: "2020-01", newValue: "2019-01" });
+  });
+});
+
+describe("hasMergeReview", () => {
+  function change(action: "added" | "updated" | "merged") {
+    return { section: "skills", field: "skills", action, oldValue: null, newValue: "X", rationale: null, rationaleKey: null };
+  }
+  function trail(partial: Partial<ProfileChanges>): ProfileChanges {
+    return { enrichmentHistory: [], pendingConflicts: [], ...partial };
+  }
+
+  it("returns false for an empty trail", () => {
+    expect(hasMergeReview(trail({}))).toBe(false);
+  });
+
+  it("returns false for a first single import (only 'added' changes)", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "t", changes: [change("added"), change("added")] }] })),
+    ).toBe(false);
+  });
+
+  it("returns true for a non-interview 'merged' change", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "t", changes: [change("merged")] }] })),
+    ).toBe(true);
+  });
+
+  it("returns true for a non-interview 'updated' change", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "t", changes: [change("updated")] }] })),
+    ).toBe(true);
+  });
+
+  it("returns true when there are pending conflicts even with no merge changes", () => {
+    expect(hasMergeReview(trail({ pendingConflicts: [change("updated")] }))).toBe(true);
+  });
+
+  it("excludes interview-source changes (returns false even with a 'merged' change)", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "interview", timestamp: "t", changes: [change("merged")] }] })),
+    ).toBe(false);
   });
 });

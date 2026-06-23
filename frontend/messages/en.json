@@ -147,7 +147,10 @@
     "clusterCardConstituentLabel": "Covers:",
     "clusterStatusResolved": "Answered",
     "choiceCardHint": "Pick a starting point (editable):",
-    "matchScoreDisplay": "{label}: {score}%"
+    "matchScoreDisplay": "{label}: {score}%",
+    "mergeMovedTitle": "We combined your imports",
+    "mergeMovedBody": "Applire merged the CVs you uploaded into one master profile.",
+    "mergeMovedLink": "Review what was combined in your profile"
   },
   "interview": {
     "loading": "Starting interview…",
