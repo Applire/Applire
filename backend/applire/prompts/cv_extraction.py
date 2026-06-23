@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1
+# Prompt version: v2 (US175 proficiency-scale mapping + US176 technologies-vs-practices hygiene)
 # Used by: services/profile/__init__.py → upload_cv() → LLMProvider.aparse_json
 #          and reviewer.review_and_refine retry path
 #
@@ -150,6 +150,25 @@ Rules:
 - Extract everything stated or clearly implied; do not invent data.
 - Separate responsibilities (day-to-day duties) from achievements (outcomes with metrics) into their respective lists.
 - For technology stacks, extract individual tools/languages/frameworks into the technologies list.
+- TECHNOLOGIES vs PRACTICES: a "technologies" list holds ONLY concrete tools, programming
+  languages, frameworks, libraries, platforms and products (e.g. Python, React, Docker, AWS, SAP,
+  PostgreSQL). Practices, standards, methodologies and processes are NOT technologies — do NOT put
+  them in any technologies list (e.g. Agile, Scrum, Kanban, ISO 25010, ISO 9001, V-Model, GxP,
+  audit-trail processes, code review, test-driven development). When such a named standard or
+  methodology is a genuine competency, route it to skills with category "domain" (or "soft" for a
+  pure way-of-working), or omit it. This applies to the technologies list in work_experience,
+  projects AND volunteer_activities.
+- PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
+  advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
+  fraction of its maximum, so equal scale positions always yield the same proficiency level:
+    • full marks (5/5 dots, 10/10, ●●●●●) → "expert"
+    • ~80% (4/5 dots, 8/10, ●●●●○) → "advanced"
+    • ~50-60% (3/5 dots, 6/10, ●●●○○) → "intermediate"
+    • ≤40% (1-2/5 dots, ≤4/10) → "basic"
+  Word scales map the same way: beginner / novice / elementary → basic; professional working →
+  intermediate; proficient / fluent / senior / full professional → advanced; native / expert /
+  master → expert. Two skills shown at the same scale position MUST receive the same proficiency
+  level. Where a CV gives an explicit scale, this mapping takes precedence over any other weighting.
 - Preserve German umlauts and special characters exactly as written.
 - Use null for missing optional fields — never omit required fields.
 - For DACH CVs: Ausbildung maps to education; Praktikum/Werkstudent map to work_experience entries.
