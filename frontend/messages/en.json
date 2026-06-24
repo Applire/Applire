@@ -540,7 +540,22 @@
       "deleteError": "Delete failed",
       "uploadCta": "Upload photo",
       "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
-    }
+    },
+    "fieldName": "Name",
+    "fieldEmail": "Email",
+    "fieldPhone": "Phone",
+    "fieldLocation": "Location",
+    "present": "present",
+    "language_de": "German",
+    "language_en": "English",
+    "summaryLanguageMissing": "No {lang} version yet — your CV will translate this summary to the application language.",
+    "proficiency_basic": "Basic",
+    "proficiency_intermediate": "Intermediate",
+    "proficiency_advanced": "Advanced",
+    "proficiency_expert": "Expert",
+    "reviewMergeCta": "See what changed",
+    "importLogTitle": "What changed in your profile",
+    "importLogEmpty": "Your latest import and edits will be summarised here."
   },
   "health": {
     "title": "Profile health",
@@ -566,7 +581,9 @@
     "close": "Close",
     "placeholder": "Type your answer…",
     "send": "Send",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "keepBoth": "These are two separate roles — keep both",
+    "keepBothHint": "Joined in one role, promoted into another? We will keep both instead of merging them."
   },
   "applications": {
     "loadingDetails": "Loading application details...",
@@ -688,7 +705,9 @@
     "whyTag": "Profile intelligence",
     "whyTitle": "Why update?",
     "whyBody": "An up-to-date CV improves accuracy across all AI analyses — from gap analysis to CV generation. Changes are merged into your Master Profile immediately.",
-    "successWithScore": "Profile updated — completeness: {score} %"
+    "successWithScore": "Profile updated — completeness: {score} %",
+    "reviewCta": "Review what changed",
+    "successCtaHint": "Your profile was updated. Take a look at what changed."
   },
   "profileUpdate": {
     "chooserTitle": "Update profile",

@@ -16,10 +16,32 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
+ * Detects raw framework/validation noise that must never reach a user (F3, #72).
+ *
+ * Pydantic surfaces messages like "Input should be a valid UUID, invalid
+ * character … For further information visit https://errors.pydantic.dev/…" and
+ * "X validation errors for …". These leak internal ids/types and frighten the
+ * non-engineer persona, so we suppress them in favour of a friendly fallback.
+ */
+export function isLeakyDetail(detail: string): boolean {
+  const d = detail.toLowerCase();
+  return (
+    d.includes("errors.pydantic.dev") ||
+    d.includes("valid uuid") ||
+    d.includes("validation error") ||
+    /\binput should be\b/.test(d) ||
+    /\binput is too (short|long)\b/.test(d) ||
+    d.includes("input_value=")
+  );
+}
+
+/**
  * Translates HTTP error codes into user-friendly messages.
  * Never exposes raw error details to users for security.
  */
 export function translateApiError(status: number, detail?: string): string {
+  // Treat empty/suppressed detail as absent so the generic fallback applies.
+  const safeDetail = detail && detail.trim() ? detail : undefined;
   switch (status) {
     case 504:
       return "This is taking longer than usual. Please try again.";
@@ -30,9 +52,9 @@ export function translateApiError(status: number, detail?: string): string {
     case 401:
       return "Session expired. Please refresh the page.";
     case 409:
-      return detail ?? "This action conflicts with the current state.";
+      return safeDetail ?? "This action conflicts with the current state.";
     case 422:
-      return detail ?? "Invalid input. Please check your entries.";
+      return safeDetail ?? "Invalid input. Please check your entries.";
     case 404:
       return "The requested resource was not found.";
     case 429:
@@ -40,7 +62,7 @@ export function translateApiError(status: number, detail?: string): string {
     case 500:
       return "An internal error occurred. Please try again later.";
     default:
-      return detail ?? `An error occurred (${status}). Please try again.`;
+      return safeDetail ?? `An error occurred (${status}). Please try again.`;
   }
 }
 
@@ -52,22 +74,26 @@ export async function extractApiError(res: Response): Promise<string> {
   try {
     const body = await res.json();
     const detail = body.detail;
-    
+
+    let message: string;
     if (typeof detail === "string") {
-      return detail;
-    }
-    
-    if (Array.isArray(detail)) {
-      return detail
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      message = detail
         .map((e: { msg?: string }) => e.msg ?? JSON.stringify(e))
         .join("; ");
+    } else if (detail?.message) {
+      message = detail.message;
+    } else {
+      return res.statusText || `HTTP ${res.status}`;
     }
-    
-    if (detail?.message) {
-      return detail.message;
+
+    // Suppress raw pydantic/validation spew so it can never reach the user;
+    // translateApiError then falls back to a status-based friendly message.
+    if (isLeakyDetail(message)) {
+      return "";
     }
-    
-    return res.statusText || `HTTP ${res.status}`;
+    return message;
   } catch {
     return res.statusText || `HTTP ${res.status}`;
   }

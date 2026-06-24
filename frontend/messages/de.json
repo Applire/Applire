@@ -540,7 +540,22 @@
       "deleteError": "Löschen fehlgeschlagen",
       "uploadCta": "Foto hochladen",
       "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
-    }
+    },
+    "fieldName": "Name",
+    "fieldEmail": "E-Mail",
+    "fieldPhone": "Telefon",
+    "fieldLocation": "Ort",
+    "present": "heute",
+    "language_de": "deutsche",
+    "language_en": "englische",
+    "summaryLanguageMissing": "Noch keine {lang} Fassung — dein Lebenslauf übersetzt diese Zusammenfassung in die Bewerbungssprache.",
+    "proficiency_basic": "Grundkenntnisse",
+    "proficiency_intermediate": "Fortgeschritten",
+    "proficiency_advanced": "Sehr gut",
+    "proficiency_expert": "Experte",
+    "reviewMergeCta": "Änderungen ansehen",
+    "importLogTitle": "Was sich in deinem Profil geändert hat",
+    "importLogEmpty": "Dein letzter Import und deine Änderungen werden hier zusammengefasst."
   },
   "health": {
     "title": "Profilzustand",
@@ -566,7 +581,9 @@
     "close": "Schließen",
     "placeholder": "Antwort eingeben…",
     "send": "Senden",
-    "sending": "Wird gesendet…"
+    "sending": "Wird gesendet…",
+    "keepBoth": "Das sind zwei verschiedene Positionen — beide behalten",
+    "keepBothHint": "In einer Rolle eingestiegen und in eine andere befördert? Wir behalten beide, statt sie zusammenzuführen."
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",
@@ -688,7 +705,9 @@
     "whyTag": "Profil-Intelligenz",
     "whyTitle": "Warum aktualisieren?",
     "whyBody": "Ein aktueller Lebenslauf verbessert die Treffsicherheit aller KI-Analysen — von der Lückenanalyse bis zur CV-Generierung. Änderungen werden sofort im Masterprofil zusammengeführt.",
-    "successWithScore": "Profil aktualisiert — Vollständigkeit: {score} %"
+    "successWithScore": "Profil aktualisiert — Vollständigkeit: {score} %",
+    "reviewCta": "Änderungen prüfen",
+    "successCtaHint": "Dein Profil wurde aktualisiert. Sieh dir an, was sich geändert hat."
   },
   "profileUpdate": {
     "chooserTitle": "Profil aktualisieren",
