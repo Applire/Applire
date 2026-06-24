@@ -238,6 +238,40 @@ describe("ProfileImportView", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
+  // N1 (post-PQ fast-follow): the common first-timer path is an in-flow import
+  // WITHOUT a JD. The flow has no job_id, so gap analysis is not applicable. The
+  // page must NOT call /api/job/null/gaps (which 422s and surfaces a spurious
+  // "Invalid input" warning) and must show the "Review what changed" CTA so the
+  // hand-off matches the standalone path.
+  it("does not fetch gaps and shows the review CTA on the in-flow no-JD path", async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                          // history on mount
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.99 }) }) // upload succeeds
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                          // history refresh
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ job_id: null }) });            // flow state — no JD
+
+    render(<ProfileImportView flowId="flow-no-jd" />);
+
+    const input = screen.getByTestId("main-file-input");
+    const file = new File(["content"], "linkedin.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      // The review CTA appears on the in-flow no-JD merge path too.
+      expect(screen.getByTestId("review-merge-cta")).toBeInTheDocument();
+    });
+
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    // Must NOT have attempted the gaps request for a null job_id.
+    const gapsCall = calls.find((c) => /\/api\/job\/.*\/gaps/.test(c[0] as string));
+    expect(gapsCall).toBeUndefined();
+    // No spurious flow/"Invalid input" warning.
+    expect(screen.queryByText(/Invalid input/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/flowError/i)).not.toBeInTheDocument();
+    // No silent redirect — the user chooses to review.
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it("shows empty history state when no uploads", async () => {
     global.fetch = makeFetchMock([]);
     render(<ProfileImportView />);
