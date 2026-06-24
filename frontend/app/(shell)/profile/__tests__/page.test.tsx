@@ -83,7 +83,7 @@ const HEALTH = {
       source_record_ref: "rec-1",
     },
   ],
-  completeness: { score: 0.99, gaps: [] },
+  completeness: { score: 0.99, gaps: [], field_gaps: [] },
 };
 
 function mockFetch() {

@@ -31,7 +31,7 @@ const REVIEW_HEALTH: ProfileHealth = {
       source_record_ref: "cv:audi.pdf",
     },
   ],
-  completeness: { score: 0.82, gaps: ["certifications"] },
+  completeness: { score: 0.82, gaps: ["certifications"], field_gaps: ["achievements: Team Lead @ Acme"] },
 };
 
 const CRITICAL_HEALTH: ProfileHealth = {
@@ -45,12 +45,24 @@ const CRITICAL_HEALTH: ProfileHealth = {
       source_record_ref: "rec-1",
     },
   ],
-  completeness: { score: 0.5, gaps: [] },
+  completeness: { score: 0.5, gaps: [], field_gaps: [] },
 };
 
 const HEALTHY: ProfileHealth = {
   issues: [],
-  completeness: { score: 1.0, gaps: [] },
+  completeness: { score: 1.0, gaps: [], field_gaps: [] },
+};
+
+// US179 — section gaps present but no field gaps → button disabled
+const SECTION_GAPS_NO_FIELD_GAPS: ProfileHealth = {
+  issues: [],
+  completeness: { score: 0.9, gaps: ["education"], field_gaps: [] },
+};
+
+// US179 — two field gaps → button enabled and count reflects field_gaps length
+const TWO_FIELD_GAPS: ProfileHealth = {
+  issues: [],
+  completeness: { score: 0.75, gaps: [], field_gaps: ["achievements: X @ Y", "team_size: X @ Y"] },
 };
 
 describe("HealthPanel", () => {
@@ -141,5 +153,34 @@ describe("HealthPanel", () => {
       ),
     );
     expect(screen.getByText("Verbessern")).toBeInTheDocument();
+  });
+
+  // US179 — enrich entry-point gates on field_gaps, not section gaps
+  it("disables/hides the Improve button when section gaps exist but field_gaps is empty", () => {
+    render(
+      withIntl(
+        <HealthPanel
+          health={SECTION_GAPS_NO_FIELD_GAPS}
+          onResolve={vi.fn()}
+          onImprove={vi.fn()}
+        />,
+        "en",
+      ),
+    );
+    expect(screen.queryByTestId("health-improve")).not.toBeInTheDocument();
+  });
+
+  it("shows the Improve button when field_gaps is non-empty, even if section gaps is empty", () => {
+    render(
+      withIntl(
+        <HealthPanel
+          health={TWO_FIELD_GAPS}
+          onResolve={vi.fn()}
+          onImprove={vi.fn()}
+        />,
+        "en",
+      ),
+    );
+    expect(screen.getByTestId("health-improve")).toBeInTheDocument();
   });
 });

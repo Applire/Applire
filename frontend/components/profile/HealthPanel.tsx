@@ -38,7 +38,11 @@ export interface HealthIssue {
 
 export interface ProfileHealth {
   issues: HealthIssue[];
-  completeness: { score: number; gaps: string[] };
+  // gaps: section-level breakdown (US104) — shown in the "Missing sections" label.
+  // field_gaps: role-aware work-entry gaps the no-JD enrichment interview will ask
+  // (US179) — gates and counts the enrich entry-point so the count equals the
+  // questions the interview will actually ask (unified with backend CompletenessBlock).
+  completeness: { score: number; gaps: string[]; field_gaps: string[] };
 }
 
 // review/info are non-blocking nudges; critical is shown prominently (ADR-040 §4).
@@ -170,12 +174,17 @@ export function HealthPanel({
         </div>
       )}
 
-      {health.completeness.gaps.length > 0 && (
+      {(health.completeness.gaps.length > 0 || health.completeness.field_gaps.length > 0) && (
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-xs text-gray-500">
-            {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
-          </p>
-          {onImprove && (
+          {health.completeness.gaps.length > 0 && (
+            <p className="text-xs text-gray-500">
+              {t("gapsLabel", { sections: health.completeness.gaps.join(", ") })}
+            </p>
+          )}
+          {/* US179: gate the enrich entry-point on field_gaps (role-aware work-entry
+              gaps the interview will actually ask) so the count equals the questions
+              asked — not on section-level gaps which may differ. */}
+          {onImprove && health.completeness.field_gaps.length > 0 && (
             <Button
               size="sm"
               variant="outline"
