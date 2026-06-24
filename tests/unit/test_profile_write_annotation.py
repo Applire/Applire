@@ -132,3 +132,100 @@ async def test_import_from_text_ic_roles_get_empty_expected_fields(sqlite_sessio
             f"IC role '{entry.role}' should have expected_fields=[] "
             f"(not None or management fields), got {entry.expected_fields!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# upload_cv() path — #66 PQ finding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload_cv_annotates_expected_fields(tmp_path):
+    """upload_cv() (the primary /upload path) must annotate expected_fields on
+    every work_experience entry at write time (US179 / #66 PQ finding).
+
+    Before the fix, upload_cv called review_and_refine but never called
+    annotate_expected_fields, so stored entries kept expected_fields=None and the
+    completeness model always fell back to the lean floor.
+
+    MockLLMProvider._PROFILE_PARSE_RESPONSE has two IC work entries
+    ("Senior Software Engineer", "Software Engineer") — no management keywords,
+    so the mock "experience field analyst" branch returns expected=[], which means
+    expected_fields should be [] (a list, not None) after the call.
+    """
+    import pytest_asyncio
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from unittest.mock import AsyncMock, patch
+
+    from applire.db.session import Base
+    from applire.models.profile import MasterProfile, ProfileSnapshot
+    from applire.models.uploads import UploadRecord
+    from applire.models.user import User
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.services.profile import upload_cv
+    from applire.storage.local import LocalStorageProvider
+
+    # Set up an isolated in-memory SQLite session for this test.
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: Base.metadata.create_all(
+                c,
+                tables=[
+                    MasterProfile.__table__,
+                    ProfileSnapshot.__table__,
+                    UploadRecord.__table__,
+                    User.__table__,
+                ],
+            )
+        )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        provider = MockLLMProvider()
+        storage = LocalStorageProvider(str(tmp_path))
+
+        with patch(
+            "applire.services.cv_parser.extract_text",
+            new=AsyncMock(return_value="Anna Bauer Senior Software Engineer TechVision GmbH"),
+        ), patch(
+            "applire.services.profile.review_and_refine",
+            new=AsyncMock(side_effect=lambda **kw: kw["draft"]),
+        ), patch(
+            "applire.services.profile.enrich_skills",
+            new=AsyncMock(side_effect=lambda p, _: p),
+        ):
+            response = await upload_cv(
+                file_bytes=b"fake-pdf",
+                filename="anna_bauer_cv.pdf",
+                content_type="application/pdf",
+                db=session,
+                provider=provider,
+                storage=storage,
+                ocr_extractor=AsyncMock(),
+            )
+
+        # Retrieve the stored profile and check expected_fields on work entries.
+        from sqlalchemy import select
+        from applire.models.profile import MasterProfile as MP
+
+        stored = (await session.execute(select(MP))).scalar_one()
+        work_entries = stored.profile_json.get("work_experience") or []
+
+        assert len(work_entries) >= 1, (
+            "Expected at least one work entry in stored profile from mock extraction"
+        )
+        for entry in work_entries:
+            assert entry.get("expected_fields") is not None, (
+                f"expected_fields is None on entry '{entry.get('role')}' after upload_cv "
+                "— annotate_expected_fields was NOT called on the /upload path (#66)"
+            )
+            assert isinstance(entry.get("expected_fields"), list), (
+                f"expected_fields must be a list, got {type(entry.get('expected_fields'))}"
+            )
+            # MockLLMProvider routes IC roles to expected=[] (no management keywords).
+            assert entry.get("expected_fields") == [], (
+                f"IC role '{entry.get('role')}' should have expected_fields=[], "
+                f"got {entry.get('expected_fields')!r}"
+            )
+
+    await engine.dispose()

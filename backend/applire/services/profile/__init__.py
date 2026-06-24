@@ -720,6 +720,10 @@ async def upload_cv(
         generator_max_tokens=8192,
         chain_id="cv_extraction",
     )
+    # US179 / ADR-041: annotate role-aware expected fields at write time (same as
+    # _import_from_text). The primary /upload path must annotate too, or expected_fields
+    # stays null and the completeness model can't be role-aware (#66 PQ finding).
+    await annotate_expected_fields(data, provider)
     incoming = MasterProfileData.model_validate(data)
     incoming = await enrich_skills(incoming, provider)
     now = datetime.now(timezone.utc)
