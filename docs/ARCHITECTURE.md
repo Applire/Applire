@@ -383,6 +383,12 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 - **Post-merge staged review** (non-destructive): ordinary discrepancies (same role, different dates/titles) **never overwrite** existing data — they are staged as conflicts and surfaced in the Health panel. Such contradictions are `review`, not `critical`.
 - *Completeness* is a separate, never-blocking **score**, not a severity-tagged issue. The severity field is `profile_mismatch_severity` (distinct from the ADR-021 reviewer severity).
 
+**Amended (2026-06-24) — unified, role-aware completeness model.** The completeness score and the enrichment-interview gap list are derived from **one** field-level model, so they can no longer disagree (previously a presence-only section score could read "99% complete" while a separate per-field scanner offered 22 questions): `gaps = expected − present`; `score = (present ∩ expected) / expected`, weighted by section.
+
+- **Expected fields are role-aware.** Every entry expects a floor of `start_date`, `end_date`, `achievements`; the role-conditional fields (`team_size`, `budget_managed`, `industry_context`) are expected only where the role warrants them — a team lead is asked about team size and budget, an individual-contributor or junior role is not.
+- The role→expected-fields judgment is made by an **LLM at write time** (on import / merge / edit, from the entry's title + description) and **stored** on the entry; the health **read path stays LLM-free and deterministic** — the LLM enriches the data, it never computes the score live. With no annotation (legacy data, or no provider configured) the model falls back to the floor only, so health never hard-depends on an LLM.
+- **Presence always counts; role only gates absence** — a field the user filled in always scores, so misclassifying a role can at most skip a question, never hide data. Completion-gap questions are **targeted** at the specific role and field rather than open-ended.
+
 ---
 
 ### ADR-042 — Master Profile Versioning & Merge Undo
