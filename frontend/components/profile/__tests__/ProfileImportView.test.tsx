@@ -138,7 +138,9 @@ describe("ProfileImportView", () => {
     });
   });
 
-  it("navigates to /profile after standalone upload success", async () => {
+  // F3 (#72): a standalone update no longer silently bounces the user. It shows a
+  // success strip with an explicit "Review what changed" CTA into the merge review.
+  it("shows a review CTA after standalone upload success and does not auto-redirect", async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.9 }) })
@@ -151,8 +153,40 @@ describe("ProfileImportView", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/profile");
+      expect(screen.getByTestId("review-merge-cta")).toBeInTheDocument();
     });
+    // No silent redirect on success — the user chooses to review.
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("review-merge-cta"));
+    expect(mockPush).toHaveBeenCalledWith("/profile#import-log");
+  });
+
+  // F3 (#72): a raw pydantic/UUID validation message must never reach the user.
+  it("suppresses a leaked UUID validation error behind a friendly message", async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        statusText: "Unprocessable Entity",
+        json: () =>
+          Promise.resolve({
+            detail: [{ msg: "Input should be a valid UUID, invalid character: found `n` at 1" }],
+          }),
+      });
+
+    render(<ProfileImportView />);
+
+    const input = screen.getByTestId("main-file-input");
+    const file = new File(["bad"], "linkedin.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid input/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/UUID/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pydantic/i)).not.toBeInTheDocument();
   });
 
   it("navigates to /flow/:id/gaps when flowId is provided", async () => {
@@ -242,7 +276,7 @@ describe("ProfileImportView", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("navigates to /profile after merging from the gate dialog", async () => {
+  it("surfaces the review CTA after merging from the gate dialog (F3)", async () => {
     global.fetch = vi.fn((url: unknown) => {
       const u = url as string;
       if (u.includes("/api/profile/uploads"))
@@ -275,7 +309,11 @@ describe("ProfileImportView", () => {
     await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId("gate-merge-btn"));
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/profile"));
+    await waitFor(() => expect(screen.getByTestId("review-merge-cta")).toBeInTheDocument());
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("review-merge-cta"));
+    expect(mockPush).toHaveBeenCalledWith("/profile#import-log");
   });
 
   it("closes the gate dialog and stays put after discarding", async () => {

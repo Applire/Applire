@@ -123,6 +123,50 @@ describe("ProfileReviewDrawer", () => {
     );
   });
 
+  // F4 (#73): the resolver must let the user say "these are two roles, keep both"
+  // instead of being forced into an either/or pick. Pairs with backend #71.
+  it("offers a 'keep both / two roles' affordance alongside the choices and sends a distinct answer", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question:
+        "start_date '2020-03' vs '2023-01' — which is correct for Senior Software Engineer at Logivia?",
+      gaps_total: 1,
+      gaps_remaining: 1,
+      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
+    });
+    sendMock.mockResolvedValue({
+      complete: true,
+      question: null,
+      choices: null,
+      gaps_remaining: 0,
+    });
+
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
+
+    fireEvent.click(screen.getByTestId("profile-review-keep-both"));
+
+    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1));
+    const sentMessage = sendMock.mock.calls[0][1];
+    // A substantive, recognisable "two roles" intent — not one of the binary picks.
+    expect(sentMessage.toLowerCase()).toContain("separate");
+    expect(sentMessage).not.toBe("Keep current: 2020-03");
+  });
+
+  it("does not show the 'keep both' affordance once the review is done", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "No open issues — you're in good shape!",
+      gaps_total: 0,
+      gaps_remaining: 0,
+      choices: null,
+    });
+
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "en"));
+    await waitFor(() => expect(screen.getByTestId("profile-review-done")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
+  });
+
   it("renders German chrome under the de locale", async () => {
     startMock.mockResolvedValue({
       session_id: "s1",

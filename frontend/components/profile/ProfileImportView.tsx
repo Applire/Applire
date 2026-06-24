@@ -28,6 +28,7 @@ import {
   type ResolveAction,
   type StagedResolveResult,
 } from "@/components/profile/MergeGateDialog";
+import { getApiErrorMessage } from "@/lib/api/errors";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
@@ -57,17 +58,10 @@ interface ProfileImportViewProps {
   flowId?: string;
 }
 
+// F3 (#72): route every upload/flow error through the shared sanitiser so raw
+// pydantic noise (e.g. "Input should be a valid UUID…") never reaches the user.
 async function readApiError(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    const detail = body.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail))
-      return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
-  } catch {
-    // ignore parse error
-  }
-  return res.statusText || `HTTP ${res.status}`;
+  return getApiErrorMessage(res);
 }
 
 export function ProfileImportView({ flowId }: ProfileImportViewProps) {
@@ -151,9 +145,14 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
       } catch (fe: unknown) {
         setFlowError(fe instanceof Error ? fe.message : t("flowErrorGeneric"));
       }
-    } else {
-      router.push("/profile");
     }
+    // F3 (#72): standalone updates no longer silently bounce the user. We show a
+    // success strip with an explicit "Review what changed" CTA into the merge
+    // review (/profile#import-log) instead, so the hand-off is clear.
+  }
+
+  function goToReview() {
+    router.push("/profile#import-log");
   }
 
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
@@ -295,7 +294,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
           {uploadSuccess && !error && (
             <div
               data-testid="upload-success-strip"
-              className="mt-3 flex items-center gap-2.5 bg-[#dcfce7] border border-[#86efac] rounded-[10px] px-4 py-3"
+              className="mt-3 flex flex-wrap items-center gap-2.5 bg-[#dcfce7] border border-[#86efac] rounded-[10px] px-4 py-3"
             >
               {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
               <span aria-hidden="true" className="material-symbols-outlined text-[#16a34a] text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
@@ -304,6 +303,19 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                   ? t("successWithScore", { score: Math.round(completenessScore * 100) })
                   : t("successNoScore")}
               </span>
+              {/* F3 (#72): clear post-merge hand-off into the merge review. */}
+              {!flowId && (
+                <button
+                  type="button"
+                  data-testid="review-merge-cta"
+                  onClick={goToReview}
+                  className="ml-auto inline-flex items-center gap-1 text-[12px] font-bold text-[#166534] px-3 py-1.5 rounded-full border border-[#16a34a]/40 hover:bg-[#16a34a]/10 transition-colors"
+                >
+                  {t("reviewCta")}
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </button>
+              )}
             </div>
           )}
 

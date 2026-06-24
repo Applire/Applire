@@ -37,6 +37,16 @@ interface Message {
   content: string;
 }
 
+// F4 (#73): submitted as a natural-language answer to the review interview
+// (sendProfileReviewMessage), so the LLM resolves the conflict by keeping both
+// entries as two separate roles rather than forcing an either/or date pick.
+// This is the conversational counterpart to #71's deterministic same-title gate
+// on the CV-upload merge — not a structured payload the merge engine parses.
+// Kept locale-independent so the model sees stable wording; the button label is
+// localized chrome.
+const KEEP_BOTH_INTENT =
+  "These are two separate roles — keep both (e.g. I was promoted; do not merge them into one).";
+
 export interface ProfileReviewDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -92,13 +102,16 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
   }, [open, onClose]);
 
   const submit = useCallback(
-    async (text: string) => {
+    async (text: string, displayAs?: string) => {
       const value = text.trim();
       if (!sessionId || !value) return;
       setAnswer("");
       setChoices(null);
       setLoading(true);
-      setMessages((prev) => [...prev, { role: "user", content: value }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: (displayAs ?? value).trim() },
+      ]);
       try {
         const result: ProfileReviewMessageResult = await sendProfileReviewMessage(
           sessionId,
@@ -209,6 +222,18 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
                       {choice}
                     </Button>
                   ))}
+                  {/* F4 (#73): escape the either/or framing — keep both as two roles. */}
+                  <Button
+                    data-testid="profile-review-keep-both"
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start text-left text-teal hover:text-teal/80"
+                    onClick={() => submit(KEEP_BOTH_INTENT, t("keepBoth"))}
+                    disabled={loading}
+                  >
+                    {t("keepBoth")}
+                  </Button>
+                  <p className="text-xs text-gray-500 leading-snug">{t("keepBothHint")}</p>
                 </div>
               )}
               <textarea
