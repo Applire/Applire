@@ -44,6 +44,7 @@ from applire.prompts.interview import (
     GUIDED_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
     RESPONSE_PARSER_SYSTEM_PROMPT,
+    build_field_gap_question_prompt,
     build_follow_up_question_prompt,
     build_guided_question_prompt,
     build_question_prompt,
@@ -160,6 +161,16 @@ def gap_detector_mode_b(job_analysis: JobAnalysis) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _find_work_entry(profile: dict, label: str) -> dict | None:
+    """Find the work entry whose '<role> @ <company>' label matches (case-insensitive)."""
+    for entry in profile.get("work_experience") or []:
+        role = (entry.get("role") or entry.get("title") or "").strip()
+        company = (entry.get("company") or "").strip()
+        if f"{role} @ {company}".strip(" @").lower() == label.lower():
+            return entry
+    return None
+
+
 async def _review_question_language(
     draft: dict, lang: str, provider: LLMProvider
 ) -> dict:
@@ -224,6 +235,22 @@ async def question_generator_with_profile(
         )
         draft = {"question": text.strip(), "choices": None}
         return await _review_question_language(draft, lang, provider)
+
+    if state.get("mode") == "profile_enrich" and not follow_up_hint:
+        gap = state["critical_gaps"][state["current_gap_index"]]
+        field, _, label = gap.partition(":")
+        field, label = field.strip(), label.strip()
+        entry = _find_work_entry(profile, label)
+        if field != "professional_summary" and entry is not None:
+            text = await provider.acomplete(
+                build_field_gap_question_prompt(field, entry, state["messages"]),
+                system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
+                temperature=0.4,
+                max_tokens=256,
+            )
+            draft = {"question": text.strip(), "choices": None}
+            return await _review_question_language(draft, lang, provider)
+        # professional_summary or unmatched label → fall through to existing path
 
     if mode == "guided":
         section = state["critical_gaps"][state["current_gap_index"]]

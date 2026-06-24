@@ -325,6 +325,42 @@ def build_follow_up_question_prompt(
 
 
 # ---------------------------------------------------------------------------
+# QuestionGenerator node — MODE C (Field-Gap, Profile Enrich)
+# ---------------------------------------------------------------------------
+
+_FIELD_GAP_GUIDANCE: dict[str, str] = {
+    "achievements": "Ask for ONE concrete, quantified achievement the candidate delivered in THIS specific role.",
+    "team_size": "Ask how many people reported to them in THIS role (zero is a valid answer).",
+    "budget_managed": "Ask what budget (size / currency) they were responsible for in THIS role.",
+    "industry_context": "Ask which industry or sector THIS role was in.",
+    "start_date": "Ask when they started THIS role (month and year).",
+    "end_date": "Ask when they left THIS role, or whether it is current.",
+}
+
+
+def build_field_gap_question_prompt(field: str, entry: dict, recent_messages: list[dict]) -> str:
+    """MODE C (profile enrich): a targeted question about ONE missing field on ONE
+    known position. Anchors on the actual role/company/responsibilities so the model
+    fills the specific gap rather than exploring openly (issue #66)."""
+    role = entry.get("role") or entry.get("title") or ""
+    company = entry.get("company") or ""
+    responsibilities = "; ".join(entry.get("responsibilities", []) or [])
+    guidance = _FIELD_GAP_GUIDANCE.get(field, f"Ask the candidate about the {field} for this role.")
+    history = ""
+    if recent_messages:
+        lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
+        history = "\n\nRecent conversation:\n" + "\n".join(lines)
+    return (
+        f"Position: {role} at {company}\n"
+        f"What they did: {responsibilities}\n"
+        f"Missing detail: {field}\n"
+        f"{guidance}\n"
+        f"Ask ONE specific question about THIS position only.{history}\n\n"
+        "Generate the question."
+    )
+
+
+# ---------------------------------------------------------------------------
 # ResponseParser node
 # ---------------------------------------------------------------------------
 
