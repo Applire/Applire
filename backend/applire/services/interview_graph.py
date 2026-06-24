@@ -546,58 +546,10 @@ def gap_detector_mode_c(
     profile: dict,
     scope: str | None = None,
 ) -> list[str]:
-    """Return ordered completeness gaps for a MODE C profile-enrich session.
-
-    Scans profile JSONB for missing fields. Pure Python — no LLM call.
-
-    Priority order per work entry:
-      1. achievements[] empty
-      2. team_size is None
-      3. budget_managed is None
-      4. industry_context empty/None
-    Then: professional_summary (only when scope is None and work_experience exists)
-
-    Fields in profile['_meta']['na_fields'] are excluded.
-
-    scope: "work_experience:<company>:<role>" limits scan to one entry.
-           professional_summary is excluded when scope is set.
-    """
-    na_fields: set[str] = set(
-        (profile.get("_meta") or {}).get("na_fields", [])
-    )
-    gaps: list[str] = []
-    work_experience = profile.get("work_experience") or []
-
-    for entry in work_experience:
-        company = (entry.get("company") or "").strip()
-        role = (entry.get("role") or entry.get("title") or "").strip()
-        label = f"{role} @ {company}".strip(" @")
-
-        if scope:
-            parts = scope.split(":", 2)
-            if len(parts) == 3:
-                scope_company, scope_role = parts[1].strip(), parts[2].strip()
-                if (
-                    company.lower() != scope_company.lower()
-                    or role.lower() != scope_role.lower()
-                ):
-                    continue
-
-        for gap_str, is_gap in [
-            (f"achievements: {label}", not entry.get("achievements")),
-            (f"team_size: {label}", entry.get("team_size") is None),
-            (f"budget_managed: {label}", entry.get("budget_managed") is None),
-            (f"industry_context: {label}", not entry.get("industry_context")),
-        ]:
-            if is_gap and gap_str not in na_fields:
-                gaps.append(gap_str)
-
-    if scope is None and work_experience:
-        summary_gap = "professional_summary"
-        if not profile.get("professional_summary") and summary_gap not in na_fields:
-            gaps.append(summary_gap)
-
-    return gaps
+    """Ordered MODE C completeness gaps. Delegates to the unified completeness
+    model (US179) so the score and this list derive from one source (ADR-041)."""
+    from applire.services.profile.completeness import field_gaps
+    return field_gaps(profile, scope=scope)
 
 
 def _norm(value: str | None) -> str:

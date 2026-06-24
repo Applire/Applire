@@ -35,6 +35,7 @@ System prompt fingerprints:
   "profile data corrector"         → profile extraction refinement (aparse_json → dict)
   "tailored cv corrector"          → CV tailoring refinement    (aparse_json → dict)
   "answer parser corrector"        → response parser refinement (aparse_json → dict)
+  "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
@@ -378,6 +379,31 @@ class MockLLMProvider(LLMProvider):
 
         if "answer parser corrector" in system_lower:
             return dict(_RESPONSE_PARSER_RESPONSE)
+
+        # US179 — role-conditional field expectation analysis.
+        # Inspects the user *prompt* for management keywords so mock-stack PQ
+        # reflects realistic role differentiation rather than blanket all-three.
+        if "experience field analyst" in system_lower:
+            p = prompt.lower()
+            mgmt = any(
+                k in p
+                for k in (
+                    "lead",
+                    "head",
+                    "manager",
+                    "director",
+                    "leiter",
+                    "geschäftsführer",
+                    "vp",
+                    "chief",
+                    "prokurist",
+                )
+            )
+            return {
+                "expected": (
+                    ["team_size", "budget_managed", "industry_context"] if mgmt else []
+                )
+            }
 
         # Fallback: return a minimal valid dict for any unrecognised prompt
         return {"mock": True, "raw_prompt_length": len(prompt)}

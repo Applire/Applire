@@ -469,9 +469,13 @@ class MasterProfileData(BaseModel):
         return data
 
     def calculate_completeness(self) -> float:
+        from applire.services.profile.completeness import work_experience_richness
         score = 0.0
         for section, weight in _COMPLETENESS_WEIGHTS.items():
-            if _has_meaningful_data(self, section):
+            if section == "work_experience":
+                score += weight * work_experience_richness(
+                    [e.model_dump() for e in self.work_experience])
+            elif _has_meaningful_data(self, section):
                 score += weight
         return round(score, 2)
 

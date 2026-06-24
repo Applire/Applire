@@ -217,14 +217,26 @@ class TestCompletenessScore:
         p = _profile()
         assert p.calculate_completeness() == 0.0
 
-    def test_profile_with_work_experience_only_scores_0_30(self):
+    def test_profile_with_work_experience_only_scores_partial(self):
+        # _work_entry() has start_date only (1/3 floor fields) — richness 0.33;
+        # work_experience weight 0.30 → score = 0.30 * 0.33 = 0.10 (richness-based,
+        # not the old presence-only 0.30).
         p = _profile(work_experience=[_work_entry()])
+        score = p.calculate_completeness()
+        assert 0.0 < score < 0.30
+
+    def test_profile_with_full_work_entry_scores_0_30(self):
+        # A work entry with all floor fields present earns the full work weight.
+        p = _profile(work_experience=[_work_entry(
+            start_date="2020-01", end_date="2023-12", achievements=["X"])])
         assert p.calculate_completeness() == 0.30
 
     def test_profile_with_work_and_education_scores_0_50(self):
         from applire.schemas.profile import EducationEntry
+        # Use a fully-rich work entry so the work section contributes its full weight.
         p = _profile(
-            work_experience=[_work_entry()],
+            work_experience=[_work_entry(
+                start_date="2020-01", end_date="2023-12", achievements=["X"])],
             education=[EducationEntry(institution="TU Berlin", degree="B.Sc.")],
         )
         assert p.calculate_completeness() == 0.50
@@ -234,10 +246,12 @@ class TestCompletenessScore:
             Certification, EducationEntry, Language, MasterProfileData,
             PersonalInfo, ProfessionalSummary, Publication, Skill, VolunteerActivity,
         )
+        # Use a rich work entry (all floor fields) so work section scores fully.
         p = MasterProfileData(
             personal_info=PersonalInfo(name="Ana"),
             professional_summary=ProfessionalSummary(en="Summary"),
-            work_experience=[_work_entry()],
+            work_experience=[_work_entry(
+                start_date="2020-01", end_date="2023-12", achievements=["Led team"])],
             education=[EducationEntry(institution="ETH", degree="M.Sc.")],
             skills=[Skill(name="Python")],
             languages=[Language(language="German", level="C2")],

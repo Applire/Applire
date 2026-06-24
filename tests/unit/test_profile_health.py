@@ -60,7 +60,9 @@ def _full_profile(**overrides) -> MasterProfileData:
     base = dict(
         personal_info=PersonalInfo(name="Marcus Weber", email="m@example.com"),
         professional_summary=ProfessionalSummary(de="Zusammenfassung", en="Summary"),
-        work_experience=[WorkEntry(company="BMW", role="Engineer", start_date="2020-01")],
+        work_experience=[WorkEntry(
+            company="BMW", role="Engineer",
+            start_date="2020-01", end_date="2023-12", achievements=["Led migration"])],
         education=[{"institution": "TU", "degree": "BSc", "field": "CS"}],
         skills=[Skill(name="Python", category="technical")],
         languages=[{"language": "German", "proficiency": "native"}],
@@ -176,6 +178,7 @@ class TestCompleteness:
     def test_full_profile_has_no_gaps(self):
         health = assess_health(_full_profile())
         assert health.completeness.gaps == []
+        # All floor fields present → work richness = 1.0 → full score across all sections.
         assert health.completeness.score == 1.0
 
     def test_sparse_profile_lists_missing_sections_as_gaps(self):
