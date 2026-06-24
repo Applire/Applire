@@ -221,9 +221,9 @@ export function ProfileSectionBody({
               </div>
               {nonEmpty(e.company) && (role || "") !== e.company && (
                 <p className="text-xs text-gray-600">
-                  {nonEmpty(e.location)
-                    ? `${e.company} · ${e.location}`
-                    : e.company}
+                  {[e.company, nonEmpty(e.location) ? e.location : null]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               )}
               {nonEmpty(e.description) && (

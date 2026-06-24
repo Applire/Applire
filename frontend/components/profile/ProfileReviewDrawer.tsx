@@ -37,9 +37,13 @@ interface Message {
   content: string;
 }
 
-// F4 (#73): a stable, locale-independent intent the merge engine (#71) recognises
-// as "don't pick one date — keep both entries as two separate roles (e.g. a
-// promotion)". The button label is localized chrome; this payload is not.
+// F4 (#73): submitted as a natural-language answer to the review interview
+// (sendProfileReviewMessage), so the LLM resolves the conflict by keeping both
+// entries as two separate roles rather than forcing an either/or date pick.
+// This is the conversational counterpart to #71's deterministic same-title gate
+// on the CV-upload merge — not a structured payload the merge engine parses.
+// Kept locale-independent so the model sees stable wording; the button label is
+// localized chrome.
 const KEEP_BOTH_INTENT =
   "These are two separate roles — keep both (e.g. I was promoted; do not merge them into one).";
 
