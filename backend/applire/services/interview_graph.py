@@ -60,7 +60,11 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import FieldChange
 from applire.schemas.session import ConflictSummary, InterviewState
-from applire.services.profile.merge import company_names_match, dates_overlap
+from applire.services.profile.merge import (
+    company_names_match,
+    dates_overlap,
+    roles_are_same,
+)
 from applire.services.reviewer import review_and_refine
 
 # Sections included in a MODE B guided build, in default priority order.
@@ -506,9 +510,14 @@ def _find_matching_work_entry(existing: list[dict], entry: dict) -> dict | None:
         if role in known_titles:
             return ex
 
+    # Same employer + overlapping dates is NOT enough on its own: a substantively
+    # different title at the same employer is a separate role (a promotion), not
+    # the existing stint — collapsing them is the #71 / F2 bug. Require the title
+    # to denote the same role (identical or a seniority refinement) before fusing.
     overlapping = [
         ex for ex in candidates
-        if dates_overlap(
+        if roles_are_same(ex.get("role") or "", entry.get("role") or "")
+        and dates_overlap(
             ex.get("start_date"), ex.get("end_date"),
             entry.get("start_date"), entry.get("end_date"),
         )

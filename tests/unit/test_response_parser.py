@@ -616,11 +616,52 @@ class TestProfileUpdater:
         # Entry with empty role should be skipped
         assert updated["work_experience"] == []
 
-    def test_profile_updater_enriches_existing_company_instead_of_duplicating(self):
+    def test_profile_updater_enriches_existing_company_same_role(self):
         """Regression (Milan run 2026-06-10): an interview answer mentioning an
         existing employer by a shortened name ('TWENTYONE' vs 'TWENTYONE Digital')
-        with a loose role title created a spurious undated position. Undated
-        answer entries for a known employer must enrich the existing entry."""
+        with the SAME role must enrich the existing entry, not duplicate it.
+
+        (#71 / F2: a *distinct* title at the same employer is now preserved as a
+        separate role — see test_profile_updater_distinct_role_same_company_stays_separate.)"""
+        from applire.services.interview_graph import profile_updater
+
+        profile = {
+            "skills": [],
+            "work_experience": [
+                {
+                    "company": "TWENTYONE Digital",
+                    "role": "Art Director",
+                    "start_date": "2018-08",
+                    "end_date": "2022-04",
+                    "achievements": ["Existing achievement"],
+                    "role_aliases": [],
+                }
+            ],
+        }
+        patch = {
+            "skills_to_add": [],
+            "work_history_to_add": [
+                {
+                    "company": "TWENTYONE",
+                    "role": "Art Director",
+                    "start_date": None,
+                    "end_date": None,
+                    "bullets": ["Won 4 of 6 new-business pitches"],
+                }
+            ],
+        }
+
+        updated, conflicts = profile_updater(profile, patch)
+
+        assert len(updated["work_experience"]) == 1
+        entry = updated["work_experience"][0]
+        assert "Won 4 of 6 new-business pitches" in entry["achievements"]
+        assert conflicts == []
+
+    def test_profile_updater_distinct_role_same_company_stays_separate(self):
+        """#71 / F2: an interview answer describing a DIFFERENT role at a known
+        employer (a promotion: 'Art Director' → 'Creative Lead') must be kept as
+        a separate position, not folded onto the existing role — never collapse."""
         from applire.services.interview_graph import profile_updater
 
         profile = {
@@ -651,11 +692,10 @@ class TestProfileUpdater:
 
         updated, conflicts = profile_updater(profile, patch)
 
-        assert len(updated["work_experience"]) == 1
-        entry = updated["work_experience"][0]
-        assert "Won 4 of 6 new-business pitches" in entry["achievements"]
-        assert "Creative Lead" in entry["role_aliases"]
-        assert conflicts == []
+        roles = {w["role"] for w in updated["work_experience"]}
+        assert len(updated["work_experience"]) == 2
+        assert "Art Director" in roles
+        assert "Creative Lead" in roles
 
     def test_profile_updater_merges_bullets_into_exact_match_entry(self):
         from applire.services.interview_graph import profile_updater
