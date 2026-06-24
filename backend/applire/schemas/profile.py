@@ -657,10 +657,20 @@ class HealthIssue(BaseModel):
 
 class CompletenessBlock(BaseModel):
     """Completeness is a score + the missing sections — never severity-tagged
-    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch."""
+    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch.
+
+    ``gaps``       — section-level names (e.g. ``["education", "languages"]``);
+                     rendered by the frontend as "Missing sections: X, Y".
+    ``field_gaps`` — role-aware field-level gap strings (e.g.
+                     ``["end_date: Junior Dev @ Acme"]``); populated by
+                     ``completeness.field_gaps()`` — the same function the
+                     no-JD enrichment interview (Mode C) uses, so the hub's
+                     count agrees with the number of questions asked (US179).
+    """
 
     score: float                                  # 0.0 to 1.0
     gaps: list[str] = Field(default_factory=list)
+    field_gaps: list[str] = Field(default_factory=list)
 
 
 class ProfileHealthResponse(BaseModel):

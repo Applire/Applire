@@ -48,6 +48,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     ProfileHealthResponse,
 )
+from applire.services.profile.completeness import field_gaps as completeness_field_gaps
 from applire.services.profile.severity import (
     classify_conflict,
     classify_confidence,
@@ -137,5 +138,6 @@ def assess_health(profile: MasterProfileData) -> ProfileHealthResponse:
         completeness=CompletenessBlock(
             score=profile.calculate_completeness(),
             gaps=profile.completeness_gaps(),
+            field_gaps=completeness_field_gaps(profile.model_dump()),
         ),
     )
