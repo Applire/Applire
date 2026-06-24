@@ -17,6 +17,7 @@
 
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Badge } from "@/components/ui/badge";
@@ -117,7 +118,7 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                         >
                           {stringify(change.oldValue)}
                         </span>
-                        <span aria-hidden className="text-muted-foreground">→</span>
+                        <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       </>
                     )}
                     <span className="truncate font-medium text-foreground">{stringify(change.newValue)}</span>
