@@ -105,7 +105,7 @@ def build_question_prompt(
     profile_summary = json.dumps(
         {
             "skills": profile.get("skills", []),
-            "work_history": [
+            "work_experience": [
                 {"company": e.get("company"), "role": e.get("role")}
                 for e in profile.get("work_experience", [])
             ],
@@ -307,7 +307,7 @@ def build_follow_up_question_prompt(
     profile_summary = json.dumps(
         {
             "skills": profile.get("skills", []),
-            "work_history": [
+            "work_experience": [
                 {"company": e.get("company"), "role": e.get("role")}
                 for e in profile.get("work_experience", [])
             ],

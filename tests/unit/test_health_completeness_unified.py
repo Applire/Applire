@@ -190,3 +190,22 @@ class TestHealthFieldGapsParity:
                 f"gaps should contain section names, not field:label strings; "
                 f"got: {section_gap!r}"
             )
+
+
+def test_health_field_gaps_respects_na_fields():
+    """US179 — assess_health must suppress gaps the user marked N/A.
+
+    model_dump() strips _meta (it is not a declared MasterProfileData field),
+    so assess_health must thread na_fields explicitly into field_gaps().
+    Without the fix the hub keeps listing a gap the user already dismissed.
+    """
+    profile = MasterProfileData.model_validate({"work_experience": [
+        {"role": "Junior Developer", "company": "Acme", "expected_fields": [],
+         "start_date": "2021", "end_date": None, "achievements": []}]})
+    # without na_fields: end_date + achievements are gaps
+    base = assess_health(profile)
+    assert any(g.startswith("end_date") for g in base.completeness.field_gaps)
+    # with na_fields marking end_date N/A: it must be suppressed
+    suppressed = assess_health(profile, na_fields=["end_date: Junior Developer @ Acme"])
+    assert not any(g.startswith("end_date") for g in suppressed.completeness.field_gaps)
+    assert any(g.startswith("achievements") for g in suppressed.completeness.field_gaps)

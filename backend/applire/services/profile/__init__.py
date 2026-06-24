@@ -452,6 +452,7 @@ async def patch_profile_section(
         validated.metadata.last_updated = now
         validated.metadata.enrichment_history.append(enrichment)
 
+    # TODO US179: edited/added roles here get the lean-floor expectation set until a provider is threaded in (fast-follow). Floor fallback is safe (under-asks).
     record.profile_json = validated.model_dump(mode="json")
     record.updated_at = now
     await db.commit()
@@ -496,7 +497,8 @@ async def get_profile_health(db: AsyncSession) -> ProfileHealthResponse:
     if not record:
         return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
     profile_data = MasterProfileData.model_validate(record.profile_json)
-    return assess_health(profile_data)
+    na_fields = (record.profile_json.get("_meta") or {}).get("na_fields", [])
+    return assess_health(profile_data, na_fields=na_fields)
 
 
 async def resolve_conflict(
