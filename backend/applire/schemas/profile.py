@@ -90,10 +90,20 @@ class ExperienceBase(BaseModel):
     achievements: list[str] = Field(default_factory=list)
     technologies: list[str] = Field(default_factory=list)
 
+    # ADR-041 (amended 2026-06-24): role-aware completeness. LLM-judged at write
+    # time (services/profile/expectations.py); None = never annotated → scorer
+    # falls back to the floor (under-ask). Stores only the role-conditional fields.
+    expected_fields: list[str] | None = None
+
     @field_validator("responsibilities", "achievements", "technologies", mode="before")
     @classmethod
     def coerce_experience_list_fields(cls, v: object) -> list:
         return v if isinstance(v, list) else []
+
+    @field_validator("expected_fields", mode="before")
+    @classmethod
+    def coerce_expected_fields(cls, v: object) -> object:
+        return v if (v is None or isinstance(v, list)) else None
 
     def org_label(self) -> str:
         """Human label for the engagement's "where" — subclasses override."""
@@ -459,9 +469,13 @@ class MasterProfileData(BaseModel):
         return data
 
     def calculate_completeness(self) -> float:
+        from applire.services.profile.completeness import work_experience_richness
         score = 0.0
         for section, weight in _COMPLETENESS_WEIGHTS.items():
-            if _has_meaningful_data(self, section):
+            if section == "work_experience":
+                score += weight * work_experience_richness(
+                    [e.model_dump() for e in self.work_experience])
+            elif _has_meaningful_data(self, section):
                 score += weight
         return round(score, 2)
 
@@ -643,10 +657,20 @@ class HealthIssue(BaseModel):
 
 class CompletenessBlock(BaseModel):
     """Completeness is a score + the missing sections — never severity-tagged
-    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch."""
+    (ADR-041 amended): an incomplete profile is a nudge, not a mismatch.
+
+    ``gaps``       — section-level names (e.g. ``["education", "languages"]``);
+                     rendered by the frontend as "Missing sections: X, Y".
+    ``field_gaps`` — role-aware field-level gap strings (e.g.
+                     ``["end_date: Junior Dev @ Acme"]``); populated by
+                     ``completeness.field_gaps()`` — the same function the
+                     no-JD enrichment interview (Mode C) uses, so the hub's
+                     count agrees with the number of questions asked (US179).
+    """
 
     score: float                                  # 0.0 to 1.0
     gaps: list[str] = Field(default_factory=list)
+    field_gaps: list[str] = Field(default_factory=list)
 
 
 class ProfileHealthResponse(BaseModel):

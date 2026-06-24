@@ -74,6 +74,7 @@ from applire.schemas.profile import (
     ProfileMetadata,
     StagedResolveResponse,
 )
+from applire.services.profile.expectations import annotate_expected_fields
 from applire.services.profile.health import assess_health
 
 _DEFAULT_EMBEDDING_PROVIDER = NoopEmbeddingProvider()
@@ -306,6 +307,11 @@ async def _import_from_text(
         generator_max_tokens=8192,
         chain_id="profile_extraction",
     )
+    # US179 / ADR-041: annotate role-aware expected fields at write time so the
+    # stored completeness score and the enrichment gaps derive from one source.
+    # Best-effort: annotate_expected_fields never raises (provider errors leave
+    # entries unannotated → scorer's lean floor fallback).
+    await annotate_expected_fields(data, provider)
     incoming = MasterProfileData.model_validate(data)
     incoming = await enrich_skills(incoming, provider)
     now = datetime.now(timezone.utc)
@@ -446,6 +452,7 @@ async def patch_profile_section(
         validated.metadata.last_updated = now
         validated.metadata.enrichment_history.append(enrichment)
 
+    # TODO US179: edited/added roles here get the lean-floor expectation set until a provider is threaded in (fast-follow). Floor fallback is safe (under-asks).
     record.profile_json = validated.model_dump(mode="json")
     record.updated_at = now
     await db.commit()
@@ -490,7 +497,8 @@ async def get_profile_health(db: AsyncSession) -> ProfileHealthResponse:
     if not record:
         return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
     profile_data = MasterProfileData.model_validate(record.profile_json)
-    return assess_health(profile_data)
+    na_fields = (record.profile_json.get("_meta") or {}).get("na_fields", [])
+    return assess_health(profile_data, na_fields=na_fields)
 
 
 async def resolve_conflict(
@@ -714,6 +722,10 @@ async def upload_cv(
         generator_max_tokens=8192,
         chain_id="cv_extraction",
     )
+    # US179 / ADR-041: annotate role-aware expected fields at write time (same as
+    # _import_from_text). The primary /upload path must annotate too, or expected_fields
+    # stays null and the completeness model can't be role-aware (#66 PQ finding).
+    await annotate_expected_fields(data, provider)
     incoming = MasterProfileData.model_validate(data)
     incoming = await enrich_skills(incoming, provider)
     now = datetime.now(timezone.utc)

@@ -32,10 +32,10 @@ export interface EnrichSession {
   estimated_questions: number;
 }
 
-// US166 — the completeness panel surfaces section-level gaps, but the Mode C
-// engine keys off finer work-entry gaps; when none remain the backend 404s.
-// We model that as a benign "nothing to enrich" sentinel rather than an error,
-// so launching enrichment from the health hub can land on a friendly state.
+// US179 — the health hub now gates the enrich button on field_gaps (role-aware
+// work-entry gaps), so the panel never launches enrichment when none exist.
+// The backend still 404s if called without gaps, so we keep the sentinel for
+// defensive coverage and any other call sites (e.g. the EnrichmentDrawer).
 export interface EnrichNoGaps {
   noGaps: true;
 }
@@ -67,7 +67,7 @@ export async function startEnrichSession(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope: scope ?? null }),
   });
-  // 404 = no completeness gaps to enrich (or no profile): a benign state, not
+  // 404 = no field-level gaps to enrich (or no profile): a benign state, not
   // an error to surface in red. Every other non-2xx is a genuine failure.
   if (res.status === 404) {
     return { noGaps: true };

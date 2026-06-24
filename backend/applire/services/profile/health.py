@@ -48,6 +48,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     ProfileHealthResponse,
 )
+from applire.services.profile.completeness import field_gaps as completeness_field_gaps
 from applire.services.profile.severity import (
     classify_conflict,
     classify_confidence,
@@ -116,8 +117,18 @@ def _accuracy_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
-def assess_health(profile: MasterProfileData) -> ProfileHealthResponse:
-    """Compute the deterministic Tier-2 health read for a parsed profile."""
+def assess_health(
+    profile: MasterProfileData,
+    na_fields: list[str] | None = None,
+) -> ProfileHealthResponse:
+    """Compute the deterministic Tier-2 health read for a parsed profile.
+
+    ``na_fields`` — the ``_meta.na_fields`` list from the raw profile JSON.
+    ``MasterProfileData.model_dump()`` strips ``_meta`` (it is not a declared
+    field), so callers that have the raw JSON must extract and thread it in
+    explicitly.  Defaults to ``None`` (no suppression) for backwards
+    compatibility with existing callers that do not carry the raw record.
+    """
     issues: list[HealthIssue] = []
 
     metadata = profile.metadata
@@ -132,10 +143,15 @@ def assess_health(profile: MasterProfileData) -> ProfileHealthResponse:
             if issue is not None:
                 issues.append(issue)
 
+    profile_dict = profile.model_dump()
+    if na_fields:
+        profile_dict["_meta"] = {"na_fields": na_fields}
+
     return ProfileHealthResponse(
         issues=issues,
         completeness=CompletenessBlock(
             score=profile.calculate_completeness(),
             gaps=profile.completeness_gaps(),
+            field_gaps=completeness_field_gaps(profile_dict),
         ),
     )

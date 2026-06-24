@@ -888,8 +888,9 @@ class TestNewProfileServiceDB:
             result = await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
 
         assert result is not None
-        # 1 extraction call + 1 skill-estimation call (enrich_skills)
-        assert provider.aparse_json.call_count == 2
+        # 1 extraction + 1 skill-estimation (enrich_skills) + 1 annotation call
+        # (annotate_expected_fields, US179) per work entry (1 entry here)
+        assert provider.aparse_json.call_count == 3
 
     @pytest.mark.asyncio
     async def test_import_from_linkedin_merges_with_existing(self, sqlite_session):
@@ -904,8 +905,13 @@ class TestNewProfileServiceDB:
             result = await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
 
         assert result is not None
-        # 2 imports × (1 extraction + 1 skill-estimation) = 4 calls
-        assert provider.aparse_json.call_count == 4
+        # Import 1: 1 extraction + 1 annotation (US179) + 1 skill-estimation = 3 calls.
+        # Import 2: 1 extraction + 1 skill-estimation = 2 calls.
+        # The annotation is skipped on import 2 because the mock returns the SAME
+        # dict reference for every aparse_json call; the first annotation mutates
+        # expected_fields in-place so the idempotency guard fires on the second run.
+        # In production each extraction returns a fresh dict so annotation always runs.
+        assert provider.aparse_json.call_count == 5
 
     @pytest.mark.asyncio
     async def test_import_from_pdf_raises_on_empty_text(self, sqlite_session):

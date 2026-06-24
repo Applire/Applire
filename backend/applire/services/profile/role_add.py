@@ -154,6 +154,8 @@ async def add_role_to_profile(req: AddRoleRequest, db: AsyncSession) -> AddRoleR
     record.profile_json = outcome.profile.model_dump(mode="json")
     await db.commit()
 
+    # TODO US179: manually-added roles get the lean-floor expectation set until a
+    # provider is threaded here (fast-follow). Floor fallback is safe (under-asks).
     return AddRoleResponse(
         profile_id=str(record.id),
         new_role_id=outcome.new_role_id,

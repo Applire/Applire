@@ -109,4 +109,4 @@ async def test_health_reports_a_conflict_issue(client, db_session):
 async def test_health_with_no_profile_returns_empty(client):
     resp = await client.get("/api/profile/health")
     assert resp.status_code == 200
-    assert resp.json() == {"issues": [], "completeness": {"score": 0.0, "gaps": []}}
+    assert resp.json() == {"issues": [], "completeness": {"score": 0.0, "gaps": [], "field_gaps": []}}
