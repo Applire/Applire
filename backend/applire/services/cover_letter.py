@@ -402,7 +402,11 @@ async def _render_cover_letter_background(
                 pre_gen_inputs=pre_gen,
                 detected_language=detected_language,
             )
-            letter_data = await provider.aparse_json(user_prompt, system=SYSTEM_PROMPT)
+            # Explicit budget to match CV generation (cv.py): a signed letter must
+            # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
+            letter_data = await provider.aparse_json(
+                user_prompt, system=SYSTEM_PROMPT, max_tokens=8192
+            )
 
             # ADR-040 §1 / US170 (JF-M-8.1): the letter is signed and sent, so it carries
             # the same two-tier truthfulness contract as the CV. Prevention tier — a grounding

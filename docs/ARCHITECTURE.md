@@ -166,6 +166,10 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 **Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
 
+**Truncation is a hard error (no silent half-output):** when a model stops because it hit the token budget (`finish_reason='length'`, Anthropic `stop_reason='max_tokens'`, Ollama `done_reason='length'`), providers raise `LLMTruncatedError` rather than return a partial result. This guarantees a CV or cover letter can never be persisted as valid-but-incomplete JSON closed early under budget pressure — it fails loud and retryable.
+
+**Reasoning ("thinking") models:** reasoning tokens count against `max_tokens`, so on short generations they can crowd out the visible answer. `acomplete`/`aparse_json` take a per-call `disable_thinking` flag — left on (`None`) for serious content (CV, cover letter, reviewers), set `True` for short "chrome" generations (interview questions, CV-section assists) so the budget reaches the answer. OpenRouter applies it via the cross-vendor `reasoning` parameter; providers without a reasoning toggle ignore the flag.
+
 ---
 
 ### ADR-012 — Edition Gating (Import-Based Detection)

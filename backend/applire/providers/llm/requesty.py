@@ -46,7 +46,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _DEFAULT_BASE_URL = "https://router.eu.requesty.ai/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -88,6 +88,7 @@ class RequestyProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
         try:
@@ -109,6 +110,7 @@ class RequestyProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         try:
@@ -146,6 +148,7 @@ class RequestyProvider(LLMProvider):
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
         )
+        raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
     @_retry
@@ -166,6 +169,7 @@ class RequestyProvider(LLMProvider):
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
         )
+        raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
 

@@ -78,7 +78,8 @@ async def start_assist_session(
             "eine Lücke in seinem Lebenslauf zu schließen."
         ),
         temperature=0.4,
-        max_tokens=200,
+        max_tokens=512,  # chrome ceiling, raised for thinking-model headroom (F-B)
+        disable_thinking=True,
     )
     question = question.strip()
 
@@ -126,6 +127,7 @@ async def submit_assist_answer(
         ),
         temperature=0.5,
         max_tokens=600,
+        disable_thinking=True,  # chrome generation (F-B)
     )
 
     return AssistAnswerResponse(suggestion=suggestion.strip())
@@ -162,6 +164,7 @@ async def rewrite_section(
         ),
         temperature=0.5,
         max_tokens=600,
+        disable_thinking=True,  # chrome generation (F-B)
     )
 
     return RewriteResponse(suggestion=suggestion.strip())
