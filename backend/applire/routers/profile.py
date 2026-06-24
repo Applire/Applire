@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 import mimetypes
 
 from fastapi.responses import JSONResponse, Response
+from pydantic import ValidationError
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,6 +155,12 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
+    except ValidationError as exc:
+        # Must come before ValueError — ValidationError is a ValueError subclass
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="We couldn't read some details from your document (for example an unrecognised date). Please check the file and try again.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -278,15 +285,22 @@ async def import_profile(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except json.JSONDecodeError:
+        # Must come before ValueError — JSONDecodeError is a ValueError subclass
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM returned invalid JSON",
+        )
+    except ValidationError as exc:
+        # Must come before ValueError — ValidationError is a ValueError subclass
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="We couldn't read some details from your document (for example an unrecognised date). Please check the file and try again.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
-        )
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned invalid JSON",
         )
     except Exception as exc:
         raise HTTPException(

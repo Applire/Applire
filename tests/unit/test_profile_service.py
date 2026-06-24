@@ -149,6 +149,20 @@ class TestSchemaDefaults:
         req = ConflictResolutionRequest(resolution="manual", value="2020-02")
         assert req.value == "2020-02"
 
+    def test_certification_coerces_partial_date_obtained(self):
+        from datetime import date
+        from applire.schemas.profile import Certification
+        assert Certification(name="AWS SA", date_obtained="2023").date_obtained == date(2023, 1, 1)
+        assert Certification(name="CKA", date_obtained="2023-06").date_obtained == date(2023, 6, 1)
+        assert Certification(name="CKA", date_obtained="2023-06-15").date_obtained == date(2023, 6, 15)
+        assert Certification(name="X", expiry_date="2025").expiry_date == date(2025, 1, 1)
+        assert Certification(name="X", date_obtained=None).date_obtained is None
+        # unparseable → None, never raises (the bug was that it raised)
+        assert Certification(name="X", date_obtained="sometime in 2023").date_obtained is None
+        # European format and YYYY-MM on expiry_date
+        assert Certification(name="X", date_obtained="15.06.2023").date_obtained == date(2023, 6, 15)
+        assert Certification(name="X", expiry_date="2025-06").expiry_date == date(2025, 6, 1)
+
 
 # ---------------------------------------------------------------------------
 # TestLegacyMigration
