@@ -59,7 +59,20 @@ interface ProfileSection {
 interface EnrichmentRecord {
   timestamp: string;
   source: string;
-  changes: Array<{ section: string; field: string; action: string }>;
+  changes: Array<{
+    section: string;
+    field: string;
+    action: string;
+    old_value?: unknown;
+    new_value?: unknown;
+    rationale?: string | null;
+  }>;
+}
+
+function stringifyValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
 }
 
 interface ProfileResponse {
@@ -440,9 +453,9 @@ export default function ProfilePage() {
             );
           })}
 
-          {/* Enrichment History */}
+          {/* Import log / Enrichment History (#67) */}
           {enrichmentHistory.length > 0 && (
-            <Card className="p-4 mt-6">
+            <Card id="import-log" className="p-4 mt-6">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
                 {t("enrichmentHistory")}
               </h3>
@@ -456,11 +469,30 @@ export default function ProfilePage() {
                       <span className="font-medium text-teal">{record.source}</span>
                       <span>{new Date(record.timestamp).toLocaleDateString()}</span>
                     </div>
-                    {record.changes.map((change, cIdx) => (
-                      <p key={cIdx} className="text-gray-600">
-                        {t("changeLog", { action: change.action, section: change.section, field: change.field })}
-                      </p>
-                    ))}
+                    {record.changes.map((change, cIdx) => {
+                      const oldStr = stringifyValue(change.old_value);
+                      const newStr = stringifyValue(change.new_value);
+                      return (
+                        <div key={cIdx} className="text-gray-600">
+                          <span>
+                            {t("changeLog", { action: change.action, section: change.section, field: change.field })}
+                          </span>
+                          {oldStr !== "" && (
+                            <span>
+                              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- punctuation separator */}
+                              {": "}
+                              <span className="text-gray-400 line-through">{oldStr}</span>
+                              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative before→after arrow */}
+                              {" → "}
+                              <span className="text-gray-700">{newStr}</span>
+                            </span>
+                          )}
+                          {change.rationale && (
+                            <span className="block text-xs text-gray-400">{change.rationale}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>

@@ -28,9 +28,9 @@ import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { StatCard } from "@/components/ui/stat-card";
 import { JobEchoCard } from "@/components/gaps/JobEchoCard";
-import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
+import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -447,13 +447,14 @@ export default function GapsPage({
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
-  const [profileReviewDismissed, setProfileReviewDismissed] = useState(false);
   const [profileStats, setProfileStats] = useState<ProfileStats>({
     positions: 0, projects: 0, certifications: 0, data_points: 0,
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
+  // #67: only show the slim merge-review pointer when a merge actually happened.
+  const [hasMerge, setHasMerge] = useState(false);
 
   // Gap-Click state keyed by cluster ID
   const [gapStates, setGapStates] = useState<Record<string, GapClickState>>({});
@@ -468,6 +469,15 @@ export default function GapsPage({
     required_skills: string[];
     nice_to_have_skills: string[];
   } | null>(null);
+
+  // #67: gate the slim merge-review pointer on whether a merge actually happened.
+  useEffect(() => {
+    let cancelled = false;
+    getProfileChanges()
+      .then((trail) => { if (!cancelled) setHasMerge(hasMergeReview(trail)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -707,15 +717,24 @@ export default function GapsPage({
         </div>
       </div>
 
-      {/* Section 1b: Truthful-Output review — what we read & assumed (ADR-040, US148/US149) */}
-      {!profileReviewDismissed && (
+      {/* Section 1b: merge review moved out of the flow (#67) — slim pointer, only when a merge happened. */}
+      {hasMerge && (
         <div className="mb-8" data-testid="profile-review-section">
-          <DecisionTrailReview
-            mode="merge"
-            onConfirm={() => setProfileReviewDismissed(true)}
-            onDismiss={() => setProfileReviewDismissed(true)}
-            onFix={() => router.push("/profile")}
-          />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{t("mergeMovedTitle")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("mergeMovedBody")}</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="merge-review-link"
+              onClick={() => router.push("/profile#import-log")}
+            >
+              {t("mergeMovedLink")}
+            </Button>
+          </div>
         </div>
       )}
 

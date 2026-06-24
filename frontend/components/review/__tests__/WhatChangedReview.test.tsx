@@ -107,4 +107,26 @@ describe("WhatChangedReview", () => {
     render(<WhatChangedReview mode="merge" changes={[]} />);
     expect(screen.getByTestId("what-changed-empty")).toBeInTheDocument();
   });
+
+  it("renders before→after when oldValue is present (merge rows)", () => {
+    render(
+      <WhatChangedReview
+        mode="merge"
+        changes={[
+          {
+            section: "work_experience",
+            field: "role",
+            action: "merged",
+            oldValue: "Team Lead @ AcmeCo",
+            newValue: "Engineering Team Lead @ AcmeCo",
+            rationaleKey: "merged_same_position",
+          },
+        ]}
+      />,
+    );
+    const row = screen.getByTestId("what-changed-row");
+    expect(row).toHaveTextContent("Team Lead @ AcmeCo");
+    expect(row).toHaveTextContent("Engineering Team Lead @ AcmeCo");
+    expect(screen.getByTestId("what-changed-oldvalue")).toBeInTheDocument();
+  });
 });

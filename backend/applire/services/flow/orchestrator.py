@@ -258,6 +258,34 @@ async def advance_flow(
     return await _build_state_response(flow, db, base_url)
 
 
+async def advance_flow_on_interview_complete(
+    interview_session_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
+    """Advance the owning flow off the 'interview' step when its interview completes.
+
+    Called when an InterviewSession reaches status='complete' (user ended, gaps
+    resolved). Without this the flow's current_step stays at 'interview' and
+    resuming from the dashboard re-opens the interview with a fresh session
+    (issue #68). No-op when no flow owns the session (e.g. Mode C profile-enrich)
+    or the flow is not on the interview step. advance_flow is idempotent, so a
+    later 'Generate CV' re-advance to cv_generation is harmless.
+    """
+    result = await db.execute(
+        select(FlowSession).where(
+            FlowSession.interview_session_id == interview_session_id
+        )
+    )
+    flow = result.scalar_one_or_none()
+    if flow is None or flow.current_step != "interview":
+        return
+    await advance_flow(
+        flow.id,
+        AdvanceFlowRequest(step="cv_generation"),
+        db,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------

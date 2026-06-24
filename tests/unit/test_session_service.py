@@ -1541,3 +1541,74 @@ class TestHealthRouter:
         assert data["status"] == "ok"
         assert data["edition"] in ("community", "cloud")
         assert "version" in data
+
+
+# ===========================================================================
+# Part 11: _complete_session advances the owning flow (issue #68)
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_complete_session_advances_owning_flow(sqlite_session):
+    """_complete_session must call advance_flow_on_interview_complete so that
+    the flow moves off the 'interview' step and resuming from the dashboard no
+    longer re-opens a finished interview (bug #68)."""
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.services.session import _complete_session
+
+    job = _make_job()
+    sqlite_session.add(job)
+    profile = _make_profile()
+    sqlite_session.add(profile)
+    await sqlite_session.flush()
+
+    record = _make_active_session(job.id, profile.id)
+    sqlite_session.add(record)
+    await sqlite_session.commit()
+    await sqlite_session.refresh(record)
+
+    state = dict(record.state)
+
+    # Patch at the definition site: _complete_session imports the symbol lazily
+    # at call time, so the name resolves from the orchestrator module.
+    with patch(
+        "applire.services.flow.orchestrator.advance_flow_on_interview_complete",
+        new_callable=AsyncMock,
+    ) as mock_advance:
+        await _complete_session(record, state, sqlite_session, reason="user_ended")
+
+    assert record.status == "complete"
+    mock_advance.assert_awaited_once_with(record.id, sqlite_session)
+
+
+@pytest.mark.asyncio
+async def test_complete_session_survives_flow_advance_failure(sqlite_session):
+    """A failure in advance_flow_on_interview_complete (which runs AFTER the
+    interview is already committed complete) must not propagate and 500 the
+    completion request — advancing the flow is a best-effort, recoverable
+    convenience (the Generate-CV button re-advances idempotently)."""
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.services.session import _complete_session
+
+    job = _make_job()
+    sqlite_session.add(job)
+    profile = _make_profile()
+    sqlite_session.add(profile)
+    await sqlite_session.flush()
+
+    record = _make_active_session(job.id, profile.id)
+    sqlite_session.add(record)
+    await sqlite_session.commit()
+    await sqlite_session.refresh(record)
+
+    state = dict(record.state)
+
+    with patch(
+        "applire.services.flow.orchestrator.advance_flow_on_interview_complete",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        # Must not raise — flow advance is best-effort.
+        await _complete_session(record, state, sqlite_session, reason="user_ended")
+
+    assert record.status == "complete"

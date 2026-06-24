@@ -92,3 +92,21 @@ export async function getProfileChanges(): Promise<ProfileChanges> {
     ),
   };
 }
+
+const IMPORT_SOURCES = new Set(["cv_upload", "cv_paste", "linkedin_import", "xing_import"]);
+
+/**
+ * True when an actual merge happened (a second import combined into existing data):
+ * an import-source change with action "merged"/"updated", or a pending conflict.
+ * A first single-CV import yields only "added" changes → false (#67).
+ * Manual edits (source: "manual_edit") do NOT count as a merge (#67).
+ */
+export function hasMergeReview(trail: ProfileChanges): boolean {
+  const records = trail.enrichmentHistory ?? [];
+  const mergeChanges = records
+    .filter((r) => IMPORT_SOURCES.has(r.source))
+    .flatMap((r) => r.changes ?? [])
+    .filter((c) => c.action === "merged" || c.action === "updated");
+  const conflicts = trail.pendingConflicts ?? [];
+  return mergeChanges.length > 0 || conflicts.length > 0;
+}

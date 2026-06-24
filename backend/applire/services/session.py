@@ -32,6 +32,7 @@ GET /api/session/{id}:
     load session → return SessionStateResponse for agent recovery / pause-resume
 """
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -80,6 +81,8 @@ from applire.services.interview_graph import (
     question_generator_with_profile,
     response_parser,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1179,6 +1182,24 @@ async def _complete_session(
     record.status = "complete"
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    # Issue #68: completing the interview must move the flow off the 'interview'
+    # step, else resuming from the dashboard re-opens it with a fresh session.
+    # Lazy import to avoid a session<->flow import cycle (mirrors the lazy-import
+    # pattern in flow.orchestrator.advance_flow). Best-effort: the interview is
+    # already committed complete above; advancing the flow is a recoverable
+    # convenience (the Generate-CV button re-advances idempotently), so a failure
+    # here must not break the completion response.
+    from applire.services.flow.orchestrator import advance_flow_on_interview_complete
+    try:
+        await advance_flow_on_interview_complete(record.id, db)
+    except Exception:
+        logger.warning(
+            "Flow advance after interview completion failed for session %s; "
+            "flow left on 'interview' step (recoverable via Generate CV)",
+            record.id,
+            exc_info=True,
+        )
 
     completeness = 0.0
     if profile_record is not None:
