@@ -40,6 +40,7 @@ System prompt fingerprints:
 """
 
 import json
+import re
 from typing import Any
 
 from applire.providers.llm.base import LLMProvider
@@ -385,20 +386,10 @@ class MockLLMProvider(LLMProvider):
         # reflects realistic role differentiation rather than blanket all-three.
         if "experience field analyst" in system_lower:
             p = prompt.lower()
-            mgmt = any(
-                k in p
-                for k in (
-                    "lead",
-                    "head",
-                    "manager",
-                    "director",
-                    "leiter",
-                    "geschäftsführer",
-                    "vp",
-                    "chief",
-                    "prokurist",
-                )
-            )
+            mgmt = bool(re.search(
+                r"\b(lead|head|manager|director|leiter|geschäftsführer|vp|chief|prokurist)\b",
+                p,
+            ))
             return {
                 "expected": (
                     ["team_size", "budget_managed", "industry_context"] if mgmt else []

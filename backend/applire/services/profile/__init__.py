@@ -74,6 +74,7 @@ from applire.schemas.profile import (
     ProfileMetadata,
     StagedResolveResponse,
 )
+from applire.services.profile.expectations import annotate_expected_fields
 from applire.services.profile.health import assess_health
 
 _DEFAULT_EMBEDDING_PROVIDER = NoopEmbeddingProvider()
@@ -306,6 +307,11 @@ async def _import_from_text(
         generator_max_tokens=8192,
         chain_id="profile_extraction",
     )
+    # US179 / ADR-041: annotate role-aware expected fields at write time so the
+    # stored completeness score and the enrichment gaps derive from one source.
+    # Best-effort: annotate_expected_fields never raises (provider errors leave
+    # entries unannotated → scorer's lean floor fallback).
+    await annotate_expected_fields(data, provider)
     incoming = MasterProfileData.model_validate(data)
     incoming = await enrich_skills(incoming, provider)
     now = datetime.now(timezone.utc)

@@ -31,14 +31,19 @@ annotate_expected_fields(profile, provider) → profile
 
 from __future__ import annotations
 
+import logging
+
 from applire.prompts.profile_field_expectations import (
     FIELD_EXPECTATIONS_SYSTEM_PROMPT,
     build_field_expectations_prompt,
 )
+from applire.providers.llm.base import LLMProvider
 from applire.services.profile.completeness import CONDITIONAL_FIELDS
 
+logger = logging.getLogger(__name__)
 
-async def annotate_expected_fields(profile: dict, provider: object) -> dict:
+
+async def annotate_expected_fields(profile: dict, provider: LLMProvider) -> dict:
     """Mutate & return ``profile``: annotate un-analysed work_experience entries.
 
     For each entry whose ``expected_fields`` is ``None`` (or absent — meaning it
@@ -73,6 +78,10 @@ async def annotate_expected_fields(profile: dict, provider: object) -> dict:
             picked = data.get("expected") if isinstance(data, dict) else None
             entry["expected_fields"] = [f for f in (picked or []) if f in _cond_set]
         except Exception:
+            logger.warning(
+                "annotate_expected_fields: provider error for role %r; leaving expected_fields=None",
+                entry.get("role"), exc_info=True,
+            )
             entry["expected_fields"] = None
 
     return profile
