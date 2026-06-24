@@ -111,6 +111,76 @@ def _merge_str_lists(a: list[str], b: list[str]) -> list[str]:
     return result
 
 
+def _normalize_bullet(text: str) -> str:
+    """Normalise a bullet for near-duplicate comparison (N2).
+
+    Lowercase, strip punctuation, and collapse whitespace so that cosmetic-only
+    differences (trailing period, "800ms" vs "800 ms", double spaces) compare
+    equal. Deterministic; no LLM.
+    """
+    import re
+
+    lowered = text.lower()
+    # Drop punctuation entirely so "800ms." and "800 ms" normalise identically.
+    stripped = re.sub(r"[^\w\s]", " ", lowered)
+    # Split digit/letter boundaries so "800ms" and "800 ms" (number + unit)
+    # normalise the same regardless of the original spacing.
+    stripped = re.sub(r"(?<=\d)(?=[a-z])", " ", stripped)
+    stripped = re.sub(r"(?<=[a-z])(?=\d)", " ", stripped)
+    # Collapse all whitespace runs to a single space.
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def _merge_bullet_lists(a: list[str], b: list[str]) -> list[str]:
+    """Union of two *bullet* lists with conservative near-duplicate collapse (N2).
+
+    Combining a role's bullets across two documents otherwise stacked several
+    phrasings of the same achievement (e.g. "Led the redesign of the order-routing
+    service" and "Led the redesign of the order-routing service, cutting median
+    dispatch latency from 800ms to 210ms."). Beyond the case-insensitive *exact*
+    dedup of `_merge_str_lists`, this also:
+
+    - drops a bullet that is exact-after-normalisation equal to one already kept
+      (whitespace/case/punctuation-only differences), and
+    - drops a bullet whose normalised text is fully contained in another bullet's
+      normalised text, keeping the longer (more complete) phrasing.
+
+    Conservative by construction: only strict containment / normalised equality
+    collapses bullets, so two genuinely distinct achievements are always kept.
+    Original (non-normalised) text is preserved for the bullets that survive.
+    """
+    kept: list[str] = []
+    kept_norms: list[str] = []
+    for candidate in list(a) + list(b):
+        cand_norm = _normalize_bullet(candidate)
+        if not cand_norm:
+            # No comparable content (punctuation/whitespace only) — keep as-is,
+            # but still guard against exact repeats of the raw string.
+            if candidate not in kept:
+                kept.append(candidate)
+                kept_norms.append(cand_norm)
+            continue
+
+        redundant = False
+        for i, existing_norm in enumerate(kept_norms):
+            if not existing_norm:
+                continue
+            if cand_norm == existing_norm or cand_norm in existing_norm:
+                # Candidate adds nothing the kept bullet doesn't already say.
+                redundant = True
+                break
+            if existing_norm in cand_norm:
+                # Candidate is the fuller phrasing — replace the shorter kept one.
+                kept[i] = candidate
+                kept_norms[i] = cand_norm
+                redundant = True
+                break
+        if not redundant:
+            kept.append(candidate)
+            kept_norms.append(cand_norm)
+    return kept
+
+
 _LEGAL_SUFFIXES = frozenset({
     "gmbh", "se", "ag", "ggmbh", "kg", "kgaa", "ohg", "gbr",
     "inc", "ltd", "llc", "corp", "plc", "bv", "nv", "sa",
@@ -375,10 +445,14 @@ def _merge_work_experience(
                     new_aliases.append(title)
             merged = merged.model_copy(update={"role_aliases": new_aliases})
 
-            # Accumulate list fields
+            # Accumulate list fields. Bullets (responsibilities/achievements) get
+            # near-duplicate collapse (N2) so two documents don't stack three
+            # phrasings of the same achievement; technologies are short tokens
+            # where containment would wrongly drop (e.g. "Java" ⊂ "JavaScript"),
+            # so they keep the exact-equality union.
             merged = merged.model_copy(update={
-                "responsibilities": _merge_str_lists(merged.responsibilities, inc.responsibilities),
-                "achievements": _merge_str_lists(merged.achievements, inc.achievements),
+                "responsibilities": _merge_bullet_lists(merged.responsibilities, inc.responsibilities),
+                "achievements": _merge_bullet_lists(merged.achievements, inc.achievements),
                 "technologies": _merge_str_lists(merged.technologies, inc.technologies),
             })
 
