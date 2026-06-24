@@ -107,7 +107,7 @@ def build_question_prompt(
             "skills": profile.get("skills", []),
             "work_history": [
                 {"company": e.get("company"), "role": e.get("role")}
-                for e in profile.get("work_history", [])
+                for e in profile.get("work_experience", [])
             ],
         },
         ensure_ascii=False,
@@ -309,7 +309,7 @@ def build_follow_up_question_prompt(
             "skills": profile.get("skills", []),
             "work_history": [
                 {"company": e.get("company"), "role": e.get("role")}
-                for e in profile.get("work_history", [])
+                for e in profile.get("work_experience", [])
             ],
         },
         ensure_ascii=False,
