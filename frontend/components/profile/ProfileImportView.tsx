@@ -178,6 +178,12 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     if (!stateRes.ok) throw new Error(t("flowNotFound"));
     const { job_id } = await stateRes.json();
 
+    // N1: the common first-timer path is an in-flow import WITHOUT a JD. With no
+    // job_id, gap analysis isn't applicable — calling /api/job/null/gaps 422s and
+    // surfaces a spurious "Invalid input" warning. Skip the gap auto-advance and
+    // let the user review what changed (same hand-off as the standalone path).
+    if (!job_id) return;
+
     const gapRes = await fetch(`${API_BASE}/api/job/${job_id}/gaps`, { method: "POST" });
     if (!gapRes.ok) {
       const msg = await readApiError(gapRes);
@@ -303,19 +309,21 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                   ? t("successWithScore", { score: Math.round(completenessScore * 100) })
                   : t("successNoScore")}
               </span>
-              {/* F3 (#72): clear post-merge hand-off into the merge review. */}
-              {!flowId && (
-                <button
-                  type="button"
-                  data-testid="review-merge-cta"
-                  onClick={goToReview}
-                  className="ml-auto inline-flex items-center gap-1 text-[12px] font-bold text-[#166534] px-3 py-1.5 rounded-full border border-[#16a34a]/40 hover:bg-[#16a34a]/10 transition-colors"
-                >
-                  {t("reviewCta")}
-                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
-                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                </button>
-              )}
+              {/* F3 (#72): clear post-merge hand-off into the merge review.
+                  N1: show whenever there's a merge to review — not only on the
+                  standalone path. The in-flow path with a JD redirects to /gaps
+                  before this renders, so this CTA only surfaces when there is no
+                  onward gap step (standalone, or in-flow without a JD). */}
+              <button
+                type="button"
+                data-testid="review-merge-cta"
+                onClick={goToReview}
+                className="ml-auto inline-flex items-center gap-1 text-[12px] font-bold text-[#166534] px-3 py-1.5 rounded-full border border-[#16a34a]/40 hover:bg-[#16a34a]/10 transition-colors"
+              >
+                {t("reviewCta")}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              </button>
             </div>
           )}
 
