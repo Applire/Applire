@@ -178,11 +178,78 @@ def _company_names_match_exact(a: str, b: str) -> bool:
     return a.strip().lower() == b.strip().lower()
 
 
+# Title tokens that carry no role identity — seniority/qualifier words and
+# articles/conjunctions. Two titles that differ ONLY by these are the same role
+# phrased with more/less precision (e.g. "QA" vs "Senior QA"); a title that
+# differs by a *substantive* token is a different role (a promotion is a
+# different title, e.g. "Senior Software Engineer" vs "Engineering Lead").
+_TITLE_NOISE = frozenset({
+    "senior", "junior", "lead", "principal", "staff", "chief", "head",
+    "deputy", "associate", "assistant", "intern", "trainee", "working",
+    "student", "freelance", "freelancer", "contract", "contractor",
+    "sr", "jr", "i", "ii", "iii", "iv",
+    "sen/", "and", "of", "the", "for", "&", "co", "at",
+    # German seniority/qualifier words
+    "leitender", "leitende", "leitung", "stellv", "stellvertretender",
+    "stellvertretende", "praktikant", "praktikantin", "werkstudent",
+    "werkstudentin", "geschaeftsfuehrender", "und", "der", "die", "das",
+    "von", "im", "am",
+})
+
+
+def _title_tokens(role: str) -> frozenset[str]:
+    """Significant, identity-bearing tokens of a job title.
+
+    Lowercased, punctuation-stripped, with seniority/qualifier noise and
+    short stopwords removed so that "Senior Software Engineer" reduces to
+    {software, engineer} and "QA" to {qa} — distinct titles surface distinct
+    token sets, while a seniority-only refinement collapses to the same set.
+    """
+    tokens: list[str] = []
+    for raw in role.lower().split():
+        tok = raw.strip(".,-()/&")
+        if not tok or tok in _TITLE_NOISE:
+            continue
+        if len(tok) < 2:
+            continue
+        tokens.append(tok)
+    return frozenset(tokens)
+
+
+def _roles_are_same(a: str, b: str) -> bool:
+    """Whether two titles denote the *same* role (vs a promotion / different job).
+
+    Same role when titles are identical, or when one title's significant-token
+    set is a subset of the other's — i.e. they differ only by seniority/qualifier
+    words ("QA" ⊆ "Senior QA"). A *promotion* changes a substantive token
+    ("Engineering Lead" vs "Software Engineer"), yielding disjoint/divergent
+    token sets → different roles, keep both.
+
+    Empty titles carry no identity, so an empty title is never treated as a
+    *different* role on its own (returns True — defer to the date/company gate),
+    preserving the existing "title-less shell" and fuzzy-merge behaviour.
+    """
+    a_l = a.strip().lower()
+    b_l = b.strip().lower()
+    if a_l == b_l:
+        return True
+    ta = _title_tokens(a)
+    tb = _title_tokens(b)
+    if not ta or not tb:
+        # One side has no identity-bearing tokens — don't let that *force* a
+        # split. Fall back to the company+date gate (preserves same-role
+        # re-imports like "QA" vs "Senior QA" where "QA" alone reduces to {qa}).
+        return True
+    return ta <= tb or tb <= ta
+
+
 # Public aliases — shared with the interview enrichment path
 # (services/interview_graph.profile_updater), which must apply the same
-# employer-identity and date-overlap semantics as the CV-upload merge.
+# employer-identity, role-identity, and date-overlap semantics as the
+# CV-upload merge (so a promotion isn't collapsed there either — issue #71).
 company_names_match = _company_names_match
 dates_overlap = _dates_overlap
+roles_are_same = _roles_are_same
 
 
 def _sort_work_by_date(entries: list[WorkEntry]) -> list[WorkEntry]:
@@ -233,9 +300,13 @@ def _merge_work_experience(
             and not inc.responsibilities
             and not inc.achievements
         ):
-            # Attempt to attach the title as a role_alias on a same-company entry
+            # Attempt to attach the title as a role_alias on a same-company entry.
+            # Only when it's the SAME role (a seniority refinement) — a distinct
+            # title at the same employer is a separate position (a promotion), so
+            # fall through and append it as its own entry (issue #71 / F2).
+            attached = False
             for idx, ex in enumerate(result):
-                if _company_names_match(ex.company, inc.company):
+                if _company_names_match(ex.company, inc.company) and _roles_are_same(ex.role, inc.role):
                     new_aliases = list(result[idx].role_aliases)
                     for title in [inc.role] + inc.role_aliases:
                         if title.strip().lower() not in {t.lower() for t in new_aliases + [result[idx].role]}:
@@ -249,7 +320,23 @@ def _merge_work_experience(
                                   f"role, so we added it as an alias rather than a separate position.",
                         rationale_key="role_alias_added",
                     ))
+                    attached = True
                     break
+            if attached:
+                continue
+            # A title-only entry that didn't match an existing same-role position
+            # is still real data (e.g. a distinct title at the same employer, or a
+            # role at a new employer). Preserve it as its own position rather than
+            # dropping it (issue #71 — never collapse/lose a role).
+            if inc.role.strip():
+                result.append(inc)
+                added.append(f"work_experience: {inc.role} at {inc.company}")
+                changes.append(FieldChange(
+                    section="work_experience", field="work_experience", action="added",
+                    new_value=f"{inc.role} at {inc.company}",
+                    rationale="New position added from this source.",
+                    rationale_key="new_position",
+                ))
             continue
 
         matched = False
@@ -268,7 +355,16 @@ def _merge_work_experience(
             if not _dates_overlap(ex.start_date, ex.end_date, inc.start_date, inc.end_date):
                 continue
 
-            # Same company + overlapping dates → same position, different facets
+            # Promotion guard (issue #71 / JF-M-F2): same employer + overlapping
+            # dates is NOT enough — a promotion shares both ("Senior Software
+            # Engineer" 2020→present and "Engineering Lead" 2023→present at one
+            # company). Only fuse when the titles denote the *same* role (identical,
+            # or differing only by seniority/qualifier words). A substantively
+            # different title is a separate role: preserve both, never collapse.
+            if not _roles_are_same(ex.role, inc.role):
+                continue
+
+            # Same company + overlapping dates + same role → same position, facets
             matched = True
             merged = ex.model_copy(deep=True)
 
