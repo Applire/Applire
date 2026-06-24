@@ -90,10 +90,20 @@ class ExperienceBase(BaseModel):
     achievements: list[str] = Field(default_factory=list)
     technologies: list[str] = Field(default_factory=list)
 
+    # ADR-041 (amended 2026-06-24): role-aware completeness. LLM-judged at write
+    # time (services/profile/expectations.py); None = never annotated → scorer
+    # falls back to the floor (under-ask). Stores only the role-conditional fields.
+    expected_fields: list[str] | None = None
+
     @field_validator("responsibilities", "achievements", "technologies", mode="before")
     @classmethod
     def coerce_experience_list_fields(cls, v: object) -> list:
         return v if isinstance(v, list) else []
+
+    @field_validator("expected_fields", mode="before")
+    @classmethod
+    def coerce_expected_fields(cls, v: object) -> object:
+        return v if (v is None or isinstance(v, list)) else None
 
     def org_label(self) -> str:
         """Human label for the engagement's "where" — subclasses override."""
