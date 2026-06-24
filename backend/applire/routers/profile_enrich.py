@@ -79,6 +79,50 @@ async def _load_profile(db: AsyncSession) -> MasterProfile:
     return record
 
 
+async def _active_enrich_session(
+    profile_id: uuid.UUID, db: AsyncSession
+) -> InterviewSession | None:
+    """The in-flight Mode-C enrichment session for this profile, if any.
+
+    Mode-C sessions are job-less (``job_analysis_id IS NULL``) so the partial
+    unique index ``uq_*_active_per_job`` does not cover them — uniqueness is
+    enforced here instead. At most one ``profile_enrich`` session per profile may
+    be ``active`` at a time; a re-launch must resume it rather than mint a
+    duplicate (issue #74 / finding F6)."""
+    result = await db.execute(
+        select(InterviewSession)
+        .where(
+            InterviewSession.profile_id == profile_id,
+            InterviewSession.job_analysis_id.is_(None),
+            InterviewSession.mode == _ENRICH_MODE,
+            InterviewSession.status == "active",
+            InterviewSession.deleted_at.is_(None),
+        )
+        .order_by(InterviewSession.created_at.desc())
+    )
+    return result.scalars().first()
+
+
+def _resume_response(session: InterviewSession) -> EnrichStartResponse:
+    """Re-render the launch payload for an already in-flight enrich session,
+    reflecting its current question and gap progress (resume, not restart)."""
+    state: dict = dict(session.state)
+    all_gaps: list[str] = state.get("critical_gaps", [])
+    gap_items = _build_gap_items(
+        all_gaps,
+        state.get("current_gap_index", 0),
+        state.get("addressed_gaps", []),
+        state.get("na_gaps", []),
+        state.get("skipped_gaps", []),
+    )
+    return EnrichStartResponse(
+        session_id=session.id,
+        first_question=state.get("current_question", ""),
+        gaps=gap_items,
+        estimated_questions=len(all_gaps),
+    )
+
+
 async def _load_session(session_id: uuid.UUID, db: AsyncSession) -> InterviewSession:
     result = await db.execute(
         select(InterviewSession).where(
@@ -169,10 +213,18 @@ async def start_enrich_session(
     Scans the master profile for completeness gaps and starts an interactive
     interview to fill them. No job description required.
 
+    Resume-safe: if an enrichment session is already in flight for this profile,
+    that session is resumed (its current question + gap progress returned) rather
+    than minting a duplicate (issue #74 / finding F6).
+
     Returns the first question, gap list, and session ID.
     """
     profile_record = await _load_profile(db)
     profile_data: dict = profile_record.profile_json or {}
+
+    existing = await _active_enrich_session(profile_record.id, db)
+    if existing is not None:
+        return _resume_response(existing)
 
     gaps = gap_detector_mode_c(profile_data, scope=body.scope)
     if not gaps:
