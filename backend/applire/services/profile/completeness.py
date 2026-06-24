@@ -30,7 +30,7 @@ expected_fields_for   Merge floor + role-annotated fields for one entry.
 field_present         Single-field presence check (field-type aware).
 entry_expected_present (present, expected) counts for one entry.
 work_experience_richness  Mean present/expected across all entries.
-field_gaps            Ordered gap strings; parity with gap_detector_mode_c.
+field_gaps            Ordered gap strings; semantic superset of gap_detector_mode_c.
 """
 
 from __future__ import annotations
@@ -117,6 +117,7 @@ def field_present(entry: dict, field: str) -> bool:
     if field == "team_size":
         return value is not None  # 0 is a valid team size
     # budget_managed, industry_context, start_date, end_date
+    # stricter than the old 'is None': an empty string counts as missing
     return bool(value)
 
 
@@ -183,7 +184,8 @@ def _entry_label(entry: dict) -> str:
 def field_gaps(profile: dict, scope: str | None = None) -> list[str]:
     """Return ordered gap strings for the profile, role-aware.
 
-    Behaviour parity with ``gap_detector_mode_c`` (``interview_graph.py``):
+    This function is a **semantic superset** of ``gap_detector_mode_c``
+    (``interview_graph.py``).  Preserved parity points:
 
     * Entry label: ``f"{role} @ {company}".strip(" @")``
     * Scope filter: ``"work_experience:<company>:<role>"`` — case-insensitive.
@@ -191,10 +193,12 @@ def field_gaps(profile: dict, scope: str | None = None) -> list[str]:
     * ``professional_summary`` tail: emitted only when ``scope is None`` and
       ``work_experience`` is non-empty (exact gap-string: ``"professional_summary"``).
 
-    Differences from the old scanner:
-    * Per-entry fields considered are now ROLE-AWARE via ``expected_fields_for``.
-    * Emission order follows ``_EMISSION_ORDER`` (achievements first, then
-      conditional fields in priority order, then floor date fields).
+    Additions beyond the old detector:
+    * ``start_date`` / ``end_date`` **floor-field gaps** are now emitted (the
+      old detector never checked these fields).
+    * ``team_size`` / ``budget_managed`` / ``industry_context`` gaps are
+      **role-aware**: they are only emitted when the entry's annotation
+      (``expected_fields``) requests them, suppressing noise for IC entries.
     """
     na_fields: set[str] = set(
         (profile.get("_meta") or {}).get("na_fields", [])
@@ -203,18 +207,18 @@ def field_gaps(profile: dict, scope: str | None = None) -> list[str]:
     work_experience: list[dict] = profile.get("work_experience") or []
 
     for entry in work_experience:
-        company = (entry.get("company") or "").strip()
-        role = (entry.get("role") or entry.get("title") or "").strip()
-        label = f"{role} @ {company}".strip(" @")
+        label = _entry_label(entry)
 
         # Scope filter — mirrors gap_detector_mode_c exactly
         if scope:
             parts = scope.split(":", 2)
             if len(parts) == 3:
                 scope_company, scope_role = parts[1].strip(), parts[2].strip()
+                entry_company = (entry.get("company") or "").strip()
+                entry_role = (entry.get("role") or entry.get("title") or "").strip()
                 if (
-                    company.lower() != scope_company.lower()
-                    or role.lower() != scope_role.lower()
+                    entry_company.lower() != scope_company.lower()
+                    or entry_role.lower() != scope_role.lower()
                 ):
                     continue
 

@@ -80,3 +80,21 @@ def test_professional_summary_tail_when_no_scope():
     # match gap_detector_mode_c: professional_summary appended when scope None and work exists
     gaps = C.field_gaps({"work_experience": [IC]})
     assert "professional_summary" in gaps[-1]
+
+
+def test_richness_averages_across_entries():
+    full = {"role": "Lead", "company": "A", "expected_fields": [],
+            "start_date": "2020", "end_date": "2021", "achievements": ["x"]}
+    empty = {"role": "Dev", "company": "B", "expected_fields": [],
+             "start_date": None, "end_date": None, "achievements": []}
+    from applire.services.profile import completeness as C
+    assert C.work_experience_richness([full, empty]) == 0.5
+
+
+def test_score_and_gaps_share_expected_set():
+    # the invariant: a field that is NOT expected neither docks richness nor appears as a gap
+    from applire.services.profile import completeness as C
+    ic = {"role": "Junior Dev", "company": "A", "expected_fields": [],
+          "start_date": "2020", "end_date": "2021", "achievements": ["x"]}
+    assert C.work_experience_richness([ic]) == 1.0           # budget/team not expected → full
+    assert not [g for g in C.field_gaps({"work_experience": [ic]}) if "@ A" in g]
