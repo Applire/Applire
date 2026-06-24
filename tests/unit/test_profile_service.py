@@ -326,17 +326,39 @@ class TestMergeWorkExperience:
         merged, added, conflicts, _changes = _merge_work_experience(existing, incoming, source)
         return merged, added, conflicts
 
-    def test_same_company_same_period_accumulates_into_one_entry(self):
-        existing = [_work_entry(company="Acme", start_date="2020-01", end_date="2022-12")]
-        incoming = [_work_entry(company="Acme", role="Senior Dev", start_date="2020-01", end_date="2022-12")]
+    def test_same_role_same_period_accumulates_into_one_entry(self):
+        # Same role re-imported (identical title, same period) accumulates into
+        # one entry — the genuine same-position case still merges (#71 companion).
+        existing = [_work_entry(company="Acme", role="Software Developer",
+                                start_date="2020-01", end_date="2022-12")]
+        incoming = [_work_entry(company="Acme", role="Software Developer",
+                                start_date="2020-01", end_date="2022-12")]
         result, added, conflicts = self._merge(existing, incoming)
         assert len(result) == 1  # no duplicate
 
-    def test_different_role_title_becomes_alias(self):
+    def test_seniority_refinement_same_period_merges_with_alias(self):
+        # A pure seniority refinement of the SAME role ("Developer" ⊆ "Senior
+        # Developer") with the same dates is one position, not a promotion.
+        existing = [_work_entry(company="Acme", role="Developer",
+                                start_date="2020-01", end_date="2022-12")]
+        incoming = [_work_entry(company="Acme", role="Senior Developer",
+                                start_date="2020-01", end_date="2022-12")]
+        result, _, _ = self._merge(existing, incoming)
+        assert len(result) == 1
+        aliases = {a.lower() for a in result[0].role_aliases} | {result[0].role.lower()}
+        assert "senior developer" in aliases
+
+    def test_distinct_role_titles_same_period_stay_separate(self):
+        # #71 / F2: two clearly distinct titles at one employer over the same
+        # period are different roles (e.g. a parallel/secondary position or a
+        # promotion) — preserve BOTH; do NOT demote one to a role_alias.
         existing = [_work_entry(company="Acme", role="Team Lead", start_date="2020-01", end_date="2022-12")]
         incoming = [_work_entry(company="Acme", role="2nd Level Support", start_date="2020-01", end_date="2022-12")]
         result, _, _ = self._merge(existing, incoming)
-        assert "2nd Level Support" in result[0].role_aliases
+        roles = {r.role for r in result}
+        assert len(result) == 2
+        assert "Team Lead" in roles
+        assert "2nd Level Support" in roles
 
     def test_existing_role_not_added_to_aliases(self):
         existing = [_work_entry(company="Acme", role="Team Lead", start_date="2020-01")]
@@ -463,20 +485,37 @@ class TestMergeWorkExperience:
         result, _, _ = self._merge(existing, incoming)
         assert len(result) == 1  # shell entry discarded
 
-    def test_shell_entry_with_company_but_no_dates_or_content_becomes_alias(self):
-        existing = [_work_entry(company="Acme", role="System Engineer", start_date="2018-10")]
-        incoming = [_work_entry(company="Acme", role="Solution Architect", start_date=None)]
+    def test_title_only_same_role_at_company_becomes_alias(self):
+        # A title-only entry that is a seniority refinement of an existing role
+        # at the same company is folded in as an alias ("Engineer" ⊆ "Senior
+        # Engineer") — same position, not a separate one.
+        existing = [_work_entry(company="Acme", role="Engineer", start_date="2018-10")]
+        incoming = [_work_entry(company="Acme", role="Senior Engineer", start_date=None)]
         result, added, _ = self._merge(existing, incoming)
         assert len(result) == 1
-        assert "Solution Architect" in result[0].role_aliases
+        assert "Senior Engineer" in result[0].role_aliases
         assert any("role_alias" in a for a in added)
 
-    def test_shell_entry_with_unknown_company_is_discarded(self):
+    def test_title_only_distinct_role_at_company_kept_as_position(self):
+        # #71 / F2: a title-only entry with a DISTINCT title at the same employer
+        # is a real, separate position — preserve it, never demote to an alias.
+        existing = [_work_entry(company="Acme", role="System Engineer", start_date="2018-10")]
+        incoming = [_work_entry(company="Acme", role="Solution Architect", start_date=None)]
+        result, _, _ = self._merge(existing, incoming)
+        roles = {r.role for r in result}
+        assert len(result) == 2
+        assert "System Engineer" in roles
+        assert "Solution Architect" in roles
+
+    def test_title_only_unknown_company_kept_as_position(self):
+        # #71: a real title at a new employer is real data — preserve it as its
+        # own position rather than silently discarding it (never lose a role).
         existing = [_work_entry(company="Acme", start_date="2020-01")]
         incoming = [_work_entry(company="Unknown Corp", role="Ghost", start_date=None)]
         result, _, _ = self._merge(existing, incoming)
-        # Unknown Corp has no matching existing entry — shell is discarded entirely
-        assert len(result) == 1
+        roles = {r.role for r in result}
+        assert len(result) == 2
+        assert "Ghost" in roles
 
     # -- Fuzzy company matching --
 
