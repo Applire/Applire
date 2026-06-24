@@ -50,7 +50,12 @@ export function AppSidebar({ userName }: AppSidebarProps) {
     : "";
 
   return (
-    <aside className="w-60 min-w-[240px] bg-white border-r border-gray-200 flex flex-col h-full">
+    // F9.1 (#76): keep the primary nav above slide-over drawers (z-50) so an open
+    // enrichment/review panel never traps navigation — the sidebar stays clickable.
+    <aside
+      data-testid="app-sidebar"
+      className="relative z-[60] w-60 min-w-[240px] bg-white border-r border-gray-200 flex flex-col h-full"
+    >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-[18px] border-b border-gray-100">
         <img

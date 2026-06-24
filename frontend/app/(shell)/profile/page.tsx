@@ -29,6 +29,13 @@ import { PhotoManager } from "@/components/profile/PhotoManager";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth } from "@/components/profile/HealthPanel";
+import {
+  ProfileSectionBody,
+  resolveSummary,
+  type SummaryValue,
+  type UiLanguage,
+} from "@/components/profile/ProfileSectionCard";
+import { useLocale } from "@/lib/providers/locale-provider";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -79,7 +86,8 @@ interface ProfileResponse {
   id: string;
   profile: {
     personal_info?: ProfileSection;
-    professional_summary?: string;
+    // {de, en} localized pair (legacy records may carry a plain string).
+    professional_summary?: SummaryValue;
     work_experience?: ProfileSection["work_experience"];
     education?: ProfileSection["education"];
     skills?: ProfileSection["skills"];
@@ -135,17 +143,23 @@ function countWorkEntryGaps(entry: {
   return count;
 }
 
-function hasProfileGaps(profile: {
-  work_experience?: Array<{
-    description?: string | null;
-    title?: string | null;
-    company?: string | null;
-  }> | null;
-  professional_summary?: string | null;
-}): boolean {
+// F9.2 — a summary is "missing" only when NO language has one. A profile with an
+// English summary but no German one is NOT incomplete; the missing-language nuance
+// is surfaced inline by ProfileSectionBody, not as a whole-section gap.
+function hasProfileGaps(
+  profile: {
+    work_experience?: Array<{
+      description?: string | null;
+      title?: string | null;
+      company?: string | null;
+    }> | null;
+    professional_summary?: SummaryValue;
+  },
+  uiLanguage: UiLanguage,
+): boolean {
   const work = profile.work_experience ?? [];
   if (work.some((e) => countWorkEntryGaps(e) > 0)) return true;
-  if (!profile.professional_summary) return true;
+  if (resolveSummary(profile.professional_summary, uiLanguage).missing) return true;
   return false;
 }
 
@@ -153,6 +167,8 @@ export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
   const tCommon = useTranslations("common");
+  const { locale } = useLocale();
+  const uiLanguage: UiLanguage = locale === "de" ? "de" : "en";
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [health, setHealth] = useState<ProfileHealth | null>(null);
@@ -330,7 +346,7 @@ export default function ProfilePage() {
           {/* Completeness banner */}
           {profile && (
             <div className={`rounded-lg border p-4 mb-6 ${
-              hasProfileGaps(profile.profile)
+              hasProfileGaps(profile.profile, uiLanguage)
                 ? "border-amber-500/30 bg-amber-500/5"
                 : "border-green-500/30 bg-green-500/5"
             }`}>
@@ -338,7 +354,7 @@ export default function ProfilePage() {
                 <span className="text-sm font-medium">
                   {t("completenessLabel", { pct: Math.round((profile.completeness ?? 0) * 100) })}
                 </span>
-                {hasProfileGaps(profile.profile) && (
+                {hasProfileGaps(profile.profile, uiLanguage) && (
                   <Button size="sm" variant="outline" onClick={openEnrichForAll}>
                     {t("enrichProfile")}
                   </Button>
@@ -365,7 +381,6 @@ export default function ProfilePage() {
           {(Object.keys(SECTION_LABEL_KEYS) as SectionKey[]).map((section) => {
             const isEditing = editingSection === section;
             const value = profile?.profile[section];
-            const hasValue = value !== undefined && value !== null && value !== "";
 
             return (
               <Card key={section} className="p-4">
@@ -405,47 +420,50 @@ export default function ProfilePage() {
                   </div>
                 ) : (
                   <div className="text-sm text-gray-700">
-                    {hasValue ? (
-                      section === "work_experience" && Array.isArray(value) ? (
-                        <div className="space-y-3">
-                          {(value as Array<Record<string, unknown>>).map((entry, idx) => {
+                    {/* F8 (#76): structured cards, never raw JSON; internal fields hidden. */}
+                    <ProfileSectionBody
+                      section={section}
+                      value={value}
+                      uiLanguage={uiLanguage}
+                    />
+                    {/* Per-entry enrichment affordance for work experience with gaps. */}
+                    {section === "work_experience" && Array.isArray(value) && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(value as Array<Record<string, unknown>>)
+                          .filter(
+                            (entry) =>
+                              countWorkEntryGaps(
+                                entry as { description?: string | null },
+                              ) > 0,
+                          )
+                          .map((entry, idx) => {
                             const company = (entry["company"] as string) ?? "";
-                            const role = ((entry["role"] as string) ?? (entry["title"] as string) ?? "");
-                            const entryHasGaps = countWorkEntryGaps(entry as { description?: string | null }) > 0;
+                            const role =
+                              (entry["role"] as string) ??
+                              (entry["title"] as string) ??
+                              "";
                             return (
-                              <div key={idx} className="bg-gray-50 rounded border border-gray-200">
-                                <pre className="whitespace-pre-wrap text-xs p-3">
-                                  {JSON.stringify(entry, null, 2)}
-                                </pre>
-                                {entryHasGaps && (
-                                  <div className="px-3 pb-2">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-amber-500 hover:text-amber-600 text-xs h-7 px-2"
-                                      onClick={() => openEnrichForEntry(company, role)}
-                                    >
-                                      <span className="flex items-center gap-1">
-                                        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                                        <span aria-hidden="true">⚠</span>
-                                        {t("enrichEntry")}
-                                      </span>
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
+                              <Button
+                                key={idx}
+                                size="sm"
+                                variant="ghost"
+                                className="text-amber-500 hover:text-amber-600 text-xs h-7 px-2"
+                                onClick={() => openEnrichForEntry(company, role)}
+                              >
+                                <span className="flex items-center gap-1">
+                                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                                  <span aria-hidden="true">⚠</span>
+                                  {t("enrichEntry")}
+                                  {(role || company) && (
+                                    <span className="text-gray-500">
+                                      {role || company}
+                                    </span>
+                                  )}
+                                </span>
+                              </Button>
                             );
                           })}
-                        </div>
-                      ) : typeof value === "string" ? (
-                        <p>{value}</p>
-                      ) : (
-                        <pre className="whitespace-pre-wrap text-xs bg-gray-50 p-3 rounded">
-                          {JSON.stringify(value, null, 2)}
-                        </pre>
-                      )
-                    ) : (
-                      <p className="text-gray-400 italic">{t("notProvided")}</p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -453,9 +471,10 @@ export default function ProfilePage() {
             );
           })}
 
-          {/* Import log / Enrichment History (#67) */}
+          {/* Enrichment History — the relocated merge/import review (#67/#69).
+              The post-merge CTA on the import page deep-links here (#import-log). */}
           {enrichmentHistory.length > 0 && (
-            <Card id="import-log" className="p-4 mt-6">
+            <Card id="import-log" className="p-4 mt-6 scroll-mt-24">
               <h3 className="font-heading text-base font-semibold text-neutral-dark mb-4">
                 {t("enrichmentHistory")}
               </h3>

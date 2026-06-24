@@ -162,4 +162,13 @@ describe("AppSidebar", () => {
     render(<AppSidebar userName="Tobias  Rosenbaum" />);
     expect(screen.getByText("TR")).toBeInTheDocument();
   });
+
+  // F9.1 (#76): an open slide-over drawer uses z-50; the sidebar must sit above it
+  // (its own stacking context) so navigation is never trapped behind the overlay.
+  it("keeps the nav in a stacking context above slide-over drawers", () => {
+    render(<AppSidebar />);
+    const aside = screen.getByTestId("app-sidebar");
+    expect(aside.className).toContain("relative");
+    expect(aside.className).toContain("z-[60]");
+  });
 });
