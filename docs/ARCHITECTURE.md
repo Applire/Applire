@@ -73,7 +73,7 @@ Every architecture decision traces back to one or more of these principles. If a
 GapDetector → QuestionGenerator → ResponseParser → ProfileUpdater
 ```
 
-**Why not LangGraph:** LangGraph was evaluated and deemed over-engineered for a 4-node linear graph. The custom state machine is simpler, has no additional dependencies, and is independently testable per node. LangGraph may be revisited if the workflow grows to 8+ nodes with conditional back-edges.
+**Orchestration (superseded by ADR-045):** the original 4-node *linear* state machine was hand-rolled (no framework). As the interview gained conditional back-edges, reviewer loops, and a human-in-the-loop confirm — and converges with the unified profile-reconciliation flow into one cyclic graph — ADR-045 moves orchestration to a **declarative graph + durable checkpointer**. Hard rule: the graph orchestrates nodes only; **LLM calls stay on the provider abstraction (ADR-008)** — so providers stay pluggable and mockable. The stateful-backend, pause/resume, and one-active-session invariants below are unchanged.
 
 **Two modes:**
 - **MODE A (Targeted):** User has profile data. Focuses on filling specific gaps from gap analysis. 3–12 questions.
@@ -162,7 +162,7 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 > **EU data residency:** `mistral` (EU-hosted) and `requesty` (EU endpoint) keep data in-region, and a local `ollama` needs no cloud at all; `anthropic`/`openai` are US-hosted BYO-key options. A Claude *subscription* (Pro/Max/Team) is **not** usable — Anthropic permits only Console API keys (or Bedrock/Vertex, which `requesty`-EU routes through) in third-party apps.
 
-**Why direct SDKs over LangChain:** Consistent with the decision not to use LangGraph (ADR-004). Reduces the dependency surface and keeps the provider contract narrow and testable.
+**Why direct SDKs over LangChain:** Even under ADR-045 (which adopts a graph-orchestration substrate), the *orchestrate-vs-execute* boundary keeps LLM execution on our own provider SDKs — never LangChain's model layer. This reduces the dependency surface and keeps the provider contract narrow and testable.
 
 **Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
 
