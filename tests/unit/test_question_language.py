@@ -102,11 +102,11 @@ class _CapturingProvider(LLMProvider):
         super().__init__()
         self.systems: list[str] = []
 
-    async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+    async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
         self.systems.append(system or "")
         return "Beispiel-Frage?"
 
-    async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+    async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
         self.systems.append(system or "")
         if "language reviewer" in (system or "").lower():
             return {"approved": True, "issues": [], "feedback": ""}
@@ -190,10 +190,10 @@ async def test_reviewer_regenerates_on_wrong_language(monkeypatch):
             super().__init__()
             self.regenerated = False
 
-        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
             return ""
 
-        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
             if "language reviewer" in (system or "").lower():
                 return {"approved": False, "issues": ["wrong language"], "feedback": "Rewrite in English."}
             self.regenerated = True
@@ -208,10 +208,10 @@ async def test_reviewer_regenerates_on_wrong_language(monkeypatch):
 @pytest.mark.asyncio
 async def test_mode_a_choices_survive_review_round_trip():
     class _ChoicesProvider(LLMProvider):
-        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
             return ""
 
-        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
             if "language reviewer" in (system or "").lower():
                 return {"approved": True, "issues": [], "feedback": ""}
             return {"question": "Pick one?", "choices": ["A", "B", "C"]}
@@ -239,10 +239,10 @@ async def test_e2e_reject_then_regenerate_through_question_generator_with_profil
             super().__init__()
             self._reviewer_calls = 0
 
-        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
             return ""
 
-        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
             sys_lower = (system or "").lower()
             if "language reviewer" in sys_lower:
                 # First reviewer call → reject; any subsequent call → approve

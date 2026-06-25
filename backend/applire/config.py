@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "mistralai/mistral-large-latest"
     openrouter_base_url: str = ""          # empty = use https://openrouter.ai/api/v1
-    openrouter_disable_thinking: bool = False  # set True for Qwen3/DeepSeek-R1 to skip reasoning overhead
+    openrouter_disable_thinking: bool = False  # global default; emits reasoning:{enabled:false} (cross-vendor: Gemini/Qwen/DeepSeek). Per-call disable_thinking overrides it (F-B)
     # Requesty — EU-hosted OpenAI-compat gateway (ADR-009 amended 2026-06-14)
     requesty_api_key: str = ""
     requesty_model: str = "mistralai/mistral-large-latest"  # set an EU-region model for full residency

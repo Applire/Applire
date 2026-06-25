@@ -32,11 +32,11 @@ class CapturingProvider:
         self.prompt = None
         self.system = None
 
-    async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096):
+    async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
         self.prompt, self.system = prompt, system
         return "How many engineers reported to you as Team Lead at Acme?"
 
-    async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096):
+    async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
         # language reviewer passes through
         return {"approved": True, "issues": [], "feedback": ""}
 

@@ -34,6 +34,25 @@ Contract for implementations:
 from abc import ABC, abstractmethod
 from typing import Any
 
+from applire.exceptions import LLMTruncatedError
+
+# Stop/finish reasons that mean "I ran out of token budget", normalised across
+# vendors: OpenAI-style 'length', Anthropic 'max_tokens', Ollama done_reason 'length'.
+_TRUNCATION_REASONS = frozenset({"length", "max_tokens"})
+
+
+def raise_if_truncated(stop_reason: Any, *, model: str = "") -> None:
+    """Raise LLMTruncatedError if the model stopped on the token budget (ADR-009).
+
+    Guards every provider against silently returning a half-generated output. The
+    `isinstance(str)` check keeps it a no-op for unset/mocked stop reasons.
+    """
+    if isinstance(stop_reason, str) and stop_reason in _TRUNCATION_REASONS:
+        raise LLMTruncatedError(
+            f"Model {model or '?'} hit the token budget (stop_reason={stop_reason!r}); "
+            "output is truncated. Raise max_tokens or reduce reasoning."
+        )
+
 
 class LLMProvider(ABC):
     """Abstract base class for all LLM provider implementations."""
@@ -49,12 +68,23 @@ class LLMProvider(ABC):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         """Send a prompt and return the text completion.
+
+        Args:
+            disable_thinking: Per-call override for reasoning/thinking budget.
+                None = use the provider's configured default (thinking left ON for
+                serious generations). True = suppress reasoning for short, near-
+                deterministic "chrome" generations (interview questions, cv_assist)
+                so the token budget goes to the answer, not the reasoning trace.
+                Honoured by OpenRouter; accepted and ignored by providers without a
+                reasoning toggle.
 
         Raises:
             LLMRateLimitError: provider is rate-limiting after all retries.
             LLMTimeoutError: call exceeded self._timeout seconds.
+            LLMTruncatedError: model stopped on the token budget (output truncated).
         """
 
     @abstractmethod
@@ -65,10 +95,15 @@ class LLMProvider(ABC):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         """Send a prompt and return a parsed JSON dict.
+
+        Args:
+            disable_thinking: see acomplete.
 
         Raises:
             LLMRateLimitError: provider is rate-limiting after all retries.
             LLMTimeoutError: call exceeded self._timeout seconds.
+            LLMTruncatedError: model stopped on the token budget (output truncated).
         """

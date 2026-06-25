@@ -31,7 +31,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _retry = retry(
     retry=retry_if_exception_type(openai.RateLimitError),
@@ -67,6 +67,7 @@ class OpenAIProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
         try:
@@ -88,6 +89,7 @@ class OpenAIProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         try:
@@ -116,6 +118,7 @@ class OpenAIProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
     @_retry
@@ -130,6 +133,7 @@ class OpenAIProvider(LLMProvider):
             max_tokens=max_tokens,
             **kwargs,
         )
+        raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
 

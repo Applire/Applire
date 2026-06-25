@@ -49,6 +49,12 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES", "1")
 )
 
+# Token ceiling for a single interview question ("chrome" generation). A question
+# is one short sentence, so this is a ceiling, not a target. Raised from 256 to give
+# thinking models headroom for the answer; paired with disable_thinking on these
+# calls so reasoning tokens don't eat the budget (ADR-009 amendment, F-B).
+INTERVIEW_QUESTION_MAX_TOKENS: int = 512
+
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).

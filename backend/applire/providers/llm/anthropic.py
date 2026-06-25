@@ -49,7 +49,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _retry = retry(
     retry=retry_if_exception_type(anthropic.RateLimitError),
@@ -79,6 +79,7 @@ class AnthropicProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         messages = [{"role": "user", "content": prompt}]
         try:
@@ -100,6 +101,7 @@ class AnthropicProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         # Assistant-prefill "{" forces the model to continue a JSON object.
         messages = [
@@ -146,6 +148,7 @@ class AnthropicProvider(LLMProvider):
             getattr(usage, "input_tokens", "?"),
             getattr(usage, "output_tokens", "?"),
         )
+        raise_if_truncated(getattr(response, "stop_reason", None), model=self._model)
         return _text(response)
 
 

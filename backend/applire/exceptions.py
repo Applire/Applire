@@ -41,3 +41,15 @@ class LLMTimeoutError(LLMError):
     Default timeout is 30s per call (set on LLMProvider.__init__).
     Routers should surface this as HTTP 504.
     """
+
+
+class LLMTruncatedError(LLMError):
+    """The model stopped because it hit the token budget, not because it finished.
+
+    Raised by providers when the completion's stop reason indicates length
+    exhaustion ('length' / 'max_tokens' / 'done_reason=length'). This converts a
+    silent half-generated output (a truncated question, or a CV/cover letter that
+    closed its JSON early) into a loud, retryable failure — see ADR-009 amendment
+    (2026-06-24). Routers should surface this as HTTP 502/retry, never persist the
+    partial artifact.
+    """

@@ -312,6 +312,7 @@ class MockLLMProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         return _INTERVIEW_QUESTION
 
@@ -322,6 +323,7 @@ class MockLLMProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> Any:
         system_lower = (system or "").lower()
 

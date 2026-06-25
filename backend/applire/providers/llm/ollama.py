@@ -26,7 +26,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _CONNECT_TIMEOUT = 5.0   # fail fast if Ollama is not running
 
@@ -65,6 +65,7 @@ class OllamaProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
         try:
@@ -86,6 +87,7 @@ class OllamaProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         try:
@@ -114,7 +116,9 @@ class OllamaProvider(LLMProvider):
                 },
             )
             response.raise_for_status()
-        return response.json()["message"]["content"]
+        data = response.json()
+        raise_if_truncated(data.get("done_reason"), model=self._model)
+        return data["message"]["content"]
 
     @_retry
     async def _parse_json(self, messages: list, temperature: float, max_tokens: int) -> str:
@@ -130,7 +134,9 @@ class OllamaProvider(LLMProvider):
                 },
             )
             response.raise_for_status()
-        return response.json()["message"]["content"]
+        data = response.json()
+        raise_if_truncated(data.get("done_reason"), model=self._model)
+        return data["message"]["content"]
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

@@ -35,7 +35,8 @@ class _FakeProvider:
         self.calls: list[dict] = []
 
     async def aparse_json(self, prompt: str, *, system: str | None = None,
-                          temperature: float = 0.1, max_tokens: int = 4096) -> Any:
+                          temperature: float = 0.1, max_tokens: int = 4096,
+                          disable_thinking: bool | None = None) -> Any:
         self.calls.append(
             {"prompt": prompt, "system": system, "temperature": temperature}
         )

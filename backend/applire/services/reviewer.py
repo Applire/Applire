@@ -45,6 +45,7 @@ async def review_and_refine(
     max_retries: int,
     generator_max_tokens: int = 4096,
     chain_id: str = "unknown",
+    disable_thinking: bool | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -65,6 +66,11 @@ async def review_and_refine(
         generator_max_tokens: Token budget for the generator retry calls.
         chain_id: Identifier for the calling chain (cv_extraction, profile_extraction,
                   cv_tailoring, interview_response, interview_question). Used for log dimensionality.
+        disable_thinking: Suppress reasoning on both reviewer and generator calls.
+                  Set True for short "chrome" loops (e.g. interview-question language
+                  review) so a small token budget reaches the answer, not the reasoning
+                  trace, under thinking models. Leave None for serious content (CV,
+                  cover letter) where reasoning improves quality (ADR-009 amendment).
 
     Returns:
         The approved draft, or the last generated draft if retries are exhausted.
@@ -80,6 +86,7 @@ async def review_and_refine(
             reviewer_prompt_fn(source, current_draft),
             system=reviewer_system,
             temperature=0.1,
+            disable_thinking=disable_thinking,
         )
 
         if review.get("approved", False):
@@ -108,6 +115,7 @@ async def review_and_refine(
             system=generator_system,
             temperature=0.1,
             max_tokens=generator_max_tokens,
+            disable_thinking=disable_thinking,
         )
 
     # Exhausted all retries — return the last generated draft unreviewed.

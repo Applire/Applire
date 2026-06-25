@@ -38,7 +38,10 @@ import hashlib
 
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
-from applire.constants import INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES
+from applire.constants import (
+    INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES,
+    INTERVIEW_QUESTION_MAX_TOKENS,
+)
 from applire.prompts.interview import (
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
@@ -191,8 +194,9 @@ async def _review_question_language(
         reviewer_system=QUESTION_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES,
-        generator_max_tokens=256,
+        generator_max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
         chain_id="interview_question",
+        disable_thinking=True,  # chrome generation — keep budget on the answer (F-B)
     )
 
 
@@ -231,7 +235,8 @@ async def question_generator_with_profile(
             ),
             system=with_language(FOLLOW_UP_QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,
-            max_tokens=256,
+            max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+            disable_thinking=True,  # chrome generation (F-B)
         )
         draft = {"question": text.strip(), "choices": None}
         return await _review_question_language(draft, lang, provider)
@@ -246,7 +251,8 @@ async def question_generator_with_profile(
                 build_field_gap_question_prompt(field, entry, state["messages"]),
                 system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
                 temperature=0.4,
-                max_tokens=256,
+                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                disable_thinking=True,  # chrome generation (F-B)
             )
             draft = {"question": text.strip(), "choices": None}
             return await _review_question_language(draft, lang, provider)
@@ -262,7 +268,8 @@ async def question_generator_with_profile(
             ),
             system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,
-            max_tokens=256,
+            max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+            disable_thinking=True,  # chrome generation (F-B)
         )
         draft = {"question": text.strip(), "choices": None}
         return await _review_question_language(draft, lang, provider)
@@ -279,6 +286,7 @@ async def question_generator_with_profile(
         build_question_prompt(cluster, profile, state["messages"], gap_category=gap_category),
         system=with_language(QUESTION_SYSTEM_PROMPT, lang),
         temperature=0.4,
+        disable_thinking=True,  # chrome generation (F-B)
     )
     question = str(data.get("question", "")).strip()
     raw_choices = data.get("choices")

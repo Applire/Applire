@@ -45,7 +45,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -94,11 +94,12 @@ class OpenRouterProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
         try:
             return await asyncio.wait_for(
-                self._complete(messages, temperature, max_tokens),
+                self._complete(messages, temperature, max_tokens, self._extra_body(disable_thinking)),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
@@ -115,11 +116,12 @@ class OpenRouterProvider(LLMProvider):
         system: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         try:
             content = await asyncio.wait_for(
-                self._parse_json(messages, temperature, max_tokens),
+                self._parse_json(messages, temperature, max_tokens, self._extra_body(disable_thinking)),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
@@ -135,11 +137,18 @@ class OpenRouterProvider(LLMProvider):
                 content = content[4:]
         return json.loads(content.strip())
 
-    def _extra_body(self) -> dict | None:
-        return {"enable_thinking": False} if self._disable_thinking else None
+    def _extra_body(self, disable_thinking: bool | None = None) -> dict | None:
+        # Per-call override wins; otherwise the provider's configured default.
+        # OpenRouter's unified `reasoning` param normalises across vendors (Gemini
+        # thinkingBudget, Qwen enable_thinking, etc.) — unlike the vendor-specific
+        # enable_thinking key, this actually reaches Gemini thinking models.
+        effective = disable_thinking if disable_thinking is not None else self._disable_thinking
+        return {"reasoning": {"enabled": False}} if effective else None
 
     @_retry
-    async def _complete(self, messages: list, temperature: float, max_tokens: int) -> str:
+    async def _complete(
+        self, messages: list, temperature: float, max_tokens: int, extra_body: dict | None
+    ) -> str:
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
         logger.debug(
             "LLM request [acomplete] model=%s temperature=%s max_tokens=%d messages=%d prompt_chars=%d",
@@ -151,23 +160,27 @@ class OpenRouterProvider(LLMProvider):
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            extra_body=self._extra_body(),
+            extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
         content = response.choices[0].message.content
         usage = response.usage
+        finish = response.choices[0].finish_reason
         logger.info(
             "LLM response [acomplete] model=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s finish=%s",
             self._model, elapsed,
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
-            response.choices[0].finish_reason,
+            finish,
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
+        raise_if_truncated(finish, model=self._model)
         return content
 
     @_retry
-    async def _parse_json(self, messages: list, temperature: float, max_tokens: int) -> str:
+    async def _parse_json(
+        self, messages: list, temperature: float, max_tokens: int, extra_body: dict | None
+    ) -> str:
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
         logger.debug(
             "LLM request [aparse_json] model=%s temperature=%s max_tokens=%d messages=%d prompt_chars=%d",
@@ -180,19 +193,21 @@ class OpenRouterProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            extra_body=self._extra_body(),
+            extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
         content = response.choices[0].message.content
         usage = response.usage
+        finish = response.choices[0].finish_reason
         logger.info(
             "LLM response [aparse_json] model=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s finish=%s",
             self._model, elapsed,
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
-            response.choices[0].finish_reason,
+            finish,
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
+        raise_if_truncated(finish, model=self._model)
         return content
 
 
