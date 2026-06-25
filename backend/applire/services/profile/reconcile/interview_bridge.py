@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import EnrichmentRecord, FieldChange, MasterProfileData
+from applire.schemas.profile import Conflict, EnrichmentRecord, FieldChange, MasterProfileData
 from applire.schemas.session import ConflictSummary
 from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import reconcile
@@ -37,12 +37,12 @@ from applire.services.profile.reconcile.ops import RequestConfirmation
 class InterviewTurnResult:
     profile_dict: dict
     changes: list[FieldChange]
-    addressed: bool
+    addressed: bool  # True iff the answer produced at least one profile change
     conflict_summaries: list[ConflictSummary] = field(default_factory=list)
     pending_confirmations: list[RequestConfirmation] = field(default_factory=list)
 
 
-def _to_summary(conflict) -> ConflictSummary:
+def _to_summary(conflict: Conflict) -> ConflictSummary:
     return ConflictSummary(
         conflict_id=conflict.conflict_id,
         field=conflict.field,
@@ -61,6 +61,10 @@ async def reconcile_interview_turn(
     applied = apply_ops(before, result.ops, "interview")
 
     updated = applied.profile.model_dump(mode="json")
+    # The profile is already dumped to JSONB-dict form at this point, so we
+    # append the enrichment trail directly to the serialised dict here. This
+    # mirrors the transitional pattern in services/session.py that Task 3 will
+    # replace.
     if applied.changes:
         meta = dict(updated.get("metadata") or {})
         history = list(meta.get("enrichment_history") or [])

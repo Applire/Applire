@@ -29,7 +29,7 @@ async def test_bridge_returns_updated_dict_changes_and_progress():
         answer="Python daily", provider=MockLLMProvider(), session_id="s1",
     )
     # Mock emits one upsert_skill -> a mutation -> "addressed"
-    assert any(s["name"] == "Python" for s in out.profile_dict["skills"])
+    assert any(s.get("name") == "Python" for s in out.profile_dict.get("skills", []))
     assert out.addressed is True
     assert out.changes  # FieldChange list, non-empty
     assert out.conflict_summaries == []
