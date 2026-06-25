@@ -17,7 +17,6 @@
 
 """Profile enrichment endpoints — Mode C interview sessions (no JD required)."""
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -27,15 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
-from applire.constants import INTERVIEW_SESSION_TTL_DAYS, LLM_REVIEW_MAX_RETRIES
+from applire.constants import INTERVIEW_SESSION_TTL_DAYS
 from applire.db.session import get_db
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
-from applire.prompts.review_interview_response import (
-    RESPONSE_PARSER_REFINEMENT_PROMPT,
-    RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT,
-    build_response_parser_review_prompt,
-)
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.enrich import (
@@ -49,11 +43,9 @@ from applire.schemas.enrich import (
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
     gap_detector_mode_c,
-    profile_updater,
     question_generator_with_profile,
-    response_parser,
 )
-from applire.services.reviewer import review_and_refine
+from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 from applire.services.session import get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
@@ -294,7 +286,9 @@ async def respond_to_enrich(
 ) -> EnrichRespondResponse:
     """Submit a user answer for the current gap question.
 
-    Runs: ResponseParser → reviewer → ProfileUpdater → QuestionGenerator (next gap).
+    Runs: reconcile_interview_turn (engine, single pass) → QuestionGenerator (next gap).
+    The separate ResponseParser+reviewer+ProfileUpdater chain is replaced by the
+    ADR-046 reconciler (no review step).
     """
     session = await _load_session(session_id, db)
     state: dict = dict(session.state)
@@ -324,39 +318,26 @@ async def respond_to_enrich(
     current_gap = state["critical_gaps"][state["current_gap_index"]]
     current_question = state["current_question"]
 
-    # ResponseParser — extract structured data from the answer
-    raw_draft = await response_parser(current_gap, current_question, answer, provider)
-
-    # Wrap with reviewer for Mode C quality assurance
-    reviewed_draft = await review_and_refine(
-        source=f"{current_gap} | {current_question} | {answer}",
-        draft=raw_draft,
-        generator_prompt_fn=lambda prev, feedback: (
-            f"REVIEW FEEDBACK:\n{feedback}\n\n"
-            f"PREVIOUS EXTRACTION:\n{json.dumps(prev, ensure_ascii=False, indent=2)}\n\n"
-            "Return ONLY the corrected JSON."
-        ),
-        generator_system=RESPONSE_PARSER_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=lambda src, draft: build_response_parser_review_prompt(
-            current_gap, current_question, answer, draft
-        ),
-        reviewer_system=RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT,
+    # Reconcile answer via the ADR-046 engine (single pass — no separate review step)
+    lang = await get_ui_language(db)
+    turn = await reconcile_interview_turn(
+        profile_dict=profile_data,
+        gap=current_gap,
+        question=current_question,
+        answer=answer,
         provider=provider,
-        max_retries=LLM_REVIEW_MAX_RETRIES,
-        chain_id="interview_response",
+        session_id=str(session_id),
+        lang=lang,
     )
-
-    # ProfileUpdater — merge extracted data into the master profile
-    updated_profile_data, _conflicts = profile_updater(profile_data, reviewed_draft)
-    profile_updated = updated_profile_data != profile_data
+    updated_profile_data = turn.profile_dict
+    profile_updated = turn.addressed
 
     if profile_updated:
         profile_record.profile_json = updated_profile_data
         await db.flush()
 
-    # Mark gap addressed if resolution is not "none"
-    gap_resolution = reviewed_draft.get("gap_resolution", "none")
-    if gap_resolution != "none":
+    # Mark gap addressed if the reconciler applied at least one change
+    if turn.addressed:
         state["addressed_gaps"].append(current_gap)
 
     state["questions_asked"] = state.get("questions_asked", 0) + 1
