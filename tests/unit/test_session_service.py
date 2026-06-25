@@ -156,15 +156,18 @@ def _make_active_session(job_id, profile_id, gap_id=None, state=None):
 def _mock_provider(question="What is your GCP experience?"):
     provider = MagicMock()
     provider.acomplete = AsyncMock(return_value=question)
+    # aparse_json is called by question_generator_with_profile (MODE A) and the
+    # language-review loop (_review_question_language / review_and_refine).
+    # The generator reads "question" + "choices"; the reviewer reads "approved".
+    # US182a: send_message no longer calls aparse_json for response parsing —
+    # that path was replaced by reconcile_interview_turn (patched in these tests).
+    # The old lexical-parser keys (gap_resolution, gaps_also_addressed,
+    # work_history, skills, certifications, languages, education, follow_up_hint)
+    # are not consumed by any active code path and have been removed.
     provider.aparse_json = AsyncMock(return_value={
-        "gap_resolution": "full",
-        "follow_up_hint": None,
-        "gaps_also_addressed": [],
-        "skills": ["GCP"],
-        "work_history": [],
-        "certifications": [],
-        "languages": [],
-        "education": [],
+        "question": question,
+        "choices": None,
+        "approved": True,
     })
     provider.__class__.__name__ = "MockProvider"
     return provider
