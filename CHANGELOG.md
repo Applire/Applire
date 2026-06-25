@@ -19,6 +19,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   as best-effort: it retries once with reasoning left on and the budget raised, so the
   call succeeds with no operator configuration. (#85.)
 
+- **CV and cover-letter generation no longer truncate on reasoning ("thinking") models.**
+  On a thinking model `max_tokens` covers reasoning *and* output together, and some models
+  (Gemini Flash) over-think — burning the budget before the document is written, so
+  generation failed with a truncation error. Two fixes: the generation budget is raised to
+  16384 (`CV_GENERATION_MAX_TOKENS`), and a new `OPENROUTER_REASONING_EFFORT` setting
+  (default unset) bounds reasoning via OpenRouter's cross-vendor `reasoning.effort` — set it
+  to `low` to stop a model over-thinking simple transforms. (#85.)
+
+### Added
+- **`OPENROUTER_REASONING_EFFORT`** (`low`/`medium`/`high`; default unset = model decides).
+  Caps how much a thinking model reasons so reasoning tokens don't crowd out the answer.
+  Accepted even by models that mandate reasoning. Deployment-wide for now; finer per-operation
+  control is planned. (#85.)
+
 ### Notes
 - **Reasoning ("thinking") models add noticeable latency to the interview.** Interview
   questions are intentionally generated *without* reasoning — they're short and near
