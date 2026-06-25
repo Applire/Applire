@@ -1,0 +1,507 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+"""ADR-046 — the deterministic op applier.
+
+``apply_ops`` folds a list of typed reconciliation ops (``ops.py``) into a
+Master Profile. It is a PURE function: it operates on a deep copy, never
+touching the input, the DB, or any LLM. The caller owns persistence and the
+ADR-042 pre-merge snapshot.
+
+Op semantics implement ADR-013 additive-merge rules (alias-fold, case-insensitive
+bullet dedup) but trust the LLM's entity-matching choices — the applier never
+re-decides whether two entities are "the same"; it merges into the ``target`` it
+was given and creates a new entity when ``target`` is ``None``.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel
+
+from applire.schemas.profile import (
+    Certification,
+    Conflict,
+    EducationEntry,
+    ExperienceBase,
+    FieldChange,
+    Language,
+    MasterProfileData,
+    ProjectEntry,
+    Skill,
+    VolunteerActivity,
+    WorkEntry,
+)
+
+from applire.services.profile.reconcile.ops import (
+    AddBullets,
+    FlagConflict,
+    ReconcileOp,
+    RequestConfirmation,
+    SetField,
+    SetPersonalInfo,
+    SetSummary,
+    UpsertCertification,
+    UpsertEducation,
+    UpsertLanguage,
+    UpsertProject,
+    UpsertSkill,
+    UpsertVolunteer,
+    UpsertWork,
+)
+
+_PROFICIENCY_ORDER = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
+
+
+class ApplyResult(BaseModel):
+    """The outcome of applying a batch of ops (no persistence)."""
+
+    profile: MasterProfileData
+    changes: list[FieldChange] = []
+    conflicts: list[Conflict] = []
+    pending_confirmations: list[RequestConfirmation] = []
+
+
+def _norm(value: object) -> str:
+    return (str(value) if value is not None else "").strip().casefold()
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == []
+
+
+def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
+    """Case-insensitively append non-dup strings; return True if the list grew."""
+    seen = {_norm(x) for x in existing}
+    grew = False
+    for item in incoming:
+        if not isinstance(item, str):
+            continue
+        key = _norm(item)
+        if key and key not in seen:
+            existing.append(item)
+            seen.add(key)
+            grew = True
+    return grew
+
+
+def _section_for(entity: Any) -> str:
+    if isinstance(entity, WorkEntry):
+        return "work_experience"
+    if isinstance(entity, ProjectEntry):
+        return "projects"
+    if isinstance(entity, VolunteerActivity):
+        return "volunteer_activities"
+    return ""
+
+
+def apply_ops(
+    profile: MasterProfileData, ops: list[ReconcileOp], source: str
+) -> ApplyResult:
+    """Apply ``ops`` to a deep copy of ``profile`` in order.
+
+    Returns the new profile state plus the field-change trail, flagged conflicts,
+    and any pending confirmations. The input profile is never mutated.
+    """
+    new_profile = profile.model_copy(deep=True)
+    changes: list[FieldChange] = []
+    conflicts: list[Conflict] = []
+    pending: list[RequestConfirmation] = []
+
+    # Local ref ("w1") → the entity object created/resolved by an entity op.
+    ref_map: dict[str, ExperienceBase] = {}
+
+    def resolve(handle: str | None) -> ExperienceBase | None:
+        """Resolve a target/parent/evidence handle to an entity, or None."""
+        if handle is None:
+            return None
+        if handle in ref_map:
+            return ref_map[handle]
+        for entry in (
+            *new_profile.work_experience,
+            *new_profile.projects,
+            *new_profile.volunteer_activities,
+        ):
+            if getattr(entry, "id", None) == handle:
+                return entry
+        return None
+
+    for op in ops:
+        if isinstance(op, UpsertWork):
+            _apply_upsert_work(op, new_profile, ref_map, changes)
+        elif isinstance(op, UpsertProject):
+            _apply_upsert_project(op, new_profile, ref_map, resolve, changes)
+        elif isinstance(op, UpsertVolunteer):
+            _apply_upsert_volunteer(op, new_profile, ref_map, changes)
+        elif isinstance(op, AddBullets):
+            _apply_add_bullets(op, resolve, changes)
+        elif isinstance(op, UpsertSkill):
+            _apply_upsert_skill(op, new_profile, resolve, changes)
+        elif isinstance(op, UpsertCertification):
+            _apply_upsert_certification(op, new_profile, changes)
+        elif isinstance(op, UpsertLanguage):
+            _apply_upsert_language(op, new_profile, changes)
+        elif isinstance(op, UpsertEducation):
+            _apply_upsert_education(op, new_profile, changes)
+        elif isinstance(op, SetField):
+            _apply_set_field(op, resolve, changes)
+        elif isinstance(op, SetPersonalInfo):
+            _apply_set_personal_info(op, new_profile, changes)
+        elif isinstance(op, SetSummary):
+            _apply_set_summary(op, new_profile, changes)
+        elif isinstance(op, FlagConflict):
+            _apply_flag_conflict(op, resolve, source, conflicts)
+        elif isinstance(op, RequestConfirmation):
+            pending.append(op)
+
+    return ApplyResult(
+        profile=new_profile,
+        changes=changes,
+        conflicts=conflicts,
+        pending_confirmations=pending,
+    )
+
+
+# ── Per-op handlers ───────────────────────────────────────────────────────────
+
+
+def _fill_empties(entity: Any, fields: dict[str, Any]) -> None:
+    """Fill only currently-empty scalar fields; never overwrite non-empty ones."""
+    for name, value in fields.items():
+        if value is None:
+            continue
+        if _is_empty(getattr(entity, name, None)):
+            setattr(entity, name, value)
+
+
+def _added(section: str, field: str, value: Any) -> FieldChange:
+    return FieldChange(
+        section=section,
+        field=field,
+        action="added",
+        new_value=value,
+        rationale=f"Added {field} to {section} via reconciliation.",
+        rationale_key="reconcile_added",
+    )
+
+
+def _merged(section: str, field: str, old: Any, new: Any) -> FieldChange:
+    return FieldChange(
+        section=section,
+        field=field,
+        action="merged",
+        old_value=old,
+        new_value=new,
+        rationale=f"Merged {field} into existing {section} via reconciliation.",
+        rationale_key="reconcile_merged",
+    )
+
+
+def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
+    return FieldChange(
+        section=section,
+        field=field,
+        action="updated",
+        old_value=old,
+        new_value=new,
+        rationale=f"Filled empty {field} on {section} via reconciliation.",
+        rationale_key="reconcile_updated",
+    )
+
+
+def _apply_upsert_work(op, profile, ref_map, changes):
+    target = None
+    if op.target is not None:
+        target = next(
+            (w for w in profile.work_experience if w.id == op.target), None
+        )
+    if target is None and op.target is not None and op.target in ref_map:
+        candidate = ref_map[op.target]
+        if isinstance(candidate, WorkEntry):
+            target = candidate
+
+    if target is None:
+        entry = WorkEntry(
+            company=op.company or "",
+            role=op.role or "",
+            start_date=op.start_date,
+            end_date=op.end_date,
+            location=op.location,
+            team_size=op.team_size,
+            industry_context=op.industry_context,
+            budget_managed=op.budget_managed,
+        )
+        profile.work_experience.append(entry)
+        ref_map[op.ref] = entry
+        changes.append(_added("work_experience", "company", entry.company))
+        return
+
+    # Merge into existing.
+    ref_map[op.ref] = target
+    # ADR-013 Rule 1: a differing role becomes a role alias (never overwrite role).
+    if (
+        op.role
+        and _norm(op.role) != _norm(target.role)
+        and _norm(op.role) not in {_norm(a) for a in target.role_aliases}
+    ):
+        target.role_aliases.append(op.role)
+        changes.append(_merged("work_experience", "role_aliases", None, op.role))
+    # Fill only empties for the rest (never overwrite company/role).
+    _fill_empties(
+        target,
+        {
+            "company": op.company,
+            "role": op.role,
+            "start_date": op.start_date,
+            "end_date": op.end_date,
+            "location": op.location,
+            "team_size": op.team_size,
+            "industry_context": op.industry_context,
+            "budget_managed": op.budget_managed,
+        },
+    )
+
+
+def _apply_upsert_project(op, profile, ref_map, resolve, changes):
+    parent_id = None
+    parent = resolve(op.parent)
+    if parent is not None:
+        parent_id = getattr(parent, "id", None)
+
+    target = None
+    if op.target is not None:
+        target = next((p for p in profile.projects if p.id == op.target), None)
+        if target is None and op.target in ref_map:
+            candidate = ref_map[op.target]
+            if isinstance(candidate, ProjectEntry):
+                target = candidate
+
+    if target is None:
+        entry = ProjectEntry(
+            name=op.name or "",
+            role=op.role or "",
+            start_date=op.start_date,
+            end_date=op.end_date,
+            url=op.url,
+            description=op.description,
+            associated_experience=parent_id,
+        )
+        profile.projects.append(entry)
+        ref_map[op.ref] = entry
+        changes.append(_added("projects", "name", entry.name))
+        return
+
+    ref_map[op.ref] = target
+    _fill_empties(
+        target,
+        {
+            "name": op.name,
+            "role": op.role,
+            "start_date": op.start_date,
+            "end_date": op.end_date,
+            "url": op.url,
+            "description": op.description,
+            "associated_experience": parent_id,
+        },
+    )
+    changes.append(_merged("projects", "name", None, op.name))
+
+
+def _apply_upsert_volunteer(op, profile, ref_map, changes):
+    target = None
+    if op.target is not None:
+        target = next(
+            (v for v in profile.volunteer_activities if v.id == op.target), None
+        )
+        if target is None and op.target in ref_map:
+            candidate = ref_map[op.target]
+            if isinstance(candidate, VolunteerActivity):
+                target = candidate
+
+    if target is None:
+        entry = VolunteerActivity(
+            organization=op.organization or "",
+            role=op.role or "",
+            cause=op.cause,
+            start_date=op.start_date,
+            end_date=op.end_date,
+            description=op.description,
+        )
+        profile.volunteer_activities.append(entry)
+        ref_map[op.ref] = entry
+        changes.append(_added("volunteer_activities", "organization", entry.organization))
+        return
+
+    ref_map[op.ref] = target
+    # VolunteerActivity has no role_aliases — a differing role can only fill an
+    # empty role; it is never folded into an alias list (ADR-013 Rule 1 is
+    # WorkEntry-specific).
+    _fill_empties(
+        target,
+        {
+            "organization": op.organization,
+            "role": op.role,
+            "cause": op.cause,
+            "start_date": op.start_date,
+            "end_date": op.end_date,
+            "description": op.description,
+        },
+    )
+
+
+def _apply_add_bullets(op, resolve, changes):
+    entity = resolve(op.target)
+    if entity is None:
+        return  # defensive: unknown ref → skip
+    section = _section_for(entity)
+    for field, incoming in (
+        ("responsibilities", op.responsibilities),
+        ("achievements", op.achievements),
+        ("technologies", op.technologies),
+    ):
+        if not incoming:
+            continue
+        if _append_dedup(getattr(entity, field), incoming):
+            changes.append(_merged(section, field, None, incoming))
+
+
+def _apply_upsert_skill(op, profile, resolve, changes):
+    evidence_ids: list[str] = []
+    for handle in op.evidence:
+        ent = resolve(handle)
+        if ent is not None:
+            ent_id = getattr(ent, "id", None)
+            if ent_id:
+                evidence_ids.append(ent_id)
+        # else: leave unresolved handles out (defensive)
+
+    existing = next(
+        (s for s in profile.skills if _norm(s.name) == _norm(op.name)), None
+    )
+    if existing is not None:
+        _append_dedup(existing.experience_refs, evidence_ids)
+        if op.proficiency:
+            new_rank = _PROFICIENCY_ORDER.get(op.proficiency.lower())
+            cur_rank = _PROFICIENCY_ORDER.get(existing.proficiency, 1)
+            if new_rank is not None and new_rank > cur_rank:
+                existing.proficiency = op.proficiency.lower()
+        changes.append(_merged("skills", "name", None, op.name))
+        return
+
+    skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+    if op.category:
+        skill_kwargs["category"] = op.category
+    if op.proficiency:
+        skill_kwargs["proficiency"] = op.proficiency
+    profile.skills.append(Skill(**skill_kwargs))
+    changes.append(_added("skills", "name", op.name))
+
+
+def _apply_upsert_certification(op, profile, changes):
+    if any(_norm(c.name) == _norm(op.name) for c in profile.certifications):
+        return
+    profile.certifications.append(
+        Certification(
+            name=op.name,
+            issuing_organization=op.issuing_organization,
+            date_obtained=op.date_obtained,
+            expiry_date=op.expiry_date,
+            credential_id=op.credential_id,
+            credential_url=op.credential_url,
+        )
+    )
+    changes.append(_added("certifications", "name", op.name))
+
+
+def _apply_upsert_language(op, profile, changes):
+    if any(_norm(lang.language) == _norm(op.language) for lang in profile.languages):
+        return
+    profile.languages.append(Language(language=op.language, level=op.level))
+    changes.append(_added("languages", "language", op.language))
+
+
+def _apply_upsert_education(op, profile, changes):
+    key = (_norm(op.institution), _norm(op.degree))
+    if any((_norm(e.institution), _norm(e.degree)) == key for e in profile.education):
+        return
+    profile.education.append(
+        EducationEntry(
+            institution=op.institution,
+            degree=op.degree,
+            field=op.field or "",
+            start_date=op.start_date,
+            end_date=op.end_date,
+            grade=op.grade,
+        )
+    )
+    changes.append(_added("education", "institution", op.institution))
+
+
+def _apply_set_field(op, resolve, changes):
+    entity = resolve(op.target)
+    if entity is None:
+        return
+    if not hasattr(entity, op.field):
+        return
+    current = getattr(entity, op.field)
+    if not _is_empty(current):
+        return  # a real change goes through FlagConflict, not SetField
+    setattr(entity, op.field, op.value)
+    changes.append(_updated(_section_for(entity), op.field, current, op.value))
+
+
+def _apply_set_personal_info(op, profile, changes):
+    pi = profile.personal_info
+    if not hasattr(pi, op.field):
+        return
+    current = getattr(pi, op.field)
+    if not _is_empty(current):
+        return
+    setattr(pi, op.field, op.value)
+    changes.append(_updated("personal_info", op.field, current, op.value))
+
+
+def _apply_set_summary(op, profile, changes):
+    old = getattr(profile.professional_summary, op.lang)
+    setattr(profile.professional_summary, op.lang, op.text)
+    # Summaries are regenerated wholesale — replace, don't gate on emptiness.
+    action = "updated" if old else "added"
+    changes.append(
+        FieldChange(
+            section="professional_summary",
+            field=op.lang,
+            action=action,
+            old_value=old,
+            new_value=op.text,
+            rationale="Set professional summary via reconciliation.",
+            rationale_key="reconcile_summary",
+        )
+    )
+
+
+def _apply_flag_conflict(op, resolve, source, conflicts):
+    entity = resolve(op.target)
+    section = _section_for(entity) if entity is not None else ""
+    conflicts.append(
+        Conflict(
+            section=section,
+            field=op.field,
+            existing_value=op.existing,
+            incoming_value=op.incoming,
+            source=source,
+        )
+    )

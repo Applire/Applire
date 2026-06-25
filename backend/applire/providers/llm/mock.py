@@ -39,6 +39,7 @@ System prompt fingerprints:
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
+import copy
 import json
 import re
 from typing import Any
@@ -205,6 +206,14 @@ _CV_TAILORING_RESPONSE: dict[str, Any] = {
     ],
 }
 
+_RECONCILE_RESPONSE: dict[str, Any] = {
+    "ops": [
+        {"op": "upsert_skill", "name": "Python", "category": "technical",
+         "proficiency": "advanced", "evidence": []},
+    ],
+    "ambiguities": [],
+}
+
 _RESPONSE_PARSER_RESPONSE: dict[str, Any] = {
     # skills_to_add must include at least one of the skills named in _RICH_ANSWER
     # (iter4 test_profile_updated_after_answer checks for "salesforce", "veeva vault", "crm").
@@ -329,6 +338,12 @@ class MockLLMProvider(LLMProvider):
 
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
+
+        # ADR-046 / US181-US182a — single-call profile reconciler. Returns a
+        # representative op batch (one upsert_skill) so the interview loop's
+        # apply + advance path can be exercised deterministically under the mock.
+        if "profile reconciler" in system_lower:
+            return copy.deepcopy(_RECONCILE_RESPONSE)
 
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)

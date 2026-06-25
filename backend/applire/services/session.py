@@ -56,7 +56,7 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import EnrichmentRecord, MasterProfileData
+from applire.schemas.profile import MasterProfileData
 from applire.schemas.session import (
     ConflictSummary,
     InterviewState,
@@ -74,12 +74,12 @@ from applire.services.interview_graph import (
     gap_detector_mode_b,
     interpret_conflict_answer,
     interpret_gate_answer,
-    interview_field_changes,
     is_conflict_cluster,
     is_gate_cluster,
-    profile_updater,
     question_generator_with_profile,
-    response_parser,
+)
+from applire.services.profile.reconcile.interview_bridge import (
+    reconcile_interview_turn,
 )
 
 logger = logging.getLogger(__name__)
@@ -957,36 +957,22 @@ async def send_message(
     current_cluster = clusters_by_id.get(current_gap, {"label": current_gap})
     cluster_label = current_cluster.get("label", current_gap)
 
-    # --- ResponseParser ---
-    patch = await response_parser(
-        cluster_label, current_question, message, provider
-    )
-
-    # --- ProfileUpdater ---
+    # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
-    before_profile = profile_record.profile_json
-    updated_profile, merge_conflicts = profile_updater(before_profile, patch)
-
-    # US148/ADR-040 (JF-M-5.2): record what the answer actually added to the profile
-    # as a structured interview EnrichmentRecord, so the "what we added from your
-    # answers" surface (and the durable trail) have data. Only when something changed.
-    trail_changes = interview_field_changes(before_profile, updated_profile)
-    if trail_changes:
-        meta = dict(updated_profile.get("metadata") or {})
-        history = list(meta.get("enrichment_history") or [])
-        history.append(
-            EnrichmentRecord(
-                timestamp=datetime.now(timezone.utc),
-                source="interview",
-                source_session_id=str(record.id),
-                changes=trail_changes,
-            ).model_dump(mode="json")
-        )
-        meta["enrichment_history"] = history
-        updated_profile = {**updated_profile, "metadata": meta}
-
-    profile_record.profile_json = updated_profile
+    turn = await reconcile_interview_turn(
+        profile_dict=profile_record.profile_json,
+        gap=cluster_label,
+        question=current_question,
+        answer=message,
+        provider=provider,
+        session_id=str(record.id),
+        lang=lang,
+    )
+    profile_record.profile_json = turn.profile_dict
     profile_record.updated_at = datetime.now(timezone.utc)
+    conflict_summaries = turn.conflict_summaries
+    # The reconciled profile feeds the next/follow-up question generator below.
+    updated_profile = turn.profile_dict
 
     # Increment questions_asked
     questions_asked = state.get("questions_asked", 1) + 1
@@ -1001,13 +987,13 @@ async def send_message(
         )
 
     # --- Advance decision ---
-    # "declined" advances like "full": the candidate has said they have no
-    # experience for this gap, so drilling for a "more specific example" would
-    # only ask about experience they don't have (bug 3 — interview over-drilling).
-    gap_resolution = patch.get("gap_resolution", "none")
+    # Deterministic gap-progress (US182a): a profile mutation means the answer
+    # addressed the gap. "declined" is already handled upstream by
+    # is_termination_signal, so an answer that changes nothing -> follow up once.
+    addressed = turn.addressed
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
-    if gap_resolution in ("full", "declined") or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
+    if addressed or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
         skipped_set_updated = set(state.get("skipped_gaps", []))
@@ -1053,7 +1039,7 @@ async def send_message(
             complete=False,
             question=next_question,
             gaps_remaining=gaps_remaining,
-            pending_conflicts=merge_conflicts if merge_conflicts else None,
+            pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=next_choices,
         )
 
@@ -1063,10 +1049,7 @@ async def send_message(
         qpg[current_gap] = questions_for_gap + 1
         state["questions_per_gap"] = qpg
 
-        follow_up_hint = (
-            patch.get("follow_up_hint")
-            or f"ask for a more specific or concrete example related to {current_gap}"
-        )
+        follow_up_hint = f"ask for a more specific or concrete example related to {current_gap}"
         gap_category = (state.get("gap_categories") or {}).get(current_gap)
 
         follow_up_data = await question_generator_with_profile(
@@ -1095,7 +1078,7 @@ async def send_message(
             complete=False,
             question=follow_up_question,
             gaps_remaining=gaps_remaining,
-            pending_conflicts=merge_conflicts if merge_conflicts else None,
+            pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=None,
         )
 

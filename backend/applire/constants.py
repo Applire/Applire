@@ -72,6 +72,12 @@ CV_EXTRACTION_MAX_TOKENS: int = 16384
 # (ADR-009 amendment, F-B follow-up).
 CV_GENERATION_MAX_TOKENS: int = 16384
 
+# Token ceiling for the ADR-046 single-call profile reconciler. The whole master
+# profile plus a chunk of new information goes in, and an arbitrarily long batch of
+# typed ops comes out — so this matches the CV generation/extraction ceiling rather
+# than the chrome budget. Reasoning is left ON for this content-reasoning call.
+RECONCILE_MAX_TOKENS: int = 16384
+
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).

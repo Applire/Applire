@@ -156,18 +156,59 @@ def _make_active_session(job_id, profile_id, gap_id=None, state=None):
 def _mock_provider(question="What is your GCP experience?"):
     provider = MagicMock()
     provider.acomplete = AsyncMock(return_value=question)
+    # aparse_json is called by question_generator_with_profile (MODE A) and the
+    # language-review loop (_review_question_language / review_and_refine).
+    # The generator reads "question" + "choices"; the reviewer reads "approved".
+    # US182a: send_message no longer calls aparse_json for response parsing —
+    # that path was replaced by reconcile_interview_turn (patched in these tests).
+    # The old lexical-parser keys (gap_resolution, gaps_also_addressed,
+    # work_history, skills, certifications, languages, education, follow_up_hint)
+    # are not consumed by any active code path and have been removed.
     provider.aparse_json = AsyncMock(return_value={
-        "gap_resolution": "full",
-        "follow_up_hint": None,
-        "gaps_also_addressed": [],
-        "skills": ["GCP"],
-        "work_history": [],
-        "certifications": [],
-        "languages": [],
-        "education": [],
+        "question": question,
+        "choices": None,
+        "approved": True,
     })
     provider.__class__.__name__ = "MockProvider"
     return provider
+
+
+# ---------------------------------------------------------------------------
+# US182a — interview reconciliation-engine turn helpers
+# ---------------------------------------------------------------------------
+# send_message no longer calls the lexical response_parser/profile_updater; it
+# delegates one turn to reconcile_interview_turn(), which runs the ADR-046
+# engine and returns an InterviewTurnResult. These helpers build that result so
+# tests can drive each loop branch (addressed → advance; no change → follow up)
+# without invoking a real provider.
+
+def _addressed_turn(profile_dict, *, changes=None, conflicts=None):
+    """A turn that produced at least one profile change → gap addressed → advance."""
+    from applire.schemas.profile import FieldChange
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    if changes is None:
+        changes = [
+            FieldChange(section="skills", field="GCP", action="added", new_value="GCP")
+        ]
+    return InterviewTurnResult(
+        profile_dict=profile_dict,
+        changes=list(changes),
+        addressed=True,
+        conflict_summaries=list(conflicts or []),
+    )
+
+
+def _unaddressed_turn(profile_dict, *, conflicts=None):
+    """A turn that produced no profile change → gap not addressed → follow up once."""
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    return InterviewTurnResult(
+        profile_dict=profile_dict,
+        changes=[],
+        addressed=False,
+        conflict_summaries=list(conflicts or []),
+    )
 
 
 # ===========================================================================
@@ -701,7 +742,7 @@ class TestSendMessage:
 
     @pytest.mark.asyncio
     async def test_full_resolution_advances_to_next_gap(self, sqlite_session):
-        """gap_resolution='full' advances to the next gap."""
+        """An answer that addresses the gap advances to the next gap (ADR-046)."""
         from applire.services.session import send_message
 
         job = _make_job()
@@ -714,18 +755,12 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "full",
-            "follow_up_hint": None,
-            "skills_to_add": ["GCP"],
-            "work_history_to_add": [],
-            "certifications_to_add": [],
-            "languages_to_add": [],
-            "education_to_add": [],
-        }
+        # The reconciler added a skill → the gap is addressed → the loop advances.
+        turn = _addressed_turn(profile.profile_json)
 
         with (
-            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -739,12 +774,15 @@ class TestSendMessage:
         assert result.gaps_remaining == 1
 
     @pytest.mark.asyncio
-    async def test_declined_resolution_advances_to_next_gap(self, sqlite_session):
-        """gap_resolution='declined' advances instead of drilling follow-ups (bug 3).
+    async def test_addressed_answer_advances_to_next_gap(self, sqlite_session):
+        """An addressed turn advances exactly one gap → gaps_remaining drops to 1.
 
-        When the candidate declines a gap, the orchestrator must move on rather
-        than asking up to INTERVIEW_MAX_QUESTIONS_PER_GAP follow-ups for
-        experience the candidate has said they don't have.
+        Migrated from the former gap_resolution='declined' test: under ADR-046 the
+        send_message layer no longer routes on a 'declined' verdict (decline is a
+        termination signal handled upstream, and a no-info answer now follows up
+        once rather than advancing). What this test still guards is the advance
+        arithmetic — a single addressed turn moves to the second (and last) of two
+        gaps, leaving one remaining, not still two.
         """
         from applire.services.session import send_message
 
@@ -758,18 +796,11 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "declined",
-            "follow_up_hint": None,
-            "skills_to_add": [],
-            "work_history_to_add": [],
-            "certifications_to_add": [],
-            "languages_to_add": [],
-            "education_to_add": [],
-        }
+        turn = _addressed_turn(profile.profile_json)
 
         with (
-            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -783,8 +814,14 @@ class TestSendMessage:
         assert result.gaps_remaining == 1
 
     @pytest.mark.asyncio
-    async def test_partial_resolution_generates_follow_up(self, sqlite_session):
-        """gap_resolution='partial' generates a follow-up question."""
+    async def test_unaddressed_answer_generates_follow_up(self, sqlite_session):
+        """A turn that produced no profile change stays on the gap and follows up.
+
+        Migrated from the former gap_resolution='partial' test: under ADR-046 an
+        answer that yields no profile change (and is not a termination signal) is
+        'not addressed' → the loop asks one bounded follow-up on the same gap
+        rather than advancing.
+        """
         from applire.services.session import send_message
 
         job = _make_job()
@@ -797,18 +834,11 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "partial",
-            "follow_up_hint": "ask about GCP certified architect experience",
-            "skills_to_add": [],
-            "work_history_to_add": [],
-            "certifications_to_add": [],
-            "languages_to_add": [],
-            "education_to_add": [],
-        }
+        turn = _unaddressed_turn(profile.profile_json)
 
         with (
-            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Have you taken any GCP architect exams?", "choices": None})),
         ):
@@ -818,12 +848,22 @@ class TestSendMessage:
             )
 
         assert result.complete is False
+        # Still on the same (first) gap → both gaps remain.
+        assert result.gaps_remaining == 2
         assert "GCP architect" in result.question
 
     @pytest.mark.asyncio
-    async def test_cross_gap_resolution_populates_gaps_also_addressed(self, sqlite_session):
-        """Full resolution of the current gap advances to the next question or completes."""
+    async def test_conflict_summaries_surface_as_pending_conflicts(self, sqlite_session):
+        """An addressed turn advances AND surfaces engine conflicts to the client.
+
+        Migrated from the former cross-gap 'gaps_also_addressed' test (the lexical
+        gaps_also_addressed concept is gone under ADR-046). What remains worth
+        guarding: when reconcile_interview_turn reports conflict_summaries, the
+        loop must pass them through as the response's pending_conflicts while still
+        advancing on an addressed turn.
+        """
         from applire.services.session import send_message
+        from applire.schemas.session import ConflictSummary
 
         job = _make_job()
         profile = _make_profile()
@@ -835,18 +875,14 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "full",
-            "follow_up_hint": None,
-            "skills_to_add": ["GCP", "FastAPI"],
-            "work_history_to_add": [],
-            "certifications_to_add": [],
-            "languages_to_add": [],
-            "education_to_add": [],
-        }
+        conflict = ConflictSummary(
+            conflict_id="c1", field="skills.GCP", old_value="beginner", new_value="advanced"
+        )
+        turn = _addressed_turn(profile.profile_json, conflicts=[conflict])
 
         with (
-            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -855,9 +891,12 @@ class TestSendMessage:
                 sqlite_session, _mock_provider()
             )
 
-        # Full resolution of the first gap advances to the next gap
-        assert result.complete is False or result.complete is True  # either is valid
-        assert result.question is not None or result.complete is True
+        # Addressed → advanced to the next gap …
+        assert result.complete is False
+        assert result.question == "Tell me about FastAPI."
+        # … and the engine's conflicts are surfaced to the client.
+        assert result.pending_conflicts is not None
+        assert result.pending_conflicts[0].conflict_id == "c1"
 
     @pytest.mark.asyncio
     async def test_hard_ceiling_triggers_completion(self, sqlite_session):
@@ -881,18 +920,12 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "none",
-            "follow_up_hint": None,
-            "gaps_also_addressed": [],
-            "skills": [],
-            "work_history": [],
-            "certifications": [],
-            "languages": [],
-            "education": [],
-        }
+        # The ceiling check fires before the advance decision, so the turn result
+        # is incidental — any reconciled turn must still hit the ceiling.
+        turn = _unaddressed_turn(profile.profile_json)
 
-        with patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)):
+        with patch("applire.services.session.reconcile_interview_turn",
+                   new=AsyncMock(return_value=turn)):
             result = await send_message(
                 session_record.id, "I don't have much GCP experience.",
                 sqlite_session, _mock_provider()
@@ -924,18 +957,11 @@ class TestSendMessage:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "full",
-            "follow_up_hint": None,
-            "gaps_also_addressed": [],
-            "skills": ["GCP"],
-            "work_history": [],
-            "certifications": [],
-            "languages": [],
-            "education": [],
-        }
+        # Addressing the only remaining gap → no gaps left → session completes.
+        turn = _addressed_turn(profile.profile_json)
 
-        with patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)):
+        with patch("applire.services.session.reconcile_interview_turn",
+                   new=AsyncMock(return_value=turn)):
             result = await send_message(
                 session_record.id, "I have extensive GCP experience.",
                 sqlite_session, _mock_provider()
@@ -1494,18 +1520,21 @@ class TestSessionEdgePaths:
         sqlite_session.add(session_record)
         await sqlite_session.commit()
 
-        parser_result = {
-            "gap_resolution": "full",
-            "follow_up_hint": None,
-            "skills_to_add": [],
-            "work_history_to_add": [{"company": "Acme", "role": "Engineer", "start_date": "2020-01"}],
-            "certifications_to_add": [],
-            "languages_to_add": [],
-            "education_to_add": [],
-        }
+        # Reconciler merged the answer into work_experience → gap addressed →
+        # the guided loop advances to the next gap and loads job context for it.
+        from applire.schemas.profile import FieldChange
+        updated_profile = dict(profile.profile_json)
+        updated_profile["work_experience"] = [
+            {"company": "Acme", "role": "Engineer", "start_date": "2020-01"}
+        ]
+        turn = _addressed_turn(
+            updated_profile,
+            changes=[FieldChange(section="work_experience", field="Acme", action="added")],
+        )
 
         with (
-            patch("applire.services.session.response_parser", new=AsyncMock(return_value=parser_result)),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
             patch(
                 "applire.services.session.question_generator_with_profile",
                 new=AsyncMock(return_value={"question": "Tell me about your education.", "choices": None}),
