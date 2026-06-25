@@ -47,3 +47,31 @@ async def test_bridge_empty_ops_is_not_addressed():
     )
     assert out.addressed is False
     assert out.changes == []
+
+
+@pytest.mark.asyncio
+async def test_bridge_preserves_existing_enrichment_history():
+    """The dict->MasterProfileData->dict round-trip must NOT drop a pre-existing
+    enrichment_history; a new record is appended to it (the one real data-loss
+    vector flagged in the US182a final review)."""
+    prior = {
+        "timestamp": "2026-06-01T00:00:00+00:00",
+        "source": "cv_upload",
+        "source_session_id": "earlier",
+        "changes": [],
+    }
+    profile = {
+        "personal_info": {"full_name": "Test User"},
+        "metadata": {"enrichment_history": [prior]},
+    }
+    out = await reconcile_interview_turn(
+        profile_dict=profile, gap="skills", question="What do you use?",
+        answer="Python daily", provider=MockLLMProvider(), session_id="s2",
+    )
+    history = out.profile_dict["metadata"]["enrichment_history"]
+    # The prior record survives the round-trip AND the new interview record is appended.
+    assert len(history) == 2
+    assert history[0]["source"] == "cv_upload"
+    assert history[0]["source_session_id"] == "earlier"
+    assert history[1]["source"] == "interview"
+    assert history[1]["source_session_id"] == "s2"
