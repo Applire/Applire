@@ -170,6 +170,8 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 **Reasoning ("thinking") models:** reasoning tokens count against `max_tokens`, so on short generations they can crowd out the visible answer. `acomplete`/`aparse_json` take a per-call `disable_thinking` flag — left on (`None`) for serious content (CV, cover letter, reviewers), set `True` for short "chrome" generations (interview questions, CV-section assists) so the budget reaches the answer. OpenRouter applies it via the cross-vendor `reasoning` parameter; providers without a reasoning toggle ignore the flag.
 
+`disable_thinking` is **best-effort**, so self-hosting a thinking model needs no special configuration. Some models *mandate* reasoning and reject `reasoning:{enabled:false}` (e.g. Gemini's Flash thinking models return HTTP 400 "Reasoning is mandatory … cannot be disabled"); the OpenRouter provider catches that, retries once with reasoning left on and the budget raised to a floor, and logs a warning — the call succeeds instead of erroring. Conversely, calls that genuinely need a large output keep thinking on *and* a generous budget: CV→profile extraction uses `CV_EXTRACTION_MAX_TOKENS` (16384) so a rich CV plus the model's reasoning trace both fit without truncating.
+
 ---
 
 ### ADR-012 — Edition Gating (Import-Based Detection)
