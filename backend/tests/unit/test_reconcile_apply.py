@@ -260,6 +260,17 @@ def test_upsert_skill_new():
     assert any(c.action == "added" and c.section == "skills" for c in result.changes)
 
 
+def test_upsert_skill_freetext_category_does_not_crash():
+    """A real-LLM trace emitted category='Cloud Platforms' (not a valid Literal).
+    apply_ops must not crash; the category defaults to 'technical'."""
+    profile = MasterProfileData()
+    ops = [UpsertSkill(name="Azure", category="Cloud Platforms")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert len(result.profile.skills) == 1
+    assert result.profile.skills[0].name == "Azure"
+    assert result.profile.skills[0].category == "technical"
+
+
 def test_upsert_skill_evidence_resolved_via_ref():
     profile = MasterProfileData()
     ops = [

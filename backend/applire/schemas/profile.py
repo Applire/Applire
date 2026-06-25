@@ -254,6 +254,10 @@ class Skill(BaseModel):
             lowered = v.lower()
             if lowered in {"technical", "soft", "language", "domain"}:
                 return lowered
+            # Unknown category string — default to technical rather than raising
+            # (e.g. an LLM/import emitting a free-text category like "Cloud
+            # Platforms"); mirrors normalize_proficiency's robustness.
+            return "technical"
         return v
 
     @field_validator("proficiency", mode="before")

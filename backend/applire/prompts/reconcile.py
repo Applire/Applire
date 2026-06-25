@@ -78,6 +78,8 @@ Operations:
 
 - upsert_skill — a skill. Fields: name, category, proficiency, evidence (a list
   of existing ids or local refs of the experiences that demonstrate this skill).
+  category MUST be one of: "technical", "soft", "language", "domain".
+  proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
 
 - upsert_certification — Fields: name, issuing_organization, date_obtained,
   expiry_date, credential_id, credential_url.
