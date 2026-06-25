@@ -132,6 +132,17 @@ Operations:
 6. When you cannot confidently decide whether a fact belongs to an existing
    entity vs is new, or which parent a project belongs to, emit
    request_confirmation (a targeted question) instead of guessing.
+
+7. A DIFFERENT TITLE for an entity you already have is itself information — do
+   NOT drop it. When the new information names an existing employer / role /
+   organization under a different job title (a synonym like "Owner" for
+   "Founder", or a translation like "IT Quality Officer" for
+   "IT Qualitätsbeauftragter"), emit the matching upsert op
+   (upsert_work / upsert_volunteer) with "target" set to that entity's `id` and
+   "role" set to the new title — the system records it as an alternate title.
+   Reserve add_bullets for genuinely NEW responsibilities, achievements, or
+   technologies; never use add_bullets merely to restate a title or the same
+   fact in different words.
 """
 
 
