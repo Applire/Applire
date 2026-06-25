@@ -285,11 +285,9 @@ def test_upsert_volunteer():
     assert v.cause == "Health"
 
 
-def test_project_parent_volunteer_has_no_id():
-    # SCHEMA NOTE: VolunteerActivity has no `id` field (unlike WorkEntry/
-    # ProjectEntry), so a project parented to a volunteer cannot store a
-    # back-reference id. The applier resolves the parent but, finding no id,
-    # leaves associated_experience None rather than crashing.
+def test_project_parent_volunteer_links_via_id():
+    # ADR-044/046: a project may hang off a volunteer role. VolunteerActivity now
+    # carries an `id`, so the project stores a back-reference to its volunteer parent.
     vol_ref = "v1"
     profile = MasterProfileData()
     ops = [
@@ -297,7 +295,9 @@ def test_project_parent_volunteer_has_no_id():
         UpsertProject(ref="p1", target=None, name="Outreach", parent=vol_ref),
     ]
     result = apply_ops(profile, ops, SOURCE)
-    assert result.profile.projects[0].associated_experience is None
+    vol = result.profile.volunteer_activities[0]
+    assert vol.id
+    assert result.profile.projects[0].associated_experience == vol.id
 
 
 def test_upsert_certification_dedup():

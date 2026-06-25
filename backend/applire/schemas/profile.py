@@ -291,6 +291,10 @@ class Publication(BaseModel):
 
 
 class VolunteerActivity(ExperienceBase):
+    # id added (ADR-044 conformance, ADR-046): ProjectEntry.associated_experience
+    # may hang a project off a volunteer role, but that needs a stable volunteer id
+    # to point at. Mirrors WorkEntry/ProjectEntry; additive JSONB, no migration.
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     organization: str = ""
     # start_date/end_date inherited from ExperienceBase as str | None (ADR-044
     # refinement): JSONB stores ISO strings, so legacy `date` values load fine.
