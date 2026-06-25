@@ -55,6 +55,14 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
 # calls so reasoning tokens don't eat the budget (ADR-009 amendment, F-B).
 INTERVIEW_QUESTION_MAX_TOKENS: int = 512
 
+# Token ceiling for CV/LinkedIn → master-profile extraction (and its review/refine
+# retries). The output is a full structured profile, and on thinking models the
+# reasoning tokens share this budget — at the old 8192 a rich CV truncated mid-JSON
+# (finish=length → LLMTruncatedError → /api/profile/upload 500). Extraction keeps
+# thinking ON (accuracy matters), so it needs real headroom rather than a small
+# floor (ADR-009 amendment, F-B follow-up).
+CV_EXTRACTION_MAX_TOKENS: int = 16384
+
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).

@@ -28,7 +28,7 @@ from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.constants import LLM_REVIEW_MAX_RETRIES
+from applire.constants import CV_EXTRACTION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
 from applire.models.profile import MasterProfile
 from applire.models.uploads import UploadRecord
 from applire.prompts.cv_extraction import (
@@ -293,7 +293,7 @@ async def _import_from_text(
         build_user_prompt(raw_text),
         system=SYSTEM_PROMPT,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=CV_EXTRACTION_MAX_TOKENS,
     )
     data = await review_and_refine(
         source=raw_text,
@@ -304,7 +304,7 @@ async def _import_from_text(
         reviewer_system=_EXTRACTION_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=LLM_REVIEW_MAX_RETRIES,
-        generator_max_tokens=8192,
+        generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
         chain_id="profile_extraction",
     )
     # US179 / ADR-041: annotate role-aware expected fields at write time so the
@@ -709,7 +709,9 @@ async def upload_cv(
         prompt = build_generic_prompt(raw_text)
         system = GENERIC_CV_EXTRACTION_PROMPT
 
-    data: dict = await provider.aparse_json(prompt, system=system, temperature=0.1, max_tokens=8192)
+    data: dict = await provider.aparse_json(
+        prompt, system=system, temperature=0.1, max_tokens=CV_EXTRACTION_MAX_TOKENS
+    )
     data = await review_and_refine(
         source=raw_text,
         draft=data,
@@ -719,7 +721,7 @@ async def upload_cv(
         reviewer_system=_CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=LLM_REVIEW_MAX_RETRIES,
-        generator_max_tokens=8192,
+        generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
         chain_id="cv_extraction",
     )
     # US179 / ADR-041: annotate role-aware expected fields at write time (same as
