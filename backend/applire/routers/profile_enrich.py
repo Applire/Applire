@@ -330,9 +330,8 @@ async def respond_to_enrich(
         lang=lang,
     )
     updated_profile_data = turn.profile_dict
-    profile_updated = turn.addressed
 
-    if profile_updated:
+    if turn.addressed:
         profile_record.profile_json = updated_profile_data
         await db.flush()
 
@@ -363,7 +362,7 @@ async def respond_to_enrich(
         next_question=next_question,
         gaps=gap_items,
         done=done,
-        profile_updated=profile_updated,
+        profile_updated=turn.addressed,
     )
 
 
