@@ -82,7 +82,11 @@ from applire.templates.labels import cv_labels
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
-from applire.constants import CV_LANGUAGE_REVIEW_MAX_RETRIES, LLM_REVIEW_MAX_RETRIES
+from applire.constants import (
+    CV_GENERATION_MAX_TOKENS,
+    CV_LANGUAGE_REVIEW_MAX_RETRIES,
+    LLM_REVIEW_MAX_RETRIES,
+)
 
 
 async def _review_cv_language(draft: dict, output_language: str, provider) -> dict:
@@ -102,7 +106,7 @@ async def _review_cv_language(draft: dict, output_language: str, provider) -> di
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
-        generator_max_tokens=8192,
+        generator_max_tokens=CV_GENERATION_MAX_TOKENS,
         chain_id="cv_language",
     )
 
@@ -444,7 +448,7 @@ async def _render_cv_background(
                 ),
                 system=SYSTEM_PROMPT,
                 temperature=0.3,
-                max_tokens=8192,
+                max_tokens=CV_GENERATION_MAX_TOKENS,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -458,7 +462,7 @@ async def _render_cv_background(
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
-                generator_max_tokens=8192,
+                generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                 chain_id="cv_tailoring",
             )
 

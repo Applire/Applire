@@ -82,6 +82,10 @@ def test_raise_if_truncated_noop_on_normal_or_unset(reason):
 def _openrouter(monkeypatch, **kwargs):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "openrouter_model", "google/gemini-3.5-flash")
+    # Pin reasoning settings so tests don't inherit the deployment .env (a local
+    # OPENROUTER_REASONING_EFFORT would otherwise change _extra_body's default).
+    monkeypatch.setattr(cfg.settings, "openrouter_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "openrouter_disable_thinking", False, raising=False)
     with patch("openai.AsyncOpenAI"):
         from applire.providers.llm.openrouter import OpenRouterProvider
         return OpenRouterProvider(api_key="test-key", **kwargs)
@@ -231,6 +235,62 @@ async def test_reasoning_fallback_also_covers_aparse_json(monkeypatch):
     result = await provider.aparse_json("extract", max_tokens=512, disable_thinking=True)
     assert result == {"ok": True}
     assert provider._client.chat.completions.create.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter — bounded reasoning effort (caps reasoning so it doesn't eat the
+# max_tokens budget on thinking models that won't let reasoning be disabled)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_emitted_when_configured(monkeypatch):
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_openai_response("ok", "stop")
+    )
+    await provider.acomplete("ask")  # thinking on, effort bounded
+    assert _extra_body_of(provider._client.chat.completions.create) == {
+        "reasoning": {"effort": "low"}
+    }
+
+
+@pytest.mark.asyncio
+async def test_disable_thinking_overrides_effort(monkeypatch):
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_openai_response("ok", "stop")
+    )
+    # Explicitly disabling reasoning wins over the effort default.
+    await provider.acomplete("ask", disable_thinking=True)
+    assert _extra_body_of(provider._client.chat.completions.create) == {
+        "reasoning": {"enabled": False}
+    }
+
+
+@pytest.mark.asyncio
+async def test_reasoning_mandatory_fallback_uses_configured_effort(monkeypatch):
+    """When a model rejects reasoning-disable AND an effort is configured, the retry
+    bounds reasoning to that effort rather than dropping it (→ unbounded)."""
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(side_effect=[
+        _bad_request("Reasoning is mandatory for this endpoint and cannot be disabled."),
+        _openai_response("a complete question?", "stop"),
+    ])
+    result = await provider.acomplete("ask", max_tokens=512, disable_thinking=True)
+    assert result == "a complete question?"
+    calls = provider._client.chat.completions.create.call_args_list
+    assert calls[0].kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    assert calls[1].kwargs["extra_body"] == {"reasoning": {"effort": "low"}}
+    assert calls[1].kwargs["max_tokens"] >= 4096
+
+
+@pytest.mark.asyncio
+async def test_generation_paths_use_raised_budget():
+    """CV/cover-letter generation must request the raised budget, not the old 8192
+    that truncated a thinking model mid-document."""
+    from applire.constants import CV_GENERATION_MAX_TOKENS
+    assert CV_GENERATION_MAX_TOKENS > 8192
 
 
 @pytest.mark.asyncio

@@ -63,6 +63,15 @@ INTERVIEW_QUESTION_MAX_TOKENS: int = 512
 # floor (ADR-009 amendment, F-B follow-up).
 CV_EXTRACTION_MAX_TOKENS: int = 16384
 
+# Token ceiling for generated documents — CV tailoring, cover letter, and the
+# language-refinement retries. Same reasoning as extraction: a full tailored CV plus
+# a thinking model's reasoning trace share this budget, so the old 8192 truncated
+# mid-JSON (finish=length → LLMTruncatedError). max_tokens is a *ceiling* (billed on
+# actual usage, not the cap), so the headroom is free unless a generation truly needs
+# it; reasoning effort is bounded separately via OPENROUTER_REASONING_EFFORT
+# (ADR-009 amendment, F-B follow-up).
+CV_GENERATION_MAX_TOKENS: int = 16384
+
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).
