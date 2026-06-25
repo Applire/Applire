@@ -16,12 +16,16 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Interview state machine — four nodes (ADR 004, Iteration 14).
+Interview state machine — two nodes (ADR 004, Iteration 14).
 
 Node flow:
-    GapDetector → QuestionGenerator → [REST break] → ResponseParser → ProfileUpdater
-                       ↑_______________________________________________|
+    GapDetector → QuestionGenerator → [REST break]
+                       ↑___________________________|
                        (loop until all gaps addressed, done-signal, or hard ceiling)
+
+Processing the candidate's answer (extraction + profile merge) is handled by the
+reconciliation engine (services/profile/reconcile/), called from
+services/session.py::reconcile_interview_turn — not here.
 
 MODE A (Targeted Gap-Fill):
     GapDetector consumes a GapAnalysis — returns C-first, then B gaps.

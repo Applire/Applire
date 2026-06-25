@@ -14,7 +14,6 @@ Run:
     PYTHONPATH=backend pytest tests/unit/test_sprint13_coverage.py -v
 """
 
-import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path

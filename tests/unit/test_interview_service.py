@@ -2,7 +2,8 @@
 Sprint 15 — Smart Gap Interview unit tests.
 
 Tests: question_generator_with_profile, send_message advance/follow-up/cross-gap
-       logic, _next_valid_index, _count_remaining, build_response_parser_prompt,
+       logic, _next_valid_index, _count_remaining,
+       build_response_parser_prompt (prompt builder from applire.prompts.interview),
        build_follow_up_question_prompt.
 
 No Docker, no real LLM — async tests use mocked providers.
