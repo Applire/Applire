@@ -330,6 +330,14 @@ class MockLLMProvider(LLMProvider):
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
+        # ADR-046 / US181 — single-call profile reconciler. Recognised so the
+        # chain returns a valid envelope ({"ops": [], "ambiguities": []}) instead
+        # of the {"mock": ...} fallback, which would parse to an empty result but
+        # signals an unrecognised chain. A no-op is fine for now.
+        # TODO(US184): enrich to emit representative ops once ingest is wired.
+        if "profile reconciler" in system_lower:
+            return {"ops": [], "ambiguities": []}
+
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)
 

@@ -1,0 +1,111 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+"""ADR-046 — the single-call reconciler engine.
+
+``reconcile`` turns (current profile + new info + source) into a typed
+``ReconcileResult`` in ONE ``provider.aparse_json`` call (no multi-turn tool loop
+— that was explicitly rejected in ADR-046). The deterministic applier
+(``apply.py``) consumes the result; wiring into the interview / CV / ingest paths
+is a later task (US184).
+
+Parsing is DEFENSIVE: a single op that fails validation is dropped, the rest are
+kept; a wholly-unusable payload yields an empty ``ReconcileResult``. The engine
+never raises on LLM noise.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
+
+from applire.constants import RECONCILE_MAX_TOKENS
+from applire.prompts.reconcile import (
+    RECONCILE_SYSTEM_PROMPT,
+    build_reconcile_prompt,
+)
+from applire.providers.llm.base import LLMProvider
+from applire.schemas.profile import MasterProfileData
+from applire.services.profile.reconcile.ops import (
+    ReconcileOp,
+    ReconcileResult,
+    RequestConfirmation,
+)
+
+logger = logging.getLogger(__name__)
+
+# Validates a single op against the discriminated ReconcileOp union.
+_OP_ADAPTER: TypeAdapter[ReconcileOp] = TypeAdapter(ReconcileOp)
+
+
+async def reconcile(
+    profile: MasterProfileData,
+    new_info: Any,
+    source: str,
+    provider: LLMProvider,
+    lang: str = "en",
+) -> ReconcileResult:
+    """Reconcile ``new_info`` into ``profile`` via one LLM call (ADR-046).
+
+    Returns a ``ReconcileResult`` of typed ops + folded ambiguities. Never raises:
+    on any provider/parse failure it degrades to a (possibly partial, possibly
+    empty) result.
+    """
+    try:
+        data = await provider.aparse_json(
+            build_reconcile_prompt(profile, new_info, source),
+            system=RECONCILE_SYSTEM_PROMPT,
+            temperature=0.1,
+            max_tokens=RECONCILE_MAX_TOKENS,
+        )
+    except Exception:  # noqa: BLE001 — never let LLM/transport errors escape
+        logger.exception("reconcile: provider.aparse_json failed; returning empty result")
+        return ReconcileResult()
+
+    if not isinstance(data, dict):
+        return ReconcileResult()
+
+    ops = _parse_ops(data.get("ops"))
+    ambiguities = _parse_ambiguities(data.get("ambiguities"))
+    return ReconcileResult(ops=ops, ambiguities=ambiguities)
+
+
+def _parse_ops(raw: Any) -> list[ReconcileOp]:
+    """Validate each op independently; drop the ones that fail, keep the rest."""
+    if not isinstance(raw, list):
+        return []
+    ops: list[ReconcileOp] = []
+    for item in raw:
+        try:
+            ops.append(_OP_ADAPTER.validate_python(item))
+        except ValidationError:
+            logger.debug("reconcile: dropped malformed op %r", item)
+    return ops
+
+
+def _parse_ambiguities(raw: Any) -> list[RequestConfirmation]:
+    """Validate each ambiguity as a RequestConfirmation; drop malformed ones."""
+    if not isinstance(raw, list):
+        return []
+    ambiguities: list[RequestConfirmation] = []
+    for item in raw:
+        try:
+            ambiguities.append(RequestConfirmation.model_validate(item))
+        except ValidationError:
+            logger.debug("reconcile: dropped malformed ambiguity %r", item)
+    return ambiguities
