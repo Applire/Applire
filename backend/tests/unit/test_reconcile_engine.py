@@ -32,6 +32,7 @@ from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import (
     ReconcileResult,
     RequestConfirmation,
+    UpsertSkill,
     UpsertWork,
 )
 
@@ -191,19 +192,18 @@ async def test_mock_recognises_reconcile_chain() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_with_mock_provider_returns_empty_result() -> None:
+async def test_reconcile_with_mock_provider_parses_cleanly() -> None:
     """End-to-end through the mock: a recognised envelope parses cleanly."""
     result = await reconcile(
         MasterProfileData(), "info", "interview", MockLLMProvider()
     )
     assert isinstance(result, ReconcileResult)
-    # Mock now emits a representative op batch (not empty) — just verify shape.
     assert result.ambiguities == []
+    # The ops payload is covered by test_mock_reconciler_emits_representative_ops.
 
 
 @pytest.mark.asyncio
 async def test_mock_reconciler_emits_representative_ops() -> None:
-    from applire.services.profile.reconcile.ops import UpsertSkill
     result = await reconcile(
         MasterProfileData(), "I use Python daily.", "interview", MockLLMProvider()
     )

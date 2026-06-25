@@ -39,6 +39,7 @@ System prompt fingerprints:
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
+import copy
 import json
 import re
 from typing import Any
@@ -342,7 +343,7 @@ class MockLLMProvider(LLMProvider):
         # representative op batch (one upsert_skill) so the interview loop's
         # apply + advance path can be exercised deterministically under the mock.
         if "profile reconciler" in system_lower:
-            return dict(_RECONCILE_RESPONSE)
+            return copy.deepcopy(_RECONCILE_RESPONSE)
 
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)
