@@ -48,7 +48,7 @@ from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
-from applire.constants import LLM_REVIEW_MAX_RETRIES
+from applire.constants import CV_GENERATION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
 from applire.prompts.cover_letter import SYSTEM_PROMPT, build_cover_letter_prompt
 from applire.prompts.review_cover_letter import (
     COVER_LETTER_REFINEMENT_PROMPT,
@@ -405,7 +405,7 @@ async def _render_cover_letter_background(
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
             letter_data = await provider.aparse_json(
-                user_prompt, system=SYSTEM_PROMPT, max_tokens=8192
+                user_prompt, system=SYSTEM_PROMPT, max_tokens=CV_GENERATION_MAX_TOKENS
             )
 
             # ADR-040 §1 / US170 (JF-M-8.1): the letter is signed and sent, so it carries

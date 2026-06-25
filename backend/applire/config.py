@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     openrouter_model: str = "mistralai/mistral-large-latest"
     openrouter_base_url: str = ""          # empty = use https://openrouter.ai/api/v1
     openrouter_disable_thinking: bool = False  # global default; emits reasoning:{enabled:false} (cross-vendor: Gemini/Qwen/DeepSeek). Per-call disable_thinking overrides it (F-B)
+    # Reasoning ("thinking") effort for models that keep reasoning ON. Reasoning tokens
+    # share the max_tokens budget, and some models (e.g. gemini-3.5-flash) over-think
+    # simple transforms — burning the budget so the visible output truncates. Set "low"
+    # (or "medium"/"high") to cap that via OpenRouter's cross-vendor reasoning.effort;
+    # empty = let the model decide (current behaviour). Accepted even by models that
+    # *mandate* reasoning and reject reasoning:{enabled:false}. (ADR-009 amendment)
+    openrouter_reasoning_effort: str = ""  # "" = unset; "low" | "medium" | "high"
     # Requesty — EU-hosted OpenAI-compat gateway (ADR-009 amended 2026-06-14)
     requesty_api_key: str = ""
     requesty_model: str = "mistralai/mistral-large-latest"  # set an EU-region model for full residency

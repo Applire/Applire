@@ -51,6 +51,21 @@ _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
 _X_TITLE = "Applire"
 
+# Some models mandate reasoning and reject {"reasoning": {"enabled": False}} with a
+# 400 (e.g. google/gemini-3.5-flash: "Reasoning is mandatory ... cannot be disabled").
+# A self-hoster who points Applire at such a model shouldn't have to know that — we
+# retry once with reasoning left ON, raising the budget to this floor so the now
+# unavoidable reasoning tokens don't crowd out a short answer (→ truncation).
+_REASONING_FALLBACK_MIN_TOKENS = 4096
+
+
+def _is_reasoning_mandatory_error(exc: Exception) -> bool:
+    """True when a 400 says the model won't let us turn reasoning off."""
+    msg = str(getattr(exc, "message", None) or exc).lower()
+    return "reasoning" in msg and (
+        "mandatory" in msg or "cannot be disabled" in msg or "can't be disabled" in msg
+    )
+
 _retry = retry(
     retry=retry_if_exception_type(openai.RateLimitError),
     stop=stop_after_attempt(3),
@@ -69,6 +84,7 @@ class OpenRouterProvider(LLMProvider):
         base_url: str | None = None,
         timeout: int = 30,
         disable_thinking: bool | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
         self._client = openai.AsyncOpenAI(
@@ -86,6 +102,14 @@ class OpenRouterProvider(LLMProvider):
             disable_thinking if disable_thinking is not None
             else settings.openrouter_disable_thinking
         )
+        # When reasoning stays ON, bound its effort (low/medium/high) so it doesn't
+        # eat the max_tokens budget. "" = unset (let the model decide). Accepted even by
+        # models that mandate reasoning, so it doubles as the fallback when a model
+        # rejects reasoning:{enabled:false} (ADR-009 amendment, F-B follow-up).
+        self._reasoning_effort = (
+            reasoning_effort if reasoning_effort is not None
+            else settings.openrouter_reasoning_effort
+        ) or ""
 
     async def acomplete(
         self,
@@ -143,7 +167,44 @@ class OpenRouterProvider(LLMProvider):
         # thinkingBudget, Qwen enable_thinking, etc.) — unlike the vendor-specific
         # enable_thinking key, this actually reaches Gemini thinking models.
         effective = disable_thinking if disable_thinking is not None else self._disable_thinking
-        return {"reasoning": {"enabled": False}} if effective else None
+        if effective:
+            return {"reasoning": {"enabled": False}}
+        if self._reasoning_effort:
+            return {"reasoning": {"effort": self._reasoning_effort}}
+        return None
+
+    async def _create(self, *, max_tokens: int, extra_body: dict | None, **kwargs):
+        """Call the chat-completions endpoint, degrading gracefully when the model
+        mandates reasoning. If we asked to disable reasoning and the model 400s for
+        that reason, retry once with reasoning left on and a budget floor — so a
+        thinking model the operator chose still works without any configuration."""
+        try:
+            return await self._client.chat.completions.create(
+                max_tokens=max_tokens, extra_body=extra_body, **kwargs
+            )
+        except openai.BadRequestError as exc:
+            tried_disable = bool(
+                extra_body and extra_body.get("reasoning", {}).get("enabled") is False
+            )
+            if tried_disable and _is_reasoning_mandatory_error(exc):
+                # The model won't let us turn reasoning off. Retry with it bounded to
+                # the configured effort (so it doesn't run away), or — if no effort is
+                # configured — drop the block and rely on the raised budget floor.
+                base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
+                if self._reasoning_effort:
+                    base_extra["reasoning"] = {"effort": self._reasoning_effort}
+                logger.warning(
+                    "model=%s mandates reasoning; retrying with thinking on "
+                    "(effort=%s), max_tokens>=%d (%s)",
+                    self._model, self._reasoning_effort or "model-default",
+                    _REASONING_FALLBACK_MIN_TOKENS, exc,
+                )
+                return await self._client.chat.completions.create(
+                    max_tokens=max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS),
+                    extra_body=base_extra or None,
+                    **kwargs,
+                )
+            raise
 
     @_retry
     async def _complete(
@@ -155,7 +216,7 @@ class OpenRouterProvider(LLMProvider):
             self._model, temperature, max_tokens, len(messages), prompt_chars,
         )
         t0 = time.monotonic()
-        response = await self._client.chat.completions.create(
+        response = await self._create(
             model=self._model,
             messages=messages,
             temperature=temperature,
@@ -187,7 +248,7 @@ class OpenRouterProvider(LLMProvider):
             self._model, temperature, max_tokens, len(messages), prompt_chars,
         )
         t0 = time.monotonic()
-        response = await self._client.chat.completions.create(
+        response = await self._create(
             model=self._model,
             messages=messages,
             temperature=temperature,
