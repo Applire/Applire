@@ -73,7 +73,7 @@ Every architecture decision traces back to one or more of these principles. If a
 GapDetector → QuestionGenerator → ResponseParser → ProfileUpdater
 ```
 
-**Why not LangGraph:** LangGraph was evaluated and deemed over-engineered for a 4-node linear graph. The custom state machine is simpler, has no additional dependencies, and is independently testable per node. LangGraph may be revisited if the workflow grows to 8+ nodes with conditional back-edges.
+**Orchestration (superseded by ADR-045):** the original 4-node *linear* state machine was hand-rolled (no framework). As the interview gained conditional back-edges, reviewer loops, and a human-in-the-loop confirm — and converges with the unified profile-reconciliation flow into one cyclic graph — ADR-045 moves orchestration to a **declarative graph + durable checkpointer**. Hard rule: the graph orchestrates nodes only; **LLM calls stay on the provider abstraction (ADR-008)** — so providers stay pluggable and mockable. The stateful-backend, pause/resume, and one-active-session invariants below are unchanged.
 
 **Two modes:**
 - **MODE A (Targeted):** User has profile data. Focuses on filling specific gaps from gap analysis. 3–12 questions.
@@ -162,13 +162,17 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 > **EU data residency:** `mistral` (EU-hosted) and `requesty` (EU endpoint) keep data in-region, and a local `ollama` needs no cloud at all; `anthropic`/`openai` are US-hosted BYO-key options. A Claude *subscription* (Pro/Max/Team) is **not** usable — Anthropic permits only Console API keys (or Bedrock/Vertex, which `requesty`-EU routes through) in third-party apps.
 
-**Why direct SDKs over LangChain:** Consistent with the decision not to use LangGraph (ADR-004). Reduces the dependency surface and keeps the provider contract narrow and testable.
+**Why direct SDKs over LangChain:** Even under ADR-045 (which adopts a graph-orchestration substrate), the *orchestrate-vs-execute* boundary keeps LLM execution on our own provider SDKs — never LangChain's model layer. This reduces the dependency surface and keeps the provider contract narrow and testable.
 
 **Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
 
 **Truncation is a hard error (no silent half-output):** when a model stops because it hit the token budget (`finish_reason='length'`, Anthropic `stop_reason='max_tokens'`, Ollama `done_reason='length'`), providers raise `LLMTruncatedError` rather than return a partial result. This guarantees a CV or cover letter can never be persisted as valid-but-incomplete JSON closed early under budget pressure — it fails loud and retryable.
 
 **Reasoning ("thinking") models:** reasoning tokens count against `max_tokens`, so on short generations they can crowd out the visible answer. `acomplete`/`aparse_json` take a per-call `disable_thinking` flag — left on (`None`) for serious content (CV, cover letter, reviewers), set `True` for short "chrome" generations (interview questions, CV-section assists) so the budget reaches the answer. OpenRouter applies it via the cross-vendor `reasoning` parameter; providers without a reasoning toggle ignore the flag.
+
+`disable_thinking` is **best-effort**, so self-hosting a thinking model needs no special configuration. Some models *mandate* reasoning and reject `reasoning:{enabled:false}` (e.g. Gemini's Flash thinking models return HTTP 400 "Reasoning is mandatory … cannot be disabled"); the OpenRouter provider catches that, retries once with reasoning left on (bounded — see below) and the budget raised to a floor, and logs a warning — the call succeeds instead of erroring. Conversely, calls that genuinely need a large output keep thinking on *and* a generous budget: CV→profile extraction uses `CV_EXTRACTION_MAX_TOKENS` and document generation `CV_GENERATION_MAX_TOKENS` (both 16384) so a rich CV plus the model's reasoning trace both fit without truncating. (`max_tokens` is a *ceiling* — you are billed for tokens actually generated, not the cap — so the headroom is free unless a generation needs it.)
+
+**Bounding reasoning (`OPENROUTER_REASONING_EFFORT`):** on a thinking model, reasoning tokens share the `max_tokens` budget, and some models over-think simple transforms — Gemini Flash will spend ~1300 reasoning tokens drafting a cover letter, crowding out the letter itself. Set `OPENROUTER_REASONING_EFFORT=low` (or `medium`/`high`; empty = let the model decide) to cap that via OpenRouter's cross-vendor `reasoning.effort`. It is accepted even by models that mandate reasoning, so it doubles as the bound used by the fallback above. This is a deployment-wide setting today; finer per-operation control is on the roadmap.
 
 ---
 

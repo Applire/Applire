@@ -6,6 +6,42 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **CV import no longer fails on reasoning ("thinking") models.** Provider extraction
+  was capped at 8192 tokens; on a thinking model the reasoning tokens share that budget,
+  so a full CV truncated mid-JSON and the upload returned a 500 ("We couldn't read any of
+  your CVs"). The CV→profile extraction budget is now 16384 (`CV_EXTRACTION_MAX_TOKENS`),
+  with thinking kept on for accuracy. (#85, follow-up to #84/F-B.)
+- **A model that forbids disabling reasoning no longer 500s.** Short "chrome" generations
+  (interview questions, CV-section assists) ask the model to skip reasoning; some models
+  (e.g. Google's Gemini Flash thinking models) reject that with HTTP 400 "Reasoning is
+  mandatory … cannot be disabled". The OpenRouter provider now treats `disable_thinking`
+  as best-effort: it retries once with reasoning left on and the budget raised, so the
+  call succeeds with no operator configuration. (#85.)
+
+- **CV and cover-letter generation no longer truncate on reasoning ("thinking") models.**
+  On a thinking model `max_tokens` covers reasoning *and* output together, and some models
+  (Gemini Flash) over-think — burning the budget before the document is written, so
+  generation failed with a truncation error. Two fixes: the generation budget is raised to
+  16384 (`CV_GENERATION_MAX_TOKENS`), and a new `OPENROUTER_REASONING_EFFORT` setting
+  (default unset) bounds reasoning via OpenRouter's cross-vendor `reasoning.effort` — set it
+  to `low` to stop a model over-thinking simple transforms. (#85.)
+
+### Added
+- **`OPENROUTER_REASONING_EFFORT`** (`low`/`medium`/`high`; default unset = model decides).
+  Caps how much a thinking model reasons so reasoning tokens don't crowd out the answer.
+  Accepted even by models that mandate reasoning. Deployment-wide for now; finer per-operation
+  control is planned. (#85.)
+
+### Notes
+- **Reasoning ("thinking") models add noticeable latency to the interview.** Interview
+  questions are intentionally generated *without* reasoning — they're short and near
+  deterministic, so reasoning tokens are pure overhead. Models that **mandate** reasoning
+  and won't let it be disabled (e.g. Gemini Flash thinking models) therefore run each
+  interview question with reasoning on, which is markedly slower. For the snappiest
+  interview, configure a model that allows disabling reasoning (or a non-thinking model)
+  for the conversational paths. Operator-level control of this tradeoff is planned.
+
 ## [0.36.2-beta] – 2026-06-10
 
 Bug-fix release driven by a full Milan-persona QA run (English CVs + German job ad,

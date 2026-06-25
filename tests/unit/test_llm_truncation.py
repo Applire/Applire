@@ -27,9 +27,21 @@ silently truncating short generations. These tests pin two behaviours:
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import openai
 import pytest
 
 from applire.exceptions import LLMTruncatedError
+
+
+class _Stop(Exception):
+    """Sentinel to short-circuit _import_from_text right after the extraction call."""
+
+
+def _bad_request(message: str) -> openai.BadRequestError:
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(message, response=response, body=None)
 
 
 def _openai_response(content: str, finish_reason: str = "stop") -> MagicMock:
@@ -70,6 +82,10 @@ def test_raise_if_truncated_noop_on_normal_or_unset(reason):
 def _openrouter(monkeypatch, **kwargs):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "openrouter_model", "google/gemini-3.5-flash")
+    # Pin reasoning settings so tests don't inherit the deployment .env (a local
+    # OPENROUTER_REASONING_EFFORT would otherwise change _extra_body's default).
+    monkeypatch.setattr(cfg.settings, "openrouter_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "openrouter_disable_thinking", False, raising=False)
     with patch("openai.AsyncOpenAI"):
         from applire.providers.llm.openrouter import OpenRouterProvider
         return OpenRouterProvider(api_key="test-key", **kwargs)
@@ -179,3 +195,156 @@ async def test_per_call_override_beats_construction_default(monkeypatch):
     # ...but a single call re-enables it.
     await provider.acomplete("ask", disable_thinking=False)
     assert _extra_body_of(provider._client.chat.completions.create) is None
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter — graceful fallback when a model mandates reasoning
+# (self-hosters who point Applire at a thinking model that can't disable
+#  reasoning, e.g. google/gemini-3.5-flash, must still work — no config needed)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reasoning_mandatory_400_retries_with_reasoning_on(monkeypatch):
+    provider = _openrouter(monkeypatch)
+    provider._client.chat.completions.create = AsyncMock(side_effect=[
+        _bad_request("Reasoning is mandatory for this endpoint and cannot be disabled."),
+        _openai_response("a complete question?", "stop"),
+    ])
+    # Chrome asked to disable thinking; the model refuses → we must not surface a 500.
+    result = await provider.acomplete("ask", max_tokens=512, disable_thinking=True)
+    assert result == "a complete question?"
+
+    calls = provider._client.chat.completions.create.call_args_list
+    assert len(calls) == 2
+    # First attempt tried to turn reasoning off...
+    assert calls[0].kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    # ...the retry drops the reasoning block and floors the budget so the now
+    # unavoidable reasoning tokens don't crowd out the answer (→ truncation).
+    assert calls[1].kwargs.get("extra_body") in (None, {})
+    assert calls[1].kwargs["max_tokens"] >= 4096
+
+
+@pytest.mark.asyncio
+async def test_reasoning_fallback_also_covers_aparse_json(monkeypatch):
+    provider = _openrouter(monkeypatch)
+    provider._client.chat.completions.create = AsyncMock(side_effect=[
+        _bad_request("reasoning cannot be disabled for this model"),
+        _openai_response('{"ok": true}', "stop"),
+    ])
+    result = await provider.aparse_json("extract", max_tokens=512, disable_thinking=True)
+    assert result == {"ok": True}
+    assert provider._client.chat.completions.create.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter — bounded reasoning effort (caps reasoning so it doesn't eat the
+# max_tokens budget on thinking models that won't let reasoning be disabled)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_emitted_when_configured(monkeypatch):
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_openai_response("ok", "stop")
+    )
+    await provider.acomplete("ask")  # thinking on, effort bounded
+    assert _extra_body_of(provider._client.chat.completions.create) == {
+        "reasoning": {"effort": "low"}
+    }
+
+
+@pytest.mark.asyncio
+async def test_disable_thinking_overrides_effort(monkeypatch):
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_openai_response("ok", "stop")
+    )
+    # Explicitly disabling reasoning wins over the effort default.
+    await provider.acomplete("ask", disable_thinking=True)
+    assert _extra_body_of(provider._client.chat.completions.create) == {
+        "reasoning": {"enabled": False}
+    }
+
+
+@pytest.mark.asyncio
+async def test_reasoning_mandatory_fallback_uses_configured_effort(monkeypatch):
+    """When a model rejects reasoning-disable AND an effort is configured, the retry
+    bounds reasoning to that effort rather than dropping it (→ unbounded)."""
+    provider = _openrouter(monkeypatch, reasoning_effort="low")
+    provider._client.chat.completions.create = AsyncMock(side_effect=[
+        _bad_request("Reasoning is mandatory for this endpoint and cannot be disabled."),
+        _openai_response("a complete question?", "stop"),
+    ])
+    result = await provider.acomplete("ask", max_tokens=512, disable_thinking=True)
+    assert result == "a complete question?"
+    calls = provider._client.chat.completions.create.call_args_list
+    assert calls[0].kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    assert calls[1].kwargs["extra_body"] == {"reasoning": {"effort": "low"}}
+    assert calls[1].kwargs["max_tokens"] >= 4096
+
+
+@pytest.mark.asyncio
+async def test_generation_paths_use_raised_budget():
+    """CV/cover-letter generation must request the raised budget, not the old 8192
+    that truncated a thinking model mid-document."""
+    from applire.constants import CV_GENERATION_MAX_TOKENS
+    assert CV_GENERATION_MAX_TOKENS > 8192
+
+
+@pytest.mark.asyncio
+async def test_unrelated_400_still_propagates(monkeypatch):
+    provider = _openrouter(monkeypatch)
+    provider._client.chat.completions.create = AsyncMock(
+        side_effect=_bad_request("google/gemini-3.5-flash is not a valid model ID")
+    )
+    with pytest.raises(openai.BadRequestError):
+        await provider.acomplete("ask", disable_thinking=True)
+
+
+@pytest.mark.asyncio
+async def test_no_fallback_when_reasoning_was_not_disabled(monkeypatch):
+    """A reasoning-mandatory 400 on a call that never tried to disable reasoning is
+    a genuine error (not our doing) — propagate it, don't mask it with a retry."""
+    provider = _openrouter(monkeypatch)
+    provider._client.chat.completions.create = AsyncMock(
+        side_effect=_bad_request("Reasoning is mandatory and cannot be disabled.")
+    )
+    with pytest.raises(openai.BadRequestError):
+        await provider.acomplete("ask")  # thinking on by default → no reasoning block sent
+
+
+# ---------------------------------------------------------------------------
+# CV→profile extraction budget (F-B follow-up): reasoning models need headroom
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cv_extraction_requests_reasoning_safe_budget(monkeypatch):
+    """The CV→profile extraction call must request the raised budget, not the old
+    8192 that truncated gemini-3.5-flash mid-JSON (reasoning tokens ate the budget,
+    finish=length → LLMTruncatedError → /api/profile/upload 500)."""
+    from applire.constants import CV_EXTRACTION_MAX_TOKENS
+    import applire.services.profile as profile_mod
+
+    assert CV_EXTRACTION_MAX_TOKENS > 8192
+
+    captured: list[int] = []
+
+    class SpyProvider:
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1,
+                              max_tokens=4096, disable_thinking=None):
+            captured.append(max_tokens)
+            return {"work_experience": []}
+
+    async def _stop(*args, **kwargs):
+        raise _Stop
+
+    # Short-circuit immediately after the extraction call, before review/DB work.
+    monkeypatch.setattr(profile_mod, "review_and_refine", _stop)
+
+    with pytest.raises(_Stop):
+        await profile_mod._import_from_text("raw cv text", db=AsyncMock(), provider=SpyProvider())
+
+    assert captured == [CV_EXTRACTION_MAX_TOKENS]

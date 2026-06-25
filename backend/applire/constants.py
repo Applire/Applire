@@ -55,6 +55,23 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
 # calls so reasoning tokens don't eat the budget (ADR-009 amendment, F-B).
 INTERVIEW_QUESTION_MAX_TOKENS: int = 512
 
+# Token ceiling for CV/LinkedIn → master-profile extraction (and its review/refine
+# retries). The output is a full structured profile, and on thinking models the
+# reasoning tokens share this budget — at the old 8192 a rich CV truncated mid-JSON
+# (finish=length → LLMTruncatedError → /api/profile/upload 500). Extraction keeps
+# thinking ON (accuracy matters), so it needs real headroom rather than a small
+# floor (ADR-009 amendment, F-B follow-up).
+CV_EXTRACTION_MAX_TOKENS: int = 16384
+
+# Token ceiling for generated documents — CV tailoring, cover letter, and the
+# language-refinement retries. Same reasoning as extraction: a full tailored CV plus
+# a thinking model's reasoning trace share this budget, so the old 8192 truncated
+# mid-JSON (finish=length → LLMTruncatedError). max_tokens is a *ceiling* (billed on
+# actual usage, not the cap), so the headroom is free unless a generation truly needs
+# it; reasoning effort is bounded separately via OPENROUTER_REASONING_EFFORT
+# (ADR-009 amendment, F-B follow-up).
+CV_GENERATION_MAX_TOKENS: int = 16384
+
 # Token ceiling for the ADR-046 single-call profile reconciler. The whole master
 # profile plus a chunk of new information goes in, and an arbitrarily long batch of
 # typed ops comes out — so this matches the CV generation/extraction ceiling rather
