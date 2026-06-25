@@ -61,10 +61,8 @@ async def reconcile_interview_turn(
     applied = apply_ops(before, result.ops, "interview")
 
     updated = applied.profile.model_dump(mode="json")
-    # The profile is already dumped to JSONB-dict form at this point, so we
-    # append the enrichment trail directly to the serialised dict here. This
-    # mirrors the transitional pattern in services/session.py that Task 3 will
-    # replace.
+    # The interview's profile is JSONB-dict at this point, so the enrichment
+    # trail is appended dict-side here (callers no longer write it themselves).
     if applied.changes:
         meta = dict(updated.get("metadata") or {})
         history = list(meta.get("enrichment_history") or [])

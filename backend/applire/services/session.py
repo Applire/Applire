@@ -970,7 +970,7 @@ async def send_message(
     )
     profile_record.profile_json = turn.profile_dict
     profile_record.updated_at = datetime.now(timezone.utc)
-    merge_conflicts = turn.conflict_summaries
+    conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
 
@@ -1039,7 +1039,7 @@ async def send_message(
             complete=False,
             question=next_question,
             gaps_remaining=gaps_remaining,
-            pending_conflicts=merge_conflicts if merge_conflicts else None,
+            pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=next_choices,
         )
 
@@ -1078,7 +1078,7 @@ async def send_message(
             complete=False,
             question=follow_up_question,
             gaps_remaining=gaps_remaining,
-            pending_conflicts=merge_conflicts if merge_conflicts else None,
+            pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=None,
         )
 
