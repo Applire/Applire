@@ -34,8 +34,6 @@ MODE B (Guided Build):
 State is persisted as JSONB in interview_sessions.state between HTTP calls.
 """
 
-import hashlib
-
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.constants import (
@@ -46,12 +44,10 @@ from applire.prompts.interview import (
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
-    RESPONSE_PARSER_SYSTEM_PROMPT,
     build_field_gap_question_prompt,
     build_follow_up_question_prompt,
     build_guided_question_prompt,
     build_question_prompt,
-    build_response_parser_prompt,
     language_name,
     with_language,
 )
@@ -62,13 +58,7 @@ from applire.prompts.review_question_language import (
     build_question_language_review_prompt,
 )
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import FieldChange
-from applire.schemas.session import ConflictSummary, InterviewState
-from applire.services.profile.merge import (
-    company_names_match,
-    dates_overlap,
-    roles_are_same,
-)
+from applire.schemas.session import InterviewState
 from applire.services.reviewer import review_and_refine
 
 # Sections included in a MODE B guided build, in default priority order.
@@ -299,280 +289,6 @@ async def question_generator_with_profile(
 
 
 # ---------------------------------------------------------------------------
-# Node: ResponseParser
-# ---------------------------------------------------------------------------
-
-
-async def response_parser(
-    cluster_label: str,
-    question: str,
-    answer: str,
-    provider: LLMProvider,
-) -> dict:
-    """Extract structured profile data from the user's free-text answer.
-
-    Returns a dict with keys:
-        skills_to_add, work_history_to_add, certifications_to_add,
-        languages_to_add, education_to_add, gap_resolution, follow_up_hint,
-        gap_addressed  (backward compat — derived from gap_resolution != "none")
-    """
-    data = await provider.aparse_json(
-        build_response_parser_prompt(cluster_label, question, answer),
-        system=RESPONSE_PARSER_SYSTEM_PROMPT,
-        temperature=0.1,
-    )
-    gap_resolution = data.get("gap_resolution", "none")
-    if gap_resolution not in ("full", "partial", "declined", "none"):
-        gap_resolution = "none"
-    return {
-        "skills_to_add": data.get("skills_to_add", []),
-        "work_history_to_add": data.get("work_history_to_add", []),
-        "certifications_to_add": data.get("certifications_to_add", []),
-        "languages_to_add": data.get("languages_to_add", []),
-        "education_to_add": data.get("education_to_add", []),
-        "gap_resolution": gap_resolution,
-        "follow_up_hint": data.get("follow_up_hint") if isinstance(data.get("follow_up_hint"), str) else None,
-        "gap_addressed": gap_resolution != "none",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Node: ProfileUpdater
-# ---------------------------------------------------------------------------
-
-
-def profile_updater(
-    current_profile: dict, patch: dict
-) -> tuple[dict, list[ConflictSummary]]:
-    """Merge extracted data into the MasterProfile using intelligent merge rules.
-
-    Returns (updated_profile, conflicts) — conflicts are surfaced when a
-    work-experience entry for the same (company, role) carries contradicting dates.
-
-    Rules (ADR 013):
-    - skills: union — add new skills, never remove existing ones
-    - work_experience: an entry naming a known employer (fuzzy company match,
-      shared with the CV-upload merge) enriches the existing entry — bullets
-      accumulate into achievements, a differing title becomes a role_alias.
-      Only a dated entry that does not overlap any stint at that employer
-      (or a new employer entirely) is appended as a new position. Date
-      contradictions on matching entries are reported as ConflictSummary records.
-    - No field is ever overwritten if it already has a non-empty value
-    """
-    profile = dict(current_profile)
-    conflicts: list[ConflictSummary] = []
-
-    # --- Skills: union merge ---
-    existing_skills = {_skill_name(s).lower() for s in profile.get("skills", [])}
-    new_skills = [
-        s for s in patch.get("skills_to_add", []) if _skill_name(s).lower() not in existing_skills
-    ]
-    if new_skills:
-        profile["skills"] = list(profile.get("skills", [])) + new_skills
-
-    # --- Work experience: enrich matching employers, append only genuine new positions ---
-    existing_work = [dict(e) for e in profile.get("work_experience", [])]
-    for entry in patch.get("work_history_to_add", []):
-        if not _norm(entry.get("role")):
-            continue
-        bullets = [
-            b.strip() for b in (entry.get("bullets") or [])
-            if isinstance(b, str) and b.strip()
-        ]
-
-        match = _find_matching_work_entry(existing_work, entry)
-        if match is None:
-            # New employer (or a dated, non-overlapping stint at a known one)
-            addition = {k: v for k, v in entry.items() if k != "bullets"}
-            if bullets:
-                addition["achievements"] = bullets
-            existing_work.append(addition)
-            continue
-
-        # Known employer → enrich the existing entry, never create a duplicate
-        existing_achievements = list(match.get("achievements") or [])
-        seen = {a.strip().lower() for a in existing_achievements}
-        for b in bullets:
-            if b.lower() not in seen:
-                existing_achievements.append(b)
-                seen.add(b.lower())
-        match["achievements"] = existing_achievements
-
-        new_role = (entry.get("role") or "").strip()
-        known_titles = {
-            t.strip().lower()
-            for t in [match.get("role") or ""] + list(match.get("role_aliases") or [])
-        }
-        if new_role and new_role.lower() not in known_titles:
-            match["role_aliases"] = list(match.get("role_aliases") or []) + [new_role]
-
-        # Detect contradicting start_date on same-role entries only — a loose
-        # role paraphrase from an answer is not evidence about dates.
-        if _norm(entry.get("role")) == _norm(match.get("role")):
-            old_start = match.get("start_date") or ""
-            new_start = entry.get("start_date") or ""
-            if old_start and new_start and (old_start + "-01")[:7] != (new_start + "-01")[:7]:
-                field = f"{_norm(match.get('company'))} / {_norm(match.get('role'))} start_date"
-                conflict_id = hashlib.md5(f"{field}:{old_start}".encode()).hexdigest()[:12]
-                conflicts.append(
-                    ConflictSummary(
-                        conflict_id=conflict_id,
-                        field=field,
-                        old_value=old_start,
-                        new_value=new_start,
-                    )
-                )
-
-    profile["work_experience"] = existing_work
-
-    # --- Certifications: append if name not already present (case-insensitive) ---
-    existing_cert_names = {
-        (c.get("name") or "").lower() for c in profile.get("certifications", [])
-    }
-    new_certs = [
-        c for c in patch.get("certifications_to_add", [])
-        if (c.get("name") or "").lower() not in existing_cert_names
-    ]
-    if new_certs:
-        profile["certifications"] = list(profile.get("certifications", [])) + new_certs
-
-    # --- Languages: append if language not present; keep existing level ---
-    existing_lang_names = {
-        (l.get("language") or "").lower() for l in profile.get("languages", [])
-    }
-    new_langs = [
-        l for l in patch.get("languages_to_add", [])
-        if (l.get("language") or "").lower() not in existing_lang_names
-    ]
-    if new_langs:
-        profile["languages"] = list(profile.get("languages", [])) + new_langs
-
-    # --- Education: append if (institution, degree) pair not present (case-insensitive) ---
-    existing_edu_keys = {
-        (_norm(e.get("institution")), _norm(e.get("degree")))
-        for e in profile.get("education", [])
-    }
-    new_edu = [
-        e for e in patch.get("education_to_add", [])
-        if (_norm(e.get("institution")), _norm(e.get("degree"))) not in existing_edu_keys
-    ]
-    if new_edu:
-        profile["education"] = list(profile.get("education", [])) + new_edu
-
-    return profile, conflicts
-
-
-def interview_field_changes(before: dict, after: dict) -> list[FieldChange]:
-    """US148/ADR-040 (JF-M-5.2) — structured record of what an interview answer added
-    to the profile, for the "what we added from your answers" surface and the durable
-    decision trail. Diffs the merged profile against the pre-merge one so only genuine
-    additions are recorded (a paraphrase already in the profile is not).
-    """
-    changes: list[FieldChange] = []
-    _added = "Added from your interview answer."
-
-    # Skills (string or {name}) added
-    before_skills = {_skill_name(s).strip().lower() for s in (before.get("skills") or [])}
-    for s in after.get("skills") or []:
-        name = _skill_name(s).strip()
-        if name and name.lower() not in before_skills:
-            changes.append(FieldChange(
-                section="skills", field="skills", action="added",
-                new_value=name, rationale=_added,
-                rationale_key="interview_added",
-            ))
-
-    # Certifications added
-    before_certs = {(c.get("name") or "").strip().lower() for c in (before.get("certifications") or [])}
-    for c in after.get("certifications") or []:
-        name = (c.get("name") or "").strip()
-        if name and name.lower() not in before_certs:
-            changes.append(FieldChange(
-                section="certifications", field="certifications", action="added",
-                new_value=name, rationale=_added,
-                rationale_key="interview_added",
-            ))
-
-    # Work experience — new positions (added) and enriched existing ones (merged)
-    before_by_company: dict[str, list[dict]] = {}
-    for e in before.get("work_experience") or []:
-        before_by_company.setdefault((e.get("company") or "").strip().lower(), []).append(e)
-    for e in after.get("work_experience") or []:
-        company = (e.get("company") or "").strip()
-        ckey = company.lower()
-        role = (e.get("role") or "").strip()
-        if ckey not in before_by_company:
-            changes.append(FieldChange(
-                section="work_experience", field="work_experience", action="added",
-                new_value=f"{role} @ {company}".strip(" @"),
-                rationale="New position from your interview answer.",
-                rationale_key="interview_new_position",
-            ))
-            continue
-        # Known employer — record if achievements grew (details added from the answer)
-        before_ach = max((len(x.get("achievements") or []) for x in before_by_company[ckey]), default=0)
-        if len(e.get("achievements") or []) > before_ach:
-            changes.append(FieldChange(
-                section="work_experience", field="achievements", action="merged",
-                new_value=f"{role} @ {company}".strip(" @"),
-                rationale="Details added to this position from your interview answer.",
-                rationale_key="interview_details_added",
-            ))
-
-    return changes
-
-
-def _find_matching_work_entry(existing: list[dict], entry: dict) -> dict | None:
-    """Return the existing work entry an answer-extracted entry refers to.
-
-    Same employer (fuzzy, shared with the CV-upload merge) + same role/alias
-    wins; otherwise same employer with overlapping or unknown dates — an
-    undated answer mentioning a known employer describes an existing stint,
-    not a new position. Returns None for a genuinely new position.
-    """
-    candidates = [
-        ex for ex in existing
-        if company_names_match(ex.get("company") or "", entry.get("company") or "")
-    ]
-    if not candidates:
-        return None
-
-    role = _norm(entry.get("role"))
-    for ex in candidates:
-        known_titles = {_norm(ex.get("role"))} | {
-            _norm(a) for a in (ex.get("role_aliases") or [])
-        }
-        if role in known_titles:
-            return ex
-
-    # Same employer + overlapping dates is NOT enough on its own: a substantively
-    # different title at the same employer is a separate role (a promotion), not
-    # the existing stint — collapsing them is the #71 / F2 bug. Require the title
-    # to denote the same role (identical or a seniority refinement) before fusing.
-    overlapping = [
-        ex for ex in candidates
-        if roles_are_same(ex.get("role") or "", entry.get("role") or "")
-        and dates_overlap(
-            ex.get("start_date"), ex.get("end_date"),
-            entry.get("start_date"), entry.get("end_date"),
-        )
-    ]
-    if not overlapping:
-        return None
-    # Prefer the current (open-ended) or most recent stint
-    overlapping.sort(
-        key=lambda ex: ((ex.get("end_date") or "9999-12") + "-12")[:7], reverse=True
-    )
-    return overlapping[0]
-
-
-def _skill_name(s: str | dict) -> str:
-    if isinstance(s, dict):
-        return s.get("name", "")
-    return str(s)
-
-
-# ---------------------------------------------------------------------------
 # Node: GapDetector — MODE C (Profile Enrich)
 # ---------------------------------------------------------------------------
 
@@ -585,10 +301,6 @@ def gap_detector_mode_c(
     model (US179) so the score and this list derive from one source (ADR-041)."""
     from applire.services.profile.completeness import field_gaps
     return field_gaps(profile, scope=scope)
-
-
-def _norm(value: str | None) -> str:
-    return (value or "").strip().lower()
 
 
 # ---------------------------------------------------------------------------
