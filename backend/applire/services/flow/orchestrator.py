@@ -258,6 +258,45 @@ async def advance_flow(
     return await _build_state_response(flow, db, base_url)
 
 
+async def repoint_flow_gap_analysis(
+    job_id: uuid.UUID | None,
+    gap_analysis_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
+    """Repoint the owning flow's gap_analysis_id FK to the latest gap analysis.
+
+    The CV/flow read path (_build_state_response) reports match_score + gaps via
+    flow.gap_analysis_id, but that FK is only written when advance_flow transitions
+    INTO the gap_analysis step. Every later recompute (/gaps/refresh, interview
+    completion, gap-click) creates a NEW gap_analyses row through analyze_gaps()
+    but, without this, leaves the flow pinned to the stale pre-interview analysis
+    (UAT 2026-06-26: CV page showed 40% and re-listed answered gaps after the
+    interview reached 90%).
+
+    Scope: a flow is uniquely (user_id, job_id) — for a given job_id there is at
+    most one non-deleted owning flow in single-user Community mode, so resolving by
+    job_id cannot move a different job's FK. Null-safe: no job_id or no owning flow
+    is a no-op. Only the FK is touched — current_step and the step machine are left
+    untouched (this is NOT a transition).
+    """
+    if job_id is None:
+        return
+    result = await db.execute(
+        select(FlowSession).where(
+            FlowSession.job_id == job_id,
+            FlowSession.deleted_at.is_(None),
+        )
+    )
+    flow = result.scalar_one_or_none()
+    if flow is None:
+        return
+    if flow.gap_analysis_id == gap_analysis_id:
+        return
+    flow.gap_analysis_id = gap_analysis_id
+    flow.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
 async def advance_flow_on_interview_complete(
     interview_session_id: uuid.UUID,
     db: AsyncSession,
