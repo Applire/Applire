@@ -57,7 +57,6 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
-from applire.services.profile.merge import merge_profiles
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
