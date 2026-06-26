@@ -265,11 +265,14 @@ export default function CVPage({
             />
             {showDownloadReview && cvId && (
               <div
-                className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-8"
                 onClick={() => setShowDownloadReview(false)}
                 data-testid="download-review-overlay"
               >
-                <div className="max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="max-w-lg w-full max-h-[90vh] overflow-y-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <PreDownloadReview
                     cvId={cvId}
                     onAttested={() => {
