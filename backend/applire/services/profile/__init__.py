@@ -59,7 +59,6 @@ from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
 from applire.services.profile.merge import merge_profiles
 from applire.services.profile.reconcile.import_bridge import reconcile_import
-from applire.services.session import get_ui_language
 from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills
@@ -321,6 +320,10 @@ async def _import_from_text(
     existing = await _get_latest(db)
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
+        # Lazy import: session.py imports this package, so a module-top import
+        # would create a circular import (import applire.services.session fails).
+        from applire.services.session import get_ui_language
+
         lang = await get_ui_language(db)
         merge_result = await reconcile_import(
             existing_data, incoming, source=created_via, provider=provider, lang=lang,
@@ -837,6 +840,8 @@ async def _apply_merge(
 
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
+        from applire.services.session import get_ui_language
+
         lang = await get_ui_language(db)
         merge_result = await reconcile_import(
             existing_data, incoming, source=source, provider=provider, lang=lang,
