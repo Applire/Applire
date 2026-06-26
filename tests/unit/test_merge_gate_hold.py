@@ -38,6 +38,7 @@ async def sqlite_session():
     from applire.models.profile import MasterProfile, ProfileSnapshot
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from applire.models.user_settings import UserSettings  # US184: get_ui_language
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -49,6 +50,9 @@ async def sqlite_session():
                     ProfileSnapshot.__table__,  # US168: _apply_merge snapshots pre-merge
                     UploadRecord.__table__,
                     User.__table__,
+                    # US184: import paths now call get_ui_language(db) → needs the
+                    # user_settings table so the engine path runs end-to-end.
+                    UserSettings.__table__,
                 ],
             )
         )

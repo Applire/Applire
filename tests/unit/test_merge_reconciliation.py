@@ -39,11 +39,23 @@ from applire.schemas.profile import (  # noqa: E402
     Skill,
     WorkEntry,
 )
+import pytest  # noqa: E402
+
 from applire.services.profile import _enrichment_from_merge  # noqa: E402
-from applire.services.profile.merge import merge_profiles  # noqa: E402
+from applire.services.profile.reconcile.import_bridge import reconcile_import  # noqa: E402
 from applire.services.profile.reconciliation import (  # noqa: E402
     compute_merge_reconciliation,
 )
+
+
+class _Stub:
+    """LLMProvider stub whose aparse_json returns a canned reconcile payload."""
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def aparse_json(self, prompt, **kwargs):
+        return self.payload
 
 
 def _profile(*entries: WorkEntry) -> MasterProfileData:
@@ -117,22 +129,33 @@ def test_dropped_skill_cert_and_education_each_flagged():
     assert rec["education"]["delta"] == 1
 
 
-def test_merge_profiles_exposes_reconciliation():
-    """merge_profiles wires the reconciliation onto its result (observational)."""
+def _add_work_stub(company="Acme GmbH", role="Dev", start="2020-01"):
+    return _Stub({
+        "ops": [{"op": "upsert_work", "ref": "w1", "company": company,
+                 "role": role, "start_date": start}],
+        "ambiguities": [],
+    })
+
+
+@pytest.mark.asyncio
+async def test_merge_profiles_exposes_reconciliation():
+    """US184: the import bridge wires the reconciliation onto its MergeResult
+    (observational — ADR-013), same as the retired lexical merge did."""
     existing = _profile()
     incoming = _profile(WorkEntry(company="Acme GmbH", role="Dev", start_date="2020-01"))
 
-    result = merge_profiles(existing, incoming, source="cv_upload")
+    result = await reconcile_import(existing, incoming, "cv_upload", _add_work_stub())
 
     assert result.reconciliation["work_experience"]["extracted"] == 1
     assert result.reconciliation["work_experience"]["delta"] == 0
 
 
-def test_enrichment_record_persists_reconciliation():
+@pytest.mark.asyncio
+async def test_enrichment_record_persists_reconciliation():
     """The merge EnrichmentRecord carries the reconciliation delta (US161)."""
     existing = _profile()
     incoming = _profile(WorkEntry(company="Acme GmbH", role="Dev", start_date="2020-01"))
-    result = merge_profiles(existing, incoming, source="cv_upload")
+    result = await reconcile_import(existing, incoming, "cv_upload", _add_work_stub())
 
     record = _enrichment_from_merge(result, source="cv_upload")
 

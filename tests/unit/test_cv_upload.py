@@ -12,8 +12,8 @@ Covers:
   - CVUploadResponse.status logic: < 0.5 completeness → "DRAFT", >= 0.5 and no
     conflicts → "COMPLETE"
   - UploadRecord model: SQLite persistence (created_at, expires_at auto-set)
-  - upload_cv() service: first import creates profile; second import triggers
-    merge_profiles() and surfaces conflicts
+  - upload_cv() service: first import creates profile; second import reconciles
+    via the ADR-046 engine (reconcile_import) and surfaces conflicts (US184)
   - StorageProvider: LocalStorageProvider.save() writes file and returns path
   - OCR factory: get_ocr_extractor() returns MistralVisionExtractor for default config
 
@@ -55,6 +55,7 @@ async def sqlite_session():
     from applire.models.profile import MasterProfile, ProfileSnapshot
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from applire.models.user_settings import UserSettings  # US184: get_ui_language
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -66,6 +67,9 @@ async def sqlite_session():
                     ProfileSnapshot.__table__,  # US168: _apply_merge snapshots pre-merge
                     UploadRecord.__table__,
                     User.__table__,
+                    # US184: import paths now call get_ui_language(db) → needs the
+                    # user_settings table so the engine path runs end-to-end.
+                    UserSettings.__table__,
                 ],
             )
         )
@@ -412,7 +416,12 @@ async def test_upload_cv_first_import(sqlite_session, tmp_path):
 
 @pytest.mark.asyncio
 async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
-    """Second upload with conflicting dates triggers merge_profiles() and flags conflicts."""
+    """US184: a second conflicting upload reconciles via the ADR-046 engine and
+    surfaces the ambiguity as a conflict to the user.
+
+    Migrated off the retired lexical merge_profiles: the engine decides what
+    conflicts, so the stub provider returns a request_confirmation ambiguity for
+    the start_date divergence (which the import bridge maps onto a Conflict)."""
     from applire.services.profile import upload_cv
     from applire.storage.local import LocalStorageProvider
 
@@ -449,14 +458,36 @@ async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
         "languages": [{"language": "German", "level": "Native"}],
     }
 
+    # On the second import the engine's reconcile() call (system prompt = the
+    # "profile reconciler") returns an ambiguity over the divergent start_date;
+    # the import bridge maps that onto a Conflict. Every other aparse_json call
+    # (extraction) returns the staged profile.
+    reconcile_payload = {
+        "ops": [],
+        "ambiguities": [
+            {
+                "op": "request_confirmation",
+                "question": "Conflicting start_date for BMW Group: 2018-03 vs 2017-06?",
+                "options": ["2018-03", "2017-06"],
+            }
+        ],
+    }
+    _staged = {"value": first_profile}
+
+    async def _aparse_json(prompt, *, system=None, **kwargs):
+        if "profile reconciler" in (system or "").lower():
+            return reconcile_payload
+        return _staged["value"]
+
     mock_provider = AsyncMock()
     mock_provider.__class__.__name__ = "MockProvider"
+    mock_provider.aparse_json = AsyncMock(side_effect=_aparse_json)
 
     with patch("applire.services.cv_parser.extract_text", new=AsyncMock(return_value="Anna Schmidt\nBMW Group")), \
          patch("applire.services.profile.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
          patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)):
 
-        mock_provider.aparse_json.return_value = first_profile
+        _staged["value"] = first_profile
         await upload_cv(
             file_bytes=b"cv1",
             filename="cv1.pdf",
@@ -467,7 +498,7 @@ async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
             ocr_extractor=mock_ocr,
         )
 
-        mock_provider.aparse_json.return_value = second_profile
+        _staged["value"] = second_profile
         response = await upload_cv(
             file_bytes=b"cv2",
             filename="cv2.pdf",
@@ -480,5 +511,5 @@ async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
 
     assert len(response.conflicts) >= 1
     conflict_fields = [c.field for c in response.conflicts]
-    assert "start_date" in conflict_fields
+    assert any("start_date" in f for f in conflict_fields)
     assert response.status == "DRAFT"

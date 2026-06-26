@@ -100,6 +100,7 @@ async def photo_db():
     import applire.models.color_profile  # noqa: F401
     import applire.models.company  # noqa: F401
     import applire.models.user_settings  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401  # flow_sessions FK target
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -198,13 +199,30 @@ async def test_delete_photo_clears_url_and_consent(photo_db):
 
 
 # ---------------------------------------------------------------------------
-# Task 6 — Merge service photo_url gap-fill
+# Task 6 — photo_url gap-fill (US184: via the ADR-046 engine import path)
+#
+# photo_url is user-managed (gap-fill only, never overwritten). The retired
+# lexical merge_profiles enforced this via a _GAP_FILL_ONLY set; the engine's
+# set_personal_info op is gap-fill by default (only writes when the field is
+# empty), so these tests now drive reconcile_import with a stubbed reconcile op.
 # ---------------------------------------------------------------------------
 
-def test_merge_gap_fills_photo_url():
-    """Merge fills photo_url if existing is empty but incoming has a value."""
+
+class _ReconcileStub:
+    """LLMProvider stub: aparse_json returns a canned reconcile payload."""
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def aparse_json(self, prompt, **kwargs):
+        return self.payload
+
+
+@pytest.mark.asyncio
+async def test_merge_gap_fills_photo_url():
+    """Import fills photo_url if existing is empty but incoming has a value."""
     from applire.schemas.profile import MasterProfileData, PersonalInfo
-    from applire.services.profile.merge import merge_profiles
+    from applire.services.profile.reconcile.import_bridge import reconcile_import
 
     existing = MasterProfileData(
         personal_info=PersonalInfo(name="Anna", photo_url=None)
@@ -212,14 +230,20 @@ def test_merge_gap_fills_photo_url():
     incoming = MasterProfileData(
         personal_info=PersonalInfo(name="Anna", photo_url="/uploads/photo.jpg")
     )
-    result = merge_profiles(existing, incoming, source="test")
+    stub = _ReconcileStub({
+        "ops": [{"op": "set_personal_info", "field": "photo_url",
+                 "value": "/uploads/photo.jpg"}],
+        "ambiguities": [],
+    })
+    result = await reconcile_import(existing, incoming, "test", stub)
     assert result.merged_profile.personal_info.photo_url == "/uploads/photo.jpg"
 
 
-def test_merge_does_not_overwrite_existing_photo_url():
-    """Merge never overwrites a user-set photo_url with incoming data."""
+@pytest.mark.asyncio
+async def test_merge_does_not_overwrite_existing_photo_url():
+    """Import never overwrites a user-set photo_url with incoming data."""
     from applire.schemas.profile import MasterProfileData, PersonalInfo
-    from applire.services.profile.merge import merge_profiles
+    from applire.services.profile.reconcile.import_bridge import reconcile_import
 
     existing = MasterProfileData(
         personal_info=PersonalInfo(name="Anna", photo_url="/uploads/my_photo.jpg")
@@ -227,7 +251,13 @@ def test_merge_does_not_overwrite_existing_photo_url():
     incoming = MasterProfileData(
         personal_info=PersonalInfo(name="Anna", photo_url="/uploads/other_photo.jpg")
     )
-    result = merge_profiles(existing, incoming, source="test")
+    # Even if the model emits an overwriting op, the engine gap-fills only.
+    stub = _ReconcileStub({
+        "ops": [{"op": "set_personal_info", "field": "photo_url",
+                 "value": "/uploads/other_photo.jpg"}],
+        "ambiguities": [],
+    })
+    result = await reconcile_import(existing, incoming, "test", stub)
     # photo_url is user-managed, not LLM-extracted — never overwrite
     assert result.merged_profile.personal_info.photo_url == "/uploads/my_photo.jpg"
     assert result.conflicts == [], "photo_url conflict must never be raised — it is user-managed"
