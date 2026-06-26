@@ -42,6 +42,9 @@ backend/data/static/
 .DS_Store
 Thumbs.db
 
+# Local SQLite test scratch DBs
+*.db
+
 # IDE
 .idea/
 .vscode/
