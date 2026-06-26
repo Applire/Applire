@@ -218,6 +218,16 @@ async def _run_analysis(
     await cluster_gaps(record, job, provider, db)
     await db.refresh(record)
 
+    # Keep the owning flow's gap_analysis_id FK pointed at the newest analysis so
+    # the CV/flow read path reports the post-interview score, not the stale
+    # pre-interview one. Single seam: every recompute path (/gaps/refresh,
+    # interview completion, gap-click) routes through here. Lazy import avoids the
+    # gap<->flow.orchestrator import cycle (orchestrator transitively imports gap
+    # via the session/application services).
+    from applire.services.flow.orchestrator import repoint_flow_gap_analysis
+
+    await repoint_flow_gap_analysis(job.id, record.id, db)
+
     return GapAnalysisResponse.model_validate(record)
 
 
