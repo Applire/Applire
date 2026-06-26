@@ -58,6 +58,8 @@ from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
 from applire.services.profile.merge import merge_profiles
+from applire.services.profile.reconcile.import_bridge import reconcile_import
+from applire.services.session import get_ui_language
 from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills
@@ -319,7 +321,10 @@ async def _import_from_text(
     existing = await _get_latest(db)
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
-        merge_result = merge_profiles(existing_data, incoming, source=created_via)
+        lang = await get_ui_language(db)
+        merge_result = await reconcile_import(
+            existing_data, incoming, source=created_via, provider=provider, lang=lang,
+        )
 
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=created_via)
@@ -765,7 +770,7 @@ async def upload_cv(
 
     # 5. Clean CV — additive merge commits (or first profile is created).
     profile_id, completeness, conflicts, enrichment_id = await _apply_merge(
-        db, incoming, source="cv_upload", emb_provider=emb_provider, now=now
+        db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider, now=now
     )
 
     # 6. Persist file + cost metadata
@@ -817,6 +822,7 @@ async def _apply_merge(
     *,
     source: str,
     emb_provider: EmbeddingProvider,
+    provider: LLMProvider,
     now: datetime | None = None,
 ) -> tuple[uuid.UUID, float, list, uuid.UUID]:
     """Additively merge ``incoming`` into the latest profile (or create the first),
@@ -831,7 +837,10 @@ async def _apply_merge(
 
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
-        merge_result = merge_profiles(existing_data, incoming, source=source)
+        lang = await get_ui_language(db)
+        merge_result = await reconcile_import(
+            existing_data, incoming, source=source, provider=provider, lang=lang,
+        )
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=source)
         # Key the merge record to the id we return so the pre-merge snapshot,
@@ -973,8 +982,15 @@ async def resolve_staged_extraction(
     if action == "merge":
         emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
         incoming = MasterProfileData.model_validate(rec.staged_extraction)
+        # The staged path re-uses the original extraction (no re-extraction) so it
+        # has no DI provider; the reconcile merge still needs one — use the
+        # configured provider (mock in tests via LLM_PROVIDER), mirroring the
+        # embedding-provider default.
+        from applire.providers import get_provider
+
+        provider = get_provider()
         profile_id, completeness, conflicts, _ = await _apply_merge(
-            db, incoming, source="cv_upload", emb_provider=emb_provider
+            db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider
         )
         rec.gate_status = "resolved_merged"
         await db.commit()
