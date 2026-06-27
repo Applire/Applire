@@ -73,10 +73,16 @@ CV_EXTRACTION_MAX_TOKENS: int = 16384
 CV_GENERATION_MAX_TOKENS: int = 16384
 
 # Token ceiling for the ADR-046 single-call profile reconciler. The whole master
-# profile plus a chunk of new information goes in, and an arbitrarily long batch of
-# typed ops comes out — so this matches the CV generation/extraction ceiling rather
-# than the chrome budget. Reasoning is left ON for this content-reasoning call.
-RECONCILE_MAX_TOKENS: int = 16384
+# profile PLUS a whole incoming profile (the import path reconciles a complete CV,
+# not a snippet) goes in, and an arbitrarily long batch of typed ops comes out — on a
+# rich two-CV + JD merge the op batch is the largest output of any chain. At the old
+# 16384 a real two-CV reconcile hit finish=length → LLMTruncatedError, which the engine
+# silently swallowed as an empty merge (one CV's content dropped). Raised to 32768 to
+# give that merge real headroom; max_tokens is a *ceiling* (billed on actual output),
+# so the headroom is free unless a merge truly needs it. NOTE: this MUST stay strictly
+# below TRUNCATION_RETRY_CEILING (providers/llm/base.py) or the truncation safety net
+# has no room to step up (budget == ceiling → immediate re-raise).
+RECONCILE_MAX_TOKENS: int = 32768
 
 # Token ceiling for JD analysis (services/job.py). The output is a full structured
 # job analysis — role title, required + nice-to-have skills, keywords, culture signals,

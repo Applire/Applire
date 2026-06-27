@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
 from applire.db.session import get_db
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
 from applire.ocr import get_ocr_extractor
 from applire.ocr.base import CVImageExtractor
 from applire.providers import get_provider
@@ -76,6 +76,16 @@ from applire.storage.base import StorageProvider
 from applire.services.photo import delete_photo, get_photo_bytes, upload_photo
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
+
+# Clean, user-appropriate message for a reconcile that hit the token budget
+# (LLMTruncatedError). The merge could not be completed in full, so we fail this
+# file rather than persist a silent half-merge — but we never leak the raw
+# provider/internal text (stop_reason, model name, Pydantic detail). The frontend's
+# per-file N-of-M error path marks just this CV failed and invites a retry.
+_TRUNCATION_USER_MESSAGE = (
+    "We couldn't fully merge this CV into your profile this time. "
+    "Nothing was changed — please try uploading it again."
+)
 
 
 def _get_provider() -> LLMProvider:
@@ -149,6 +159,14 @@ async def upload_cv_endpoint(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMTruncatedError:
+        # A reconcile/extraction that ran out of token budget — surface a clean,
+        # retryable signal and NEVER the raw provider text (no half-merge persisted).
+        logger.warning("upload_cv: LLM output truncated; failing this file cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_TRUNCATION_USER_MESSAGE,
+        )
     except json.JSONDecodeError:
         # Must come before ValueError — JSONDecodeError is a ValueError subclass
         raise HTTPException(
@@ -286,6 +304,14 @@ async def import_profile(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMTruncatedError:
+        # See upload_cv_endpoint — a truncated reconcile/extraction fails this
+        # import cleanly (no half-merge), with no raw provider/internal text.
+        logger.warning("import_profile: LLM output truncated; failing this import cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_TRUNCATION_USER_MESSAGE,
+        )
     except json.JSONDecodeError:
         # Must come before ValueError — JSONDecodeError is a ValueError subclass
         raise HTTPException(

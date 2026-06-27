@@ -105,6 +105,32 @@ def test_budget_constants_are_above_the_4096_default():
         assert value > 4096
 
 
+def test_reconcile_budget_has_retry_headroom_below_ceiling():
+    """The reconcile per-call budget must sit BELOW the truncation-retry ceiling so
+    the safety net can actually step up. Bug: budget == ceiling (16384 == 16384) →
+    ``retry_on_truncation`` re-raised immediately (``bigger <= max_tokens``), so a
+    one-off overflow on a rich two-CV merge could not be recovered."""
+    from applire.constants import RECONCILE_MAX_TOKENS
+    from applire.providers.llm.base import TRUNCATION_RETRY_CEILING
+
+    # A realistic two-CV + JD reconcile needs real headroom over the old 16384.
+    assert RECONCILE_MAX_TOKENS >= 32768
+    # And the ceiling must be strictly above the budget, or the retry has no room.
+    assert TRUNCATION_RETRY_CEILING > RECONCILE_MAX_TOKENS
+
+
+@pytest.mark.asyncio
+async def test_reconcile_engine_threads_raised_budget():
+    """engine.reconcile must thread RECONCILE_MAX_TOKENS into aparse_json."""
+    from applire.constants import RECONCILE_MAX_TOKENS
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.profile.reconcile.engine import reconcile
+
+    spy = _BudgetSpyProvider({"ops": [], "ambiguities": []})
+    await reconcile(MasterProfileData(), "new info", "cv_upload", spy)
+    assert spy.parse_budgets == [RECONCILE_MAX_TOKENS]
+
+
 @pytest.mark.asyncio
 async def test_analyze_jd_threads_raised_budget():
     """analyze_jd must pass JD_ANALYSIS_MAX_TOKENS to the provider, not the 4096

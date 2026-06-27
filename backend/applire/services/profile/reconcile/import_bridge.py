@@ -60,8 +60,13 @@ async def reconcile_import(
 
     Drop-in for the lexical ``merge_profiles``: one ``reconcile`` call + one
     deterministic ``apply_ops``, returning the existing ``MergeResult`` shape.
-    Never raises — the engine degrades to empty ops on LLM noise, ``apply_ops``
-    is pure, and ``compute_merge_reconciliation`` is deterministic."""
+
+    Degrades to empty ops on generic LLM noise (``apply_ops`` is pure and
+    ``compute_merge_reconciliation`` is deterministic), but DELIBERATELY lets a
+    ``LLMTruncatedError`` propagate: a truncated reconcile means the op batch was
+    cut off, so silently applying the partial set would drop a whole CV's content.
+    The upload/import caller catches it and fails that file cleanly rather than
+    persisting a half-merge (see routers/profile.py)."""
     result = await reconcile(existing, incoming, source, provider, lang)
     applied = apply_ops(existing, result.ops, source)
     ambiguities = list(result.ambiguities) + list(applied.pending_confirmations)
