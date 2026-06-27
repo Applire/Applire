@@ -151,6 +151,19 @@
       font-size: 10pt;
     }
 
+    /* ---- Projects nested under a position ---- */
+    .entry-projects { margin-top: 4pt; }
+    .entry-projects-title {
+      font-size: 8.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--cv-accent);
+      margin-bottom: 2pt;
+    }
+    .project-item { margin-bottom: 3pt; }
+    .project-name { font-weight: 600; font-size: 10pt; }
+
     /* ---- Summary ---- */
     .summary-text {
       font-size: 10.5pt;
@@ -247,6 +260,43 @@
         {% for bullet in job.bullets %}
         <li>{{ bullet }}</li>
         {% endfor %}
+      </ul>
+      {% endif %}
+      {% if job.projects %}
+      <div class="entry-projects">
+        <div class="entry-projects-title">{{ labels.projects }}</div>
+        {% for project in job.projects %}
+        <div class="project-item">
+          <div class="project-name">{{ project.name }}</div>
+          {% if project.bullets %}
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <!-- ===== PROJECTS / PROJEKTE (standalone) ===== -->
+  {% if cv.projects %}
+  <section class="section">
+    <div class="section-header">
+      <span class="section-title-en">{{ labels.projects }}</span>
+      <div class="section-rule"></div>
+    </div>
+    {% for project in cv.projects %}
+    <div class="entry">
+      <div class="entry-meta">
+        <div class="entry-title">{{ project.name }}</div>
+      </div>
+      {% if project.bullets %}
+      <ul class="entry-bullets">
+        {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
       </ul>
       {% endif %}
     </div>

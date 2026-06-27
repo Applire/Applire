@@ -73,14 +73,34 @@ def _coerce_none_str(cls, v):
     return v if v is not None else ""
 
 
+class TailoredProjectEntry(BaseModel):
+    """A tailored project (US187). Rendered under its parent position in the CV
+    when nested on a TailoredWorkEntry, or in a standalone section when it has no
+    associated work/volunteer parent. Name + bullets at minimum — the heading and
+    description carry the project; bullets carry tailored responsibilities/achievements."""
+    name: str = ""
+    bullets: list[str] = []
+
+    _coerce_fields = field_validator("name", mode="before")(_coerce_none_str)
+
+
 class TailoredWorkEntry(BaseModel):
+    # Stable key carried from the source WorkEntry.id so the deterministic
+    # project-nesting step (services/cv._nest_projects, US187) can match a tailored
+    # entry back to its source. Empty for legacy records / mock fixtures — nesting
+    # then matches on company+role instead.
+    id: str = ""
     company: str = ""
     role: str = ""
     start_date: str = ""
     end_date: str | None = None
     bullets: list[str] = []
+    # Projects associated with this position (US187 / ADR-044). Populated by the
+    # deterministic post-tailoring nesting step, never by the LLM directly.
+    projects: list[TailoredProjectEntry] = []
 
     _coerce_fields = field_validator("company", "role", "start_date", mode="before")(_coerce_none_str)
+    _coerce_id = field_validator("id", mode="before")(_coerce_none_str)
 
 
 class TailoredEducationEntry(BaseModel):
@@ -118,6 +138,9 @@ class TailoredCVData(BaseModel):
     skills: list[str] = []
     education: list[TailoredEducationEntry] = []
     languages: list[TailoredLanguage] = []
+    # Standalone projects — those with no associated work/volunteer parent (US187).
+    # Projects parented to a position are nested on the relevant TailoredWorkEntry.
+    projects: list[TailoredProjectEntry] = []
     show_photo: bool = True  # country-aware photo rendering hook (ADR-021); True for all DACH jobs
 
     # The LLM occasionally returns an explicit null summary; degrade to an
