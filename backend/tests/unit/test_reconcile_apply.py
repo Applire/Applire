@@ -410,3 +410,91 @@ def test_upsert_work_new_creates_entry():
     assert len(result.profile.work_experience) == 1
     assert result.profile.work_experience[0].company == "NewCo"
     assert any(c.action == "added" and c.section == "work_experience" for c in result.changes)
+
+
+# ── Field-type coercion (data-corruption regression) ──────────────────────────
+#
+# A reconciler answering an interview budget question honestly emitted
+#   set_field(target=<work>, field="budget_managed", value=1800000)  # an int
+# WorkEntry.budget_managed is `str | None`. setattr-ing the int produced a
+# profile that fails MasterProfileData.model_validate on the next load (500 on
+# GET /api/profile, raw Pydantic error in CV gen, UI-unrecoverable). SetField/
+# SetPersonalInfo.value are typed `Any`, so they bypass op-parse coercion.
+# Coerce the scalar op value to the target field's declared type before writing.
+
+
+def _roundtrips(profile: MasterProfileData) -> MasterProfileData:
+    """The load path: dump → JSON → re-validate. Must never raise."""
+    return MasterProfileData.model_validate(profile.model_dump(mode="json"))
+
+
+def test_set_field_coerces_int_into_str_budget():
+    # The exact UAT corruption: an int into a `str | None` field.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="budget_managed", value=1800000)]
+    result = apply_ops(profile, ops, SOURCE)
+    entry = result.profile.work_experience[0]
+    assert entry.budget_managed == "1800000"
+    assert isinstance(entry.budget_managed, str)
+    # the resulting profile must round-trip through the load path without error
+    _roundtrips(result.profile)
+
+
+def test_set_field_coerces_float_into_str_budget_cleanly():
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="budget_managed", value=1800000.0)]
+    result = apply_ops(profile, ops, SOURCE)
+    entry = result.profile.work_experience[0]
+    # a whole-number float stringifies without a trailing ".0"
+    assert entry.budget_managed == "1800000"
+    assert isinstance(entry.budget_managed, str)
+    _roundtrips(result.profile)
+
+
+def test_set_field_coerces_numeric_string_into_int_team_size():
+    # The reverse risk: a "6" string into `team_size: int | None`.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="team_size", value="6")]
+    result = apply_ops(profile, ops, SOURCE)
+    entry = result.profile.work_experience[0]
+    assert entry.team_size == 6
+    assert isinstance(entry.team_size, int)
+    _roundtrips(result.profile)
+
+
+def test_set_field_skips_uncoercible_value_without_corruption():
+    # A genuinely non-numeric string into `team_size: int | None` must NOT be
+    # written (no corruption); the field stays empty and the profile loads.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="team_size", value="a whole team")]
+    result = apply_ops(profile, ops, SOURCE)
+    entry = result.profile.work_experience[0]
+    assert entry.team_size is None
+    _roundtrips(result.profile)
+
+
+def test_set_personal_info_coerces_to_field_type():
+    # SetPersonalInfo.value is `Any` too; a number into `phone: str | None`.
+    profile = MasterProfileData()
+    ops = [SetPersonalInfo(field="phone", value=491234567)]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.phone == "491234567"
+    assert isinstance(result.profile.personal_info.phone, str)
+    _roundtrips(result.profile)
+
+
+def test_apply_ops_result_always_revalidates():
+    # Defense in depth: whatever the ops, apply_ops must never return a profile
+    # that won't load.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        SetField(target=work.id, field="budget_managed", value=1800000),
+        SetField(target=work.id, field="team_size", value="6"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    _roundtrips(result.profile)

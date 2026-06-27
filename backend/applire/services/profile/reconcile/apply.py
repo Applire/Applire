@@ -29,9 +29,11 @@ was given and creates a new entity when ``target`` is ``None``.
 """
 from __future__ import annotations
 
-from typing import Any
+import types
+import typing
+from typing import Any, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from applire.schemas.profile import (
     Certification,
@@ -82,6 +84,116 @@ def _norm(value: object) -> str:
 
 def _is_empty(value: Any) -> bool:
     return value is None or value == "" or value == []
+
+
+# A sentinel distinct from None ("don't write — uncoercible") so callers can tell
+# "coerced to None" apart from "could not coerce, skip the write".
+_SKIP = object()
+
+
+def _field_annotation(model_or_instance: Any, field_name: str) -> Any:
+    """Return the declared annotation for ``field_name`` on a model/instance.
+
+    ``None`` when the field is unknown (the caller should not write).
+    """
+    # model_fields lives on the class (instance access is deprecated in V2.11).
+    model_cls = (
+        model_or_instance
+        if isinstance(model_or_instance, type)
+        else type(model_or_instance)
+    )
+    fields = getattr(model_cls, "model_fields", None)
+    if not isinstance(fields, dict):
+        return None
+    info = fields.get(field_name)
+    return getattr(info, "annotation", None) if info is not None else None
+
+
+def _scalar_options(annotation: Any) -> list[type]:
+    """The concrete scalar types a (possibly Optional/Union) annotation allows.
+
+    ``str | None`` → ``[str]``; ``int | None`` → ``[int]``; ``str`` → ``[str]``.
+    Non-scalar members (list, dict, BaseModel, Literal, date, …) are left out —
+    we only special-case str/int/float coercion and defer everything else to
+    Pydantic's own validation (see ``_coerce_to_field_type``).
+    """
+    origin = typing.get_origin(annotation)
+    if origin in (Union, getattr(types, "UnionType", ())):
+        members = typing.get_args(annotation)
+    else:
+        members = (annotation,)
+    return [m for m in members if m in (str, int, float)]
+
+
+def _coerce_to_field_type(model_or_instance: Any, field_name: str, value: Any) -> Any:
+    """Coerce ``value`` to ``field_name``'s declared type, or return ``_SKIP``.
+
+    The reconciler's ``SetField``/``SetPersonalInfo`` ops carry an untyped ``Any``
+    value, and ``setattr`` on a Pydantic instance bypasses validation — so a type
+    mismatch (an ``int`` into a ``str | None`` field) silently corrupts the
+    profile and only blows up on the next ``model_validate`` (the UAT bug).
+
+    Rules:
+    - ``None``/empty (``""``, ``[]``) passes through unchanged.
+    - target ``str`` ← a number is stringified cleanly (``1800000`` → ``"1800000"``,
+      ``1800000.0`` → ``"1800000"``).
+    - target ``int`` ← a clean numeric string / ``float`` → ``int``
+      (``"6"`` → ``6``, ``6.0`` → ``6``).
+    - target ``float`` ← a clean numeric string / ``int`` → ``float``.
+    - anything Pydantic already accepts for the field is written as-is.
+    - a genuinely uncoercible value returns ``_SKIP`` (never corrupt the field).
+    """
+    annotation = _field_annotation(model_or_instance, field_name)
+    if annotation is None:
+        return _SKIP  # unknown field — never write
+    # Empty/None stays as-is (callers gate on emptiness separately).
+    if value is None or value == "" or value == []:
+        return value
+
+    targets = _scalar_options(annotation)
+
+    # str target ← number: stringify cleanly (drop a whole-number float's ".0").
+    if str in targets and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+
+    # int target ← clean numeric string / float.
+    if int in targets and str not in targets and not isinstance(value, bool):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str):
+            s = value.strip()
+            try:
+                return int(s)
+            except ValueError:
+                try:
+                    f = float(s)
+                except ValueError:
+                    return _SKIP
+                return int(f) if f.is_integer() else _SKIP
+        return _SKIP
+
+    # float target ← clean numeric string / int.
+    if float in targets and str not in targets and not isinstance(value, bool):
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                return _SKIP
+        return _SKIP
+
+    # No scalar special-case applied. Defer to Pydantic: if the field's own
+    # annotation already accepts this value, write it; otherwise skip rather than
+    # corrupt (e.g. a free-text string into a date/Literal field).
+    try:
+        return TypeAdapter(annotation).validate_python(value)
+    except (ValidationError, ValueError, TypeError):
+        return _SKIP
 
 
 def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
@@ -168,12 +280,33 @@ def apply_ops(
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
 
+    # Defense in depth (ADR-046): the write-time coercion above is the real fix,
+    # but apply_ops must NEVER hand back a profile that won't re-load. Round-trip
+    # the result through model_validate; if some future op path still slips a
+    # schema-rejecting value through, fall back to the untouched input rather than
+    # persisting (and later 500-ing on) a corrupt profile.
+    new_profile = _ensure_loadable(new_profile, fallback=profile)
+
     return ApplyResult(
         profile=new_profile,
         changes=changes,
         conflicts=conflicts,
         pending_confirmations=pending,
     )
+
+
+def _ensure_loadable(
+    candidate: MasterProfileData, fallback: MasterProfileData
+) -> MasterProfileData:
+    """Return ``candidate`` re-validated through the load path, or ``fallback``.
+
+    Mirrors how the profile is reloaded from JSONB (``model_dump(mode="json")`` →
+    ``model_validate``). Guarantees the returned profile loads cleanly.
+    """
+    try:
+        return MasterProfileData.model_validate(candidate.model_dump(mode="json"))
+    except ValidationError:
+        return fallback
 
 
 # ── Per-op handlers ───────────────────────────────────────────────────────────
@@ -460,8 +593,11 @@ def _apply_set_field(op, resolve, changes):
     current = getattr(entity, op.field)
     if not _is_empty(current):
         return  # a real change goes through FlagConflict, not SetField
-    setattr(entity, op.field, op.value)
-    changes.append(_updated(_section_for(entity), op.field, current, op.value))
+    value = _coerce_to_field_type(entity, op.field, op.value)
+    if value is _SKIP:
+        return  # uncoercible — never setattr a type the schema would reject
+    setattr(entity, op.field, value)
+    changes.append(_updated(_section_for(entity), op.field, current, value))
 
 
 def _apply_set_personal_info(op, profile, changes):
@@ -471,8 +607,11 @@ def _apply_set_personal_info(op, profile, changes):
     current = getattr(pi, op.field)
     if not _is_empty(current):
         return
-    setattr(pi, op.field, op.value)
-    changes.append(_updated("personal_info", op.field, current, op.value))
+    value = _coerce_to_field_type(pi, op.field, op.value)
+    if value is _SKIP:
+        return  # uncoercible — never setattr a type the schema would reject
+    setattr(pi, op.field, value)
+    changes.append(_updated("personal_info", op.field, current, value))
 
 
 def _apply_set_summary(op, profile, changes):
