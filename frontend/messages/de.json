@@ -182,7 +182,8 @@
     "advancingToCV": "Wird vorbereitet…",
     "viewHistory": "Gesprächsverlauf anzeigen ({count} {count, plural, one {Austausch} other {Austausche}})",
     "matchScorePercent": "{score}%",
-    "conflictDetail": "{field}: „{oldValue}” vs. „{newValue}”"
+    "conflictDetail": "{field}: „{oldValue}” vs. „{newValue}”",
+    "confirmHint": "Kurze Rückfrage — was trifft zu? Wir führen das nicht eigenmächtig zusammen."
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -658,7 +659,8 @@
     "sending": "Wird gesendet…",
     "done": "Profil ergänzt — gut gemacht!",
     "noGaps": "Hier gibt es gerade nichts zu ergänzen — dein Profil ist vollständig.",
-    "close": "Schließen"
+    "close": "Schließen",
+    "confirmHint": "Kurze Rückfrage — was trifft zu? Wir führen das nicht eigenmächtig zusammen."
   },
   "shell": {
     "dashboard": "Dashboard",

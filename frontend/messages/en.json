@@ -182,7 +182,8 @@
     "advancingToCV": "Preparing…",
     "viewHistory": "View conversation history ({count} {count, plural, one {exchange} other {exchanges}})",
     "matchScorePercent": "{score}%",
-    "conflictDetail": "{field}: “{oldValue}” vs “{newValue}”"
+    "conflictDetail": "{field}: “{oldValue}” vs “{newValue}”",
+    "confirmHint": "Quick check — which is it? We won't merge these on our own."
   },
   "cv": {
     "generating": "Generating CV…",
@@ -658,7 +659,8 @@
     "sending": "Sending…",
     "done": "Profile enriched — great work!",
     "noGaps": "Nothing to enrich here right now — your profile is complete.",
-    "close": "Close"
+    "close": "Close",
+    "confirmHint": "Quick check — which is it? We won't merge these on our own."
   },
   "shell": {
     "dashboard": "Dashboard",

@@ -214,6 +214,28 @@ _RECONCILE_RESPONSE: dict[str, Any] = {
     "ambiguities": [],
 }
 
+# US185 — when the reconciler is unsure whether a new role is the same as an
+# existing one it must ASK, not guess. Triggered (mock-side) by the synonym-fold
+# UAT fixture ("Owner at applire" vs an existing "Founder & Lead Developer") so
+# the confirmation surfacing path is exercised deterministically under the mock.
+_RECONCILE_AMBIGUITY_RESPONSE: dict[str, Any] = {
+    "ops": [],
+    "ambiguities": [
+        {
+            "op": "request_confirmation",
+            "question": (
+                "Is 'Owner at applire' the same as your existing "
+                "'Founder & Lead Developer' role?"
+            ),
+            "options": ["Yes, same role", "No, separate roles"],
+            "context": {
+                "existing": "Founder & Lead Developer",
+                "incoming": "Owner at applire",
+            },
+        }
+    ],
+}
+
 _RESPONSE_PARSER_RESPONSE: dict[str, Any] = {
     # skills_to_add must include at least one of the skills named in _RICH_ANSWER
     # (iter4 test_profile_updated_after_answer checks for "salesforce", "veeva vault", "crm").
@@ -343,6 +365,10 @@ class MockLLMProvider(LLMProvider):
         # representative op batch (one upsert_skill) so the interview loop's
         # apply + advance path can be exercised deterministically under the mock.
         if "profile reconciler" in system_lower:
+            # US185 — the synonym-fold UAT answer triggers a confirmation request
+            # so the human-in-the-loop path is exercised under the mock.
+            if "owner at applire" in prompt.lower():
+                return copy.deepcopy(_RECONCILE_AMBIGUITY_RESPONSE)
             return copy.deepcopy(_RECONCILE_RESPONSE)
 
         if "hr analyst" in system_lower:

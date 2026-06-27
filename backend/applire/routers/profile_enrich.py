@@ -40,6 +40,7 @@ from applire.schemas.enrich import (
     EnrichStartResponse,
     GapItem,
 )
+from applire.schemas.session import ConfirmationPrompt
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
     gap_detector_mode_c,
@@ -342,6 +343,34 @@ async def respond_to_enrich(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     session.questions_asked = state["questions_asked"]
     session.state = state
+
+    # US185 — an unresolved ambiguity becomes a targeted confirmation the user
+    # answers next; the reconciler never guesses entity identity. Surface it
+    # instead of advancing to the next gap question.
+    if turn.pending_confirmations:
+        confirmation = turn.pending_confirmations[0]
+        state["current_question"] = confirmation.question
+        session.state = state
+        await db.commit()
+        gap_items = _build_gap_items(
+            state["critical_gaps"],
+            state["current_gap_index"],
+            state["addressed_gaps"],
+            state.get("na_gaps", []),
+            state.get("skipped_gaps", []),
+        )
+        return EnrichRespondResponse(
+            next_question=confirmation.question,
+            gaps=gap_items,
+            done=False,
+            profile_updated=turn.addressed,
+            pending_confirmations=[
+                ConfirmationPrompt(
+                    question=c.question, options=list(c.options), context=dict(c.context)
+                )
+                for c in turn.pending_confirmations
+            ],
+        )
 
     next_question, done = await _next_question_or_done(
         session, updated_profile_data, provider, db

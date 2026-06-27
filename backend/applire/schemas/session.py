@@ -67,6 +67,18 @@ class ConflictSummary(BaseModel):
     new_value: str
 
 
+class ConfirmationPrompt(BaseModel):
+    """An ambiguity the reconciler could not resolve on its own (US185, ADR-046).
+
+    The engine never guesses entity identity; when it is unsure (synonym role,
+    project-vs-position, DE↔EN employer) it asks. ``options`` drive the answer
+    buttons; ``context`` carries the two entities being compared so the UI can
+    show what is being merged."""
+    question: str
+    options: list[str] = []
+    context: dict = {}
+
+
 class SessionMessageResponse(BaseModel):
     complete: bool
     question: str | None = None
@@ -80,6 +92,8 @@ class SessionMessageResponse(BaseModel):
     completeness_score: float | None = None
     # Populated when ProfileUpdater detects a merge conflict (19.10)
     pending_conflicts: list[ConflictSummary] | None = None
+    # Populated when the reconciler flags an ambiguity it will not guess (US185)
+    pending_confirmations: list[ConfirmationPrompt] | None = None
 
 
 class SessionStateResponse(BaseModel):
