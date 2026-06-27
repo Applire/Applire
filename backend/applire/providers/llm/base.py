@@ -47,9 +47,18 @@ _TRUNCATION_REASONS = frozenset({"length", "max_tokens"})
 # Hard ceiling for the auto-retry-on-truncation safety net (below). A one-off
 # truncation is retried once with a doubled budget, but never above this — past
 # here the prompt is genuinely too large for a single call and doubling forever
-# would only waste tokens and latency before failing anyway. Matches the largest
-# tuned per-chain ceiling (CV_*/RECONCILE_MAX_TOKENS = 16384 in constants.py).
-TRUNCATION_RETRY_CEILING: int = 16384
+# would only waste tokens and latency before failing anyway.
+#
+# This MUST sit strictly ABOVE the largest tuned per-chain budget, or the retry net
+# is a no-op for that chain: if budget == ceiling, ``bigger = min(2*budget, ceiling)``
+# collapses to ``budget`` and ``retry_on_truncation`` re-raises immediately with no
+# headroom. The reconciler's per-call budget rose to 32768 (RECONCILE_MAX_TOKENS) to
+# fit a rich two-CV + JD merge, so this is set one doubling above that (65536) so a
+# freak one-off overflow on that already-large budget can still be retried once.
+# Tradeoff: the retry only ever fires on an actual truncation, and max_tokens is a
+# *ceiling* billed on real output, so the larger headroom costs nothing on normal
+# calls and just buys one extra recovery step on the worst case.
+TRUNCATION_RETRY_CEILING: int = 65536
 
 _T = TypeVar("_T")
 

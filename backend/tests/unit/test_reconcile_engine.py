@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from applire.exceptions import LLMError, LLMTruncatedError
 from applire.prompts.reconcile import (
     RECONCILE_SYSTEM_PROMPT,
     build_reconcile_prompt,
@@ -114,6 +115,45 @@ async def test_reconcile_garbage_payload_yields_empty_result() -> None:
     for payload in ([], "totally garbage", {"unexpected": "shape"}, None, 42):
         provider = _StubProvider(payload)
         result = await reconcile(MasterProfileData(), "info", "manual", provider)
+        assert isinstance(result, ReconcileResult)
+        assert result.ops == []
+        assert result.ambiguities == []
+
+
+class _RaisingProvider:
+    """Provider stub whose aparse_json always raises ``exc``.
+
+    Absorbs the full provider-ABC signature via **kwargs (disable_thinking,
+    temperature, max_tokens, system, …) so it is a faithful drop-in.
+    """
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    async def aparse_json(self, prompt: str, **kwargs: Any) -> Any:
+        raise self.exc
+
+
+@pytest.mark.asyncio
+async def test_reconcile_propagates_truncation_not_empty() -> None:
+    """Truncation = data loss; it MUST surface, never become a silent empty merge.
+
+    Regression for the one-CV-wins bug: a blanket ``except Exception`` swallowed
+    ``LLMTruncatedError`` into an empty ``ReconcileResult`` (no ops → the second
+    CV's content dropped). The engine must now re-raise truncation.
+    """
+    provider = _RaisingProvider(LLMTruncatedError("hit the token budget"))
+    with pytest.raises(LLMTruncatedError):
+        await reconcile(MasterProfileData(), "lots of new info", "cv_upload", provider)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_generic_error_still_degrades_to_empty() -> None:
+    """Non-truncation provider/transport errors keep the old behaviour:
+    degrade to an empty result, never escape (unchanged intent)."""
+    for exc in (RuntimeError("transport boom"), LLMError("vendor noise"), ValueError("x")):
+        provider = _RaisingProvider(exc)
+        result = await reconcile(MasterProfileData(), "info", "cv_upload", provider)
         assert isinstance(result, ReconcileResult)
         assert result.ops == []
         assert result.ambiguities == []

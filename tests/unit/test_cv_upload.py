@@ -513,3 +513,105 @@ async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
     conflict_fields = [c.field for c in response.conflicts]
     assert any("start_date" in f for f in conflict_fields)
     assert response.status == "DRAFT"
+
+
+# ---------------------------------------------------------------------------
+# 8b. upload_cv() — a reconcile TRUNCATION surfaces, never a silent half-merge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload_cv_reconcile_truncation_surfaces_and_does_not_persist(
+    sqlite_session, tmp_path
+):
+    """Silent-data-loss regression (one-CV-wins merge): when the reconcile LLM
+    call truncates on the second upload, the engine must propagate
+    ``LLMTruncatedError`` through ``reconcile_import`` → ``upload_cv`` so the
+    caller can fail that file cleanly. The first CV's profile must remain on disk
+    UNCHANGED — never overwritten by a half-merge."""
+    from applire.exceptions import LLMTruncatedError
+    from applire.services.profile import _get_latest, upload_cv
+    from applire.storage.local import LocalStorageProvider
+
+    mock_ocr = AsyncMock()
+    storage = LocalStorageProvider(str(tmp_path))
+
+    first_profile = {
+        "personal_info": {"name": "Anna Schmidt"},
+        "work_experience": [
+            {
+                "company": "BMW Group",
+                "role": "Product Manager",
+                "start_date": "2018-03",
+                "responsibilities": ["Led product roadmap"],
+            }
+        ],
+        "skills": [{"name": "Product Management", "category": "domain", "proficiency": "advanced"}],
+        "languages": [{"language": "German", "level": "Native"}],
+    }
+    second_profile = {
+        "personal_info": {"name": "Anna Schmidt"},
+        "work_experience": [
+            {
+                "company": "SAP SE",
+                "role": "Senior Product Manager",
+                "start_date": "2022-02",
+                "responsibilities": ["Owned platform strategy"],
+            }
+        ],
+        "skills": [{"name": "Leadership", "category": "soft", "proficiency": "advanced"}],
+        "languages": [{"language": "German", "level": "Native"}],
+    }
+
+    _staged = {"value": first_profile}
+
+    async def _aparse_json(prompt, *, system=None, **kwargs):
+        # The big two-CV reconcile blows the token budget → truncation.
+        if "profile reconciler" in (system or "").lower():
+            raise LLMTruncatedError("Model hit the token budget; output is truncated.")
+        return _staged["value"]
+
+    mock_provider = AsyncMock()
+    mock_provider.__class__.__name__ = "MockProvider"
+    mock_provider.aparse_json = AsyncMock(side_effect=_aparse_json)
+
+    with patch("applire.services.cv_parser.extract_text", new=AsyncMock(return_value="Anna Schmidt\nBMW Group")), \
+         patch("applire.services.profile.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)):
+
+        _staged["value"] = first_profile
+        await upload_cv(
+            file_bytes=b"cv1",
+            filename="cv1.pdf",
+            content_type="application/pdf",
+            db=sqlite_session,
+            provider=mock_provider,
+            storage=storage,
+            ocr_extractor=mock_ocr,
+        )
+
+        before = await _get_latest(sqlite_session)
+        before_json = dict(before.profile_json)
+
+        _staged["value"] = second_profile
+        # Truncation must propagate as the typed LLMTruncatedError — NOT be
+        # swallowed into an empty (one-CV-wins) merge.
+        with pytest.raises(LLMTruncatedError):
+            await upload_cv(
+                file_bytes=b"cv2",
+                filename="cv2.pdf",
+                content_type="application/pdf",
+                db=sqlite_session,
+                provider=mock_provider,
+                storage=storage,
+                ocr_extractor=mock_ocr,
+            )
+
+    # No half-merge persisted: the stored profile is exactly CV1's, SAP SE never
+    # half-landed.
+    await sqlite_session.rollback()
+    after = await _get_latest(sqlite_session)
+    companies = [w.get("company") for w in after.profile_json.get("work_experience", [])]
+    assert "SAP SE" not in companies
+    assert "BMW Group" in companies
+    assert before_json["work_experience"][0]["company"] == "BMW Group"
