@@ -41,6 +41,13 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+# US184: import the profile package before applire.services.session. session.py
+# imports the reconcile interview-bridge, and applire.services.profile imports
+# get_ui_language from session — so importing session FIRST hits a partially
+# initialised module. Loading profile first primes the package so the cycle
+# resolves. (The underlying module-level cycle is a source-side concern.)
+import applire.services.profile  # noqa: E402,F401
+
 
 # ===========================================================================
 # Part 1 — pure gate-cluster helpers (no DB, no LLM)
@@ -222,12 +229,31 @@ def _park_gate(user_id=None, gate="name_divergence", cv_name="Boris Schmidt"):
 def _mock_provider(question="Tell me about your GCP experience."):
     provider = MagicMock()
     provider.acomplete = AsyncMock(return_value=question)
-    provider.aparse_json = AsyncMock(return_value={
+    _turn = {
         "question": question, "choices": None,
         "gap_resolution": "full", "follow_up_hint": None,
         "skills_to_add": [], "work_history_to_add": [], "certifications_to_add": [],
         "languages_to_add": [], "education_to_add": [],
-    })
+    }
+    # US184: resolving the parked CV merges via the ADR-046 engine. The reconcile
+    # call (system prompt = the "profile reconciler") returns ops that fold the
+    # staged extraction (Figma skill + the Globex position) into the master
+    # profile; every other aparse_json call is the interview turn.
+    _reconcile = {
+        "ops": [
+            {"op": "upsert_skill", "ref": "s1", "name": "Figma", "category": "technical"},
+            {"op": "upsert_work", "ref": "w1", "company": "Globex",
+             "role": "Designer", "start_date": "2021-03"},
+        ],
+        "ambiguities": [],
+    }
+
+    async def _aparse_json(prompt, *, system=None, **kwargs):
+        if "profile reconciler" in (system or "").lower():
+            return _reconcile
+        return _turn
+
+    provider.aparse_json = AsyncMock(side_effect=_aparse_json)
     provider.__class__.__name__ = "MockProvider"
     return provider
 

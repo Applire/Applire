@@ -38,6 +38,7 @@ async def sqlite_session():
     from applire.models.profile import MasterProfile, ProfileSnapshot
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from applire.models.user_settings import UserSettings  # US184: get_ui_language
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -49,6 +50,9 @@ async def sqlite_session():
                     ProfileSnapshot.__table__,  # US168: _apply_merge snapshots pre-merge
                     UploadRecord.__table__,
                     User.__table__,
+                    # US184: import paths now call get_ui_language(db) → needs the
+                    # user_settings table so the engine path runs end-to-end.
+                    UserSettings.__table__,
                 ],
             )
         )
@@ -185,8 +189,19 @@ class TestResolveStagedExtraction:
         await _upload(sqlite_session, storage, "Anna Schmidt", company="BMW")
         gated = await _upload(sqlite_session, storage, "Marcus Weber", company="SAP")
 
+        # US184: the merge reconciles the staged extraction via the ADR-046 engine.
+        # Inject a provider whose reconciler folds the staged SAP position in as a
+        # new entry (no target) — hermetic, no real LLM (CI has no key).
+        provider = AsyncMock()
+        provider.aparse_json.return_value = {
+            "ops": [
+                {"op": "upsert_work", "ref": "w1", "company": "SAP",
+                 "role": "Engineer", "start_date": "2020-01"},
+            ],
+            "ambiguities": [],
+        }
         result = await resolve_staged_extraction(
-            sqlite_session, gated.staged_id, action="merge"
+            sqlite_session, gated.staged_id, action="merge", provider=provider
         )
 
         assert result.action == "merge"

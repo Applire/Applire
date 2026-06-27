@@ -184,6 +184,7 @@ async def resolve_staged_extraction_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     auth: AuthProvider = Depends(get_auth_provider),
+    provider: LLMProvider = Depends(_get_provider),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
 
@@ -196,7 +197,7 @@ async def resolve_staged_extraction_endpoint(
     user = await auth.get_current_user(request)
     try:
         return await resolve_staged_extraction(
-            db, staged_id, action=body.action, user_id=user.id
+            db, staged_id, action=body.action, user_id=user.id, provider=provider
         )
     except StagedExtractionNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

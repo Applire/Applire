@@ -37,6 +37,13 @@ async def sqlite_session():
     import applire.models.gap  # noqa: F401
     import applire.models.session  # noqa: F401
     import applire.models.user  # noqa: F401
+    import applire.models.user_settings  # noqa: F401  # US184: get_ui_language
+    # US184: the engine import-path pulls flow/application/cover_letter models into
+    # the metadata; import them so create_all over the full metadata has no dangling
+    # FK (flow_sessions → generated_cover_letters).
+    import applire.models.flow  # noqa: F401
+    import applire.models.application  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -566,13 +573,16 @@ class TestNewProfileServiceDB:
             result = await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
 
         assert result is not None
+        # US184: the second import now reconciles via the ADR-046 engine
+        # (reconcile_import), which adds ONE reconcile() aparse_json call vs the
+        # retired lexical merge (which made no LLM call).
         # Import 1: 1 extraction + 1 annotation (US179) + 1 skill-estimation = 3 calls.
-        # Import 2: 1 extraction + 1 skill-estimation = 2 calls.
+        # Import 2: 1 extraction + 1 skill-estimation + 1 reconcile = 3 calls.
         # The annotation is skipped on import 2 because the mock returns the SAME
         # dict reference for every aparse_json call; the first annotation mutates
         # expected_fields in-place so the idempotency guard fires on the second run.
         # In production each extraction returns a fresh dict so annotation always runs.
-        assert provider.aparse_json.call_count == 5
+        assert provider.aparse_json.call_count == 6
 
     @pytest.mark.asyncio
     async def test_import_from_pdf_raises_on_empty_text(self, sqlite_session):
