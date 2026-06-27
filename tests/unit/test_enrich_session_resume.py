@@ -182,6 +182,59 @@ class TestEnrichSessionResume:
         assert rec2.state["current_gap_index"] == advanced_index
 
     @pytest.mark.asyncio
+    async def test_respond_surfaces_pending_confirmation(self, sqlite_session, monkeypatch):
+        """An ambiguous reconcile turn surfaces a confirmation in the enrich drawer (US185)."""
+        from applire.routers.profile_enrich import (
+            start_enrich_session,
+            respond_to_enrich,
+        )
+        from applire.schemas.enrich import EnrichStartRequest, EnrichRespondRequest
+        from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+        from applire.services.profile.reconcile.ops import RequestConfirmation
+        import applire.routers.profile_enrich as pe
+
+        prof = _make_profile()
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+
+        first = await start_enrich_session(
+            EnrichStartRequest(), sqlite_session, provider, None
+        )
+
+        confirmation = RequestConfirmation(
+            question="Is 'Owner at applire' the same as your 'Founder & Lead Developer' role?",
+            options=["Yes, same role", "No, separate roles"],
+            context={"existing": "Founder & Lead Developer"},
+        )
+
+        async def _confirming(**kwargs):
+            return InterviewTurnResult(
+                profile_dict=prof.profile_json,
+                changes=[],
+                addressed=False,
+                pending_confirmations=[confirmation],
+            )
+
+        monkeypatch.setattr(pe, "reconcile_interview_turn", _confirming)
+
+        resp = await respond_to_enrich(
+            first.session_id,
+            EnrichRespondRequest(answer="I'm the Owner at applire"),
+            sqlite_session,
+            provider,
+            None,
+        )
+
+        assert resp.pending_confirmations is not None
+        assert len(resp.pending_confirmations) == 1
+        assert resp.pending_confirmations[0].question == confirmation.question
+        assert resp.pending_confirmations[0].options == ["Yes, same role", "No, separate roles"]
+        # The confirmation is the prompt the user sees next, not the auto-generated gap question.
+        assert resp.next_question == confirmation.question
+        assert resp.done is False
+
+    @pytest.mark.asyncio
     async def test_fresh_session_when_none_open(self, sqlite_session):
         """A brand-new session IS created when nothing is in flight."""
         from applire.routers.profile_enrich import start_enrich_session

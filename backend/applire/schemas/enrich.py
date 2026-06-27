@@ -20,6 +20,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from applire.schemas.session import ConfirmationPrompt
+
 
 class EnrichStartRequest(BaseModel):
     # None = full profile scan
@@ -49,6 +51,9 @@ class EnrichRespondResponse(BaseModel):
     gaps: list[GapItem]
     done: bool
     profile_updated: bool
+    # The reconciler flagged an ambiguity it will not guess (US185). When set,
+    # next_question carries the confirmation question and these carry the options.
+    pending_confirmations: list[ConfirmationPrompt] | None = None
 
 
 class EnrichActionResponse(BaseModel):

@@ -26,6 +26,7 @@ import {
   type EnrichActionResult,
   type EnrichSession,
   type GapItem,
+  type PendingConfirmation,
   isEnrichNoGaps,
   markGapNA,
   respondToEnrich,
@@ -55,6 +56,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
   const [done, setDone] = useState(false);
   const [noGaps, setNoGaps] = useState(false);
   const [error, setError] = useState("");
+  const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,14 +119,18 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
     }
   };
 
-  const handleSend = async () => {
-    if (!session || !answer.trim()) return;
-    const text = answer.trim();
+  const handleSend = async (override?: string) => {
+    const text = (override ?? answer).trim();
+    if (!session || !text) return;
     setAnswer("");
     setLoading(true);
+    setPendingConfirmations([]);
     try {
       const result = await respondToEnrich(session.session_id, text);
       applyResult(result, text);
+      if (result.pending_confirmations?.length) {
+        setPendingConfirmations(result.pending_confirmations);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -274,6 +280,30 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
                 <div ref={chatEndRef} />
               </div>
 
+              {/* Reconciliation confirmation (US185) — ask, never guess identity */}
+              {pendingConfirmations.length > 0 && (
+                <div
+                  data-testid="enrich-confirmation"
+                  className="shrink-0 border-t border-gray-200 px-4 pt-3 flex flex-col gap-2"
+                >
+                  <p className="text-xs text-gray-400">{t("confirmHint")}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {pendingConfirmations[0].options.map((option) => (
+                      <Button
+                        key={option}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs"
+                        onClick={() => handleSend(option)}
+                        disabled={loading}
+                      >
+                        {option}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Input area */}
               <div className="shrink-0 border-t border-gray-200 p-3 flex flex-col gap-2">
                 <textarea
@@ -309,7 +339,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
                   </div>
                   <Button
                     size="sm"
-                    onClick={handleSend}
+                    onClick={() => handleSend()}
                     disabled={loading || !answer.trim()}
                   >
                     {loading ? t("sending") : t("send")}

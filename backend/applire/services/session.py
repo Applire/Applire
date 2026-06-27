@@ -58,6 +58,7 @@ from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData
 from applire.schemas.session import (
+    ConfirmationPrompt,
     ConflictSummary,
     InterviewState,
     SessionCreateRequest,
@@ -343,6 +344,54 @@ async def _handle_conflict_answer(
 
     lang = await get_ui_language(db)
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+
+
+def _to_confirmation_prompts(confirmations) -> list[ConfirmationPrompt]:
+    """Map engine RequestConfirmation ops to the API confirmation DTO (US185)."""
+    return [
+        ConfirmationPrompt(
+            question=c.question, options=list(c.options), context=dict(c.context)
+        )
+        for c in confirmations
+    ]
+
+
+async def _ask_confirmation(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    turn,
+    current_gap: str,
+    current_idx: int,
+) -> SessionMessageResponse:
+    """Surface a reconciler ambiguity as a targeted confirmation question (US185).
+
+    The underlying answer was already applied (the ambiguity is a refinement, not
+    the gap going unmet), so the current gap is marked addressed and a one-shot
+    ``resolving_confirmation`` flag makes the *next* turn advance rather than
+    re-ask. The engine resolves the entity identity from the user's answer — the
+    system asks, it never guesses (mirrors the US163/US165 confirm principle)."""
+    confirmation = turn.pending_confirmations[0]
+    if current_gap not in state.get("addressed_gaps", []):
+        state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+    state["resolving_confirmation"] = True
+    state["current_question"] = confirmation.question
+    state["current_choices"] = list(confirmation.options)
+    state["messages"].append({"role": "assistant", "content": confirmation.question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=confirmation.question,
+        gaps_remaining=gaps_remaining,
+        choices=list(confirmation.options),
+        pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations),
+        pending_conflicts=turn.conflict_summaries or None,
+    )
 
 
 async def _get_active_profile_review_session(
@@ -996,14 +1045,23 @@ async def send_message(
             record, state, db, "max_questions_reached", profile_record
         )
 
+    # --- US185: an unresolved ambiguity becomes a targeted confirmation question.
+    # The reconciler never guesses entity identity (synonym role, project-vs-
+    # position, DE<->EN employer); it asks. Surface that before advancing. ---
+    if turn.pending_confirmations:
+        return await _ask_confirmation(record, state, db, turn, current_gap, current_idx)
+
     # --- Advance decision ---
     # Deterministic gap-progress (US182a): a profile mutation means the answer
     # addressed the gap. "declined" is already handled upstream by
     # is_termination_signal, so an answer that changes nothing -> follow up once.
     addressed = turn.addressed
+    # One-shot: the previous turn surfaced a confirmation and pre-marked the gap
+    # addressed; this answer resolved it, so advance instead of re-asking.
+    resolving_confirmation = state.pop("resolving_confirmation", False)
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
-    if addressed or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
+    if addressed or resolving_confirmation or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
         skipped_set_updated = set(state.get("skipped_gaps", []))

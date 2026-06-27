@@ -209,3 +209,17 @@ async def test_mock_reconciler_emits_representative_ops() -> None:
     )
     assert result.ops, "mock reconciler must emit representative ops for interview tests"
     assert any(isinstance(o, UpsertSkill) for o in result.ops)
+
+
+@pytest.mark.asyncio
+async def test_mock_reconciler_flags_ambiguity_for_synonym_role() -> None:
+    """US185 — the synonym-fold UAT answer surfaces a RequestConfirmation through the engine."""
+    result = await reconcile(
+        MasterProfileData(),
+        {"gap": "roles", "question": "current role?", "answer": "I'm the Owner at applire."},
+        "interview",
+        MockLLMProvider(),
+    )
+    assert result.ambiguities, "mock must surface a confirmation for the synonym-fold fixture"
+    assert "Founder & Lead Developer" in result.ambiguities[0].question
+    assert result.ambiguities[0].options

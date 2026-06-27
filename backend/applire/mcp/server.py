@@ -265,7 +265,11 @@ async def run_interview(job_id: str) -> dict:
 @mcp.tool(
     description=(
         "Send a message in an active interview session. "
-        "Returns the next question, or {complete: true} when the session is finished."
+        "Returns the next question, or {complete: true} when the session is finished. "
+        "If 'pending_confirmations' is present, the system is unsure whether a fact "
+        "matches an existing profile entry (e.g. two role titles for one job) and is "
+        "asking you to confirm — reply by sending one of the listed 'options' as the "
+        "next message; never assume the answer."
     )
 )
 async def send_message(session_id: str, message: str) -> dict:

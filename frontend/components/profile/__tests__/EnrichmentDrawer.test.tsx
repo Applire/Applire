@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { EnrichmentDrawer } from "../EnrichmentDrawer";
 import { withIntl } from "@/lib/test-utils/with-intl";
 
@@ -30,9 +30,10 @@ vi.mock("@/lib/api/enrich", () => ({
     typeof r === "object" && r !== null && "noGaps" in r,
 }));
 
-import { startEnrichSession } from "@/lib/api/enrich";
+import { startEnrichSession, respondToEnrich } from "@/lib/api/enrich";
 
 const startMock = vi.mocked(startEnrichSession);
+const respondMock = vi.mocked(respondToEnrich);
 
 describe("EnrichmentDrawer", () => {
   beforeEach(() => {
@@ -83,6 +84,56 @@ describe("EnrichmentDrawer", () => {
       expect(
         screen.getByText(/nichts zu ergänzen/i),
       ).toBeInTheDocument(),
+    );
+  });
+
+  // US185 — when the reconciler is unsure, it surfaces a confirmation; the user
+  // resolves it with one tap, and that option is sent back as the answer.
+  it("surfaces a confirmation and sends the chosen option", async () => {
+    startMock.mockResolvedValueOnce({
+      session_id: "sess-1",
+      first_question: "Tell us about your current role.",
+      gaps: [{ id: "g1", label: "role", status: "active" }],
+      estimated_questions: 3,
+    });
+    respondMock.mockResolvedValueOnce({
+      next_question: "Is 'Owner at applire' the same as your 'Founder & Lead Developer' role?",
+      gaps: [{ id: "g1", label: "role", status: "active" }],
+      done: false,
+      profile_updated: false,
+      pending_confirmations: [
+        {
+          question: "Is 'Owner at applire' the same as your 'Founder & Lead Developer' role?",
+          options: ["Yes, same role", "No, separate roles"],
+        },
+      ],
+    });
+    render(withIntl(<EnrichmentDrawer open onClose={vi.fn()} />, "en"));
+
+    await waitFor(() =>
+      expect(screen.getByText("Tell us about your current role.")).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "I'm the Owner at applire" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // The confirmation options appear as one-tap buttons.
+    const yesBtn = await screen.findByRole("button", { name: "Yes, same role" });
+    expect(screen.getByTestId("enrich-confirmation")).toBeInTheDocument();
+    expect(screen.getByText(/We won't merge these on our own/i)).toBeInTheDocument();
+
+    respondMock.mockResolvedValueOnce({
+      next_question: "What is your current company size?",
+      gaps: [{ id: "g1", label: "role", status: "done" }],
+      done: false,
+      profile_updated: true,
+    });
+    fireEvent.click(yesBtn);
+
+    await waitFor(() =>
+      expect(respondMock).toHaveBeenLastCalledWith("sess-1", "Yes, same role"),
     );
   });
 });

@@ -211,6 +211,27 @@ def _unaddressed_turn(profile_dict, *, conflicts=None):
     )
 
 
+def _confirming_turn(profile_dict, *, addressed=True, changes=None):
+    """A turn whose reconciler flagged an ambiguity → a confirmation is owed (US185)."""
+    from applire.schemas.profile import FieldChange
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+    from applire.services.profile.reconcile.ops import RequestConfirmation
+
+    if changes is None and addressed:
+        changes = [FieldChange(section="work_experience", field="role", action="added", new_value="Owner")]
+    confirmation = RequestConfirmation(
+        question="Is 'Owner at applire' the same as your 'Founder & Lead Developer' role?",
+        options=["Yes, same role", "No, separate roles"],
+        context={"existing": "Founder & Lead Developer", "incoming": "Owner"},
+    )
+    return InterviewTurnResult(
+        profile_dict=profile_dict,
+        changes=list(changes or []),
+        addressed=addressed,
+        pending_confirmations=[confirmation],
+    )
+
+
 # ===========================================================================
 # Part 1: interview/signals.py coverage
 # ===========================================================================
@@ -812,6 +833,95 @@ class TestSendMessage:
         assert result.complete is False
         # Advanced to the second (and last) gap → one remaining, not still 2
         assert result.gaps_remaining == 1
+
+    @pytest.mark.asyncio
+    async def test_pending_confirmation_surfaces_as_targeted_question(self, sqlite_session):
+        """An ambiguous reconcile turn surfaces a confirmation prompt, never a silent merge (US185).
+
+        The reconciler flagged "is 'Owner at applire' the same as your existing
+        'Founder & Lead Developer' role?". The interview must ASK that — the
+        question, its option buttons, and a structured pending_confirmations
+        payload — rather than guessing identity or advancing past it.
+        """
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _confirming_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "SHOULD NOT BE ASKED", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I'm the Owner at applire.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # The confirmation question — NOT the auto-generated next-gap question — is asked.
+        assert result.question == turn.pending_confirmations[0].question
+        assert result.choices == ["Yes, same role", "No, separate roles"]
+        # Structured payload lets the UI render a confirmation card with context.
+        assert result.pending_confirmations is not None
+        assert len(result.pending_confirmations) == 1
+        prompt = result.pending_confirmations[0]
+        assert prompt.question == turn.pending_confirmations[0].question
+        assert prompt.options == ["Yes, same role", "No, separate roles"]
+        assert prompt.context["existing"] == "Founder & Lead Developer"
+
+    @pytest.mark.asyncio
+    async def test_confirmation_answer_advances_without_re_asking(self, sqlite_session):
+        """After a confirmation is shown, the next answer resolves it and the loop
+        moves on — it does not loop on the same gap (US185)."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        # Turn 1: ambiguity → confirmation surfaced (gap pre-marked addressed).
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=_confirming_turn(profile.profile_json))),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next gap?", "choices": None})),
+        ):
+            await send_message(
+                session_record.id, "I'm the Owner at applire.", sqlite_session, _mock_provider()
+            )
+
+        # Turn 2: user confirms; reconciler produces no further ambiguity → advance.
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=_unaddressed_turn(profile.profile_json))),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "Yes, same role", sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Advanced off the confirmed gap → one gap remaining, not still two.
+        assert result.gaps_remaining == 1
+        assert result.question == "Tell me about FastAPI."
 
     @pytest.mark.asyncio
     async def test_unaddressed_answer_generates_follow_up(self, sqlite_session):

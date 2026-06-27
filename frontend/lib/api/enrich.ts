@@ -46,11 +46,19 @@ export function isEnrichNoGaps(
   return "noGaps" in result;
 }
 
+export interface PendingConfirmation {
+  question: string;
+  options: string[];
+  context?: Record<string, unknown>;
+}
+
 export interface EnrichRespondResult {
   next_question: string | null;
   gaps: GapItem[];
   done: boolean;
   profile_updated: boolean;
+  // The reconciler flagged an ambiguity it will not guess (US185).
+  pending_confirmations?: PendingConfirmation[];
 }
 
 export interface EnrichActionResult {

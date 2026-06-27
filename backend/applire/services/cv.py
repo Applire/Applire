@@ -70,7 +70,13 @@ from applire.prompts.review_cv_tailoring import (
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.cv import CVGenerateResponse, CVStatusResponse, CVTemplate, TailoredCVData
+from applire.schemas.cv import (
+    CVGenerateResponse,
+    CVStatusResponse,
+    CVTemplate,
+    TailoredCVData,
+    TailoredProjectEntry,
+)
 from applire.prompts.review_cv_language import (
     CV_LANGUAGE_REFINEMENT_PROMPT,
     CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
@@ -120,6 +126,107 @@ def _slugify(text: str) -> str:
     text = re.sub(r"[\s_]+", "-", text)
     text = re.sub(r"-+", "-", text)
     return text.strip("-")
+
+
+def _project_bullets(source_project: dict) -> list[str]:
+    """Collapse a source ProjectEntry's responsibilities + achievements into the
+    flat bullet list TailoredProjectEntry renders. Description leads when present
+    so a one-line project still carries content. Order is stable and deduped."""
+    bullets: list[str] = []
+    desc = source_project.get("description")
+    if isinstance(desc, str) and desc.strip():
+        bullets.append(desc.strip())
+    for key in ("responsibilities", "achievements"):
+        for item in source_project.get(key) or []:
+            if isinstance(item, str) and item.strip():
+                bullets.append(item.strip())
+    # Dedupe while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for b in bullets:
+        if b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out
+
+
+def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """Deterministically place each source ProjectEntry under its parent position
+    (US187). The LLM tailors prose but never carries project→parent identity; this
+    code-side step is the truthful, testable disposer (ADR-044 / ADR-046 boundary).
+
+    For each source project:
+      * resolve its ``associated_experience`` to a source WorkEntry id;
+      * locate the matching TailoredWorkEntry by company+role (the same stable
+        identity the section editor uses) and nest the project there;
+      * anything else (no parent, parent is a volunteer activity, or no tailored
+        work entry matches) goes to the standalone top-level list so it is never
+        dropped.
+
+    Returns a new TailoredCVData; the input is left unmutated.
+    """
+    source_projects = profile_json.get("projects") or []
+    if not source_projects:
+        return tailored
+
+    # Map source work id → company/role so we can find the tailored counterpart.
+    # `associated_experience` is an id on the reconcile path (ADR-046) but a
+    # company/organisation NAME on the CV-extraction path (prompts/cv_extraction.py),
+    # so we index work entries by both id and company name.
+    work_by_id: dict[str, dict] = {}
+    work_by_company: dict[str, dict] = {}
+    for w in profile_json.get("work_experience") or []:
+        wid = w.get("id")
+        if wid:
+            work_by_id[str(wid)] = w
+        company = (w.get("company") or "").strip().lower()
+        if company:
+            work_by_company.setdefault(company, w)
+
+    data = tailored.model_dump()
+    work_history = data.get("work_history") or []
+
+    def _match_tailored_index(company: str, role: str) -> int | None:
+        company_l = (company or "").strip().lower()
+        role_l = (role or "").strip().lower()
+        # Prefer an exact company+role match, then fall back to company-only.
+        for idx, w in enumerate(work_history):
+            if (w.get("company") or "").strip().lower() == company_l and (
+                w.get("role") or ""
+            ).strip().lower() == role_l:
+                return idx
+        for idx, w in enumerate(work_history):
+            if company_l and (w.get("company") or "").strip().lower() == company_l:
+                return idx
+        return None
+
+    standalone: list[dict] = []
+    for proj in source_projects:
+        name = (proj.get("name") or "").strip()
+        if not name:
+            continue
+        entry = TailoredProjectEntry(name=name, bullets=_project_bullets(proj)).model_dump()
+
+        parent_ref = proj.get("associated_experience")
+        target_idx: int | None = None
+        if parent_ref is not None:
+            parent_key = str(parent_ref).strip()
+            parent_work = work_by_id.get(parent_key) or work_by_company.get(
+                parent_key.lower()
+            )
+            if parent_work is not None:
+                target_idx = _match_tailored_index(
+                    parent_work.get("company", ""), parent_work.get("role", "")
+                )
+
+        if target_idx is not None:
+            work_history[target_idx].setdefault("projects", []).append(entry)
+        else:
+            standalone.append(entry)
+
+    data["work_history"] = work_history
+    data["projects"] = (data.get("projects") or []) + standalone
+    return TailoredCVData.model_validate(data)
 
 
 _TEMPLATE_FILES: dict[str, str] = {
@@ -473,6 +580,10 @@ async def _render_cv_background(
             )
 
             tailored = TailoredCVData.model_validate(tailored_raw)
+
+            # US187: deterministically nest source projects under their parent
+            # position (or the standalone list). The LLM tailors prose; code disposes.
+            tailored = _nest_projects(tailored, profile_json)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.

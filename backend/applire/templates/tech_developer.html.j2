@@ -114,6 +114,17 @@
 
     .entry-bullets li::before { content: "▸ "; color: var(--cv-primary); }
 
+    .entry-projects { margin-top: 5pt; }
+    .entry-projects-title {
+      font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+      font-size: 8.5pt;
+      letter-spacing: 0.04em;
+      color: var(--cv-primary);
+      margin-bottom: 2pt;
+    }
+    .project-item { margin-bottom: 3pt; }
+    .project-name { font-weight: 600; font-size: 9.5pt; }
+
     .entry-bullets li {
       margin-bottom: 2pt;
       font-size: 9.5pt;
@@ -204,6 +215,39 @@
         {% for bullet in job.bullets %}
         <li>{{ bullet }}</li>
         {% endfor %}
+      </ul>
+      {% endif %}
+      {% if job.projects %}
+      <div class="entry-projects">
+        <div class="entry-projects-title">{{ labels.projects | lower }}</div>
+        {% for project in job.projects %}
+        <div class="project-item">
+          <div class="project-name">{{ project.name }}</div>
+          {% if project.bullets %}
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if cv.projects %}
+  <div class="section">
+    <div class="section-label">{{ labels.projects | lower }}</div>
+    {% for project in cv.projects %}
+    <div class="entry">
+      <div class="entry-header">
+        <div class="entry-title">{{ project.name }}</div>
+      </div>
+      {% if project.bullets %}
+      <ul class="entry-bullets">
+        {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
       </ul>
       {% endif %}
     </div>

@@ -76,6 +76,12 @@ interface ConflictSummary {
   new_value: string;
 }
 
+interface PendingConfirmation {
+  question: string;
+  options: string[];
+  context?: Record<string, unknown>;
+}
+
 interface MessageResponse {
   complete: boolean;
   question?: string;
@@ -86,6 +92,7 @@ interface MessageResponse {
   gaps_resolved?: number;
   completeness_score?: number;
   pending_conflicts?: ConflictSummary[];
+  pending_confirmations?: PendingConfirmation[];
 }
 
 interface Message {
@@ -243,6 +250,42 @@ function ConflictCard({
   );
 }
 
+// US185 — the reconciler is unsure whether a fact matches an existing profile
+// entry (synonym role, project-vs-position, DE↔EN employer). It asks; it never
+// guesses. The question itself shows as the current question; this card turns
+// the engine's options into one-tap answers.
+function ConfirmationCard({
+  confirmation,
+  onChoose,
+  disabled,
+}: {
+  confirmation: PendingConfirmation;
+  onChoose: (option: string) => void;
+  disabled: boolean;
+}) {
+  const t = useTranslations("interview");
+  return (
+    <div data-testid="confirmation-card" className="mt-4 space-y-2">
+      <p className="text-xs text-gray-400">{t("confirmHint")}</p>
+      <div className="flex flex-wrap gap-2">
+        {confirmation.options.map((option) => (
+          <Button
+            key={option}
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => onChoose(option)}
+            className="text-xs"
+          >
+            {option}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -280,6 +323,7 @@ export default function InterviewPage({
   const [advancingToCV, setAdvancingToCV] = useState(false);
 
   const [pendingConflicts, setPendingConflicts] = useState<ConflictSummary[]>([]);
+  const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
   const [showDoneConfirm, setShowDoneConfirm] = useState(false);
 
   // Split-screen state
@@ -376,6 +420,7 @@ export default function InterviewPage({
     setShowDoneConfirm(false);
     setSending(true);
     setPendingConflicts([]);
+    setPendingConfirmations([]);
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
 
     try {
@@ -409,6 +454,10 @@ export default function InterviewPage({
 
         if (data.pending_conflicts?.length) {
           setPendingConflicts(data.pending_conflicts);
+        }
+
+        if (data.pending_confirmations?.length) {
+          setPendingConfirmations(data.pending_confirmations);
         }
 
         // Update choices
@@ -635,6 +684,15 @@ export default function InterviewPage({
                 onResolved={() => setPendingConflicts((prev) => prev.filter((c) => c.conflict_id !== conflict.conflict_id))}
               />
             ))}
+
+            {/* Reconciliation confirmation (US185) — ask, never guess identity */}
+            {pendingConfirmations.length > 0 && (
+              <ConfirmationCard
+                confirmation={pendingConfirmations[0]}
+                disabled={sending}
+                onChoose={(option) => void sendAnswer(option)}
+              />
+            )}
           </Card>
 
           {/* Message history (collapsed, scrollable) */}
@@ -685,8 +743,9 @@ export default function InterviewPage({
             </div>
           )}
 
-          {/* Choice cards — shown when backend provides choices and session is active */}
-          {choices && choices.length > 0 && !completion && (
+          {/* Choice cards — shown when backend provides choices and session is active.
+              Suppressed while a confirmation is pending (its options render in the card). */}
+          {choices && choices.length > 0 && !completion && pendingConfirmations.length === 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
               {choices.map((choice) => (

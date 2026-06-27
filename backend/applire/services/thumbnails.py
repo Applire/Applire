@@ -44,6 +44,7 @@ from applire.schemas.cv import (
     TailoredCVData,
     TailoredContact,
     TailoredWorkEntry,
+    TailoredProjectEntry,
     TailoredEducationEntry,
     TailoredLanguage,
 )
@@ -66,6 +67,12 @@ _SAMPLE_DATA = TailoredCVData(
             start_date="Jan 2019",
             end_date=None,
             bullets=["Led backend architecture redesign", "Mentored junior engineers"],
+            projects=[
+                TailoredProjectEntry(
+                    name="Plattform-Migration",
+                    bullets=["Migration auf eine containerisierte Microservice-Architektur"],
+                )
+            ],
         ),
         TailoredWorkEntry(
             company="Novartis AG",
