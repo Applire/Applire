@@ -147,8 +147,16 @@ def _gate_entry(state: InterviewState, cluster_id: str) -> dict | None:
     return (state.get("gate_clusters") or {}).get(cluster_id)
 
 
-async def _resolve_gate(db: AsyncSession, upload_id: str, action: str) -> None:
-    """Apply the user's gate decision, tolerating an already-resolved upload."""
+async def _resolve_gate(
+    db: AsyncSession, upload_id: str, action: str, provider: LLMProvider
+) -> None:
+    """Apply the user's gate decision, tolerating an already-resolved upload.
+
+    The merge reconciles the parked extraction into the master profile via the
+    ADR-046 engine, so the interview's provider is threaded through (rather than
+    the global factory) — that keeps the merge on the same LLM the session uses
+    and makes the path injectable in tests.
+    """
     from applire.services.profile import (  # lazy: avoid import cycle
         StagedExtractionAlreadyResolved,
         StagedExtractionNotFound,
@@ -156,7 +164,9 @@ async def _resolve_gate(db: AsyncSession, upload_id: str, action: str) -> None:
     )
 
     try:
-        await resolve_staged_extraction(db, uuid.UUID(upload_id), action=action)
+        await resolve_staged_extraction(
+            db, uuid.UUID(upload_id), action=action, provider=provider
+        )
     except (StagedExtractionAlreadyResolved, StagedExtractionNotFound):
         # Idempotent on resume / TTL eviction — the gate is no longer open, so
         # there is nothing to apply; advancing past it is the correct behaviour.
@@ -252,7 +262,7 @@ async def _handle_gate_answer(
         )
 
     action = "merge" if decision == "merge" else "discard"
-    await _resolve_gate(db, gate_entry["upload_id"], action)
+    await _resolve_gate(db, gate_entry["upload_id"], action, provider)
 
     current_gap = state["critical_gaps"][current_idx]
     state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]

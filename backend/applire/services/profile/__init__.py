@@ -959,6 +959,7 @@ async def resolve_staged_extraction(
     action: str,
     user_id: uuid.UUID | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    provider: LLMProvider | None = None,
 ) -> StagedResolveResponse:
     """Resolve a parked (gated) upload (US167). ``action`` is ``"merge"`` (apply the
     staged extraction additively, re-using the original LLM result) or ``"discard"``
@@ -987,12 +988,14 @@ async def resolve_staged_extraction(
         emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
         incoming = MasterProfileData.model_validate(rec.staged_extraction)
         # The staged path re-uses the original extraction (no re-extraction) so it
-        # has no DI provider; the reconcile merge still needs one — use the
-        # configured provider (mock in tests via LLM_PROVIDER), mirroring the
-        # embedding-provider default.
-        from applire.providers import get_provider
+        # has no DI provider of its own; the reconcile merge still needs one.
+        # Callers (the router via Depends, the interview gate via its session
+        # provider) inject one; fall back to the configured factory otherwise so
+        # tests can pass a controlled stub instead of hitting a real provider.
+        if provider is None:
+            from applire.providers import get_provider
 
-        provider = get_provider()
+            provider = get_provider()
         profile_id, completeness, conflicts, _ = await _apply_merge(
             db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider
         )
