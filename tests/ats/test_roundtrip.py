@@ -27,6 +27,7 @@ import pytest
 
 from applire.schemas.cv import TailoredCVData
 from applire.services.ats_audit import audit_cover_letter, audit_cv
+from applire.services.ats_audit import extract_text
 from applire.services.color_detection import _default_context
 from applire.services.cover_letter import _TEMPLATE_FILES as LETTER_TEMPLATES
 from applire.services.cover_letter import _default_color_context
@@ -66,6 +67,16 @@ CV_DE = TailoredCVData.model_validate(
                     "Leitung eines Teams von acht Prüfingenieuren über drei Standorte hinweg.",
                     "Einführung eines KPI-gestützten Projektmanagements zur Prozessoptimierung.",
                     "Reduktion der Ausschussquote um 23 % durch statistische Prozesslenkung.",
+                ],
+                # US187 — a project nested under this position must render here and
+                # survive the PDF extraction round-trip (ADR-039).
+                "projects": [
+                    {
+                        "name": "Projekt Nullfehler-Initiative",
+                        "bullets": [
+                            "Aufbau einer statistischen Prozesslenkung für die Serienfertigung.",
+                        ],
+                    }
                 ],
             },
             {
@@ -117,6 +128,14 @@ CV_DE = TailoredCVData.model_validate(
         "languages": [
             {"language": "Deutsch", "level": "Muttersprache"},
             {"language": "Englisch", "level": "C1"},
+        ],
+        # US187 — a standalone project (no associated position) must render in its
+        # own section and survive the round-trip.
+        "projects": [
+            {
+                "name": "Open-Source Messdaten-Toolkit",
+                "bullets": ["Veröffentlichung eines Python-Pakets zur Messdatenanalyse."],
+            }
         ],
     }
 )
@@ -306,6 +325,40 @@ async def test_cv_template_roundtrip(template, fixture, lang):
     report = audit_cv(pdf, fixture, KEYWORDS)
     failures = [(c.id, c.details) for c in report.checks if c.status == "fail"]
     assert not failures, f"{template}: {failures}"
+
+
+def _norm_probe(s: str) -> str:
+    """Mirror ats_audit normalisation so substring search matches the PDF text."""
+    from applire.services.ats_audit import _norm
+
+    return _norm(s)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_project_hierarchy_survives_roundtrip(template):
+    """US187 / ADR-039 — the blocking gate. A project nested under a parent position
+    and a standalone project must both survive the real Playwright PDF round-trip,
+    and the nested project must render under its parent (after the parent company in
+    reading order) for every shipped template."""
+    html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_DE, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html)
+    text = _norm_probe(extract_text(pdf))
+
+    nested_name = _norm_probe("Projekt Nullfehler-Initiative")
+    nested_bullet = _norm_probe("Aufbau einer statistischen Prozesslenkung für die Serienfertigung")
+    parent_company = _norm_probe("Süddeutsche Präzisionstechnik GmbH")
+    standalone_name = _norm_probe("Open-Source Messdaten-Toolkit")
+
+    assert nested_name in text, f"{template}: nested project name dropped in PDF"
+    assert nested_bullet in text, f"{template}: nested project bullet dropped in PDF"
+    assert standalone_name in text, f"{template}: standalone project name dropped in PDF"
+    # The nested project must appear after its parent position in reading order.
+    assert text.index(parent_company) < text.index(nested_name), (
+        f"{template}: nested project not rendered under its parent position"
+    )
 
 
 @pytest.mark.asyncio
