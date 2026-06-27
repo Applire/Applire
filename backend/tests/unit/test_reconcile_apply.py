@@ -194,6 +194,45 @@ def test_flag_conflict_no_mutation():
     assert result.profile.work_experience[0].company == "Acme"
 
 
+def test_flag_conflict_absent_side_is_not_a_conflict():
+    # Bug 1 regression — absence is not a conflict. A flag_conflict where one
+    # side is None/empty must NOT surface as a disputed value (the bogus
+    # `team_size: '6' vs 'None'` finding). The value should simply be filled.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        FlagConflict(target=work.id, field="team_size", existing="6", incoming=None),
+        FlagConflict(target=work.id, field="team_size", existing=None, incoming="6"),
+        FlagConflict(target=work.id, field="team_size", existing="6", incoming=""),
+        FlagConflict(target=work.id, field="team_size", existing=[], incoming="x"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.conflicts == []
+
+
+def test_flag_conflict_equal_values_is_not_a_conflict():
+    # Bug 1 regression — identical values (case/whitespace-insensitive) are not
+    # a dispute; only genuinely-differing both-sides values are.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [FlagConflict(target=work.id, field="company", existing="Acme", incoming=" acme ")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.conflicts == []
+
+
+def test_flag_conflict_both_sides_differ_still_recorded():
+    # Bug 1 regression — the genuine both-present-and-differ case is preserved.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        FlagConflict(target=work.id, field="company", existing="Acme", incoming="Globex")
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].existing_value == "Acme"
+    assert result.conflicts[0].incoming_value == "Globex"
+
+
 def test_request_confirmation_collected():
     profile = MasterProfileData()
     ops = [RequestConfirmation(question="Same employer?", options=["yes", "no"])]

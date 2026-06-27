@@ -24,7 +24,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
@@ -76,11 +76,7 @@ interface EnrichmentRecord {
   }>;
 }
 
-function stringifyValue(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
-}
+const stringifyValue = displayValue;
 
 interface ProfileResponse {
   id: string;
