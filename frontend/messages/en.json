@@ -59,6 +59,12 @@
     "title": "Processing Your Profile",
     "subtitle": "Analyzing your CV and building your master profile",
     "goBack": "← Go back and try again",
+    "retry": "Retry",
+    "retrying": "Retrying…",
+    "uploadFailed": "We couldn't read this file. Please try again.",
+    "stillWorking": "Still working — this can take a minute…",
+    "stillWorkingElapsed": "Still working — {seconds}s elapsed. Large CVs can take a few minutes…",
+    "genericError": "Something went wrong. Please try again.",
     "usuallyTakes": "This usually takes about 30 seconds",
     "roleLabel": "Role: {title}",
     "jdAnalyzed": "Job description analyzed",
@@ -584,7 +590,10 @@
     "send": "Send",
     "sending": "Sending…",
     "keepBoth": "These are two separate roles — keep both",
-    "keepBothHint": "Joined in one role, promoted into another? We will keep both instead of merging them."
+    "keepBothHint": "Joined in one role, promoted into another? We will keep both instead of merging them.",
+    "issueHeading": "Here's what needs your attention",
+    "issueAction": "Review the affected section",
+    "issueActionHint": "We'll take you to the section so you can add back anything that's missing."
   },
   "applications": {
     "loadingDetails": "Loading application details...",

@@ -21,22 +21,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
+import { extractApiError, translateApiError } from "@/lib/api/errors";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
+// F1/F7/F9 (run3): never surface raw provider/Pydantic text. extractApiError
+// strips leaky validation noise (returning "" for it); when the backend gives a
+// clean, deliberately-worded detail (e.g. the 502 "Nothing was changed — please
+// try uploading it again.") we show THAT, otherwise translateApiError falls back
+// to a friendly status-based message. Keeps the overlay + per-file retry human.
 async function apiErrorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    const detail = body.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail))
-      return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
-    return res.statusText || `HTTP ${res.status}`;
-  } catch {
-    return res.statusText || `HTTP ${res.status}`;
-  }
+  const detail = await extractApiError(res);
+  // A clean, non-leaky backend detail is deliberately user-facing — prefer it
+  // over the generic status copy (e.g. the 502 truncation message).
+  if (detail && detail.trim()) return detail;
+  return translateApiError(res.status, undefined);
 }
 
 interface Props {
@@ -76,10 +78,166 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
 
   const [jdNote, setJdNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // F1/F8 (run3): per-file parse failures surfaced inline with a clean message
+  // and a Retry, so one bad CV neither strands the overlay nor loses the batch.
+  // Keyed by the file's upload-step index; value is the clean backend detail.
+  const [fileErrors, setFileErrors] = useState<Record<number, string>>({});
+  const [retrying, setRetrying] = useState<number | null>(null);
+  // F8 (run3): real-LLM steps take minutes; an elapsed/"still working" heartbeat
+  // keeps an active step from ever reading as a silent hang.
+  const [elapsed, setElapsed] = useState(0);
+  const working = !error && steps.some((s) => s.status === "active");
   const started = useRef(false);
+  // Pipeline context captured during the run, so a recovery Retry can pick the
+  // flow back up from where the uploads failed instead of restarting onboarding.
+  const pipelineCtx = useRef<{
+    flowId: string | null;
+    jobId: string | null;
+    jdFailReason: "url_invalid" | "fetch_failed" | null;
+  }>({ flowId: null, jobId: null, jdFailReason: null });
 
   function setStepStatus(index: number, status: ProgressStep["status"]) {
     setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, status } : s)));
+  }
+
+  // Tick a "still working" elapsed counter whenever a step is active; reset when
+  // nothing is running so a fresh step starts the heartbeat from zero.
+  useEffect(() => {
+    if (!working) {
+      setElapsed(0);
+      return;
+    }
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [working]);
+
+  interface UploadOk {
+    name_mismatch?: boolean;
+    looks_like_cv?: boolean;
+    undated_positions?: number;
+  }
+
+  // Upload a single CV. Returns the parse signals on success, or null on failure
+  // (recording the clean backend message against the file's step). One failure
+  // never throws — the batch keeps going (FMEA JF-M-2.2) and the user can Retry.
+  const uploadOne = useRef(async (i: number): Promise<UploadOk | null> => {
+    const uploadIdx = 1 + i;
+    const formData = new FormData();
+    formData.append("file", files[i]);
+    try {
+      const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const msg = await apiErrorMessage(uploadRes);
+        setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
+        setStepStatus(uploadIdx, "error");
+        return null;
+      }
+      const body: UploadOk | null = await uploadRes.json().catch(() => null);
+      setFileErrors((prev) => {
+        if (!(uploadIdx in prev)) return prev;
+        const next = { ...prev };
+        delete next[uploadIdx];
+        return next;
+      });
+      setStepStatus(uploadIdx, "done");
+      return body ?? {};
+    } catch {
+      setFileErrors((prev) => ({ ...prev, [uploadIdx]: t("uploadFailed") }));
+      setStepStatus(uploadIdx, "error");
+      return null;
+    }
+  }).current;
+
+  // Build profile → detect gaps → advance flow → navigate. Shared by the main
+  // run and a recovery Retry, so retrying a stranded file resumes the flow from
+  // where the uploads failed (never a full restart, never a freeze).
+  const finishPipeline = useRef(
+    async (parsedCount: number, total: number, signals?: {
+      nameMismatch?: boolean;
+      notCv?: boolean;
+      undated?: number;
+    }) => {
+      const { flowId, jobId, jdFailReason } = pipelineCtx.current;
+      if (!flowId) return;
+      const profileIdx = 1 + total;
+      const gapsIdx = 2 + total;
+      const cvFailedCount = total - parsedCount;
+
+      setStepStatus(profileIdx, "active");
+      await new Promise((r) => setTimeout(r, 400));
+      setStepStatus(profileIdx, "done");
+      setStepStatus(gapsIdx, "active");
+
+      const gapsQuery = (() => {
+        const p = new URLSearchParams();
+        if (jdFailReason) p.set("jd_status", jdFailReason);
+        if (cvFailedCount > 0) {
+          p.set("cv_parsed", String(parsedCount));
+          p.set("cv_total", String(total));
+        }
+        if (signals?.nameMismatch) p.set("name_warning", "1");
+        if (signals?.notCv) p.set("doc_warning", "1");
+        if (signals?.undated && signals.undated > 0) p.set("undated", String(signals.undated));
+        const qs = p.toString();
+        return qs ? `?${qs}` : "";
+      })();
+
+      if (!jobId) {
+        setStepStatus(gapsIdx, "done");
+        await new Promise((r) => setTimeout(r, 400));
+        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
+        return;
+      }
+
+      const stateRes = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
+      if (!stateRes.ok) throw new Error(await apiErrorMessage(stateRes));
+      const flowState = await stateRes.json();
+      const linkedJobId: string = flowState.job_id ?? jobId;
+
+      const gapRes = await fetch(`${API_BASE}/api/job/${linkedJobId}/gaps`, { method: "POST" });
+      if (!gapRes.ok) throw new Error(await apiErrorMessage(gapRes));
+      const gapData = await gapRes.json();
+
+      await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "gap_analysis", artifact_id: gapData.id ?? null }),
+      });
+
+      setStepStatus(gapsIdx, "done");
+      await new Promise((r) => setTimeout(r, 400));
+      router.push(`/flow/${flowId}/gaps${gapsQuery}`);
+    },
+  ).current;
+
+  // Retry just the one failed file/step, in place — never restarts the flow. If
+  // the retry succeeds and it was the file blocking onboarding (all had failed),
+  // resume the pipeline from where it stalled instead of stranding the user.
+  async function retryFile(uploadIdx: number) {
+    setRetrying(uploadIdx);
+    setStepStatus(uploadIdx, "active");
+    const ok = await uploadOne(uploadIdx - 1);
+    setRetrying(null);
+    if (ok && error && pipelineCtx.current.flowId) {
+      // Recovery: at least one CV now parsed. Clear the hard error and resume.
+      setError(null);
+      const remainingErrors = Object.keys(fileErrors).filter(
+        (k) => Number(k) !== uploadIdx,
+      ).length;
+      const parsedCount = files.length - remainingErrors;
+      try {
+        await finishPipeline(parsedCount, files.length, {
+          nameMismatch: ok.name_mismatch,
+          notCv: ok.looks_like_cv === false,
+          undated: ok.undated_positions,
+        });
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : t("uploadFailed"));
+      }
+    }
   }
 
   useEffect(() => {
@@ -87,8 +245,6 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     started.current = true;
 
     async function runPipeline() {
-      const profileIdx = 1 + files.length;
-      const gapsIdx = 2 + files.length;
       try {
         let jobId: string | null = null;
         let jdFailReason: "url_invalid" | "fetch_failed" | null = null;
@@ -174,6 +330,8 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           const flow = await flowRes.json();
           flowId = flow.flow_id;
         }
+        // Capture context so a recovery Retry can resume from here.
+        pipelineCtx.current = { flowId, jobId, jdFailReason };
 
         // No-CV guided onboarding (US156, FMEA 2.6): no uploads — the guided
         // interview builds the profile. It needs a job (create_session requires
@@ -212,87 +370,27 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = 1 + i;
           if (i > 0) setStepStatus(uploadIdx, "active");
-          const formData = new FormData();
-          formData.append("file", files[i]);
-          try {
-            const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
-              method: "POST",
-              body: formData,
-            });
-            if (!uploadRes.ok) {
-              setStepStatus(uploadIdx, "error");
-              continue;
-            }
-            const body = await uploadRes.json().catch(() => null);
-            if (body) {
-              if (body.name_mismatch) anyNameMismatch = true;
-              if (body.looks_like_cv === false) anyNotCv = true;
-              if (typeof body.undated_positions === "number") totalUndated += body.undated_positions;
-            }
-            setStepStatus(uploadIdx, "done");
+          const ok = await uploadOne(i);
+          if (ok) {
+            if (ok.name_mismatch) anyNameMismatch = true;
+            if (ok.looks_like_cv === false) anyNotCv = true;
+            if (typeof ok.undated_positions === "number") totalUndated += ok.undated_positions;
             parsedCount += 1;
-          } catch {
-            setStepStatus(uploadIdx, "error");
           }
         }
         if (parsedCount === 0) {
+          // Hard stop, but recoverable: the failed-file Retry can resume the
+          // pipeline (FMEA JF-M-2.2) — pipelineCtx is already captured.
           throw new Error(t("allCvsFailed"));
         }
-        const cvFailedCount = files.length - parsedCount;
 
-        // Build profile (instant — upload already did the work)
-        setStepStatus(profileIdx, "active");
-        await new Promise((r) => setTimeout(r, 400));
-        setStepStatus(profileIdx, "done");
-
-        // Detect gaps
-        setStepStatus(gapsIdx, "active");
-
-        // Carry JD-recovery + per-file CV parse status to the gaps summary.
-        const gapsQuery = (() => {
-          const p = new URLSearchParams();
-          if (jdFailReason) p.set("jd_status", jdFailReason);
-          if (cvFailedCount > 0) {
-            p.set("cv_parsed", String(parsedCount));
-            p.set("cv_total", String(files.length));
-          }
-          if (anyNameMismatch) p.set("name_warning", "1");
-          if (anyNotCv) p.set("doc_warning", "1");
-          if (totalUndated > 0) p.set("undated", String(totalUndated));
-          const qs = p.toString();
-          return qs ? `?${qs}` : "";
-        })();
-
-        if (!jobId) {
-          setStepStatus(gapsIdx, "done");
-          await new Promise((r) => setTimeout(r, 400));
-          router.push(`/flow/${flowId}/gaps${gapsQuery}`);
-          return;
-        }
-
-        const stateRes = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
-        if (!stateRes.ok) throw new Error("Could not retrieve flow state");
-        const flowState = await stateRes.json();
-        const linkedJobId: string = flowState.job_id ?? jobId;
-
-        const gapRes = await fetch(`${API_BASE}/api/job/${linkedJobId}/gaps`, {
-          method: "POST",
+        await finishPipeline(parsedCount, files.length, {
+          nameMismatch: anyNameMismatch,
+          notCv: anyNotCv,
+          undated: totalUndated,
         });
-        if (!gapRes.ok) throw new Error(await apiErrorMessage(gapRes));
-        const gapData = await gapRes.json();
-
-        await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ step: "gap_analysis", artifact_id: gapData.id ?? null }),
-        });
-
-        setStepStatus(gapsIdx, "done");
-
-        await new Promise((r) => setTimeout(r, 400));
-        router.push(`/flow/${flowId}/gaps${gapsQuery}`);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "An error occurred. Please try again.");
+        setError(e instanceof Error ? e.message : t("genericError"));
       }
     }
 
@@ -313,6 +411,38 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             >
               <p className="text-sm text-critical">{error}</p>
             </div>
+            {/* All-CVs-failed: offer a per-file Retry so the user can recover
+                without re-uploading everything from the landing page. */}
+            {Object.keys(fileErrors).length > 0 && (
+              <div className="space-y-2" data-testid="processing-file-errors">
+                {files.map((file, i) => {
+                  const uploadIdx = 1 + i;
+                  const msg = fileErrors[uploadIdx];
+                  if (!msg) return null;
+                  return (
+                    <div
+                      key={uploadIdx}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-critical/5 border border-critical/20"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-neutral-dark truncate">{file.name}</p>
+                        <p className="text-xs text-on-surface-variant">{msg}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        data-testid={`retry-file-${i}`}
+                        disabled={retrying !== null}
+                        onClick={() => retryFile(uploadIdx)}
+                      >
+                        {retrying === uploadIdx ? t("retrying") : t("retry")}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex justify-center">
               <button
                 onClick={onCancel}
@@ -326,6 +456,47 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         ) : (
           <div className="flex flex-col items-center">
             <ProgressWidget steps={steps} title={t("title")} subtitle={t("subtitle")} />
+            {/* F8: heartbeat — an active step never reads as a silent hang. */}
+            {working && (
+              <p
+                data-testid="processing-heartbeat"
+                className="text-xs text-on-surface-variant mt-3 text-center"
+              >
+                {elapsed >= 20 ? t("stillWorkingElapsed", { seconds: elapsed }) : t("stillWorking")}
+              </p>
+            )}
+            {/* Per-file failure surfaced inline while the rest of the batch
+                continues (partial success); Retry re-runs just this file. */}
+            {Object.keys(fileErrors).length > 0 && (
+              <div className="w-full space-y-2 mt-3" data-testid="processing-file-errors">
+                {files.map((file, i) => {
+                  const uploadIdx = 1 + i;
+                  const msg = fileErrors[uploadIdx];
+                  if (!msg) return null;
+                  return (
+                    <div
+                      key={uploadIdx}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-critical/5 border border-critical/20"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-neutral-dark truncate">{file.name}</p>
+                        <p className="text-xs text-on-surface-variant">{msg}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        data-testid={`retry-file-${i}`}
+                        disabled={retrying !== null}
+                        onClick={() => retryFile(uploadIdx)}
+                      >
+                        {retrying === uploadIdx ? t("retrying") : t("retry")}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {jdNote && (
               <p className="text-xs text-on-surface-variant mt-3 text-center">{jdNote}</p>
             )}

@@ -59,6 +59,12 @@
     "title": "Profil wird verarbeitet",
     "subtitle": "Lebenslauf wird analysiert und Master-Profil wird erstellt",
     "goBack": "← Zurück und erneut versuchen",
+    "retry": "Erneut versuchen",
+    "retrying": "Wird erneut versucht…",
+    "uploadFailed": "Wir konnten diese Datei nicht lesen. Bitte versuche es erneut.",
+    "stillWorking": "Arbeitet noch — das kann einen Moment dauern…",
+    "stillWorkingElapsed": "Arbeitet noch — {seconds}s vergangen. Große Lebensläufe können einige Minuten dauern…",
+    "genericError": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
     "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden",
     "roleLabel": "Rolle: {title}",
     "jdAnalyzed": "Stellenbeschreibung analysiert",
@@ -584,7 +590,10 @@
     "send": "Senden",
     "sending": "Wird gesendet…",
     "keepBoth": "Das sind zwei verschiedene Positionen — beide behalten",
-    "keepBothHint": "In einer Rolle eingestiegen und in eine andere befördert? Wir behalten beide, statt sie zusammenzuführen."
+    "keepBothHint": "In einer Rolle eingestiegen und in eine andere befördert? Wir behalten beide, statt sie zusammenzuführen.",
+    "issueHeading": "Das braucht deine Aufmerksamkeit",
+    "issueAction": "Betroffenen Abschnitt prüfen",
+    "issueActionHint": "Wir bringen dich zum Abschnitt, damit du Fehlendes wieder ergänzen kannst."
   },
   "applications": {
     "loadingDetails": "Bewerbungsdetails werden geladen...",

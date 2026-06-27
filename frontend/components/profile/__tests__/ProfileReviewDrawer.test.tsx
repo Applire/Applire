@@ -167,6 +167,85 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
   });
 
+  // F3b (run3): a merge-loss/accuracy issue has no conflicts to walk
+  // (gaps_total 0). Resolve must NOT dead-end on a generic "All done" — it must
+  // surface the real flagged issue and an action.
+  it("surfaces the flagged issue + an action when there are no conflicts to walk", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Nothing to review",
+      gaps_total: 0,
+      gaps_remaining: 0,
+      choices: null,
+    });
+
+    const onAction = vi.fn();
+    const issue = {
+      id: "accuracy:skills",
+      thread: "accuracy" as const,
+      profile_mismatch_severity: "critical" as const,
+      summary: "Merge from cv_upload did not retain 17 extracted item(s) (skills)",
+      field_ref: "skills",
+      source_record_ref: "rec-1",
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={onAction} />,
+        "en",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-review-issue")).toBeInTheDocument(),
+    );
+    // The real problem is shown, not a generic all-clear.
+    expect(screen.getByText(/did not retain 17 extracted/)).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-done")).not.toBeInTheDocument();
+
+    // The action routes back to the affected section with the issue.
+    fireEvent.click(screen.getByTestId("profile-review-action"));
+    expect(onAction).toHaveBeenCalledWith(issue);
+  });
+
+  // A genuinely-resolved conflict walk still ends on the all-clear, even if an
+  // issue was passed in (the walk had conflicts, so it's not the merge-loss case).
+  it("shows the all-clear done state after resolving real conflicts even with an issue prop", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Which name is correct?",
+      gaps_total: 1,
+      gaps_remaining: 1,
+      choices: ["Keep current: Max", "Use imported: Markus"],
+    });
+    sendMock.mockResolvedValue({
+      complete: true,
+      question: null,
+      choices: null,
+      gaps_remaining: 0,
+    });
+
+    const issue = {
+      id: "conflict:name",
+      thread: "conflict" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "name conflict",
+      field_ref: "name",
+      source_record_ref: "rec-1",
+    };
+
+    render(
+      withIntl(<ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />, "en"),
+    );
+    await waitFor(() => screen.getByRole("button", { name: /Keep current: Max/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Keep current: Max/ }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-review-done")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("profile-review-issue")).not.toBeInTheDocument();
+  });
+
   it("renders German chrome under the de locale", async () => {
     startMock.mockResolvedValue({
       session_id: "s1",

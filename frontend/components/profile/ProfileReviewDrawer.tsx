@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { HealthIssue } from "@/components/profile/HealthPanel";
 import {
   type ProfileReviewMessageResult,
   sendProfileReviewMessage,
@@ -50,9 +51,15 @@ const KEEP_BOTH_INTENT =
 export interface ProfileReviewDrawerProps {
   open: boolean;
   onClose: () => void;
+  // F3b (run3): the health issue the user clicked "Resolve" on. When the
+  // conflict-walk has nothing to do (gaps_total 0 — e.g. a merge-loss/accuracy
+  // issue), the done state must show THIS issue and an action, not a generic
+  // "All done" dead-end. onAction routes to the affected section to fix it.
+  issue?: HealthIssue | null;
+  onAction?: (issue: HealthIssue) => void;
 }
 
-export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps) {
+export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileReviewDrawerProps) {
   const t = useTranslations("profileReview");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -60,6 +67,9 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  // The conflict-walk had nothing to do (gaps_total 0). With an `issue` in hand
+  // this is the merge-loss/accuracy case → show the issue + action, not all-clear.
+  const [noConflicts, setNoConflicts] = useState(false);
   const [error, setError] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +80,7 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
     setChoices(null);
     setAnswer("");
     setDone(false);
+    setNoConflicts(false);
     setError("");
     setLoading(true);
 
@@ -78,6 +89,7 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
         setSessionId(s.session_id);
         // gaps_total 0 → nothing to review: land straight on the all-clear state.
         if (s.gaps_total === 0) {
+          setNoConflicts(true);
           setDone(true);
           return;
         }
@@ -174,7 +186,32 @@ export function ProfileReviewDrawer({ open, onClose }: ProfileReviewDrawerProps)
           </div>
         )}
 
-        {done && (
+        {done && issue && noConflicts && (
+          // The conflict-walk had nothing to resolve, but the user came here
+          // from a real flagged issue (e.g. merge dropped skills). Show the
+          // actual problem + an action — never a generic all-clear (F3b run3).
+          <div
+            data-testid="profile-review-issue"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
+          >
+            <p className="text-sm font-medium text-neutral-dark">{t("issueHeading")}</p>
+            <p className="text-sm text-on-surface-variant">{issue.summary}</p>
+            <div className="flex flex-col items-center gap-2">
+              {onAction && (
+                <Button
+                  data-testid="profile-review-action"
+                  onClick={() => onAction(issue)}
+                >
+                  {t("issueAction")}
+                </Button>
+              )}
+              <p className="text-xs text-gray-500">{t("issueActionHint")}</p>
+              <Button variant="ghost" size="sm" onClick={onClose}>{t("close")}</Button>
+            </div>
+          </div>
+        )}
+
+        {done && !(issue && noConflicts) && (
           <div
             data-testid="profile-review-done"
             className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"

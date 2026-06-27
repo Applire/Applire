@@ -28,7 +28,7 @@ import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
-import { HealthPanel, type ProfileHealth } from "@/components/profile/HealthPanel";
+import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
 import {
   ProfileSectionBody,
   resolveSummary,
@@ -178,6 +178,10 @@ export default function ProfilePage() {
   const [enrichScope, setEnrichScope] = useState<string | undefined>(undefined);
   // US165: the standalone profile-review interview, launched from a health issue.
   const [reviewDrawerOpen, setReviewDrawerOpen] = useState(false);
+  // F3b (run3): the issue the user clicked "Resolve" on. Passed into the review
+  // drawer so a merge-loss/accuracy issue (no conflicts to walk) shows the real
+  // problem + an action instead of a dead-end "All done".
+  const [resolveIssue, setResolveIssue] = useState<HealthIssue | null>(null);
 
   const openEnrichForAll = () => {
     setEnrichScope(undefined);
@@ -187,6 +191,48 @@ export default function ProfilePage() {
   const openEnrichForEntry = (company: string, role: string) => {
     setEnrichScope(`work_experience:${company}:${role}`);
     setEnrichDrawerOpen(true);
+  };
+
+  // Map a health issue to the profile section it concerns, so "Resolve" can take
+  // the user straight to the editable section that needs attention.
+  const sectionForIssue = (issue: HealthIssue): SectionKey => {
+    const ref = (issue.field_ref ?? "").toLowerCase();
+    if (ref.includes("skill")) return "skills";
+    if (ref.includes("summary")) return "professional_summary";
+    if (ref.includes("cert")) return "certifications";
+    if (ref.includes("educat")) return "education";
+    if (ref.includes("language") || ref.includes("lang")) return "languages";
+    if (
+      ref.includes("work") ||
+      ref.includes("experience") ||
+      ref.includes("role") ||
+      ref.includes("title") ||
+      ref.includes("company") ||
+      ref.includes("date") ||
+      ref.includes("budget") ||
+      ref.includes("team")
+    )
+      return "work_experience";
+    return "skills";
+  };
+
+  const handleResolve = (issue: HealthIssue) => {
+    setResolveIssue(issue);
+    setReviewDrawerOpen(true);
+  };
+
+  // F3b: the review drawer's action — close it and open the affected section's
+  // editor so the user can add back what the merge dropped. Never a dead end.
+  const handleResolveAction = (issue: HealthIssue) => {
+    setReviewDrawerOpen(false);
+    setResolveIssue(null);
+    const section = sectionForIssue(issue);
+    handleEdit(section);
+    if (typeof document !== "undefined") {
+      document
+        .getElementById(`section-${section}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   };
 
   const loadProfile = useCallback(async () => {
@@ -321,7 +367,7 @@ export default function ProfilePage() {
           {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
             <HealthPanel
               health={health}
-              onResolve={() => setReviewDrawerOpen(true)}
+              onResolve={handleResolve}
               onImprove={openEnrichForAll}
             />
           )}
@@ -379,7 +425,7 @@ export default function ProfilePage() {
             const value = profile?.profile[section];
 
             return (
-              <Card key={section} className="p-4">
+              <Card key={section} id={`section-${section}`} className="p-4 scroll-mt-24">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-heading text-base font-semibold text-neutral-dark">
                     {t(SECTION_LABEL_KEYS[section])}
@@ -527,8 +573,11 @@ export default function ProfilePage() {
 
       <ProfileReviewDrawer
         open={reviewDrawerOpen}
+        issue={resolveIssue}
+        onAction={handleResolveAction}
         onClose={() => {
           setReviewDrawerOpen(false);
+          setResolveIssue(null);
           loadProfile();
         }}
       />
