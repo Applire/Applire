@@ -494,6 +494,15 @@ def _apply_set_summary(op, profile, changes):
 
 
 def _apply_flag_conflict(op, resolve, source, conflicts):
+    # Absence is not a conflict. Only record a conflict when BOTH sides carry
+    # competing information (non-empty) AND they actually differ. A None/empty
+    # side means "no competing information" — the value should just be filled,
+    # not disputed. This is the deterministic guard against false-positive
+    # conflicts like ``team_size: '6' vs 'None'``.
+    if _is_empty(op.existing) or _is_empty(op.incoming):
+        return
+    if _norm(op.existing) == _norm(op.incoming):
+        return
     entity = resolve(op.target)
     section = _section_for(entity) if entity is not None else ""
     conflicts.append(

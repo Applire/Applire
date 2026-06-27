@@ -55,6 +55,7 @@ from applire.services.profile.severity import (
     classify_reconciliation,
     escalate,
 )
+from applire.utils.display import format_display_value
 
 
 def _conflict_issue(conflict: Conflict) -> HealthIssue:
@@ -64,7 +65,8 @@ def _conflict_issue(conflict: Conflict) -> HealthIssue:
         profile_mismatch_severity=classify_conflict(conflict),
         summary=(
             f"{conflict.section}.{conflict.field}: "
-            f"'{conflict.existing_value}' vs '{conflict.incoming_value}'"
+            f"'{format_display_value(conflict.existing_value)}' "
+            f"vs '{format_display_value(conflict.incoming_value)}'"
         ),
         field_ref=conflict.field,
         source_record_ref=conflict.source,

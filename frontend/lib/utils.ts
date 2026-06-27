@@ -21,3 +21,22 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * Render a reconciliation value (Conflict old/new, FieldChange old/new, a
+ * confirmation option list) as clean human-readable text for a label or
+ * sentence. Lists become comma-joined, dicts a "key: value" summary — never a
+ * raw `['Yes', 'No']` / `[object Object]` repr leaked into a sentence the user
+ * reads. Mirrors the backend `format_display_value`.
+ */
+export function displayValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(displayValue).join(", ");
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, val]) => `${key}: ${displayValue(val)}`)
+      .join(", ");
+  }
+  return String(value);
+}
