@@ -26,7 +26,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated
+from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
 
 _CONNECT_TIMEOUT = 5.0   # fail fast if Ollama is not running
 
@@ -68,11 +68,15 @@ class OllamaProvider(LLMProvider):
         disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
-        try:
+
+        async def attempt(budget: int) -> str:
             return await asyncio.wait_for(
-                self._complete(messages, temperature, max_tokens),
+                self._complete(messages, temperature, budget),
                 timeout=self._timeout,
             )
+
+        try:
+            return await retry_on_truncation(attempt, max_tokens=max_tokens, model=self._model)
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"Ollama call timed out after {self._timeout}s")
         except httpx.HTTPStatusError as exc:
@@ -90,11 +94,15 @@ class OllamaProvider(LLMProvider):
         disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
-        try:
-            raw = await asyncio.wait_for(
-                self._parse_json(messages, temperature, max_tokens),
+
+        async def attempt(budget: int) -> str:
+            return await asyncio.wait_for(
+                self._parse_json(messages, temperature, budget),
                 timeout=self._timeout,
             )
+
+        try:
+            raw = await retry_on_truncation(attempt, max_tokens=max_tokens, model=self._model)
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"Ollama call timed out after {self._timeout}s")
         except httpx.HTTPStatusError as exc:

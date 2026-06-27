@@ -37,6 +37,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from applire.constants import SKILL_ESTIMATION_MAX_TOKENS
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData, Skill
 from applire.prompts.skill_estimation import (
@@ -229,6 +230,7 @@ async def enrich_skills(
                 build_skill_estimation_prompt(all_exp_dicts, skill_names),
                 system=SKILL_ESTIMATION_SYSTEM_PROMPT,
                 temperature=0.1,
+                max_tokens=SKILL_ESTIMATION_MAX_TOKENS,
             )
         except Exception:
             logger.warning(

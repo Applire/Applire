@@ -31,14 +31,64 @@ Contract for implementations:
   - Ensure JSON output uses ensure_ascii=False (German umlaut preservation).
 """
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from applire.exceptions import LLMTruncatedError
+
+logger = logging.getLogger(__name__)
 
 # Stop/finish reasons that mean "I ran out of token budget", normalised across
 # vendors: OpenAI-style 'length', Anthropic 'max_tokens', Ollama done_reason 'length'.
 _TRUNCATION_REASONS = frozenset({"length", "max_tokens"})
+
+# Hard ceiling for the auto-retry-on-truncation safety net (below). A one-off
+# truncation is retried once with a doubled budget, but never above this — past
+# here the prompt is genuinely too large for a single call and doubling forever
+# would only waste tokens and latency before failing anyway. Matches the largest
+# tuned per-chain ceiling (CV_*/RECONCILE_MAX_TOKENS = 16384 in constants.py).
+TRUNCATION_RETRY_CEILING: int = 16384
+
+_T = TypeVar("_T")
+
+
+async def retry_on_truncation(
+    attempt: Callable[[int], Awaitable[_T]],
+    *,
+    max_tokens: int,
+    ceiling: int = TRUNCATION_RETRY_CEILING,
+    model: str = "",
+) -> _T:
+    """General safety net: run a single LLM attempt, retry ONCE on truncation.
+
+    ``attempt`` is an async callable taking the ``max_tokens`` budget to use and
+    returning the provider's raw result (it must itself ``raise_if_truncated`` so
+    a budget stop surfaces as :class:`LLMTruncatedError`). If the first attempt
+    truncates on the token budget, this retries exactly once with ``2 * max_tokens``
+    (capped at ``ceiling``) before re-raising — so no chain silently 500s on a
+    one-off truncation, yet an uncoverable truncation (already at/above ``ceiling``,
+    or truncating again on the larger budget) still raises and never loops forever.
+
+    Lives on the shared base path so every provider can opt in with a one-line
+    change to its public ``aparse_json``/``acomplete`` — no ``LLMProvider`` ABC
+    signature change, and the mock provider (which never truncates) is untouched.
+    """
+    try:
+        return await attempt(max_tokens)
+    except LLMTruncatedError:
+        bigger = min(2 * max_tokens, ceiling)
+        if bigger <= max_tokens:
+            # Already at/above the ceiling — retrying can't give more headroom.
+            raise
+        logger.warning(
+            "model=%s truncated at max_tokens=%d; retrying once with max_tokens=%d "
+            "(truncation safety net)",
+            model or "?", max_tokens, bigger,
+        )
+        # A second truncation propagates LLMTruncatedError (no further retry).
+        return await attempt(bigger)
 
 
 def raise_if_truncated(stop_reason: Any, *, model: str = "") -> None:

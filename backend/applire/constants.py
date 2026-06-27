@@ -78,6 +78,35 @@ CV_GENERATION_MAX_TOKENS: int = 16384
 # than the chrome budget. Reasoning is left ON for this content-reasoning call.
 RECONCILE_MAX_TOKENS: int = 16384
 
+# Token ceiling for JD analysis (services/job.py). The output is a full structured
+# job analysis — role title, required + nice-to-have skills, keywords, culture signals,
+# language requirement — which on a dense posting is a sizeable JSON object, and on a
+# thinking model the reasoning trace shares the budget. This call previously omitted
+# max_tokens and inherited the 4096 provider default, so a rich JD truncated mid-JSON
+# (finish=length → LLMTruncatedError → /api/job 500) ~1 in 5 real-LLM calls. Raised to
+# the CV ceiling: max_tokens is a *ceiling* billed on actual usage, so the headroom is
+# free (ADR-009 amendment, token-budget robustness).
+JD_ANALYSIS_MAX_TOKENS: int = 16384
+
+# Token ceiling for gap clustering (services/gap.py cluster_gaps). The output is the
+# full list of gap clusters (label + category + member gaps + jd_skills + jd_context),
+# which grows with the number of gaps on a rich 2-CV profile vs a thin fixture. Same
+# 4096-default truncation as JD analysis; raised to the shared ceiling.
+GAP_CLUSTERING_MAX_TOKENS: int = 16384
+
+# Token ceiling for gap analysis pass 2 (services/gap.py _run_analysis). The output is
+# one classification (status + reason) per JD requirement, so it scales with the JD's
+# requirement count; plus reasoning on a thinking model. Same 4096-default truncation;
+# raised to the shared ceiling.
+GAP_ANALYSIS_MAX_TOKENS: int = 16384
+
+# Token ceiling for skill-year estimation (services/skill_enrichment.py). The output is
+# one estimate per *unmatched* skill, so on a rich profile with many skills it can run
+# long; it previously inherited the 4096 default and a truncation silently dropped all
+# years (the call is wrapped in try/except → empty estimates). Raised to the shared
+# ceiling so the data survives.
+SKILL_ESTIMATION_MAX_TOKENS: int = 16384
+
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).
