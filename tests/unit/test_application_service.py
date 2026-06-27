@@ -239,13 +239,61 @@ async def test_create_application_job_not_found(db, user_and_job):
 
 
 @pytest.mark.asyncio
-async def test_create_application_conflict_on_duplicate(db, user_and_job):
+async def test_create_application_idempotent_reuse_on_duplicate(db, user_and_job):
+    """Re-creating for the same (user, job) reuses the existing Application.
+
+    Regression for the orphaned-application bug: a failed first build leaves an
+    Application behind, and the natural retry re-submits the same JD. The retry
+    must resume cleanly (idempotent get-or-create), never dead-end on a raw 409.
+    """
     _, job = user_and_job
     req = CreateApplicationRequest(job_analysis_id=job.id)
-    await create_application(_STUB_USER_ID, req, db)
+    first = await create_application(_STUB_USER_ID, req, db)
 
-    with pytest.raises(ConflictError):
-        await create_application(_STUB_USER_ID, req, db)
+    second = await create_application(_STUB_USER_ID, req, db)
+
+    assert second.id == first.id
+
+    # And it really is one row, not two.
+    result = await list_applications(_STUB_USER_ID, db)
+    assert result.total == 1
+
+
+@pytest.mark.asyncio
+async def test_create_application_idempotent_reuse_keeps_single_flow(db, user_and_job):
+    """Retry with start_workflow=True reuses the existing FlowSession.
+
+    Covers the create→flow seam: the second call must not strand a second
+    FlowSession (uq_flow_session_user_job would otherwise collide too).
+    """
+    _, job = user_and_job
+    req = CreateApplicationRequest(job_analysis_id=job.id, start_workflow=True)
+    first = await create_application(_STUB_USER_ID, req, db)
+    assert first.flow_session_id is not None
+
+    second = await create_application(_STUB_USER_ID, req, db)
+
+    assert second.id == first.id
+    assert second.flow_session_id == first.flow_session_id
+    assert second.workflow_status == WorkflowStatus.analyzing
+
+
+@pytest.mark.asyncio
+async def test_create_application_reuse_reactivates_soft_deleted(db, user_and_job):
+    """The unique constraint ignores deleted_at, so a soft-deleted application
+    still owns the (user, job) slot. Re-creating must reactivate it, not 409."""
+    _, job = user_and_job
+    req = CreateApplicationRequest(job_analysis_id=job.id)
+    first = await create_application(_STUB_USER_ID, req, db)
+    await delete_application(first.id, db)
+
+    revived = await create_application(_STUB_USER_ID, req, db)
+
+    assert revived.id == first.id
+    # It is live again and visible in the pipeline.
+    result = await list_applications(_STUB_USER_ID, db)
+    assert result.total == 1
+    assert result.items[0].id == first.id
 
 
 @pytest.mark.asyncio
@@ -497,6 +545,30 @@ async def test_start_workflow_conflict_if_already_started(db, user_and_job):
     )
     with pytest.raises(ConflictError):
         await start_application_workflow(resp.id, _STUB_USER_ID, db)
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_conflict_message_leaks_no_identifiers(db, user_and_job):
+    """Any ConflictError surfaced to the API (router passes str(exc) verbatim as
+    `detail`) must be user-appropriate — no bare UUID / internal identifier."""
+    import re
+
+    _, job = user_and_job
+    resp = await create_application(
+        _STUB_USER_ID,
+        CreateApplicationRequest(job_analysis_id=job.id, start_workflow=True),
+        db,
+    )
+    with pytest.raises(ConflictError) as exc_info:
+        await start_application_workflow(resp.id, _STUB_USER_ID, db)
+
+    message = str(exc_info.value)
+    uuid_re = re.compile(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    )
+    assert not uuid_re.search(message), f"ConflictError leaked a UUID: {message!r}"
+    # Also no other obvious internal leakage.
+    assert str(resp.id) not in message
 
 
 @pytest.mark.asyncio

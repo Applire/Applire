@@ -629,23 +629,30 @@ async def test_create_application_happy_path():
 
 
 @pytest.mark.asyncio
-async def test_create_application_duplicate_maps_to_invalid_input():
+async def test_create_application_duplicate_reuses_existing():
+    """Idempotent contract at the MCP seam: re-creating for the same (user, job)
+    returns the reused application rather than surfacing a conflict. This is the
+    agent session-recovery path — a duplicate create must not error.
+    """
     from applire.mcp.server import create_application
-    from applire.services import application as app_svc
 
     cm, session = _mock_db()
-    user_row = MagicMock(); user_row.id = uuid.uuid4()
+    uid = uuid.uuid4()
+    user_row = MagicMock(); user_row.id = uid
     ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
     session.execute = AsyncMock(return_value=ures)
 
+    existing_id = str(uuid.uuid4())
+    # The service is idempotent: the second create returns the existing record.
+    reused = _mock_result(id=existing_id, company_name="Acme GmbH")
+
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
-        patch("applire.mcp.server.app_svc.create_application",
-              AsyncMock(side_effect=app_svc.ConflictError("already exists"))),
+        patch("applire.mcp.server.app_svc.create_application", AsyncMock(return_value=reused)),
     ):
-        with pytest.raises(McpError) as exc:
-            await create_application(job_id=str(uuid.uuid4()))
-    assert exc.value.error.code == -32602
+        result = await create_application(job_id=str(uuid.uuid4()))
+
+    assert result["id"] == existing_id
 
 
 # ---------------------------------------------------------------------------
