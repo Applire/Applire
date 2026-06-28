@@ -386,6 +386,36 @@ class MockLLMProvider(LLMProvider):
         if "extracting structured profile" in system_lower:
             return dict(_RESPONSE_PARSER_RESPONSE)
 
+        # ADR-047 / US189 — segmented CV tailoring (outline-then-expand). Each section
+        # writer returns its own small schema-valid slice; the orchestrator assembles them.
+        if "cv outline planner" in system_lower:
+            return {
+                "role_order": [],
+                "summary_angle": "backend delivery focus for the DACH market",
+                "skills_focus": ["Python", "FastAPI", "PostgreSQL"],
+                "per_role_themes": {},
+            }
+        if "cv work experience writer" in system_lower:
+            return {
+                "bullets": [
+                    "Designed and implemented microservices with FastAPI and PostgreSQL.",
+                    "Introduced CI/CD pipelines via GitHub Actions.",
+                ],
+                "projects": [],
+            }
+        if "cv summary writer" in system_lower:
+            return {"summary": _CV_TAILORING_RESPONSE["summary"]}
+        if "cv skills writer" in system_lower:
+            return {"skills": list(_CV_TAILORING_RESPONSE["skills"])}
+        if "cv education writer" in system_lower:
+            return {
+                "education": [dict(e) for e in _CV_TAILORING_RESPONSE["education"]],
+                "languages": [{"language": "German", "level": "Native"},
+                              {"language": "English", "level": "C1"}],
+            }
+        if "cv projects writer" in system_lower:
+            return {"projects": []}
+
         if "dach career consultant" in system_lower:
             return dict(_CV_TAILORING_RESPONSE)
 

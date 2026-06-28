@@ -92,6 +92,7 @@ from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
     CV_LANGUAGE_REVIEW_MAX_RETRIES,
     LLM_REVIEW_MAX_RETRIES,
+    SEGMENT_MAX_TOKENS,
 )
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 
@@ -122,6 +123,207 @@ def _record_generation_failure(record, exc: BaseException) -> None:
     record.status = CVGenerationStatus.failed.value
     record.error_message = str(exc)[:1000]
     record.error_code = classify_generation_error(exc)
+
+
+def assemble_segmented_cv(outline: dict, sections: dict) -> dict:
+    """Deterministically assemble outline-then-expand section pieces into a TailoredCVData
+    dict (ADR-047 §1 / US189).
+
+    Work history is ordered by ``outline['role_order']``; an entry the outline forgot is
+    appended in input order (no silent data loss — ADR-040), and a stale id with no
+    matching entry is skipped (nothing fabricated). Pure: no LLM, no I/O. The result is
+    handed to the same downstream as the single-call path (``_nest_projects``, photo
+    injection, the coherence + language review).
+    """
+    work_entries: list[dict] = list(sections.get("work_entries") or [])
+    first_index_by_id: dict = {}
+    for i, w in enumerate(work_entries):
+        first_index_by_id.setdefault(w.get("id"), i)
+
+    ordered: list[dict] = []
+    placed: set[int] = set()
+    for rid in outline.get("role_order") or []:
+        i = first_index_by_id.get(rid)
+        if i is not None and i not in placed:
+            ordered.append(work_entries[i])
+            placed.add(i)
+    for i, w in enumerate(work_entries):  # entries the outline didn't order
+        if i not in placed:
+            ordered.append(w)
+            placed.add(i)
+
+    return {
+        # contact is factual identity data sourced deterministically from the profile,
+        # never LLM-generated per segment (ADR-040). Photo is injected downstream as today.
+        "contact": sections.get("contact") or {},
+        "summary": sections.get("summary") or "",
+        "work_history": ordered,
+        "skills": list(sections.get("skills") or []),
+        "education": list(sections.get("education") or []),
+        "languages": list(sections.get("languages") or []),
+        "projects": list(sections.get("projects") or []),
+    }
+
+
+def _contact_from_profile(profile: dict) -> dict:
+    """Source CV contact deterministically from the profile (ADR-040) — identity data is
+    never LLM-generated per segment. Reads personal_info (or a flat contact block)."""
+    pi = profile.get("personal_info") or profile.get("contact") or {}
+    return {
+        k: pi.get(k)
+        for k in ("name", "email", "phone", "location", "linkedin")
+        if pi.get(k) is not None
+    }
+
+
+async def generate_cv_segmented(
+    job_analysis: dict,
+    profile: dict,
+    keyword_gaps: list[str],
+    critical_gaps: list[str],
+    *,
+    output_language: str,
+    provider: "LLMProvider",
+) -> dict:
+    """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
+
+    One small outline call produces a shared tailoring directive; then one call per
+    work-experience entry plus one each for summary / skills / education / projects, every
+    call capped at ``SEGMENT_MAX_TOKENS`` so no single output is large. Factual fields
+    (company, role, dates, contact) are carried deterministically from the profile (ADR-040)
+    — section writers only produce tailored prose. Work order stays reverse-chronological
+    (single-call rule-2 parity); the outline's role_order is advisory. The assembled dict is
+    handed to the same coherence + language review as the single-call path by the caller.
+    """
+    from applire.prompts.cv_segmented import (
+        EDUCATION_SECTION_SYSTEM_PROMPT,
+        OUTLINE_SYSTEM_PROMPT,
+        PROJECTS_SECTION_SYSTEM_PROMPT,
+        SKILLS_SECTION_SYSTEM_PROMPT,
+        SUMMARY_SECTION_SYSTEM_PROMPT,
+        WORK_SECTION_SYSTEM_PROMPT,
+        build_education_prompt,
+        build_outline_prompt,
+        build_projects_prompt,
+        build_skills_prompt,
+        build_summary_prompt,
+        build_work_section_prompt,
+    )
+
+    budget = SEGMENT_MAX_TOKENS
+
+    # Reverse-chronological order is the orchestrator's policy (rule-2 parity), independent
+    # of whatever the outline suggests — keeps the segmented path consistent with single-call.
+    work_src: list[dict] = list(profile.get("work_experience") or [])
+    if work_src:
+        from applire.schemas.profile import WorkEntry
+        we = [WorkEntry.model_validate(e) for e in work_src]
+        work_src = [e.model_dump() for e in _sort_work_by_date(we)]
+    for i, w in enumerate(work_src):
+        w["id"] = w.get("id") or f"w{i}"
+
+    directive = await provider.aparse_json(
+        build_outline_prompt(job_analysis, profile, output_language),
+        system=OUTLINE_SYSTEM_PROMPT,
+        temperature=0.3,
+        max_tokens=budget,
+    )
+
+    work_entries: list[dict] = []
+    for w in work_src:
+        section = await provider.aparse_json(
+            build_work_section_prompt(w, directive, job_analysis, keyword_gaps, output_language),
+            system=WORK_SECTION_SYSTEM_PROMPT,
+            temperature=0.3,
+            max_tokens=budget,
+        )
+        work_entries.append({
+            "id": w["id"],
+            "company": w.get("company", ""),
+            "role": w.get("role", ""),
+            "start_date": w.get("start_date") or "",
+            "end_date": w.get("end_date"),
+            "bullets": list(section.get("bullets") or []),
+            "projects": list(section.get("projects") or []),
+        })
+
+    summary_res = await provider.aparse_json(
+        build_summary_prompt(directive, job_analysis, profile, critical_gaps, output_language),
+        system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+    )
+    skills_res = await provider.aparse_json(
+        build_skills_prompt(directive, job_analysis, profile, keyword_gaps, output_language),
+        system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+    )
+    edu_res = await provider.aparse_json(
+        build_education_prompt(profile, output_language),
+        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+    )
+    projects_res = await provider.aparse_json(
+        build_projects_prompt(directive, job_analysis, profile, output_language),
+        system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+    )
+
+    sections = {
+        "contact": _contact_from_profile(profile),
+        "summary": summary_res.get("summary") or "",
+        "work_entries": work_entries,
+        "skills": list(skills_res.get("skills") or []),
+        "education": list(edu_res.get("education") or []),
+        "languages": list(edu_res.get("languages") or []),
+        "projects": list(projects_res.get("projects") or []),
+    }
+    # role_order = the deterministic reverse-chronological order (outline does not reorder).
+    return assemble_segmented_cv({"role_order": [w["id"] for w in work_src]}, sections)
+
+
+def _should_segment_upfront() -> bool:
+    """Skip the doomed single call when the operator declares a cap below the single-call
+    ceiling — the full CV won't fit, so go straight to segmented (ADR-047). No declared cap
+    (0/unset) → reactive fallback handles it; the single call stays the happy-path default."""
+    from applire.config import settings
+    cap = settings.llm_max_output_tokens
+    return 0 < cap < CV_GENERATION_MAX_TOKENS
+
+
+async def _tailor_cv_with_fallback(
+    job_analysis: dict,
+    profile: dict,
+    keyword_gaps: list[str],
+    critical_gaps: list[str],
+    *,
+    output_language: str,
+    provider: "LLMProvider",
+) -> dict:
+    """Produce the tailored CV draft: single call on the fast path, segmented as the
+    fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
+    the single large call and switch to segmented on truncation/timeout rather than doubling
+    the budget into a timeout (the US188 'switch to segmented' recovery). The returned draft
+    is fed to the same coherence + language review as before by the caller."""
+    if _should_segment_upfront():
+        return await generate_cv_segmented(
+            job_analysis, profile, keyword_gaps, critical_gaps,
+            output_language=output_language, provider=provider,
+        )
+    try:
+        return await provider.aparse_json(
+            build_user_prompt(
+                job_analysis, profile, keyword_gaps, critical_gaps,
+                output_language=output_language,
+            ),
+            system=SYSTEM_PROMPT,
+            temperature=0.3,
+            max_tokens=CV_GENERATION_MAX_TOKENS,
+        )
+    except (LLMTruncatedError, LLMTimeoutError):
+        logger.warning(
+            "single-call CV tailoring hit the output cap/timeout; switching to segmented "
+            "mode instead of doubling the budget (ADR-047)"
+        )
+        return await generate_cv_segmented(
+            job_analysis, profile, keyword_gaps, critical_gaps,
+            output_language=output_language, provider=provider,
+        )
 
 
 async def _review_cv_language(draft: dict, output_language: str, provider) -> dict:
@@ -581,17 +783,15 @@ async def _render_cv_background(
                 ]
 
             provider: LLMProvider = get_provider()
-            tailored_raw: dict = await provider.aparse_json(
-                build_user_prompt(
-                    job_dict,
-                    profile_json,
-                    keyword_gaps,
-                    critical_gaps,
-                    output_language=resolve_jd_language(job),
-                ),
-                system=SYSTEM_PROMPT,
-                temperature=0.3,
-                max_tokens=CV_GENERATION_MAX_TOKENS,
+            # Single call on the fast path; segmented (outline-then-expand) as the fallback
+            # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
+            tailored_raw: dict = await _tailor_cv_with_fallback(
+                job_dict,
+                profile_json,
+                keyword_gaps,
+                critical_gaps,
+                output_language=resolve_jd_language(job),
+                provider=provider,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
