@@ -45,7 +45,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated
+from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -121,11 +121,16 @@ class OpenRouterProvider(LLMProvider):
         disable_thinking: bool | None = None,
     ) -> str:
         messages = _build_messages(prompt, system)
-        try:
+        extra_body = self._extra_body(disable_thinking)
+
+        async def attempt(budget: int) -> str:
             return await asyncio.wait_for(
-                self._complete(messages, temperature, max_tokens, self._extra_body(disable_thinking)),
+                self._complete(messages, temperature, budget, extra_body),
                 timeout=self._timeout,
             )
+
+        try:
+            return await retry_on_truncation(attempt, max_tokens=max_tokens, model=self._model)
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"OpenRouter call timed out after {self._timeout}s")
         except openai.RateLimitError as exc:
@@ -143,11 +148,16 @@ class OpenRouterProvider(LLMProvider):
         disable_thinking: bool | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
-        try:
-            content = await asyncio.wait_for(
-                self._parse_json(messages, temperature, max_tokens, self._extra_body(disable_thinking)),
+        extra_body = self._extra_body(disable_thinking)
+
+        async def attempt(budget: int) -> str:
+            return await asyncio.wait_for(
+                self._parse_json(messages, temperature, budget, extra_body),
                 timeout=self._timeout,
             )
+
+        try:
+            content = await retry_on_truncation(attempt, max_tokens=max_tokens, model=self._model)
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"OpenRouter call timed out after {self._timeout}s")
         except openai.RateLimitError as exc:

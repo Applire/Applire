@@ -64,6 +64,7 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.session import InterviewState
 from applire.services.reviewer import review_and_refine
+from applire.utils.display import format_display_value
 
 # Sections included in a MODE B guided build, in default priority order.
 # JD-relevance weighting is applied in gap_detector_mode_b() at session creation.
@@ -494,7 +495,8 @@ def conflict_question(
     copy = _CONFLICT_COPY.get(lang, _CONFLICT_COPY["en"])
     fmt = dict(
         section=section, field=field,
-        existing=existing_value, incoming=incoming_value,
+        existing=format_display_value(existing_value),
+        incoming=format_display_value(incoming_value),
     )
     return {
         "question": copy["question"].format(**fmt),

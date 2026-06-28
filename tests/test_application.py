@@ -2,7 +2,7 @@
 
 Done when:
   - POST /api/applications (201) — create, denorm company_name/role_title from job
-  - POST /api/applications — 409 on duplicate (user_id, job_id)
+  - POST /api/applications — idempotent reuse on duplicate (user_id, job_id)
   - POST /api/applications — 404 on unknown job_analysis_id
   - GET  /api/applications — list pipeline, filter by workflow_status and user_status
   - GET  /api/applications/{id} — detail, 404 on unknown
@@ -84,10 +84,16 @@ def test_create_application_returns_201_with_correct_fields(api, job_id, applica
     assert "created_at" in body
 
 
-def test_create_application_conflict_on_duplicate(api, job_id, application_id):
-    """A second POST for the same job must return 409."""
+def test_create_application_idempotent_on_duplicate(api, job_id, application_id):
+    """A second POST for the same job reuses the existing application (no raw 409).
+
+    One application per (user, job) is idempotent get-or-create: re-submitting the
+    same JD after a failed build must resume the existing application, not dead-end
+    the user with a hard conflict. (Regression: orphaned-application retry loop.)
+    """
     r = requests.post(f"{api}/api/applications", json={"job_analysis_id": job_id})
-    assert r.status_code == 409
+    assert r.status_code in (200, 201), f"Unexpected status {r.status_code}: {r.text}"
+    assert r.json()["id"] == application_id
 
 
 def test_create_application_404_on_unknown_job(api):

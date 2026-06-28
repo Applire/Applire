@@ -23,6 +23,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.constants import JD_ANALYSIS_MAX_TOKENS
 from applire.models.job import JobAnalysis
 from applire.prompts.job_analysis import SYSTEM_PROMPT, build_user_prompt
 from applire.providers.embedding.base import EmbeddingProvider
@@ -106,6 +107,7 @@ async def analyze_jd(
         build_user_prompt(text),
         system=SYSTEM_PROMPT,
         temperature=0.1,
+        max_tokens=JD_ANALYSIS_MAX_TOKENS,
     )
 
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER

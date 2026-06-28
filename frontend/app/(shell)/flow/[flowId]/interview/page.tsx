@@ -27,7 +27,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
-import { cn } from "@/lib/utils";
+import { cn, displayValue } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -222,7 +222,11 @@ function ConflictCard({
     <div data-testid="conflict-card" className="rounded-lg border border-warning/40 bg-warning/5 p-4 mt-3">
       <p className="text-sm font-semibold text-neutral-dark mb-1">{t("discrepancyDetected")}</p>
       <p className="text-xs text-gray-600 mb-3">
-        {t("conflictDetail", { field: conflict.field, oldValue: conflict.old_value, newValue: conflict.new_value })}
+        {t("conflictDetail", {
+          field: conflict.field,
+          oldValue: displayValue(conflict.old_value),
+          newValue: displayValue(conflict.new_value),
+        })}
       </p>
       <div className="flex gap-2">
         <Button
@@ -233,7 +237,7 @@ function ConflictCard({
           disabled={resolving}
           className="text-xs"
         >
-          {t("keepOld", { value: conflict.old_value })}
+          {t("keepOld", { value: displayValue(conflict.old_value) })}
         </Button>
         <Button
           data-testid="conflict-use-new"
@@ -243,7 +247,7 @@ function ConflictCard({
           disabled={resolving}
           className="text-xs"
         >
-          {t("useNew", { value: conflict.new_value })}
+          {t("useNew", { value: displayValue(conflict.new_value) })}
         </Button>
       </div>
     </div>

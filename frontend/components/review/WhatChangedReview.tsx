@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { displayValue } from "@/lib/utils";
 
 /**
  * US146 / ADR-040 — the single reusable "what changed & why" review surface.
@@ -71,11 +72,7 @@ function confirmKey(mode: ReviewMode): string {
   return mode === "download" ? "confirmDownload" : mode === "extraction" ? "confirmExtraction" : "confirmDefault";
 }
 
-function stringify(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
-}
+const stringify = displayValue;
 
 export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }: WhatChangedReviewProps) {
   const t = useTranslations("review");

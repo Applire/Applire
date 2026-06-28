@@ -18,7 +18,7 @@
 /**
  * ProcessingOverlay — JD URL error handling (Sprint 26) + dynamic CV steps (Sprint 31)
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { ProcessingOverlay } from "../processing-overlay";
 import { withIntl } from "@/lib/test-utils/with-intl";
@@ -390,6 +390,81 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     expect(uploadCalled).toBe(false);
     expect(guidedSession).toEqual({ job_id: "job-g", mode: "guided" });
     expect(advancedToInterview).toBe(true);
+  });
+
+  // F1/F8 (run3): a failed parse must surface the file + a clean message + Retry,
+  // and a clean backend detail (502 truncation) must never read as a hang.
+  it("surfaces the failed file with a clean message and a Retry button when all fail", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-502" }) } as Response;
+      }
+      if (url.includes("/api/profile/upload")) {
+        return {
+          ok: false,
+          status: 502,
+          statusText: "Bad Gateway",
+          json: async () => ({
+            detail:
+              "We couldn't fully merge this CV into your profile this time. Nothing was changed — please try uploading it again.",
+          }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "Markus_CV.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    await waitFor(
+      () => expect(screen.getByTestId("processing-file-errors")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    // The file name and the clean backend message are shown — never raw noise.
+    expect(screen.getByText("Markus_CV.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Nothing was changed/)).toBeInTheDocument();
+    // A per-file Retry is offered.
+    expect(screen.getByTestId("retry-file-0")).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("retries a single failed file in place and recovers without restarting", async () => {
+    let uploadCall = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-retry" }) } as Response;
+      }
+      if (url.includes("/api/profile/upload")) {
+        uploadCall++;
+        if (uploadCall === 1) {
+          return {
+            ok: false,
+            status: 502,
+            statusText: "Bad Gateway",
+            json: async () => ({ detail: "Nothing was changed — please try uploading it again." }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "Markus_CV.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    await waitFor(() => expect(screen.getByTestId("retry-file-0")).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+
+    fireEvent.click(screen.getByTestId("retry-file-0"));
+
+    // After a successful retry the per-file error clears.
+    await waitFor(
+      () => expect(screen.queryByTestId("retry-file-0")).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    );
   });
 
   it("hard-stops (no navigation) when ALL CV uploads fail", async () => {

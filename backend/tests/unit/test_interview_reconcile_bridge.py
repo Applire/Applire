@@ -17,8 +17,28 @@
 
 import pytest
 from applire.providers.llm.mock import MockLLMProvider
-from applire.schemas.profile import MasterProfileData
-from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+from applire.schemas.profile import Conflict, MasterProfileData
+from applire.services.profile.reconcile.interview_bridge import (
+    _to_summary,
+    reconcile_interview_turn,
+)
+
+
+def test_to_summary_formats_list_value_as_clean_text():
+    # Bug 2 regression — a list/dict value must NOT leak a raw Python repr into
+    # the user-facing ConflictSummary (no `['Yes', 'No']`).
+    conflict = Conflict(
+        section="",
+        field="role",
+        existing_value=None,
+        incoming_value=["Yes, same role", "No, separate roles"],
+        source="cv_upload",
+    )
+    summary = _to_summary(conflict)
+    assert summary.new_value == "Yes, same role, No, separate roles"
+    assert "[" not in summary.new_value and "'" not in summary.new_value
+    # None side renders as empty, not the string "None"
+    assert summary.old_value == ""
 
 
 @pytest.mark.asyncio

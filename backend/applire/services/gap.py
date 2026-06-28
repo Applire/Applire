@@ -31,6 +31,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
@@ -125,6 +126,7 @@ async def cluster_gaps(
         ),
         system=CLUSTERING_SYSTEM_PROMPT,
         temperature=0.1,
+        max_tokens=GAP_CLUSTERING_MAX_TOKENS,
     )
     validated = []
     for item in (raw_clusters if isinstance(raw_clusters, list) else []):
@@ -182,6 +184,7 @@ async def _run_analysis(
         build_user_prompt(job_dict, profile.profile_json, pre),
         system=SYSTEM_PROMPT,
         temperature=0.1,
+        max_tokens=GAP_ANALYSIS_MAX_TOKENS,
     )
 
     scored = compute_match_score(

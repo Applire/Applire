@@ -32,7 +32,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.application import (
@@ -74,35 +73,51 @@ async def create_application(
     request: CreateApplicationRequest,
     db: AsyncSession,
 ) -> ApplicationResponse:
-    """Add a job to the user's pipeline.
+    """Add a job to the user's pipeline (idempotent get-or-create).
 
     Denormalizes company_name / role_title from JobAnalysis if not supplied.
     If start_workflow=True, creates a FlowSession atomically in the same
     transaction (same code path as POST /api/applications/{id}/start).
-    Returns HTTP 409 semantics via ConflictError if (user_id, job_id) already exists.
+
+    One Application per (user_id, job_analysis_id) is enforced at the DB level
+    (uq_application_user_job, which deliberately ignores deleted_at). Rather than
+    leak that constraint as a hard 409, a repeat submission for the same
+    (user, job) reuses the existing Application — reactivating it if it was
+    soft-deleted. This makes the natural retry after a failed build resume
+    cleanly instead of dead-ending the user.
     """
     job = await db.get(JobAnalysis, request.job_analysis_id)
     if job is None:
         raise LookupError(f"JobAnalysis {request.job_analysis_id} not found")
 
-    app = Application(
-        user_id=user_id,
-        job_analysis_id=request.job_analysis_id,
-        company_name=request.company_name or job.company_name,
-        role_title=request.role_title or job.role_title,
-        notes=request.notes,
-        deadline=request.deadline,
-    )
-    db.add(app)
-
-    try:
-        await db.flush()  # get app.id before potential workflow creation
-    except IntegrityError:
-        await db.rollback()
-        raise ConflictError(
-            f"Application for job {request.job_analysis_id} already exists for this user"
+    # Idempotent reuse: an Application for this (user, job) may already exist —
+    # including a soft-deleted one, which still occupies the unique slot.
+    existing_result = await db.execute(
+        select(Application).where(
+            Application.user_id == user_id,
+            Application.job_analysis_id == request.job_analysis_id,
         )
+    )
+    app = existing_result.scalar_one_or_none()
 
+    if app is not None:
+        if app.deleted_at is not None:
+            app.deleted_at = None  # reactivate a previously removed application
+        _touch(app)
+    else:
+        app = Application(
+            user_id=user_id,
+            job_analysis_id=request.job_analysis_id,
+            company_name=request.company_name or job.company_name,
+            role_title=request.role_title or job.role_title,
+            notes=request.notes,
+            deadline=request.deadline,
+        )
+        db.add(app)
+        await db.flush()  # get app.id before potential workflow creation
+
+    # _start_workflow is itself idempotent: it reuses the existing FlowSession
+    # for this (user, job) if one is already present.
     if request.start_workflow:
         await _start_workflow(app, user_id, db)
 
@@ -222,8 +237,10 @@ async def start_application_workflow(
     app = await _get_or_404(application_id, db)
 
     if app.flow_session_id is not None:
+        # User-facing message — no internal identifiers (router surfaces str(exc)
+        # verbatim as the API `detail`).
         raise ConflictError(
-            f"Workflow already started for application {application_id}"
+            "This application's workflow has already been started."
         )
 
     await _start_workflow(app, user_id, db)

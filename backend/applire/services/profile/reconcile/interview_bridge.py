@@ -31,6 +31,7 @@ from applire.schemas.session import ConflictSummary
 from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import RequestConfirmation
+from applire.utils.display import format_display_value
 
 
 @dataclass
@@ -46,8 +47,8 @@ def _to_summary(conflict: Conflict) -> ConflictSummary:
     return ConflictSummary(
         conflict_id=conflict.conflict_id,
         field=conflict.field,
-        old_value="" if conflict.existing_value is None else str(conflict.existing_value),
-        new_value="" if conflict.incoming_value is None else str(conflict.incoming_value),
+        old_value=format_display_value(conflict.existing_value),
+        new_value=format_display_value(conflict.incoming_value),
     )
 
 

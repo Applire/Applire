@@ -35,6 +35,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from applire.constants import RECONCILE_MAX_TOKENS
+from applire.exceptions import LLMTruncatedError
 from applire.prompts.reconcile import (
     RECONCILE_SYSTEM_PROMPT,
     build_reconcile_prompt,
@@ -62,9 +63,20 @@ async def reconcile(
 ) -> ReconcileResult:
     """Reconcile ``new_info`` into ``profile`` via one LLM call (ADR-046).
 
-    Returns a ``ReconcileResult`` of typed ops + folded ambiguities. Never raises:
-    on any provider/parse failure it degrades to a (possibly partial, possibly
-    empty) result.
+    Returns a ``ReconcileResult`` of typed ops + folded ambiguities.
+
+    Error classification (truncation integrity fix):
+
+    * ``LLMTruncatedError`` is RE-RAISED. A truncated reconcile means the model
+      ran out of token budget mid-output, so some ops never materialised —
+      swallowing it as an empty result silently drops a whole CV's content
+      ("one-CV-wins" merge). Truncation is data loss and MUST surface so the
+      caller fails that upload cleanly rather than persisting a half-merge. The
+      provider already retried once with a larger budget (``retry_on_truncation``)
+      before this propagates, so reaching here means the merge genuinely won't fit.
+    * Every OTHER provider/transport/parse error still degrades to an empty result
+      (unchanged intent): an additive merge that produced no ops is safe — the
+      existing profile is untouched — so transient LLM noise never 500s the upload.
     """
     try:
         data = await provider.aparse_json(
@@ -73,7 +85,11 @@ async def reconcile(
             temperature=0.1,
             max_tokens=RECONCILE_MAX_TOKENS,
         )
-    except Exception:  # noqa: BLE001 — never let LLM/transport errors escape
+    except LLMTruncatedError:
+        # Data loss — never mask as an empty merge. Let the caller surface it.
+        logger.warning("reconcile: output truncated on the token budget; propagating (data loss)")
+        raise
+    except Exception:  # noqa: BLE001 — never let other LLM/transport errors escape
         logger.exception("reconcile: provider.aparse_json failed; returning empty result")
         return ReconcileResult()
 
