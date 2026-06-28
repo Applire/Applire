@@ -24,10 +24,12 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 
 # The internal sentence the engine/provider would carry — it must NOT leak.
 _RAW_INTERNAL = "Model google/gemini-3.5-flash hit the token budget (stop_reason='length')"
+# The raw timeout text a provider raises — also internal, must NOT leak (ADR-047 §4).
+_RAW_TIMEOUT = "OpenRouter call timed out after 120s"
 
 
 @pytest_asyncio.fixture
@@ -94,3 +96,39 @@ async def test_import_reconcile_truncation_maps_to_clean_message(client):
     assert "stop_reason" not in detail
     assert "token budget" not in detail
     assert _RAW_INTERNAL not in detail
+
+
+@pytest.mark.asyncio
+async def test_upload_timeout_maps_to_clean_message(client):
+    """An LLM timeout on upload must surface a clean, retryable message — never the raw
+    'timed out after 120s' provider text (ADR-047 §4 / honest-failure UX)."""
+    timed_out = AsyncMock(side_effect=LLMTimeoutError(_RAW_TIMEOUT))
+    with patch("applire.routers.profile.upload_cv", new=timed_out):
+        resp = await client.post(
+            "/api/profile/upload",
+            files={"file": ("cv.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        )
+
+    assert resp.status_code == 504
+    detail = resp.json()["detail"]
+    assert "again" in detail.lower()
+    assert _RAW_TIMEOUT not in detail
+    assert "timed out after" not in detail.lower()
+    assert "openrouter" not in detail.lower()
+    assert "120s" not in detail
+
+
+@pytest.mark.asyncio
+async def test_import_timeout_maps_to_clean_message(client):
+    timed_out = AsyncMock(side_effect=LLMTimeoutError(_RAW_TIMEOUT))
+    with patch("applire.routers.profile.import_from_linkedin_pdf", new=timed_out):
+        resp = await client.post(
+            "/api/profile/import",
+            files={"file": ("cv.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        )
+
+    assert resp.status_code == 504
+    detail = resp.json()["detail"]
+    assert "again" in detail.lower()
+    assert _RAW_TIMEOUT not in detail
+    assert "timed out after" not in detail.lower()

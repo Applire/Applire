@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
     llm_timeout: int = 120                 # seconds; raise for thinking/reasoning models (e.g. Qwen3, o3)
+    # Operator-declared hard output cap for the chosen model, in tokens. 0 = unset
+    # (no known cap). When set, every requested max_tokens is clamped to it so we never
+    # ask a capped model for more than it can emit — which only trades truncation for
+    # timeout (ADR-047 §2, cap-aware budgeting). Optional: segmentation already handles
+    # capped models with no metadata; this lets an operator who knows the cap pre-empt it.
+    llm_max_output_tokens: int = 0
     embedding_provider: str = "noop"
     embedding_model: str = ""             # empty = use provider default
     # Combined score weights for GET /api/jobs/match (must sum to 1.0)

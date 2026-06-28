@@ -86,14 +86,14 @@ describe("GenerationProgress", () => {
     });
   });
 
-  it("shows error message and retry button when status is failed", async () => {
+  it("shows a localized truncation message and retry when error_code is llm_truncated", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
         cv_id: "test-cv-id",
         status: "failed",
-        error_message: "Something went wrong.",
+        error_code: "llm_truncated",
         expires_at: "2026-05-01T00:00:00Z",
       }),
     } as Response);
@@ -101,8 +101,72 @@ describe("GenerationProgress", () => {
     render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
 
     await waitFor(() => {
-      expect(screen.getByText("Something went wrong.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Your CV couldn't be generated in one pass — it may be too detailed for the current AI model. Please try again."),
+      ).toBeInTheDocument();
       expect(screen.getByText("Try again →")).toBeInTheDocument();
+    });
+  });
+
+  it("shows a localized timeout message when error_code is llm_timeout", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cv_id: "test-cv-id",
+        status: "failed",
+        error_code: "llm_timeout",
+        expires_at: "2026-05-01T00:00:00Z",
+      }),
+    } as Response);
+
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Generating your CV took too long. Please try again in a moment."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("falls back to the generic failure message for an unknown error_code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cv_id: "test-cv-id",
+        status: "failed",
+        error_code: "generation_failed",
+        expires_at: "2026-05-01T00:00:00Z",
+      }),
+    } as Response);
+
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generation failed.")).toBeInTheDocument();
+      expect(screen.getByText("Try again →")).toBeInTheDocument();
+    });
+  });
+
+  it("never renders a raw backend error string to the user (PQ F6)", async () => {
+    // Even if the backend regresses and leaks raw LLM text, the UI must not show it.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cv_id: "test-cv-id",
+        status: "failed",
+        error_code: "llm_truncated",
+        error_message: "Raise max_tokens or reduce reasoning.",
+        expires_at: "2026-05-01T00:00:00Z",
+      }),
+    } as Response);
+
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Raise max_tokens/)).not.toBeInTheDocument();
     });
   });
 

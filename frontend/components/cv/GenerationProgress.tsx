@@ -31,7 +31,9 @@ type CVStatus = "pending" | "generating" | "ready" | "failed" | "expired";
 interface CVStatusResponse {
   cv_id: string;
   status: CVStatus;
-  error_message: string | null;
+  // Stable machine code for a failed generation (ADR-047 §4 / PQ F6). The raw LLM
+  // exception text is never sent; we localize this code below.
+  error_code: string | null;
   expires_at: string;
 }
 
@@ -82,7 +84,14 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry }: Generatio
           onReady(cvId);
         } else if (data.status === "failed") {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          setError(data.error_message ?? t("generationFailed"));
+          const code = data.error_code;
+          const message =
+            code === "llm_truncated"
+              ? t("generationFailedTruncated")
+              : code === "llm_timeout"
+              ? t("generationFailedTimeout")
+              : t("generationFailed");
+          setError(message);
         }
       } catch {
         // Continue polling on network errors

@@ -62,6 +62,9 @@ class CVStatusResponse(BaseModel):
     status: CVGenerationStatus
     html_url: Optional[str] = None
     pdf_url: Optional[str] = None
+    # Stable machine code for a failed generation (ADR-047 §4 / PQ F6). The frontend maps
+    # it to a localized human message + retry; the raw LLM exception text is never sent.
+    error_code: Optional[str] = None
     error_message: Optional[str] = None
     expires_at: datetime
 

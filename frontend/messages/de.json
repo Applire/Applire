@@ -263,6 +263,8 @@
     "stepDone": "Fertig!",
     "generationStale": "Läuft noch im Hintergrund — du wirst automatisch weitergeleitet.",
     "generationFailed": "Generierung fehlgeschlagen.",
+    "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",
+    "generationFailedTimeout": "Die Erstellung deines Lebenslaufs hat zu lange gedauert. Bitte versuche es gleich noch einmal.",
     "retryGeneration": "Erneut versuchen →",
     "photoStepTitle": "Profilfoto hinzufügen?",
     "photoStepHint": "Deutsche Arbeitgeber erwarten typischerweise ein professionelles Foto im Lebenslauf. Optional, aber empfohlen für DACH-Bewerbungen.",

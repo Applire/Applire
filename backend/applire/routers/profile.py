@@ -87,6 +87,13 @@ _TRUNCATION_USER_MESSAGE = (
     "Nothing was changed — please try uploading it again."
 )
 
+# Clean, user-appropriate message for an LLM timeout on upload/import (ADR-047 §4).
+# Never leak the raw provider text ("timed out after 120s", model/provider name).
+_TIMEOUT_USER_MESSAGE = (
+    "This took longer than expected and didn't finish. "
+    "Nothing was changed — please try uploading it again."
+)
+
 
 def _get_provider() -> LLMProvider:
     return get_provider()
@@ -155,8 +162,11 @@ async def upload_cv_endpoint(
         )
     except HTTPException:
         raise
-    except LLMTimeoutError as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
+    except LLMTimeoutError:
+        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
+        )
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LLMTruncatedError:
@@ -300,8 +310,11 @@ async def import_profile(
 
     except HTTPException:
         raise
-    except LLMTimeoutError as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
+    except LLMTimeoutError:
+        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
+        )
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LLMTruncatedError:

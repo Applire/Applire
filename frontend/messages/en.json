@@ -263,6 +263,8 @@
     "stepDone": "Done!",
     "generationStale": "Still running in the background — you'll be redirected automatically.",
     "generationFailed": "Generation failed.",
+    "generationFailedTruncated": "Your CV couldn't be generated in one pass — it may be too detailed for the current AI model. Please try again.",
+    "generationFailedTimeout": "Generating your CV took too long. Please try again in a moment.",
     "retryGeneration": "Try again →",
     "photoStepTitle": "Add a profile photo?",
     "photoStepHint": "German employers typically expect a professional photo on your CV. It's optional but recommended for DACH applications.",

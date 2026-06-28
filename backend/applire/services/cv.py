@@ -93,6 +93,35 @@ from applire.constants import (
     CV_LANGUAGE_REVIEW_MAX_RETRIES,
     LLM_REVIEW_MAX_RETRIES,
 )
+from applire.exceptions import LLMTimeoutError, LLMTruncatedError
+
+
+def classify_generation_error(exc: BaseException) -> str:
+    """Map an internal CV-generation failure to a STABLE machine code (ADR-047 §4).
+
+    Honest-failure UX (PQ F6): the raw exception text — e.g. "Raise max_tokens or
+    reduce reasoning" — must never reach the user. The catch site persists the raw
+    message internally for ops, but the API surfaces only this code, which the frontend
+    maps to a localized human message + retry affordance (error UI is "chrome", so
+    localization lives on the frontend with the user's locale, not here).
+    """
+    if isinstance(exc, LLMTruncatedError):
+        return "llm_truncated"
+    if isinstance(exc, LLMTimeoutError):
+        return "llm_timeout"
+    return "generation_failed"
+
+
+def _record_generation_failure(record, exc: BaseException) -> None:
+    """Mark a generation record failed, keeping the raw exception text internal and
+    setting a classified, user-safe error_code (ADR-047 §4 / PQ F6).
+
+    error_message holds the raw text for ops/logs; error_code is what the API surfaces.
+    Kept as a seam so the classification + split is unit-testable without a DB session.
+    """
+    record.status = CVGenerationStatus.failed.value
+    record.error_message = str(exc)[:1000]
+    record.error_code = classify_generation_error(exc)
 
 
 async def _review_cv_language(draft: dict, output_language: str, provider) -> dict:
@@ -374,7 +403,11 @@ async def get_cv_status(
         status=status,
         html_url=f"{base_url}/api/cv/{cv_id}/html" if status == CVGenerationStatus.ready else None,
         pdf_url=f"{base_url}/api/cv/{cv_id}/pdf" if status == CVGenerationStatus.ready else None,
-        error_message=record.error_message or ("Generation timed out" if status == CVGenerationStatus.failed and not record.error_message else None),
+        # Surface only the machine code; the frontend localizes it. Raw error_message stays
+        # internal (ADR-047 §4 / PQ F6). Fall back to a generic code for legacy failed rows.
+        error_code=(
+            record.error_code or ("generation_failed" if status == CVGenerationStatus.failed else None)
+        ),
         expires_at=record.expires_at,
     )
 
@@ -405,7 +438,10 @@ async def list_cvs_for_job(
             status=CVGenerationStatus(r.status),
             html_url=f"{base_url}/api/cv/{r.id}/html" if r.status == CVGenerationStatus.ready.value else None,
             pdf_url=f"{base_url}/api/cv/{r.id}/pdf" if r.status == CVGenerationStatus.ready.value else None,
-            error_message=r.error_message,
+            # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
+            error_code=(
+                r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
+            ),
             expires_at=r.expires_at,
         )
         for r in records
@@ -600,6 +636,7 @@ async def _render_cv_background(
             record.tailored_data = tailored.model_dump()
             record.status = CVGenerationStatus.ready.value
             record.error_message = None
+            record.error_code = None
             await db.commit()
 
             await _update_ats_report(record, db)   # ADR-039
@@ -607,8 +644,7 @@ async def _render_cv_background(
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
             try:
-                record.status = CVGenerationStatus.failed.value
-                record.error_message = str(exc)[:1000]
+                _record_generation_failure(record, exc)
                 await db.commit()
             except Exception:
                 logger.exception("Failed to persist error status for CV %s", cv_id)

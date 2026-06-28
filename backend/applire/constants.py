@@ -84,6 +84,15 @@ CV_GENERATION_MAX_TOKENS: int = 16384
 # has no room to step up (budget == ceiling → immediate re-raise).
 RECONCILE_MAX_TOKENS: int = 32768
 
+# Per-call output budget for *segmented* large generations (ADR-047 / E036). When a
+# big generation (CV tailoring, profile reconciliation) is produced in pieces, each
+# segment call targets this conservative ceiling so it fits comfortably under the hard
+# output cap of capped models (e.g. mistral-medium-3-5 stops near ~8k regardless of a
+# 16384/32768 request). The point of segmentation is that *no single call* needs a
+# large output, so this stays well under ~8k — raising it would defeat the purpose.
+# See ADR-047 §1 (segmentation is the metadata-free stability floor).
+SEGMENT_MAX_TOKENS: int = 4096
+
 # Token ceiling for JD analysis (services/job.py). The output is a full structured
 # job analysis — role title, required + nice-to-have skills, keywords, culture signals,
 # language requirement — which on a dense posting is a sizeable JSON object, and on a

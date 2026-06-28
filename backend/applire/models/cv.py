@@ -59,6 +59,10 @@ class GeneratedCV(Base):
         String(20), nullable=False, default=CVGenerationStatus.ready.value
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ADR-047 §4 / PQ F6: stable machine code for a failed generation (e.g. 'llm_truncated').
+    # error_message keeps the raw exception text for ops; this code is what the API surfaces
+    # and the frontend localizes — the raw text is never shown to the user.
+    error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     content_snapshot: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
