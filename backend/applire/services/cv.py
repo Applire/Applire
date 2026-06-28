@@ -70,6 +70,7 @@ from applire.prompts.review_cv_tailoring import (
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.capabilities import resolve_effective_output_cap
 from applire.schemas.cv import (
     CVGenerateResponse,
     CVStatusResponse,
@@ -277,12 +278,15 @@ async def generate_cv_segmented(
     return assemble_segmented_cv({"role_order": [w["id"] for w in work_src]}, sections)
 
 
-def _should_segment_upfront() -> bool:
-    """Skip the doomed single call when the operator declares a cap below the single-call
-    ceiling — the full CV won't fit, so go straight to segmented (ADR-047). No declared cap
-    (0/unset) → reactive fallback handles it; the single call stays the happy-path default."""
-    from applire.config import settings
-    cap = settings.llm_max_output_tokens
+async def _should_segment_upfront() -> bool:
+    """Skip the doomed single call when the model's known output cap sits below the
+    single-call ceiling — the full CV won't fit, so go straight to segmented (ADR-047).
+
+    The cap is resolved from the operator's declared ``LLM_MAX_OUTPUT_TOKENS`` OR, when
+    undeclared, the US191 capability probe (ADR-047 §5) — so a capped OpenRouter/Ollama
+    model is pre-empted even without operator config. An unknown cap (0) keeps the single
+    call as the happy-path default; the reactive fallback (US189) covers it either way."""
+    cap = await resolve_effective_output_cap()
     return 0 < cap < CV_GENERATION_MAX_TOKENS
 
 
@@ -300,7 +304,7 @@ async def _tailor_cv_with_fallback(
     the single large call and switch to segmented on truncation/timeout rather than doubling
     the budget into a timeout (the US188 'switch to segmented' recovery). The returned draft
     is fed to the same coherence + language review as before by the caller."""
-    if _should_segment_upfront():
+    if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,

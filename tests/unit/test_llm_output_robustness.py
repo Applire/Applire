@@ -209,3 +209,34 @@ def test_cv_status_response_carries_error_code():
         expires_at=datetime.now(timezone.utc),
     )
     assert resp.error_code == "llm_truncated"
+
+
+# ---------------------------------------------------------------------------
+# US191 — capability-probe-driven upfront segmentation (ADR-047 layer 5)
+# ---------------------------------------------------------------------------
+
+
+class TestProbeDrivenUpfrontSegmentation:
+    """The probe lets us skip the doomed first large CV call when the model's cap
+    is discoverable — without an operator ever declaring LLM_MAX_OUTPUT_TOKENS.
+    Correctness still holds with the probe absent (the reactive fallback)."""
+
+    @pytest.mark.asyncio
+    async def test_probed_small_cap_triggers_upfront_segmentation(self, monkeypatch):
+        from applire.services import cv
+
+        async def fake_cap():
+            return 8192  # below CV_GENERATION_MAX_TOKENS (16384)
+
+        monkeypatch.setattr(cv, "resolve_effective_output_cap", fake_cap)
+        assert await cv._should_segment_upfront() is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_cap_keeps_single_call_fast_path(self, monkeypatch):
+        from applire.services import cv
+
+        async def fake_cap():
+            return 0  # nothing declared, nothing probed → reactive fallback
+
+        monkeypatch.setattr(cv, "resolve_effective_output_cap", fake_cap)
+        assert await cv._should_segment_upfront() is False
