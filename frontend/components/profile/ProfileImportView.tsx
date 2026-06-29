@@ -105,6 +105,9 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
       const form = new FormData();
       form.append("file", file);
       const isZip = file.name.toLowerCase().endsWith(".zip");
+      // TODO(E036 follow-up): route the CV path through the async import job
+      // (lib/import-cv.ts) like the onboarding overlay, so this update path also can't
+      // 504 on a slow/output-capped model. Kept sync for now (separate test surface).
       const endpoint = isZip ? "/api/profile/import" : "/api/profile/upload";
 
       const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: form });

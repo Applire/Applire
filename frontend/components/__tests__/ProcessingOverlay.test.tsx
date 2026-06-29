@@ -69,13 +69,12 @@ describe("ProcessingOverlay — JD URL error handling", () => {
         } as Response;
       }
 
-      // CV upload
-      if (url.includes("/api/profile/upload")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({}),
-        } as Response;
+      // CV import (async job: POST /import-jobs then poll /import-jobs/{id})
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
 
       // Fallback
@@ -131,8 +130,11 @@ describe("ProcessingOverlay — JD URL error handling", () => {
         } as Response;
       }
 
-      if (url.includes("/api/profile/upload")) {
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
 
       return { ok: true, status: 200, json: async () => ({}) } as Response;
@@ -224,8 +226,11 @@ describe("ProcessingOverlay — happy path navigation", () => {
       if (url.includes("/api/applications")) {
         return { ok: true, status: 200, json: async () => ({ flow_session_id: "flow-happy" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
       if (url.includes("/api/flow/flow-happy/state")) {
         return { ok: true, status: 200, json: async () => ({ job_id: "job-xyz" }) } as Response;
@@ -266,8 +271,11 @@ describe("ProcessingOverlay — happy path navigation", () => {
       if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
         return { ok: true, status: 200, json: async () => ({ flow_id: "flow-nojob" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
@@ -306,17 +314,20 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
         return { ok: true, status: 200, json: async () => ({ flow_id: "flow-partial" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
+      if (url.includes("/api/profile/import-jobs/")) {
+        const failed = url.includes("imp-2");
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            failed
+              ? { status: "failed", error_code: "invalid_document", result: null }
+              : { status: "ready", error_code: null, result: {} },
+        } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
         uploadCall++;
-        if (uploadCall === 2) {
-          return {
-            ok: false,
-            status: 422,
-            statusText: "Unprocessable Entity",
-            json: async () => ({ detail: "could not parse" }),
-          } as Response;
-        }
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${uploadCall}`, status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
@@ -361,9 +372,13 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
         if (adv.step === "interview") advancedToInterview = true;
         return { ok: true, status: 200, json: async () => ({}) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
+      if (url.includes("/api/profile/import-jobs/")) {
         uploadCalled = true;
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        uploadCalled = true;
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
@@ -400,16 +415,11 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
         return { ok: true, status: 200, json: async () => ({ flow_id: "flow-502" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
-        return {
-          ok: false,
-          status: 502,
-          statusText: "Bad Gateway",
-          json: async () => ({
-            detail:
-              "We couldn't fully merge this CV into your profile this time. Nothing was changed — please try uploading it again.",
-          }),
-        } as Response;
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "failed", error_code: "llm_truncated", result: null }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
@@ -423,7 +433,8 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     );
     // The file name and the clean backend message are shown — never raw noise.
     expect(screen.getByText("Markus_CV.pdf")).toBeInTheDocument();
-    expect(screen.getByText(/Nothing was changed/)).toBeInTheDocument();
+    // truncation → the reassuring "nothing was changed" copy (error_code mapped, no raw text)
+    expect(screen.getByText(/nothing was changed/i)).toBeInTheDocument();
     // A per-file Retry is offered.
     expect(screen.getByTestId("retry-file-0")).toBeInTheDocument();
     expect(mockPush).not.toHaveBeenCalled();
@@ -436,17 +447,20 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
         return { ok: true, status: 200, json: async () => ({ flow_id: "flow-retry" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
+      if (url.includes("/api/profile/import-jobs/")) {
+        const failFirst = url.includes("imp-1");
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            failFirst
+              ? { status: "failed", error_code: "llm_truncated", result: null }
+              : { status: "ready", error_code: null, result: {} },
+        } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
         uploadCall++;
-        if (uploadCall === 1) {
-          return {
-            ok: false,
-            status: 502,
-            statusText: "Bad Gateway",
-            json: async () => ({ detail: "Nothing was changed — please try uploading it again." }),
-          } as Response;
-        }
-        return { ok: true, status: 200, json: async () => ({}) } as Response;
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${uploadCall}`, status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
@@ -473,13 +487,11 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
       if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
         return { ok: true, status: 200, json: async () => ({ flow_id: "flow-allfail" }) } as Response;
       }
-      if (url.includes("/api/profile/upload")) {
-        return {
-          ok: false,
-          status: 422,
-          statusText: "Unprocessable Entity",
-          json: async () => ({ detail: "could not parse" }),
-        } as Response;
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "failed", error_code: "invalid_document", result: null }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });

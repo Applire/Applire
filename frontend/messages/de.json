@@ -71,7 +71,8 @@
     "jdNoJobLinked": "Keine Stelle verknüpft — übersprungen",
     "jdNoDescription": "Keine Stellenbeschreibung — übersprungen",
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
-    "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}"
+    "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
+    "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut."
   },
   "flow": {
     "stepProfile": "1 Profil",
