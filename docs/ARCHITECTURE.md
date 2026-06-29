@@ -180,10 +180,14 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 **The problem self-hosters hit:** a model's real *output* ceiling is usually far below its context window, and below what a big generation needs. A whole tailored CV — or a whole two-CV profile merge — is one large JSON, and on output-capped models (e.g. some Mistral mediums stop near ~8k regardless of the requested ceiling) or reasoning-mandatory models (reasoning eats the same budget), that single call **truncates**. Raising `max_tokens` does not help: it cannot exceed the model's own cap, and the bigger, slower call then hits the request timeout.
 
-**The fix — segmentation, so no single call needs a large output:**
+**The fix — one principle for *every* LLM call.** Each call is one of two shapes, so a capped model never has to emit a whole document in one response:
 
-- **CV tailoring is generated in pieces** ("outline-then-expand"): a small outline call decides emphasis and ordering, then each work-experience entry and each section (summary, skills, education, projects) is generated under a small per-call budget, all sharing one tailoring directive so the voice stays consistent. The pieces are assembled deterministically in code, then a final pass enforces coherence and output language (ADR-038).
-- **Profile reconciliation** keeps its single fast-path call (ADR-046) but, when that would not fit, **falls back to reconciling entries in batches** — several small calls instead of one large one (still no multi-turn tool loop; the deterministic applier still disposes).
+- **Small-output by contract** — the call may *read* a lot (large input is fine) but is only ever asked to *write* a little, under a small budget: a reviewer returning an approve/reject verdict, a classifier, a merge op-list. These can't truncate because they never produce bulk text.
+- **Large-output → segmented** — anything that would emit a whole document is split so no single call needs a large output:
+  - **CV tailoring** ("outline-then-expand"): a small outline call decides emphasis and ordering, then each work-experience entry and each section (summary, skills, education, projects) is generated under a small per-call budget, all sharing one tailoring directive so the voice stays consistent. The pieces are assembled deterministically in code, then a final pass enforces coherence and output language (ADR-038).
+  - **CV import / extraction** is read section by section, so a long, dense CV is never lost to a truncated parse.
+  - **Profile reconciliation** keeps its single fast-path call (ADR-046) but, when that would not fit, **falls back to reconciling entries in batches** — several small calls instead of one large one (still no multi-turn tool loop; the deterministic applier still disposes).
+  - **The review/refine loop** keeps the reviewer small (a verdict that *points at* what to fix, never re-emitting the document) and lets the refiner rewrite only the flagged sections — so the quality pass can't itself truncate the result it just produced.
 
 **Cap-aware, not budget-doubling:** on a truncation or timeout of a large generation, Applire switches to segmented mode rather than doubling the budget into a timeout. Internal LLM errors are mapped to a human message with a retry — never shown to you as "raise max_tokens".
 
