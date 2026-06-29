@@ -57,6 +57,7 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
+from applire.services.profile.extract_segmented import extract_with_fallback
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
@@ -289,11 +290,11 @@ async def _import_from_text(
     embedding_provider: EmbeddingProvider | None = None,
 ) -> MasterProfileResponse:
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
-    data: dict = await provider.aparse_json(
-        build_user_prompt(raw_text),
-        system=SYSTEM_PROMPT,
-        temperature=0.1,
-        max_tokens=CV_EXTRACTION_MAX_TOKENS,
+    # Cap-safe extraction: single call on the fast path, segmented (outline-then-expand)
+    # on truncation/timeout or a known-small cap (ADR-047 / US195) — so a dense CV is
+    # never silently dropped behind an optimistic "complete" UI.
+    data: dict = await extract_with_fallback(
+        raw_text, provider, system=SYSTEM_PROMPT, user_prompt=build_user_prompt(raw_text),
     )
     data = await review_and_refine(
         source=raw_text,
@@ -716,8 +717,10 @@ async def upload_cv(
         prompt = build_generic_prompt(raw_text)
         system = GENERIC_CV_EXTRACTION_PROMPT
 
-    data: dict = await provider.aparse_json(
-        prompt, system=system, temperature=0.1, max_tokens=CV_EXTRACTION_MAX_TOKENS
+    # Cap-safe extraction (ADR-047 / US195): segmented fallback when the single call would
+    # truncate, so the /upload path never silently drops a dense CV either.
+    data: dict = await extract_with_fallback(
+        raw_text, provider, system=system, user_prompt=prompt,
     )
     data = await review_and_refine(
         source=raw_text,

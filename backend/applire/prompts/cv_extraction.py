@@ -244,9 +244,9 @@ issue in the reviewer's feedback, then return the corrected object.
 
 Rules:
 - The previous extraction is your working draft. Modify it to resolve the reviewer's issues.
-- Do not invent new content. If the reviewer's feedback quotes source passages, use those
-  passages as factual basis for any new content. Otherwise restrict your changes to
-  deletions, nullifications, and moves of existing content.
+- Do not invent new content. The SOURCE CV TEXT is provided — re-read it to recover a dropped
+  position or correct a mutated fact. Restrict your changes to additions, deletions,
+  nullifications, and moves grounded in that source text.
 - Preserve all fields that the reviewer did not flag.
 - Output ONLY the corrected JSON object in the same schema as the input. No markdown
   fences, no commentary, no explanations.

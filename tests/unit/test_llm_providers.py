@@ -348,6 +348,35 @@ async def test_mock_profile_extraction_reviewer_approves():
 
 
 @pytest.mark.asyncio
+async def test_mock_segmented_extraction_chains_recognised():
+    """US195 / ADR-047 — the three segmented-extraction chains (outline → per-role detail →
+    core) must be recognised so a capped-mock extraction run assembles a valid profile
+    instead of corrupting on the {mock:...} fallback. The assembled dict must validate as a
+    master profile with the mock's work positions and name."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.cv_extraction_segmented import (
+        EXTRACTION_OUTLINE_SYSTEM_PROMPT,
+        EXTRACTION_DETAIL_SYSTEM_PROMPT,
+        EXTRACTION_CORE_SYSTEM_PROMPT,
+    )
+    from applire.services.profile.extract_segmented import extract_profile_segmented
+
+    p = MockLLMProvider()
+    outline = await p.aparse_json("x", system=EXTRACTION_OUTLINE_SYSTEM_PROMPT)
+    detail = await p.aparse_json("x", system=EXTRACTION_DETAIL_SYSTEM_PROMPT)
+    core = await p.aparse_json("x", system=EXTRACTION_CORE_SYSTEM_PROMPT)
+    assert "work_experience" in outline
+    assert {"responsibilities", "achievements", "technologies"} <= detail.keys()
+    assert "work_experience" not in core  # core never re-emits work
+
+    data = await extract_profile_segmented("Anna Bauer CV text", p)
+    from applire.schemas.profile import MasterProfileData
+    profile = MasterProfileData.model_validate(data)
+    assert profile.personal_info.name == "Anna Bauer"
+    assert len(data["work_experience"]) >= 1
+
+
+@pytest.mark.asyncio
 async def test_mock_cv_tailoring_reviewer_approves():
     """US171 (sibling gap) — the CV-tailoring grounding reviewer (review_cv_tailoring,
     'CV quality auditor') was also unrecognised by the mock, the same retry-to-exhaustion
