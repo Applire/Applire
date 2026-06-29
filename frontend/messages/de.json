@@ -882,6 +882,9 @@
       "certifications": "Zertifikate",
       "personal_info": "Persönliche Daten",
       "professional_summary": "Profil",
+      "projects": "Projekte",
+      "publications": "Veröffentlichungen",
+      "volunteer_activities": "Ehrenamtliche Tätigkeiten",
       "*": "Profil"
     },
     "rationale": {
@@ -896,7 +899,11 @@
       "interview_added": "Aus deiner Interview-Antwort ergänzt.",
       "interview_new_position": "Neue Position aus deiner Interview-Antwort.",
       "interview_details_added": "Details zu dieser Position aus deiner Interview-Antwort ergänzt.",
-      "profile_updated": "Profil aus dieser Quelle aktualisiert."
+      "profile_updated": "Profil aus dieser Quelle aktualisiert.",
+      "reconcile_added": "Aus dieser Quelle ergänzt.",
+      "reconcile_merged": "In dein bestehendes Profil zusammengeführt.",
+      "reconcile_updated": "Eine fehlende Angabe ergänzt.",
+      "reconcile_summary": "Deine berufliche Zusammenfassung aktualisiert."
     }
   },
   "mergeGate": {

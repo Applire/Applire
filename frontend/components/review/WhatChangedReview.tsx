@@ -102,7 +102,9 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{t(`section.${change.section}`)}</Badge>
+                  <Badge variant="secondary">
+                    {t.has(`section.${change.section}`) ? t(`section.${change.section}`) : t("section.*")}
+                  </Badge>
                   <Badge variant="outline">{t(`action.${change.action}`)}</Badge>
                 </div>
                 {change.newValue != null && (
@@ -123,7 +125,9 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                 )}
                 {(change.rationaleKey || change.rationale) && (
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {change.rationaleKey ? t(`rationale.${change.rationaleKey}`) : change.rationale}
+                    {change.rationaleKey && t.has(`rationale.${change.rationaleKey}`)
+                      ? t(`rationale.${change.rationaleKey}`)
+                      : change.rationale}
                   </p>
                 )}
               </div>
