@@ -682,9 +682,12 @@ class TestCVExtractionReviewPrompt:
         prompt = build_cv_extraction_retry_prompt(
             previous_draft={"work_experience": [{"company": "Siemens AG"}]},
             feedback="Missing work entries",
+            source="Siemens AG — Senior Engineer 2018-2023\nBosch GmbH — Engineer 2015-2018",
         )
         assert "Missing work entries" in prompt
         assert "Siemens AG" in prompt
+        # US194: the corrector re-reads the source CV text.
+        assert "Bosch GmbH" in prompt
 
 
 # ---------------------------------------------------------------------------

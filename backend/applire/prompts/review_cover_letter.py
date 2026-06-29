@@ -62,8 +62,9 @@ Respond ONLY with a valid JSON object — no markdown, no explanations:
   "feedback": "concise instruction for the writer to correct all issues — empty string if approved"
 }
 
-If your correction requires content not present in the draft, quote the relevant source
-passages verbatim in `feedback`. The writer will not re-read the source."""
+Keep `feedback` concise and *referential*: name the offending location (paragraph, claim) and
+state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate
+source itself (ADR-021 amended 2026-06-29)."""
 
 
 def build_review_prompt(source_material: str, letter_json: dict) -> str:
@@ -100,16 +101,19 @@ Rules:
 """
 
 
-def build_retry_prompt(previous_draft: dict, feedback: str) -> str:
+def build_retry_prompt(previous_draft: dict, feedback: str, source: str) -> str:
     """Build the retry user prompt after a reviewer rejection of a cover letter.
 
-    The candidate source is NOT re-sent — the reviewer is expected to quote the relevant
-    source facts in `feedback` when a correction needs grounded content.
+    The candidate source IS re-sent (ADR-021 amended 2026-06-29 / US194) so the writer can
+    re-read the ground truth. The reviewer's critique is now referential (it points at the
+    ungrounded claim) rather than quoting the source, keeping the reviewer output small.
     """
     return (
         "A quality review of your previous cover letter identified the following issues. "
-        "Patch the JSON to address every issue and return the corrected object.\n\n"
+        "Patch the JSON to address every issue, grounding every claim in the CANDIDATE "
+        "SOURCE below, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
+        f"CANDIDATE SOURCE (source of truth):\n{source}\n\n"
         f"PREVIOUS OUTPUT:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected cover letter JSON."
     )

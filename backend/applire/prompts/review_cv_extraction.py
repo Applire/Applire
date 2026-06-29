@@ -99,8 +99,9 @@ Respond ONLY with a valid JSON object — no markdown, no explanations:
   "feedback": "concise instruction for the extractor to correct all issues — empty string if approved"
 }
 
-If your correction requires content not present in the draft, quote the relevant source passages
-verbatim in the `feedback` field. The corrector will not re-read the source."""
+Keep `feedback` concise and *referential*: name the offending location (work_experience index,
+field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector
+re-reads the source CV text itself (ADR-021 amended 2026-06-29)."""
 
 
 def build_cv_extraction_review_prompt(raw_cv_text: str, extracted_json: dict) -> str:
@@ -123,16 +124,21 @@ def build_cv_extraction_review_prompt(raw_cv_text: str, extracted_json: dict) ->
 def build_cv_extraction_retry_prompt(
     previous_draft: dict[str, Any],
     feedback: str,
+    source: str,
 ) -> str:
     """Build the retry user prompt after a reviewer rejection of a CV extraction.
 
-    The raw CV text is NOT included — the reviewer is expected to quote relevant
-    source passages in `feedback` when a correction needs new content.
+    The raw CV text IS re-included (ADR-021 amended 2026-06-29 / US194): the reviewer now
+    gives referential critique (pointing at the missing/wrong field) instead of quoting the
+    source, so the corrector must re-read the CV to recover a dropped position or fix a
+    mutated fact. Keeps the reviewer output small and cap-safe.
     """
     return (
         "A quality review of your previous extraction identified the following issues. "
-        "Patch the JSON to address every issue and return the corrected object.\n\n"
+        "Patch the JSON to address every issue, re-reading the SOURCE CV TEXT as the source "
+        "of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
+        f"SOURCE CV TEXT (source of truth):\n{source}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )

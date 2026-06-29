@@ -18,6 +18,8 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 from applire.services.reviewer import review_and_refine
+from applire.constants import REVIEW_VERDICT_MAX_TOKENS
+from applire.exceptions import LLMTruncatedError, LLMTimeoutError
 
 
 @pytest.fixture
@@ -38,7 +40,7 @@ async def test_max_retries_zero_returns_draft_immediately(mock_provider):
     result = await review_and_refine(
         source="Acme Software Developer 2020-2022",
         draft=draft,
-        generator_prompt_fn=lambda d, f: "retry prompt",
+        generator_prompt_fn=lambda d, f, s: "retry prompt",
         generator_system="gen system",
         reviewer_prompt_fn=lambda s, d: "review prompt",
         reviewer_system="rev system",
@@ -67,7 +69,7 @@ async def test_approves_on_first_pass_returns_draft_unchanged(mock_provider):
     result = await review_and_refine(
         source="Acme Dev 2020-2022",
         draft=draft,
-        generator_prompt_fn=lambda d, f: f"retry: {f}",
+        generator_prompt_fn=lambda d, f, s: f"retry: {f}",
         generator_system="gen system",
         reviewer_prompt_fn=lambda s, d: "review prompt",
         reviewer_system="rev system",
@@ -103,7 +105,7 @@ async def test_rejects_once_then_approves_returns_revised_draft(mock_provider):
     result = await review_and_refine(
         source="Acme Dev 2020-2022",
         draft=original,
-        generator_prompt_fn=lambda d, f: f"retry with feedback: {f}",
+        generator_prompt_fn=lambda d, f, s: f"retry with feedback: {f}",
         generator_system="gen system",
         reviewer_prompt_fn=lambda s, d: "review prompt",
         reviewer_system="rev system",
@@ -142,7 +144,7 @@ async def test_exhausts_retries_returns_last_draft_and_logs_warning(mock_provide
         result = await review_and_refine(
             source="original cv text",
             draft=original,
-            generator_prompt_fn=lambda d, f: f"retry: {f}",
+            generator_prompt_fn=lambda d, f, s: f"retry: {f}",
             generator_system="gen system",
             reviewer_prompt_fn=lambda s, d: "review prompt",
             reviewer_system="rev system",
@@ -175,7 +177,7 @@ async def test_reviewer_receives_source_and_current_draft(mock_provider):
     await review_and_refine(
         source="the source material",
         draft=draft,
-        generator_prompt_fn=lambda d, f: "retry",
+        generator_prompt_fn=lambda d, f, s: "retry",
         generator_system="gen",
         reviewer_prompt_fn=capture_reviewer,
         reviewer_system="rev",
@@ -187,18 +189,70 @@ async def test_reviewer_receives_source_and_current_draft(mock_provider):
 
 
 # ---------------------------------------------------------------------------
-# Generator retry receives feedback
+# US193 — Bounded reviewer (output-by-contract)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_generator_retry_receives_feedback_string(mock_provider):
-    """Verifies the generator retry is called with the reviewer's feedback."""
+async def test_reviewer_call_uses_bounded_output_budget(mock_provider):
+    """ADR-021 amended / US193: the reviewer is bounded-output-by-contract — it emits
+    a small verdict, never re-emits the document. Its aparse_json call must carry a
+    small max_tokens (REVIEW_VERDICT_MAX_TOKENS), far below the generator budget, so a
+    capped model can never truncate the verdict (the Mistral-8k blind-test failure)."""
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    await review_and_refine(
+        source="src",
+        draft={"k": "v"},
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review prompt",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        generator_max_tokens=16384,
+    )
+
+    _, kwargs = mock_provider.aparse_json.call_args
+    assert kwargs["max_tokens"] == REVIEW_VERDICT_MAX_TOKENS
+    assert REVIEW_VERDICT_MAX_TOKENS < 16384
+
+
+@pytest.mark.asyncio
+async def test_reviewer_max_tokens_override_is_respected(mock_provider):
+    """An explicit reviewer_max_tokens overrides the default verdict budget."""
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    await review_and_refine(
+        source="src",
+        draft={"k": "v"},
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review prompt",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=1,
+        reviewer_max_tokens=777,
+    )
+
+    _, kwargs = mock_provider.aparse_json.call_args
+    assert kwargs["max_tokens"] == 777
+
+
+# ---------------------------------------------------------------------------
+# US194 — Refiner re-reads source
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generator_retry_receives_feedback_and_source(mock_provider):
+    """ADR-021 amended / US194: referential critique requires the refiner to re-read the
+    source, so generator_prompt_fn is called as fn(previous_draft, feedback, source)."""
     draft = {"key": "original"}
     received_args: list[tuple] = []
 
-    def capture_generator(d: dict, feedback: str) -> str:
-        received_args.append((d, feedback))
+    def capture_generator(d: dict, feedback: str, source: str) -> str:
+        received_args.append((d, feedback, source))
         return "retry prompt"
 
     mock_provider.aparse_json.side_effect = [
@@ -208,7 +262,7 @@ async def test_generator_retry_receives_feedback_string(mock_provider):
     ]
 
     await review_and_refine(
-        source="the source",
+        source="THE SOURCE MATERIAL",
         draft=draft,
         generator_prompt_fn=capture_generator,
         generator_system="gen",
@@ -218,4 +272,61 @@ async def test_generator_retry_receives_feedback_string(mock_provider):
         max_retries=2,
     )
 
-    assert received_args[0] == (draft, "specific critique")
+    assert received_args[0] == (draft, "specific critique", "THE SOURCE MATERIAL")
+
+
+# ---------------------------------------------------------------------------
+# US194 — Cap-safe: refiner truncation/timeout keeps the last good draft
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exc", [LLMTruncatedError("cap"), LLMTimeoutError("slow")])
+async def test_refiner_truncation_keeps_last_good_draft(mock_provider, caplog, exc):
+    """If the refiner blows the output cap (or times out), the loop must NOT crash and
+    must ship the last validated draft (the already-good segmented output), not a
+    truncated one. This is the cap-safety property the segmented generation relies on."""
+    good_draft = {"work_history": [{"company": "Acme", "role": "Dev"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fix summary"], "feedback": "tighten summary"},
+        exc,  # refiner call truncates / times out
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=good_draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+        )
+
+    assert result == good_draft
+    assert mock_provider.aparse_json.call_count == 2  # reviewer + one failed refiner, no further loop
+
+
+@pytest.mark.asyncio
+async def test_reviewer_truncation_ships_current_draft(mock_provider, caplog):
+    """If the reviewer call itself fails (cap/timeout) the draft ships un-reviewed rather
+    than crashing the flow — degraded review is preferable to a broken generation."""
+    good_draft = {"work_history": [{"company": "Acme"}]}
+    mock_provider.aparse_json.side_effect = LLMTruncatedError("reviewer blew cap")
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=good_draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+        )
+
+    assert result == good_draft
+    assert mock_provider.aparse_json.call_count == 1

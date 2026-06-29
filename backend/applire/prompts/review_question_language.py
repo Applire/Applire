@@ -62,13 +62,18 @@ def build_question_language_review_prompt(required_language: str, draft: dict) -
     )
 
 
-def build_question_language_refinement_prompt(previous_draft: dict, feedback: str) -> str:
+def build_question_language_refinement_prompt(
+    previous_draft: dict, feedback: str, source: str = ""
+) -> str:
     """Return a user-turn prompt asking the LLM to rewrite ``previous_draft`` per reviewer feedback.
 
     ``previous_draft`` shape: ``{"question": str, "choices": list[str] | None}``
+    ``source`` is the target language name (passed positionally by review_and_refine since
+    the ADR-021 amendment).
     """
+    target = f" ({source})" if source else ""
     return (
         f"Reviewer feedback: {feedback}\n\n"
         f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
-        "Rewrite into the required language. Output the corrected JSON only."
+        f"Rewrite into the required language{target}. Output the corrected JSON only."
     )

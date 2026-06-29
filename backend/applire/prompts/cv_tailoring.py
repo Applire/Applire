@@ -132,18 +132,22 @@ def build_user_prompt(
     )
 
 
-def build_retry_prompt(previous_draft: dict, feedback: str) -> str:
+def build_retry_prompt(previous_draft: dict, feedback: str, source: str) -> str:
     """Build the retry user prompt after a reviewer rejection of a tailored CV.
 
-    The job analysis and candidate profile are NOT re-sent — the reviewer is
-    expected to quote relevant facts from the candidate profile in `feedback`
-    when a correction needs profile content (e.g. a fabricated skill must be
-    replaced by a skill actually present in the profile).
+    The candidate profile (``source``) IS re-sent so the corrector can re-read the
+    ground truth (ADR-021 amended 2026-06-29 / US194). The reviewer's critique is now
+    *referential* — it points at the offending entry/field rather than quoting the
+    profile verbatim — so the corrector must consult the source to fix a fabricated
+    skill or a mutated fact correctly. This keeps the reviewer's output small and
+    cap-safe while still grounding the correction.
     """
     return (
         "A quality review of your previous CV tailoring identified the following issues. "
-        "Patch the JSON to address every issue and return the corrected object.\n\n"
+        "Patch the JSON to address every issue, using the CANDIDATE PROFILE as the only "
+        "source of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
+        f"CANDIDATE PROFILE (source of truth):\n{source}\n\n"
         f"PREVIOUS OUTPUT:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected tailored CV JSON."
     )
@@ -156,9 +160,9 @@ not present in the source profile, etc.). Patch the JSON to address every issue.
 
 Rules:
 - The previous tailored CV is your working draft. Modify it to resolve the reviewer's issues.
-- Do not invent skills, achievements, or experience. If the reviewer's feedback quotes
-  candidate profile content, use those passages as factual basis. Otherwise restrict
-  your changes to deletions, nullifications, and rewordings of existing content.
+- Do not invent skills, achievements, or experience. The CANDIDATE PROFILE is provided as
+  the source of truth — re-read it to ground any correction. Restrict your changes to
+  deletions, nullifications, and rewordings supported by that profile.
 - Preserve all fields that the reviewer did not flag.
 - Output ONLY the corrected TailoredCVData JSON in the same schema as the input — no
   markdown, no commentary.

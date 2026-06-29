@@ -33,8 +33,8 @@ Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
 - issues: list of specific problems found (empty list if approved)
 - feedback: one concise sentence telling the generator how to fix the draft (empty string if approved)
 
-If your correction requires content not present in the draft, quote the relevant source passages
-verbatim in the `feedback` field. The corrector will not re-read the source.
+Keep `feedback` concise and *referential*: name what is wrong (field, value) — do NOT quote or
+paste the answer text. The corrector re-reads the source answer itself (ADR-021 amended 2026-06-29).
 """
 
 

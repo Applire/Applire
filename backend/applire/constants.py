@@ -43,6 +43,18 @@ LLM_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("LLM_REVIEW_MAX_RETRIES", "2")
 )
 
+# Output budget for the reviewer's *verdict* (ADR-021 amended 2026-06-29 / US193,
+# E036). The reviewer is bounded-output-by-contract: it reads the full draft + source
+# (large INPUT, fine) but only ever emits a small {approved, issues, feedback} verdict
+# — it must NEVER re-emit the document. So its call carries a small ceiling, far below
+# the generator budget, and a capped model (e.g. mistral-medium-3-5 stopping near ~8k)
+# can never truncate the verdict. This was the Mistral blind-test crash: the reviewer
+# had no max_tokens, inherited a large budget, and its verbatim-quoting feedback blew
+# the cap mid-JSON. Referential critique (no verbatim source) keeps the output small;
+# the refiner re-reads the source instead (ADR-021 amended). See ADR-047 call-shape
+# taxonomy: bounded-output-by-contract vs large-output→segmented.
+REVIEW_VERDICT_MAX_TOKENS: int = 2048
+
 # Interview/enrichment question language-review retries (ADR-038).
 # 0 disables the language reviewer (directive-only).
 INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
