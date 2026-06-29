@@ -18,6 +18,7 @@
 /**
  * ProcessingOverlay — JD URL error handling (Sprint 26) + dynamic CV steps (Sprint 31)
  */
+import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { ProcessingOverlay } from "../processing-overlay";
@@ -298,6 +299,75 @@ describe("ProcessingOverlay — happy path navigation", () => {
       },
       { timeout: 5000 }
     );
+  });
+});
+
+describe("ProcessingOverlay — React StrictMode double-mount (blind-PQ regression)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  // Regression: the upload-abort AbortController (added for unmount cleanup) combined
+  // with the once-only `started` guard left abortRef pointing at an ALREADY-ABORTED
+  // controller after StrictMode's mount→unmount→remount. The CV-import fetch then
+  // rejected with AbortError BEFORE sending — no /import-jobs POST — so every CV
+  // "failed" and the user saw "We couldn't read any of your CVs", while JD-analyze
+  // (which carries no signal) still succeeded. Caught only on the real proxied path.
+  it("still POSTs the CV import under StrictMode double-mount (signal not pre-aborted)", async () => {
+    const importPosts: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      // Mirror native fetch: an already-aborted signal rejects before sending.
+      if ((init as RequestInit | undefined)?.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      if (url.includes("/api/job/analyze")) {
+        return { ok: true, status: 200, json: async () => ({ id: "job-sm", role_title: "X" }) } as Response;
+      }
+      if (url.includes("/api/applications")) {
+        return { ok: true, status: 200, json: async () => ({ flow_session_id: "flow-sm" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        importPosts.push(url);
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      if (url.includes("/api/flow/flow-sm/state")) {
+        return { ok: true, status: 200, json: async () => ({ job_id: "job-sm" }) } as Response;
+      }
+      if (url.includes("/api/job/job-sm/gaps")) {
+        return { ok: true, status: 200, json: async () => ({ id: "gap-1", match_score: 0.8 }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <StrictMode>
+        {withIntl(
+          <ProcessingOverlay
+            files={[mockFile]}
+            jdMode="url"
+            jdUrl="https://example.com/job"
+            jdText=""
+            onCancel={vi.fn()}
+          />
+        )}
+      </StrictMode>
+    );
+
+    await waitFor(
+      () => {
+        expect(mockPush).toHaveBeenCalledWith("/flow/flow-sm/gaps");
+      },
+      { timeout: 5000 }
+    );
+    // The CV was actually sent (not silently dropped by a pre-aborted signal).
+    expect(importPosts.length).toBeGreaterThan(0);
+    // And no false "couldn't read your CVs" hard error.
+    expect(screen.queryByTestId("processing-error")).toBeNull();
   });
 });
 

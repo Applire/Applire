@@ -252,8 +252,15 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   }
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    // A fresh controller every mount, so abortRef always points at THIS mount's
+    // controller. Under React StrictMode (mount→unmount→remount in dev) the first
+    // controller is aborted by its own cleanup, but the surviving second mount
+    // installs a live one. runPipeline runs exactly once (the `started` guard) and
+    // reads abortRef.current LAZILY at upload time, so it picks up the live signal
+    // — never the aborted one. (Regression: guarding the whole effect left abortRef
+    // pinned to an aborted controller, so the CV-import fetch rejected before
+    // sending — no POST, and a false "couldn't read your CVs". Caught on the real
+    // proxied path by blind PQ; JD-analyze carries no signal so it masked the bug.)
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -407,7 +414,13 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       }
     }
 
-    runPipeline();
+    // Run the pipeline exactly once across StrictMode's double-invoke (it has
+    // non-idempotent side effects: creates a flow, uploads CVs). The controller
+    // above is still recreated per mount so the abort lifecycle stays correct.
+    if (!started.current) {
+      started.current = true;
+      runPipeline();
+    }
     return () => controller.abort();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
