@@ -160,9 +160,13 @@ export default function CVPage({
     void init();
   }, [flowId]);
 
-  // Fetch ATS report once a CV is ready; re-fetch when atsRefresh is bumped (e.g. after section save)
+  // Fetch ATS report once a CV is ready; re-fetch when atsRefresh is bumped (e.g. after section save).
+  // Gate on phase === "preview": cvId is set while the CV is still "generating" (the report isn't
+  // persisted yet → null), and handleReady reuses the SAME cvId, so a cvId-only dependency would
+  // never re-fire after readiness and the panel would stay "unavailable". Re-running on the phase
+  // transition (mirrors the cover-letter page's `phase === "ready"` guard) fetches a present report.
   useEffect(() => {
-    if (!cvId) return;
+    if (!cvId || phase !== "preview") return;
     async function fetchAtsReport() {
       try {
         const res = await fetch(`${API_BASE}/api/cv/${cvId}/ats-report`);
@@ -174,7 +178,7 @@ export default function CVPage({
       }
     }
     void fetchAtsReport();
-  }, [cvId, atsRefresh]);
+  }, [cvId, phase, atsRefresh]);
 
   async function handleGenerate(tpl: CVTemplate) {
     if (!flowState) return;
