@@ -43,7 +43,7 @@ from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import build_keyword_ledger
-from applire.services.match_score import compute_match_score
+from applire.services.match_score import compute_match_score_from_ledger
 
 
 # ---------------------------------------------------------------------------
@@ -189,11 +189,6 @@ async def _run_analysis(
     )
 
     classifications = data.get("classifications", [])
-    scored = compute_match_score(
-        classifications,
-        list(job.required_skills or []),
-        list(job.nice_to_have_skills or []),
-    )
 
     # ADR-048: the single source of truth for every JD expectation. `reason` from
     # the classification serves as the grounding evidence for the ledger entry.
@@ -211,6 +206,11 @@ async def _run_analysis(
         list(job.nice_to_have_skills or []),
         list(job.keywords or []),
     )
+
+    # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's
+    # fit-weighted slice — the single source of truth — not a parallel
+    # classification list. The formula and weights are unchanged.
+    scored = compute_match_score_from_ledger(keyword_ledger)
 
     # Compute embedding similarity score (None when noop provider or embeddings absent)
     embedding_similarity_score = _compute_embedding_similarity(
