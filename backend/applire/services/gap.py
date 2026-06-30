@@ -42,8 +42,12 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
-from applire.services.keyword_ledger import build_keyword_ledger
+from applire.services.keyword_ledger import build_keyword_ledger, keyword_only_honest_gaps
 from applire.services.match_score import compute_match_score_from_ledger
+
+
+def _norm_gap(s: str) -> str:
+    return (s or "").strip().casefold()
 
 
 # ---------------------------------------------------------------------------
@@ -117,10 +121,20 @@ async def cluster_gaps(
     # session<->gap circular dependency.
     from applire.services.session import get_ui_language
     lang = await get_ui_language(db)
+    # US204 (ADR-048 §10): keyword-only honest gaps carry no fit weight, so they
+    # never reach category_c — route them into the interview here, deduped against
+    # the category_c gaps already present. The clustering LLM merges by domain and
+    # writes an estimate-honest jd_context, so they surface as askable clusters.
+    category_c = list(gap_analysis.category_c or [])
+    seen_c = {_norm_gap(g) for g in category_c}
+    for concept in keyword_only_honest_gaps(getattr(gap_analysis, "keyword_ledger", None)):
+        if _norm_gap(concept) not in seen_c:
+            category_c.append(concept)
+            seen_c.add(_norm_gap(concept))
     raw_clusters: list = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(gap_analysis.category_b or []),
-            category_c=list(gap_analysis.category_c or []),
+            category_c=category_c,
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
             lang=lang,

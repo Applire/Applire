@@ -150,6 +150,29 @@ def _mock_classifications():
     ]
 
 
+def test_keyword_only_honest_gaps_returns_only_fit_zero_unclaimable_concepts():
+    # US204: honest gaps that are pure ATS keywords (fit_weight 0, not claimable)
+    # are invisible to match_score's category_c, so they must be routed to the
+    # interview explicitly. Required/nice_to_have gaps already flow via category_c
+    # and must NOT be duplicated here.
+    from applire.services.keyword_ledger import keyword_only_honest_gaps
+
+    ledger = [
+        {"concept": "microservices", "fit_weight": 0.0, "claimable": False},  # keyword honest gap → yes
+        {"concept": "agile", "fit_weight": 0.0, "claimable": True},            # keyword, but held → no
+        {"concept": "Rust", "fit_weight": 1.0, "claimable": False},            # required gap (in category_c) → no
+        {"concept": "Kubernetes", "fit_weight": 1.0, "claimable": True},       # held required → no
+    ]
+    assert keyword_only_honest_gaps(ledger) == ["microservices"]
+
+
+def test_keyword_only_honest_gaps_is_none_safe():
+    from applire.services.keyword_ledger import keyword_only_honest_gaps
+
+    assert keyword_only_honest_gaps(None) == []
+    assert keyword_only_honest_gaps([]) == []
+
+
 def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
     # "CI/CD" is a JD *keyword* the candidate demonstrably has (CI/CD pipelines).
     # The mock must classify keyword terms (mirrors the prompt change) so it lands

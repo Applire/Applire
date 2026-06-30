@@ -152,6 +152,21 @@ def claimable_surface_forms(
     return forms
 
 
+def keyword_only_honest_gaps(keyword_ledger: list[dict[str, Any]] | None) -> list[str]:
+    """Honest gaps that are pure ATS keywords (US204, ADR-048 §10).
+
+    Returns the concepts of ledger entries that are NOT claimable AND carry no fit
+    weight (keyword-only). Required/nice_to_have honest gaps already reach the
+    interview via ``category_c`` (compute_match_score_from_ledger), so they are
+    excluded here to avoid double-routing. Pure; tolerant of ``None``/empty.
+    """
+    return [
+        entry.get("concept", "")
+        for entry in (keyword_ledger or [])
+        if not entry.get("claimable") and not entry.get("fit_weight") and entry.get("concept")
+    ]
+
+
 def render_ledger_reviewer_block(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> str:
