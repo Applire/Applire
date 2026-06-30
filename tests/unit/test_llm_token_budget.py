@@ -199,6 +199,11 @@ async def test_gap_analysis_pass2_threads_raised_budget():
 
     spy = _BudgetSpyProvider({"classifications": []}, stop_after=True)
     db = AsyncMock()
+    # E037 PQ #3: _run_analysis now looks up the latest gap analysis first to
+    # decide idempotent reuse. No prior row → fall through to the pass-2 LLM call.
+    result_obj = MagicMock()
+    result_obj.scalar_one_or_none.return_value = None
+    db.execute.return_value = result_obj
 
     with pytest.raises(_Stop):
         await _run_analysis(job, profile, db, spy)

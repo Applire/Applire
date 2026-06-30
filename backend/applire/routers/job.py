@@ -120,11 +120,14 @@ async def refresh_gap_analysis(
 ) -> GapAnalysisResponse:
     """Re-run gap analysis against the current profile (19.11).
 
-    Always creates a new GapAnalysis record — reflects any profile enrichment
-    from interview answers. Required for the animated score update in Gap-Click mode.
+    Reflects any profile enrichment from interview answers. Idempotent: if the
+    profile is unchanged it returns the existing analysis (no LLM re-run, no score
+    wobble — E037 PQ #3). When inputs DID change, the headline score is clamped
+    monotonically up so added evidence never lowers it. Required for the animated
+    score update in Gap-Click mode.
     """
     try:
-        return await analyze_gaps(job_id, db, provider)
+        return await analyze_gaps(job_id, db, provider, clamp_to_previous=True)
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
