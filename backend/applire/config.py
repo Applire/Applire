@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # timeout (ADR-047 §2, cap-aware budgeting). Optional: segmentation already handles
     # capped models with no metadata; this lets an operator who knows the cap pre-empt it.
     llm_max_output_tokens: int = 0
+    # Developer-only: when True, every LLM call's full input/output is appended as a
+    # JSON line to <llm_debug_log_dir>/<date>.jsonl (records CV PII — keep OFF in prod).
+    llm_debug_log: bool = False
+    llm_debug_log_dir: str = "logs/llm"
     embedding_provider: str = "noop"
     embedding_model: str = ""             # empty = use provider default
     # Combined score weights for GET /api/jobs/match (must sum to 1.0)

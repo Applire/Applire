@@ -44,6 +44,7 @@ from typing import Any
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,9 @@ async def review_and_refine(
     """
     if max_retries <= 0:
         return draft
+
+    # Tag every reviewer/refiner LLM call in this loop for the debug log (no-op in prod).
+    set_llm_log_stage(chain_id)
 
     current_draft = draft
     last_issues: list[str] = []
