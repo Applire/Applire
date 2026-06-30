@@ -273,6 +273,109 @@ async def test_background_job_persists_ats_report(db_with_cv):
 
 
 # ---------------------------------------------------------------------------
+# Test 1b: the Keyword Ledger reaches audit_cv so the missing buckets populate (US203)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cv_audit_receives_keyword_ledger(db_with_cv):
+    """US203: _update_ats_report must pass the job's latest Keyword Ledger to audit_cv
+    so it can split missing keywords into claimable vs honest-gap."""
+    from applire.models.gap import GapAnalysis
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+    job_id = ctx["job_id"]
+    profile_id = ctx["profile_id"]
+
+    ledger = [
+        {"concept": "Python", "surface_forms": ["Python"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "5y"},
+    ]
+    session.add(GapAnalysis(
+        id=uuid.uuid4(), job_analysis_id=job_id, profile_id=profile_id,
+        match_score=50, keyword_ledger=ledger,
+        created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    ))
+    await session.commit()
+
+    captured: dict = {}
+
+    def fake_audit(pdf, tailored, keywords, ledger=None):
+        captured["keywords"] = keywords
+        captured["ledger"] = ledger
+        return _make_ats_report("cv")
+
+    tailored_raw = _stub_tailored_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = tailored_raw
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=mock_provider), \
+         patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cv", side_effect=fake_audit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    assert captured.get("ledger") == ledger, "audit_cv did not receive the Keyword Ledger"
+
+
+@pytest.mark.asyncio
+async def test_letter_audit_receives_keyword_ledger(db_with_cover_letter):
+    """US203 letter twin: _update_ats_report_letter passes the ledger to audit_cover_letter."""
+    from applire.models.gap import GapAnalysis
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+    profile_id = ctx["profile_id"]
+
+    ledger = [
+        {"concept": "Python", "surface_forms": ["Python"], "claimable": False,
+         "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+    ]
+    session.add(GapAnalysis(
+        id=uuid.uuid4(), job_analysis_id=job_id, profile_id=profile_id,
+        match_score=50, keyword_ledger=ledger,
+        created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    ))
+    await session.commit()
+
+    captured: dict = {}
+
+    def fake_audit(pdf, letter_data, keywords, ledger=None):
+        captured["ledger"] = ledger
+        return _make_ats_report("cover_letter")
+
+    letter_raw = _stub_letter_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = letter_raw
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cover_letter", side_effect=fake_audit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    assert captured.get("ledger") == ledger, "audit_cover_letter did not receive the Keyword Ledger"
+
+
+# ---------------------------------------------------------------------------
 # Test 2: audit engine error leaves ats_report NULL and status still ready
 # ---------------------------------------------------------------------------
 

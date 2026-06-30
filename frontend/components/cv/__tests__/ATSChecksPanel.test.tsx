@@ -35,6 +35,21 @@ const REPORT_WITH_FAILURES: ATSReport = {
   },
 };
 
+// US203: the report splits missing keywords into claimable (held but absent — fixable)
+// vs honest-gap (not in the profile). The two buckets must render distinctly.
+const REPORT_WITH_BUCKETS: ATSReport = {
+  checks: [
+    { id: "contact-name", status: "pass" },
+    { id: "skills", status: "pass" },
+  ],
+  keywords: {
+    present: ["TypeScript"],
+    missing: ["React", "Kubernetes"],
+    missing_claimable: ["React"],
+    missing_honest_gap: ["Kubernetes"],
+  },
+};
+
 const REPORT_ALL_PASS: ATSReport = {
   checks: [
     { id: "contact-name", status: "pass" },
@@ -145,5 +160,38 @@ describe("ATSChecksPanel", () => {
   it("does not render ats-keywords-missing when there are no missing keywords", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
     expect(screen.queryByTestId("ats-keywords-missing")).toBeNull();
+  });
+
+  // US203: claimable vs honest-gap missing keywords render in two distinct buckets
+  it("renders missing-claimable and missing-honest-gap as distinct buckets", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
+    const claimable = screen.getByTestId("ats-keywords-missing-claimable");
+    const honestGap = screen.getByTestId("ats-keywords-missing-honest-gap");
+    expect(claimable.textContent).toContain("React");
+    expect(claimable.textContent).not.toContain("Kubernetes");
+    expect(honestGap.textContent).toContain("Kubernetes");
+    expect(honestGap.textContent).not.toContain("React");
+  });
+
+  // US203: a bucket with no entries is not rendered
+  it("omits a missing bucket that has no keywords", () => {
+    const onlyHonest: ATSReport = {
+      checks: [{ id: "skills", status: "pass" }],
+      keywords: {
+        present: [],
+        missing: ["Kubernetes"],
+        missing_claimable: [],
+        missing_honest_gap: ["Kubernetes"],
+      },
+    };
+    render(withIntl(<ATSChecksPanel report={onlyHonest} />));
+    expect(screen.queryByTestId("ats-keywords-missing-claimable")).toBeNull();
+    expect(screen.getByTestId("ats-keywords-missing-honest-gap")).toBeInTheDocument();
+  });
+
+  // US203: back-compat — a report with no bucket fields still renders without crashing
+  it("renders legacy reports without missing buckets", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
+    expect(screen.getByTestId("ats-keywords-missing")).toBeInTheDocument();
   });
 });

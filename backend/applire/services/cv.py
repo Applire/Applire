@@ -815,6 +815,13 @@ async def _render_cv_background(
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
+            # ADR-048 / US202: route the Keyword Ledger to the reviewer so it can report
+            # absent-claimable keywords (the bounded ADR-047 loop then acts) and flag any
+            # forbidden honest-gap concept surfaced as a claim. Grounding outranks coverage.
+            from applire.services.keyword_ledger import render_ledger_reviewer_block
+            ledger_block = render_ledger_reviewer_block(keyword_ledger)
+            if ledger_block:
+                source_material = f"{source_material}\n\n{ledger_block}"
 
             tailored_raw = await review_and_refine(
                 source=source_material,
@@ -917,6 +924,25 @@ async def _html_to_pdf(html: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+    """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
+
+    Mirrors the generation-path gap query. Used by the ATS audit to bucket missing
+    keywords; ``None`` for legacy pre-E037 rows (then all missing default to honest-gap).
+    """
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    gap = result.scalar_one_or_none()
+    return (gap.keyword_ledger or []) if gap else None
+
+
 async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
     """ADR-039: render → extract → audit → persist.
 
@@ -938,8 +964,11 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
         tailored = apply_overrides_to_tailored(
             tailored, record.content_snapshot, record.section_overrides
         )
+        # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
+        # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
+        ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
         record.ats_report = audit_cv(
-            pdf, tailored, list(job.keywords or []) if job else []
+            pdf, tailored, list(job.keywords or []) if job else [], ledger
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

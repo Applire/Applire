@@ -29,7 +29,12 @@ class ATSCheck(BaseModel):
 
 class ATSKeywordCoverage(BaseModel):
     present: list[str] = []
-    missing: list[str] = []
+    missing: list[str] = []  # back-compat: the full missing list (claimable + honest-gap)
+    # US203 (ADR-048): a missing keyword the candidate HAS per the Keyword Ledger
+    # (should have been surfaced) vs one they genuinely lack (an honest gap — never
+    # something to fabricate). When no ledger is available all missing default to honest-gap.
+    missing_claimable: list[str] = []
+    missing_honest_gap: list[str] = []
 
 
 class ATSReport(BaseModel):

@@ -204,6 +204,69 @@ def test_duplicate_keywords_deduplicated():
         f"duplicates must be collapsed to one entry; got {report.keywords.present}"
 
 
+# ---------------------------------------------------------------------------
+# E037 US203: missing keywords split into claimable vs honest-gap
+# ---------------------------------------------------------------------------
+
+# A ledger where "Python" is held (claimable), "GraphQL" is an honest gap.
+_LEDGER = [
+    {"concept": "Python", "surface_forms": ["Python"], "claimable": True,
+     "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "5y"},
+    {"concept": "GraphQL", "surface_forms": ["GraphQL"], "claimable": False,
+     "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+]
+
+
+def test_missing_keywords_split_into_claimable_and_honest_gap():
+    """US203: a missing keyword the candidate HAS per the ledger (claimable) is a
+    surfacing miss; a missing keyword they don't have is an honest gap. Present
+    keywords never appear in either bucket."""
+    # Text contains neither Python nor GraphQL → both missing, but bucketed differently.
+    text = "Anna Bauer some unrelated prose with no job keywords"
+    report = _audit_cv_text(text, _CV, keywords=["Python", "GraphQL"], ledger=_LEDGER)
+    assert set(report.keywords.missing) == {"Python", "GraphQL"}        # back-compat list intact
+    assert report.keywords.missing_claimable == ["Python"]              # held but absent → fixable
+    assert report.keywords.missing_honest_gap == ["GraphQL"]            # not in profile → honest
+
+
+def test_present_keyword_not_in_either_missing_bucket():
+    report = _audit_cv_text(_full_text(), _CV, keywords=["Python", "GraphQL"], ledger=_LEDGER)
+    assert report.keywords.present == ["Python"]
+    assert "Python" not in report.keywords.missing_claimable
+    assert report.keywords.missing_honest_gap == ["GraphQL"]
+
+
+def test_missing_keyword_unknown_to_ledger_is_honest_gap():
+    """A missing keyword with no claimable ledger entry defaults to honest-gap —
+    never silently claimable (mirrors the ledger's gap-default rule)."""
+    report = _audit_cv_text("Anna Bauer", _CV, keywords=["Rust"], ledger=_LEDGER)
+    assert report.keywords.missing == ["Rust"]
+    assert report.keywords.missing_claimable == []
+    assert report.keywords.missing_honest_gap == ["Rust"]
+
+
+def test_no_ledger_all_missing_default_to_honest_gap():
+    """Legacy pre-E037 path: no ledger → claimable bucket empty, all missing are honest-gap
+    (back-compat — the panel still has something to show)."""
+    report = _audit_cv_text("Anna Bauer", _CV, keywords=["Python", "GraphQL"])
+    assert set(report.keywords.missing) == {"Python", "GraphQL"}
+    assert report.keywords.missing_claimable == []
+    assert set(report.keywords.missing_honest_gap) == {"Python", "GraphQL"}
+
+
+def test_letter_missing_keywords_split_by_ledger():
+    letter = {
+        "header": {"name": "Anna Bauer", "email": None, "phone": None, "address": "Berlin"},
+        "recipient": {"company": None, "name": None, "title": None, "address": None, "date": None},
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,"]},
+        "signature": {"name": "Anna Bauer"},
+    }
+    text = "Anna Bauer Berlin Sehr geehrte Damen und Herren,"
+    report = _audit_letter_text(text, letter, keywords=["Python", "GraphQL"], ledger=_LEDGER)
+    assert report.keywords.missing_claimable == ["Python"]
+    assert report.keywords.missing_honest_gap == ["GraphQL"]
+
+
 def test_empty_letter_paragraph_skipped():
     letter = {
         "header": {"name": "Anna Bauer", "email": None, "phone": None, "address": "Berlin"},

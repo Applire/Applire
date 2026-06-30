@@ -60,7 +60,11 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
     checks.append(ATSCheck(id=cid, status="pass" if ok else "fail", details=None if ok else details))
 
 
-def _keyword_coverage(text_norm: str, keywords: list[str]) -> ATSKeywordCoverage:
+def _keyword_coverage(
+    text_norm: str,
+    keywords: list[str],
+    ledger: list[dict[str, Any]] | None = None,
+) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
     for k in keywords:
@@ -69,7 +73,22 @@ def _keyword_coverage(text_norm: str, keywords: list[str]) -> ATSKeywordCoverage
             unique.append(k)
     present = [k for k in unique if _find(k, text_norm) >= 0]
     missing = [k for k in unique if _find(k, text_norm) < 0]
-    return ATSKeywordCoverage(present=present, missing=missing)
+
+    # US203 (ADR-048): split missing into "claimable" (the candidate supports it per the
+    # ledger — a surfacing miss) vs "honest gap" (not in the profile). No ledger → all
+    # missing are honest gaps (back-compat; never silently claimable). The audit stays
+    # deterministic and local — no LLM, no synthetic score.
+    from applire.services.keyword_ledger import claimable_surface_forms
+
+    claimable_norm = {_norm(f) for f in claimable_surface_forms(ledger)}
+    missing_claimable = [k for k in missing if _norm(k) in claimable_norm]
+    missing_honest_gap = [k for k in missing if _norm(k) not in claimable_norm]
+    return ATSKeywordCoverage(
+        present=present,
+        missing=missing,
+        missing_claimable=missing_claimable,
+        missing_honest_gap=missing_honest_gap,
+    )
 
 
 def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
@@ -82,7 +101,12 @@ def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], cov
     )
 
 
-def _audit_cv_text(text: str, tailored: TailoredCVData, keywords: list[str]) -> ATSReport:
+def _audit_cv_text(
+    text: str,
+    tailored: TailoredCVData,
+    keywords: list[str],
+    ledger: list[dict[str, Any]] | None = None,
+) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
 
@@ -138,15 +162,29 @@ def _audit_cv_text(text: str, tailored: TailoredCVData, keywords: list[str]) -> 
         _check(checks, "skills", not missing_skills,
                "skills missing from extracted text: " + ", ".join(missing_skills))
 
-    return _finish("cv", checks, _keyword_coverage(t, keywords))
+    return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
 
 
-def audit_cv(pdf_bytes: bytes, tailored: TailoredCVData, keywords: list[str]) -> ATSReport:
-    """Audit a rendered CV PDF against the structured CV data and a list of keywords."""
-    return _audit_cv_text(extract_text(pdf_bytes), tailored, keywords)
+def audit_cv(
+    pdf_bytes: bytes,
+    tailored: TailoredCVData,
+    keywords: list[str],
+    ledger: list[dict[str, Any]] | None = None,
+) -> ATSReport:
+    """Audit a rendered CV PDF against the structured CV data and a list of keywords.
+
+    ``ledger`` (the Keyword Ledger, ADR-048/US203) annotates each MISSING keyword as
+    *missing-claimable* (supported by the profile per the ledger) vs *missing-honest-gap*.
+    """
+    return _audit_cv_text(extract_text(pdf_bytes), tailored, keywords, ledger)
 
 
-def _audit_letter_text(text: str, letter_data: dict[str, Any], keywords: list[str]) -> ATSReport:
+def _audit_letter_text(
+    text: str,
+    letter_data: dict[str, Any],
+    keywords: list[str],
+    ledger: list[dict[str, Any]] | None = None,
+) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
 
@@ -168,9 +206,18 @@ def _audit_letter_text(text: str, letter_data: dict[str, Any], keywords: list[st
             continue  # empty/whitespace paragraph — nothing to verify (mirrors the CV-side empty-field guard)
         _check(checks, f"body-{i}", _find(probe, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
 
-    return _finish("cover_letter", checks, _keyword_coverage(t, keywords))
+    return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger))
 
 
-def audit_cover_letter(pdf_bytes: bytes, letter_data: dict[str, Any], keywords: list[str]) -> ATSReport:
-    """Audit a rendered cover letter PDF against the structured letter data and a list of keywords."""
-    return _audit_letter_text(extract_text(pdf_bytes), letter_data, keywords)
+def audit_cover_letter(
+    pdf_bytes: bytes,
+    letter_data: dict[str, Any],
+    keywords: list[str],
+    ledger: list[dict[str, Any]] | None = None,
+) -> ATSReport:
+    """Audit a rendered cover letter PDF against the structured letter data and keywords.
+
+    ``ledger`` (ADR-048/US203) splits each MISSING keyword into *missing-claimable* vs
+    *missing-honest-gap*.
+    """
+    return _audit_letter_text(extract_text(pdf_bytes), letter_data, keywords, ledger)

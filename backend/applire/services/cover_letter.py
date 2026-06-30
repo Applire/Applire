@@ -443,6 +443,12 @@ async def _render_cover_letter_background(
                 ensure_ascii=False,
                 indent=2,
             )
+            # ADR-048 / US202: route the Keyword Ledger to the reviewer (absent-claimable
+            # reporting + forbidden honest-gap claim flagging). Grounding outranks coverage.
+            from applire.services.keyword_ledger import render_ledger_reviewer_block
+            ledger_block = render_ledger_reviewer_block(keyword_ledger)
+            if ledger_block:
+                grounding_source = f"{grounding_source}\n\n{ledger_block}"
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
@@ -494,6 +500,27 @@ async def _render_cover_letter_background(
 # ---------------------------------------------------------------------------
 
 
+async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+    """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
+
+    Mirrors the generation-path gap query; ``None`` for legacy pre-E037 rows (then all
+    missing keywords default to honest-gap in the ATS report).
+    """
+    from applire.models.gap import GapAnalysis
+
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    gap = result.scalar_one_or_none()
+    return (gap.keyword_ledger or []) if gap else None
+
+
 async def _update_ats_report_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -523,8 +550,11 @@ async def _update_ats_report_letter(
         pdf = pdf if pdf is not None else await render_pdf(cl.id)
         job = await db.get(JobAnalysis, cl.job_analysis_id)
         letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+        # ADR-048 / US203: the latest Keyword Ledger buckets each MISSING keyword as
+        # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
+        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
         cl.ats_report = audit_cover_letter(
-            pdf, letter_data, list(job.keywords or []) if job else []
+            pdf, letter_data, list(job.keywords or []) if job else [], ledger
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)

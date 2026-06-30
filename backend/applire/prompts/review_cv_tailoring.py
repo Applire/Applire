@@ -43,6 +43,16 @@ Check for ALL of the following:
    beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
    or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
    profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
+7. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
+   CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
+   gaps NOT in the profile). Two checks:
+   (a) ABSENT CLAIMABLE: report any CLAIMABLE keyword that does not appear anywhere in the CV as
+       an issue, so the writer can surface it where the evidence supports it. This is a surfacing
+       SUGGESTION only — grounding strictly OUTRANKS coverage, so NEVER ask the writer to fabricate,
+       stretch, or force a term that does not genuinely fit. A truthfully-absent claimable keyword
+       is acceptable; do not reject solely for it.
+   (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
+       something the candidate has, has done, or knows, flag it — this is a fabrication.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {

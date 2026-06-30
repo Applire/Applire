@@ -170,3 +170,75 @@ def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
     ]
     assert cicd, "CI/CD keyword must appear in the ledger"
     assert any(e["claimable"] for e in cicd), "a held keyword must be claimable, not a gap"
+
+
+# ---------------------------------------------------------------------------
+# E037 US202/US203: reviewer + ATS consumption helpers
+# ---------------------------------------------------------------------------
+
+_LEDGER = [
+    {
+        "concept": "Kubernetes",
+        "surface_forms": ["Kubernetes", "K8s"],
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "status": "direct",
+        "evidence": "8y as DevOps Lead",
+        "claimable": True,
+    },
+    {
+        "concept": "Terraform",
+        "surface_forms": ["Terraform"],
+        "sources": ["nice_to_have"],
+        "fit_weight": 0.5,
+        "status": "partial",
+        "evidence": "one project",
+        "claimable": True,
+    },
+    {
+        "concept": "Rust",
+        "surface_forms": ["Rust"],
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "status": "gap",
+        "evidence": "",
+        "claimable": False,
+    },
+]
+
+
+def test_claimable_surface_forms_flattens_only_claimable_entries():
+    from applire.services.keyword_ledger import claimable_surface_forms
+
+    forms = claimable_surface_forms(_LEDGER)
+    # every surface form of every claimable entry, none from the gap
+    assert "Kubernetes" in forms and "K8s" in forms and "Terraform" in forms
+    assert "Rust" not in forms
+
+
+def test_claimable_surface_forms_is_none_safe():
+    from applire.services.keyword_ledger import claimable_surface_forms
+
+    assert claimable_surface_forms(None) == []
+    assert claimable_surface_forms([]) == []
+
+
+def test_render_ledger_reviewer_block_lists_claimable_and_forbidden():
+    from applire.services.keyword_ledger import render_ledger_reviewer_block
+
+    block = render_ledger_reviewer_block(_LEDGER)
+    # claimable concepts + their surface forms are surfaced for the absent-check
+    assert "Kubernetes" in block and "K8s" in block and "Terraform" in block
+    # the honest-gap concept appears in the forbidden / do-not-claim section
+    assert "Rust" in block
+    # the block must instruct both new reviewer checks
+    low = block.lower()
+    assert "absent" in low or "missing" in low  # report claimable keywords not in the draft
+    assert "claim" in low                        # never claim a forbidden concept
+
+
+def test_render_ledger_reviewer_block_empty_for_empty_ledger():
+    from applire.services.keyword_ledger import render_ledger_reviewer_block
+
+    assert render_ledger_reviewer_block(None) == ""
+    assert render_ledger_reviewer_block([]) == ""

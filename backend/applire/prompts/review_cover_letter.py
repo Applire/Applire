@@ -54,6 +54,15 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
 4. UNGROUNDED REQUIREMENT CLAIMS: the candidate must not claim to already possess a job
    requirement that the source does not show. Wanting/being motivated to grow into it is
    fine; asserting they already have it when the source is silent is not.
+5. KEYWORD LEDGER (ADR-048) — the source ends with a KEYWORD LEDGER block listing CLAIMABLE
+   keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest gaps NOT
+   in the profile). Two checks:
+   (a) ABSENT CLAIMABLE: report any CLAIMABLE keyword that does not appear in the letter body as
+       an issue, so the writer can surface it where the evidence supports it. This is a surfacing
+       SUGGESTION only — grounding strictly OUTRANKS coverage, so NEVER ask the writer to fabricate
+       or force a term that does not genuinely fit; a truthfully-absent claimable keyword is fine.
+   (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
+       something the candidate has, has done, or knows, flag it — that is a fabrication.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {

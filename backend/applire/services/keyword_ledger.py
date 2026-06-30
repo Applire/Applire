@@ -130,6 +130,76 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     return "\n".join(lines)
 
 
+def claimable_surface_forms(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Flatten every surface form of every CLAIMABLE ledger entry (ADR-048 / US203).
+
+    Used by the ATS audit to decide whether a MISSING keyword is a *missing-claimable*
+    (the candidate supports it per the ledger, so it should have been surfaced) or a
+    *missing-honest-gap* (not in the profile — honestly absent). De-duplicated, order
+    preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+    """
+    forms: list[str] = []
+    seen: set[str] = set()
+    claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    for entry in claimable:
+        for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
+            key = _norm(sf)
+            if key and key not in seen:
+                seen.add(key)
+                forms.append(sf)
+    return forms
+
+
+def render_ledger_reviewer_block(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> str:
+    """Render the Keyword Ledger as a block appended to the REVIEWER source (ADR-048 §8 /
+    US202).
+
+    The reviewer reads this to perform two checks that the bounded ADR-047 refine loop
+    then acts on (no new loop, no forced injection):
+      * report which CLAIMABLE keywords are ABSENT from the draft, and
+      * flag any forbidden honest-gap concept that appears as a claim.
+
+    Grounding still strictly OUTRANKS coverage — an absent-claimable note is a *surfacing*
+    suggestion, never licence to fabricate. Returns "" for an empty/legacy ledger.
+    """
+    claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
+    if not claimable and not forbidden:
+        return ""
+
+    lines: list[str] = [
+        "KEYWORD LEDGER (ADR-048) — for your two ledger checks. Grounding strictly "
+        "OUTRANKS coverage: an absent claimable keyword is a surfacing suggestion only, "
+        "NEVER a reason to fabricate or stretch.",
+        "",
+        "CLAIMABLE KEYWORDS (the candidate truthfully supports these). Report any that are "
+        "ABSENT from the draft as an issue so the writer can surface them where the evidence "
+        "supports it — do NOT force a term that does not fit:",
+    ]
+    if claimable:
+        for entry in claimable:
+            forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
+            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}]")
+    else:
+        lines.append("  (none)")
+
+    lines += [
+        "",
+        "DO NOT CLAIM (honest gaps — NOT in the profile). Flag any of these that the draft "
+        "presents as something the candidate has, has done, or knows — that is a fabrication:",
+    ]
+    if forbidden:
+        for concept in forbidden:
+            lines.append(f"  - {concept}")
+    else:
+        lines.append("  (none)")
+
+    return "\n".join(lines)
+
+
 def build_keyword_ledger(
     classifications: list[dict[str, Any]],
     required_skills: list[str],

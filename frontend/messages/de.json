@@ -780,6 +780,8 @@
     "unavailable": "ATS-Bericht für dieses Dokument nicht verfügbar.",
     "keywordCoverage": "{present} von {total} Stellen-Keywords enthalten",
     "missingKeywords": "Fehlende Keywords ({count}):",
+    "missingClaimable": "Durch Ihr Profil belegt, aber noch nicht im Dokument ({count}):",
+    "missingHonestGap": "Nicht durch Ihr Profil belegt — eine ehrliche Lücke ({count}):",
     "structureOk": "ATS-Struktur — alle Prüfungen bestanden",
     "structureIssues": "{count, plural, one {# ATS-Prüfung fehlgeschlagen} other {# ATS-Prüfungen fehlgeschlagen}}",
     "detailsButton": "Details",
