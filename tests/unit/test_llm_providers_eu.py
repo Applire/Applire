@@ -45,6 +45,7 @@ def test_factory_returns_requesty_provider(monkeypatch):
     from applire.providers.llm.requesty import RequestyProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "requesty")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "requesty_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "requesty_model", "mistralai/mistral-large-latest")
     monkeypatch.setattr(cfg.settings, "requesty_base_url", "")
@@ -142,6 +143,7 @@ def test_factory_returns_anthropic_provider(monkeypatch):
     from applire.providers.llm.anthropic import AnthropicProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "anthropic")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "anthropic_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "anthropic_model", "claude-sonnet-4-6")
     with patch("anthropic.AsyncAnthropic"):

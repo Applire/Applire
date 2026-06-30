@@ -42,6 +42,7 @@ def mock_settings(monkeypatch):
 def test_factory_returns_mistral_provider(monkeypatch):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "llm_provider", "mistral")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "mistral_api_key", "test-key")
     monkeypatch.setattr(cfg.settings, "mistral_model", "mistral-small-latest")
     with patch("applire.providers.llm.mistral.Mistral"):
@@ -54,6 +55,7 @@ def test_factory_returns_mistral_provider(monkeypatch):
 def test_factory_returns_openrouter_provider(monkeypatch):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "llm_provider", "openrouter")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "openrouter_api_key", "sk-test")
     monkeypatch.setattr(cfg.settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-large-latest")
@@ -67,6 +69,7 @@ def test_factory_returns_openrouter_provider(monkeypatch):
 def test_factory_returns_openai_provider(monkeypatch):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "llm_provider", "openai")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "openai_api_key", "sk-test")
     monkeypatch.setattr(cfg.settings, "openai_base_url", "")
     monkeypatch.setattr(cfg.settings, "openai_model", "gpt-4o")
@@ -80,6 +83,7 @@ def test_factory_returns_openai_provider(monkeypatch):
 def test_factory_returns_ollama_provider(monkeypatch):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "llm_provider", "ollama")
+    monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "ollama_base_url", "http://localhost:11434")
     monkeypatch.setattr(cfg.settings, "ollama_model", "llama3")
     from applire.providers.llm import get_provider

@@ -29,9 +29,13 @@ from applire.providers.llm.base import LLMProvider
 
 
 def get_provider() -> LLMProvider:
-    """Instantiate the configured LLM provider."""
-    provider = settings.llm_provider.lower()
+    """Instantiate the configured LLM provider (wrapped with debug logging if enabled)."""
+    from applire.providers.llm.debug_log import wrap_provider
 
+    return wrap_provider(_build_provider(settings.llm_provider.lower()))
+
+
+def _build_provider(provider: str) -> LLMProvider:
     if provider == "mistral":
         from applire.providers.llm.mistral import MistralProvider
         return MistralProvider(timeout=settings.llm_timeout)

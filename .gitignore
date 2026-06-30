@@ -38,6 +38,10 @@ postgres-data/
 backend/data/uploads/
 backend/data/static/
 
+# Developer-only LLM debug logs (full prompt/response content incl. PII) — never commit
+backend/logs/
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
