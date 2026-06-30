@@ -353,6 +353,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Why:** An LLM classifies a single requirement well but should not be trusted to do arithmetic over its own classifications — the previous free-form score drifted badly (e.g. 88% emitted where the categories implied ~61%). The score and the displayed categories can now never disagree, it is reproducible, and it is explainable via a per-requirement `requirement_breakdown` JSONB column. Unclassified requirements default to `gap` (never silent credit); `N == 0` yields a `NULL` score.
 
+**Amended (2026-06-30, ADR-048):** the classification feeding the score is now the fit-weighted slice of the **Keyword Ledger** (ADR-048 below) rather than a separate list — formula and weights unchanged (parity-tested), only the input source unified.
+
 ---
 
 ### ADR-037 — Authentication Gate Placement (Up-Front)
@@ -385,6 +387,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Why:** An ATS parses the CV before any human reads it. Keyword *content* was already covered (JD keyword extraction → gap detection → guarded incorporation in tailoring, ADR-021); this decision closes the *format* half with verifiable, sovereignty-friendly evidence — documents never leave the system to be checked.
 
+**Amended (2026-06-30, ADR-048):** the keyword *content* path was wired to the CV only — not the cover letter or either reviewer — so a >90%-fit profile produced a 13/22 cover letter. ADR-048 closes the content half: the audit engine is unchanged, but the panel now annotates each missing keyword as *missing-claimable* (profile-backed — should have been surfaced) vs *missing-honest-gap* (not in the profile), and honest gaps route to the interview instead of dead-ending in the panel.
+
 ---
 
 ### ADR-040 — Truthful Output (Attestation & Transparency Tier)
@@ -395,6 +399,14 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 - Attestation is an active **nudge, not a hard gate**: the user is prompted to confirm but the flow is never blocked.
 
 **Why:** A self-checking LLM reviewer reduces how often a fabrication occurs but cannot, by itself, let the *user* catch one — and false content in a CV reaches a real recruiter under the user's name. A prevention reviewer plus an animated user review are complementary: one lowers how often the failure happens, the other lets a human stop it before it ships.
+
+---
+
+### ADR-048 — The Keyword Ledger (Unified JD-Expectation Classification)
+
+**Decision:** A JD's expectations (`required_skills`, `nice_to_have_skills`, `keywords`) are unified into a single **Keyword Ledger** built in the gap step (`gap_analyses.keyword_ledger` JSONB). One entry per expectation carries *both* a **concept** (the requirement, drives the fit score) and its literal **surface forms** (the alias strings an ATS scans for, e.g. `Kubernetes`/`K8s`, drive coverage), classified `direct`/`partial`/`gap` against the profile with the supporting **evidence**, a `fit_weight` (required 1.0 / nice-to-have 0.5 / pure-keyword 0.0), and a derived `claimable` flag. Fit scoring (ADR-035), the CV and cover-letter generators, both reviewers, the ATS panel (ADR-039), and honest-gap interview routing all read from this one ledger — no consumer classifies JD expectations independently any more. Both generators receive the **claimable** entries with their evidence ("surface these where the profile supports them") plus the honest-gap entries as an explicit **do-not-claim** list; the reviewers add a claimable-coverage check that feeds the existing refine loop.
+
+**Why:** Chocolate UAT found a >90%-fit profile producing a 13/22 cover letter — because the three keyword lists fed three different consumers and the cover-letter writer/reviewers never saw the keywords they were graded on. The ledger reconciles them so fit and coverage are explainable against the same evidence. Standing principle: **grounding strictly outranks coverage** — every derived expectation is an LLM estimate of an unknowable target (we never see the recipient's real ATS), so generosity lives only in the alias layer, never in pushing the writer to claim something the profile does not support. Genuinely-absent keywords are reported honestly and routed to the interview for profile enrichment, never fabricated.
 
 ---
 
