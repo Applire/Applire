@@ -69,12 +69,14 @@ from applire.schemas.session import (
 from applire.services.gap import analyze_gaps
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
+    build_confirmation_clusters,
     build_conflict_clusters,
     build_gate_clusters,
     gap_detector,
     gap_detector_mode_b,
     interpret_conflict_answer,
     interpret_gate_answer,
+    is_confirmation_cluster,
     is_conflict_cluster,
     is_gate_cluster,
     question_generator_with_profile,
@@ -196,12 +198,16 @@ async def _ask_or_complete_at(
     next_gap = state["critical_gaps"][next_index]
     gate_entry = _gate_entry(state, next_gap)
     conflict_entry = _conflict_entry(state, next_gap)
+    confirmation_entry = _confirmation_entry(state, next_gap)
     if gate_entry is not None:
         next_question = gate_entry["question"]
         next_choices = gate_entry["choices"]
     elif conflict_entry is not None:
         next_question = conflict_entry["question"]
         next_choices = conflict_entry["choices"]
+    elif confirmation_entry is not None:
+        next_question = confirmation_entry["question"]
+        next_choices = confirmation_entry["choices"]
     else:
         next_category = (state.get("gap_categories") or {}).get(next_gap)
         job_context = (
@@ -284,6 +290,74 @@ def _conflict_entry(state: InterviewState, cluster_id: str) -> dict | None:
     if not is_conflict_cluster(cluster_id):
         return None
     return (state.get("conflict_clusters") or {}).get(cluster_id)
+
+
+def _confirmation_entry(state: InterviewState, cluster_id: str) -> dict | None:
+    """The stored confirmation descriptor for a critical-gaps entry, or None.
+
+    E037 PQ #4 — an N-option import ambiguity surfaced in the profile-review
+    interview (question + per-option buttons), distinct from a 2-value conflict.
+    """
+    if not is_confirmation_cluster(cluster_id):
+        return None
+    return (state.get("confirmation_clusters") or {}).get(cluster_id)
+
+
+async def _resolve_confirmation_safely(
+    db: AsyncSession, confirmation_id: str, chosen_option: str
+) -> None:
+    """Record the user's confirmation choice, tolerating an already-resolved one."""
+    from applire.services.profile import resolve_confirmation  # lazy: avoid cycle
+
+    try:
+        await resolve_confirmation(confirmation_id, chosen_option, db)
+    except LookupError:
+        # Idempotent on resume: the confirmation is already gone from pending, so
+        # advancing past it is correct.
+        pass
+
+
+async def _handle_confirmation_answer(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_idx: int,
+    confirmation_entry: dict,
+    message: str,
+) -> SessionMessageResponse:
+    """Resolve a pending import-time confirmation from the user's choice (E037 PQ #4).
+
+    Deterministic (no LLM): the user picks one of the engine's options. Any
+    non-empty answer records the choice and advances; an empty answer re-asks the
+    same question + options (never guess an identity judgement)."""
+    options = confirmation_entry.get("options") or confirmation_entry.get("choices") or []
+    chosen = (message or "").strip()
+
+    if not chosen:
+        question = confirmation_entry["question"]
+        state["current_question"] = question
+        state["current_choices"] = options
+        state["messages"].append({"role": "assistant", "content": question})
+        record.state = state
+        record.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        gaps_remaining = _count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        )
+        return SessionMessageResponse(
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=options
+        )
+
+    await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
+
+    current_gap = state["critical_gaps"][current_idx]
+    state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+    state["questions_asked"] = state.get("questions_asked", 0) + 1
+    record.questions_asked = state["questions_asked"]
+
+    lang = await get_ui_language(db)
+    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
 async def _resolve_conflict_safely(
@@ -435,6 +509,23 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
     ]
 
 
+async def _open_confirmations(profile_record: MasterProfile) -> list[dict]:
+    """Unresolved import-time confirmations (E037 PQ #4), shaped for the cluster
+    builder. Each is an N-option ambiguity the reconciler could not auto-resolve."""
+    profile_data = MasterProfileData.model_validate(profile_record.profile_json)
+    if profile_data.metadata is None:
+        return []
+    return [
+        {
+            "confirmation_id": c.confirmation_id,
+            "question": c.question,
+            "options": list(c.options),
+        }
+        for c in profile_data.metadata.pending_confirmations
+        if not c.resolved
+    ]
+
+
 async def create_profile_review_session(
     db: AsyncSession,
     provider: LLMProvider,
@@ -467,23 +558,34 @@ async def create_profile_review_session(
     conflict_ids, conflict_categories, conflict_by_id = build_conflict_clusters(
         conflicts, lang
     )
+    # E037 PQ #4 — import-time ambiguities surface alongside conflicts, as their
+    # own N-option question + per-option buttons (not a garbled 2-value conflict).
+    confirmations = await _open_confirmations(profile_record)
+    confirm_ids, confirm_categories, confirm_by_id = build_confirmation_clusters(
+        confirmations, lang
+    )
+
+    review_ids = conflict_ids + confirm_ids
+    review_categories = {**conflict_categories, **confirm_categories}
+    review_by_id = {**conflict_by_id, **confirm_by_id}
 
     state: InterviewState = _build_state(
         mode="guided",
         job_id=None,
         gap_analysis_id=None,
         profile_id=profile_record.id,
-        critical_gaps=conflict_ids,
-        gap_categories=conflict_categories,
-        gap_clusters_by_id=conflict_by_id,
+        critical_gaps=review_ids,
+        gap_categories=review_categories,
+        gap_clusters_by_id=review_by_id,
         current_question="",
         hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
     )
     state["entry"] = "profile_review"
     state["conflict_clusters"] = conflict_by_id
+    state["confirmation_clusters"] = confirm_by_id
 
     # Nothing flagged — record a complete session and tell the user they're clear.
-    if not conflict_ids:
+    if not review_ids:
         record = _make_session_record(
             job_id=None,
             gap_analysis_id=None,
@@ -507,7 +609,7 @@ async def create_profile_review_session(
             gaps_remaining=0,
         )
 
-    first_entry = conflict_by_id[conflict_ids[0]]
+    first_entry = review_by_id[review_ids[0]]
     first_question = first_entry["question"]
     first_choices = first_entry["choices"]
     state["current_question"] = first_question
@@ -535,8 +637,8 @@ async def create_profile_review_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
-        gaps_total=len(conflict_ids),
-        gaps_remaining=len(conflict_ids),
+        gaps_total=len(review_ids),
+        gaps_remaining=len(review_ids),
         choices=first_choices,
     )
 
@@ -1008,6 +1110,15 @@ async def send_message(
     if conflict_entry is not None:
         return await _handle_conflict_answer(
             record, state, db, provider, current_idx, conflict_entry, message
+        )
+
+    # --- E037 PQ #4: a pending import-time confirmation (N-option ambiguity) is
+    # resolved deterministically (no LLM) — the user picks one of the engine's
+    # options; never run through the gap response parser / profile updater. ---
+    confirmation_entry = _confirmation_entry(state, current_gap)
+    if confirmation_entry is not None:
+        return await _handle_confirmation_answer(
+            record, state, db, provider, current_idx, confirmation_entry, message
         )
 
     skipped_set = set(state.get("skipped_gaps", []))

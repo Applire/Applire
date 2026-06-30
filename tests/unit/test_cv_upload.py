@@ -417,11 +417,12 @@ async def test_upload_cv_first_import(sqlite_session, tmp_path):
 @pytest.mark.asyncio
 async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
     """US184: a second conflicting upload reconciles via the ADR-046 engine and
-    surfaces the ambiguity as a conflict to the user.
+    surfaces the ambiguity to the user.
 
-    Migrated off the retired lexical merge_profiles: the engine decides what
-    conflicts, so the stub provider returns a request_confirmation ambiguity for
-    the start_date divergence (which the import bridge maps onto a Conflict)."""
+    E037 PQ #4: the engine returns a request_confirmation ambiguity for the
+    start_date divergence. It must persist on the CONFIRMATION channel (a clean
+    question + both options intact), NOT be force-coerced into the 2-value Conflict
+    shape (which garbled the dialog)."""
     from applire.services.profile import upload_cv
     from applire.storage.local import LocalStorageProvider
 
@@ -509,10 +510,25 @@ async def test_upload_cv_second_import_triggers_merge(sqlite_session, tmp_path):
             ocr_extractor=mock_ocr,
         )
 
-    assert len(response.conflicts) >= 1
-    conflict_fields = [c.field for c in response.conflicts]
-    assert any("start_date" in f for f in conflict_fields)
-    assert response.status == "DRAFT"
+    # E037 PQ #4 — the ambiguity rides the confirmation channel, intact, and is NOT
+    # manufactured into a garbled Conflict (empty section / list-valued incoming).
+    from applire.models.profile import MasterProfile
+    from applire.schemas.profile import MasterProfileData
+    from sqlalchemy import select as _select
+
+    row = (await sqlite_session.execute(
+        _select(MasterProfile).order_by(MasterProfile.created_at.desc())
+    )).scalars().first()
+    data = MasterProfileData.model_validate(row.profile_json)
+    pending = [c for c in data.metadata.pending_confirmations if not c.resolved]
+    assert len(pending) == 1
+    assert "start_date" in pending[0].question
+    # Both options are preserved as distinct selectable answers (never comma-joined).
+    assert pending[0].options == ["2018-03", "2017-06"]
+    # The old garble path is gone: no malformed Conflict on the profile or response.
+    assert all(c.section != "" and not isinstance(c.incoming_value, list)
+               for c in data.metadata.pending_conflicts)
+    assert all(not isinstance(c.field, list) for c in response.conflicts)
 
 
 # ---------------------------------------------------------------------------

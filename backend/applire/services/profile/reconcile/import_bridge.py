@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 from applire.exceptions import LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import Conflict, MasterProfileData
+from applire.schemas.profile import Conflict, MasterProfileData, PendingConfirmation
 from applire.services.profile.merge import MergeResult
 from applire.services.profile.reconcile.apply import ApplyResult, apply_ops
 from applire.services.profile.reconcile.engine import reconcile
@@ -53,20 +53,21 @@ _BATCH_SECTION_GROUPS: tuple[tuple[str, ...], ...] = (
 )
 
 
-def _to_conflict(rc: RequestConfirmation, source: str) -> Conflict:
-    """Map an engine ambiguity (a RequestConfirmation) onto the import path's
-    Conflict shape so it surfaces on the existing conflict-resolution UI.
+def _to_pending_confirmation(rc: RequestConfirmation, source: str) -> PendingConfirmation:
+    """Carry an engine ambiguity (a ``RequestConfirmation``) onto the import path's
+    confirmation channel — question + each option intact (E037 PQ #4).
 
-    The confirmation's question becomes the (truncated) ``field`` label and its
-    options become the ``incoming_value`` to choose from; ``existing_value`` is
-    ``None`` because an ambiguity has no single prior value to contrast against."""
-    return Conflict(
-        section="",
-        field=(rc.question[:64] if rc.question else "ambiguity"),
-        existing_value=None,
-        incoming_value=rc.options,
+    The retired ``_to_conflict`` force-fit this into the 2-value ``Conflict`` shape
+    (section='', the whole question truncated into ``field``, the option *list*
+    comma-joined into ``incoming_value``), which rendered as a garbled sentence. A
+    ``Conflict`` structurally cannot represent an N-option ask, so the ambiguity
+    keeps its own shape and surfaces as a question + per-option buttons in the
+    profile-review interview — exactly like the non-import (interview-turn) path."""
+    return PendingConfirmation(
+        question=rc.question or "",
+        options=list(rc.options),
+        context=dict(rc.context),
         source=source,
-        suggested_resolution=rc.question or None,
     )
 
 
@@ -171,7 +172,11 @@ async def reconcile_import(
         applied, ambiguities = await _reconcile_import_batched(
             existing, incoming, source, provider, lang
         )
-    conflicts = list(applied.conflicts) + [_to_conflict(a, source) for a in ambiguities]
+    # E037 PQ #4 — ambiguities ride the confirmation channel (question + options
+    # intact); they are NO LONGER coerced into the 2-value Conflict shape, which
+    # garbled the dialog. Real two-value disputes still come through `conflicts`.
+    conflicts = list(applied.conflicts)
+    pending_confirmations = [_to_pending_confirmation(a, source) for a in ambiguities]
     added = [
         (c.new_value if isinstance(c.new_value, str) else f"{c.section}.{c.field}")
         for c in applied.changes
@@ -182,4 +187,5 @@ async def reconcile_import(
         conflicts=conflicts,
         changes=applied.changes,
         reconciliation=compute_merge_reconciliation(incoming, applied.profile),
+        pending_confirmations=pending_confirmations,
     )
