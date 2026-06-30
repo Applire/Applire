@@ -78,10 +78,11 @@ def test_response_parser_refinement_prompt_exists_and_is_distinct():
     assert len(RESPONSE_PARSER_REFINEMENT_PROMPT) >= 100  # non-trivial
 
 
-def test_all_reviewer_prompts_include_quote_source_rule():
-    """Each reviewer system prompt must instruct the reviewer to quote source
-    passages in feedback when the correction needs new content. This is the
-    load-bearing rule that lets the generator refine without raw source."""
+def test_all_reviewer_prompts_use_referential_critique():
+    """US193 / ADR-021 amended: a bounded reviewer must NOT quote source passages
+    back (that re-emits bulk text and blows the cap on small-output models). Each
+    reviewer system prompt instead critiques *referentially* — naming the offending
+    location — and the refiner re-reads the source itself (US194)."""
     from applire.prompts.review_cv_extraction import (
         CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
     )
@@ -95,15 +96,17 @@ def test_all_reviewer_prompts_include_quote_source_rule():
         RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT,
     )
 
-    rule = "quote the relevant source passages"
-
     for name, prompt in [
         ("review_cv_extraction", CV_EXTRACTION_REVIEW_SYSTEM_PROMPT),
         ("review_profile_extraction", _PROFILE_REVIEW),
         ("review_cv_tailoring", _TAILORING_REVIEW),
         ("review_interview_response", RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT),
     ]:
-        assert rule in prompt.lower(), f"{name} missing quote-source rule"
+        assert "referential" in prompt.lower(), f"{name} missing referential-critique rule"
+        # The superseded verbatim-quote rule must be gone.
+        assert "quote the relevant source passages" not in prompt.lower(), (
+            f"{name} still carries the removed quote-source rule"
+        )
 
 
 def test_mock_returns_schema_valid_response_for_each_refinement_prompt():

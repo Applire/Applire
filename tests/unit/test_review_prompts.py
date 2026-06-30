@@ -112,9 +112,12 @@ class TestProfileExtractionGeneratorPrompts:
         result = build_retry_prompt(
             previous_draft={"work_history": []},
             feedback="Remove duplicate at index 1",
+            source="Max Muster — Acme GmbH 2020-2022",
         )
         assert "Remove duplicate at index 1" in result
         assert "Patch the JSON" in result
+        # US194: the refiner re-reads the source text.
+        assert "Max Muster — Acme GmbH 2020-2022" in result
 
     def test_build_retry_prompt_includes_previous_draft(self):
         from applire.prompts.profile_extraction import build_retry_prompt
@@ -123,6 +126,7 @@ class TestProfileExtractionGeneratorPrompts:
         result = build_retry_prompt(
             previous_draft=previous,
             feedback="fix it",
+            source="raw cv text",
         )
         assert "Acme" in result
 
@@ -419,9 +423,12 @@ class TestCVTailoringGeneratorPrompts:
         result = build_retry_prompt(
             previous_draft=_SAMPLE_TAILORED_CV,
             feedback="Remove fabricated Kubernetes bullet in work_history[0]",
+            source='{"work_history": [{"company": "Acme"}]}',
         )
         assert "Remove fabricated Kubernetes bullet" in result
         assert "Patch the JSON" in result
+        # US194: the corrector re-reads the candidate profile (source of truth).
+        assert '{"work_history": [{"company": "Acme"}]}' in result
 
     def test_build_retry_prompt_includes_previous_draft(self):
         from applire.prompts.cv_tailoring import build_retry_prompt
@@ -429,6 +436,7 @@ class TestCVTailoringGeneratorPrompts:
         result = build_retry_prompt(
             previous_draft=_SAMPLE_TAILORED_CV,
             feedback="fix",
+            source="profile source",
         )
         assert "Experienced developer" in result
 
@@ -602,9 +610,12 @@ class TestCoverLetterReviewPrompts:
         result = build_retry_prompt(
             previous_draft=_SAMPLE_LETTER,
             feedback="Remove the invented 'Head of Engineering' claim in paragraph 2",
+            source=_SAMPLE_LETTER_SOURCE,
         )
         assert "Head of Engineering" in result
         assert "REST-APIs" in result          # the previous draft is carried forward
+        # US194: the writer re-reads the candidate source (grounding).
+        assert "Software Developer" in result
 
 
 class TestCoverLetterServiceReviewIntegration:

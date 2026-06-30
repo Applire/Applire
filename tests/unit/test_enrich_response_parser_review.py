@@ -128,9 +128,10 @@ def _make_reviewer_fn(gap: str, question: str, answer: str):
 def _make_generator_fn():
     """Simple generator retry prompt that includes feedback."""
 
-    def generator_prompt_fn(previous_draft: dict, feedback: str) -> str:
+    def generator_prompt_fn(previous_draft: dict, feedback: str, source: str) -> str:
         return (
             f"Previous extraction had issues: {feedback}\n\n"
+            f"Source answer:\n{source}\n\n"
             f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False)}\n\n"
             "Re-extract the structured profile data, fixing the issues above."
         )
@@ -311,7 +312,7 @@ async def test_generator_retry_receives_feedback_from_reviewer(mock_provider):
 
     generator_calls: list[tuple] = []
 
-    def capturing_generator(previous_draft: dict, feedback: str) -> str:
+    def capturing_generator(previous_draft: dict, feedback: str, source: str) -> str:
         generator_calls.append((previous_draft, feedback))
         return f"retry prompt with feedback: {feedback}"
 

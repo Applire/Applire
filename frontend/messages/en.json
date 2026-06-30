@@ -71,7 +71,8 @@
     "jdNoJobLinked": "No job linked — skipped",
     "jdNoDescription": "No job description — skipped",
     "cvUploaded": "{count, plural, one {1 CV uploaded} other {# CVs uploaded}}",
-    "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}"
+    "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
+    "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again."
   },
   "flow": {
     "stepProfile": "1 Profile",
@@ -263,6 +264,8 @@
     "stepDone": "Done!",
     "generationStale": "Still running in the background — you'll be redirected automatically.",
     "generationFailed": "Generation failed.",
+    "generationFailedTruncated": "Your CV couldn't be generated in one pass — it may be too detailed for the current AI model. Please try again.",
+    "generationFailedTimeout": "Generating your CV took too long. Please try again in a moment.",
     "retryGeneration": "Try again →",
     "photoStepTitle": "Add a profile photo?",
     "photoStepHint": "German employers typically expect a professional photo on your CV. It's optional but recommended for DACH applications.",
@@ -879,6 +882,9 @@
       "certifications": "Certifications",
       "personal_info": "Personal details",
       "professional_summary": "Profile",
+      "projects": "Projects",
+      "publications": "Publications",
+      "volunteer_activities": "Volunteer work",
       "*": "Profile"
     },
     "rationale": {
@@ -893,7 +899,11 @@
       "interview_added": "Added from your interview answer.",
       "interview_new_position": "New position from your interview answer.",
       "interview_details_added": "Details added to this position from your interview answer.",
-      "profile_updated": "Profile updated from this source."
+      "profile_updated": "Profile updated from this source.",
+      "reconcile_added": "Added from this source.",
+      "reconcile_merged": "Merged into your existing profile.",
+      "reconcile_updated": "Filled in a missing detail.",
+      "reconcile_summary": "Updated your professional summary."
     }
   },
   "mergeGate": {

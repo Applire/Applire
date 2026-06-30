@@ -15,9 +15,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""Contract tests for review_and_refine — verify the generator callback no longer
-receives raw source, that the reviewer callback still does, and that the new
-chain_id is propagated to logs."""
+"""Contract tests for review_and_refine — verify the generator (refiner) callback
+re-reads the raw source (US194: cap-safe refiner; the reviewer points referentially
+and the refiner re-reads source itself), that the reviewer callback also gets source,
+and that the chain_id is propagated to logs."""
 
 import logging
 from typing import Any
@@ -44,12 +45,14 @@ class _FakeProvider:
 
 
 @pytest.mark.asyncio
-async def test_generator_callback_not_passed_source():
-    """The generator retry callback must receive (draft, feedback) only — no source."""
+async def test_generator_callback_receives_source():
+    """US194: the refiner re-reads the source, so the generator retry callback now
+    receives (draft, feedback, source) — cap-safe (the reviewer critiques referentially
+    and the refiner re-reads source itself instead of the reviewer quoting it back)."""
     received_args: list[tuple] = []
 
-    def generator(draft: dict, feedback: str) -> str:
-        received_args.append((draft, feedback))
+    def generator(draft: dict, feedback: str, source: str) -> str:
+        received_args.append((draft, feedback, source))
         return "retry prompt body"
 
     def reviewer(source: str, draft: dict) -> str:
@@ -62,7 +65,7 @@ async def test_generator_callback_not_passed_source():
     ])
 
     result = await review_and_refine(
-        source="RAW SOURCE TEXT THAT MUST NOT REACH GENERATOR",
+        source="RAW SOURCE TEXT THE REFINER RE-READS",
         draft={"work_history": [], "initial": True},
         generator_prompt_fn=generator,
         generator_system="REFINEMENT PROMPT",
@@ -75,9 +78,10 @@ async def test_generator_callback_not_passed_source():
 
     assert result == {"work_history": [], "patched": True}
     assert len(received_args) == 1
-    draft_seen, feedback_seen = received_args[0]
+    draft_seen, feedback_seen, source_seen = received_args[0]
     assert draft_seen == {"work_history": [], "initial": True}
     assert feedback_seen == "fix x"
+    assert source_seen == "RAW SOURCE TEXT THE REFINER RE-READS"
 
 
 @pytest.mark.asyncio
@@ -85,7 +89,7 @@ async def test_reviewer_callback_still_gets_source():
     """The reviewer callback's signature is unchanged — it still receives (source, draft)."""
     received_args: list[tuple] = []
 
-    def generator(draft: dict, feedback: str) -> str:
+    def generator(draft: dict, feedback: str, source: str) -> str:
         return "retry prompt"
 
     def reviewer(source: str, draft: dict) -> str:
@@ -117,7 +121,7 @@ async def test_reviewer_callback_still_gets_source():
 @pytest.mark.asyncio
 async def test_chain_id_logged(caplog: pytest.LogCaptureFixture):
     """Each retry attempt logs chain_id at INFO level for observability."""
-    def generator(draft: dict, feedback: str) -> str:
+    def generator(draft: dict, feedback: str, source: str) -> str:
         return "retry"
 
     def reviewer(source: str, draft: dict) -> str:
@@ -158,7 +162,7 @@ async def test_chain_id_defaults_to_unknown():
     await review_and_refine(
         source="s",
         draft={"d": 1},
-        generator_prompt_fn=lambda d, f: "retry",
+        generator_prompt_fn=lambda d, f, s: "retry",
         generator_system="REFINEMENT",
         reviewer_prompt_fn=lambda s, d: "review",
         reviewer_system="REVIEW",

@@ -88,11 +88,18 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
     )
 
 
-def build_cv_language_refinement_prompt(previous_draft: dict, feedback: str) -> str:
-    """User-turn prompt asking the LLM to rewrite `previous_draft` into the required language."""
+def build_cv_language_refinement_prompt(
+    previous_draft: dict, feedback: str, source: str = ""
+) -> str:
+    """User-turn prompt asking the LLM to rewrite `previous_draft` into the required language.
+
+    ``source`` is the target language name (review_and_refine passes it positionally since
+    the ADR-021 amendment); naming it explicitly removes the "required language" ambiguity.
+    """
+    target = f" ({source})" if source else ""
     return (
         f"Reviewer feedback: {feedback}\n\n"
         f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
-        "Rewrite the summary, all bullets, and all skills into the required language, "
+        f"Rewrite the summary, all bullets, and all skills into the required language{target}, "
         "translating in place and preserving every fact. Output the corrected CV JSON only."
     )

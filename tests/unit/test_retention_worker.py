@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS generated_cvs (
     expires_at TEXT NOT NULL,
     deleted_at TEXT
 );
+CREATE TABLE IF NOT EXISTS cv_import_jobs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    filename TEXT NOT NULL DEFAULT 'upload',
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_code TEXT,
+    error_message TEXT,
+    result TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    deleted_at TEXT
+);
 """
 
 
@@ -213,6 +225,46 @@ async def test_purge_cvs_spares_unexpired(db):
 
     deleted = await _purge_cvs(db)
     assert deleted == 0
+
+
+# ---------------------------------------------------------------------------
+# E036 follow-up — cv_import_jobs (short TTL)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_import_job(db: AsyncSession, *, expires_at: datetime, deleted_at: datetime | None = None) -> str:
+    jid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO cv_import_jobs "
+            "(id, filename, status, created_at, expires_at, deleted_at) "
+            "VALUES (:id, 'cv.pdf', 'ready', :now, :exp, :del)"
+        ),
+        {"id": jid, "now": _ts(_now()), "exp": _ts(expires_at),
+         "del": _ts(deleted_at) if deleted_at else None},
+    )
+    await db.commit()
+    return jid
+
+
+@pytest.mark.asyncio
+async def test_purge_import_jobs_deletes_expired(db):
+    from applire.retention.worker import _purge_import_jobs
+
+    await _seed_import_job(db, expires_at=_ago(hours=1))
+    await _seed_import_job(db, expires_at=_now() + timedelta(hours=23))
+
+    deleted = await _purge_import_jobs(db)
+    assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_import_jobs_returns_zero_when_table_absent(db):
+    from applire.retention.worker import _purge_import_jobs
+
+    await db.execute(text("DROP TABLE cv_import_jobs"))
+    await db.commit()
+    assert await _purge_import_jobs(db) == 0
 
 
 # ---------------------------------------------------------------------------

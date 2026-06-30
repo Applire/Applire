@@ -54,12 +54,20 @@ test.describe("Branch F — JD URL fetch failure", () => {
       }
     });
 
-    // CV upload
-    await page.route("**/api/profile/upload", async (route) => {
+    // CV upload — async import job (E036): POST returns a handle (202), then the
+    // overlay polls GET /import-jobs/{id} until ready. Mock both ends.
+    await page.route("**/api/profile/import-jobs", async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({ import_id: "imp-1", status: "pending" }),
+      });
+    });
+    await page.route("**/api/profile/import-jobs/*", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify({ status: "ready", error_code: null, result: { ok: true } }),
       });
     });
 

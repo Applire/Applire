@@ -386,6 +386,51 @@ class MockLLMProvider(LLMProvider):
         if "extracting structured profile" in system_lower:
             return dict(_RESPONSE_PARSER_RESPONSE)
 
+        # ADR-047 / US195 — segmented CV extraction (outline → per-role detail → core).
+        # Each slice mirrors _PROFILE_PARSE_RESPONSE so the assembled profile matches the
+        # monolithic mock. Unrecognised → {"mock":...} fallback corrupts a capped-mock
+        # extraction run.
+        if "cv experience outliner" in system_lower:
+            return {"work_experience": [
+                {k: w.get(k) for k in ("company", "role", "start_date", "end_date")}
+                for w in (_PROFILE_PARSE_RESPONSE.get("work_experience") or [])
+            ]}
+        if "cv experience detail extractor" in system_lower:
+            return {"responsibilities": [], "achievements": [], "technologies": []}
+        if "cv core profile extractor" in system_lower:
+            core = {k: v for k, v in _PROFILE_PARSE_RESPONSE.items() if k != "work_experience"}
+            return copy.deepcopy(core)
+
+        # ADR-047 / US189 — segmented CV tailoring (outline-then-expand). Each section
+        # writer returns its own small schema-valid slice; the orchestrator assembles them.
+        if "cv outline planner" in system_lower:
+            return {
+                "role_order": [],
+                "summary_angle": "backend delivery focus for the DACH market",
+                "skills_focus": ["Python", "FastAPI", "PostgreSQL"],
+                "per_role_themes": {},
+            }
+        if "cv work experience writer" in system_lower:
+            return {
+                "bullets": [
+                    "Designed and implemented microservices with FastAPI and PostgreSQL.",
+                    "Introduced CI/CD pipelines via GitHub Actions.",
+                ],
+                "projects": [],
+            }
+        if "cv summary writer" in system_lower:
+            return {"summary": _CV_TAILORING_RESPONSE["summary"]}
+        if "cv skills writer" in system_lower:
+            return {"skills": list(_CV_TAILORING_RESPONSE["skills"])}
+        if "cv education writer" in system_lower:
+            return {
+                "education": [dict(e) for e in _CV_TAILORING_RESPONSE["education"]],
+                "languages": [{"language": "German", "level": "Native"},
+                              {"language": "English", "level": "C1"}],
+            }
+        if "cv projects writer" in system_lower:
+            return {"projects": []}
+
         if "dach career consultant" in system_lower:
             return dict(_CV_TAILORING_RESPONSE)
 

@@ -51,8 +51,9 @@ Respond ONLY with a valid JSON object — no markdown, no explanations:
   "feedback": "concise instruction for the tailoring agent to correct all issues — empty string if approved"
 }
 
-If your correction requires content not present in the draft, quote the relevant source passages
-verbatim in the `feedback` field. The corrector will not re-read the source."""
+Keep `feedback` concise and *referential*: name the offending location (work_history index,
+field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector
+re-reads the candidate profile itself (ADR-021 amended 2026-06-29)."""
 
 
 def build_review_prompt(source_material: str, tailored_json: dict) -> str:

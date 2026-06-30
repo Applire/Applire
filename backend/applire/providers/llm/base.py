@@ -63,6 +63,25 @@ TRUNCATION_RETRY_CEILING: int = 65536
 _T = TypeVar("_T")
 
 
+def clamp_output_budget(requested: int, *, ceiling: int | None = None) -> int:
+    """Clamp a requested ``max_tokens`` to the operator-declared output cap (ADR-047 §2).
+
+    Cap-aware budgeting: asking a hard-capped model for more than it can emit does
+    not help — it only swaps truncation for a timeout on the slower oversized call.
+    When the operator declares the model's real ceiling (``LLM_MAX_OUTPUT_TOKENS``),
+    every budget is clamped to it. ``ceiling`` defaults to that setting; pass it
+    explicitly in tests. ``0`` / unset means "no known cap" → the request passes
+    through unchanged (segmentation, not clamping, covers capped-but-unknown models).
+    """
+    if ceiling is None:
+        from applire.config import settings
+
+        ceiling = settings.llm_max_output_tokens
+    if ceiling and ceiling > 0:
+        return min(requested, ceiling)
+    return requested
+
+
 async def retry_on_truncation(
     attempt: Callable[[int], Awaitable[_T]],
     *,
@@ -84,10 +103,17 @@ async def retry_on_truncation(
     change to its public ``aparse_json``/``acomplete`` — no ``LLMProvider`` ABC
     signature change, and the mock provider (which never truncates) is untouched.
     """
+    # Cap-aware budgeting (ADR-047 §2): never request more than the operator's declared
+    # output cap — asking a capped model for more only swaps truncation for a timeout on
+    # the slower oversized call. No declared cap (0/unset) → no-op, existing behaviour.
+    max_tokens = clamp_output_budget(max_tokens)
     try:
         return await attempt(max_tokens)
     except LLMTruncatedError:
-        bigger = min(2 * max_tokens, ceiling)
+        # Clamp the doubled budget to the operator cap too, so we never double *past* the
+        # model's real ceiling. At the cap this collapses to max_tokens → re-raise (no
+        # pointless timeout); the large-generation paths recover by switching to segmented.
+        bigger = clamp_output_budget(min(2 * max_tokens, ceiling))
         if bigger <= max_tokens:
             # Already at/above the ceiling — retrying can't give more headroom.
             raise

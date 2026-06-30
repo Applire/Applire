@@ -19,8 +19,11 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WhatChangedReview, type ReviewChange } from "../WhatChangedReview";
 
+// Key-aware mock: t() echoes the key; t.has() is false for keys containing
+// "unknown" so the missing-key fallback branch is exercisable.
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () =>
+    Object.assign((key: string) => key, { has: (key: string) => !key.includes("unknown") }),
 }));
 
 const CHANGES: ReviewChange[] = [
@@ -61,6 +64,33 @@ describe("WhatChangedReview", () => {
       />,
     );
     expect(screen.getByText("legacy prose")).toBeInTheDocument();
+  });
+
+  // Blind-PQ regression: the backend passes `section` and `rationale_key` from
+  // arbitrary profile keys/reconcile ops; an unmapped one must NOT leak a raw
+  // key (e.g. "section.projects" / "rationale.reconcile_merged") into the UI.
+  it("falls back to the generic section label and the prose rationale for unmapped keys", () => {
+    render(
+      <WhatChangedReview
+        mode="merge"
+        changes={[
+          {
+            section: "unknown_section",
+            field: "x",
+            action: "added",
+            newValue: "X",
+            rationaleKey: "unknown_key",
+            rationale: "human prose fallback",
+          },
+        ]}
+      />,
+    );
+    // section → "*" fallback, never the raw "section.unknown_section"
+    expect(screen.getByText("section.*")).toBeInTheDocument();
+    expect(screen.queryByText("section.unknown_section")).toBeNull();
+    // rationaleKey missing → prose, never the raw "rationale.unknown_key"
+    expect(screen.getByText("human prose fallback")).toBeInTheDocument();
+    expect(screen.queryByText("rationale.unknown_key")).toBeNull();
   });
 
   it("renders the per-mode title", () => {

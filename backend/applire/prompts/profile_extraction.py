@@ -88,20 +88,25 @@ def build_user_prompt(raw_text: str) -> str:
     )
 
 
-def build_retry_prompt(previous_draft: dict[str, Any], feedback: str) -> str:
+def build_retry_prompt(previous_draft: dict[str, Any], feedback: str, source: str) -> str:
     """Build the retry user prompt after a reviewer rejection.
 
-    The raw source is NOT included — the reviewer is expected to quote relevant
-    source passages in `feedback` when a correction needs new content.
+    The raw source CV/LinkedIn text IS re-included (ADR-021 amended 2026-06-29 / US194):
+    the reviewer now gives *referential* critique (pointing at the missing/wrong field)
+    rather than quoting the source, so the corrector must re-read the source to recover
+    a dropped position or fix a mutated fact. This keeps the reviewer output small.
 
     Args:
         previous_draft: The extraction the reviewer rejected.
-        feedback: The reviewer's critique — used verbatim as the correction instruction.
+        feedback: The reviewer's referential critique.
+        source: The raw CV/LinkedIn text — the source of truth for the correction.
     """
     return (
         "A quality review of your previous extraction identified the following issues. "
-        "Patch the JSON to address every issue and return the corrected object.\n\n"
+        "Patch the JSON to address every issue, re-reading the SOURCE TEXT as the source "
+        "of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
+        f"SOURCE TEXT (source of truth):\n{source}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )
@@ -114,9 +119,9 @@ issues. Patch the JSON to address every issue and return the corrected object.
 
 Rules:
 - The previous extraction is your working draft. Modify it to resolve the reviewer's issues.
-- Do not invent new content. If the reviewer's feedback quotes source passages, use those
-  passages as factual basis. Otherwise restrict your changes to deletions, nullifications,
-  and moves of existing content.
+- Do not invent new content. The SOURCE TEXT is provided — re-read it to recover a dropped
+  position or correct a mutated fact. Restrict your changes to additions, deletions,
+  nullifications, and moves grounded in that source text.
 - Preserve all fields that the reviewer did not flag.
 - Output ONLY the corrected JSON object in the same schema as the input — no markdown,
   no commentary.

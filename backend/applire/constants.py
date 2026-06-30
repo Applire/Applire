@@ -43,6 +43,18 @@ LLM_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("LLM_REVIEW_MAX_RETRIES", "2")
 )
 
+# Output budget for the reviewer's *verdict* (ADR-021 amended 2026-06-29 / US193,
+# E036). The reviewer is bounded-output-by-contract: it reads the full draft + source
+# (large INPUT, fine) but only ever emits a small {approved, issues, feedback} verdict
+# — it must NEVER re-emit the document. So its call carries a small ceiling, far below
+# the generator budget, and a capped model (e.g. mistral-medium-3-5 stopping near ~8k)
+# can never truncate the verdict. This was the Mistral blind-test crash: the reviewer
+# had no max_tokens, inherited a large budget, and its verbatim-quoting feedback blew
+# the cap mid-JSON. Referential critique (no verbatim source) keeps the output small;
+# the refiner re-reads the source instead (ADR-021 amended). See ADR-047 call-shape
+# taxonomy: bounded-output-by-contract vs large-output→segmented.
+REVIEW_VERDICT_MAX_TOKENS: int = 2048
+
 # Interview/enrichment question language-review retries (ADR-038).
 # 0 disables the language reviewer (directive-only).
 INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
@@ -83,6 +95,15 @@ CV_GENERATION_MAX_TOKENS: int = 16384
 # below TRUNCATION_RETRY_CEILING (providers/llm/base.py) or the truncation safety net
 # has no room to step up (budget == ceiling → immediate re-raise).
 RECONCILE_MAX_TOKENS: int = 32768
+
+# Per-call output budget for *segmented* large generations (ADR-047 / E036). When a
+# big generation (CV tailoring, profile reconciliation) is produced in pieces, each
+# segment call targets this conservative ceiling so it fits comfortably under the hard
+# output cap of capped models (e.g. mistral-medium-3-5 stops near ~8k regardless of a
+# 16384/32768 request). The point of segmentation is that *no single call* needs a
+# large output, so this stays well under ~8k — raising it would defeat the purpose.
+# See ADR-047 §1 (segmentation is the metadata-free stability floor).
+SEGMENT_MAX_TOKENS: int = 4096
 
 # Token ceiling for JD analysis (services/job.py). The output is a full structured
 # job analysis — role title, required + nice-to-have skills, keywords, culture signals,

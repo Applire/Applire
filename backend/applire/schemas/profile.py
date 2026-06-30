@@ -623,6 +623,36 @@ class CVUploadResponse(BaseModel):
     staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)
 
 
+_IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
+
+
+class CVImportJobResponse(BaseModel):
+    """Response for POST /api/profile/import-jobs — the async-import handle.
+
+    The upload returns immediately; the heavy segmented extraction + reconcile runs in a
+    background task (so a slow/output-capped model can't 504 the request and drop the CV).
+    Poll GET /api/profile/import-jobs/{import_id} until status is ``ready`` or ``failed``.
+    """
+
+    import_id: uuid.UUID
+    status: _IMPORT_STATUS
+
+
+class CVImportStatusResponse(BaseModel):
+    """Response for GET /api/profile/import-jobs/{import_id} (async-import poll).
+
+    ``result`` carries the same CVUploadResponse the synchronous /upload would have
+    returned, populated when status == ``ready``. On ``failed``, ``error_code`` is a
+    stable machine code (llm_truncated / llm_timeout / invalid_document / …) the frontend
+    localizes — the raw provider text is never surfaced.
+    """
+
+    import_id: uuid.UUID
+    status: _IMPORT_STATUS
+    error_code: str | None = None
+    result: CVUploadResponse | None = None
+
+
 class StagedResolveRequest(BaseModel):
     """Request body for POST /api/profile/staged/{id}/resolve (US167)."""
 

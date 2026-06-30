@@ -71,7 +71,8 @@
     "jdNoJobLinked": "Keine Stelle verknüpft — übersprungen",
     "jdNoDescription": "Keine Stellenbeschreibung — übersprungen",
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
-    "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}"
+    "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
+    "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut."
   },
   "flow": {
     "stepProfile": "1 Profil",
@@ -263,6 +264,8 @@
     "stepDone": "Fertig!",
     "generationStale": "Läuft noch im Hintergrund — du wirst automatisch weitergeleitet.",
     "generationFailed": "Generierung fehlgeschlagen.",
+    "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",
+    "generationFailedTimeout": "Die Erstellung deines Lebenslaufs hat zu lange gedauert. Bitte versuche es gleich noch einmal.",
     "retryGeneration": "Erneut versuchen →",
     "photoStepTitle": "Profilfoto hinzufügen?",
     "photoStepHint": "Deutsche Arbeitgeber erwarten typischerweise ein professionelles Foto im Lebenslauf. Optional, aber empfohlen für DACH-Bewerbungen.",
@@ -879,6 +882,9 @@
       "certifications": "Zertifikate",
       "personal_info": "Persönliche Daten",
       "professional_summary": "Profil",
+      "projects": "Projekte",
+      "publications": "Veröffentlichungen",
+      "volunteer_activities": "Ehrenamtliche Tätigkeiten",
       "*": "Profil"
     },
     "rationale": {
@@ -893,7 +899,11 @@
       "interview_added": "Aus deiner Interview-Antwort ergänzt.",
       "interview_new_position": "Neue Position aus deiner Interview-Antwort.",
       "interview_details_added": "Details zu dieser Position aus deiner Interview-Antwort ergänzt.",
-      "profile_updated": "Profil aus dieser Quelle aktualisiert."
+      "profile_updated": "Profil aus dieser Quelle aktualisiert.",
+      "reconcile_added": "Aus dieser Quelle ergänzt.",
+      "reconcile_merged": "In dein bestehendes Profil zusammengeführt.",
+      "reconcile_updated": "Eine fehlende Angabe ergänzt.",
+      "reconcile_summary": "Deine berufliche Zusammenfassung aktualisiert."
     }
   },
   "mergeGate": {

@@ -25,6 +25,7 @@ from applire.models import (  # noqa: F401
     cv,
     flow,
     gap,
+    import_job,
     job,
     profile,
     session,

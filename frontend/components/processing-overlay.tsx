@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 import { extractApiError, translateApiError } from "@/lib/api/errors";
+import { uploadCvAsync, CVImportError } from "@/lib/import-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -88,6 +89,9 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   const [elapsed, setElapsed] = useState(0);
   const working = !error && steps.some((s) => s.status === "active");
   const started = useRef(false);
+  // Aborts in-flight async imports if the overlay unmounts mid-poll, so a long import
+  // poll can't outlive the component (no orphaned fetches / state updates after unmount).
+  const abortRef = useRef<AbortController | null>(null);
   // Pipeline context captured during the run, so a recovery Retry can pick the
   // flow back up from where the uploads failed instead of restarting onboarding.
   const pipelineCtx = useRef<{
@@ -122,20 +126,15 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // never throws — the batch keeps going (FMEA JF-M-2.2) and the user can Retry.
   const uploadOne = useRef(async (i: number): Promise<UploadOk | null> => {
     const uploadIdx = 1 + i;
-    const formData = new FormData();
-    formData.append("file", files[i]);
     try {
-      const uploadRes = await fetch(`${API_BASE}/api/profile/upload`, {
-        method: "POST",
-        body: formData,
+      // Async import (E036): returns immediately and the heavy segmented work runs in a
+      // background task, polled here — so a slow/output-capped model can no longer 504
+      // the request and drop this CV. Sequential per file (caller awaits each in turn),
+      // so the merge order is preserved.
+      const body = await uploadCvAsync(files[i], {
+        apiBase: API_BASE,
+        signal: abortRef.current?.signal,
       });
-      if (!uploadRes.ok) {
-        const msg = await apiErrorMessage(uploadRes);
-        setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
-        setStepStatus(uploadIdx, "error");
-        return null;
-      }
-      const body: UploadOk | null = await uploadRes.json().catch(() => null);
       setFileErrors((prev) => {
         if (!(uploadIdx in prev)) return prev;
         const next = { ...prev };
@@ -143,9 +142,21 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         return next;
       });
       setStepStatus(uploadIdx, "done");
-      return body ?? {};
-    } catch {
-      setFileErrors((prev) => ({ ...prev, [uploadIdx]: t("uploadFailed") }));
+      return {
+        name_mismatch: body.name_mismatch,
+        looks_like_cv: body.looks_like_cv,
+        undated_positions: body.undated_positions,
+      };
+    } catch (e) {
+      // A failed import marks just this file (FMEA JF-M-2.2) — the batch keeps going and
+      // the user can Retry. A truncation/timeout gets the reassuring "nothing was changed"
+      // copy; other failures the generic one. The raw provider text never shows.
+      const code = e instanceof CVImportError ? e.errorCode : null;
+      const msg =
+        code === "llm_truncated" || code === "llm_timeout"
+          ? t("uploadTryAgain")
+          : t("uploadFailed");
+      setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
       setStepStatus(uploadIdx, "error");
       return null;
     }
@@ -241,8 +252,17 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   }
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    // A fresh controller every mount, so abortRef always points at THIS mount's
+    // controller. Under React StrictMode (mount→unmount→remount in dev) the first
+    // controller is aborted by its own cleanup, but the surviving second mount
+    // installs a live one. runPipeline runs exactly once (the `started` guard) and
+    // reads abortRef.current LAZILY at upload time, so it picks up the live signal
+    // — never the aborted one. (Regression: guarding the whole effect left abortRef
+    // pinned to an aborted controller, so the CV-import fetch rejected before
+    // sending — no POST, and a false "couldn't read your CVs". Caught on the real
+    // proxied path by blind PQ; JD-analyze carries no signal so it masked the bug.)
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     async function runPipeline() {
       try {
@@ -394,7 +414,14 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       }
     }
 
-    runPipeline();
+    // Run the pipeline exactly once across StrictMode's double-invoke (it has
+    // non-idempotent side effects: creates a flow, uploads CVs). The controller
+    // above is still recreated per mount so the abort lifecycle stays correct.
+    if (!started.current) {
+      started.current = true;
+      runPipeline();
+    }
+    return () => controller.abort();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

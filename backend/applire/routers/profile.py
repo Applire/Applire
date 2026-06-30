@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 import mimetypes
 
 from fastapi.responses import JSONResponse, Response
@@ -42,6 +42,8 @@ from applire.providers.llm.base import LLMProvider
 from applire.models.uploads import UploadRecord
 from applire.schemas.profile import (
     ConflictResolutionRequest,
+    CVImportJobResponse,
+    CVImportStatusResponse,
     CVUploadResponse,
     EnrichmentRecord,
     LinkedInImportRequest,
@@ -52,6 +54,12 @@ from applire.schemas.profile import (
     StagedResolveResponse,
     UndoLastMergeResponse,
     UploadHistoryItem,
+)
+from applire.models.import_job import CVImportStatus
+from applire.services.profile.import_jobs import (
+    create_import_job,
+    get_import_job,
+    run_import_job_background,
 )
 from applire.services.profile.snapshots import undo_last_merge
 from applire.services.profile import (
@@ -84,6 +92,13 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 # per-file N-of-M error path marks just this CV failed and invites a retry.
 _TRUNCATION_USER_MESSAGE = (
     "We couldn't fully merge this CV into your profile this time. "
+    "Nothing was changed — please try uploading it again."
+)
+
+# Clean, user-appropriate message for an LLM timeout on upload/import (ADR-047 §4).
+# Never leak the raw provider text ("timed out after 120s", model/provider name).
+_TIMEOUT_USER_MESSAGE = (
+    "This took longer than expected and didn't finish. "
     "Nothing was changed — please try uploading it again."
 )
 
@@ -155,8 +170,11 @@ async def upload_cv_endpoint(
         )
     except HTTPException:
         raise
-    except LLMTimeoutError as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
+    except LLMTimeoutError:
+        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
+        )
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LLMTruncatedError:
@@ -189,6 +207,76 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         )
+
+
+@router.post(
+    "/import-jobs",
+    response_model=CVImportJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_cv_import_endpoint(
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    job_id: uuid.UUID | None = Query(
+        default=None, description="Optional JobAnalysis ID for JD-context-aware extraction"
+    ),
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> CVImportJobResponse:
+    """Start an async CV import and return a handle immediately (202).
+
+    Mirrors the async CV-generation lifecycle: the heavy segmented extraction + reconcile
+    + enrichment runs in a background task, so a slow/output-capped model can't 504 the
+    request and drop the CV. Poll GET /api/profile/import-jobs/{import_id} until the status
+    is ``ready`` (``result`` holds the CVUploadResponse) or ``failed``. The sync /upload
+    endpoint remains for the agent/MCP channel.
+    """
+    user = await auth.get_current_user(request)
+    filename = file.filename or "upload"
+    content_type = file.content_type or "application/octet-stream"
+    file_bytes = await file.read()
+
+    job = await create_import_job(db, filename=filename, user_id=user.id)
+    background_tasks.add_task(
+        run_import_job_background,
+        job.id,
+        file_bytes,
+        filename,
+        content_type,
+        job_id,
+        user.id,
+    )
+    return CVImportJobResponse(import_id=job.id, status=CVImportStatus(job.status))
+
+
+@router.get(
+    "/import-jobs/{import_id}",
+    response_model=CVImportStatusResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_cv_import_status_endpoint(
+    import_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> CVImportStatusResponse:
+    """Poll an async CV import. 404 if unknown or owned by another user (IDOR guard)."""
+    user = await auth.get_current_user(request)
+    job = await get_import_job(db, import_id, user_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import not found")
+    result = (
+        CVUploadResponse.model_validate(job.result)
+        if job.status == CVImportStatus.ready.value and job.result is not None
+        else None
+    )
+    return CVImportStatusResponse(
+        import_id=job.id,
+        status=CVImportStatus(job.status),
+        error_code=job.error_code,
+        result=result,
+    )
 
 
 @router.post(
@@ -300,8 +388,11 @@ async def import_profile(
 
     except HTTPException:
         raise
-    except LLMTimeoutError as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
+    except LLMTimeoutError:
+        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
+        )
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LLMTruncatedError:
