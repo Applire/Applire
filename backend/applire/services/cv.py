@@ -861,12 +861,18 @@ async def _render_cv_background(
             record.content_snapshot = build_content_snapshot(tailored)
 
             record.tailored_data = tailored.model_dump()
-            record.status = CVGenerationStatus.ready.value
             record.error_message = None
             record.error_code = None
-            await db.commit()
-
-            await _update_ats_report(record, db)   # ADR-039
+            # ADR-039 + E037 PQ #2 (ATS "not available" race): persist the audit in the
+            # SAME commit that flips status to 'ready', so "ready implies report available".
+            # The frontend fetches the report once with no retry — if status went 'ready'
+            # before the report was written, that single fetch read NULL and showed
+            # "unavailable" permanently. status is set in memory FIRST so get_cv_html
+            # (which is ready-guarded) sees it via autoflush; _update_ats_report issues
+            # the one commit. An audit failure is non-fatal: it leaves ats_report NULL but
+            # still commits status='ready'.
+            record.status = CVGenerationStatus.ready.value
+            await _update_ats_report(record, db)   # ADR-039 — commits status + report together
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -992,5 +998,15 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
     from applire.schemas.ats import ATSReport, ATSReportResponse
 
     record = await _load_cv(cv_id, db)   # raises LookupError → 404 in the router
-    report = ATSReport.model_validate(record.ats_report) if record.ats_report else None
+    # E037 PQ #2 hardening: a non-conforming stored report must degrade to report:null,
+    # never raise (which would surface as an HTTP 500 the frontend can't recover from).
+    report = None
+    if record.ats_report:
+        try:
+            report = ATSReport.model_validate(record.ats_report)
+        except Exception:
+            logger.warning(
+                "Stored ATS report for CV %s is malformed — returning report=null", record.id
+            )
+            report = None
     return ATSReportResponse(document_id=record.id, status=record.status, report=report)

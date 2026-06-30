@@ -70,6 +70,17 @@ Rules:
   supports them: surface those terms from the candidate's own material where the evidence
   fits, never as a stretch and without over-stuffing. The DO-NOT-CLAIM entries are honest
   gaps absent from the profile — never present them as something the candidate has or knows.
+- CLAIM FRAMING (the why-me / achievements paragraph is where fabrication creeps in — this is
+  the cover-letter equivalent of the CV's keyword-gap rule):
+  You may assert a competency, skill, tool, domain, or "track record" ONLY where it traces to a
+  specific BULLET in the CANDIDATE PROFILE (or to a CLAIMABLE keyword-ledger entry's evidence).
+  A JOB DESCRIPTION requirement term, and ANY DO-NOT-CLAIM concept, must NEVER appear in a
+  possessive / competence framing — never "I have", "I have done", "I have a proven track record
+  in", "experienced in", "proven track record in", "fluent in", "expertise in", "skilled in",
+  "background in", "well-versed in", or any equivalent that asserts the candidate already
+  possesses it. For a requirement the candidate's profile does NOT evidence, the ONLY permitted
+  framing is forward-looking MOTIVATION — eagerness to grow into, contribute to, or develop the
+  area. When the profile does not evidence a strength, do not assert it; express interest instead.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
@@ -111,16 +122,21 @@ def build_cover_letter_prompt(
     skills = cv_data.get("skills", [])
     work_history = cv_data.get("work_history", [])
 
-    # Build a condensed profile snippet (top 3 work entries, top 10 skills)
+    # E037 PQ #1: feed the letter GROUNDED profile material instead of a thin snippet.
+    # The old top-3-entries / 2-bullets condensation starved the why-me paragraph of real
+    # achievements, so the LLM sourced them from the JD's requirement language (fabrication).
+    # Carry the real work history (up to 6 entries × 6 bullets) and a generous skill list so
+    # achievements are drawn from the candidate's actual record; the JD is trimmed harder
+    # below to rebalance the profile-vs-JD ratio. Token budget stays sane.
     work_snippet = ""
-    for entry in work_history[:3]:
+    for entry in work_history[:6]:
         work_snippet += f"- {entry.get('role', '')} at {entry.get('company', '')} ({entry.get('start_date', '')}–{entry.get('end_date', 'present')})\n"
-        for bullet in entry.get("bullets", [])[:2]:
+        for bullet in entry.get("bullets", [])[:6]:
             work_snippet += f"  • {bullet}\n"
 
     skills_snippet = ", ".join(
         s if isinstance(s, str) else s.get("name", "")
-        for s in skills[:10]
+        for s in skills[:20]
     ) if skills else "—"
 
     lines = [
@@ -137,8 +153,8 @@ def build_cover_letter_prompt(
         "Recent experience:",
         work_snippet.strip(),
         "",
-        "=== JOB DESCRIPTION ===",
-        jd_text[:3000],  # truncate very long JDs
+        "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
+        jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
     ]
 
     # ADR-048 §8 / US201: the Keyword Ledger — claimable terms (with profile evidence) to

@@ -215,8 +215,14 @@ async def get_cover_letter_status(
 async def get_cover_letter_html(
     cl_id: uuid.UUID,
     db: AsyncSession,
+    require_ready: bool = True,
 ) -> str:
-    """Render the cover letter HTML via Jinja2. Only works when status='ready'."""
+    """Render the cover letter HTML via Jinja2. Only works when status='ready'.
+
+    ``require_ready`` (E037 PQ #2): the generation path renders the smoke PDF before the
+    status flips to 'ready' (so the ATS audit lands BEFORE 'ready' is observable). The
+    public download path keeps the default ready-only guard.
+    """
     result = await db.execute(
         select(GeneratedCoverLetter).where(
             GeneratedCoverLetter.id == cl_id,
@@ -226,7 +232,7 @@ async def get_cover_letter_html(
     cl = result.scalar_one_or_none()
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
-    if cl.status != CoverLetterStatus.ready.value:
+    if require_ready and cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
     color_ctx = _default_color_context()
@@ -466,21 +472,34 @@ async def _render_cover_letter_background(
             # through generation + review, then is stamped here from the system clock.
             letter_data = _inject_letter_date(letter_data, detected_language)
 
-            # Store and mark ready
+            # Store the letter body, but keep status 'generating' for now. E037 PQ #2
+            # (ATS "not available" race): the ATS audit must be persisted BEFORE status
+            # flips to 'ready', because the frontend fetches the report once with no retry
+            # — a 'ready' row that has no report yet read NULL and showed "unavailable"
+            # permanently. So: persist letter_data → render smoke PDF → audit (commits the
+            # report while still 'generating') → ONLY THEN flip to 'ready'. The ready flip
+            # is the last write, so 'ready' is never observable before the report exists.
             cl.letter_data = letter_data
-            cl.status = CoverLetterStatus.ready.value
             await db.commit()
 
-            # Generate PDF via Playwright
+            # Generate PDF via Playwright. allow_unready=True lets the renderer work while
+            # the letter is still 'generating' (the audit needs the PDF before the flip).
             pdf_bytes: bytes | None = None
             try:
                 from applire.services.cover_letter_pdf import render_pdf
-                pdf_bytes = await render_pdf(cl_id)
+                pdf_bytes = await render_pdf(cl_id, allow_unready=True)
             except Exception as pdf_err:
                 logger.warning("PDF render failed for CL %s: %s", cl_id, pdf_err)
                 # HTML preview still works; PDF download will fail gracefully
 
-            await _update_ats_report_letter(cl, db, pdf=pdf_bytes)   # ADR-039
+            # ADR-039 — persist the ATS audit (commits while status is still 'generating').
+            # An audit failure is non-fatal: it leaves ats_report NULL and we still flip ready.
+            await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
+
+            # Now flip to 'ready' — the report is already committed, so the frontend's
+            # single fetch always sees it.
+            cl.status = CoverLetterStatus.ready.value
+            await db.commit()
 
         except Exception as exc:
             logger.exception("Cover letter generation failed for %s: %s", cl_id, exc)
@@ -586,5 +605,16 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
     cl = result.scalar_one_or_none()
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
-    report = ATSReport.model_validate(cl.ats_report) if cl.ats_report else None
+    # E037 PQ #2 hardening: a non-conforming stored report must degrade to report:null,
+    # never raise (which would surface as an HTTP 500 the frontend can't recover from).
+    report = None
+    if cl.ats_report:
+        try:
+            report = ATSReport.model_validate(cl.ats_report)
+        except Exception:
+            logger.warning(
+                "Stored ATS report for cover letter %s is malformed — returning report=null",
+                cl.id,
+            )
+            report = None
     return ATSReportResponse(document_id=cl.id, status=cl.status, report=report)

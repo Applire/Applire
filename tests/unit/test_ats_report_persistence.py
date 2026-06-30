@@ -508,6 +508,28 @@ async def test_get_cv_ats_report_returns_persisted_report(db_with_cv):
         await get_cv_ats_report(uuid.uuid4(), session)
 
 
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_malformed_degrades_to_null(db_with_cv):
+    """E037 PQ #2 hardening: a non-conforming stored ats_report must degrade to
+    report=null rather than raise (which would be an HTTP 500 the frontend can't recover)."""
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import get_cv_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+
+    # Store a structurally invalid report (missing required fields / wrong types)
+    record = await session.get(GeneratedCV, cv_id)
+    record.ats_report = {"document": 123, "not_a_real_field": True}
+    await session.commit()
+
+    response = await get_cv_ats_report(cv_id, session)
+    assert response.document_id == cv_id
+    assert response.report is None, "malformed stored report must degrade to report=None"
+    assert response.status == "ready"
+
+
 # ===========================================================================
 # ADR-039 Task 4: Cover-letter pipeline persistence hooks (TDD)
 # ===========================================================================
@@ -766,6 +788,27 @@ async def test_get_cover_letter_ats_report(db_with_cover_letter):
     # Case 3: unknown id → LookupError (→ 404 in router)
     with pytest.raises(LookupError):
         await get_cover_letter_ats_report(uuid.uuid4(), session)
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_malformed_degrades_to_null(db_with_cover_letter):
+    """E037 PQ #2 hardening (letter twin): a non-conforming stored ats_report degrades to
+    report=null rather than raising an HTTP 500."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services.cover_letter import get_cover_letter_ats_report
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    cl.ats_report = {"document": 99, "checks": "not-a-list"}
+    await session.commit()
+
+    response = await get_cover_letter_ats_report(cl_id, session)
+    assert response.document_id == cl_id
+    assert response.report is None, "malformed stored report must degrade to report=None"
+    assert response.status == "ready"
 
 
 # ===========================================================================
