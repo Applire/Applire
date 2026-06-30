@@ -660,10 +660,13 @@ class TestCoverLetterServiceReviewIntegration:
         mock_profile = MagicMock()
         mock_profile.profile_json = {"work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"]}
 
-        # The render loads cl, job, cv, profile — four db.execute() → scalar_one_or_none()
-        # calls in order. One shared result object carries the sequence.
+        # The render loads cl, job, cv, profile, then the Keyword Ledger gap (US201) —
+        # five db.execute() → scalar_one_or_none() calls in order. One shared result
+        # object carries the sequence; None gap = pre-E037 row, no ledger.
         shared_result = MagicMock()
-        shared_result.scalar_one_or_none.side_effect = [mock_cl, mock_job, mock_cv, mock_profile]
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, None,
+        ]
 
         mock_db = AsyncMock()
         mock_db.execute.return_value = shared_result
