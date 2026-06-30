@@ -115,8 +115,16 @@ def build_user_prompt(
     keyword_gaps: list[str],
     critical_gaps: list[str],
     output_language: str = "de",
+    keyword_ledger: list[dict] | None = None,
 ) -> str:
     language_name = "GERMAN" if output_language == "de" else "ENGLISH"
+    # ADR-048 §8 / US200: the Keyword Ledger splits the JD's expectations into claimable
+    # terms (carry their profile evidence — surface where supported) and honest gaps
+    # (never claim). Grounding strictly outranks coverage. Empty → adds nothing.
+    from applire.services.keyword_ledger import render_ledger_prompt_block
+
+    ledger_block = render_ledger_prompt_block(keyword_ledger)
+    ledger_section = f"{ledger_block}\n\n" if ledger_block else ""
     return (
         "Tailor the candidate's profile for the job below.\n\n"
         f"OUTPUT LANGUAGE: {language_name} — write the summary, all work_history bullets, and "
@@ -124,6 +132,7 @@ def build_user_prompt(
         "company names, product names, dates, and metrics unchanged.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+        f"{ledger_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         f"CRITICAL GAPS (acknowledge in summary if applicable):\n"

@@ -185,6 +185,7 @@ async def generate_cv_segmented(
     *,
     output_language: str,
     provider: "LLMProvider",
+    keyword_ledger: list[dict] | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -224,7 +225,7 @@ async def generate_cv_segmented(
         w["id"] = w.get("id") or f"w{i}"
 
     directive = await provider.aparse_json(
-        build_outline_prompt(job_analysis, profile, output_language),
+        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger),
         system=OUTLINE_SYSTEM_PROMPT,
         temperature=0.3,
         max_tokens=budget,
@@ -233,7 +234,9 @@ async def generate_cv_segmented(
     work_entries: list[dict] = []
     for w in work_src:
         section = await provider.aparse_json(
-            build_work_section_prompt(w, directive, job_analysis, keyword_gaps, output_language),
+            build_work_section_prompt(
+                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger
+            ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=budget,
@@ -253,7 +256,9 @@ async def generate_cv_segmented(
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
     )
     skills_res = await provider.aparse_json(
-        build_skills_prompt(directive, job_analysis, profile, keyword_gaps, output_language),
+        build_skills_prompt(
+            directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger
+        ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
     )
     edu_res = await provider.aparse_json(
@@ -298,22 +303,28 @@ async def _tailor_cv_with_fallback(
     *,
     output_language: str,
     provider: "LLMProvider",
+    keyword_ledger: list[dict] | None = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
     the single large call and switch to segmented on truncation/timeout rather than doubling
     the budget into a timeout (the US188 'switch to segmented' recovery). The returned draft
-    is fed to the same coherence + language review as before by the caller."""
+    is fed to the same coherence + language review as before by the caller.
+
+    ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
+    claimable-vs-forbidden keyword split."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
+            keyword_ledger=keyword_ledger,
         )
     try:
         return await provider.aparse_json(
             build_user_prompt(
                 job_analysis, profile, keyword_gaps, critical_gaps,
                 output_language=output_language,
+                keyword_ledger=keyword_ledger,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -327,6 +338,7 @@ async def _tailor_cv_with_fallback(
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
+            keyword_ledger=keyword_ledger,
         )
 
 
@@ -765,6 +777,9 @@ async def _render_cv_background(
             gap = gap_result.scalar_one_or_none()
             keyword_gaps: list[str] = gap.keyword_gaps if gap else []
             critical_gaps: list[str] = gap.critical_gaps if gap else []
+            # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
+            # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
+            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
 
             job_dict = {
                 "role_title": job.role_title,
@@ -796,6 +811,7 @@ async def _render_cv_background(
                 critical_gaps,
                 output_language=resolve_jd_language(job),
                 provider=provider,
+                keyword_ledger=keyword_ledger,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)

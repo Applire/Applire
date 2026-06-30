@@ -394,6 +394,22 @@ async def _render_cover_letter_background(
             # (e.g. "Bilingual DE/EN") and misroutes.
             detected_language = resolve_jd_language(job)
 
+            # ADR-048 / US201: load the latest Keyword Ledger for this job (read-only,
+            # mirrors cv.py) so the prompt surfaces claimable terms with their profile
+            # evidence and forbids honest-gap terms. Legacy pre-E037 gap rows have none.
+            from applire.models.gap import GapAnalysis
+            gap_result = await db.execute(
+                select(GapAnalysis)
+                .where(
+                    GapAnalysis.job_analysis_id == job_id,
+                    GapAnalysis.deleted_at.is_(None),
+                )
+                .order_by(GapAnalysis.created_at.desc())
+                .limit(1)
+            )
+            gap = gap_result.scalar_one_or_none()
+            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
+
             # Call LLM
             provider = get_provider()
             user_prompt = build_cover_letter_prompt(
@@ -401,6 +417,7 @@ async def _render_cover_letter_background(
                 jd_text=job.raw_text,
                 pre_gen_inputs=pre_gen,
                 detected_language=detected_language,
+                keyword_ledger=keyword_ledger,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).

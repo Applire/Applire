@@ -60,11 +60,16 @@ Rules:
   * Never invent employers, companies, job titles, degrees, certifications, or named projects.
   * Never invent achievements, metrics, team sizes, budgets, or technologies the candidate has not
     stated, and never overstate the seniority/impact the candidate data supports.
-  * The JOB DESCRIPTION states what the employer WANTS — it is NOT a source of facts about the
-    candidate. Express motivation and fit using only what the candidate data actually contains;
-    do not claim the candidate already has a requirement that the candidate data does not show.
+  * The JOB DESCRIPTION states what the employer WANTS — it is NOT a source of NEW facts about
+    the candidate. Express motivation and fit using only what the candidate data actually
+    contains; do not claim the candidate already has a requirement the candidate data does not show.
   When in doubt, leave it out — write a sincere letter from the real material rather than a
   stronger letter from invented material.
+- KEYWORD LEDGER (ADR-048) — when a KEYWORD LEDGER appears in the user message, grounding
+  strictly OUTRANKS coverage. The CLAIMABLE entries each carry the profile EVIDENCE that
+  supports them: surface those terms from the candidate's own material where the evidence
+  fits, never as a stretch and without over-stuffing. The DO-NOT-CLAIM entries are honest
+  gaps absent from the profile — never present them as something the candidate has or knows.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
@@ -81,6 +86,7 @@ def build_cover_letter_prompt(
     jd_text: str,
     pre_gen_inputs: dict[str, Any],
     detected_language: str,
+    keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -89,6 +95,9 @@ def build_cover_letter_prompt(
     jd_text: job.raw_text
     pre_gen_inputs: dict with keys salary, availability, motivation, tone, recipient_name, recipient_company.
     detected_language: 'de' or 'en'
+    keyword_ledger: the GapAnalysis Keyword Ledger (ADR-048 / US201). Claimable terms carry
+        their profile evidence (surface where supported); honest gaps are do-not-claim.
+        Omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -130,6 +139,17 @@ def build_cover_letter_prompt(
         "",
         "=== JOB DESCRIPTION ===",
         jd_text[:3000],  # truncate very long JDs
+    ]
+
+    # ADR-048 §8 / US201: the Keyword Ledger — claimable terms (with profile evidence) to
+    # surface, honest gaps never to claim. Grounding strictly outranks coverage.
+    from applire.services.keyword_ledger import render_ledger_prompt_block
+
+    ledger_block = render_ledger_prompt_block(keyword_ledger)
+    if ledger_block:
+        lines += ["", ledger_block]
+
+    lines += [
         "",
         "=== PRE-GENERATION INPUTS ===",
         f"Recipient name: {recipient_name or '(extract from JD or use generic salutation)'}",
