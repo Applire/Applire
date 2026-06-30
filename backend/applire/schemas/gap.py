@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from applire.schemas.gap_cluster import GapClusterSchema
 
@@ -30,6 +30,18 @@ class RequirementBreakdownItem(BaseModel):
     slot: float
     earned: float
     reason: str = ""
+
+
+class KeywordLedgerEntry(BaseModel):
+    """One JD expectation in the Keyword Ledger (ADR-048, E037)."""
+
+    concept: str
+    surface_forms: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)  # required | nice_to_have | keyword
+    fit_weight: float  # 1.0 required / 0.5 nice_to_have / 0.0 keyword-only
+    status: str  # "direct" | "partial" | "gap"
+    evidence: str = ""
+    claimable: bool
 
 
 class GapAnalysisResponse(BaseModel):
@@ -44,8 +56,15 @@ class GapAnalysisResponse(BaseModel):
     category_a: list[str] = Field(default_factory=list)
     category_b: list[str] = Field(default_factory=list)
     category_c: list[str] = Field(default_factory=list)
+    keyword_ledger: list[KeywordLedgerEntry] = Field(default_factory=list)
     gap_clusters: list[GapClusterSchema] = Field(default_factory=list)
     requirement_breakdown: list[RequirementBreakdownItem] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("keyword_ledger", mode="before")
+    @classmethod
+    def _ledger_none_to_empty(cls, v):
+        # Legacy gap_analyses rows (pre-E037) have NULL keyword_ledger.
+        return v or []

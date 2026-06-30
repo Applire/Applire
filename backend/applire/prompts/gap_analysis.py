@@ -37,9 +37,9 @@ You will receive:
   2. CANDIDATE PROFILE — structured master profile (skills may include years_experience)
   3. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
      or reject), unresolved (no rule signal — you decide)
-  4. REQUIREMENTS — the exact list of requirements you must classify (required + nice-to-have)
+  4. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
 
-Classify EVERY requirement in REQUIREMENTS into exactly one status:
+Classify EVERY entry in REQUIREMENTS (required, nice_to_have, AND keywords) into exactly one status:
   • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar
   • "partial" — likely/inferred from context (adjacent skills, employer/domain), OR the skill is
                 present but the candidate's years are below a stated bar or cannot be confirmed
@@ -55,7 +55,12 @@ Respond ONLY with a valid JSON object matching this schema — no markdown, no e
 Schema:
 {
   "classifications": [
-    { "requirement": "exact requirement string from REQUIREMENTS", "status": "direct|partial|gap", "reason": "short justification" }
+    {
+      "requirement": "exact requirement string from REQUIREMENTS",
+      "status": "direct|partial|gap",
+      "reason": "short justification grounded in the profile (this is the evidence)",
+      "surface_forms": ["literal aliases an ATS scans for, e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
+    }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],
   "keyword_gaps": ["ATS keywords from the JD that are absent from the candidate's profile"]
@@ -63,6 +68,11 @@ Schema:
 
 Guidelines:
 - Echo each requirement string exactly as given so it can be matched back.
+- surface_forms: list the literal strings an ATS would scan for, including the requirement itself
+  plus common abbreviations/variants. When a JD keyword is a variant of a concept the candidate
+  already holds (e.g. keyword "CI/CD" vs required "CI/CD pipelines"), group it as a surface form of
+  that concept rather than marking it a separate gap.
+- reason is the grounding evidence for a direct/partial status — cite the profile signal.
 - Do NOT reject inferred_b items without a clear counter-signal in the profile.
 - keyword_gaps: list exact terms from the JD absent from the profile."""
 
@@ -82,6 +92,7 @@ def build_user_prompt(
     requirements = {
         "required": list(job_analysis.get("required_skills") or []),
         "nice_to_have": list(job_analysis.get("nice_to_have_skills") or []),
+        "keywords": list(job_analysis.get("keywords") or []),
     }
     return (
         "Produce the gap analysis JSON.\n\n"

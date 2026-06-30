@@ -42,6 +42,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
+from applire.services.keyword_ledger import build_keyword_ledger
 from applire.services.match_score import compute_match_score
 
 
@@ -187,10 +188,28 @@ async def _run_analysis(
         max_tokens=GAP_ANALYSIS_MAX_TOKENS,
     )
 
+    classifications = data.get("classifications", [])
     scored = compute_match_score(
-        data.get("classifications", []),
+        classifications,
         list(job.required_skills or []),
         list(job.nice_to_have_skills or []),
+    )
+
+    # ADR-048: the single source of truth for every JD expectation. `reason` from
+    # the classification serves as the grounding evidence for the ledger entry.
+    keyword_ledger = build_keyword_ledger(
+        [
+            {
+                "concept": c.get("requirement", ""),
+                "status": c.get("status", "gap"),
+                "evidence": c.get("reason", ""),
+                "surface_forms": c.get("surface_forms"),
+            }
+            for c in classifications
+        ],
+        list(job.required_skills or []),
+        list(job.nice_to_have_skills or []),
+        list(job.keywords or []),
     )
 
     # Compute embedding similarity score (None when noop provider or embeddings absent)
@@ -211,6 +230,7 @@ async def _run_analysis(
         category_a=scored["category_a"],
         category_b=scored["category_b"],
         category_c=scored["category_c"],
+        keyword_ledger=keyword_ledger,
         requirement_breakdown=scored["requirement_breakdown"],
     )
     db.add(record)

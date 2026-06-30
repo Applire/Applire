@@ -134,19 +134,26 @@ _GAP_ANALYSIS_RESPONSE: dict[str, Any] = {
     # Score (REQUIRED_SLOT=1.0, NICE_TO_HAVE_SLOT=0.5, direct=1.0, partial=0.5, gap=0.0):
     #   earned = 6×1.0 + 0×1.0 + 1×0.5×0.5 + 0×0.5 + 0×0.5 = 6.25
     #   total  = 7×1.0 + 3×0.5 = 8.5  →  score ≈ 0.735
+    # Each item also carries surface_forms (literal ATS aliases, ADR-048) — the
+    # gap LLM groups keyword variants under the concept the candidate holds.
     "classifications": [
         # required_skills — all 7 must be covered
-        {"requirement": "Python",                    "status": "direct",  "reason": "listed as expert in skills"},
-        {"requirement": "FastAPI",                   "status": "direct",  "reason": "listed as advanced in skills"},
-        {"requirement": "PostgreSQL",                "status": "direct",  "reason": "listed as advanced in skills"},
-        {"requirement": "Docker",                    "status": "direct",  "reason": "listed as intermediate in skills"},
-        {"requirement": "REST APIs",                 "status": "direct",  "reason": "built REST APIs serving 50k DAU"},
-        {"requirement": "CI/CD pipelines",           "status": "direct",  "reason": "introduced CI/CD pipelines in current role"},
-        {"requirement": "5+ years Python experience","status": "gap",     "reason": "duration not explicitly stated in profile"},
+        {"requirement": "Python",                    "status": "direct",  "reason": "listed as expert in skills", "surface_forms": ["Python"]},
+        {"requirement": "FastAPI",                   "status": "direct",  "reason": "listed as advanced in skills", "surface_forms": ["FastAPI"]},
+        {"requirement": "PostgreSQL",                "status": "direct",  "reason": "listed as advanced in skills", "surface_forms": ["PostgreSQL", "Postgres"]},
+        {"requirement": "Docker",                    "status": "direct",  "reason": "listed as intermediate in skills", "surface_forms": ["Docker"]},
+        {"requirement": "REST APIs",                 "status": "direct",  "reason": "built REST APIs serving 50k DAU", "surface_forms": ["REST APIs", "REST"]},
+        {"requirement": "CI/CD pipelines",           "status": "direct",  "reason": "introduced CI/CD pipelines in current role", "surface_forms": ["CI/CD pipelines", "CI/CD"]},
+        {"requirement": "5+ years Python experience","status": "gap",     "reason": "duration not explicitly stated in profile", "surface_forms": ["5+ years Python experience"]},
         # nice_to_have_skills — all 3 covered
-        {"requirement": "Kubernetes",                "status": "partial", "reason": "adjacent Docker experience, no Kubernetes explicitly"},
-        {"requirement": "GraphQL",                   "status": "gap",     "reason": "no signal in profile"},
-        {"requirement": "Redis",                     "status": "gap",     "reason": "no signal in profile"},
+        {"requirement": "Kubernetes",                "status": "partial", "reason": "adjacent Docker experience, no Kubernetes explicitly", "surface_forms": ["Kubernetes", "K8s"]},
+        {"requirement": "GraphQL",                   "status": "gap",     "reason": "no signal in profile", "surface_forms": ["GraphQL"]},
+        {"requirement": "Redis",                     "status": "gap",     "reason": "no signal in profile", "surface_forms": ["Redis"]},
+        # keyword-only ATS terms (fit_weight 0 — classified for coverage, ADR-048)
+        {"requirement": "backend",                   "status": "direct",  "reason": "backend engineer across roles", "surface_forms": ["backend", "back-end"]},
+        {"requirement": "microservices",             "status": "gap",     "reason": "no microservices signal in profile", "surface_forms": ["microservices", "microservices architecture"]},
+        {"requirement": "agile",                     "status": "direct",  "reason": "agile delivery in current role", "surface_forms": ["agile", "Scrum"]},
+        {"requirement": "DACH",                      "status": "partial", "reason": "German-speaking, DACH market context", "surface_forms": ["DACH"]},
     ],
     "strengths": ["Python", "FastAPI", "PostgreSQL", "REST APIs", "CI/CD pipelines"],
     "keyword_gaps": ["microservices architecture", "Kubernetes", "GraphQL"],

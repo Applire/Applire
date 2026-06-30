@@ -48,6 +48,10 @@ class GapAnalysis(Base):
     category_a: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     category_b: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     category_c: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
+    # ADR-048 Keyword Ledger — single source of truth for every JD expectation
+    # (concept + surface_forms + sources + fit_weight + status + evidence + claimable).
+    # Nullable: legacy rows created before E037 stay NULL; consumers fall back.
+    keyword_ledger: Mapped[list | None] = mapped_column(_JSON, nullable=True, default=list)
     gap_clusters: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     requirement_breakdown: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(

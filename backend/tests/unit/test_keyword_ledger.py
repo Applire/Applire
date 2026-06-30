@@ -133,3 +133,40 @@ def test_surface_forms_default_to_concept_when_llm_omits_them():
 
 def test_empty_jd_yields_empty_ledger():
     assert build_keyword_ledger([], [], [], []) == []
+
+
+def _mock_classifications():
+    """Adapt the MockLLMProvider gap response into build_keyword_ledger input shape."""
+    from applire.providers.llm.mock import _GAP_ANALYSIS_RESPONSE
+
+    return [
+        {
+            "concept": c.get("requirement", ""),
+            "status": c.get("status", "gap"),
+            "evidence": c.get("reason", ""),
+            "surface_forms": c.get("surface_forms"),
+        }
+        for c in _GAP_ANALYSIS_RESPONSE["classifications"]
+    ]
+
+
+def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
+    # "CI/CD" is a JD *keyword* the candidate demonstrably has (CI/CD pipelines).
+    # The mock must classify keyword terms (mirrors the prompt change) so it lands
+    # claimable, not as a synthesized gap.
+    from applire.providers.llm.mock import _JOB_ANALYSIS_RESPONSE as JOB
+
+    ledger = build_keyword_ledger(
+        _mock_classifications(),
+        JOB["required_skills"],
+        JOB["nice_to_have_skills"],
+        JOB["keywords"],
+    )
+    cicd = [
+        e
+        for e in ledger
+        if e["concept"].casefold() == "ci/cd"
+        or any(s.casefold() == "ci/cd" for s in e["surface_forms"])
+    ]
+    assert cicd, "CI/CD keyword must appear in the ledger"
+    assert any(e["claimable"] for e in cicd), "a held keyword must be claimable, not a gap"
