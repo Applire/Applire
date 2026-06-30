@@ -25,10 +25,12 @@ Entry points:
 Both call the same internal _run_analysis() function.
 """
 
+import hashlib
+import json
 import math
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
@@ -50,6 +52,50 @@ def _norm_gap(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def _job_inputs(job: JobAnalysis) -> dict:
+    """The JD fields that feed the analysis — also the score-bearing inputs."""
+    return {
+        "role_title": job.role_title,
+        "required_skills": job.required_skills,
+        "nice_to_have_skills": job.nice_to_have_skills,
+        "keywords": job.keywords,
+        "seniority_level": job.seniority_level,
+        "company_culture_signals": job.company_culture_signals,
+        "language_requirement": job.language_requirement,
+    }
+
+
+def _input_fingerprint(job: JobAnalysis, profile: MasterProfile) -> str:
+    """Stable sha256 of the analysis inputs (JD fields + master-profile content).
+
+    Same inputs → same fingerprint → reuse the existing row instead of re-running
+    the LLM (E037 PQ #3). Profile content (not just a version stamp) is hashed, so
+    a genuine interview enrichment changes the fingerprint and forces a recompute;
+    an idempotent re-POST from a screen load does not.
+    """
+    payload = json.dumps(
+        {"job": _job_inputs(job), "profile": profile.profile_json},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _latest_gap_analysis(job_id: uuid.UUID, db: AsyncSession) -> GapAnalysis | None:
+    """The most recent non-deleted gap analysis for a job (the read-path row)."""
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(desc(GapAnalysis.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 # ---------------------------------------------------------------------------
 # Public: job-scoped (canonical)
 # ---------------------------------------------------------------------------
@@ -59,6 +105,8 @@ async def analyze_gaps(
     job_id: uuid.UUID,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    clamp_to_previous: bool = False,
 ) -> GapAnalysisResponse:
     """
     Canonical gap analysis entry point.
@@ -67,11 +115,23 @@ async def analyze_gaps(
       1. Rule-based pre-classification (pure Python, no LLM)
       2. LLM refinement — confirms/rejects B candidates, classifies unresolved as B or C
 
+    Idempotent per (job, profile-fingerprint): when the inputs are unchanged it
+    REUSES the latest stored gap_analyses row instead of re-running the LLM and
+    inserting a duplicate (E037 PQ #3 — match-score stability). Only a genuine
+    profile or JD change recomputes.
+
+    ``clamp_to_previous`` (the /gaps/refresh, post-interview-answer path): when a
+    recompute does happen, the headline ``match_score`` is clamped to
+    ``max(old, new)`` — added evidence is monotonic-up since fit weights are fixed,
+    so answering a gap can never lower the displayed score.
+
     Stores the result in gap_analyses and returns a GapAnalysisResponse.
     """
     job = await _resolve_job(job_id, db)
     profile = await _resolve_profile(db)
-    return await _run_analysis(job, profile, db, provider)
+    return await _run_analysis(
+        job, profile, db, provider, clamp_to_previous=clamp_to_previous
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,16 +240,26 @@ async def _run_analysis(
     profile: MasterProfile,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    clamp_to_previous: bool = False,
 ) -> GapAnalysisResponse:
-    job_dict = {
-        "role_title": job.role_title,
-        "required_skills": job.required_skills,
-        "nice_to_have_skills": job.nice_to_have_skills,
-        "keywords": job.keywords,
-        "seniority_level": job.seniority_level,
-        "company_culture_signals": job.company_culture_signals,
-        "language_requirement": job.language_requirement,
-    }
+    job_dict = _job_inputs(job)
+
+    # E037 PQ #3 — idempotency: same (job, profile) → same score, computed once.
+    # Reuse the latest stored row when its fingerprint still matches; only re-run
+    # the LLM (and insert a new row) when the profile or JD genuinely changed.
+    # repoint_flow_gap_analysis on the reuse path keeps the flow FK and the
+    # latest-by-created_at read path converged on the SAME row, so every screen
+    # shows one score.
+    # Lazy import avoids the gap<->flow.orchestrator import cycle (orchestrator
+    # transitively imports gap via the session/application services).
+    from applire.services.flow.orchestrator import repoint_flow_gap_analysis
+
+    fingerprint = _input_fingerprint(job, profile)
+    previous = await _latest_gap_analysis(job.id, db)
+    if previous is not None and previous.input_fingerprint == fingerprint:
+        await repoint_flow_gap_analysis(job.id, previous.id, db)
+        return GapAnalysisResponse.model_validate(previous)
 
     # Pass 1: rule-based pre-classification
     pre = pre_classify(job_dict, profile.profile_json)
@@ -232,10 +302,24 @@ async def _run_analysis(
         profile.embedding,
     )
 
+    # E037 PQ #3 — monotonic-up clamp on the post-interview-answer (/gaps/refresh)
+    # path: fit weights are fixed, so adding evidence can only raise the score.
+    # Never let a re-evaluation lower the headline number ("adding evidence
+    # lowered my score"). max(old, new) is the required floor.
+    match_score = scored["match_score"]
+    if (
+        clamp_to_previous
+        and previous is not None
+        and previous.match_score is not None
+        and (match_score is None or match_score < previous.match_score)
+    ):
+        match_score = previous.match_score
+
     record = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
-        match_score=scored["match_score"],
+        match_score=match_score,
+        input_fingerprint=fingerprint,
         embedding_similarity_score=embedding_similarity_score,
         critical_gaps=scored["critical_gaps"],
         minor_gaps=scored["minor_gaps"],
@@ -258,11 +342,8 @@ async def _run_analysis(
     # Keep the owning flow's gap_analysis_id FK pointed at the newest analysis so
     # the CV/flow read path reports the post-interview score, not the stale
     # pre-interview one. Single seam: every recompute path (/gaps/refresh,
-    # interview completion, gap-click) routes through here. Lazy import avoids the
-    # gap<->flow.orchestrator import cycle (orchestrator transitively imports gap
-    # via the session/application services).
-    from applire.services.flow.orchestrator import repoint_flow_gap_analysis
-
+    # interview completion, gap-click) routes through here. repoint_flow_gap_analysis
+    # is imported at the top of this function.
     await repoint_flow_gap_analysis(job.id, record.id, db)
 
     return GapAnalysisResponse.model_validate(record)

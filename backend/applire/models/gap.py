@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, JSON
+from sqlalchemy import DateTime, Float, ForeignKey, JSON, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -52,6 +52,13 @@ class GapAnalysis(Base):
     # (concept + surface_forms + sources + fit_weight + status + evidence + claimable).
     # Nullable: legacy rows created before E037 stay NULL; consumers fall back.
     keyword_ledger: Mapped[list | None] = mapped_column(_JSON, nullable=True, default=list)
+    # E037 PQ #3 (match-score stability) — sha256 fingerprint of the analysis
+    # inputs (JD fields + master-profile content). Lets analyze_gaps reuse the
+    # latest row instead of re-running the LLM when inputs are unchanged, so the
+    # deterministic score stays identical across screens. Nullable: legacy rows
+    # created before this fix stay NULL and never match a fresh fingerprint, so
+    # they recompute once and then become stable.
+    input_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     gap_clusters: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     requirement_breakdown: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
