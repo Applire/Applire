@@ -340,6 +340,7 @@ async def _import_from_text(
                 last_updated=now,
                 enrichment_history=[enrichment],
                 pending_conflicts=merge_result.conflicts,
+                pending_confirmations=merge_result.pending_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
@@ -347,6 +348,8 @@ async def _import_from_text(
             merged.metadata.enrichment_history.append(enrichment)
             # Replace pending conflicts with latest round (user resolves via endpoint)
             merged.metadata.pending_conflicts = merge_result.conflicts
+            # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
+            merged.metadata.pending_confirmations = merge_result.pending_confirmations
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(
@@ -593,6 +596,65 @@ async def resolve_conflict(
     updated.metadata.enrichment_history.append(enrichment)
     updated.metadata.last_updated = now
     updated.metadata.completeness_score = updated.calculate_completeness()
+
+    record.profile_json = updated.model_dump(mode="json")
+    record.updated_at = now
+    await db.commit()
+    await db.refresh(record)
+    return _to_response(record)
+
+
+async def resolve_confirmation(
+    confirmation_id: str,
+    chosen_option: str,
+    db: AsyncSession,
+) -> MasterProfileResponse:
+    """Resolve a pending import-time confirmation (E037 PQ #4).
+
+    The reconciler already applied its best-effort merge at import time; a
+    confirmation asks the user to confirm/steer an *identity* judgement (synonym
+    role, project-vs-position, DE↔EN employer) it was unsure about. Recording the
+    user's chosen option marks the confirmation resolved and removes it from the
+    pending list. (Re-running the reconciler with the chosen option as context to
+    physically re-shape the merge is a richer follow-up — see the seam noted on the
+    epic; the minimum here surfaces a clean, answerable dialog instead of a garbled
+    string and durably records the answer.)"""
+    record = await _get_latest(db)
+    if not record:
+        raise LookupError("No profile found")
+
+    profile_data = MasterProfileData.model_validate(record.profile_json)
+    if not profile_data.metadata or not profile_data.metadata.pending_confirmations:
+        raise LookupError(f"Confirmation '{confirmation_id}' not found")
+
+    confirmation = next(
+        (
+            c
+            for c in profile_data.metadata.pending_confirmations
+            if c.confirmation_id == confirmation_id
+        ),
+        None,
+    )
+    if confirmation is None:
+        raise LookupError(f"Confirmation '{confirmation_id}' not found")
+
+    updated = profile_data.model_copy(deep=True)
+    updated.metadata.pending_confirmations = [
+        c
+        for c in updated.metadata.pending_confirmations
+        if c.confirmation_id != confirmation_id
+    ]
+
+    now = datetime.now(timezone.utc)
+    enrichment = _make_enrichment_record(
+        source="manual_edit",
+        section="metadata",
+        action="updated",
+        old_value=confirmation.question,
+        new_value=chosen_option,
+    )
+    updated.metadata.enrichment_history.append(enrichment)
+    updated.metadata.last_updated = now
 
     record.profile_json = updated.model_dump(mode="json")
     record.updated_at = now
@@ -862,12 +924,15 @@ async def _apply_merge(
                 last_updated=now,
                 enrichment_history=[enrichment],
                 pending_conflicts=merge_result.conflicts,
+                pending_confirmations=merge_result.pending_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
             merged.metadata.pending_conflicts = merge_result.conflicts
+            # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
+            merged.metadata.pending_confirmations = merge_result.pending_confirmations
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(

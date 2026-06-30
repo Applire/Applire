@@ -378,6 +378,25 @@ class ProfileChangesResponse(BaseModel):
     pending_conflicts: list["Conflict"] = Field(default_factory=list)
 
 
+class PendingConfirmation(BaseModel):
+    """E037 PQ #4 — an import-time reconciler ambiguity (a ``RequestConfirmation``)
+    persisted so the user can answer it later in the profile-review interview.
+
+    Unlike a ``Conflict`` (a 2-value existing-vs-incoming dispute), a confirmation
+    carries a free-text ``question`` plus an N-option ``options`` list, each option
+    a distinct one-tap answer. Folding one into a ``Conflict`` garbled the dialog
+    (empty section, the question swallowed into ``field``, options comma-joined
+    into ``incoming_value``); it gets its own shape + channel instead.
+    """
+    confirmation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    question: str
+    options: list[str] = Field(default_factory=list)
+    context: dict = Field(default_factory=dict)
+    source: str = ""
+    resolved: bool = False
+    chosen_option: str | None = None
+
+
 class ProfileMetadata(BaseModel):
     completeness_score: float = 0.0  # 0.0 to 1.0
     created_via: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual"] = "manual"
@@ -386,6 +405,9 @@ class ProfileMetadata(BaseModel):
     application_count: int = 0
     enrichment_history: list[EnrichmentRecord] = Field(default_factory=list)
     pending_conflicts: list[Conflict] = Field(default_factory=list)
+    # E037 PQ #4 — N-option reconciler ambiguities awaiting a user choice. Kept
+    # distinct from pending_conflicts (a Conflict cannot represent an N-option ask).
+    pending_confirmations: list[PendingConfirmation] = Field(default_factory=list)
 
 
 # ─── Completeness calculation ─────────────────────────────────────────────────
