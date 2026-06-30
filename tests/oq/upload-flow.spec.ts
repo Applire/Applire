@@ -58,8 +58,12 @@ async function setupUploadMocks(page: Page) {
   await page.route("**/api/flow", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_CREATE) })
   );
-  await page.route("**/api/profile/upload", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_UPLOAD) })
+  // Async import job (E036): POST returns a handle (202), then poll until ready.
+  await page.route("**/api/profile/import-jobs", (route) =>
+    route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ import_id: "imp-1", status: "pending" }) })
+  );
+  await page.route("**/api/profile/import-jobs/*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ready", error_code: null, result: MOCK_UPLOAD }) })
   );
   await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_STATE) })
@@ -129,8 +133,11 @@ test.describe("Upload flow", () => {
     await page.route("**/api/flow", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_CREATE) })
     );
-    await page.route("**/api/profile/upload", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_UPLOAD) })
+    await page.route("**/api/profile/import-jobs", (route) =>
+      route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ import_id: "imp-1", status: "pending" }) })
+    );
+    await page.route("**/api/profile/import-jobs/*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ready", error_code: null, result: MOCK_UPLOAD }) })
     );
 
     await page.goto("/");
