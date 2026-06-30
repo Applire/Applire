@@ -60,6 +60,76 @@ def _fit_weight(sources: set[str]) -> float:
     return KEYWORD_ONLY_WEIGHT  # keyword-only
 
 
+def split_ledger_for_prompt(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Split a Keyword Ledger into the two lists a generator prompt needs (ADR-048 §8).
+
+    Returns ``(claimable, forbidden)`` where:
+      * ``claimable`` — entries the candidate truthfully supports (``claimable`` True,
+        i.e. status direct/partial). Each carries ``concept``, ``surface_forms`` and the
+        profile ``evidence`` so the generator surfaces the term ONLY where supported.
+      * ``forbidden`` — the honest-gap concepts (``claimable`` False). These are NOT in
+        the profile and must NEVER be claimed — surfaced to the prompt as a do-not-claim
+        list only.
+
+    Pure; tolerant of ``None``/empty (legacy pre-E037 gap rows have no ledger).
+    """
+    claimable: list[dict[str, Any]] = []
+    forbidden: list[str] = []
+    for entry in keyword_ledger or []:
+        if entry.get("claimable"):
+            claimable.append(entry)
+        else:
+            concept = entry.get("concept")
+            if concept:
+                forbidden.append(concept)
+    return claimable, forbidden
+
+
+def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
+    """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
+    generators (ADR-048 §8 / US200/US201).
+
+    States the grounding-outranks-coverage precedence, lists each CLAIMABLE concept with
+    its literal surface forms + the profile evidence that supports it, and lists the
+    honest-gap concepts under an explicit DO NOT CLAIM heading. Returns "" when the ledger
+    is empty so legacy callers and pre-E037 rows add nothing.
+    """
+    claimable, forbidden = split_ledger_for_prompt(keyword_ledger)
+    if not claimable and not forbidden:
+        return ""
+
+    lines: list[str] = [
+        "KEYWORD LEDGER (ADR-048) — grounding strictly OUTRANKS coverage:",
+        "Surface a claimable keyword ONLY where the listed profile evidence supports it; "
+        "if surfacing it would need any stretch, drop it. These are estimates of an "
+        "unknowable target, so do NOT over-stuff. NEVER claim a do-not-claim term.",
+        "",
+        "CLAIMABLE (supported by the profile — surface these, using the evidence as your basis):",
+    ]
+    if claimable:
+        for entry in claimable:
+            forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
+            evidence = entry.get("evidence", "") or "(no extra evidence given)"
+            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}] — evidence: {evidence}")
+    else:
+        lines.append("  (none)")
+
+    lines += [
+        "",
+        "DO NOT CLAIM (honest gaps — NOT in the profile; never present these as something "
+        "the candidate has, has done, or knows):",
+    ]
+    if forbidden:
+        for concept in forbidden:
+            lines.append(f"  - {concept}")
+    else:
+        lines.append("  (none)")
+
+    return "\n".join(lines)
+
+
 def build_keyword_ledger(
     classifications: list[dict[str, Any]],
     required_skills: list[str],
