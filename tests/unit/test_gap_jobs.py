@@ -79,3 +79,111 @@ def test_gap_job_schemas_shape():
 
     poll = GapJobStatusResponse(gap_job_id=gid, status="failed", error_code="llm_timeout")
     assert poll.result is None and poll.error_code == "llm_timeout"
+
+
+# --- Task 3: service -------------------------------------------------------
+
+
+def test_classify_gap_error_maps_stable_codes():
+    from applire.services.gap_jobs import classify_gap_error
+
+    assert classify_gap_error(LLMTimeoutError("slow")) == "llm_timeout"
+    assert classify_gap_error(LookupError("no profile")) == "gap_not_found"
+    assert classify_gap_error(RuntimeError("boom")) == "gap_failed"
+
+
+@pytest.mark.asyncio
+async def test_create_gap_job_is_pending(factory):
+    from applire.services.gap_jobs import create_gap_job
+
+    jid = uuid.uuid4()
+    async with factory() as db:
+        job = await create_gap_job(db, job_analysis_id=jid, user_id=None)
+    assert job.status == GapJobStatus.pending.value
+    assert job.job_analysis_id == jid
+
+
+@pytest.mark.asyncio
+async def test_create_gap_job_dedups_inflight(factory):
+    from applire.services.gap_jobs import create_gap_job
+
+    jid = uuid.uuid4()
+    async with factory() as db:
+        first = await create_gap_job(db, job_analysis_id=jid, user_id=None)
+        second = await create_gap_job(db, job_analysis_id=jid, user_id=None)
+    assert second.id == first.id  # reused the in-flight pending job, no duplicate LLM run
+
+
+@pytest.mark.asyncio
+async def test_create_gap_job_no_dedup_across_jobs(factory):
+    from applire.services.gap_jobs import create_gap_job
+
+    async with factory() as db:
+        a = await create_gap_job(db, job_analysis_id=uuid.uuid4(), user_id=None)
+        b = await create_gap_job(db, job_analysis_id=uuid.uuid4(), user_id=None)
+    assert a.id != b.id  # different jobs → separate gap jobs
+
+
+@pytest.mark.asyncio
+async def test_get_gap_job_idor_scoped(factory):
+    from applire.services.gap_jobs import create_gap_job, get_gap_job
+
+    async with factory() as db:
+        job = await create_gap_job(db, job_analysis_id=uuid.uuid4(), user_id=UID)
+        jid = job.id
+    other = uuid.uuid4()
+    async with factory() as db:
+        assert await get_gap_job(db, jid, user_id=other) is None  # foreign → hidden
+        assert await get_gap_job(db, jid, user_id=UID) is not None
+        assert await get_gap_job(db, uuid.uuid4(), user_id=UID) is None  # unknown id
+
+
+@pytest.mark.asyncio
+async def test_run_background_success_points_at_row_and_marks_ready(factory):
+    from types import SimpleNamespace
+
+    from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
+
+    job_analysis_id = uuid.uuid4()
+    async with factory() as db:
+        job = await create_gap_job(db, job_analysis_id=job_analysis_id, user_id=UID)
+        gid = job.id
+
+    analysis_id = uuid.uuid4()
+    fake = AsyncMock(return_value=SimpleNamespace(id=analysis_id))
+    with patch("applire.services.gap.analyze_gaps", new=fake), patch(
+        "applire.services.gap_jobs.get_provider"
+    ):
+        await run_gap_job_background(gid, job_analysis_id, UID, session_factory=factory)
+
+    async with factory() as db:
+        job = await get_gap_job(db, gid, user_id=UID)
+    assert job.status == GapJobStatus.ready.value
+    assert job.error_code is None
+    assert job.result_gap_analysis_id == analysis_id
+    # analyze_gaps was called with the job_analysis_id (idempotency lives inside it).
+    assert fake.call_args.args[0] == job_analysis_id
+
+
+@pytest.mark.asyncio
+async def test_run_background_failure_is_clean(factory):
+    from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
+
+    job_analysis_id = uuid.uuid4()
+    async with factory() as db:
+        job = await create_gap_job(db, job_analysis_id=job_analysis_id, user_id=UID)
+        gid = job.id
+
+    fake = AsyncMock(side_effect=LLMTimeoutError("slow"))
+    with patch("applire.services.gap.analyze_gaps", new=fake), patch(
+        "applire.services.gap_jobs.get_provider"
+    ):
+        # must not raise
+        await run_gap_job_background(gid, job_analysis_id, UID, session_factory=factory)
+
+    async with factory() as db:
+        job = await get_gap_job(db, gid, user_id=UID)
+    assert job.status == GapJobStatus.failed.value
+    assert job.error_code == "llm_timeout"
+    assert job.result_gap_analysis_id is None
+    assert job.error_message  # raw text kept internally
