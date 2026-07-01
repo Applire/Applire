@@ -18,18 +18,24 @@
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
+from applire.models.gap_job import GapJobStatus
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.gap import GapAnalysisResponse
+from applire.schemas.gap import (
+    GapAnalysisResponse,
+    GapJobResponse,
+    GapJobStatusResponse,
+)
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
 from applire.services.gap import analyze_gaps
+from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
 from applire.services.job import analyze_jd
 from applire.services.scraper import ScraperError, scrape_job_url
 
@@ -187,28 +193,60 @@ async def get_latest_gap_analysis(
 
 
 @router.post(
-    "/{job_id}/gaps",
-    response_model=GapAnalysisResponse,
+    "/{job_id}/gap-jobs",
+    response_model=GapJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_gap_analysis_endpoint(
+    job_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> GapJobResponse:
+    """Start an async gap analysis and return a handle immediately (202).
+
+    The heavy classification + clustering LLM work runs in a background task, so the gaps
+    screen can no longer block ~2 min or 504 fragilely. Poll
+    GET /api/job/{job_id}/gap-jobs/{gap_job_id} until status is ``ready`` or ``failed``.
+    Idempotency (migration 0040 input_fingerprint) is preserved: the background task calls
+    the same analyze_gaps, which reuses a matching gap_analyses row and skips the LLM.
+    """
+    user = await auth.get_current_user(request)
+    job = await create_gap_job(db, job_analysis_id=job_id, user_id=user.id)
+    background_tasks.add_task(run_gap_job_background, job.id, job_id, user.id)
+    return GapJobResponse(gap_job_id=job.id, status=GapJobStatus(job.status))
+
+
+@router.get(
+    "/{job_id}/gap-jobs/{gap_job_id}",
+    response_model=GapJobStatusResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_gap_analysis(
+async def get_gap_job_status_endpoint(
     job_id: uuid.UUID,
+    gap_job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
-) -> GapAnalysisResponse:
-    try:
-        return await analyze_gaps(job_id, db, provider)
-    except LLMTimeoutError as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
-    except LLMRateLimitError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
-    except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except json.JSONDecodeError:
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> GapJobStatusResponse:
+    """Poll an async gap analysis. 404 if unknown or owned by another user (IDOR guard)."""
+    from applire.models.gap import GapAnalysis
+
+    user = await auth.get_current_user(request)
+    job = await get_gap_job(db, gap_job_id, user_id=user.id)
+    if job is None:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned invalid JSON",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Gap job not found"
         )
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    result = None
+    if job.status == GapJobStatus.ready.value and job.result_gap_analysis_id is not None:
+        gap = await db.get(GapAnalysis, job.result_gap_analysis_id)
+        if gap is not None:
+            result = GapAnalysisResponse.model_validate(gap)
+    return GapJobStatusResponse(
+        gap_job_id=job.id,
+        status=GapJobStatus(job.status),
+        error_code=job.error_code,
+        result=result,
+    )
