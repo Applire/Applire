@@ -55,25 +55,25 @@ export function PreDownloadNotice({ redFlags, canSuppress, onConfirm, onCancel }
   return (
     <section
       data-testid="predownload-notice"
-      className="rounded-xl border border-white/10 bg-surface p-5 shadow-lg"
+      className="rounded-xl border border-outline-variant bg-white p-5 shadow-xl"
     >
       <div className="flex items-start gap-3">
         <AlertTriangle aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-foreground">{t("title")}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t("warning")}</p>
+          <h3 className="text-base font-semibold text-on-surface">{t("title")}</h3>
+          <p className="mt-1 text-sm text-on-surface-variant">{t("warning")}</p>
         </div>
       </div>
 
       {hasRedFlags && (
         <div className="mt-4">
-          <p className="text-sm font-medium text-foreground">{t("redFlagsIntro", { count: redFlags.length })}</p>
-          <ul data-testid="predownload-redflags" className="mt-2 space-y-2">
+          <p className="text-sm font-medium text-on-surface">{t("redFlagsIntro", { count: redFlags.length })}</p>
+          <ul data-testid="predownload-redflags" className="mt-2 max-h-64 space-y-2 overflow-y-auto">
             {redFlags.map((change, i) => (
               <li
                 key={`${change.section}-${change.field}-${i}`}
                 data-testid="predownload-redflag-row"
-                className="rounded-lg border border-warning/20 bg-warning/5 p-3 text-sm text-foreground"
+                className="rounded-lg border border-warning/40 bg-warning-container p-3 text-sm text-on-surface"
               >
                 {change.rationale}
               </li>
@@ -85,12 +85,12 @@ export function PreDownloadNotice({ redFlags, canSuppress, onConfirm, onCancel }
       {showCheckbox && (
         <label
           data-testid="predownload-dontshowagain"
-          className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+          className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-on-surface-variant"
         >
           <input
             type="checkbox"
             data-testid="predownload-dontshowagain-input"
-            className="h-4 w-4 rounded border-white/20"
+            className="h-4 w-4 rounded border-outline-variant"
             checked={dontShowAgain}
             onChange={(e) => setDontShowAgain(e.target.checked)}
           />
