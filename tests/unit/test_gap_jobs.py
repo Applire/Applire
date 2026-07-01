@@ -65,3 +65,17 @@ async def test_gap_job_defaults_to_pending(factory):
     assert job.job_analysis_id == jid
     assert job.user_id == UID
     assert job.result_gap_analysis_id is None
+
+
+# --- Task 2: schemas -------------------------------------------------------
+
+
+def test_gap_job_schemas_shape():
+    from applire.schemas.gap import GapJobResponse, GapJobStatusResponse
+
+    gid = uuid.uuid4()
+    resp = GapJobResponse(gap_job_id=gid, status="pending")
+    assert resp.gap_job_id == gid and resp.status == "pending"
+
+    poll = GapJobStatusResponse(gap_job_id=gid, status="failed", error_code="llm_timeout")
+    assert poll.result is None and poll.error_code == "llm_timeout"

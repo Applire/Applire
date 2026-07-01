@@ -17,6 +17,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -68,3 +69,32 @@ class GapAnalysisResponse(BaseModel):
     def _ledger_none_to_empty(cls, v):
         # Legacy gap_analyses rows (pre-E037) have NULL keyword_ledger.
         return v or []
+
+
+_GAP_JOB_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
+
+
+class GapJobResponse(BaseModel):
+    """Response for POST /api/job/{job_id}/gap-jobs — the async gap-analysis handle.
+
+    The kick-off returns immediately; the heavy LLM analysis runs in a background task
+    (so the gaps screen can't block ~2 min or 504 fragilely). Poll
+    GET /api/job/{job_id}/gap-jobs/{gap_job_id} until status is ``ready`` or ``failed``.
+    """
+
+    gap_job_id: uuid.UUID
+    status: _GAP_JOB_STATUS
+
+
+class GapJobStatusResponse(BaseModel):
+    """Response for GET /api/job/{job_id}/gap-jobs/{gap_job_id} (async gap-analysis poll).
+
+    ``result`` carries the same GapAnalysisResponse the synchronous path returned,
+    populated when status == ``ready``. On ``failed``, ``error_code`` is a stable machine
+    code the frontend localizes — the raw provider text is never surfaced.
+    """
+
+    gap_job_id: uuid.UUID
+    status: _GAP_JOB_STATUS
+    error_code: str | None = None
+    result: GapAnalysisResponse | None = None
