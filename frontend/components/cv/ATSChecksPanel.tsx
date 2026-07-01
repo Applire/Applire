@@ -25,7 +25,15 @@ import { Button } from "@/components/ui/button";
 type ATSCheck = { id: string; status: "pass" | "fail"; details?: string | null };
 export type ATSReport = {
   checks: ATSCheck[];
-  keywords: { present: string[]; missing: string[] };
+  keywords: {
+    present: string[];
+    missing: string[];
+    // US203 (ADR-048): a missing keyword the candidate HAS per the Keyword Ledger
+    // (a surfacing miss — fixable) vs one they genuinely lack (an honest gap, never
+    // something to fabricate). Optional for back-compat with legacy reports.
+    missing_claimable?: string[];
+    missing_honest_gap?: string[];
+  };
 } | null;
 
 // Strip trailing numeric index (e.g. "work-1" → "work", "education-2" → "education", "body-3" → "body")
@@ -118,6 +126,15 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   const total = present + report.keywords.missing.length;
   const coverageLabel = t("keywordCoverage", { present, total });
 
+  // US203: split missing keywords into claimable (held but absent — fixable by surfacing)
+  // vs honest gap (not in the profile). Legacy reports without the buckets fall back to
+  // showing the flat missing list as honest gaps so nothing regresses.
+  // A report is "bucketed" once the backend annotated it (US203). Legacy reports lack the
+  // fields entirely and fall back to a single flat missing line.
+  const isBucketed = report.keywords.missing_claimable !== undefined;
+  const missingClaimable = report.keywords.missing_claimable ?? [];
+  const missingHonestGap = report.keywords.missing_honest_gap ?? [];
+
   return (
     <>
       <section
@@ -146,17 +163,40 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
               </span>
               {failed.length === 0 ? t("structureOk") : t("structureIssues", { count: failed.length })}
             </p>
-            {report.keywords.missing.length > 0 && (
+            {missingClaimable.length > 0 && (
               <p
-                data-testid="ats-keywords-missing"
-                className="truncate text-xs text-on-surface-variant"
+                data-testid="ats-keywords-missing-claimable"
+                className="text-xs text-on-surface-variant"
               >
-                {t("missingKeywords", { count: report.keywords.missing.length })}
+                {t("missingClaimable", { count: missingClaimable.length })}
                 {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
                 {" "}
-                <span className="text-on-surface">{report.keywords.missing.join(", ")}</span>
+                <span className="text-on-surface">{missingClaimable.join(", ")}</span>
               </p>
             )}
+            {missingHonestGap.length > 0 && (
+              <p
+                data-testid="ats-keywords-missing-honest-gap"
+                className="text-xs text-on-surface-variant"
+              >
+                {t("missingHonestGap", { count: missingHonestGap.length })}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                {" "}
+                <span className="text-on-surface">{missingHonestGap.join(", ")}</span>
+              </p>
+            )}
+            {/* Back-compat sentinel: a legacy report (no buckets) still renders a flat line */}
+            {!isBucketed && report.keywords.missing.length > 0 && (
+                <p
+                  data-testid="ats-keywords-missing"
+                  className="truncate text-xs text-on-surface-variant"
+                >
+                  {t("missingKeywords", { count: report.keywords.missing.length })}
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                  {" "}
+                  <span className="text-on-surface">{report.keywords.missing.join(", ")}</span>
+                </p>
+              )}
           </div>
 
           <Button
@@ -271,13 +311,40 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
               <p data-testid="ats-drawer-coverage" className="text-sm text-on-surface-variant">
                 {coverageLabel}
               </p>
-              {report.keywords.missing.length > 0 && (
-                <p data-testid="ats-drawer-missing" className="text-sm text-on-surface-variant">
-                  {t("missingKeywords", { count: report.keywords.missing.length })}
-                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
-                  {" "}
-                  <span className="text-on-surface">{report.keywords.missing.join(", ")}</span>
-                </p>
+              {isBucketed ? (
+                <>
+                  {missingClaimable.length > 0 && (
+                    <p
+                      data-testid="ats-drawer-missing-claimable"
+                      className="text-sm text-on-surface-variant"
+                    >
+                      {t("missingClaimable", { count: missingClaimable.length })}
+                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                      {" "}
+                      <span className="text-on-surface">{missingClaimable.join(", ")}</span>
+                    </p>
+                  )}
+                  {missingHonestGap.length > 0 && (
+                    <p
+                      data-testid="ats-drawer-missing-honest-gap"
+                      className="text-sm text-on-surface-variant"
+                    >
+                      {t("missingHonestGap", { count: missingHonestGap.length })}
+                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                      {" "}
+                      <span className="text-on-surface">{missingHonestGap.join(", ")}</span>
+                    </p>
+                  )}
+                </>
+              ) : (
+                report.keywords.missing.length > 0 && (
+                  <p data-testid="ats-drawer-missing" className="text-sm text-on-surface-variant">
+                    {t("missingKeywords", { count: report.keywords.missing.length })}
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                    {" "}
+                    <span className="text-on-surface">{report.keywords.missing.join(", ")}</span>
+                  </p>
+                )
               )}
             </div>
           </aside>

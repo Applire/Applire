@@ -41,11 +41,59 @@ async def test_import_folds_synonym_role_into_existing():
 
 
 @pytest.mark.asyncio
-async def test_import_ambiguity_becomes_conflict():
-    stub = _Stub({"ops":[],"ambiguities":[{"op":"request_confirmation","question":"Same role?","options":["Yes","No"]}]})
+async def test_import_ambiguity_becomes_confirmation_not_conflict():
+    """E037 PQ #4 — a RequestConfirmation ambiguity must surface through the
+    confirmation channel (question + each option as its own option), NOT be
+    force-coerced into the 2-value Conflict shape (which garbled the dialog:
+    section='', the whole question swallowed into `field`, and the option list
+    comma-joined into `incoming_value`)."""
+    stub = _Stub({"ops": [], "ambiguities": [{
+        "op": "request_confirmation",
+        "question": "Is 'Lead Developer' at applire the same role as your existing 'Founder' entry?",
+        "options": ["Keep as separate roles", "Merge into existing role", "Replace existing role"],
+    }]})
     result = await reconcile_import(MasterProfileData(), MasterProfileData(), "cv_upload", stub)
+
+    # The ambiguity rides the confirmation channel, intact.
+    assert len(result.pending_confirmations) == 1
+    pc = result.pending_confirmations[0]
+    assert pc.question == (
+        "Is 'Lead Developer' at applire the same role as your existing 'Founder' entry?"
+    )
+    # Each option is preserved as its own selectable option (3 distinct buttons),
+    # never comma-joined into one string.
+    assert pc.options == [
+        "Keep as separate roles", "Merge into existing role", "Replace existing role"
+    ]
+    assert pc.source == "cv_upload"
+
+    # The old garble path is gone: no Conflict is manufactured from the ambiguity.
+    assert result.conflicts == []
+    # Belt-and-braces: there is no Conflict with the empty-section / list-valued
+    # incoming_value signature the malformed coercion produced.
+    for c in result.conflicts:
+        assert c.section != ""
+        assert not isinstance(c.incoming_value, list)
+
+
+@pytest.mark.asyncio
+async def test_import_real_flag_conflict_still_surfaces_as_conflict():
+    """A genuine two-value FlagConflict (existing vs incoming) is unaffected — it
+    still surfaces on the conflict channel; only RequestConfirmation ambiguities
+    move to confirmations."""
+    existing = MasterProfileData(work_experience=[WorkEntry(company="Acme", role="Engineer", start_date="2020-01")])
+    wid = existing.work_experience[0].id
+    incoming = MasterProfileData(work_experience=[WorkEntry(company="Acme", role="Engineer", start_date="2019-06")])
+    stub = _Stub({"ops": [
+        {"op": "upsert_work", "ref": "w1", "target": wid, "company": "Acme", "role": "Engineer"},
+        {"op": "flag_conflict", "target": wid, "field": "start_date",
+         "existing": "2020-01", "incoming": "2019-06"},
+    ], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "cv_upload", stub)
     assert len(result.conflicts) == 1
-    assert result.conflicts[0].source == "cv_upload"
+    assert result.conflicts[0].field == "start_date"
+    assert result.conflicts[0].incoming_value == "2019-06"
+    assert result.pending_confirmations == []
 
 
 @pytest.mark.asyncio

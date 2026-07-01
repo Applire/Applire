@@ -505,20 +505,23 @@ export default function GapsPage({
           }
         }
 
+        // E037 PQ #3 (match-score stability): a screen load READS the cached
+        // analysis — it must never recompute, or the deterministic score wobbles
+        // across mounts. GET returns the latest stored row; only when none exists
+        // yet (404) do we create exactly one with a POST. (The backend POST is
+        // now idempotent too, so even a stray POST returns the same row — this is
+        // belt-and-braces.) Recompute is reserved for the explicit retry button
+        // and the post-interview-answer /gaps/refresh path.
         let gapData: GapAnalysis;
-        if (fs.gap_summary?.gap_analysis_id) {
-          const gRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`);
-          if (gRes.ok) {
-            gapData = await gRes.json();
-          } else {
-            const postRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`, { method: "POST" });
-            if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
-            gapData = await postRes.json();
-          }
-        } else {
+        const gRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`);
+        if (gRes.ok) {
+          gapData = await gRes.json();
+        } else if (gRes.status === 404) {
           const postRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`, { method: "POST" });
           if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
           gapData = await postRes.json();
+        } else {
+          throw new Error(await apiErrorMessage(gRes));
         }
         setGaps(gapData);
         setMatchScore(gapData.match_score ? Math.round(gapData.match_score * 100) : 0);

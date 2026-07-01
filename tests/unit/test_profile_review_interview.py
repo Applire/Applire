@@ -143,6 +143,49 @@ class TestConflictClusterHelpers:
 
 
 # ===========================================================================
+# Part 1b — confirmation-cluster helpers (E037 PQ #4, N-option import ambiguity)
+# ===========================================================================
+
+
+class TestConfirmationClusterHelpers:
+    def test_is_confirmation_cluster_recognises_the_prefix(self):
+        from applire.services.interview_graph import (
+            is_confirmation_cluster,
+            is_conflict_cluster,
+        )
+
+        cid = "confirmation:" + uuid.uuid4().hex
+        assert is_confirmation_cluster(cid) is True
+        assert is_confirmation_cluster("conflict:" + uuid.uuid4().hex) is False
+        # The two pseudo-gap kinds are disjoint.
+        assert is_conflict_cluster(cid) is False
+
+    def test_build_confirmation_clusters_keeps_question_and_all_options(self):
+        from applire.services.interview_graph import build_confirmation_clusters
+
+        cid = uuid.uuid4().hex[:12]
+        options = ["Keep as separate roles", "Merge into existing role", "Replace existing role"]
+        ids, categories, by_id = build_confirmation_clusters(
+            [{
+                "confirmation_id": cid,
+                "question": "Is 'Lead Developer' the same role as your 'Founder' entry?",
+                "options": options,
+            }],
+            lang="en",
+        )
+        assert ids == [f"confirmation:{cid}"]
+        # A confirmation carries its own category, distinct from JD C/B and conflicts.
+        assert categories[ids[0]] not in ("C", "B")
+        entry = by_id[ids[0]]
+        assert entry["confirmation_id"] == cid
+        # The full question is preserved verbatim (never truncated into a field label).
+        assert entry["question"] == "Is 'Lead Developer' the same role as your 'Founder' entry?"
+        # Each option is a distinct selectable choice — 3 buttons, never comma-joined.
+        assert entry["choices"] == options
+        assert len(entry["choices"]) == 3
+
+
+# ===========================================================================
 # Part 2 — session wiring (in-memory SQLite, no Docker)
 # ===========================================================================
 
@@ -426,3 +469,129 @@ class TestProfileReviewConflictResolution:
         assert state.job_id is None
         assert state.status == "active"
         assert state.current_question
+
+
+def _make_profile_with_confirmations(*confirmations):
+    """A MasterProfile whose metadata carries unresolved pending confirmations
+    (E037 PQ #4 — N-option import-time ambiguities)."""
+    from applire.models.profile import MasterProfile
+
+    pending = [
+        {
+            "confirmation_id": c["confirmation_id"],
+            "question": c["question"],
+            "options": c["options"],
+            "source": c.get("source", "cv:other.pdf"),
+            "resolved": False,
+        }
+        for c in confirmations
+    ]
+    return MasterProfile(profile_json={
+        "personal_info": {"name": "Max Muster", "email": "max@example.de"},
+        "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
+        "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
+        "education": [{"institution": "TU", "degree": "MSc", "field": "CS"}],
+        "professional_summary": {"en": "Experienced engineer"},
+        "metadata": {"pending_conflicts": [], "pending_confirmations": pending, "enrichment_history": []},
+    })
+
+
+def _confirmation(question="Is 'Lead Developer' the same role as your 'Founder' entry?",
+                  options=("Keep as separate roles", "Merge into existing role", "Replace existing role")):
+    return {
+        "confirmation_id": uuid.uuid4().hex[:12],
+        "question": question,
+        "options": list(options),
+    }
+
+
+class TestProfileReviewConfirmationSurfacing:
+    @pytest.mark.asyncio
+    async def test_import_ambiguity_surfaces_as_clean_question_with_all_options(self, sqlite_session):
+        """E037 PQ #4 — the regression: a 3-option import ambiguity must render as a
+        clean question with each option a selectable choice, NOT a garbled string."""
+        from applire.services.session import create_profile_review_session
+
+        opts = ["Keep as separate roles", "Merge into existing role", "Replace existing role"]
+        prof = _make_profile_with_confirmations(
+            _confirmation(question="Is 'Lead Developer' at applire the same role as 'Founder'?", options=opts)
+        )
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+
+        resp = await create_profile_review_session(sqlite_session, provider)
+
+        # The whole question is shown intact (not truncated, not swallowing options).
+        assert resp.first_question == "Is 'Lead Developer' at applire the same role as 'Founder'?"
+        # All three options are distinct, selectable choices — never comma-joined.
+        assert resp.choices == opts
+        assert resp.gaps_total == 1
+        # Deterministic — no LLM consulted for confirmation surfacing.
+        assert provider.acomplete.await_count == 0
+        assert provider.aparse_json.await_count == 0
+        # NONE of the garble markers appear in the surfaced text.
+        assert "currently ''" not in resp.first_question
+        assert "two values for ." not in resp.first_question
+
+    @pytest.mark.asyncio
+    async def test_choosing_an_option_resolves_the_confirmation_and_advances(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.session import create_profile_review_session, send_message
+
+        c1 = _confirmation()
+        prof = _make_profile_with_confirmations(c1)
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+        created = await create_profile_review_session(sqlite_session, provider)
+
+        resp = await send_message(
+            created.session_id, "Merge into existing role", sqlite_session, provider
+        )
+
+        # The confirmation is resolved and removed from the pending list.
+        refreshed = await sqlite_session.get(MasterProfile, prof.id)
+        data = MasterProfileData.model_validate(refreshed.profile_json)
+        pending = [c for c in data.metadata.pending_confirmations if not c.resolved]
+        assert pending == []
+        # A manual_edit enrichment record captures the answer (ADR-013 trail).
+        assert any(r.source == "manual_edit" for r in data.metadata.enrichment_history)
+        # Only one confirmation, so the session completes.
+        assert resp.complete is True
+
+    @pytest.mark.asyncio
+    async def test_conflicts_and_confirmations_coexist_in_one_review(self, sqlite_session):
+        """A profile with BOTH a 2-value conflict and an N-option confirmation walks
+        both — conflicts first, then confirmations."""
+        from applire.models.profile import MasterProfile
+        from applire.services.session import create_profile_review_session, send_message
+
+        prof = _make_profile_with_conflicts(
+            _conflict(field="name", existing="Max Muster", incoming="Markus Brandt")
+        )
+        # Attach a confirmation alongside the conflict.
+        meta = prof.profile_json["metadata"]
+        conf = _confirmation()
+        meta["pending_confirmations"] = [{
+            "confirmation_id": conf["confirmation_id"],
+            "question": conf["question"],
+            "options": conf["options"],
+            "source": "cv:other.pdf",
+            "resolved": False,
+        }]
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(prof, "profile_json")
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+
+        created = await create_profile_review_session(sqlite_session, provider)
+        assert created.gaps_total == 2
+
+        # Resolve the conflict first → advances to the confirmation question.
+        resp = await send_message(created.session_id, "keep current", sqlite_session, provider)
+        assert resp.complete is False
+        assert resp.question == conf["question"]
+        assert resp.choices == conf["options"]

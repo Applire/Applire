@@ -188,3 +188,111 @@ def compute_match_score(
         "minor_gaps": minor_gaps,
         "requirement_breakdown": breakdown,
     }
+
+
+def compute_match_score_from_ledger(
+    ledger: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compute the match score from the Keyword Ledger (ADR-048 §5, US199).
+
+    Re-sources the ADR-035 score from the ledger's fit-weighted slice — the
+    single source of truth — instead of a parallel classification list. The
+    formula and weights are unchanged from :func:`compute_match_score`: only the
+    input moves. Each ledger entry with ``fit_weight > 0`` is one requirement
+    slot — ``required`` source → slot 1.0, otherwise nice_to_have → slot 0.5 —
+    and ``status`` drives the earning factor (direct 1.0, partial 0.5, gap 0.0).
+    Keyword-only entries (``fit_weight == 0``) never affect the score.
+
+    Args:
+        ledger: Keyword Ledger entries, each with keys ``concept``, ``sources``,
+            ``fit_weight``, and ``status``.
+
+    Returns:
+        The same dict shape as :func:`compute_match_score`:
+            match_score, category_a, category_b, category_c,
+            critical_gaps, minor_gaps, requirement_breakdown.
+        ``match_score`` is ``None`` when there are no fit-weighted entries.
+    """
+    category_a: list[str] = []
+    category_b: list[str] = []
+    category_c: list[str] = []
+    critical_gaps: list[str] = []
+    minor_gaps: list[str] = []
+    breakdown: list[dict[str, Any]] = []
+
+    earned_total = 0.0
+    n_total = 0.0
+
+    for entry in ledger:
+        slot = entry.get("fit_weight", 0.0)
+        # Keyword-only entries carry no fit weight — they drive ATS coverage,
+        # never the fit score (mirrors compute_match_score's slot model).
+        if not slot:
+            continue
+
+        concept = entry.get("concept", "")
+        source = "required" if "required" in entry.get("sources", []) else "nice_to_have"
+
+        status = entry.get("status", "gap")
+        if status not in _FACTOR:
+            logger.warning(
+                "compute_match_score_from_ledger: unknown status %r for %r, treating as gap",
+                status,
+                concept,
+            )
+            status = "gap"
+
+        factor = _FACTOR[status]
+        earned = slot * factor
+
+        n_total += slot
+        earned_total += earned
+
+        # Categorise — identical rules to compute_match_score (ADR-035): a
+        # `partial` on a required slot is half-credit and goes to minor_gaps.
+        if status == "direct":
+            category_a.append(concept)
+        elif status == "partial":
+            category_b.append(concept)
+            minor_gaps.append(concept)
+        else:  # gap
+            category_c.append(concept)
+            if source == "required":
+                critical_gaps.append(concept)
+            else:
+                minor_gaps.append(concept)
+
+        breakdown.append(
+            {
+                "requirement": concept,
+                "source": source,
+                "status": status,
+                "slot": slot,
+                "earned": earned,
+                "reason": entry.get("evidence", ""),
+            }
+        )
+
+    if n_total == 0.0:
+        return {
+            "match_score": None,
+            "category_a": [],
+            "category_b": [],
+            "category_c": [],
+            "critical_gaps": [],
+            "minor_gaps": [],
+            "requirement_breakdown": [],
+        }
+
+    raw_score = earned_total / n_total
+    match_score = max(0.0, min(1.0, raw_score))  # algebraically bounded to [0,1]; clamped defensively
+
+    return {
+        "match_score": match_score,
+        "category_a": category_a,
+        "category_b": category_b,
+        "category_c": category_c,
+        "critical_gaps": critical_gaps,
+        "minor_gaps": minor_gaps,
+        "requirement_breakdown": breakdown,
+    }

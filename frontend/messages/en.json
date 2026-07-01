@@ -780,6 +780,8 @@
     "unavailable": "ATS report not available for this document.",
     "keywordCoverage": "{present} of {total} job keywords present",
     "missingKeywords": "Missing keywords ({count}):",
+    "missingClaimable": "Supported by your profile but not yet in the document ({count}):",
+    "missingHonestGap": "Not supported by your profile — an honest gap ({count}):",
     "structureOk": "ATS structure — all checks passed",
     "structureIssues": "{count, plural, one {# ATS check failed} other {# ATS checks failed}}",
     "detailsButton": "Details",

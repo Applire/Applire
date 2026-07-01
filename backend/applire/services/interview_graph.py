@@ -540,6 +540,49 @@ def build_conflict_clusters(
     return cluster_ids, categories, by_id
 
 
+# ── E037 PQ #4 — confirmation clusters (N-option import ambiguities) ───────────
+
+CONFIRMATION_CATEGORY = "CONFIRMATION"
+_CONFIRMATION_PREFIX = "confirmation:"
+
+
+def is_confirmation_cluster(cluster_id: str) -> bool:
+    """True if a critical-gaps entry is a pending-confirmation pseudo-gap."""
+    return isinstance(cluster_id, str) and cluster_id.startswith(_CONFIRMATION_PREFIX)
+
+
+def build_confirmation_clusters(
+    confirmations: list[dict],
+    lang: str = "en",  # noqa: ARG001 — question/options are pre-localised by the engine
+) -> tuple[list[str], dict, dict]:
+    """Turn unresolved reconciler ambiguities into profile-review pseudo-clusters.
+
+    ``confirmations`` items: ``{confirmation_id, question, options}``. Unlike a
+    conflict cluster (a deterministic 2-choice keep/use prompt), a confirmation
+    carries the engine's own free-text question plus its N options verbatim — each
+    option becomes one selectable choice. Returns the GapDetector-shaped
+    ``(ids, categories, clusters_by_id)`` so the ids can populate ``critical_gaps``.
+    """
+    cluster_ids: list[str] = []
+    categories: dict[str, str] = {}
+    by_id: dict[str, dict] = {}
+    for c in confirmations:
+        cid = f"{_CONFIRMATION_PREFIX}{c['confirmation_id']}"
+        options = list(c.get("options") or [])
+        cluster_ids.append(cid)
+        categories[cid] = CONFIRMATION_CATEGORY
+        by_id[cid] = {
+            "id": cid,
+            "kind": "confirmation",
+            "confirmation_id": c["confirmation_id"],
+            "question": c["question"],
+            "label": c["question"],
+            "choices": options,
+            "options": options,
+        }
+    return cluster_ids, categories, by_id
+
+
 def interpret_conflict_answer(answer: str, existing_value, incoming_value) -> str:
     """Map an answer to ``"existing" | "incoming" | "unclear"``.
 

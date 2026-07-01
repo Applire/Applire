@@ -185,6 +185,7 @@ async def generate_cv_segmented(
     *,
     output_language: str,
     provider: "LLMProvider",
+    keyword_ledger: list[dict] | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -224,7 +225,7 @@ async def generate_cv_segmented(
         w["id"] = w.get("id") or f"w{i}"
 
     directive = await provider.aparse_json(
-        build_outline_prompt(job_analysis, profile, output_language),
+        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger),
         system=OUTLINE_SYSTEM_PROMPT,
         temperature=0.3,
         max_tokens=budget,
@@ -233,7 +234,9 @@ async def generate_cv_segmented(
     work_entries: list[dict] = []
     for w in work_src:
         section = await provider.aparse_json(
-            build_work_section_prompt(w, directive, job_analysis, keyword_gaps, output_language),
+            build_work_section_prompt(
+                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger
+            ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=budget,
@@ -253,7 +256,9 @@ async def generate_cv_segmented(
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
     )
     skills_res = await provider.aparse_json(
-        build_skills_prompt(directive, job_analysis, profile, keyword_gaps, output_language),
+        build_skills_prompt(
+            directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger
+        ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
     )
     edu_res = await provider.aparse_json(
@@ -298,22 +303,28 @@ async def _tailor_cv_with_fallback(
     *,
     output_language: str,
     provider: "LLMProvider",
+    keyword_ledger: list[dict] | None = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
     the single large call and switch to segmented on truncation/timeout rather than doubling
     the budget into a timeout (the US188 'switch to segmented' recovery). The returned draft
-    is fed to the same coherence + language review as before by the caller."""
+    is fed to the same coherence + language review as before by the caller.
+
+    ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
+    claimable-vs-forbidden keyword split."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
+            keyword_ledger=keyword_ledger,
         )
     try:
         return await provider.aparse_json(
             build_user_prompt(
                 job_analysis, profile, keyword_gaps, critical_gaps,
                 output_language=output_language,
+                keyword_ledger=keyword_ledger,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -327,6 +338,7 @@ async def _tailor_cv_with_fallback(
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
+            keyword_ledger=keyword_ledger,
         )
 
 
@@ -765,6 +777,9 @@ async def _render_cv_background(
             gap = gap_result.scalar_one_or_none()
             keyword_gaps: list[str] = gap.keyword_gaps if gap else []
             critical_gaps: list[str] = gap.critical_gaps if gap else []
+            # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
+            # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
+            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
 
             job_dict = {
                 "role_title": job.role_title,
@@ -796,9 +811,17 @@ async def _render_cv_background(
                 critical_gaps,
                 output_language=resolve_jd_language(job),
                 provider=provider,
+                keyword_ledger=keyword_ledger,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
+            # ADR-048 / US202: route the Keyword Ledger to the reviewer so it can report
+            # absent-claimable keywords (the bounded ADR-047 loop then acts) and flag any
+            # forbidden honest-gap concept surfaced as a claim. Grounding outranks coverage.
+            from applire.services.keyword_ledger import render_ledger_reviewer_block
+            ledger_block = render_ledger_reviewer_block(keyword_ledger)
+            if ledger_block:
+                source_material = f"{source_material}\n\n{ledger_block}"
 
             tailored_raw = await review_and_refine(
                 source=source_material,
@@ -838,12 +861,18 @@ async def _render_cv_background(
             record.content_snapshot = build_content_snapshot(tailored)
 
             record.tailored_data = tailored.model_dump()
-            record.status = CVGenerationStatus.ready.value
             record.error_message = None
             record.error_code = None
-            await db.commit()
-
-            await _update_ats_report(record, db)   # ADR-039
+            # ADR-039 + E037 PQ #2 (ATS "not available" race): persist the audit in the
+            # SAME commit that flips status to 'ready', so "ready implies report available".
+            # The frontend fetches the report once with no retry — if status went 'ready'
+            # before the report was written, that single fetch read NULL and showed
+            # "unavailable" permanently. status is set in memory FIRST so get_cv_html
+            # (which is ready-guarded) sees it via autoflush; _update_ats_report issues
+            # the one commit. An audit failure is non-fatal: it leaves ats_report NULL but
+            # still commits status='ready'.
+            record.status = CVGenerationStatus.ready.value
+            await _update_ats_report(record, db)   # ADR-039 — commits status + report together
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -901,6 +930,25 @@ async def _html_to_pdf(html: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+    """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
+
+    Mirrors the generation-path gap query. Used by the ATS audit to bucket missing
+    keywords; ``None`` for legacy pre-E037 rows (then all missing default to honest-gap).
+    """
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    gap = result.scalar_one_or_none()
+    return (gap.keyword_ledger or []) if gap else None
+
+
 async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
     """ADR-039: render → extract → audit → persist.
 
@@ -922,8 +970,11 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
         tailored = apply_overrides_to_tailored(
             tailored, record.content_snapshot, record.section_overrides
         )
+        # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
+        # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
+        ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
         record.ats_report = audit_cv(
-            pdf, tailored, list(job.keywords or []) if job else []
+            pdf, tailored, list(job.keywords or []) if job else [], ledger
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -947,5 +998,15 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
     from applire.schemas.ats import ATSReport, ATSReportResponse
 
     record = await _load_cv(cv_id, db)   # raises LookupError → 404 in the router
-    report = ATSReport.model_validate(record.ats_report) if record.ats_report else None
+    # E037 PQ #2 hardening: a non-conforming stored report must degrade to report:null,
+    # never raise (which would surface as an HTTP 500 the frontend can't recover from).
+    report = None
+    if record.ats_report:
+        try:
+            report = ATSReport.model_validate(record.ats_report)
+        except Exception:
+            logger.warning(
+                "Stored ATS report for CV %s is malformed — returning report=null", record.id
+            )
+            report = None
     return ATSReportResponse(document_id=record.id, status=record.status, report=report)

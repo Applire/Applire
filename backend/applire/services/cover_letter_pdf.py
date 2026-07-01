@@ -30,10 +30,16 @@ from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
 from applire.services.cover_letter import get_cover_letter_html
 
 
-async def render_pdf(cl_id: uuid.UUID) -> bytes:
-    """Render the cover letter to PDF using Playwright. Returns raw PDF bytes."""
+async def render_pdf(cl_id: uuid.UUID, allow_unready: bool = False) -> bytes:
+    """Render the cover letter to PDF using Playwright. Returns raw PDF bytes.
+
+    ``allow_unready`` (E037 PQ #2): the generation path renders the smoke PDF while the
+    letter is still 'generating' — the ATS audit must complete BEFORE status flips to
+    'ready' so "ready implies report available". Pass-through to the HTML renderer's
+    status guard. Default False keeps the public download path ready-only.
+    """
     async with AsyncSessionLocal() as db:
-        html = await get_cover_letter_html(cl_id, db)
+        html = await get_cover_letter_html(cl_id, db, require_ready=not allow_unready)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()

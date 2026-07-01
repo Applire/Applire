@@ -395,6 +395,52 @@ class TestCVExtractionReviewerPrecision:
         assert "date" in low and "null" in low
 
 
+class TestCVTailoringReviewerLedgerChecks:
+    """E037 US202 — the CV grounding reviewer must additionally (a) report which
+    claimable Keyword-Ledger terms are ABSENT from the draft (the bounded ADR-047
+    refine loop then acts on them — no new loop, no forced injection), and (b) flag
+    any forbidden honest-gap concept that appears as a claim (strengthens the
+    fabrication check). The claimable set itself rides in via the reviewer SOURCE."""
+
+    def test_system_prompt_instructs_absent_claimable_check(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "claimable" in low
+        assert "absent" in low or "missing" in low
+
+    def test_system_prompt_instructs_forbidden_claim_check(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        # the do-not-claim / forbidden honest-gap concept must never appear as a claim
+        assert "do not claim" in low or "do-not-claim" in low or "forbidden" in low
+
+    def test_system_prompt_keeps_grounding_outranks_coverage(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        # ADR-048 §8: never push fabrication to chase a claimable term
+        assert "outrank" in low or "never fabricat" in low or "do not fabricat" in low or "not invent" in low
+
+
+class TestCoverLetterReviewerLedgerChecks:
+    """E037 US202 — cover-letter twin of the CV reviewer ledger checks."""
+
+    def test_system_prompt_instructs_absent_claimable_check(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "claimable" in low
+        assert "absent" in low or "missing" in low
+
+    def test_system_prompt_instructs_forbidden_claim_check(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "do not claim" in low or "do-not-claim" in low or "forbidden" in low
+
+    def test_system_prompt_keeps_grounding_outranks_coverage(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "outrank" in low or "never fabricat" in low or "do not fabricat" in low or "not invent" in low
+
+
 class TestCVTailoringGeneratorPrompts:
     def test_build_user_prompt_returns_nonempty_string(self):
         from applire.prompts.cv_tailoring import build_user_prompt
@@ -532,6 +578,76 @@ class TestCVServiceReviewIntegration:
         assert any(c.get("chain_id") == "cv_language" for c in calls), \
             "CV language-review pass not wired into generation"
 
+    @pytest.mark.asyncio
+    async def test_grounding_review_source_carries_claimable_ledger(self):
+        """US202: the claimable Keyword-Ledger terms must reach the grounding reviewer
+        via its source, so the reviewer can report absent-claimable + forbidden claims."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        profile_json = {
+            "work_history": [{"company": "Acme", "role": "Dev", "start_date": "2020", "end_date": None, "bullets": []}],
+            "skills": ["Python"], "education": [], "languages": [],
+            "contact": {"name": "Max", "email": None, "phone": None, "location": None, "linkedin": None},
+            "personal_info": {},
+        }
+        tailored_raw = {
+            "contact": {"name": "Max", "email": None, "phone": None, "location": None, "linkedin": None},
+            "summary": "Dev.",
+            "work_history": [{"company": "Acme", "role": "Dev", "start_date": "2020", "end_date": None, "bullets": []}],
+            "skills": ["Python"], "education": [], "languages": [],
+        }
+        ledger = [
+            {"concept": "Kubernetes", "surface_forms": ["Kubernetes", "K8s"], "claimable": True,
+             "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "8y"},
+            {"concept": "Rust", "surface_forms": ["Rust"], "claimable": False,
+             "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+        ]
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cv = MagicMock(); mock_cv.status = "pending"
+        mock_job = MagicMock()
+        mock_job.role_title = "Dev"; mock_job.required_skills = []; mock_job.nice_to_have_skills = []
+        mock_job.keywords = []; mock_job.seniority_level = ""; mock_job.company_culture_signals = []
+        mock_job.language_requirement = ""
+        mock_profile = MagicMock(); mock_profile.profile_json = profile_json
+
+        mock_gap = MagicMock()
+        mock_gap.keyword_gaps = []; mock_gap.critical_gaps = []; mock_gap.keyword_ledger = ledger
+
+        mock_db = AsyncMock()
+        mock_db.get.side_effect = lambda model, id_: {
+            cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+        }[id_]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_gap
+        mock_db.execute.return_value = mock_result
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = tailored_raw
+
+        with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+             patch("applire.services.cv.get_provider", return_value=mock_provider), \
+             patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+             patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+            mock_session_local.return_value.__aenter__.return_value = mock_db
+            from applire.services.cv import _render_cv_background
+            await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+        grounding = [c for c in calls if c.get("chain_id") == "cv_tailoring"]
+        assert grounding, "grounding reviewer not called"
+        src = grounding[0]["source"]
+        assert "Kubernetes" in src and "K8s" in src   # claimable term + surface form surfaced
+        assert "Rust" in src                          # forbidden honest-gap surfaced
+
 
 # ---------------------------------------------------------------------------
 # US170 (#54): cover-letter grounding reviewer prompts + service integration
@@ -660,10 +776,13 @@ class TestCoverLetterServiceReviewIntegration:
         mock_profile = MagicMock()
         mock_profile.profile_json = {"work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"]}
 
-        # The render loads cl, job, cv, profile — four db.execute() → scalar_one_or_none()
-        # calls in order. One shared result object carries the sequence.
+        # The render loads cl, job, cv, profile, then the Keyword Ledger gap (US201) —
+        # five db.execute() → scalar_one_or_none() calls in order. One shared result
+        # object carries the sequence; None gap = pre-E037 row, no ledger.
         shared_result = MagicMock()
-        shared_result.scalar_one_or_none.side_effect = [mock_cl, mock_job, mock_cv, mock_profile]
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, None,
+        ]
 
         mock_db = AsyncMock()
         mock_db.execute.return_value = shared_result
@@ -699,3 +818,71 @@ class TestCoverLetterServiceReviewIntegration:
         # the system clock AFTER review — the LLM value never survives to the document.
         assert mock_cl.letter_data["recipient"]["date"] != "10. Oktober 2023"
         assert "2026" in mock_cl.letter_data["recipient"]["date"]
+
+    @pytest.mark.asyncio
+    async def test_review_source_carries_claimable_ledger(self):
+        """US202: the cover-letter grounding reviewer's source must carry the claimable
+        Keyword-Ledger terms (and the forbidden honest-gap concepts)."""
+        import json
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {
+            "contact": {"name": "Max Muster"}, "summary": "Backend developer.",
+            "work_history": [{"company": "Acme GmbH", "role": "Software Developer",
+                              "start_date": "2020-01", "end_date": "2022-12",
+                              "bullets": ["Built REST APIs"]}],
+            "skills": ["Python", "FastAPI"],
+        }
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We are hiring a Backend Engineer."
+        mock_job.company_name = "Roche"; mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {"work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"]}
+
+        ledger = [
+            {"concept": "Kubernetes", "surface_forms": ["Kubernetes", "K8s"], "claimable": True,
+             "status": "direct", "sources": ["required"], "fit_weight": 1.0, "evidence": "8y"},
+            {"concept": "Rust", "surface_forms": ["Rust"], "claimable": False,
+             "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+        ]
+        mock_gap = MagicMock(); mock_gap.keyword_ledger = ledger
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="de"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": "Dr. Müller"}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls, "review_and_refine was not called"
+        src = calls[0]["source"]
+        assert "Kubernetes" in src and "K8s" in src
+        assert "Rust" in src

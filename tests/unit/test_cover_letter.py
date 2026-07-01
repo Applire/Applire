@@ -236,6 +236,97 @@ def test_system_prompt_states_grounding_contract():
     assert "candidate profile" in low or "candidate data" in low
 
 
+def test_system_prompt_forbids_claiming_gaps_in_possessive_framing():
+    """E037 PQ #1 (HARD blocker) — for a weak-fit job the letter wrote
+    'I ... have a proven track record in incident management and cloud platform
+    engineering', both honest GAPS. The CV stayed honest because CV Rule 3 forbids
+    incorporating a keyword gap unless explicitly demonstrated. The cover-letter
+    SYSTEM_PROMPT must carry the equivalent hard rule: a competency/skill/track-record
+    may be asserted ONLY where it traces to a profile bullet or a CLAIMABLE ledger
+    entry, and JD requirement terms / DO-NOT-CLAIM concepts must NEVER appear in a
+    possessive 'have / proven track record in / expertise in' framing — only motivation."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    # the exact failure phrasing class must be named and forbidden
+    assert "track record" in low
+    assert "proven track record" in low
+    # the enumerated forbidden possessive framings (at least these representative ones)
+    assert "expertise in" in low
+    assert "experienced in" in low
+    # a claim must trace to a profile bullet / claimable ledger evidence
+    assert "bullet" in low
+    assert "claimable" in low
+    # DO-NOT-CLAIM concepts must be named as never-claimable
+    assert "do-not-claim" in low or "do not claim" in low
+    # the only permitted framing for a non-evidenced requirement is motivation/eagerness
+    assert "motivation" in low or "grow into" in low or "eager" in low
+
+
+def test_build_cover_letter_prompt_routes_gap_to_do_not_claim_and_grounds_profile():
+    """E037 PQ #1 — build_cover_letter_prompt must (a) feed grounded profile material
+    (real work-history bullets, not just the thin summary) so achievements come from
+    real history, and (b) route a not-claimable ledger concept under DO NOT CLAIM and
+    NEVER list it among the claimable keywords."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    cv_data = {
+        "contact": {"name": "Marcus Bauer"},
+        "summary": "QA specialist",
+        "skills": ["Test Automation", "Selenium"],
+        "work_history": [
+            {
+                "role": "QA Engineer",
+                "company": "Roche",
+                "start_date": "2019",
+                "end_date": "2024",
+                "bullets": [
+                    "Built automated regression suites for diagnostics software",
+                    "Led test strategy for release pipelines",
+                ],
+            }
+        ],
+    }
+    ledger = [
+        {
+            "concept": "Test Automation",
+            "surface_forms": ["Test Automation"],
+            "claimable": True,
+            "status": "direct",
+            "sources": ["required"],
+            "fit_weight": 1.0,
+            "evidence": "Built automated regression suites",
+        },
+        {
+            "concept": "Incident Management",
+            "surface_forms": ["Incident Management"],
+            "claimable": False,
+            "status": "gap",
+            "sources": ["required"],
+            "fit_weight": 1.0,
+            "evidence": "",
+        },
+    ]
+    prompt = build_cover_letter_prompt(
+        cv_data=cv_data,
+        jd_text="We need incident management and cloud platform engineering experience.",
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+    )
+
+    # (a) grounded profile material present — a real bullet, not only the summary
+    assert "Built automated regression suites for diagnostics software" in prompt
+
+    # (b) gap concept routed under DO NOT CLAIM, not listed as claimable
+    claimable_start = prompt.index("CLAIMABLE (supported")
+    do_not_claim_idx = prompt.index("DO NOT CLAIM", claimable_start)
+    claimable_listing = prompt[claimable_start:do_not_claim_idx]
+    assert "Test Automation" in claimable_listing
+    assert "Incident Management" not in claimable_listing
+    assert "Incident Management" in prompt[do_not_claim_idx:]
+
+
 # ---------------------------------------------------------------------------
 # Task 8 — Generation service
 # ---------------------------------------------------------------------------

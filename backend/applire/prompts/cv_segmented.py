@@ -34,6 +34,16 @@ def _language_name(output_language: str) -> str:
     return "GERMAN" if output_language == "de" else "ENGLISH"
 
 
+def _ledger_section(keyword_ledger: list[dict] | None) -> str:
+    """Render the shared Keyword Ledger prompt block (ADR-048 / US200) as a trailing
+    section, or "" when there is no ledger. Imported lazily to avoid a prompts→services
+    import at module load."""
+    from applire.services.keyword_ledger import render_ledger_prompt_block
+
+    block = render_ledger_prompt_block(keyword_ledger)
+    return f"{block}\n\n" if block else ""
+
+
 # Shared truthfulness + language discipline, injected into every section prompt.
 _CORE_RULES = """\
 - Do NOT add achievements, technologies, projects, metrics, or facts not explicitly present
@@ -68,11 +78,14 @@ Respond ONLY with a JSON object — no markdown:
 }}"""
 
 
-def build_outline_prompt(job_analysis: dict, profile: dict, output_language: str) -> str:
+def build_outline_prompt(
+    job_analysis: dict, profile: dict, output_language: str, keyword_ledger: list[dict] | None = None
+) -> str:
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+        f"{_ledger_section(keyword_ledger)}"
         "Return the tailoring directive JSON."
     )
 
@@ -97,7 +110,12 @@ Respond ONLY with a JSON object — no markdown:
 
 
 def build_work_section_prompt(
-    entry: dict, directive: dict, job_analysis: dict, keyword_gaps: list[str], output_language: str
+    entry: dict,
+    directive: dict,
+    job_analysis: dict,
+    keyword_gaps: list[str],
+    output_language: str,
+    keyword_ledger: list[dict] | None = None,
 ) -> str:
     theme = (directive.get("per_role_themes") or {}).get(entry.get("id"), "")
     return (
@@ -106,6 +124,7 @@ def build_work_section_prompt(
         f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"THIS WORK ENTRY:\n{json.dumps(entry, ensure_ascii=False, indent=2)}\n\n"
+        f"{_ledger_section(keyword_ledger)}"
         f"KEYWORD GAPS (use only where explicitly supported by this entry):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the tailored bullets + nested projects JSON for this entry only."
@@ -153,13 +172,19 @@ Respond ONLY with a JSON object — no markdown: {{"skills": [string]}}"""
 
 
 def build_skills_prompt(
-    directive: dict, job_analysis: dict, profile: dict, keyword_gaps: list[str], output_language: str
+    directive: dict,
+    job_analysis: dict,
+    profile: dict,
+    keyword_gaps: list[str],
+    output_language: str,
+    keyword_ledger: list[dict] | None = None,
 ) -> str:
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SKILLS TO FOREGROUND: {json.dumps(directive.get('skills_focus') or [], ensure_ascii=False)}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+        f"{_ledger_section(keyword_ledger)}"
         f"KEYWORD GAPS (include only where explicitly demonstrated):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the skills JSON."

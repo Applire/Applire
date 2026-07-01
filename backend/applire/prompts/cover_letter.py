@@ -60,11 +60,27 @@ Rules:
   * Never invent employers, companies, job titles, degrees, certifications, or named projects.
   * Never invent achievements, metrics, team sizes, budgets, or technologies the candidate has not
     stated, and never overstate the seniority/impact the candidate data supports.
-  * The JOB DESCRIPTION states what the employer WANTS — it is NOT a source of facts about the
-    candidate. Express motivation and fit using only what the candidate data actually contains;
-    do not claim the candidate already has a requirement that the candidate data does not show.
+  * The JOB DESCRIPTION states what the employer WANTS — it is NOT a source of NEW facts about
+    the candidate. Express motivation and fit using only what the candidate data actually
+    contains; do not claim the candidate already has a requirement the candidate data does not show.
   When in doubt, leave it out — write a sincere letter from the real material rather than a
   stronger letter from invented material.
+- KEYWORD LEDGER (ADR-048) — when a KEYWORD LEDGER appears in the user message, grounding
+  strictly OUTRANKS coverage. The CLAIMABLE entries each carry the profile EVIDENCE that
+  supports them: surface those terms from the candidate's own material where the evidence
+  fits, never as a stretch and without over-stuffing. The DO-NOT-CLAIM entries are honest
+  gaps absent from the profile — never present them as something the candidate has or knows.
+- CLAIM FRAMING (the why-me / achievements paragraph is where fabrication creeps in — this is
+  the cover-letter equivalent of the CV's keyword-gap rule):
+  You may assert a competency, skill, tool, domain, or "track record" ONLY where it traces to a
+  specific BULLET in the CANDIDATE PROFILE (or to a CLAIMABLE keyword-ledger entry's evidence).
+  A JOB DESCRIPTION requirement term, and ANY DO-NOT-CLAIM concept, must NEVER appear in a
+  possessive / competence framing — never "I have", "I have done", "I have a proven track record
+  in", "experienced in", "proven track record in", "fluent in", "expertise in", "skilled in",
+  "background in", "well-versed in", or any equivalent that asserts the candidate already
+  possesses it. For a requirement the candidate's profile does NOT evidence, the ONLY permitted
+  framing is forward-looking MOTIVATION — eagerness to grow into, contribute to, or develop the
+  area. When the profile does not evidence a strength, do not assert it; express interest instead.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
@@ -81,6 +97,7 @@ def build_cover_letter_prompt(
     jd_text: str,
     pre_gen_inputs: dict[str, Any],
     detected_language: str,
+    keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -89,6 +106,9 @@ def build_cover_letter_prompt(
     jd_text: job.raw_text
     pre_gen_inputs: dict with keys salary, availability, motivation, tone, recipient_name, recipient_company.
     detected_language: 'de' or 'en'
+    keyword_ledger: the GapAnalysis Keyword Ledger (ADR-048 / US201). Claimable terms carry
+        their profile evidence (surface where supported); honest gaps are do-not-claim.
+        Omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -102,16 +122,21 @@ def build_cover_letter_prompt(
     skills = cv_data.get("skills", [])
     work_history = cv_data.get("work_history", [])
 
-    # Build a condensed profile snippet (top 3 work entries, top 10 skills)
+    # E037 PQ #1: feed the letter GROUNDED profile material instead of a thin snippet.
+    # The old top-3-entries / 2-bullets condensation starved the why-me paragraph of real
+    # achievements, so the LLM sourced them from the JD's requirement language (fabrication).
+    # Carry the real work history (up to 6 entries × 6 bullets) and a generous skill list so
+    # achievements are drawn from the candidate's actual record; the JD is trimmed harder
+    # below to rebalance the profile-vs-JD ratio. Token budget stays sane.
     work_snippet = ""
-    for entry in work_history[:3]:
+    for entry in work_history[:6]:
         work_snippet += f"- {entry.get('role', '')} at {entry.get('company', '')} ({entry.get('start_date', '')}–{entry.get('end_date', 'present')})\n"
-        for bullet in entry.get("bullets", [])[:2]:
+        for bullet in entry.get("bullets", [])[:6]:
             work_snippet += f"  • {bullet}\n"
 
     skills_snippet = ", ".join(
         s if isinstance(s, str) else s.get("name", "")
-        for s in skills[:10]
+        for s in skills[:20]
     ) if skills else "—"
 
     lines = [
@@ -128,8 +153,19 @@ def build_cover_letter_prompt(
         "Recent experience:",
         work_snippet.strip(),
         "",
-        "=== JOB DESCRIPTION ===",
-        jd_text[:3000],  # truncate very long JDs
+        "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
+        jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
+    ]
+
+    # ADR-048 §8 / US201: the Keyword Ledger — claimable terms (with profile evidence) to
+    # surface, honest gaps never to claim. Grounding strictly outranks coverage.
+    from applire.services.keyword_ledger import render_ledger_prompt_block
+
+    ledger_block = render_ledger_prompt_block(keyword_ledger)
+    if ledger_block:
+        lines += ["", ledger_block]
+
+    lines += [
         "",
         "=== PRE-GENERATION INPUTS ===",
         f"Recipient name: {recipient_name or '(extract from JD or use generic salutation)'}",

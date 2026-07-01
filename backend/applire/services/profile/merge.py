@@ -33,6 +33,7 @@ from applire.schemas.profile import (
     Conflict,
     FieldChange,
     MasterProfileData,
+    PendingConfirmation,
     WorkEntry,
 )
 
@@ -48,6 +49,11 @@ class MergeResult:
     changes: list[FieldChange] = field(default_factory=list)
     # US161 (ADR-041 amended) — per-entity {extracted, stored, delta}; observational.
     reconciliation: dict[str, dict[str, int]] = field(default_factory=dict)
+    # E037 PQ #4 — import-time reconciler ambiguities (N-option questions). Carried
+    # on their own channel rather than coerced into the 2-value `conflicts` shape,
+    # so they surface as a clean question + per-option buttons in the profile-review
+    # interview instead of a garbled string.
+    pending_confirmations: list[PendingConfirmation] = field(default_factory=list)
 
 
 _LEGAL_SUFFIXES = frozenset({
