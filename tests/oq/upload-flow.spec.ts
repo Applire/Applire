@@ -68,8 +68,17 @@ async function setupUploadMocks(page: Page) {
   await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_STATE) })
   );
+  // Gaps page GET-cached read (after the overlay advances and navigates to /gaps).
   await page.route(`**/api/job/${JOB_ID}/gaps`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_GAP_ANALYSIS) })
+  );
+  // Async gap-analysis job (E037 N2): the overlay POSTs a handle (202), then polls
+  // until ready. Register the poll route (more specific) before the start route.
+  await page.route(`**/api/job/${JOB_ID}/gap-jobs/*`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ gap_job_id: "gj-1", status: "ready", error_code: null, result: MOCK_GAP_ANALYSIS }) })
+  );
+  await page.route(`**/api/job/${JOB_ID}/gap-jobs`, (route) =>
+    route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ gap_job_id: "gj-1", status: "pending" }) })
   );
   await page.route(`**/api/flow/${FLOW_ID}/advance`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_ADVANCE) })

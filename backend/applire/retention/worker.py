@@ -151,6 +151,25 @@ async def _purge_import_jobs(db: AsyncSession) -> int:
         return 0
 
 
+async def _purge_gap_jobs(db: AsyncSession) -> int:
+    """Hard-delete async gap-analysis jobs past their (short) TTL. Ephemeral handles
+    consumed by the polling UI within minutes; expires_at keeps the table from growing
+    unbounded (E037 N2 — async gap analysis)."""
+    # Bind the ISO-8601 string (not the datetime): SQLite compares TEXT timestamps
+    # lexically and an ISO string sorts correctly, while Postgres casts it to timestamptz.
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        result = await db.execute(
+            text("DELETE FROM gap_analysis_jobs WHERE expires_at < :now AND deleted_at IS NULL"),
+            {"now": now},
+        )
+        await db.commit()
+        return result.rowcount  # type: ignore[return-value]
+    except (ProgrammingError, OperationalError):
+        await db.rollback()
+        return 0
+
+
 async def _tombstone_inactive_profiles(db: AsyncSession) -> int:
     """Soft-delete master profiles inactive for ≥ 24 months."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=_INACTIVITY_TTL_DAYS)
@@ -297,6 +316,7 @@ async def run() -> None:
         cover_letters_deleted = await _purge_cover_letters(db)
         stale_cl_jobs_failed = await _reap_stale_cl_jobs(db)
         import_jobs_deleted = await _purge_import_jobs(db)
+        gap_jobs_deleted = await _purge_gap_jobs(db)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -310,5 +330,6 @@ async def run() -> None:
         "generated_cover_letters_deleted": cover_letters_deleted,
         "stale_cl_jobs_failed": stale_cl_jobs_failed,
         "cv_import_jobs_deleted": import_jobs_deleted,
+        "gap_analysis_jobs_deleted": gap_jobs_deleted,
     }
     print(json.dumps(report), flush=True)

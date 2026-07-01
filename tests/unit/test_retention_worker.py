@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS cv_import_jobs (
     expires_at TEXT NOT NULL,
     deleted_at TEXT
 );
+CREATE TABLE IF NOT EXISTS gap_analysis_jobs (
+    id TEXT PRIMARY KEY,
+    job_analysis_id TEXT NOT NULL,
+    user_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_code TEXT,
+    error_message TEXT,
+    result_gap_analysis_id TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    deleted_at TEXT
+);
 """
 
 
@@ -265,6 +277,46 @@ async def test_purge_import_jobs_returns_zero_when_table_absent(db):
     await db.execute(text("DROP TABLE cv_import_jobs"))
     await db.commit()
     assert await _purge_import_jobs(db) == 0
+
+
+# ---------------------------------------------------------------------------
+# E037 N2 — gap_analysis_jobs (short TTL)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_gap_job(db: AsyncSession, *, expires_at: datetime, deleted_at: datetime | None = None) -> str:
+    jid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO gap_analysis_jobs "
+            "(id, job_analysis_id, status, created_at, expires_at, deleted_at) "
+            "VALUES (:id, :jaid, 'ready', :now, :exp, :del)"
+        ),
+        {"id": jid, "jaid": _uid(), "now": _ts(_now()), "exp": _ts(expires_at),
+         "del": _ts(deleted_at) if deleted_at else None},
+    )
+    await db.commit()
+    return jid
+
+
+@pytest.mark.asyncio
+async def test_purge_gap_jobs_deletes_expired(db):
+    from applire.retention.worker import _purge_gap_jobs
+
+    await _seed_gap_job(db, expires_at=_ago(hours=1))
+    await _seed_gap_job(db, expires_at=_now() + timedelta(hours=23))
+
+    deleted = await _purge_gap_jobs(db)
+    assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_gap_jobs_returns_zero_when_table_absent(db):
+    from applire.retention.worker import _purge_gap_jobs
+
+    await db.execute(text("DROP TABLE gap_analysis_jobs"))
+    await db.commit()
+    assert await _purge_gap_jobs(db) == 0
 
 
 # ---------------------------------------------------------------------------

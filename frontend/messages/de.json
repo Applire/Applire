@@ -109,6 +109,7 @@
     "jdMissingBannerFetch": "Wir konnten die Stelle nicht laden — sie ist möglicherweise blockiert oder nicht mehr verfügbar. Füge den Text ein.",
     "addJobDescription": "Stellenbeschreibung hinzufügen →",
     "analyzing": "Profil wird analysiert…",
+    "analysisError": "Bei der Analyse deines Profils ist etwas schiefgelaufen. Bitte versuche es erneut.",
     "masterProfileCreated": "Master-Profil erstellt",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
