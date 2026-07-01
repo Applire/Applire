@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createRef } from "react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { SectionEditor } from "../SectionEditor";
+import { SectionEditor, type SectionEditorHandle } from "../SectionEditor";
 
 const MOCK_SECTION = {
   section_id: "introduction",
@@ -80,6 +81,37 @@ describe("SectionEditor", () => {
     fireEvent.click(screen.getByTestId("section-save"));
     expect(screen.getByTestId("save-cv-only-btn")).toBeTruthy();
     expect(screen.getByTestId("save-to-profile-btn")).toBeTruthy();
+  });
+
+  it("injectSuggestion(text, false) loads the text into the editor, unsaved", () => {
+    const ref = createRef<SectionEditorHandle>();
+    const onUnsavedChange = vi.fn();
+    render(withIntl(<SectionEditor {...BASE_PROPS} ref={ref} onUnsavedChange={onUnsavedChange} />));
+    act(() => ref.current!.injectSuggestion("Kaile rewrite", false));
+    const textarea = screen.getByTestId("section-textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Kaile rewrite");
+    expect((screen.getByTestId("section-save") as HTMLButtonElement).disabled).toBe(false);
+    expect(onUnsavedChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("injectSuggestion(text, true) saves immediately with the injected text", async () => {
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ html: "<html/>", overrides_applied: [], resolved_gaps: [] }),
+    } as Response);
+    sessionStorage.setItem("finetune_save_scope", "cv");
+    const ref = createRef<SectionEditorHandle>();
+    render(withIntl(<SectionEditor {...BASE_PROPS} ref={ref} />));
+    act(() => ref.current!.injectSuggestion("Applied text", true));
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/sections/introduction"),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ content: "Applied text", save_to_profile: false }),
+        })
+      );
+    });
   });
 
   it("Save calls PATCH with correct payload after scope selection", async () => {

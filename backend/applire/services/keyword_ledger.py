@@ -81,11 +81,54 @@ def _is_token_prefix_dup(a_tokens: list[str], b_tokens: list[str]) -> bool:
     return long[: len(short)] == short
 
 
-def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse token-prefix duplicate concepts that share the same status (E037 F2).
+def _surface_norm_set(entry: dict[str, Any]) -> set[str]:
+    """Normalised surface forms of an entry, including its own concept name."""
+    forms = entry.get("surface_forms") or [entry.get("concept", "")]
+    s = {_norm(f) for f in forms if _norm(f)}
+    s.add(_norm(entry.get("concept", "")))
+    s.discard("")
+    return s
 
-    The LLM often classifies both a short keyword and the JD's full requirement
-    phrase for the same skill. Left as two entries they clutter the gap list and
+
+def _surface_forms_norm(entry: dict[str, Any]) -> set[str]:
+    """Normalised surface forms only — WITHOUT the concept name folded in."""
+    forms = entry.get("surface_forms") or [entry.get("concept", "")]
+    return {_norm(f) for f in forms if _norm(f)}
+
+
+def _is_mirror_surface_dup(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """True when two entries are clearly the same concept via their surface forms.
+
+    Two independent signals, both conservative:
+
+    1. **Mutual concept membership** — each entry's canonical name appears among
+       the other's surface forms (``AI`` ↔ ``Artificial Intelligence``). A
+       one-directional overlap (``Collaborative Research`` lists ``Research`` but
+       not vice versa) is deliberately NOT enough.
+    2. **Identical surface-form sets** — the LLM emitted the same concept twice
+       under different canonical names (``Artificial Intelligence (AI)`` vs
+       ``AI``) where neither name is the other's surface form, but both list the
+       exact same forms. Distinct concepts never share an identical multi-form
+       set (``Algorithm design`` and ``Algorithm development`` do not), so this
+       stays safe from false merges.
+    """
+    a_c, b_c = _norm(a.get("concept", "")), _norm(b.get("concept", ""))
+    if not a_c or not b_c:
+        return False
+    if a_c in _surface_norm_set(b) and b_c in _surface_norm_set(a):
+        return True
+    a_sf = _surface_forms_norm(a)
+    return bool(a_sf) and a_sf == _surface_forms_norm(b)
+
+
+def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate concepts that share the same status (E037 F2 + follow-up).
+
+    The LLM often emits the same skill twice — either as a short keyword and the
+    JD's full requirement phrase (``Kubernetes`` vs ``Kubernetes (production at
+    scale)``, a *token prefix*), or as an acronym and its expansion that each list
+    the other as a surface form (``AI`` ↔ ``Artificial Intelligence``, a *mirror
+    surface-form* duplicate). Left as two entries they clutter the gap list and
     double-count the fit slot. Merge each such pair into one entry keyed by the
     *shorter* concept (the cleaner ATS label), unioning surface forms and sources,
     recomputing ``fit_weight`` from the merged sources, and keeping the first
@@ -99,7 +142,11 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
         toks = _tokens(entry.get("concept", ""))
         home = None
         for g in groups:
-            if g["status"] == entry.get("status") and _is_token_prefix_dup(toks, g["tokens"]):
+            if g["status"] != entry.get("status"):
+                continue
+            if _is_token_prefix_dup(toks, g["tokens"]) or any(
+                _is_mirror_surface_dup(entry, m) for m in g["members"]
+            ):
                 home = g
                 break
         if home is None:

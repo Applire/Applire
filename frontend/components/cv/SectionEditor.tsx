@@ -18,7 +18,7 @@
 // frontend/components/cv/SectionEditor.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useTranslations } from "next-intl";
 import { GapHint } from "./GapHint";
 import { SaveScopePrompt } from "./SaveScopePrompt";
@@ -46,7 +46,19 @@ interface SectionEditorProps {
   onAddressGap?: (gapId: string) => void;
 }
 
-export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddressGap }: SectionEditorProps) {
+/** Imperative handle so a sibling (KaileChat) can push a suggestion into the editor. */
+export interface SectionEditorHandle {
+  /**
+   * Load `text` into the textarea. When `autoSave` is true (the "Apply" action)
+   * it saves immediately through the usual scope prompt; when false ("Edit
+   * first") it leaves the text unsaved and focuses the field so the user can
+   * tweak it before saving. (ADR-040-adjacent; completes the Task 11 TODO.)
+   */
+  injectSuggestion: (text: string, autoSave: boolean) => void;
+}
+
+export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>(
+  function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddressGap }, ref) {
   const t = useTranslations("cv");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [content, setContent] = useState(section.content);
@@ -87,7 +99,29 @@ export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddre
     }
   }
 
-  async function executeSave(saveToProfile: boolean) {
+  // Push a Kaile suggestion into the editor (US089 handoff / Task 11). Apply →
+  // save straight away (honouring any remembered scope, else prompt); Edit first
+  // → load unsaved and focus for tweaking. Explicit `contentToSave` avoids the
+  // stale-closure trap on the synchronous remembered-scope save.
+  function injectSuggestion(text: string, autoSave: boolean) {
+    setContent(text);
+    onUnsavedChange(text !== savedContent);
+    setSaveError(null);
+    if (autoSave) {
+      const remembered = sessionStorage.getItem("finetune_save_scope");
+      if (remembered !== null) {
+        void executeSave(remembered === "profile", text);
+      } else {
+        setShowScopePrompt(true);
+      }
+    } else {
+      textareaRef.current?.focus();
+    }
+  }
+
+  useImperativeHandle(ref, () => ({ injectSuggestion }));
+
+  async function executeSave(saveToProfile: boolean, contentToSave: string = content) {
     setShowScopePrompt(false);
     setSaving(true);
     setSaveError(null);
@@ -99,7 +133,7 @@ export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddre
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content, save_to_profile: saveToProfile }),
+          body: JSON.stringify({ content: contentToSave, save_to_profile: saveToProfile }),
         }
       );
 
@@ -109,14 +143,14 @@ export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddre
 
       const data: { html: string; overrides_applied: string[]; resolved_gaps: string[] } =
         await res.json();
-      setSavedContent(content);
+      setSavedContent(contentToSave);
       onUnsavedChange(false);
       // Remove resolved gaps from the visible list
       if (data.resolved_gaps?.length) {
         const resolvedSet = new Set(data.resolved_gaps);
         setVisibleGaps((prev) => prev.filter((g) => !resolvedSet.has(g.id)));
       }
-      onSaved(data.html, content, data.resolved_gaps ?? []);
+      onSaved(data.html, contentToSave, data.resolved_gaps ?? []);
     } catch {
       setSaveError("Speichern fehlgeschlagen. Bitte erneut versuchen.");
       setShowPreviewStale(true);
@@ -195,4 +229,4 @@ export function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddre
       )}
     </div>
   );
-}
+});

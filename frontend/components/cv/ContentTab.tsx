@@ -18,9 +18,9 @@
 // frontend/components/cv/ContentTab.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { SectionEditor } from "./SectionEditor";
+import { SectionEditor, type SectionEditorHandle } from "./SectionEditor";
 import { KaileChat } from "./KaileChat";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -79,6 +79,9 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
   const [generalGaps, setGeneralGaps] = useState<GapHintItem[]>([]);
   const [sectionsLoading, setSectionsLoading] = useState(true);
   const [sectionsError, setSectionsError] = useState(false);
+  // Handoff from the Kaile suggestion into the section editor (Task 11).
+  const sectionEditorRef = useRef<SectionEditorHandle>(null);
+  const [kaileResetKey, setKaileResetKey] = useState(0);
 
   // Fetch sections from the CV sections endpoint
   useEffect(() => {
@@ -176,6 +179,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
         </h3>
 
         <SectionEditor
+          ref={sectionEditorRef}
           cvId={cvId}
           section={activeSection}
           onSaved={(html, savedContent, resolvedGaps) => {
@@ -201,17 +205,22 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
         />
 
         <KaileChat
+          key={kaileResetKey}
           cvId={cvId}
           sectionId={activeSection.section_id}
           gaps={activeSection.gaps}
           preSelectedGapIds={preSelectedGapIds}
-          onApply={() => {
-            // TODO (Task 11): wire suggestion into SectionEditor textarea via shared state
+          onApply={(suggestion) => {
+            // Apply = drop into the editor and save straight away.
+            sectionEditorRef.current?.injectSuggestion(suggestion, true);
+            setKaileResetKey((k) => k + 1);
           }}
-          onEditFirst={() => {
-            // TODO (Task 11): wire suggestion into SectionEditor textarea and focus
+          onEditFirst={(suggestion) => {
+            // Edit first = load into the editor unsaved and focus for tweaking.
+            sectionEditorRef.current?.injectSuggestion(suggestion, false);
+            setKaileResetKey((k) => k + 1);
           }}
-          onCancel={() => {}}
+          onCancel={() => setKaileResetKey((k) => k + 1)}
         />
       </div>
     );
