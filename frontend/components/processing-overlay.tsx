@@ -26,6 +26,7 @@ import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 import { extractApiError, translateApiError } from "@/lib/api/errors";
 import { uploadCvAsync, CVImportError } from "@/lib/import-cv";
+import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -208,9 +209,13 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       const flowState = await stateRes.json();
       const linkedJobId: string = flowState.job_id ?? jobId;
 
-      const gapRes = await fetch(`${API_BASE}/api/job/${linkedJobId}/gaps`, { method: "POST" });
-      if (!gapRes.ok) throw new Error(await apiErrorMessage(gapRes));
-      const gapData = await gapRes.json();
+      // Kick off the async gap analysis and poll to completion (this step's spinner
+      // stays active meanwhile), then advance the flow with the produced analysis id.
+      // Resilient: a 504 mid-analysis no longer drops the result and wedges the journey.
+      const gapData = await analyzeGapsAsync(linkedJobId, {
+        apiBase: API_BASE,
+        signal: abortRef.current?.signal,
+      });
 
       await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
         method: "POST",

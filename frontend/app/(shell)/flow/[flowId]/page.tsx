@@ -22,6 +22,7 @@ import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { STEP_ROUTE } from "@/lib/flow-routing";
+import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -62,18 +63,17 @@ export default function FlowIndexPage({
         // gap_analysis requires an artifact_id (the gap analysis result).
         // Run the analysis here — before advancing — so the flow stores the
         // gap_analysis_id.  This ensures the gaps page always reads a cached
-        // result instead of re-running the LLM on every load.
+        // result instead of re-running the LLM on every load. Async job + poll
+        // (E037 N2): resilient to a 504 mid-analysis that used to wedge this redirect.
         let artifactId: string | undefined;
         if (nextStep === "gap_analysis" && state.job_id) {
-          const gapRes = await fetch(`${API_BASE}/api/job/${state.job_id}/gaps`, {
-            method: "POST",
-          });
-          if (!gapRes.ok) {
+          try {
+            const gapData = await analyzeGapsAsync(state.job_id, { apiBase: API_BASE });
+            artifactId = gapData.id;
+          } catch {
             router.replace("/");
             return;
           }
-          const gapData = await gapRes.json();
-          artifactId = gapData.id;
         }
 
         const advRes = await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {

@@ -31,6 +31,7 @@ import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
+import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -517,9 +518,11 @@ export default function GapsPage({
         if (gRes.ok) {
           gapData = await gRes.json();
         } else if (gRes.status === 404) {
-          const postRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`, { method: "POST" });
-          if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
-          gapData = await postRes.json();
+          // No cached analysis yet — kick off the async job and poll instead of blocking
+          // on a synchronous ~2-min LLM call. Resilient: a 504 mid-analysis no longer
+          // wedges the screen (it lands as a failed poll → retry state). Idempotency is
+          // preserved — the background task reuses a fingerprint-matching row, no re-run.
+          gapData = (await analyzeGapsAsync(fs.job_id, { apiBase: API_BASE })) as GapAnalysis;
         } else {
           throw new Error(await apiErrorMessage(gRes));
         }
@@ -542,7 +545,13 @@ export default function GapsPage({
           // Keep defaults
         }
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Failed to load analysis");
+        setError(
+          e instanceof GapAnalysisError
+            ? t("analysisError")
+            : e instanceof Error
+              ? e.message
+              : "Failed to load analysis",
+        );
       } finally {
         setLoading(false);
       }
@@ -661,17 +670,21 @@ export default function GapsPage({
   }
 
   async function retryGapAnalysis() {
-    if (!flowState) return;
+    if (!flowState?.job_id) return;
     setError("");
     setLoading(true);
     try {
-      const postRes = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps`, { method: "POST" });
-      if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
-      const data: GapAnalysis = await postRes.json();
+      const data = (await analyzeGapsAsync(flowState.job_id, { apiBase: API_BASE })) as GapAnalysis;
       setGaps(data);
       setMatchScore(data.match_score ? Math.round(data.match_score * 100) : 0);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load analysis");
+      setError(
+        e instanceof GapAnalysisError
+          ? t("analysisError")
+          : e instanceof Error
+            ? e.message
+            : "Failed to load analysis",
+      );
     } finally {
       setLoading(false);
     }

@@ -109,6 +109,7 @@
     "jdMissingBannerFetch": "We couldn't load that job posting — it may be blocked or taken down. Paste the job description text to run gap analysis.",
     "addJobDescription": "Add job description →",
     "analyzing": "Analyzing your profile…",
+    "analysisError": "Something went wrong analyzing your profile. Please try again.",
     "masterProfileCreated": "Master Profile Created",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "jdEchoTitle": "What we read from the job ad",

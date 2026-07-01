@@ -236,8 +236,11 @@ describe("ProcessingOverlay — happy path navigation", () => {
       if (url.includes("/api/flow/flow-happy/state")) {
         return { ok: true, status: 200, json: async () => ({ job_id: "job-xyz" }) } as Response;
       }
-      if (url.includes("/api/job/job-xyz/gaps")) {
-        return { ok: true, status: 200, json: async () => ({ id: "gap-1", match_score: 0.8 }) } as Response;
+      if (url.includes("/api/job/job-xyz/gap-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: { id: "gap-1", match_score: 0.8 } }) } as Response;
+      }
+      if (url.includes("/api/job/job-xyz/gap-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ gap_job_id: "gj-1", status: "pending" }) } as Response;
       }
       if (url.includes("/api/flow/flow-happy/advance")) {
         return { ok: true, status: 200, json: async () => ({}) } as Response;
@@ -338,8 +341,11 @@ describe("ProcessingOverlay — React StrictMode double-mount (blind-PQ regressi
       if (url.includes("/api/flow/flow-sm/state")) {
         return { ok: true, status: 200, json: async () => ({ job_id: "job-sm" }) } as Response;
       }
-      if (url.includes("/api/job/job-sm/gaps")) {
-        return { ok: true, status: 200, json: async () => ({ id: "gap-1", match_score: 0.8 }) } as Response;
+      if (url.includes("/api/job/job-sm/gap-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: { id: "gap-1", match_score: 0.8 } }) } as Response;
+      }
+      if (url.includes("/api/job/job-sm/gap-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ gap_job_id: "gj-1", status: "pending" }) } as Response;
       }
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
