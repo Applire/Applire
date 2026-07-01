@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
@@ -36,6 +36,12 @@ class UserSettings(Base):
     )
     ui_language: Mapped[str] = mapped_column(
         String(5), nullable=False, server_default="en", default="en"
+    )
+    # ADR-040 (amended 2026-07-01): when true, suppress the clean-case pre-download
+    # "AI content" notice across BOTH the CV and cover-letter surfaces. A real
+    # red-flag notice is never suppressed by this.
+    hide_predownload_notice: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

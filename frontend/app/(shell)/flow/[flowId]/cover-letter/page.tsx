@@ -27,7 +27,8 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
-import { CoverLetterPreDownloadReview } from "@/components/review/CoverLetterPreDownloadReview";
+import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 
 type CLTemplate =
   | "classic_german"
@@ -69,8 +70,9 @@ export default function CoverLetterPage({
   const [showModal, setShowModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
   // US170 / ADR-040 §3/§4 — pre-download attestation nudge (nudge, not gate).
-  const [attested, setAttested] = useState(false);
-  const [showDownloadReview, setShowDownloadReview] = useState(false);
+  // ADR-040 (amended 2026-07-01): pre-download notice. A cover letter is prose, so
+  // there are never red flags — only the dismissible AI-content notice. `null` = closed.
+  const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -192,11 +194,17 @@ export default function CoverLetterPage({
     }
   }
 
-  // Route every download through the attestation nudge once (US170 / ADR-040 §4):
-  // after the user has attested, subsequent downloads go straight through.
-  function requestDownload() {
-    if (attested) void handleDownloadPdf();
-    else setShowDownloadReview(true);
+  // ADR-040 amendment: show the AI-content notice unless dismissed-forever. No red
+  // flags for prose. A settings failure degrades to "download directly" (never a gate).
+  async function requestDownload() {
+    const hideNotice = await getSettings()
+      .then((s) => s.hide_predownload_notice)
+      .catch(() => false);
+    if (hideNotice) {
+      void handleDownloadPdf();
+      return;
+    }
+    setDownloadNotice({ canSuppress: true });
   }
 
   function handleTemplateChange(_template: CLTemplate) {
@@ -266,20 +274,22 @@ export default function CoverLetterPage({
         </div>
       </div>
 
-      {showDownloadReview && (
+      {downloadNotice && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setShowDownloadReview(false)}
+          onClick={() => setDownloadNotice(null)}
           data-testid="cl-download-review-overlay"
         >
-          <div className="max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
-            <CoverLetterPreDownloadReview
-              onAttested={() => {
-                setAttested(true);
-                setShowDownloadReview(false);
+          <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <PreDownloadNotice
+              redFlags={[]}
+              canSuppress={downloadNotice.canSuppress}
+              onConfirm={(dontShowAgain) => {
+                if (dontShowAgain) void setHidePredownloadNotice(true);
+                setDownloadNotice(null);
                 void handleDownloadPdf();
               }}
-              onDismiss={() => setShowDownloadReview(false)}
+              onCancel={() => setDownloadNotice(null)}
             />
           </div>
         </div>

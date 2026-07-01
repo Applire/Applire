@@ -40,11 +40,13 @@ class SettingsResponse(BaseModel):
     default_color_profile_id: uuid.UUID | None
     default_accent_hex: str | None
     ui_language: str
+    hide_predownload_notice: bool
 
 
 class SettingsPatchRequest(BaseModel):
     default_accent_hex: str | None = None
     ui_language: Literal["de", "en"] | None = None
+    hide_predownload_notice: bool | None = None
 
 
 async def get_settings(db: AsyncSession) -> dict:
@@ -62,12 +64,14 @@ async def get_settings(db: AsyncSession) -> dict:
 
     # Build response
     ui_language = row.ui_language if row else "en"
+    hide_predownload_notice = bool(row.hide_predownload_notice) if row else False
 
     if row is None or row.default_color_profile_id is None:
         return {
             "default_color_profile_id": None,
             "default_accent_hex": None,
             "ui_language": ui_language,
+            "hide_predownload_notice": hide_predownload_notice,
         }
 
     cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -76,12 +80,14 @@ async def get_settings(db: AsyncSession) -> dict:
             "default_color_profile_id": None,
             "default_accent_hex": None,
             "ui_language": ui_language,
+            "hide_predownload_notice": hide_predownload_notice,
         }
 
     return {
         "default_color_profile_id": cp.id,
         "default_accent_hex": cp.seed_primary,
         "ui_language": ui_language,
+        "hide_predownload_notice": hide_predownload_notice,
     }
 
 
@@ -89,8 +95,9 @@ async def update_settings(
     db: AsyncSession,
     accent_hex: str | None = None,
     ui_language: str | None = None,
+    hide_predownload_notice: bool | None = None,
 ) -> dict:
-    """Service logic — upsert user settings. Both fields are optional."""
+    """Service logic — upsert user settings. All fields are optional."""
     from applire.models.user_settings import UserSettings
     from applire.models.color_profile import ColorProfile
 
@@ -120,9 +127,15 @@ async def update_settings(
     if ui_language is not None:
         row.ui_language = ui_language
 
+    if hide_predownload_notice is not None:
+        row.hide_predownload_notice = hide_predownload_notice
+
     await db.commit()
 
-    response: dict = {"ui_language": row.ui_language or "en"}
+    response: dict = {
+        "ui_language": row.ui_language or "en",
+        "hide_predownload_notice": bool(row.hide_predownload_notice),
+    }
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
         response["default_color_profile_id"] = cp.id if cp else None
@@ -154,6 +167,7 @@ async def api_patch_settings(
             db,
             accent_hex=body.default_accent_hex,
             ui_language=body.ui_language,
+            hide_predownload_notice=body.hide_predownload_notice,
         )
         return SettingsResponse(**result)
     except ValueError as exc:

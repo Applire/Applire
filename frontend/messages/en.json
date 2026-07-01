@@ -859,6 +859,14 @@
     "page": "Page {page} of {total}",
     "showing": "{from}–{to} of {total} documents"
   },
+  "predownload": {
+    "title": "Before you download",
+    "warning": "AI-generated content can have faults — please review before you submit.",
+    "redFlagsIntro": "{count, plural, one {# detail differs} other {# details differ}} from your profile — please check before submitting:",
+    "dontShowAgain": "Don't show this again",
+    "cancel": "Cancel",
+    "download": "Download"
+  },
   "review": {
     "titleExtraction": "Here's what we read from your CV",
     "titleMerge": "What we combined and assumed",

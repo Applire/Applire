@@ -30,7 +30,10 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { CVPageActionBar } from "@/components/cv/CVPageActionBar";
-import { PreDownloadReview } from "@/components/review/PreDownloadReview";
+import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import type { ReviewChange } from "@/components/review/WhatChangedReview";
+import { getCvProfileDiff } from "@/lib/api/review";
+import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -70,8 +73,11 @@ export default function CVPage({
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // US147 / ADR-040 — pre-download grounding review + attestation (nudge, not gate).
-  const [showDownloadReview, setShowDownloadReview] = useState(false);
-  const [attested, setAttested] = useState(false);
+  // ADR-040 (amended 2026-07-01): the pre-download notice. `null` = closed.
+  const [downloadNotice, setDownloadNotice] = useState<{
+    redFlags: ReviewChange[];
+    canSuppress: boolean;
+  } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
@@ -232,6 +238,30 @@ export default function CVPage({
     }
   }
 
+  // Decide whether to nudge before download (ADR-040 amendment). Show the notice
+  // when there is a real red flag (never suppressible) OR the AI-content notice
+  // hasn't been dismissed-forever; otherwise download straight away. Diff/settings
+  // failures degrade to "download directly" — a nudge must never block (ADR-040 §4).
+  async function requestDownload() {
+    if (!cvId) return;
+    let redFlags: ReviewChange[] = [];
+    let hideNotice = false;
+    try {
+      [redFlags, hideNotice] = await Promise.all([
+        getCvProfileDiff(cvId).then((d) => d.items).catch(() => []),
+        getSettings().then((s) => s.hide_predownload_notice).catch(() => false),
+      ]);
+    } catch {
+      redFlags = [];
+      hideNotice = false;
+    }
+    if (redFlags.length === 0 && hideNotice) {
+      void handleDownloadPdf();
+      return;
+    }
+    setDownloadNotice({ redFlags, canSuppress: !hideNotice });
+  }
+
   // --- Preview phase: 70/30 split ---
   if (phase === "preview" && cvId) {
     const isExpired = flowState?.cv_summary
@@ -260,34 +290,26 @@ export default function CVPage({
               flowId={flowId}
               applicationId={flowState?.application_id ?? null}
               coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
-              onDownloadPdf={() => {
-                if (attested) void handleDownloadPdf();
-                else setShowDownloadReview(true);
-              }}
+              onDownloadPdf={() => void requestDownload()}
               onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
               onNext={() => setPhase("complete")}
             />
-            {showDownloadReview && cvId && (
+            {downloadNotice && (
               <div
                 className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-8"
-                onClick={() => setShowDownloadReview(false)}
+                onClick={() => setDownloadNotice(null)}
                 data-testid="download-review-overlay"
               >
-                <div
-                  className="max-w-lg w-full max-h-[90vh] overflow-y-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <PreDownloadReview
-                    cvId={cvId}
-                    onAttested={() => {
-                      setAttested(true);
-                      setShowDownloadReview(false);
+                <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                  <PreDownloadNotice
+                    redFlags={downloadNotice.redFlags}
+                    canSuppress={downloadNotice.canSuppress}
+                    onConfirm={(dontShowAgain) => {
+                      if (dontShowAgain) void setHidePredownloadNotice(true);
+                      setDownloadNotice(null);
                       void handleDownloadPdf();
                     }}
-                    onFix={() => {
-                      setShowDownloadReview(false);
-                      router.push("/profile");
-                    }}
+                    onCancel={() => setDownloadNotice(null)}
                   />
                 </div>
               </div>

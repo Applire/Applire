@@ -120,3 +120,38 @@ class TestLanguageSettings:
         from applire.routers.settings import update_settings
         result = await update_settings(db)  # no accent_hex, no ui_language
         assert result["ui_language"] == "en"
+
+
+class TestPreDownloadNoticeSetting:
+    # ADR-040 amendment (2026-07-01): one shared user-level flag suppresses the
+    # clean-case pre-download notice across BOTH the CV and cover-letter surfaces.
+    @pytest.mark.asyncio
+    async def test_get_settings_defaults_notice_visible_when_no_row(self, db):
+        from applire.routers.settings import get_settings
+        result = await get_settings(db)
+        assert result["hide_predownload_notice"] is False
+
+    @pytest.mark.asyncio
+    async def test_patch_stores_and_returns_hide_predownload_notice(self, db):
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, hide_predownload_notice=True)
+        result = await get_settings(db)
+        assert result["hide_predownload_notice"] is True
+
+    @pytest.mark.asyncio
+    async def test_patch_can_re_enable_the_notice(self, db):
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, hide_predownload_notice=True)
+        await update_settings(db, hide_predownload_notice=False)
+        result = await get_settings(db)
+        assert result["hide_predownload_notice"] is False
+
+    @pytest.mark.asyncio
+    async def test_notice_flag_independent_of_other_fields(self, db):
+        # Setting it must not disturb ui_language / color (partial PATCH).
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, ui_language="de")
+        await update_settings(db, hide_predownload_notice=True)
+        result = await get_settings(db)
+        assert result["ui_language"] == "de"
+        assert result["hide_predownload_notice"] is True

@@ -173,7 +173,7 @@ describe("CoverLetterPage — polling loop", () => {
     );
   });
 
-  it("gates download behind the attestation nudge, then downloads on confirm (US170)", async () => {
+  it("shows the pre-download notice, then downloads on confirm (ADR-040 amended)", async () => {
     const { fireEvent } = await import("@testing-library/react");
     let pdfFetched = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -197,13 +197,13 @@ describe("CoverLetterPage — polling loop", () => {
     await act(async () => { renderPage(); });
     await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
 
-    // Clicking download opens the attestation overlay — it does NOT download yet (nudge first).
+    // Clicking download opens the notice — it does NOT download yet (nudge first).
     await act(async () => { fireEvent.click(screen.getByTestId("cl-topbar-download-btn")); });
-    expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument());
     expect(pdfFetched).toBe(false);
 
-    // Attesting proceeds with the download (nudge, not gate).
-    await act(async () => { fireEvent.click(screen.getByTestId("what-changed-confirm")); });
+    // Confirming the notice proceeds with the download (nudge, not gate).
+    await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(pdfFetched).toBe(true));
   });
 

@@ -78,11 +78,14 @@ class TestCVProfileDiff:
         diff = compute_cv_profile_diff(cv, _PROFILE)
         assert any(c.field == "start_date" and c.action == "updated" for c in diff)
 
-    def test_changed_title_flagged(self):
+    def test_changed_title_is_not_flagged(self):
+        # ADR-040 amendment (2026-07-01): a tailored title differing from the stored
+        # role is expected tailoring, not a red flag — the ADR-021 reviewer covers
+        # genuine inflation. The pre-download notice must not accuse on rewording.
         cv = _cv(work_history=[{"company": "Acme GmbH", "role": "Lead Architect",
                                 "start_date": "2020-01", "end_date": "2022-12", "bullets": []}])
         diff = compute_cv_profile_diff(cv, _PROFILE)
-        assert any(c.field == "role" and c.action == "updated" for c in diff)
+        assert not any(c.field == "role" for c in diff)
 
     def test_ungrounded_skill_flagged(self):
         cv = _cv(skills=["Python", "Kubernetes"])
