@@ -173,6 +173,119 @@ def test_keyword_only_honest_gaps_is_none_safe():
     assert keyword_only_honest_gaps([]) == []
 
 
+# ---------------------------------------------------------------------------
+# E037 polish (F2): collapse near-duplicate concepts the LLM emits as both a
+# short keyword and the JD's full requirement phrase (e.g. "Kubernetes" AND
+# "Kubernetes (production at scale)"). Left unmerged they clutter the gap list
+# AND double-count the gap slot in the fit score. Merge only a *token prefix*
+# duplicate with matching status — never a sub-token (Java/JavaScript) nor a
+# mid-phrase shared token (SaaS ⊂ Multi-tenant SaaS…) nor across statuses.
+# ---------------------------------------------------------------------------
+
+
+def test_prefix_duplicate_concepts_with_same_status_are_merged():
+    # LLM emitted both the short keyword and the full JD phrase; same gap status.
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Kubernetes", "gap", ["Kubernetes"]),
+            _cls("Kubernetes (production at scale)", "gap", ["Kubernetes at scale"]),
+        ],
+        required_skills=["Kubernetes (production at scale)"],
+        nice_to_have_skills=[],
+        keywords=["Kubernetes"],
+    )
+    kube = [e for e in ledger if "kubernetes" in e["concept"].casefold()]
+    assert len(kube) == 1, "the two Kubernetes concepts must collapse into one entry"
+    e = kube[0]
+    assert e["concept"] == "Kubernetes", "the shorter concept is the canonical label"
+    assert set(e["sources"]) == {"required", "keyword"}, "merged entry unions both sources"
+    assert e["fit_weight"] == 1.0, "required weight survives the merge"
+    # every surface form from both entries is preserved for ATS coverage
+    assert "Kubernetes" in e["surface_forms"] and "Kubernetes at scale" in e["surface_forms"]
+
+
+def test_prefix_merge_is_order_independent():
+    # Same two concepts in the opposite order still collapse to the short label.
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SRE practice (SLOs, error budgets)", "gap"),
+            _cls("SRE", "gap"),
+        ],
+        required_skills=["SRE practice (SLOs, error budgets)"],
+        nice_to_have_skills=[],
+        keywords=["SRE"],
+    )
+    sre = [e for e in ledger if "sre" in e["concept"].casefold()]
+    assert len(sre) == 1
+    assert sre[0]["concept"] == "SRE"
+
+
+def test_subtoken_prefix_is_not_merged():
+    # "Java" is a sub-token of "JavaScript", NOT a token prefix — they are
+    # distinct requirements and must both survive (the substring pitfall).
+    ledger = build_keyword_ledger(
+        classifications=[_cls("Java", "gap"), _cls("JavaScript", "gap")],
+        required_skills=["Java", "JavaScript"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+    concepts = {e["concept"] for e in ledger}
+    assert {"Java", "JavaScript"} <= concepts
+
+
+def test_mid_phrase_shared_token_is_not_merged():
+    # "SaaS" appears in the MIDDLE of "Multi-tenant SaaS platform scaling", not
+    # as a leading token — keep them separate (conservative, no false merge).
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SaaS", "gap"),
+            _cls("Multi-tenant SaaS platform scaling", "gap"),
+        ],
+        required_skills=["Multi-tenant SaaS platform scaling"],
+        nice_to_have_skills=["SaaS"],
+        keywords=[],
+    )
+    concepts = {e["concept"] for e in ledger}
+    assert "SaaS" in concepts and "Multi-tenant SaaS platform scaling" in concepts
+
+
+def test_prefix_duplicate_across_different_status_is_not_merged():
+    # A claimable form must never absorb a gap form (or vice versa): merging
+    # across status would corrupt truthfulness or the score. Keep them apart.
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Docker", "direct", evidence="shipped containers at ACME"),
+            _cls("Docker Swarm", "gap"),
+        ],
+        required_skills=["Docker Swarm"],
+        nice_to_have_skills=[],
+        keywords=["Docker"],
+    )
+    concepts = {e["concept"] for e in ledger}
+    assert "Docker" in concepts and "Docker Swarm" in concepts
+
+
+def test_prefix_merge_deduplicates_the_fit_score_slot():
+    # The real payoff: two required gaps for the same skill must weigh ONE slot,
+    # not two — otherwise the denominator is inflated and the score deflated.
+    from applire.services.match_score import compute_match_score_from_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SRE", "gap"),
+            _cls("SRE practice (SLOs, error budgets, incident response)", "gap"),
+        ],
+        required_skills=["SRE practice (SLOs, error budgets, incident response)"],
+        nice_to_have_skills=[],
+        keywords=["SRE"],
+    )
+    weighted = [e for e in ledger if e["fit_weight"] > 0]
+    assert len(weighted) == 1, "the duplicated required gap must occupy one score slot"
+    result = compute_match_score_from_ledger(ledger)
+    # one required gap, nothing earned → score 0.0 over a single slot (not 0.0/2).
+    assert result["category_c"] == ["SRE"]
+
+
 def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
     # "CI/CD" is a JD *keyword* the candidate demonstrably has (CI/CD pipelines).
     # The mock must classify keyword terms (mirrors the prompt change) so it lands

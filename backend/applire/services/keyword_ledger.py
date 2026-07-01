@@ -29,6 +29,7 @@ derived ``fit_weight`` — never the LLM (mirrors ADR-035's slot-weight rule).
 """
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,89 @@ def _fit_weight(sources: set[str]) -> float:
     if "nice_to_have" in sources:
         return NICE_TO_HAVE_WEIGHT
     return KEYWORD_ONLY_WEIGHT  # keyword-only
+
+
+def _tokens(s: str) -> list[str]:
+    """Normalised word tokens of a concept, e.g. "CI/CD pipelines" -> ["ci", "cd", "pipelines"]."""
+    return [t for t in re.split(r"[^a-z0-9]+", _norm(s)) if t]
+
+
+def _is_token_prefix_dup(a_tokens: list[str], b_tokens: list[str]) -> bool:
+    """True when the shorter token list is a leading slice of the longer one.
+
+    This catches the LLM emitting both a short keyword and the JD's full phrase
+    ("Kubernetes" vs "Kubernetes (production at scale)" -> ["kubernetes"] is a
+    prefix of ["kubernetes", "production", "at", "scale"]). It deliberately does
+    NOT treat a sub-token ("java" in "javascript") or a mid-phrase token ("saas"
+    inside "multi tenant saas platform scaling") as a duplicate.
+    """
+    if not a_tokens or not b_tokens:
+        return False
+    short, long = (a_tokens, b_tokens) if len(a_tokens) <= len(b_tokens) else (b_tokens, a_tokens)
+    return long[: len(short)] == short
+
+
+def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse token-prefix duplicate concepts that share the same status (E037 F2).
+
+    The LLM often classifies both a short keyword and the JD's full requirement
+    phrase for the same skill. Left as two entries they clutter the gap list and
+    double-count the fit slot. Merge each such pair into one entry keyed by the
+    *shorter* concept (the cleaner ATS label), unioning surface forms and sources,
+    recomputing ``fit_weight`` from the merged sources, and keeping the first
+    non-empty evidence. Merging is confined to entries with an identical status so
+    a claimable form can never absorb a gap form (or vice versa). Group order
+    follows first appearance; downstream consumers count entries, never assume a
+    fixed count.
+    """
+    groups: list[dict[str, Any]] = []
+    for entry in ledger:
+        toks = _tokens(entry.get("concept", ""))
+        home = None
+        for g in groups:
+            if g["status"] == entry.get("status") and _is_token_prefix_dup(toks, g["tokens"]):
+                home = g
+                break
+        if home is None:
+            groups.append({"status": entry.get("status"), "tokens": toks, "members": [entry]})
+        else:
+            home["members"].append(entry)
+            # Keep the shortest member's tokens as the group's canonical anchor.
+            if len(toks) < len(home["tokens"]):
+                home["tokens"] = toks
+
+    merged: list[dict[str, Any]] = []
+    for g in groups:
+        members = g["members"]
+        if len(members) == 1:
+            merged.append(members[0])
+            continue
+        # Canonical concept = the member with the fewest tokens (shortest label).
+        canonical = min(members, key=lambda m: len(_tokens(m.get("concept", ""))))
+        surface_forms: list[str] = []
+        seen_forms: set[str] = set()
+        sources: set[str] = set()
+        evidence = ""
+        for m in members:
+            for sf in m.get("surface_forms") or [m.get("concept", "")]:
+                if _norm(sf) and _norm(sf) not in seen_forms:
+                    seen_forms.add(_norm(sf))
+                    surface_forms.append(sf)
+            sources |= set(m.get("sources", []))
+            if not evidence and m.get("evidence"):
+                evidence = m["evidence"]
+        merged.append(
+            {
+                "concept": canonical.get("concept", ""),
+                "surface_forms": surface_forms,
+                "sources": sorted(sources),
+                "fit_weight": _fit_weight(sources),
+                "status": g["status"],
+                "evidence": evidence if canonical.get("claimable") else "",
+                "claimable": canonical.get("claimable", False),
+            }
+        )
+    return merged
 
 
 def split_ledger_for_prompt(
@@ -313,4 +397,4 @@ def build_keyword_ledger(
             }
         )
 
-    return ledger
+    return _collapse_prefix_duplicates(ledger)
