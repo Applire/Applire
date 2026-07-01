@@ -94,12 +94,12 @@ test.describe('CV View — 70/30 layout rendering', () => {
   test('refinement panel is visible with Actions tab', async ({ page }) => {
     await page.goto(CV_PAGE_URL);
 
-    const panel = page.locator('[data-testid="refinement-panel"]');
+    const panel = page.locator('[data-testid="refinement-sidebar"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
     // Page action bar should be present (signals CV preview phase is fully rendered)
-    await expect(page.locator('[data-testid="tab-content"]')).toBeVisible();
-    await expect(page.locator('[data-testid="cv-page-action-bar"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar-tab-content"]')).toBeVisible();
+    await expect(page.locator('[data-testid="document-topbar"]')).toBeVisible();
   });
 
   test('download button triggers PDF fetch', async ({ page }) => {
@@ -135,7 +135,7 @@ test.describe('CV View — 70/30 layout rendering', () => {
 
     // Clicking download opens the attestation review (a nudge, not a gate) — no
     // immediate download. Attesting ("Yes, this reflects my experience") fires the PDF.
-    await page.click('[data-testid="page-action-download"]');
+    await page.click('[data-testid="document-download-btn"]');
     const attest = page.locator('[data-testid="what-changed-confirm"]');
     await expect(attest).toBeVisible({ timeout: 10_000 });
 

@@ -341,7 +341,8 @@
     "completenessPercent": "{pct}%",
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Match score: {score}%",
-    "profileChangeLog": "{action}: {section}/{field}"
+    "profileChangeLog": "{action}: {section}/{field}",
+    "actionsTab": "Actions"
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
@@ -930,5 +931,15 @@
     "resolveError": "The action could not be completed.",
     "badge": "Needs review",
     "reviewAction": "Review"
+  },
+  "document": {
+    "navCv": "CV",
+    "navCoverLetter": "Cover letter",
+    "navAriaLabel": "Choose document",
+    "downloadPdf": "Download PDF",
+    "matchScoreLabel": "Match score",
+    "panelCollapse": "Collapse panel",
+    "panelExpand": "Expand panel",
+    "validUntil": "valid until {date}"
   }
 }

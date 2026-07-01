@@ -33,6 +33,16 @@ export const STEP_ROUTE: Record<string, string> = {
 const SIDE_ROUTES = new Set(["cover-letter"]);
 
 /**
+ * Normalises a URL segment to the flow step it should highlight in the stepper.
+ * The cover-letter side route is a sub-artifact of the CV result screen, so it
+ * lights the same 'cv_generation' node ("4 Lebenslauf") — otherwise the
+ * cover-letter page shows no active step and feels outside the flow (E038).
+ */
+export function activeStepSegment(currentSegment: string): string {
+  return currentSegment === "cover-letter" ? "cv" : currentSegment;
+}
+
+/**
  * Decides whether the current flow URL must be corrected to match the
  * backend's current_step.
  *

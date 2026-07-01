@@ -172,7 +172,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -196,7 +196,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -270,7 +270,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     });
 
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -295,7 +295,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -382,7 +382,7 @@ test.describe("CV Section Editor — KaileChat Rewrite", () => {
     );
 
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -416,7 +416,7 @@ test.describe("CV Section Editor — KaileChat Rewrite", () => {
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -475,7 +475,7 @@ test.describe("CV Section Editor — Actions Tab", () => {
 
   test("Actions tab shows match score and download button", async ({ page }) => {
     await page.goto(CV_PAGE_URL);
-    await expect(page.locator('[data-testid="refinement-panel"]')).toBeVisible({
+    await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
 
@@ -483,6 +483,6 @@ test.describe("CV Section Editor — Actions Tab", () => {
     await expect(page.getByText("85%")).toBeVisible({ timeout: 3_000 });
 
     // Download PDF button is on the page action bar above the CV
-    await expect(page.locator('[data-testid="page-action-download"]')).toBeVisible();
+    await expect(page.locator('[data-testid="document-download-btn"]')).toBeVisible();
   });
 });

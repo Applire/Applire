@@ -22,7 +22,12 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
-import { CoverLetterRefinementPanel } from "@/components/cover-letter/CoverLetterRefinementPanel";
+import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
+import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
+import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
+import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
+import { FileText, Palette, Zap } from "lucide-react";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
@@ -49,6 +54,8 @@ interface CLState {
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   roleTitle: string | null;
+  matchScore: number | null;
+  expiresAt: string | null;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -63,6 +70,7 @@ export default function CoverLetterPage({
   const { flowId } = use(params);
   const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
+  const tDoc = useTranslations("document");
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [clState, setClState] = useState<CLState | null>(null);
@@ -89,6 +97,8 @@ export default function CoverLetterPage({
         };
         job_id?: string;
         job_summary?: { role_title?: string };
+        gap_summary?: { match_score?: number };
+        cv_summary?: { expires_at?: string };
       };
 
       const clSummary = flowData.cover_letter_summary;
@@ -110,6 +120,12 @@ export default function CoverLetterPage({
         preGenInputs: null,
         jobId: flowData.job_id ?? null,
         roleTitle: flowData.job_summary?.role_title ?? null,
+        // gap_summary.match_score is a 0–1 fraction; the sidebar expects 0–100.
+        matchScore:
+          flowData.gap_summary?.match_score != null
+            ? flowData.gap_summary.match_score * 100
+            : null,
+        expiresAt: flowData.cv_summary?.expires_at ?? null,
       });
 
       if (statusData.status === "ready") {
@@ -243,36 +259,83 @@ export default function CoverLetterPage({
     );
   }
 
-  const roleTitle = clState?.roleTitle ?? t("generate");
+  if (phase === "generating") {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-56px)] p-8">
+        <ProgressWidget
+          steps={buildClProgressSteps(clState?.status ?? "pending", t)}
+          title={t("progressTitle")}
+          subtitle={t("progressSubtitle")}
+          className="max-w-sm w-full"
+        />
+      </div>
+    );
+  }
+
+  const validity =
+    clState?.expiresAt != null
+      ? {
+          label: tDoc("validUntil", { date: new Date(clState.expiresAt).toLocaleDateString() }),
+          level: "warning" as const,
+        }
+      : null;
+
+  const sidebarTabs: SidebarTab[] = [
+    {
+      id: "content",
+      label: t("contentTab"),
+      icon: <FileText className="w-4 h-4" aria-hidden="true" />,
+      body: (
+        <CoverLetterContentTab
+          coverLetterId={clState!.coverLetterId}
+          letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+          onSectionSaved={handleSectionSaved}
+        />
+      ),
+    },
+    {
+      id: "design",
+      label: t("designTab"),
+      icon: <Palette className="w-4 h-4" aria-hidden="true" />,
+      body: (
+        <CoverLetterDesignTab
+          flowId={flowId}
+          currentTemplate={clState!.template}
+          onTemplateChange={handleTemplateChange}
+        />
+      ),
+    },
+    {
+      id: "actions",
+      label: t("actionsTab"),
+      icon: <Zap className="w-4 h-4" aria-hidden="true" />,
+      body: (
+        <CoverLetterActionsTab
+          onRegenerateCoverLetter={() => setShowModal(true)}
+        />
+      ),
+    },
+  ];
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-neutral-200 flex-shrink-0">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-400">{roleTitle}</span>
-          <span className="text-neutral-300" aria-hidden="true">{t("breadcrumbSeparator")}</span>
-          <span className="font-semibold">{t("coverLetterTitle")}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/flow/${flowId}/cv`}
-            className="px-3 py-1.5 text-sm border border-blue-500 text-blue-600 rounded hover:bg-blue-50 transition-colors"
-            data-testid="cl-view-cv-btn"
-          >
-            {t("viewCV")}
-          </Link>
-          <button
-            type="button"
-            onClick={requestDownload}
-            disabled={downloading || phase !== "ready"}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
-            data-testid="cl-topbar-download-btn"
-          >
-            {downloading ? tc("loading") : t("download")}
-          </button>
-        </div>
-      </div>
+    <div data-testid="cover-letter-page">
+      <DocumentWorkspace
+        flowId={flowId}
+        activeDoc="cover-letter"
+        onDownloadPdf={requestDownload}
+        downloadDisabled={downloading || phase !== "ready"}
+        preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}
+        atsPanel={<ATSChecksPanel report={atsReport} />}
+        sidebar={
+          <RefinementSidebar
+            matchScore={clState?.matchScore ?? null}
+            validity={validity}
+            tabs={sidebarTabs}
+            collapsed={!panelOpen}
+            onToggleCollapse={() => setPanelOpen((o) => !o)}
+          />
+        }
+      />
 
       {downloadNotice && (
         <div
@@ -290,46 +353,6 @@ export default function CoverLetterPage({
                 void handleDownloadPdf();
               }}
               onCancel={() => setDownloadNotice(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Body */}
-      {phase === "generating" ? (
-        <div className="flex items-center justify-center flex-1 p-8">
-          <ProgressWidget
-            steps={buildClProgressSteps(clState?.status ?? "pending", t)}
-            title={t("progressTitle")}
-            subtitle={t("progressSubtitle")}
-            className="max-w-sm w-full"
-          />
-        </div>
-      ) : (
-        <div className="flex flex-1 min-h-0">
-          {/* LEFT: preview */}
-          <div className="flex-1 min-w-0 flex flex-col border-r border-neutral-200 bg-neutral-50 p-3 gap-3">
-            <CoverLetterDocument
-              key={previewKey}
-              coverLetterId={clState!.coverLetterId}
-            />
-            <ATSChecksPanel report={atsReport} />
-          </div>
-
-          {/* RIGHT: controls */}
-          <div className="flex-shrink-0 flex flex-col overflow-hidden">
-            <CoverLetterRefinementPanel
-              flowId={flowId}
-              coverLetterId={clState!.coverLetterId}
-              letterData={clState!.letterData}
-              currentTemplate={clState!.template}
-              onSectionSaved={handleSectionSaved}
-              onTemplateChange={handleTemplateChange}
-              onRegenerateCoverLetter={() => setShowModal(true)}
-              onDownloadPdf={requestDownload}
-              downloading={downloading}
-              collapsed={!panelOpen}
-              onToggleCollapse={() => setPanelOpen((o) => !o)}
             />
           </div>
         </div>

@@ -63,7 +63,7 @@ async function runFullOnboardingFlow(page: Page): Promise<void> {
     .catch(() => {});
 
   await page.getByTestId("regenerate-cv-button").click({ timeout: 15000 });
-  await expect(page.getByTestId("refinement-panel")).toBeVisible({
+  await expect(page.getByTestId("refinement-sidebar")).toBeVisible({
     timeout: 90000,
   });
 }

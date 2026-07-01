@@ -341,7 +341,8 @@
     "completenessPercent": "{pct}%",
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Übereinstimmung: {score}%",
-    "profileChangeLog": "{action}: {section}/{field}"
+    "profileChangeLog": "{action}: {section}/{field}",
+    "actionsTab": "Aktionen"
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
@@ -930,5 +931,15 @@
     "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
     "badge": "Prüfung nötig",
     "reviewAction": "Prüfen"
+  },
+  "document": {
+    "navCv": "Lebenslauf",
+    "navCoverLetter": "Anschreiben",
+    "navAriaLabel": "Dokument wählen",
+    "downloadPdf": "PDF herunterladen",
+    "matchScoreLabel": "Match-Score",
+    "panelCollapse": "Panel einklappen",
+    "panelExpand": "Panel ausklappen",
+    "validUntil": "gültig bis {date}"
   }
 }

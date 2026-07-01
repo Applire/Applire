@@ -55,13 +55,13 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 
   // Trigger CV generation (testid is locale-independent)
   await page.getByTestId("regenerate-cv-button").click({ timeout: 20000 });
-  await expect(page.getByTestId("refinement-panel")).toBeVisible({ timeout: 90000 });
+  await expect(page.getByTestId("refinement-sidebar")).toBeVisible({ timeout: 90000 });
 }
 
 test.describe("Felix — CV Template selection (PQ)", () => {
   test("Design tab opens the template picker with at least 7 options", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-design").click();
+    await page.getByTestId("sidebar-tab-design").click();
     await page.getByTestId("change-template-btn").click();
     // Template picker should list all 7 registered templates
     const templateOptions = page.getByTestId("template-option");
@@ -71,7 +71,7 @@ test.describe("Felix — CV Template selection (PQ)", () => {
 
   test("selecting executive template and regenerating succeeds", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("tab-design").click();
+    await page.getByTestId("sidebar-tab-design").click();
     await page.getByTestId("change-template-btn").click();
 
     // Select the executive template
@@ -90,6 +90,6 @@ test.describe("Felix — CV Template selection (PQ)", () => {
     expect(body.cv_id).toBeTruthy();
 
     // Wait for refinement panel to show new CV is ready
-    await expect(page.getByTestId("refinement-panel")).toBeVisible({ timeout: 90000 });
+    await expect(page.getByTestId("refinement-sidebar")).toBeVisible({ timeout: 90000 });
   });
 });

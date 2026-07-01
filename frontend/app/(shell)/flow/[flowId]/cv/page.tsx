@@ -25,11 +25,15 @@ import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/cv/TemplateSelector";
 import { GenerationProgress } from "@/components/cv/GenerationProgress";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
-import { RefinementPanel } from "@/components/cv/RefinementPanel";
+import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
+import { ContentTab } from "@/components/cv/ContentTab";
+import { DesignTab } from "@/components/cv/DesignTab";
+import { CVActionsTab } from "@/components/cv/CVActionsTab";
+import { FileText, Palette, Zap } from "lucide-react";
 import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
-import { CVPageActionBar } from "@/components/cv/CVPageActionBar";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import type { ReviewChange } from "@/components/review/WhatChangedReview";
 import { getCvProfileDiff } from "@/lib/api/review";
@@ -64,6 +68,7 @@ export default function CVPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("cv");
+  const tDoc = useTranslations("document");
 
   const [phase, setPhase] = useState<Phase | null>(null); // null = initializing
   const [cvId, setCvId] = useState<string | null>(null);
@@ -268,82 +273,119 @@ export default function CVPage({
       ? new Date(flowState.cv_summary.expires_at) < new Date()
       : false;
 
-    const expiryWarning = isExpired
-      ? { level: "critical" as const, expiresIn: t("expired") }
-      : flowState?.cv_summary
-        ? {
-            level: "warning" as const,
-            expiresIn: `${t("availableUntil")} ${new Date(flowState.cv_summary.expires_at).toLocaleDateString()}`,
-          }
-        : null;
+    const validity = flowState?.cv_summary
+      ? {
+          label: isExpired
+            ? t("expired")
+            : tDoc("validUntil", { date: new Date(flowState.cv_summary.expires_at).toLocaleDateString() }),
+          level: (isExpired ? "critical" : "warning") as "critical" | "warning",
+        }
+      : null;
 
-    return (
-      <div className="min-h-screen bg-surface-dim" data-testid="cv-page">
-        <div className="flex w-full h-[calc(100vh-56px)] gap-0">
-          <div className="flex-1 min-w-0 flex flex-col px-4 py-3 gap-3 overflow-hidden">
-            {flowState?.job_summary && (
-              <h2 className="text-lg font-heading font-bold text-on-surface leading-snug">
-                {flowState.job_summary.role_title}
-              </h2>
-            )}
-            <CVPageActionBar
-              flowId={flowId}
-              applicationId={flowState?.application_id ?? null}
-              coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
-              onDownloadPdf={() => void requestDownload()}
-              onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
-              onNext={() => setPhase("complete")}
-            />
-            {downloadNotice && (
-              <div
-                className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-8"
-                onClick={() => setDownloadNotice(null)}
-                data-testid="download-review-overlay"
-              >
-                <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-                  <PreDownloadNotice
-                    redFlags={downloadNotice.redFlags}
-                    canSuppress={downloadNotice.canSuppress}
-                    onConfirm={(dontShowAgain) => {
-                      if (dontShowAgain) void setHidePredownloadNotice(true);
-                      setDownloadNotice(null);
-                      void handleDownloadPdf();
-                    }}
-                    onCancel={() => setDownloadNotice(null)}
-                  />
-                </div>
-              </div>
-            )}
-            <ATSChecksPanel report={atsReport} />
-            <CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />
-          </div>
-          <RefinementPanel
+    const refreshPreviewAndAts = () => {
+      cvDocRef.current?.refresh();
+      // Re-fetch ATS report after a short delay so the backend re-audit (BackgroundTask ~1s) has landed
+      setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
+    };
+
+    const flowSummary = {
+      job_summary: flowState?.job_summary?.role_title ?? null,
+      gap_summary: {
+        gaps: flowState?.gap_summary?.gaps ?? [],
+        sections: flowState?.gap_summary?.sections ?? [],
+      },
+      cv_summary: { sections: flowState?.cv_summary?.sections ?? [] },
+    };
+
+    const sidebarTabs: SidebarTab[] = [
+      {
+        id: "content",
+        label: t("contentTab"),
+        icon: <FileText className="w-4 h-4" aria-hidden="true" />,
+        body: (
+          <ContentTab
             cvId={cvId}
-            flowId={flowId}
-            roleTitle={flowState?.job_summary?.role_title ?? null}
-            gapSummary={{
-              gaps: flowState?.gap_summary?.gaps ?? [],
-              sections: flowState?.gap_summary?.sections ?? [],
-            }}
-            cvSummary={{
-              sections: flowState?.cv_summary?.sections ?? [],
-            }}
+            flowSummary={flowSummary}
+            onSectionSave={refreshPreviewAndAts}
+            onUnsavedChange={() => {}}
+          />
+        ),
+      },
+      {
+        id: "design",
+        label: t("designTab"),
+        icon: <Palette className="w-4 h-4" aria-hidden="true" />,
+        body: (
+          <DesignTab
+            cvId={cvId}
             templateLabel={template === "classic_german" ? t("templateClassic") : t("templateModern")}
-            matchScore={flowState?.gap_summary?.match_score ?? null}
-            expiryWarning={expiryWarning}
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
             currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#003399"}
-            onHtmlRefresh={() => {
-              cvDocRef.current?.refresh();
-              // Re-fetch ATS report after a short delay so the backend re-audit (BackgroundTask ~1s) has landed
-              setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
-            }}
+            onColorApplied={refreshPreviewAndAts}
+            onChangeTemplate={() => setPhase("template_select")}
             onRegenerateSame={() => void handleGenerate(template)}
-            onRegenerateDifferent={() => setPhase("template_select")}
-            collapsed={!panelOpen}
-            onToggleCollapse={() => setPanelOpen((o) => !o)}
           />
-        </div>
+        ),
+      },
+      {
+        id: "actions",
+        label: t("actionsTab"),
+        icon: <Zap className="w-4 h-4" aria-hidden="true" />,
+        body: (
+          <CVActionsTab
+            flowId={flowId}
+            applicationId={flowState?.application_id ?? null}
+            coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
+            onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
+            onRegenerateSame={() => void handleGenerate(template)}
+            onNext={() => setPhase("complete")}
+          />
+        ),
+      },
+    ];
+
+    return (
+      <div data-testid="cv-page">
+        <DocumentWorkspace
+          flowId={flowId}
+          activeDoc="cv"
+          onDownloadPdf={() => void requestDownload()}
+          preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
+          atsPanel={<ATSChecksPanel report={atsReport} />}
+          sidebar={
+            <RefinementSidebar
+              matchScore={
+                flowState?.gap_summary?.match_score != null
+                  ? flowState.gap_summary.match_score * 100
+                  : null
+              }
+              validity={validity}
+              tabs={sidebarTabs}
+              collapsed={!panelOpen}
+              onToggleCollapse={() => setPanelOpen((o) => !o)}
+            />
+          }
+        />
+        {downloadNotice && (
+          <div
+            className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-8"
+            onClick={() => setDownloadNotice(null)}
+            data-testid="download-review-overlay"
+          >
+            <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+              <PreDownloadNotice
+                redFlags={downloadNotice.redFlags}
+                canSuppress={downloadNotice.canSuppress}
+                onConfirm={(dontShowAgain) => {
+                  if (dontShowAgain) void setHidePredownloadNotice(true);
+                  setDownloadNotice(null);
+                  void handleDownloadPdf();
+                }}
+                onCancel={() => setDownloadNotice(null)}
+              />
+            </div>
+          </div>
+        )}
         {showCoverLetterModal && flowState?.job_id && (
           <GenerateCoverLetterModal
             jobId={flowState.job_id.toString()}
