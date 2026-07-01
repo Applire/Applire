@@ -116,9 +116,9 @@ test.describe('CV View — 70/30 layout rendering', () => {
       });
     });
 
-    // The download is gated by the pre-download grounding review + attestation
-    // (US147 / ADR-040): clicking download opens a modal that fetches the CV↔profile
-    // diff first, and only the attestation confirm triggers the actual PDF fetch.
+    // The download is nudged by the pre-download notice (US147 / ADR-040 as amended
+    // 2026-07-01): clicking download fetches the CV↔profile diff first and surfaces a
+    // dismissible notice; confirming the notice triggers the actual PDF fetch.
     await page.route(`**/api/cv/${TEST_CV_ID}/profile-diff`, async (route) => {
       await route.fulfill({
         status: 200,
@@ -133,15 +133,15 @@ test.describe('CV View — 70/30 layout rendering', () => {
       timeout: 10_000,
     });
 
-    // Clicking download opens the attestation review (a nudge, not a gate) — no
-    // immediate download. Attesting ("Yes, this reflects my experience") fires the PDF.
+    // Clicking download opens the pre-download notice (a nudge, not a gate) — no
+    // immediate download. Confirming the notice fires the actual PDF fetch.
     await page.click('[data-testid="document-download-btn"]');
-    const attest = page.locator('[data-testid="what-changed-confirm"]');
-    await expect(attest).toBeVisible({ timeout: 10_000 });
+    const notice = page.locator('[data-testid="predownload-notice"]');
+    await expect(notice).toBeVisible({ timeout: 10_000 });
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      attest.click(),
+      page.click('[data-testid="predownload-download"]'),
     ]);
 
     expect(download).toBeTruthy();

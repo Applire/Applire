@@ -523,7 +523,11 @@ export default function GapsPage({
           // on a synchronous ~2-min LLM call. Resilient: a 504 mid-analysis no longer
           // wedges the screen (it lands as a failed poll → retry state). Idempotency is
           // preserved — the background task reuses a fingerprint-matching row, no re-run.
-          gapData = (await analyzeGapsAsync(fs.job_id, { apiBase: API_BASE })) as GapAnalysis;
+          // analyzeGapsAsync resolves the loose GapAnalysisResult envelope; the
+          // backend result is a full gap analysis, so bridge through unknown.
+          gapData = (await analyzeGapsAsync(fs.job_id, {
+            apiBase: API_BASE,
+          })) as unknown as GapAnalysis;
         } else {
           throw new Error(await apiErrorMessage(gRes));
         }
@@ -675,7 +679,9 @@ export default function GapsPage({
     setError("");
     setLoading(true);
     try {
-      const data = (await analyzeGapsAsync(flowState.job_id, { apiBase: API_BASE })) as GapAnalysis;
+      const data = (await analyzeGapsAsync(flowState.job_id, {
+        apiBase: API_BASE,
+      })) as unknown as GapAnalysis;
       setGaps(data);
       setMatchScore(data.match_score ? Math.round(data.match_score * 100) : 0);
     } catch (e: unknown) {
