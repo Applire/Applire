@@ -2,7 +2,13 @@ name: Test Suite
 
 on:
   push:
-  pull_request:
+    branches: [main]      # post-merge / direct commits to main
+  pull_request:           # every PR (feature branches)
+
+# Cancel an in-progress run when a newer commit is pushed to the same ref.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-unit-tests:
