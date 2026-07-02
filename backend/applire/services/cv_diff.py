@@ -66,16 +66,11 @@ def compute_cv_profile_diff(tailored: dict, profile: dict) -> list[FieldChange]:
             ))
             continue
 
-        # Title — flag when the CV title is neither the stored role nor a known alias.
-        prof_titles = {(match.get("role") or "").strip().lower()}
-        prof_titles |= {(a or "").strip().lower() for a in (match.get("role_aliases") or [])}
-        cv_role = (cv_e.get("role") or "").strip()
-        if cv_role and cv_role.lower() not in prof_titles:
-            changes.append(FieldChange(
-                section="work_experience", field="role", action="updated",
-                old_value=match.get("role"), new_value=cv_role,
-                rationale=f"Title for {company} differs from your profile — check it isn't overstated.",
-            ))
+        # Title is deliberately NOT flagged (ADR-040 amendment 2026-07-01): a tailored
+        # title differing from the stored role is expected tailoring, and reads as an
+        # accusation at download. Genuine title inflation stays covered by the ADR-021
+        # prevention reviewer; the pre-download notice only surfaces unambiguous red
+        # flags — an invented company/skill or a changed date.
 
         # Dates — flag a clear month-level difference.
         for fld, label in (("start_date", "Start date"), ("end_date", "End date")):

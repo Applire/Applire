@@ -109,6 +109,7 @@
     "jdMissingBannerFetch": "Wir konnten die Stelle nicht laden — sie ist möglicherweise blockiert oder nicht mehr verfügbar. Füge den Text ein.",
     "addJobDescription": "Stellenbeschreibung hinzufügen →",
     "analyzing": "Profil wird analysiert…",
+    "analysisError": "Bei der Analyse deines Profils ist etwas schiefgelaufen. Bitte versuche es erneut.",
     "masterProfileCreated": "Master-Profil erstellt",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
@@ -340,7 +341,8 @@
     "completenessPercent": "{pct}%",
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Übereinstimmung: {score}%",
-    "profileChangeLog": "{action}: {section}/{field}"
+    "profileChangeLog": "{action}: {section}/{field}",
+    "actionsTab": "Aktionen"
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
@@ -858,6 +860,14 @@
     "page": "Seite {page} von {total}",
     "showing": "{from}–{to} von {total} Dokumenten"
   },
+  "predownload": {
+    "title": "Vor dem Download",
+    "warning": "KI-generierte Inhalte können Fehler enthalten — bitte vor dem Absenden prüfen.",
+    "redFlagsIntro": "{count, plural, one {# Angabe weicht} other {# Angaben weichen}} von deinem Profil ab — bitte vor dem Absenden prüfen:",
+    "dontShowAgain": "Nicht mehr anzeigen",
+    "cancel": "Abbrechen",
+    "download": "Herunterladen"
+  },
   "review": {
     "titleExtraction": "Das haben wir aus deinem Lebenslauf gelesen",
     "titleMerge": "Was wir kombiniert und angenommen haben",
@@ -921,5 +931,15 @@
     "resolveError": "Die Aktion konnte nicht abgeschlossen werden.",
     "badge": "Prüfung nötig",
     "reviewAction": "Prüfen"
+  },
+  "document": {
+    "navCv": "Lebenslauf",
+    "navCoverLetter": "Anschreiben",
+    "navAriaLabel": "Dokument wählen",
+    "downloadPdf": "PDF herunterladen",
+    "matchScoreLabel": "Match-Score",
+    "panelCollapse": "Panel einklappen",
+    "panelExpand": "Panel ausklappen",
+    "validUntil": "gültig bis {date}"
   }
 }

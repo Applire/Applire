@@ -36,8 +36,16 @@ vi.mock("next/link", () => ({
 vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
   CoverLetterDocument: () => <div data-testid="cl-document" />,
 }));
-vi.mock("@/components/cover-letter/CoverLetterRefinementPanel", () => ({
-  CoverLetterRefinementPanel: () => <div data-testid="cl-panel" />,
+// Sidebar tab bodies are stubbed — the page renders them via the shared
+// RefinementSidebar shell (E038); we only exercise page-level behaviour here.
+vi.mock("@/components/cover-letter/CoverLetterContentTab", () => ({
+  CoverLetterContentTab: () => <div data-testid="cl-content-tab" />,
+}));
+vi.mock("@/components/cover-letter/CoverLetterDesignTab", () => ({
+  CoverLetterDesignTab: () => <div data-testid="cl-design-tab" />,
+}));
+vi.mock("@/components/cover-letter/CoverLetterActionsTab", () => ({
+  CoverLetterActionsTab: () => <div data-testid="cl-actions-tab" />,
 }));
 vi.mock("@/components/cover-letter/GenerateCoverLetterModal", () => ({
   GenerateCoverLetterModal: () => <div data-testid="cl-modal" />,
@@ -173,7 +181,7 @@ describe("CoverLetterPage — polling loop", () => {
     );
   });
 
-  it("gates download behind the attestation nudge, then downloads on confirm (US170)", async () => {
+  it("shows the pre-download notice, then downloads on confirm (ADR-040 amended)", async () => {
     const { fireEvent } = await import("@testing-library/react");
     let pdfFetched = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -197,14 +205,50 @@ describe("CoverLetterPage — polling loop", () => {
     await act(async () => { renderPage(); });
     await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
 
-    // Clicking download opens the attestation overlay — it does NOT download yet (nudge first).
-    await act(async () => { fireEvent.click(screen.getByTestId("cl-topbar-download-btn")); });
-    expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument();
+    // Clicking download opens the notice — it does NOT download yet (nudge first).
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument());
     expect(pdfFetched).toBe(false);
 
-    // Attesting proceeds with the download (nudge, not gate).
-    await act(async () => { fireEvent.click(screen.getByTestId("what-changed-confirm")); });
+    // Confirming the notice proceeds with the download (nudge, not gate).
+    await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(pdfFetched).toBe(true));
+  });
+
+  it("renders the match score as a percentage — gap_summary.match_score is a 0–1 fraction", async () => {
+    const stateWithGap = {
+      ...FLOW_STATE_RESPONSE,
+      gap_summary: {
+        gap_analysis_id: "gap-1",
+        match_score: 0.39, // backend stores a 0–1 fraction (39%)
+        critical_gaps_count: 0,
+        category_c_count: 0,
+      },
+      cv_summary: { cv_id: "cv-1", expires_at: "2026-09-29T00:00:00Z" },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => stateWithGap } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    await act(async () => { renderPage(); });
+    await waitFor(
+      () => expect(screen.getByTestId("cl-document")).toBeInTheDocument(),
+      { timeout: 8000 }
+    );
+
+    // 0.39 → "39%", NOT Math.round(0.39) = "0%"
+    expect(screen.getByText("39%")).toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 
   it("shows not-found state when flow has no cover letter summary", async () => {

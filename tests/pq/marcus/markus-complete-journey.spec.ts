@@ -118,12 +118,14 @@ async function setupCompleteJourney(page: Page): Promise<string> {
 
   // Generate CV (button testid is stable regardless of locale)
   await page.getByTestId('regenerate-cv-button').click({ timeout: 15000 });
-  await expect(page.getByTestId('refinement-panel')).toBeVisible({
+  await expect(page.getByTestId('refinement-sidebar')).toBeVisible({
     timeout: 90000,
   });
 
-  // Open cover letter generation modal (trigger now lives in the CV page action bar)
-  await page.getByTestId('page-action-cover-letter-generate').click();
+  // Open cover letter generation modal (generate trigger now lives in the shared
+  // refinement sidebar's Aktionen tab — E038)
+  await page.getByTestId('sidebar-tab-actions').click();
+  await page.getByTestId('cv-actions-generate-cl').click();
   await expect(page.getByTestId('cover-letter-modal')).toBeVisible();
 
   // Fill minimal inputs and generate
@@ -157,8 +159,8 @@ test.describe('Marcus — Complete Journey (PQ)', () => {
     page,
   }) => {
     const flowId = await setupCompleteJourney(page);
-    await expect(page.getByTestId('cl-view-cv-btn')).toBeVisible();
-    await page.getByTestId('cl-view-cv-btn').click();
+    await expect(page.getByTestId('document-nav-cv')).toBeVisible();
+    await page.getByTestId('document-nav-cv').click();
     await page.waitForURL(`**/flow/${flowId}/cv`);
   });
 
@@ -166,7 +168,7 @@ test.describe('Marcus — Complete Journey (PQ)', () => {
     page,
   }) => {
     await setupCompleteJourney(page);
-    await expect(page.getByTestId('cl-topbar-download-btn')).toBeVisible();
-    await expect(page.getByTestId('cl-topbar-download-btn')).toBeEnabled();
+    await expect(page.getByTestId('document-download-btn')).toBeVisible();
+    await expect(page.getByTestId('document-download-btn')).toBeEnabled();
   });
 });

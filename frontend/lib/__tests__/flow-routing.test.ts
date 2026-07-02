@@ -16,9 +16,24 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from "vitest";
-import { resolveFlowRedirect } from "../flow-routing";
+import { resolveFlowRedirect, activeStepSegment } from "../flow-routing";
 
 const FLOW = "f1";
+
+describe("activeStepSegment", () => {
+  it("maps the cover-letter side route onto the cv step so the stepper stays lit", () => {
+    // The cover letter is generated from the CV — both belong to the final
+    // 'cv_generation' step (STEP_ROUTE.cv_generation === 'cv').
+    expect(activeStepSegment("cover-letter")).toBe("cv");
+  });
+
+  it("leaves real step segments unchanged", () => {
+    expect(activeStepSegment("cv")).toBe("cv");
+    expect(activeStepSegment("gaps")).toBe("gaps");
+    expect(activeStepSegment("interview")).toBe("interview");
+    expect(activeStepSegment("")).toBe("");
+  });
+});
 
 describe("resolveFlowRedirect", () => {
   // ── URL matches the backend step → no redirect ───────────────────────────

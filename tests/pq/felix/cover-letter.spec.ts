@@ -73,13 +73,14 @@ async function setupCoverLetter(page: Page): Promise<string> {
   await page.getByTestId("regenerate-cv-button").click({ timeout: 15000 });
 
   // Wait for CV to be ready
-  await expect(page.getByTestId("refinement-panel")).toBeVisible({
+  await expect(page.getByTestId("refinement-sidebar")).toBeVisible({
     timeout: 90000,
   });
 
-  // Open cover letter generation modal (the trigger now lives in the CV page
-  // action bar, not behind a refinement-panel tab)
-  await page.getByTestId("page-action-cover-letter-generate").click();
+  // Open cover letter generation modal (the generate trigger now lives in the
+  // shared refinement sidebar's Aktionen tab — E038)
+  await page.getByTestId("sidebar-tab-actions").click();
+  await page.getByTestId("cv-actions-generate-cl").click();
   await expect(page.getByTestId("cover-letter-modal")).toBeVisible();
 
   // Fill minimal required inputs and generate
@@ -132,12 +133,13 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     const skipPhotoBtn = page.getByTestId("photo-prompt-skip");
     await skipPhotoBtn.waitFor({ state: "visible", timeout: 10000 }).then(() => skipPhotoBtn.click()).catch(() => {});
     await page.getByTestId("regenerate-cv-button").click({ timeout: 15000 });
-    await expect(page.getByTestId("refinement-panel")).toBeVisible({
+    await expect(page.getByTestId("refinement-sidebar")).toBeVisible({
       timeout: 90000,
     });
 
+    await page.getByTestId("sidebar-tab-actions").click();
     await expect(
-      page.getByTestId("page-action-cover-letter-generate")
+      page.getByTestId("cv-actions-generate-cl")
     ).toBeVisible();
   });
 
@@ -163,11 +165,12 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     const skipPhotoBtn = page.getByTestId("photo-prompt-skip");
     await skipPhotoBtn.waitFor({ state: "visible", timeout: 10000 }).then(() => skipPhotoBtn.click()).catch(() => {});
     await page.getByTestId("regenerate-cv-button").click({ timeout: 15000 });
-    await expect(page.getByTestId("refinement-panel")).toBeVisible({
+    await expect(page.getByTestId("refinement-sidebar")).toBeVisible({
       timeout: 90000,
     });
 
-    await page.getByTestId("page-action-cover-letter-generate").click();
+    await page.getByTestId("sidebar-tab-actions").click();
+    await page.getByTestId("cv-actions-generate-cl").click();
 
     await expect(page.getByTestId("cover-letter-modal")).toBeVisible();
     await expect(page.getByTestId("cl-recipient-name")).toBeVisible();
@@ -185,8 +188,8 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     page,
   }) => {
     const flowId = await setupCoverLetter(page);
-    await expect(page.getByTestId("cl-view-cv-btn")).toBeVisible();
-    await page.getByTestId("cl-view-cv-btn").click();
+    await expect(page.getByTestId("document-nav-cv")).toBeVisible();
+    await page.getByTestId("document-nav-cv").click();
     await page.waitForURL(`**/flow/${flowId}/cv`);
   });
 
@@ -194,14 +197,14 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
     page,
   }) => {
     await setupCoverLetter(page);
-    await expect(page.getByTestId("cl-topbar-download-btn")).toBeVisible();
-    await expect(page.getByTestId("cl-topbar-download-btn")).toBeEnabled();
+    await expect(page.getByTestId("document-download-btn")).toBeVisible();
+    await expect(page.getByTestId("document-download-btn")).toBeEnabled();
   });
 
   test("US-CL07: body section is editable and saves", async ({ page }) => {
     await setupCoverLetter(page);
 
-    await page.getByTestId("cl-tab-content").click();
+    await page.getByTestId("sidebar-tab-content").click();
     const textarea = page.getByTestId("cl-body-textarea");
     await expect(textarea).toBeVisible();
 
@@ -217,7 +220,7 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
 
   test("US-CL09: design tab shows 7 template options", async ({ page }) => {
     await setupCoverLetter(page);
-    await page.getByTestId("cl-tab-design").click();
+    await page.getByTestId("sidebar-tab-design").click();
 
     const templates = [
       "classic_german",
@@ -235,7 +238,7 @@ test.describe("Cover Letter — Happy path (PQ)", () => {
 
   test("US-CL10: regenerate button opens modal", async ({ page }) => {
     await setupCoverLetter(page);
-    await page.getByTestId("cl-tab-actions").click();
+    await page.getByTestId("sidebar-tab-actions").click();
     await page.getByTestId("cl-regenerate-btn").click();
     await expect(page.getByTestId("cover-letter-modal")).toBeVisible();
     await page.getByTestId("cl-modal-cancel").click();

@@ -1,3 +1,5 @@
+"use client";
+
 // Copyright (C) 2024-2026 Tobias Rosenbaum
 //
 // This file is part of Applire.
@@ -15,31 +17,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"use client";
-
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { RefreshCw, FileText, CheckCircle2, ArrowRight } from "lucide-react";
 import { markApplicationHired } from "@/lib/profile-roles";
 
-export interface CVPageActionBarProps {
+interface CVActionsTabProps {
   flowId: string;
   applicationId: string | null;
   coverLetterId: string | null;
-  onDownloadPdf: () => void;
   onGenerateCoverLetter: () => void;
+  onRegenerateSame: () => void;
   onNext: () => void;
 }
 
-export function CVPageActionBar({
-  flowId,
+/**
+ * CV "Aktionen" tab body (E038 / US210) — absorbs the actions that used to live
+ * in the retired CVPageActionBar (regenerate, generate cover letter, mark hired,
+ * next). Download moved to the shared top bar; CV↔Anschreiben switching moved to
+ * the top-bar document toggle.
+ */
+export function CVActionsTab({
   applicationId,
   coverLetterId,
-  onDownloadPdf,
   onGenerateCoverLetter,
+  onRegenerateSame,
   onNext,
-}: CVPageActionBarProps) {
+}: CVActionsTabProps) {
   const t = useTranslations("cv");
   const router = useRouter();
   const [hiring, setHiring] = useState(false);
@@ -56,34 +61,25 @@ export function CVPageActionBar({
   }
 
   return (
-    <div
-      className="surface-glass flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl"
-      data-testid="cv-page-action-bar"
-    >
+    <div className="p-4 flex flex-col gap-2">
       <button
         type="button"
-        className="btn-pill-primary"
-        onClick={onDownloadPdf}
-        data-testid="page-action-download"
+        onClick={onRegenerateSame}
+        className="btn-glass w-full justify-center inline-flex items-center gap-2"
+        data-testid="cv-actions-regenerate"
       >
-        {t("pageActionDownload")}
+        <RefreshCw className="w-4 h-4" aria-hidden="true" />
+        {t("regenerateCurrentTemplate")}
       </button>
 
-      {coverLetterId ? (
-        <Link
-          href={`/flow/${flowId}/cover-letter`}
-          className="btn-glass"
-          data-testid="page-action-cover-letter-view"
-        >
-          {t("pageActionCoverLetterView")}
-        </Link>
-      ) : (
+      {!coverLetterId && (
         <button
           type="button"
-          className="btn-glass"
           onClick={onGenerateCoverLetter}
-          data-testid="page-action-cover-letter-generate"
+          className="btn-glass w-full justify-center inline-flex items-center gap-2"
+          data-testid="cv-actions-generate-cl"
         >
+          <FileText className="w-4 h-4" aria-hidden="true" />
           {t("pageActionCoverLetter")}
         </button>
       )}
@@ -91,24 +87,24 @@ export function CVPageActionBar({
       {applicationId && (
         <button
           type="button"
-          className="btn-glass"
           onClick={() => void handleMarkHired()}
           disabled={hiring}
-          data-testid="page-action-hired"
+          className="btn-glass w-full justify-center inline-flex items-center gap-2 disabled:opacity-50"
+          data-testid="cv-actions-hired"
         >
+          <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
           {t("pageActionHired")}
         </button>
       )}
 
       <button
         type="button"
-        className="btn-glass ml-auto"
         onClick={onNext}
-        data-testid="page-action-next"
+        className="btn-glass w-full justify-center inline-flex items-center gap-2"
+        data-testid="cv-actions-next"
       >
         {t("pageActionNext")}
-        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative directional arrow */}
-        {" →"}
+        <ArrowRight className="w-4 h-4" aria-hidden="true" />
       </button>
     </div>
   );

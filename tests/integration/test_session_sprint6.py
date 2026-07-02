@@ -76,6 +76,32 @@ def _wait_for_ready(api: str, cv_id: str, timeout: int = 120) -> dict:
     pytest.fail(f"CV {cv_id} did not become ready within {timeout}s")
 
 
+def _run_gap_analysis(api: str, job_id: str, timeout: int = 120) -> dict:
+    """Start the async gap job (202) and poll until ready. Returns the gap analysis.
+
+    The synchronous ``POST /gaps`` was removed (E037 N2) in favour of a job + poll
+    so the gaps screen can't block ~2 min or 504 mid-analysis.
+    """
+    start_r = requests.post(f"{api}/api/job/{job_id}/gap-jobs", timeout=30)
+    assert start_r.status_code == 202, f"Gap job start failed: {start_r.text}"
+    gap_job_id = start_r.json()["gap_job_id"]
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        poll_r = requests.get(
+            f"{api}/api/job/{job_id}/gap-jobs/{gap_job_id}", timeout=10
+        )
+        assert poll_r.status_code == 200, f"Gap job poll failed: {poll_r.text}"
+        data = poll_r.json()
+        if data["status"] == "ready":
+            assert data["result"] is not None, f"Gap job ready without result: {data}"
+            return data["result"]
+        if data["status"] == "failed":
+            pytest.fail(f"Gap analysis failed: {data}")
+        time.sleep(3)
+    pytest.fail(f"Gap job {gap_job_id} did not become ready within {timeout}s")
+
+
 class TestSprint6FullFlow:
     @pytest.fixture(scope="class")
     def flow_and_cv(self, api):
@@ -111,9 +137,8 @@ class TestSprint6FullFlow:
 
         # Advance to gap_analysis if still in an earlier step.
         if current_step in ("jd_analysis", "cv_import"):
-            gap_r = requests.post(f"{api}/api/job/{job_id}/gaps", timeout=60)
-            assert gap_r.status_code == 200, f"Gap analysis failed: {gap_r.text}"
-            gap_id = gap_r.json()["id"]
+            gap = _run_gap_analysis(api, job_id)
+            gap_id = gap["id"]
             adv_gap = requests.post(
                 f"{api}/api/flow/{flow_id}/advance",
                 json={"step": "gap_analysis", "artifact_id": gap_id},

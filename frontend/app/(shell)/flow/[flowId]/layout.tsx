@@ -24,7 +24,7 @@ import { use } from "react";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { cn } from "@/lib/utils";
-import { STEP_ROUTE, resolveFlowRedirect } from "@/lib/flow-routing";
+import { STEP_ROUTE, resolveFlowRedirect, activeStepSegment } from "@/lib/flow-routing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -97,7 +97,7 @@ export default function FlowLayout({
   const steps = STEP_KEYS.map(({ step, labelKey }, idx) => ({
     key: step,
     labelKey,
-    state: (STEP_ROUTE[step] === currentSegment
+    state: (STEP_ROUTE[step] === activeStepSegment(currentSegment)
       ? "active"
       : currentStepIndex > idx
       ? "done"
@@ -113,7 +113,9 @@ export default function FlowLayout({
       />
       <div className={cn(
         "flex-1 w-full overflow-y-auto",
-        currentSegment === "cv" ? "" : "max-w-[960px] mx-auto px-5 py-8"
+        currentSegment === "cv" || currentSegment === "cover-letter"
+          ? ""
+          : "max-w-[960px] mx-auto px-5 py-8"
       )}>
         {ready ? children : (
           <div className="flex items-center justify-center min-h-[60vh] text-sm text-gray-500">

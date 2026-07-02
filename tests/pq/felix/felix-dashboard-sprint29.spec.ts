@@ -75,7 +75,7 @@ async function runFullOnboardingFlow(page: Page): Promise<string> {
   await page.getByTestId("regenerate-cv-button").click({ timeout: 15000 });
 
   // Wait for generation to complete
-  await expect(page.getByTestId("refinement-panel")).toBeVisible({
+  await expect(page.getByTestId("refinement-sidebar")).toBeVisible({
     timeout: 90000,
   });
 

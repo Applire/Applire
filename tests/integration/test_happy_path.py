@@ -80,14 +80,26 @@ def test_happy_path_new_user(api):
     assert state["current_step"] in ["jd_analysis", "cv_import", "gap_analysis"], \
         f"Unexpected step: {state['current_step']}"
 
-    # Step 5: Perform gap analysis
-    r = requests.post(
-        f"{api}/api/job/{job_id}/gaps",
-        json={},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Gap analysis failed: {r.text}"
-    gap_id = r.json()["id"]
+    # Step 5: Perform gap analysis (async job + poll — sync POST /gaps removed, E037 N2)
+    start = requests.post(f"{api}/api/job/{job_id}/gap-jobs", timeout=30)
+    assert start.status_code == 202, f"Gap job start failed: {start.text}"
+    gap_job_id = start.json()["gap_job_id"]
+    gap_id = None
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        poll = requests.get(
+            f"{api}/api/job/{job_id}/gap-jobs/{gap_job_id}", timeout=15
+        )
+        assert poll.status_code == 200, f"Gap job poll failed: {poll.text}"
+        data = poll.json()
+        if data["status"] == "ready":
+            assert data["result"] is not None, f"Gap job ready without result: {data}"
+            gap_id = data["result"]["id"]
+            break
+        if data["status"] == "failed":
+            pytest.fail(f"Gap analysis failed: {data}")
+        time.sleep(3)
+    assert gap_id is not None, "Gap job did not become ready within 180s"
 
     # Step 6: Advance flow to gap_analysis step
     r = requests.post(

@@ -112,9 +112,10 @@ test.describe("Gaps page", () => {
     // Match score display
     await expect(page.getByTestId("match-score-display")).toContainText("72%");
 
-    // Gaps section shows total gaps (Cat B + Cat C = 4)
+    // Gaps section shows the canonical gap count = number of gap clusters (E037 F1:
+    // the heading matches the badge). The 4 Cat B+C skills collapse into 2 clusters.
     await expect(page.getByTestId("gaps-section")).toBeVisible();
-    await expect(page.getByTestId("gaps-section")).toContainText("4 gaps identified");
+    await expect(page.getByTestId("gaps-section")).toContainText("2 gaps identified");
   });
 
   test("Generate CV Now button advances flow and navigates to CV page", async ({ page }) => {

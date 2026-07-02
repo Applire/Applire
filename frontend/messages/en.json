@@ -109,6 +109,7 @@
     "jdMissingBannerFetch": "We couldn't load that job posting — it may be blocked or taken down. Paste the job description text to run gap analysis.",
     "addJobDescription": "Add job description →",
     "analyzing": "Analyzing your profile…",
+    "analysisError": "Something went wrong analyzing your profile. Please try again.",
     "masterProfileCreated": "Master Profile Created",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "jdEchoTitle": "What we read from the job ad",
@@ -340,7 +341,8 @@
     "completenessPercent": "{pct}%",
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Match score: {score}%",
-    "profileChangeLog": "{action}: {section}/{field}"
+    "profileChangeLog": "{action}: {section}/{field}",
+    "actionsTab": "Actions"
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
@@ -858,6 +860,14 @@
     "page": "Page {page} of {total}",
     "showing": "{from}–{to} of {total} documents"
   },
+  "predownload": {
+    "title": "Before you download",
+    "warning": "AI-generated content can have faults — please review before you submit.",
+    "redFlagsIntro": "{count, plural, one {# detail differs} other {# details differ}} from your profile — please check before submitting:",
+    "dontShowAgain": "Don't show this again",
+    "cancel": "Cancel",
+    "download": "Download"
+  },
   "review": {
     "titleExtraction": "Here's what we read from your CV",
     "titleMerge": "What we combined and assumed",
@@ -921,5 +931,15 @@
     "resolveError": "The action could not be completed.",
     "badge": "Needs review",
     "reviewAction": "Review"
+  },
+  "document": {
+    "navCv": "CV",
+    "navCoverLetter": "Cover letter",
+    "navAriaLabel": "Choose document",
+    "downloadPdf": "Download PDF",
+    "matchScoreLabel": "Match score",
+    "panelCollapse": "Collapse panel",
+    "panelExpand": "Expand panel",
+    "validUntil": "valid until {date}"
   }
 }

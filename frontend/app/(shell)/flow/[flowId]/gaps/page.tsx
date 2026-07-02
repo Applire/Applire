@@ -31,6 +31,8 @@ import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
+import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
+import { gapCounts } from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -517,9 +519,15 @@ export default function GapsPage({
         if (gRes.ok) {
           gapData = await gRes.json();
         } else if (gRes.status === 404) {
-          const postRes = await fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`, { method: "POST" });
-          if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
-          gapData = await postRes.json();
+          // No cached analysis yet — kick off the async job and poll instead of blocking
+          // on a synchronous ~2-min LLM call. Resilient: a 504 mid-analysis no longer
+          // wedges the screen (it lands as a failed poll → retry state). Idempotency is
+          // preserved — the background task reuses a fingerprint-matching row, no re-run.
+          // analyzeGapsAsync resolves the loose GapAnalysisResult envelope; the
+          // backend result is a full gap analysis, so bridge through unknown.
+          gapData = (await analyzeGapsAsync(fs.job_id, {
+            apiBase: API_BASE,
+          })) as unknown as GapAnalysis;
         } else {
           throw new Error(await apiErrorMessage(gRes));
         }
@@ -542,7 +550,13 @@ export default function GapsPage({
           // Keep defaults
         }
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Failed to load analysis");
+        setError(
+          e instanceof GapAnalysisError
+            ? t("analysisError")
+            : e instanceof Error
+              ? e.message
+              : "Failed to load analysis",
+        );
       } finally {
         setLoading(false);
       }
@@ -661,17 +675,23 @@ export default function GapsPage({
   }
 
   async function retryGapAnalysis() {
-    if (!flowState) return;
+    if (!flowState?.job_id) return;
     setError("");
     setLoading(true);
     try {
-      const postRes = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps`, { method: "POST" });
-      if (!postRes.ok) throw new Error(await apiErrorMessage(postRes));
-      const data: GapAnalysis = await postRes.json();
+      const data = (await analyzeGapsAsync(flowState.job_id, {
+        apiBase: API_BASE,
+      })) as unknown as GapAnalysis;
       setGaps(data);
       setMatchScore(data.match_score ? Math.round(data.match_score * 100) : 0);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load analysis");
+      setError(
+        e instanceof GapAnalysisError
+          ? t("analysisError")
+          : e instanceof Error
+            ? e.message
+            : "Failed to load analysis",
+      );
     } finally {
       setLoading(false);
     }
@@ -693,9 +713,10 @@ export default function GapsPage({
   }
 
   const roleTitle = flowState?.job_summary?.role_title ?? "the target role";
-  const activeGapC = (gaps?.category_c ?? []).filter((g) => !resolvedGaps.has(g));
-  const activeGapB = (gaps?.category_b ?? []).filter((g) => !resolvedGaps.has(g));
-  const totalGaps = activeGapC.length + activeGapB.length;
+  // One source for every gap count so the badge and the heading never disagree
+  // (F1): `gaps` is the canonical gap number; `itemsToAddress` (partials + gaps)
+  // still gates the section and the interview CTA.
+  const counts = gapCounts(gaps, resolvedGaps);
 
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
@@ -761,14 +782,14 @@ export default function GapsPage({
               {t("matchScoreDisplay", { label: t("matchScore"), score: matchScore })}
             </p>
             <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
-              {gaps?.category_a && gaps.category_a.length > 0 && (
-                <Badge variant="success">{t("directMatchesBadge", { count: gaps.category_a.length })}</Badge>
+              {counts.directMatches > 0 && (
+                <Badge variant="success">{t("directMatchesBadge", { count: counts.directMatches })}</Badge>
               )}
-              {activeGapB.length > 0 && (
-                <Badge variant="warning">{t("likelyMatchesBadge", { count: activeGapB.length })}</Badge>
+              {counts.likelyMatches > 0 && (
+                <Badge variant="warning">{t("likelyMatchesBadge", { count: counts.likelyMatches })}</Badge>
               )}
-              {activeGapC.length > 0 && (
-                <Badge variant="critical">{t("gapsToAddress", { count: activeGapC.length })}</Badge>
+              {counts.gaps > 0 && (
+                <Badge variant="critical">{t("gapsToAddress", { count: counts.gaps })}</Badge>
               )}
               {resolvedGaps.size > 0 && (
                 <Badge variant="success">{t("resolvedBadge", { count: resolvedGaps.size })}</Badge>
@@ -779,11 +800,11 @@ export default function GapsPage({
       </Card>
 
       {/* Section 3: Cluster-based gap display */}
-      {totalGaps > 0 && (
+      {counts.itemsToAddress > 0 && (
         <div data-testid="gaps-section" className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-heading text-lg font-bold text-neutral-dark">
-              {t("gapsIdentified", { count: totalGaps })}
+              {t("gapsIdentified", { count: counts.gaps })}
             </h3>
             {resolvedGaps.size === 0 && (
               <p className="text-xs text-gray-400">{t("clickGapHint")}</p>
@@ -901,7 +922,7 @@ export default function GapsPage({
 
       {/* CTAs */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-        {flowState?.user_type === "new" && totalGaps > 0 && (
+        {flowState?.user_type === "new" && counts.itemsToAddress > 0 && (
           <div className="flex flex-col items-center">
             <Button
               size="lg"
@@ -918,7 +939,7 @@ export default function GapsPage({
           </div>
         )}
         <Button
-          variant={flowState?.user_type === "returning" || totalGaps === 0 ? "primary" : "secondary"}
+          variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
           size="lg"
           onClick={() => void advance("cv_generation")}
           disabled={actionLoading}

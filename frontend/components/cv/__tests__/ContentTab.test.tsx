@@ -103,6 +103,44 @@ describe("ContentTab", () => {
     await waitFor(() => expect(screen.getByText(/gap found/)).toBeTruthy());
   });
 
+  it("Edit mode: 'Apply' on a Kaile suggestion saves it into the section (Task 11)", async () => {
+    sessionStorage.setItem("finetune_save_scope", "cv");
+    const patchBodies: string[] = [];
+    vi.spyOn(global, "fetch").mockImplementation((async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/rewrite")) {
+        return { ok: true, json: async () => ({ suggestion: "Kaile improved text" }) } as Response;
+      }
+      if (init?.method === "PATCH" && /\/sections\//.test(u)) {
+        patchBodies.push(String(init.body));
+        return {
+          ok: true,
+          json: async () => ({ html: "<html/>", overrides_applied: [], resolved_gaps: [] }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ sections: MOCK_SECTIONS, general_gaps: [] }),
+      } as Response;
+    }) as typeof fetch);
+
+    render(withIntl(<ContentTab {...BASE_PROPS} />));
+    await waitFor(() => expect(screen.getByText("Introduction")).toBeTruthy());
+    fireEvent.click(screen.getByText("Introduction")); // enter edit mode
+
+    fireEvent.change(screen.getByTestId("kaile-directions-input"), {
+      target: { value: "make it punchy" },
+    });
+    fireEvent.click(screen.getByTestId("kaile-rewrite-btn"));
+    await waitFor(() => expect(screen.getByTestId("apply-suggestion-btn")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("apply-suggestion-btn"));
+
+    await waitFor(() =>
+      expect(patchBodies.some((b) => b.includes("Kaile improved text"))).toBe(true)
+    );
+    sessionStorage.clear();
+  });
+
   it("Browse mode: deduplicates a gap repeated across sections (bug 4)", async () => {
     // Simulate the pre-fix backend behaviour where the same gap id was emitted
     // under multiple sections — the count and chip list must not double-count.
