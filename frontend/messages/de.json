@@ -459,6 +459,7 @@
     "viewAllInDocuments": "Alle in „Meine Dokumente“ anzeigen →",
     "subtitle": "Verwalte deine Bewerbungen und schneide deinen Lebenslauf für jede Stelle zu.",
     "profileBadge": "Profil: {pct}%",
+    "importInProgress": "Dein Profil-Import läuft noch — einige Lebensläufe werden gerade zusammengeführt. Dein Profil kann bis dahin unvollständig aussehen.",
     "activeApplications": "Aktive Bewerbungen ({count})",
     "createFirstApplication": "Erste Bewerbung erstellen",
     "noSearchResults": "Keine Bewerbungen entsprechen der Suche.",

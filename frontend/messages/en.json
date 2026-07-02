@@ -459,6 +459,7 @@
     "viewAllInDocuments": "View all in My Documents →",
     "subtitle": "Manage your applications and tailor your CV for each role.",
     "profileBadge": "Profile: {pct}%",
+    "importInProgress": "Your profile import is still in progress — some CVs are still being merged. Your profile may look incomplete until it finishes.",
     "activeApplications": "Active Applications ({count})",
     "createFirstApplication": "Create your first application",
     "noSearchResults": "No applications match your search.",

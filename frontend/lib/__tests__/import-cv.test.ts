@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { uploadCvAsync, CVImportError } from "@/lib/import-cv";
+import { uploadCvAsync, startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
 
 function res(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: () => Promise.resolve(body) } as Response;
@@ -87,5 +87,67 @@ describe("uploadCvAsync", () => {
   it("throws CVImportError when the start POST fails", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(res({}, false, 500));
     await expect(uploadCvAsync(new File(["x"], "cv.pdf"), { pollMs: 1 })).rejects.toBeInstanceOf(CVImportError);
+  });
+});
+
+// PQ F1: the onboarding overlay must POST every file's import job up-front (so a
+// refresh can't lose queued files), THEN poll — hence the start/poll split.
+describe("startCvImport / pollCvImport (split start-vs-poll)", () => {
+  it("startCvImport POSTs the file and resolves with the import_id WITHOUT polling", async () => {
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = typeof input === "string" ? input : input.toString();
+      calls.push(u);
+      return res({ import_id: "imp-9", status: "pending" }, true, 202);
+    });
+
+    const id = await startCvImport(new File(["cv"], "cv.pdf", { type: "application/pdf" }));
+
+    expect(id).toBe("imp-9");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].endsWith("/api/profile/import-jobs")).toBe(true);
+  });
+
+  it("startCvImport forwards job_id as a query param", async () => {
+    let postUrl = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      postUrl = typeof input === "string" ? input : input.toString();
+      return res({ import_id: "imp-9", status: "pending" }, true, 202);
+    });
+    await startCvImport(new File(["x"], "cv.pdf"), { jobId: "job-3" });
+    expect(postUrl).toContain("job_id=job-3");
+  });
+
+  it("startCvImport rejects with CVImportError when the POST fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res({}, false, 500));
+    await expect(startCvImport(new File(["x"], "cv.pdf"))).rejects.toBeInstanceOf(CVImportError);
+  });
+
+  it("pollCvImport polls an already-started import to completion", async () => {
+    const statuses = ["processing", "ready"];
+    let i = 0;
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = typeof input === "string" ? input : input.toString();
+      calls.push(u);
+      const s = statuses[Math.min(i++, statuses.length - 1)];
+      return res({ status: s, error_code: null, result: s === "ready" ? { profile_id: "p7", status: "DRAFT" } : null });
+    });
+
+    const out = await pollCvImport("imp-7", { pollMs: 1 });
+
+    expect(out.profile_id).toBe("p7");
+    // Only GET polls — no new POST is issued for an already-started import.
+    expect(calls.every((u) => u.includes("/api/profile/import-jobs/imp-7"))).toBe(true);
+  });
+
+  it("pollCvImport rejects with the error_code on a failed import", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res({ status: "failed", error_code: "llm_timeout", result: null }),
+    );
+    await expect(pollCvImport("imp-7", { pollMs: 1 })).rejects.toMatchObject({
+      name: "CVImportError",
+      errorCode: "llm_timeout",
+    });
   });
 });

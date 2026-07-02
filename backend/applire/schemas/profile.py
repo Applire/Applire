@@ -675,6 +675,21 @@ class CVImportStatusResponse(BaseModel):
     result: CVUploadResponse | None = None
 
 
+class CVImportJobListItem(BaseModel):
+    """One row of GET /api/profile/import-jobs (PQ F1 — truthful dashboard).
+
+    Lightweight, user-scoped listing so the frontend can tell that imports are still
+    running server-side (e.g. after a refresh interrupted the onboarding overlay) and
+    show an "import in progress" indicator instead of presenting a half-imported
+    profile as complete. No ``result`` payload — poll GET /import-jobs/{id} for that.
+    """
+
+    import_id: uuid.UUID
+    status: _IMPORT_STATUS
+    filename: str
+    created_at: datetime
+
+
 class StagedResolveRequest(BaseModel):
     """Request body for POST /api/profile/staged/{id}/resolve (US167)."""
 
