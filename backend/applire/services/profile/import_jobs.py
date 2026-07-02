@@ -24,12 +24,16 @@ background task (``run_import_job_background``, reusing the same ``upload_cv`` s
 polled via ``get_import_job``. Mirrors the async CV-generation lifecycle (services/cv.py).
 """
 
+import asyncio
 import json
 import logging
 import uuid
+import weakref
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.db.session import AsyncSessionLocal
@@ -44,6 +48,33 @@ from applire.providers import get_provider
 from applire.storage import get_storage
 
 logger = logging.getLogger(__name__)
+
+# PQ F1: import jobs are now all POSTed up-front by the onboarding flow (so a mid-import
+# refresh can't lose queued files). Without serialization, two background jobs for the
+# same user would interleave the profile merge (_apply_merge is read-latest → write) and
+# one CV's data would be lost. This per-user lock makes job processing mutually exclusive;
+# asyncio.Lock wakes waiters FIFO, and the client POSTs files sequentially, so jobs run in
+# creation order. In-process only — Community runs a single worker; a multi-worker
+# deployment would need a DB-level queue instead. A job waiting on the lock stays
+# ``pending`` (truthful status for pollers); on process restart the lock table is empty,
+# so orphaned rows can never deadlock new imports.
+# The table is keyed by event loop (weakly, so a closed loop's locks are collected):
+# an asyncio.Lock is bound to the loop it was created on, and background tasks always
+# run on the server's single loop in production — the loop key only matters for tests,
+# which spin up a fresh loop per test.
+_user_import_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[uuid.UUID | None, asyncio.Lock]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _import_lock_for(user_id: uuid.UUID | None) -> asyncio.Lock:
+    """Per-user lock; userless (agent/single-user) jobs share the ``None`` slot."""
+    loop = asyncio.get_running_loop()
+    locks = _user_import_locks.setdefault(loop, {})
+    lock = locks.get(user_id)
+    if lock is None:
+        lock = locks.setdefault(user_id, asyncio.Lock())
+    return lock
 
 
 def classify_import_error(exc: BaseException) -> str:
@@ -90,6 +121,41 @@ async def get_import_job(
     return job
 
 
+#: Statuses that mean "this import is still running" (queued or being processed).
+ACTIVE_IMPORT_STATUSES = (CVImportStatus.pending.value, CVImportStatus.processing.value)
+
+
+async def list_import_jobs(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None,
+    active: bool = True,
+    limit: int = 50,
+) -> list[CVImportJob]:
+    """List import jobs for a user, oldest first (creation = processing order).
+
+    With ``active=True`` (the dashboard's "import still in progress" indicator, PQ F1)
+    only pending/processing jobs are returned, and jobs past their TTL are excluded so
+    an orphaned job (e.g. a server restart mid-import) can't pin the indicator forever.
+
+    Owner scoping mirrors ``get_import_job`` (IDOR guard): a user sees their own jobs
+    plus userless (agent/single-user context) ones — never another user's.
+    """
+    stmt = select(CVImportJob).where(CVImportJob.deleted_at.is_(None))
+    if user_id is not None:
+        stmt = stmt.where(
+            or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))
+        )
+    if active:
+        stmt = stmt.where(
+            CVImportJob.status.in_(ACTIVE_IMPORT_STATUSES),
+            CVImportJob.expires_at > datetime.now(timezone.utc),
+        )
+    stmt = stmt.order_by(CVImportJob.created_at.asc()).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def run_import_job_background(
     import_id: uuid.UUID,
     file_bytes: bytes,
@@ -106,10 +172,39 @@ async def run_import_job_background(
     delegates to the existing ``upload_cv`` service, then stores the CVUploadResponse and
     marks ``ready`` — or, on any failure, marks ``failed`` with a stable error_code and
     keeps the raw text internal. Never raises (a background task has no caller to catch).
+
+    Jobs for the same user are serialized (PQ F1): the per-user lock is taken BEFORE any
+    DB session is opened, so a queued job holds no connection while it waits and its
+    status stays ``pending`` until it is actually picked up.
     """
     # Imported here to avoid a circular import (services.profile.__init__ imports this module).
     from applire.services.profile import upload_cv
 
+    async with _import_lock_for(user_id):
+        await _process_import_job(
+            import_id,
+            file_bytes,
+            filename,
+            content_type,
+            job_id,
+            user_id,
+            upload_cv=upload_cv,
+            session_factory=session_factory,
+        )
+
+
+async def _process_import_job(
+    import_id: uuid.UUID,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    job_id: uuid.UUID | None,
+    user_id: uuid.UUID | None,
+    *,
+    upload_cv: Callable,
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The actual import work — runs with the per-user lock held (see caller)."""
     async with session_factory() as db:
         job = await db.get(CVImportJob, import_id)
         if job is None:
