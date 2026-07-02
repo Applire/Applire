@@ -323,6 +323,25 @@
   </section>
   {% endif %}
 
+  <!-- ===== CERTIFICATIONS / ZERTIFIZIERUNGEN ===== -->
+  {% if cv.certifications %}
+  <section class="section">
+    <div class="section-header">
+      <span class="section-title-en">{{ labels.certifications }}</span>
+      <div class="section-rule"></div>
+    </div>
+    {% for cert in cv.certifications %}
+    <div class="entry">
+      <div class="entry-meta">
+        <div class="entry-title">{{ cert.name }}</div>
+        <div class="entry-dates">{{ cert.date_obtained }}</div>
+      </div>
+      {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
   <!-- ===== SKILLS / KENNTNISSE ===== -->
   {% if cv.skills %}
   <section class="section">

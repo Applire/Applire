@@ -300,6 +300,22 @@
   </section>
   {% endif %}
 
+  <!-- ===== ZERTIFIZIERUNGEN ===== -->
+  {% if cv.certifications %}
+  <section class="section">
+    <h2 class="section-title">{{ labels.certifications }}</h2>
+    {% for cert in cv.certifications %}
+    <div class="entry">
+      <div class="entry-dates">{{ cert.date_obtained }}</div>
+      <div class="entry-body">
+        <div class="entry-title">{{ cert.name }}</div>
+        {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
   <!-- ===== KENNTNISSE ===== -->
   {% if cv.skills %}
   <section class="section">

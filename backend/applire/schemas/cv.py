@@ -123,6 +123,25 @@ class TailoredLanguage(BaseModel):
     _coerce_fields = field_validator("language", "level", mode="before")(_coerce_none_str)
 
 
+class TailoredCertification(BaseModel):
+    """A certification carried verbatim from the Master Profile (PQ F7 / ADR-040).
+
+    Certifications are FACTUAL data, like contact info — copied deterministically
+    into ``tailored_data.certifications`` by ``services.cv._apply_certifications``
+    AFTER the LLM step(s), never routed through an LLM JSON schema. Dates are kept
+    as strings (rendered, not computed on) so the profile's ISO date is passed
+    through unmodified rather than re-parsed.
+    """
+    name: str = ""
+    issuing_organization: str = ""
+    date_obtained: str = ""
+    expiry_date: str = ""
+
+    _coerce_fields = field_validator(
+        "name", "issuing_organization", "date_obtained", "expiry_date", mode="before"
+    )(_coerce_none_str)
+
+
 class TailoredContact(BaseModel):
     name: str = ""
     email: str | None = None
@@ -144,6 +163,9 @@ class TailoredCVData(BaseModel):
     # Standalone projects — those with no associated work/volunteer parent (US187).
     # Projects parented to a position are nested on the relevant TailoredWorkEntry.
     projects: list[TailoredProjectEntry] = []
+    # Copied verbatim from the Master Profile by services.cv._apply_certifications,
+    # never LLM-generated (PQ F7 / ADR-040 truthfulness).
+    certifications: list[TailoredCertification] = []
     show_photo: bool = True  # country-aware photo rendering hook (ADR-021); True for all DACH jobs
 
     # The LLM occasionally returns an explicit null summary; degrade to an

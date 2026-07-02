@@ -38,6 +38,7 @@ _CV_LABELS: dict[str, dict[str, str]] = {
         "projects": "Projekte",
         "contact": "Kontakt",
         "present": "heute",
+        "certifications": "Zertifizierungen",
     },
     "en": {
         "summary": "Profile",
@@ -48,6 +49,7 @@ _CV_LABELS: dict[str, dict[str, str]] = {
         "projects": "Projects",
         "contact": "Contact",
         "present": "Present",
+        "certifications": "Certifications",
     },
 }
 
