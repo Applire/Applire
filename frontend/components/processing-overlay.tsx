@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 import { extractApiError, translateApiError } from "@/lib/api/errors";
-import { uploadCvAsync, CVImportError } from "@/lib/import-cv";
+import { startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -122,17 +122,42 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     undated_positions?: number;
   }
 
-  // Upload a single CV. Returns the parse signals on success, or null on failure
-  // (recording the clean backend message against the file's step). One failure
-  // never throws — the batch keeps going (FMEA JF-M-2.2) and the user can Retry.
-  const uploadOne = useRef(async (i: number): Promise<UploadOk | null> => {
+  // Mark a file's step failed with a clean, localized message (FMEA JF-M-2.2).
+  // A truncation/timeout gets the reassuring "nothing was changed" copy; other
+  // failures the generic one. The raw provider text never shows.
+  const markFileFailed = useRef((i: number, e: unknown) => {
+    const uploadIdx = 1 + i;
+    const code = e instanceof CVImportError ? e.errorCode : null;
+    const msg =
+      code === "llm_truncated" || code === "llm_timeout"
+        ? t("uploadTryAgain")
+        : t("uploadFailed");
+    setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
+    setStepStatus(uploadIdx, "error");
+  }).current;
+
+  // Phase A of the import queue (PQ F1): POST one file's import job so the SERVER owns
+  // it. Returns the import_id, or null on failure (recording the error against the
+  // file's step — the batch keeps going and the user can Retry).
+  const startOne = useRef(async (i: number): Promise<string | null> => {
+    try {
+      return await startCvImport(files[i], {
+        apiBase: API_BASE,
+        signal: abortRef.current?.signal,
+      });
+    } catch (e) {
+      markFileFailed(i, e);
+      return null;
+    }
+  }).current;
+
+  // Phase B: poll a queued import to completion. Returns the parse signals on success,
+  // or null on failure. One failure never throws — the batch keeps going (FMEA
+  // JF-M-2.2) and the user can Retry.
+  const awaitOne = useRef(async (i: number, importId: string): Promise<UploadOk | null> => {
     const uploadIdx = 1 + i;
     try {
-      // Async import (E036): returns immediately and the heavy segmented work runs in a
-      // background task, polled here — so a slow/output-capped model can no longer 504
-      // the request and drop this CV. Sequential per file (caller awaits each in turn),
-      // so the merge order is preserved.
-      const body = await uploadCvAsync(files[i], {
+      const body = await pollCvImport(importId, {
         apiBase: API_BASE,
         signal: abortRef.current?.signal,
       });
@@ -149,18 +174,16 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         undated_positions: body.undated_positions,
       };
     } catch (e) {
-      // A failed import marks just this file (FMEA JF-M-2.2) — the batch keeps going and
-      // the user can Retry. A truncation/timeout gets the reassuring "nothing was changed"
-      // copy; other failures the generic one. The raw provider text never shows.
-      const code = e instanceof CVImportError ? e.errorCode : null;
-      const msg =
-        code === "llm_truncated" || code === "llm_timeout"
-          ? t("uploadTryAgain")
-          : t("uploadFailed");
-      setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
-      setStepStatus(uploadIdx, "error");
+      markFileFailed(i, e);
       return null;
     }
+  }).current;
+
+  // Single-file start + poll — used by the per-file Retry.
+  const uploadOne = useRef(async (i: number): Promise<UploadOk | null> => {
+    const importId = await startOne(i);
+    if (importId === null) return null;
+    return awaitOne(i, importId);
   }).current;
 
   // Build profile → detect gaps → advance flow → navigate. Shared by the main
@@ -383,7 +406,19 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           return;
         }
 
-        // Steps 1..N: one upload step per file.
+        // Steps 1..N: one upload step per file, in two phases (PQ F1 — BLOCKER).
+        //
+        // Phase A: POST every file's import job up-front (fast — no LLM work in the
+        // request). After this phase the SERVER owns the whole queue: a refresh can
+        // no longer lose queued files, because the backend finishes all jobs
+        // (serialized per user, in creation order) without the client.
+        const importIds: (string | null)[] = [];
+        for (let i = 0; i < files.length; i++) {
+          importIds.push(await startOne(i));
+        }
+
+        // Phase B: poll each job to completion, in creation order (matching the
+        // backend's per-user processing order, so the step-by-step UI stays honest).
         // A single failed file must NOT abort onboarding (FMEA JF-M-2.2): we
         // continue with the CVs that parsed and surface "N of M" on the summary.
         // Only a total failure (zero parsed) is a hard stop.
@@ -394,8 +429,10 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         let totalUndated = 0;
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = 1 + i;
+          const importId = importIds[i];
+          if (importId === null) continue; // POST failed — step already marked error
           if (i > 0) setStepStatus(uploadIdx, "active");
-          const ok = await uploadOne(i);
+          const ok = await awaitOne(i, importId);
           if (ok) {
             if (ok.name_mismatch) anyNameMismatch = true;
             if (ok.looks_like_cv === false) anyNotCv = true;

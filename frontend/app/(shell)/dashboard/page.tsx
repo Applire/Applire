@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
@@ -45,6 +46,9 @@ export default function DashboardPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [userName, setUserName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped when background CV imports finish (PQ F1) — remounts the Profile
+  // Strength card so it re-fetches instead of keeping the pre-import score.
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -90,6 +94,11 @@ export default function DashboardPage() {
       <AppTopbar mode="section" titleKey="shell.dashboard" />
 
       <main className="flex-1 overflow-y-auto px-8 py-7">
+        {/* PQ F1: truthful dashboard — CV imports may still be running server-side
+            (e.g. after a refresh interrupted onboarding). Say so instead of showing
+            a half-imported profile as complete; refresh the strength card when done. */}
+        <ImportInProgressBanner onAllDone={() => setProfileRefreshKey((k) => k + 1)} />
+
         {/* Page header */}
         <div className="mb-5">
           <h1 className="text-[22px] font-extrabold text-neutral-dark font-manrope tracking-tight">
@@ -103,7 +112,7 @@ export default function DashboardPage() {
         {/* Top row: Quick Tailor + Profile Strength */}
         <div className="grid grid-cols-[1fr_260px] gap-4 mb-6">
           <QuickTailorWidget />
-          <ProfileStrengthCard />
+          <ProfileStrengthCard key={profileRefreshKey} />
         </div>
 
         {/* Active applications */}
