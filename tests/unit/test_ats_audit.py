@@ -236,6 +236,41 @@ def test_present_keyword_not_in_either_missing_bucket():
     assert report.keywords.missing_honest_gap == ["GraphQL"]
 
 
+def test_denied_gap_keyword_aliased_by_claimable_entry_is_honest_gap():
+    """F4 (blind PQ 2026-07-02, trust-critical): the gap LLM echoed 'Azure' as a
+    surface form of the claimable compound requirement 'Cloud environment
+    qualification (AWS, Azure)' while classifying 'Azure' itself as an honest gap
+    in the SAME ledger. The audit then bucketed the missing keyword 'Azure' as
+    missing_claimable → the panel read 'Supported by your profile' although the
+    user had denied Azure experience. Through the REAL builder, 'Azure' must land
+    in missing_honest_gap."""
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            {
+                "concept": "Cloud environment qualification (AWS, Azure)",
+                "status": "partial",
+                "surface_forms": ["Cloud environment qualification", "AWS", "Azure"],
+                "evidence": "Qualified first GxP cloud environment (AWS). Azure not explicitly mentioned.",
+            },
+            {"concept": "Azure", "status": "gap", "surface_forms": ["Azure"], "evidence": ""},
+        ],
+        required_skills=["Cloud environment qualification (AWS, Azure)"],
+        nice_to_have_skills=[],
+        keywords=["AWS", "Azure"],
+    )
+    # CV text truthfully surfaces AWS but never claims Azure.
+    text = "Anna Bauer qualified the company's first GxP cloud environment on AWS"
+    report = _audit_cv_text(text, _CV, keywords=["AWS", "Azure"], ledger=ledger)
+    assert "Azure" in report.keywords.missing
+    assert "Azure" not in report.keywords.missing_claimable, (
+        "a concept the ledger itself classifies 'gap' must never be presented as "
+        "'supported by your profile'"
+    )
+    assert "Azure" in report.keywords.missing_honest_gap
+
+
 def test_missing_keyword_unknown_to_ledger_is_honest_gap():
     """A missing keyword with no claimable ledger entry defaults to honest-gap —
     never silently claimable (mirrors the ledger's gap-default rule)."""

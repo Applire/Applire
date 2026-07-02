@@ -489,3 +489,121 @@ def test_render_ledger_reviewer_block_empty_for_empty_ledger():
 
     assert render_ledger_reviewer_block(None) == ""
     assert render_ledger_reviewer_block([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# F4 (blind PQ 2026-07-02, trust-critical): the ledger's own honest-gap verdict
+# must win over a claimable entry's surface-form aliasing. The gap LLM classified
+# the JD's compound requirement "Cloud environment qualification (AWS, Azure)" as
+# partial (AWS evidence only) but echoed BOTH tokens — including "Azure" — as its
+# surface forms, while the SAME ledger held a separate "Azure" entry with status
+# gap. claimable_surface_forms() then exported "Azure" as claimable, and the ATS
+# audit told the user "Azure — supported by your profile" although they had
+# denied any Azure experience in writing. Invariant: a concept the ledger itself
+# classifies "gap" must never ride along as a claimable surface form.
+# ---------------------------------------------------------------------------
+
+
+def test_gap_concept_is_stripped_from_claimable_surface_forms():
+    # Exact blind-PQ F4 shape (gap_analyses row 804a6a89…, 2026-07-02).
+    from applire.services.keyword_ledger import claimable_surface_forms
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Cloud environment qualification (AWS, Azure)",
+                "partial",
+                ["Cloud environment qualification", "Cloud qualification", "AWS", "Azure"],
+                evidence="Qualified first GxP cloud environment (AWS). Azure not explicitly mentioned.",
+            ),
+            _cls("Azure", "gap", ["Azure"]),
+        ],
+        required_skills=["Cloud environment qualification (AWS, Azure)"],
+        nice_to_have_skills=[],
+        keywords=["AWS", "Azure"],
+    )
+
+    forms = {f.casefold() for f in claimable_surface_forms(ledger)}
+    assert "azure" not in forms, (
+        "an honest-gap concept must never be exported as a claimable surface form"
+    )
+    assert "aws" in forms, "the genuinely supported token must survive the strip"
+
+    cloud = _by_concept(ledger)["Cloud environment qualification (AWS, Azure)"]
+    assert all(f.casefold() != "azure" for f in cloud["surface_forms"])
+    azure = _by_concept(ledger)["Azure"]
+    assert azure["status"] == "gap" and azure["claimable"] is False
+
+
+def test_same_concept_claimable_and_gap_resolves_to_gap():
+    # The LLM contradicting itself (same concept once direct, once gap) must
+    # resolve to the honest side — never-claim outranks claim (ADR-040/ADR-048).
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Azure", "direct", ["Azure"], evidence="cloud experience"),
+            _cls("Azure", "gap", ["Azure"]),
+        ],
+        required_skills=["Azure"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+    azure_entries = [e for e in ledger if e["concept"].casefold() == "azure"]
+    assert len(azure_entries) == 1, "a contradicted concept must occupy one entry (one score slot)"
+    assert azure_entries[0]["status"] == "gap"
+    assert azure_entries[0]["claimable"] is False
+
+
+def test_gap_with_denial_evidence_is_never_claimable():
+    # Regression shape for the F4 invariant: a concept the LLM classifies "gap"
+    # on denial evidence has claimable == False and carries no evidence text
+    # downstream (evidence is only kept for claimable entries).
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Azure",
+                "gap",
+                ["Azure"],
+                evidence='Candidate explicitly denied it: "I have no hands-on Azure experience."',
+            )
+        ],
+        required_skills=["Azure"],
+        nice_to_have_skills=[],
+        keywords=["Azure"],
+    )
+    e = _by_concept(ledger)["Azure"]
+    assert e["claimable"] is False
+    assert e["evidence"] == ""
+
+
+def test_stance_strip_does_not_touch_distinct_claimable_forms():
+    # Conservative strip: only a form norm-EQUAL to a gap entry's concept is
+    # removed. "Docker" (claimable) is untouched by the gap "Docker Swarm".
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Docker", "direct", ["Docker", "Containers"], evidence="shipped containers"),
+            _cls("Docker Swarm", "gap", ["Docker Swarm"]),
+        ],
+        required_skills=["Docker", "Docker Swarm"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+    docker = _by_concept(ledger)["Docker"]
+    assert docker["surface_forms"] == ["Docker", "Containers"]
+
+
+def test_stance_strip_falls_back_to_concept_when_all_forms_were_gaps():
+    # Degenerate LLM output: every surface form of a claimable entry is an
+    # honest-gap concept. The entry keeps its own concept as the surface form
+    # (builder invariant: surface_forms is never empty).
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Cloud platforms", "partial", ["Azure", "GCP"], evidence="cloud work"),
+            _cls("Azure", "gap", ["Azure"]),
+            _cls("GCP", "gap", ["GCP"]),
+        ],
+        required_skills=["Cloud platforms", "Azure", "GCP"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+    cloud = _by_concept(ledger)["Cloud platforms"]
+    assert cloud["surface_forms"] == ["Cloud platforms"]

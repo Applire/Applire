@@ -191,6 +191,59 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
     return merged
 
 
+def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The ledger's own honest-gap verdict outranks claimable aliasing (F4, blind
+    PQ 2026-07-02 — trust-critical).
+
+    The LLM classified the JD's compound requirement "Cloud environment
+    qualification (AWS, Azure)" as partial on AWS-only evidence but echoed
+    "Azure" among its surface forms, while the SAME response classified "Azure"
+    itself as a gap. Every claimable-surface-form consumer (ATS audit buckets,
+    generator/reviewer prompt blocks) then presented Azure as "supported by your
+    profile" — inverting the truthfulness promise for a skill the user had
+    explicitly denied. Two deterministic rules, applied after duplicate collapse:
+
+    1. A claimable entry whose CONCEPT the ledger elsewhere classifies "gap" is
+       dropped — the honest side wins a direct contradiction (never-claim
+       outranks claim, ADR-040/ADR-048).
+    2. A claimable entry's surface forms are stripped of any form norm-EQUAL to
+       an honest-gap concept (exact match only — never substrings, so "Docker"
+       survives a "Docker Swarm" gap). If nothing survives, the entry keeps its
+       own concept (builder invariant: surface_forms is never empty).
+    """
+    gap_concepts = {
+        _norm(e.get("concept", "")) for e in ledger if not e.get("claimable")
+    }
+    gap_concepts.discard("")
+    if not gap_concepts:
+        return ledger
+
+    result: list[dict[str, Any]] = []
+    for entry in ledger:
+        if entry.get("claimable"):
+            if _norm(entry.get("concept", "")) in gap_concepts:
+                logger.warning(
+                    "_enforce_gap_stance: dropped claimable duplicate of honest-gap "
+                    "concept %r (gap verdict wins)",
+                    entry.get("concept"),
+                )
+                continue
+            forms = [
+                f
+                for f in (entry.get("surface_forms") or [entry.get("concept", "")])
+                if _norm(f) not in gap_concepts
+            ]
+            if len(forms) != len(entry.get("surface_forms") or []):
+                logger.info(
+                    "_enforce_gap_stance: stripped honest-gap surface forms from "
+                    "claimable concept %r",
+                    entry.get("concept"),
+                )
+            entry = {**entry, "surface_forms": forms or [entry.get("concept", "")]}
+        result.append(entry)
+    return result
+
+
 def split_ledger_for_prompt(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -444,4 +497,4 @@ def build_keyword_ledger(
             }
         )
 
-    return _collapse_prefix_duplicates(ledger)
+    return _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
