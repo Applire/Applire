@@ -355,7 +355,7 @@ async def _save_section_to_profile(
                     entry.responsibilities = new_bullets
                     break
 
-    profile.profile_json = profile_data.model_dump()
+    profile.profile_json = profile_data.model_dump(mode="json")
     await db.commit()
 
 
