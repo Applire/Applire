@@ -4,9 +4,78 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.37.0-beta] – 2026-07-02
+
+The **Chocolate** release: truthful tailoring end-to-end. Everything the app claims
+about a candidate is now grounded, classified, and verifiable — from ATS keyword
+coverage through gap interviews to the generated CV and cover letter.
+
+### Added
+- **ATS parseability engine + panel** (ADR-039, US138–141, #33-era main commits). Deterministic
+  local audit of every generated CV and cover letter (machine-readable contact, section
+  extraction order, keyword coverage), persisted per document (migration 0033), surfaced
+  as a compact panel with keyword ring on both previews, exposed via REST and the
+  `get_cv_ats_report` MCP tool, and gated in CI by a blocking Playwright PDF
+  extraction round-trip suite (`tests/ats`).
+- **Keyword Ledger — truthful ATS keyword coverage** (E037/ADR-048, #107, #116). One
+  ledger classifies every JD concept as *present*, *claimable* ("supported by your
+  profile but not yet in the document") or an *honest gap*; the match score is re-sourced
+  from the ledger (US199), CV and cover-letter generators consume claimable/forbidden
+  lists (US200/201), the reviewer enforces them (US202), the ATS panel annotates them
+  (US203), and honest gaps route into the interview for enrichment (US204). Score
+  wobble is frozen via a gap-input fingerprint (migration 0040).
+- **Profile Reconciliation Engine** (E035/ADR-046, #86, #88, #92, #94). CV imports and
+  interview answers reconcile into the master profile through a typed operation
+  vocabulary applied deterministically — fuzzy employer matching, hierarchy/duplicate
+  migration, conflict surfacing, idempotent application, token-budget-aware prompts.
+- **Unified document workspace** (E038, #109). CV and cover letter live in one flow
+  document view with tabs and a shared actions sidebar.
+- **Async jobs for the slow paths**: CV import (job + poll, migration 0038, #95),
+  gap analysis (E037 N2), and cover-letter generation — long LLM steps survive
+  refreshes and proxies instead of dying on request timeouts.
+- **Master Profile Health hub** (E033/ADR-041/042, #59) with severity-tiered checks,
+  profile snapshots/undo, and two hub-launched no-JD interviews (conflict resolution
+  and Mode-C enrichment).
+- **CV import fidelity** (E034/ADR-044, #62, #63): unified experience model so
+  volunteer/project work counts toward experience years and skills; extraction prompt
+  hygiene.
+- **Input integrity** (E032/E024, #45): FMEA-derived mitigations incl. the no-CV guided
+  onboarding path (ADR-016 amended).
+- **Truthful output hardening** (E031/ADR-040, #37/#38) and **generation grounding** (#61).
+- **EU provider options** (#41): Anthropic and Requesty-EU providers join the
+  bring-your-own-key roster.
+- **`OPENROUTER_REASONING_EFFORT`** (`low`/`medium`/`high`; default unset = model decides).
+  Caps how much a thinking model reasons so reasoning tokens don't crowd out the answer.
+  Accepted even by models that mandate reasoning. Deployment-wide for now; finer per-operation
+  control is planned. (#85.)
+- **`LLM_DEBUG_LOG`** (#96): per-call LLM request/response logging for diagnosis.
+
+### Changed
+- **Cap-safe segmented generation** (E036/ADR-047, #95, US188–196): CV generation is
+  budget-aware and segmentation-first — an outline call plus per-section calls keep every
+  LLM response inside the output-token cap by contract, with truncation-integrity guards
+  (#84) instead of silently clipped documents.
+- **Output language consistency** (ADR-038 follow-through, #39): LLM-content reviewer
+  plus `labels[lang]` chrome routing fixed the four remaining mixed-language causes.
+- **Completeness scoring unified** (#82) across dashboard, health hub, and profile.
+- **Flow navigation** hardened against step desync (#33, `lib/flow-routing.ts`,
+  migration 0034).
 
 ### Fixed
+- **Blind-PQ release blockers** (2026-07-02 run, #116): refresh during multi-CV
+  onboarding no longer silently drops queued CVs (all import jobs are created up-front,
+  processed serially per user, with a dashboard banner while imports run); the
+  cover-letter tab shows a real empty state + generate CTA instead of a fake eternal
+  "Generating…"; the cover letter targets the job's role title and keeps the typed
+  recipient and a role-bearing subject line; an honest interview denial can no longer
+  surface as "supported by your profile" (honest-gap verdicts outrank claimable
+  surface-form aliases, and gap prompts carry stance-labeled interview statements);
+  certifications now flow deterministically from the master profile into the tailored
+  CV and all seven templates; section-editor master saves no longer crash on date
+  fields.
+- **Chocolate pre-release fix batch** (#69, #77–#81): interview resume, merge review,
+  partial cert dates, merge promotion collapse, profile UX cluster, import CTA and
+  bullet dedup.
 - **CV import no longer fails on reasoning ("thinking") models.** Provider extraction
   was capped at 8192 tokens; on a thinking model the reasoning tokens share that budget,
   so a full CV truncated mid-JSON and the upload returned a 500 ("We couldn't read any of
@@ -18,7 +87,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   mandatory … cannot be disabled". The OpenRouter provider now treats `disable_thinking`
   as best-effort: it retries once with reasoning left on and the budget raised, so the
   call succeeds with no operator configuration. (#85.)
-
 - **CV and cover-letter generation no longer truncate on reasoning ("thinking") models.**
   On a thinking model `max_tokens` covers reasoning *and* output together, and some models
   (Gemini Flash) over-think — burning the budget before the document is written, so
@@ -26,12 +94,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   16384 (`CV_GENERATION_MAX_TOKENS`), and a new `OPENROUTER_REASONING_EFFORT` setting
   (default unset) bounds reasoning via OpenRouter's cross-vendor `reasoning.effort` — set it
   to `low` to stop a model over-thinking simple transforms. (#85.)
+- React StrictMode double-mount aborted every CV upload on the real browser path (#95).
 
-### Added
-- **`OPENROUTER_REASONING_EFFORT`** (`low`/`medium`/`high`; default unset = model decides).
-  Caps how much a thinking model reasons so reasoning tokens don't crowd out the answer.
-  Accepted even by models that mandate reasoning. Deployment-wide for now; finer per-operation
-  control is planned. (#85.)
+### Security
+- Dependency bumps closing all high-severity alerts: python-multipart 0.0.31 (both
+  manifests, #50/#57), form-data 4.0.6 (#56), js-yaml 4.3.0 (#108), pypdf 6.13.3 (#60).
 
 ### Notes
 - **Reasoning ("thinking") models add noticeable latency to the interview.** Interview

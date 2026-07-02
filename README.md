@@ -498,8 +498,15 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.36.2-beta)
+### ✅ Current Release (v0.37.0-beta)
 
+- [x] Truthful keyword ledger: every job-ad keyword classified present / claimable / honest gap — one consistent source for match score, ATS panel, generators, and interview
+- [x] Profile Reconciliation Engine: typed, deterministic merge of CV imports and interview answers with conflict resolution and enrichment history
+- [x] Master Profile Health hub with snapshots/undo and no-JD interviews
+- [x] ATS parseability checks on every generated document (panel + REST + MCP)
+- [x] Unified CV + cover-letter document workspace per application
+- [x] Async import/gap/letter jobs — long LLM steps survive refresh and proxies
+- [x] Cap-safe segmented CV generation (no truncated documents on verbose models)
 - [x] Multi-CV upload and parsing (PDF, DOCX, images via OCR)
 - [x] Master Profile consolidation with conflict resolution
 - [x] Job description analysis (text + URL scraping)
