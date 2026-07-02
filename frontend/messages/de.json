@@ -360,6 +360,8 @@
   "coverLetter": {
     "generate": "Anschreiben erstellen",
     "generating": "Anschreiben wird erstellt…",
+    "notFoundTitle": "Noch kein Anschreiben vorhanden",
+    "notFoundHint": "Erstellen Sie ein Anschreiben passend zu dieser Stelle und Ihrem Lebenslauf.",
     "download": "PDF herunterladen",
     "regenerate": "Anschreiben neu erstellen",
     "viewCV": "← Lebenslauf anzeigen",
