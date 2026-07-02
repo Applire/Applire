@@ -180,13 +180,19 @@ def sample_letter():
     }
 
 
-def _render_letter(template_file, letter, color, lang):
+def _render_letter(template_file, letter, color, lang, role_title=None):
     from applire.services.cover_letter import _jinja_env
     from applire.templates.labels import cover_letter_labels
 
+    labels = cover_letter_labels(lang)
+    # F3 (blind PQ blocker): `subject` is computed by the service (cover_letter.py
+    # get_cover_letter_html) from JobAnalysis.role_title, not stored on letter_data —
+    # mirror that computation here so this standalone-render test still exercises the
+    # real subject-prefix-follows-language contract (AC #3 adds the role on top).
+    subject = f"{labels['subject_prefix']}: {role_title}" if role_title else labels["subject_prefix"]
     template = _jinja_env.get_template(template_file)
     return template.render(
-        letter=letter, color=color, lang=lang, labels=cover_letter_labels(lang)
+        letter=letter, color=color, lang=lang, labels=labels, subject=subject
     )
 
 

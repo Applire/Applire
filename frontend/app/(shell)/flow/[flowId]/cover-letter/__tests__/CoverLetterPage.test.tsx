@@ -251,17 +251,44 @@ describe("CoverLetterPage — polling loop", () => {
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 
-  it("shows not-found state when flow has no cover letter summary", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({ cover_letter_summary: undefined }),
-    } as Response);
+  it("shows a 'no letter yet' empty state with a generate CTA when flow has no cover letter summary (F2)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return {
+          ok: true,
+          json: async () => ({ cover_letter_summary: undefined, job_id: "job-123" }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
 
     await act(async () => { renderPage("missing-flow"); });
 
+    // Must NOT reuse the "generating" copy — that lies about a job being in flight.
     await waitFor(
-      () => expect(screen.getByText("Generating cover letter…")).toBeInTheDocument(),
+      () => expect(screen.getByTestId("cl-not-found")).toBeInTheDocument(),
       { timeout: 5000 }
     );
+    expect(screen.queryByText("Generating cover letter…")).not.toBeInTheDocument();
+
+    // Primary CTA opens the same GenerateCoverLetterModal the Actions tab uses.
+    const { fireEvent } = await import("@testing-library/react");
+    expect(screen.queryByTestId("cl-modal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("cl-not-found-generate"));
+    expect(screen.getByTestId("cl-modal")).toBeInTheDocument();
+  });
+
+  it("does not show the not-found CTA when the flow fetch fails outright (still not_found, but no jobId to generate against)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false } as Response);
+
+    await act(async () => { renderPage("broken-flow"); });
+
+    await waitFor(
+      () => expect(screen.getByTestId("cl-not-found")).toBeInTheDocument(),
+      { timeout: 5000 }
+    );
+    // No job_id known — no CTA can be offered, but the page must not hang on fake copy.
+    expect(screen.queryByText("Generating cover letter…")).not.toBeInTheDocument();
   });
 });

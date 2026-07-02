@@ -360,6 +360,8 @@
   "coverLetter": {
     "generate": "Generate Cover Letter",
     "generating": "Generating cover letter…",
+    "notFoundTitle": "No cover letter yet",
+    "notFoundHint": "Generate a cover letter tailored to this job and your CV.",
     "download": "Download PDF",
     "regenerate": "Regenerate Cover Letter",
     "viewCV": "← View CV",

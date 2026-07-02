@@ -102,7 +102,24 @@ export default function CoverLetterPage({
       };
 
       const clSummary = flowData.cover_letter_summary;
-      if (!clSummary) { setPhase("not_found"); return; }
+      if (!clSummary) {
+        // F2 (blind PQ blocker): no letter has been generated yet — this is a
+        // legitimate empty state, not an error. Keep jobId so the not_found view can
+        // offer a "Generate" CTA via the same modal the sidebar Actions tab uses.
+        setClState({
+          coverLetterId: "",
+          status: "none",
+          template: "classic_german",
+          letterData: null,
+          preGenInputs: null,
+          jobId: flowData.job_id ?? null,
+          roleTitle: flowData.job_summary?.role_title ?? null,
+          matchScore: null,
+          expiresAt: null,
+        });
+        setPhase("not_found");
+        return;
+      }
 
       const clId = clSummary.cover_letter_id;
       const statusRes = await fetch(`${API_BASE}/api/cover-letter/${clId}/status`);
@@ -250,11 +267,33 @@ export default function CoverLetterPage({
 
   if (phase === "not_found") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-neutral-500 text-sm">{t("generating")}</p>
+      <div
+        className="flex flex-col items-center justify-center min-h-screen gap-4 text-center px-4"
+        data-testid="cl-not-found"
+      >
+        <p className="text-on-surface text-base font-medium">{t("notFoundTitle")}</p>
+        <p className="text-on-surface-variant text-sm max-w-sm">{t("notFoundHint")}</p>
+        {clState?.jobId && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="btn-pill-primary mt-2"
+            data-testid="cl-not-found-generate"
+          >
+            {t("generateArrow")}
+          </button>
+        )}
         <Link href={`/flow/${flowId}/cv`} className="text-blue-600 hover:underline text-sm">
           {t("viewCV")}
         </Link>
+        {showModal && clState?.jobId && (
+          <GenerateCoverLetterModal
+            jobId={clState.jobId}
+            existingInputs={clState.preGenInputs as GenerateCoverLetterModalProps["existingInputs"]}
+            onClose={() => setShowModal(false)}
+            onGenerated={handleGenerated}
+          />
+        )}
       </div>
     );
   }
