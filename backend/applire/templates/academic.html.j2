@@ -214,6 +214,21 @@
   </div>
   {% endif %}
 
+  {% if cv.certifications %}
+  <div class="section">
+    <div class="section-title">{{ labels.certifications }}</div>
+    {% for cert in cv.certifications %}
+    <div class="entry">
+      <div class="entry-date">{{ cert.date_obtained }}</div>
+      <div class="entry-content">
+        <div class="entry-title">{{ cert.name }}</div>
+        {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if cv.skills %}
   <div class="section">
     <div class="section-title">{{ labels.skills }}</div>
