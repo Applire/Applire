@@ -207,6 +207,44 @@ def test_build_cover_letter_prompt_includes_availability():
     assert "3 months notice" in prompt
 
 
+def test_build_cover_letter_prompt_includes_role_title():
+    """F3 (blind PQ blocker) — the letter targeted the candidate's CURRENT title
+    ("Head of IT Quality Systems") instead of the job's role
+    ("Head of Computerized Systems Validation (CSV/CSA)") because the prompt never
+    received the target role at all. The role title must be injected as an explicit
+    fact, with wording that ties it to "this role" so the LLM cannot confuse it with
+    a title mentioned in the candidate profile."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={
+            "contact": {"name": "Marcus Bauer"},
+            "summary": "Head of IT Quality Systems with 10 years in pharma.",
+        },
+        jd_text="We are hiring for a senior validation role.",
+        pre_gen_inputs={"tone": "formal", "recipient_company": "Helvia Pharma Services GmbH"},
+        detected_language="en",
+        role_title="Head of Computerized Systems Validation (CSV/CSA)",
+    )
+    assert "Head of Computerized Systems Validation (CSV/CSA)" in prompt
+    # Must be framed as the TARGET role for THIS application, not just dropped in.
+    low = prompt.lower()
+    assert "target role" in low or "applying for" in low or "this role" in low
+
+
+def test_build_cover_letter_prompt_role_title_optional():
+    """role_title is optional (legacy callers / missing job data) — must not raise."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={"contact": {"name": "A. Test"}, "summary": "Engineer"},
+        jd_text="Test JD",
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="de",
+    )
+    assert isinstance(prompt, str)
+
+
 def test_build_cover_letter_prompt_returns_system_and_user():
     from applire.prompts.cover_letter import build_cover_letter_prompt, SYSTEM_PROMPT
     prompt = build_cover_letter_prompt(
@@ -586,6 +624,143 @@ def test_apply_section_overrides_no_overrides():
     data = {"body": {"paragraphs": ["p1"]}}
     result = _apply_section_overrides(data, {})
     assert result == data
+
+
+# ---------------------------------------------------------------------------
+# F3 — _apply_recipient_overrides: user-typed dialog input wins over the LLM
+# ---------------------------------------------------------------------------
+
+def test_apply_recipient_overrides_fills_null_company_from_user_input():
+    """F3 (blind PQ blocker) — the user typed "Helvia Pharma Services GmbH" in the
+    generate dialog, but the LLM returned recipient.company = null and it was never
+    overlaid, so the letter shipped with no addressee company at all."""
+    from applire.services.cover_letter import _apply_recipient_overrides
+
+    letter_data = {
+        "recipient": {"name": None, "title": "Personalleiterin", "company": None, "address": None},
+        "body": {"paragraphs": ["..."]},
+    }
+    pre_gen = {"recipient_company": "Helvia Pharma Services GmbH", "recipient_name": None}
+
+    result = _apply_recipient_overrides(letter_data, pre_gen)
+    assert result["recipient"]["company"] == "Helvia Pharma Services GmbH"
+
+
+def test_apply_recipient_overrides_user_input_wins_over_llm_value():
+    """User input wins over ANY LLM output, not just null — the LLM cannot be
+    trusted to keep the user's typed recipient (AC #2)."""
+    from applire.services.cover_letter import _apply_recipient_overrides
+
+    letter_data = {"recipient": {"name": "Some Wrong Name", "company": "Wrong Company Inc."}}
+    pre_gen = {"recipient_name": "Frau Dr. Weber", "recipient_company": "Helvia Pharma Services GmbH"}
+
+    result = _apply_recipient_overrides(letter_data, pre_gen)
+    assert result["recipient"]["name"] == "Frau Dr. Weber"
+    assert result["recipient"]["company"] == "Helvia Pharma Services GmbH"
+
+
+def test_apply_recipient_overrides_no_user_input_keeps_llm_value():
+    """When the user left the field blank, the LLM's extracted/guessed value
+    (e.g. from the JD) must be preserved, not blanked out."""
+    from applire.services.cover_letter import _apply_recipient_overrides
+
+    letter_data = {"recipient": {"name": "Herr Müller", "company": "TechVision GmbH"}}
+    pre_gen = {"recipient_name": None, "recipient_company": ""}
+
+    result = _apply_recipient_overrides(letter_data, pre_gen)
+    assert result["recipient"]["name"] == "Herr Müller"
+    assert result["recipient"]["company"] == "TechVision GmbH"
+
+
+def test_apply_recipient_overrides_missing_recipient_key():
+    """LLM output missing the recipient key entirely must not raise — the overlay
+    creates it from user input."""
+    from applire.services.cover_letter import _apply_recipient_overrides
+
+    letter_data = {"body": {"paragraphs": ["..."]}}
+    pre_gen = {"recipient_company": "Helvia Pharma Services GmbH"}
+
+    result = _apply_recipient_overrides(letter_data, pre_gen)
+    assert result["recipient"]["company"] == "Helvia Pharma Services GmbH"
+
+
+# ---------------------------------------------------------------------------
+# F3 — subject line references the target role (AC #3)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cover_letter_html_subject_includes_role_title(db):
+    """AC #3 — the rendered subject must reference the target role, not just say
+    the bare word "Application"/"Bewerbung"."""
+    from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
+    from applire.models.job import JobAnalysis
+    from applire.services.cover_letter import get_cover_letter_html
+
+    job = JobAnalysis(
+        raw_text_hash="hash-subject-role-1",
+        raw_text="We are hiring a Head of Computerized Systems Validation (CSV/CSA).",
+        role_title="Head of Computerized Systems Validation (CSV/CSA)",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="senior",
+        company_culture_signals=[],
+        language_requirement="en",
+        company_name="Helvia Pharma Services GmbH",
+    )
+    db.add(job)
+    await db.flush()
+
+    letter_data = {
+        "header": {"name": "Marcus Bauer", "address": "Musterstraße 1", "phone": "", "email": "m@test.com"},
+        "recipient": {"name": None, "title": None, "company": "Helvia Pharma Services GmbH", "address": None, "date": None},
+        "body": {"paragraphs": ["Dear Hiring Manager,"]},
+        "signature": {"closing": "Kind regards", "name": "Marcus Bauer"},
+    }
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),
+        template="classic_german",
+        letter_data=letter_data,
+        pre_gen_inputs={},
+        status=CoverLetterStatus.ready.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    html = await get_cover_letter_html(cl.id, db)
+    assert "Head of Computerized Systems Validation (CSV/CSA)" in html
+    assert "Helvia Pharma Services GmbH" in html
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_html_subject_no_job_falls_back_gracefully(db):
+    """No JobAnalysis row resolvable (legacy/dangling FK) must not crash rendering —
+    subject falls back to the bare prefix, matching pre-fix behaviour."""
+    from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
+    from applire.services.cover_letter import get_cover_letter_html
+
+    letter_data = {
+        "header": {"name": "Marcus Bauer", "address": "Musterstraße 1", "phone": "", "email": "m@test.com"},
+        "recipient": {"name": None, "title": None, "company": None, "address": None, "date": None},
+        "body": {"paragraphs": ["..."]},
+        "signature": {"closing": "Mit freundlichen Grüßen", "name": "Marcus Bauer"},
+    }
+    cl = GeneratedCoverLetter(
+        job_analysis_id=uuid.uuid4(),  # dangling — no JobAnalysis row
+        profile_id=uuid.uuid4(),
+        template="classic_german",
+        letter_data=letter_data,
+        pre_gen_inputs={},
+        status=CoverLetterStatus.ready.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    html = await get_cover_letter_html(cl.id, db)
+    assert "<html" in html
 
 
 # ---------------------------------------------------------------------------

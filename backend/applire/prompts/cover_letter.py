@@ -98,6 +98,7 @@ def build_cover_letter_prompt(
     pre_gen_inputs: dict[str, Any],
     detected_language: str,
     keyword_ledger: list[dict[str, Any]] | None = None,
+    role_title: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -109,6 +110,11 @@ def build_cover_letter_prompt(
     keyword_ledger: the GapAnalysis Keyword Ledger (ADR-048 / US201). Claimable terms carry
         their profile evidence (surface where supported); honest gaps are do-not-claim.
         Omitted/empty → adds nothing.
+    role_title: the TARGET job's role title (JobAnalysis.role_title) — F3 (blind PQ
+        blocker): without this, the letter has no explicit anchor for which role it is
+        applying to and the LLM sourced a title from the candidate's own CV/summary
+        instead (e.g. the candidate's CURRENT title), producing a letter that targets
+        the wrong position. Optional so legacy/degraded callers do not break.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -168,6 +174,21 @@ def build_cover_letter_prompt(
     lines += [
         "",
         "=== PRE-GENERATION INPUTS ===",
+    ]
+
+    # F3 (blind PQ blocker): state the target role and company as explicit facts, and
+    # frame this letter as an application FOR THIS ROLE — never for a title mentioned
+    # elsewhere in the candidate's own profile (e.g. their current job title).
+    if role_title:
+        target_company = recipient_company or "the company named in the job description"
+        lines.append(
+            f"TARGET ROLE: This letter is an application FOR THIS ROLE — \"{role_title}\" — "
+            f"at {target_company}. The candidate is applying for THIS role, not for any "
+            f"title that appears elsewhere in the candidate's own CANDIDATE PROFILE "
+            f"(e.g. their current or past job title). Refer to the role by this exact title."
+        )
+
+    lines += [
         f"Recipient name: {recipient_name or '(extract from JD or use generic salutation)'}",
         f"Recipient company: {recipient_company or '(extract from JD)'}",
     ]
