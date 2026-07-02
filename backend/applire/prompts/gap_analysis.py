@@ -15,8 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v3
+# Prompt version: v4
 # Used by: services/gap.py → LLMProvider.aparse_json
+#
+# v4 changes vs v3 (F4, blind PQ 2026-07-02 — negation stance):
+#   - STANCE rule: a candidate denial ("no hands-on Azure experience") is evidence
+#     AGAINST a skill → "gap", never "direct"/"partial"
+#   - COMPOUND-requirement rule: surface_forms of a claimable concept may list ONLY
+#     supported technologies — an unsupported/denied token gets its own "gap" entry
+#   - user prompt: profile `metadata` (the enrichment audit trail) is no longer dumped
+#     as unlabeled profile text; interview-sourced records render under a labeled
+#     CANDIDATE INTERVIEW STATEMENTS section that states the denial rule
 #
 # v3 changes vs v2 (ADR-035):
 #   - match_score REMOVED from the schema — it is computed deterministically in Python
@@ -35,9 +44,11 @@ a candidate's profile. You do NOT compute a numeric score.
 You will receive:
   1. JOB ANALYSIS — structured extract of the job description
   2. CANDIDATE PROFILE — structured master profile (skills may include years_experience)
-  3. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
+  3. CANDIDATE INTERVIEW STATEMENTS — (only when present) answers the candidate gave in gap
+     interviews; these may CONFIRM or DENY experience
+  4. PRE-CLASSIFICATION — a rule-based pre-pass with: matched (direct), inferred_b (likely, confirm
      or reject), unresolved (no rule signal — you decide)
-  4. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
+  5. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
 
 Classify EVERY entry in REQUIREMENTS (required, nice_to_have, AND keywords) into exactly one status:
   • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar
@@ -49,6 +60,16 @@ Rules:
   - Classify ONLY the requirements given. Do NOT add, rename, merge, or split requirements.
   - Use profile years_experience and the JD seniority_level to decide direct vs partial.
   - When a skill is present but its years cannot be confirmed against a stated bar, choose "partial".
+  - STANCE: a denial or negative statement by the candidate ("I have no hands-on Azure
+    experience", "AWS, not Azure") is evidence AGAINST that skill. Classify such a requirement
+    "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.
+    A skill being merely MENTIONED in the profile or statements is not a signal; what counts
+    is what the candidate actually did.
+  - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
+    qualification (AWS, Azure)"): list in surface_forms ONLY the technologies the profile
+    actually supports. A technology with no profile signal — or an explicit denial — must NOT
+    appear among a claimable concept's surface forms; classify it as its own "gap" requirement
+    instead.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations.
 
@@ -77,6 +98,35 @@ Guidelines:
 - keyword_gaps: list exact terms from the JD absent from the profile."""
 
 
+# F4: the label carries the stance rule right where the statements appear, so the
+# classifier never reads a denial as unlabeled profile text.
+_STATEMENTS_LABEL = (
+    "CANDIDATE INTERVIEW STATEMENTS (answers the candidate gave in gap interviews — they may "
+    "CONFIRM or DENY experience; a denial or negative statement about a skill is evidence "
+    'AGAINST it: classify that requirement "gap", never "direct"/"partial"):'
+)
+
+
+def _interview_statements(profile: dict) -> list[dict]:
+    """Interview-sourced enrichment records from the profile's audit trail.
+
+    Only the ``changes`` payload is surfaced — it is the candidate-stated content
+    (values + rationale quoting the answer). Other sources (cv_upload, …) merely
+    duplicate profile facts and stay out of the prompt entirely.
+    """
+    meta = profile.get("metadata") or {}
+    if not isinstance(meta, dict):
+        return []
+    history = meta.get("enrichment_history") or []
+    if not isinstance(history, list):
+        return []
+    return [
+        {"changes": record.get("changes") or []}
+        for record in history
+        if isinstance(record, dict) and record.get("source") == "interview"
+    ]
+
+
 def build_user_prompt(
     job_analysis: dict,
     profile: dict,
@@ -94,10 +144,26 @@ def build_user_prompt(
         "nice_to_have": list(job_analysis.get("nice_to_have_skills") or []),
         "keywords": list(job_analysis.get("keywords") or []),
     }
+    # F4: `metadata` (the enrichment audit trail) must not masquerade as profile
+    # facts — a prior interview answer quoted in it ("no hands-on Azure
+    # experience") would read as a token-match FOR the skill. The profile block
+    # carries the candidate's actual data; interview-sourced records render under
+    # the labeled statements section below. (The idempotency fingerprint hashes
+    # profile_json itself — services/gap.py — so this prompt-shape change does
+    # not affect reuse.)
+    profile = profile if isinstance(profile, dict) else {}
+    profile_wo_meta = {k: v for k, v in profile.items() if k != "metadata"}
+    statements = _interview_statements(profile)
+    statements_block = (
+        f"{_STATEMENTS_LABEL}\n{json.dumps(statements, ensure_ascii=False, indent=2)}\n\n"
+        if statements
+        else ""
+    )
     return (
         "Produce the gap analysis JSON.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
-        f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+        f"CANDIDATE PROFILE:\n{json.dumps(profile_wo_meta, ensure_ascii=False, indent=2)}\n\n"
+        f"{statements_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
         f"REQUIREMENTS:\n{json.dumps(requirements, ensure_ascii=False, indent=2)}"
     )
