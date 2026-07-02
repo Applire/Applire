@@ -259,8 +259,22 @@ async def get_cover_letter_html(
     from applire.templates.labels import cover_letter_labels
     job = await db.get(JobAnalysis, cl.job_analysis_id)
     lang = resolve_jd_language(job) if job else "de"
+    # F3 (blind PQ blocker) AC #3: the subject must reference the target role, not
+    # just the bare word "Application"/"Bewerbung". Computed at render time (never
+    # stored on letter_data) so it always reflects the job's current role_title —
+    # role_title lives on JobAnalysis, not in the LLM's letter_data schema.
+    labels = cover_letter_labels(lang)
+    role_title = job.role_title if job is not None else None
+    if role_title:
+        subject = f"{labels['subject_prefix']}: {role_title}"
+    else:
+        subject = labels["subject_prefix"]
     return tmpl.render(
-        letter=letter_data, color=color_ctx, lang=lang, labels=cover_letter_labels(lang)
+        letter=letter_data,
+        color=color_ctx,
+        lang=lang,
+        labels=labels,
+        subject=subject,
     )
 
 
@@ -322,6 +336,23 @@ def _inject_letter_date(letter_data: dict, language: str, today: date | None = N
     the model cannot know today's date and hallucinates one if asked."""
     letter_data.setdefault("recipient", {})["date"] = format_letter_date(language, today)
     return letter_data
+
+
+def _apply_recipient_overrides(letter_data: dict, pre_gen_inputs: dict) -> dict:
+    """Overlay the user's own dialog input onto letter_data.recipient — F3 (blind PQ
+    blocker): the LLM's JSON solely owns letter_data, so a user who typed a recipient
+    name/company in the generate dialog could see it silently dropped (LLM returned
+    null, or a different value) with no deterministic guarantee it survives. User input
+    always wins over the LLM's value when the user provided one (AC #2); when the user
+    left a field blank, the LLM's own extracted/guessed value (e.g. from the JD) is kept.
+    """
+    data = copy.deepcopy(letter_data)
+    recipient = data.setdefault("recipient", {})
+    for field, key in (("name", "recipient_name"), ("company", "recipient_company")):
+        user_value = pre_gen_inputs.get(key)
+        if user_value:
+            recipient[field] = user_value
+    return data
 
 
 def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
@@ -424,6 +455,7 @@ async def _render_cover_letter_background(
                 pre_gen_inputs=pre_gen,
                 detected_language=detected_language,
                 keyword_ledger=keyword_ledger,
+                role_title=job.role_title,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -466,6 +498,12 @@ async def _render_cover_letter_background(
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 chain_id="cover_letter",
             )
+
+            # F3 (blind PQ blocker): the recipient the user typed in the generate dialog
+            # is overlaid deterministically AFTER the LLM/review step — the LLM's JSON
+            # solely owns letter_data, so a typed recipient could otherwise be silently
+            # dropped (null) or altered. User input always wins (AC #2).
+            letter_data = _apply_recipient_overrides(letter_data, pre_gen)
 
             # The letter date is system-injected AFTER review — the model never sets it
             # (the prior date-hallucination fix, 2026-06-10). recipient.date stays null

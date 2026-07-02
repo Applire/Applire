@@ -360,6 +360,8 @@
   "coverLetter": {
     "generate": "Anschreiben erstellen",
     "generating": "Anschreiben wird erstellt…",
+    "notFoundTitle": "Noch kein Anschreiben vorhanden",
+    "notFoundHint": "Erstellen Sie ein Anschreiben passend zu dieser Stelle und Ihrem Lebenslauf.",
     "download": "PDF herunterladen",
     "regenerate": "Anschreiben neu erstellen",
     "viewCV": "← Lebenslauf anzeigen",
@@ -457,6 +459,7 @@
     "viewAllInDocuments": "Alle in „Meine Dokumente“ anzeigen →",
     "subtitle": "Verwalte deine Bewerbungen und schneide deinen Lebenslauf für jede Stelle zu.",
     "profileBadge": "Profil: {pct}%",
+    "importInProgress": "Dein Profil-Import läuft noch — einige Lebensläufe werden gerade zusammengeführt. Dein Profil kann bis dahin unvollständig aussehen.",
     "activeApplications": "Aktive Bewerbungen ({count})",
     "createFirstApplication": "Erste Bewerbung erstellen",
     "noSearchResults": "Keine Bewerbungen entsprechen der Suche.",

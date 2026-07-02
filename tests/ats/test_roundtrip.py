@@ -137,6 +137,15 @@ CV_DE = TailoredCVData.model_validate(
                 "bullets": ["Veröffentlichung eines Python-Pakets zur Messdatenanalyse."],
             }
         ],
+        # PQ F7 — certifications, copied verbatim from the profile (ADR-040), must
+        # survive the real PDF round-trip like every other section.
+        "certifications": [
+            {
+                "name": "Lead Auditor ISO 9001",
+                "issuing_organization": "TÜV Süd",
+                "date_obtained": "2021-05-01",
+            }
+        ],
     }
 )
 
@@ -359,6 +368,25 @@ async def test_cv_project_hierarchy_survives_roundtrip(template):
     assert text.index(parent_company) < text.index(nested_name), (
         f"{template}: nested project not rendered under its parent position"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_certifications_survive_roundtrip(template):
+    """PQ F7 / ADR-039 — the blocking gate. A certification copied verbatim from the
+    Master Profile (deterministic passthrough, no LLM) must survive the real
+    Playwright PDF round-trip for every shipped template."""
+    html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_DE, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html)
+    text = _norm_probe(extract_text(pdf))
+
+    cert_name = _norm_probe("Lead Auditor ISO 9001")
+    cert_issuer = _norm_probe("TÜV Süd")
+
+    assert cert_name in text, f"{template}: certification name dropped in PDF"
+    assert cert_issuer in text, f"{template}: certification issuing organization dropped in PDF"
 
 
 @pytest.mark.asyncio

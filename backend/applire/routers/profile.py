@@ -42,6 +42,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.models.uploads import UploadRecord
 from applire.schemas.profile import (
     ConflictResolutionRequest,
+    CVImportJobListItem,
     CVImportJobResponse,
     CVImportStatusResponse,
     CVUploadResponse,
@@ -59,6 +60,7 @@ from applire.models.import_job import CVImportStatus
 from applire.services.profile.import_jobs import (
     create_import_job,
     get_import_job,
+    list_import_jobs,
     run_import_job_background,
 )
 from applire.services.profile.snapshots import undo_last_merge
@@ -248,6 +250,40 @@ async def start_cv_import_endpoint(
         user.id,
     )
     return CVImportJobResponse(import_id=job.id, status=CVImportStatus(job.status))
+
+
+@router.get(
+    "/import-jobs",
+    response_model=list[CVImportJobListItem],
+    status_code=status.HTTP_200_OK,
+)
+async def list_cv_import_jobs_endpoint(
+    request: Request,
+    active: bool = Query(
+        default=True,
+        description="Only jobs still running (pending/processing, not expired)",
+    ),
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> list[CVImportJobListItem]:
+    """List the current user's async CV imports, oldest first (PQ F1).
+
+    Default (``active=true``) returns only pending/processing jobs — the lightweight
+    signal the dashboard uses to show a truthful "profile import still in progress"
+    indicator after a refresh interrupted the onboarding overlay. User-scoped (same
+    IDOR guard as GET /import-jobs/{id}); another user's jobs are never listed.
+    """
+    user = await auth.get_current_user(request)
+    jobs = await list_import_jobs(db, user_id=user.id, active=active)
+    return [
+        CVImportJobListItem(
+            import_id=j.id,
+            status=CVImportStatus(j.status),
+            filename=j.filename,
+            created_at=j.created_at,
+        )
+        for j in jobs
+    ]
 
 
 @router.get(

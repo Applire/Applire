@@ -211,6 +211,99 @@ describe("ProcessingOverlay — JD URL error handling", () => {
   });
 });
 
+describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  // F1 (BLOCKER): uploads used to run strictly sequentially (POST file 1 → poll to
+  // completion → POST file 2 …), so a refresh mid-import silently dropped every file
+  // after the current one — the server never knew about them. All import jobs must be
+  // POSTed BEFORE any polling begins; from then on the backend owns the whole queue.
+  it("POSTs every file's import job before polling any of them", async () => {
+    const log: string[] = [];
+    let posts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-queue" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        log.push(`poll:${url.split("/").pop()}`);
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        posts++;
+        log.push(`post:${posts}`);
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${posts}`, status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    const f2 = new File(["cv2"], "cv2.pdf", { type: "application/pdf" });
+    const f3 = new File(["cv3"], "cv3.pdf", { type: "application/pdf" });
+    render(
+      withIntl(
+        <ProcessingOverlay files={[f1, f2, f3]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />
+      )
+    );
+
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-queue/gaps")),
+      { timeout: 5000 }
+    );
+
+    // Every POST happened before the first poll — the server owns the full queue
+    // before any long wait begins, so a refresh can no longer lose queued files.
+    const firstPoll = log.findIndex((e) => e.startsWith("poll:"));
+    expect(log.filter((e) => e.startsWith("post:"))).toEqual(["post:1", "post:2", "post:3"]);
+    expect(firstPoll).toBeGreaterThanOrEqual(3);
+    // Polling follows creation order (matches the backend's per-user processing order).
+    expect(log[firstPoll]).toBe("poll:imp-1");
+  });
+
+  it("a file whose POST fails is marked failed but does not block queueing the rest", async () => {
+    let posts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-poststop" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        posts++;
+        if (posts === 1) {
+          return { ok: false, status: 500, json: async () => ({}) } as Response;
+        }
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${posts}`, status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    const f2 = new File(["cv2"], "cv2.pdf", { type: "application/pdf" });
+    render(
+      withIntl(
+        <ProcessingOverlay files={[f1, f2]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />
+      )
+    );
+
+    // The second file still got queued and the pipeline completed with 1 of 2.
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-poststop/gaps")),
+      { timeout: 5000 }
+    );
+    const pushedUrl = mockPush.mock.calls[0][0] as string;
+    expect(pushedUrl).toContain("cv_parsed=1");
+    expect(pushedUrl).toContain("cv_total=2");
+    expect(posts).toBe(2);
+  });
+});
+
 describe("ProcessingOverlay — happy path navigation", () => {
   afterEach(() => {
     vi.restoreAllMocks();

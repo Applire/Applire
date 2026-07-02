@@ -49,8 +49,13 @@ export class CVImportError extends Error {
   }
 }
 
-interface UploadOptions {
+interface StartOptions {
   jobId?: string;
+  apiBase?: string;
+  signal?: AbortSignal;
+}
+
+interface PollOptions {
   apiBase?: string;
   /** Poll interval; defaults to 2500ms. */
   pollMs?: number;
@@ -58,6 +63,8 @@ interface UploadOptions {
   maxWaitMs?: number;
   signal?: AbortSignal;
 }
+
+type UploadOptions = StartOptions & PollOptions;
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -75,17 +82,15 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Upload a single CV and resolve once the background import finishes.
+ * Start an async CV import: POST the file and resolve with the import job's id.
  *
- * Resolves with the CVUploadResponse on success (including a GATED merge — callers
- * branch on `status === "GATED"`). Rejects with a {@link CVImportError} carrying the
- * backend error_code on a failed import (llm_truncated, llm_timeout, invalid_document…).
+ * Split from the poll (PQ F1) so a multi-file flow can queue EVERY file on the server
+ * before any long wait begins — once all POSTs are through, a refresh can no longer
+ * lose queued files; the backend finishes the jobs without the client. Rejects with a
+ * {@link CVImportError} if the job could not be created.
  */
-export async function uploadCvAsync(file: File, opts: UploadOptions = {}): Promise<CVUploadResult> {
+export async function startCvImport(file: File, opts: StartOptions = {}): Promise<string> {
   const base = opts.apiBase ?? "";
-  const pollMs = opts.pollMs ?? 2500;
-  const maxWaitMs = opts.maxWaitMs ?? 20 * 60 * 1000;
-
   const form = new FormData();
   form.append("file", file);
   const query = opts.jobId ? `?job_id=${encodeURIComponent(opts.jobId)}` : "";
@@ -97,6 +102,20 @@ export async function uploadCvAsync(file: File, opts: UploadOptions = {}): Promi
   });
   if (!startRes.ok) throw new CVImportError("import_failed");
   const { import_id: importId } = (await startRes.json()) as { import_id: string };
+  return importId;
+}
+
+/**
+ * Poll an already-started import job until it finishes.
+ *
+ * Resolves with the CVUploadResponse on success (including a GATED merge — callers
+ * branch on `status === "GATED"`). Rejects with a {@link CVImportError} carrying the
+ * backend error_code on a failed import (llm_truncated, llm_timeout, invalid_document…).
+ */
+export async function pollCvImport(importId: string, opts: PollOptions = {}): Promise<CVUploadResult> {
+  const base = opts.apiBase ?? "";
+  const pollMs = opts.pollMs ?? 2500;
+  const maxWaitMs = opts.maxWaitMs ?? 20 * 60 * 1000;
 
   const deadline = Date.now() + maxWaitMs;
   for (;;) {
@@ -116,4 +135,14 @@ export async function uploadCvAsync(file: File, opts: UploadOptions = {}): Promi
     if (Date.now() > deadline) throw new CVImportError("import_timeout");
     await delay(pollMs, opts.signal);
   }
+}
+
+/**
+ * Upload a single CV and resolve once the background import finishes
+ * (start + poll in one await — the single-file convenience used by retries
+ * and other call sites).
+ */
+export async function uploadCvAsync(file: File, opts: UploadOptions = {}): Promise<CVUploadResult> {
+  const importId = await startCvImport(file, opts);
+  return pollCvImport(importId, opts);
 }

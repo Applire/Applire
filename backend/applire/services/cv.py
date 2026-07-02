@@ -75,6 +75,7 @@ from applire.schemas.cv import (
     CVGenerateResponse,
     CVStatusResponse,
     CVTemplate,
+    TailoredCertification,
     TailoredCVData,
     TailoredProjectEntry,
 )
@@ -476,6 +477,24 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
     return TailoredCVData.model_validate(data)
 
 
+def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """Deterministically copy the Master Profile's certifications verbatim into
+    ``tailored.certifications`` (PQ F7 / ADR-040 truthfulness).
+
+    Certifications are FACTUAL data, like contact info — never routed through an
+    LLM JSON schema. This is a pure passthrough (no selection, no LLM, no I/O),
+    called after the LLM tailoring step(s) in both the single-call and segmented
+    generation paths, mirroring ``_nest_projects``. Returns a new TailoredCVData;
+    the input is left unmutated.
+    """
+    source_certs = profile_json.get("certifications") or []
+    if not source_certs:
+        return tailored
+    return tailored.model_copy(
+        update={"certifications": [TailoredCertification.model_validate(c) for c in source_certs]}
+    )
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -847,6 +866,11 @@ async def _render_cv_background(
             # US187: deterministically nest source projects under their parent
             # position (or the standalone list). The LLM tailors prose; code disposes.
             tailored = _nest_projects(tailored, profile_json)
+
+            # PQ F7: deterministically copy the profile's certifications verbatim
+            # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
+            # single-call and segmented paths, since both converge here.
+            tailored = _apply_certifications(tailored, profile_json)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.
