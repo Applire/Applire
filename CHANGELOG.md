@@ -62,6 +62,13 @@ coverage through gap interviews to the generated CV and cover letter.
   migration 0034).
 
 ### Fixed
+- **Self-hosting on SELinux hosts no longer leaves the app unreachable.** The production
+  `docker-compose.yml` mounted the nginx reverse-proxy config read-only without the `:z`
+  SELinux relabel flag; on enforcing hosts (RHEL, Fedora, Rocky, Alma, openSUSE) nginx
+  could not read its config and exited, so nothing answered on port 80 — breaking the
+  primary "no clone required" self-hosting path. The mount is now `:ro,z` (a no-op on
+  non-SELinux hosts). Caught by a full production-topology install test before this
+  release; the dev stack had masked it because its `dev.conf` mount already carried `:z`.
 - **Blind-PQ release blockers** (2026-07-02 run, #116): refresh during multi-CV
   onboarding no longer silently drops queued CVs (all import jobs are created up-front,
   processed serially per user, with a dashboard banner while imports run); the

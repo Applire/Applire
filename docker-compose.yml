@@ -73,7 +73,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx/self-hosted.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/self-hosted.conf:/etc/nginx/conf.d/default.conf:ro,z
     depends_on:
       - backend
       - frontend
