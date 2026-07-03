@@ -1,0 +1,285 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+# Edge lane: on every merge to main, publish a rolling development image.
+#   :edge         — moving tag, always the newest main build (for a persistent UAT env)
+#   :sha-<commit> — immutable per-commit tag (pin / roll back / test data migration
+#                   BETWEEN two specific edge builds)
+# This lane NEVER touches :latest or the semver tags — those move only via a published
+# GitHub Release (see release.yml). Edge = "whatever main is right now", not a release.
+#
+# Multi-arch builds mirror release.yml: each architecture builds on its own native
+# runner, then a merge job assembles the multi-arch manifest.
+
+name: Edge — build and publish :edge images on merge to main
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/applire/applire-backend
+  FRONTEND_IMAGE: ghcr.io/applire/applire-frontend
+
+jobs:
+  build-backend:
+    name: Build backend (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Compute platform pair
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (labels only)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
+        with:
+          context: ./backend
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.BACKEND_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=edge-backend-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=edge-backend-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGESTS_DIR: ${{ runner.temp }}/digests
+        run: |
+          mkdir -p "$DIGESTS_DIR"
+          touch "$DIGESTS_DIR/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: digests-backend-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-backend:
+    name: Merge backend manifest
+    needs: build-backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-backend-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=edge
+            type=sha
+
+      - name: Create manifest and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.BACKEND_IMAGE }}
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect image
+        env:
+          IMAGE: ${{ env.BACKEND_IMAGE }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:edge"
+
+  build-frontend:
+    name: Build frontend (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Compute platform pair
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (labels only)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
+        with:
+          context: ./frontend
+          target: runner
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.FRONTEND_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            BACKEND_URL=http://backend:8000
+            NEXT_PUBLIC_API_URL=
+            APP_VERSION=edge-${{ github.sha }}
+          cache-from: type=gha,scope=edge-frontend-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=edge-frontend-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGESTS_DIR: ${{ runner.temp }}/digests
+        run: |
+          mkdir -p "$DIGESTS_DIR"
+          touch "$DIGESTS_DIR/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: digests-frontend-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-frontend:
+    name: Merge frontend manifest
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-frontend-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=edge
+            type=sha
+
+      - name: Create manifest and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.FRONTEND_IMAGE }}
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect image
+        env:
+          IMAGE: ${{ env.FRONTEND_IMAGE }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:edge"
