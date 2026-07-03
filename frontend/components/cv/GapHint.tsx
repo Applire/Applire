@@ -23,16 +23,58 @@ import { useTranslations } from "next-intl";
 interface GapHintItem {
   id: string;
   label: string;
+  // #117 (ADR-019/048): evidence status decides the CTA. "claimable" = profile-backed,
+  // safe to write into the document; "honest" = not in the profile — the only truthful
+  // fix is profile enrichment, never a written claim. Optional for back-compat.
+  kind?: "claimable" | "honest";
 }
 
 interface GapHintProps {
   gap: GapHintItem;
   onDismiss: (gapId: string) => void;
   onAddressGap: (gapId: string) => void;
+  onEnrichProfile?: (gapId: string) => void;
 }
 
-export function GapHint({ gap, onDismiss, onAddressGap }: GapHintProps) {
+export function GapHint({ gap, onDismiss, onAddressGap, onEnrichProfile }: GapHintProps) {
   const t = useTranslations("cv");
+
+  if (gap.kind === "honest") {
+    return (
+      <div className="mb-2">
+        <div className="bg-warning-container border border-warning/30 rounded-lg px-3 py-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-neutral-dark font-medium">{gap.label}</span>
+            <span
+              className="text-[10px] uppercase tracking-wide text-gold-dim bg-gold-container px-1.5 py-0.5 rounded-full ml-2 shrink-0"
+              data-testid="honest-gap-tag"
+            >
+              {t("honestGapTag")}
+            </span>
+          </div>
+          <p className="text-xs text-neutral-dark mt-1">{t("honestGapHint")}</p>
+          <div className="flex gap-1 mt-2">
+            <button
+              type="button"
+              onClick={() => onDismiss(gap.id)}
+              className="text-xs text-teal border border-teal px-2 py-0.5 rounded hover:bg-teal hover:text-white transition-colors"
+              data-testid="dismiss-hint-btn"
+            >
+              {t("dismissHint")}
+            </button>
+            <button
+              type="button"
+              onClick={() => onEnrichProfile?.(gap.id)}
+              className="text-xs text-white bg-teal border border-teal px-2 py-0.5 rounded hover:opacity-90 transition-opacity"
+              data-testid="enrich-profile-btn"
+            >
+              {t("addViaProfileInterview")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-2">

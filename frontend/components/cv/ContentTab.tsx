@@ -19,6 +19,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { SectionEditor, type SectionEditorHandle } from "./SectionEditor";
 import { KaileChat } from "./KaileChat";
@@ -28,6 +29,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 export interface GapHintItem {
   id: string;
   label: string;
+  // #117 (ADR-019/048): "claimable" = profile-backed (write/Kaile CTAs);
+  // "honest" = not evidenced in the profile (routes to profile enrichment).
+  kind?: "claimable" | "honest";
 }
 
 export interface SectionItem {
@@ -71,6 +75,7 @@ function dedupeById(items: GapHintItem[]): GapHintItem[] {
 export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
+  const router = useRouter();
   const [mode, setMode] = useState<"browse" | "edit">("browse");
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [preSelectedGapIds, setPreSelectedGapIds] = useState<string[]>([]);
@@ -143,14 +148,27 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
     setHasUnsaved(false);
   }, [hasUnsaved]);
 
+  // #117: an honest gap can only close via profile enrichment — route to the
+  // profile hub instead of the CV editor (never invite a written claim).
+  const handleEnrichProfile = useCallback(() => {
+    router.push("/profile");
+  }, [router]);
+
   const handleAddressGap = useCallback(
     (gapId: string) => {
+      const gap =
+        sections.flatMap((s) => s.gaps).find((g) => g.id === gapId) ??
+        generalGaps.find((g) => g.id === gapId);
+      if (gap?.kind === "honest") {
+        handleEnrichProfile();
+        return;
+      }
       const owner = sections.find((s) => s.gaps.some((g) => g.id === gapId));
       if (owner) {
         handleBrowseToEdit(owner.section_id, [gapId]);
       }
     },
-    [sections, handleBrowseToEdit],
+    [sections, generalGaps, handleBrowseToEdit, handleEnrichProfile],
   );
 
   const handleSectionEdit = useCallback(
@@ -202,13 +220,14 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
             onUnsavedChange(unsaved);
           }}
           onAddressGap={handleAddressGap}
+          onEnrichProfile={handleEnrichProfile}
         />
 
         <KaileChat
           key={kaileResetKey}
           cvId={cvId}
           sectionId={activeSection.section_id}
-          gaps={activeSection.gaps}
+          gaps={activeSection.gaps.filter((g) => g.kind !== "honest")}
           preSelectedGapIds={preSelectedGapIds}
           onApply={(suggestion) => {
             // Apply = drop into the editor and save straight away.
@@ -293,6 +312,11 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                 data-testid="gap-card"
               >
                 <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
+                {gap.kind === "honest" && (
+                  <span className="text-[10px] uppercase tracking-wide text-gold-dim bg-gold-container px-1.5 py-0.5 rounded-full ml-2">
+                    {t("honestGapTag")}
+                  </span>
+                )}
               </button>
             ))}
             {generalGaps.length > 0 && (
@@ -307,6 +331,11 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
                     data-testid="gap-card"
                   >
                     <span className="text-xs text-neutral-medium font-medium">{gap.label}</span>
+                    {gap.kind === "honest" && (
+                      <span className="text-[10px] uppercase tracking-wide text-gold-dim bg-gold-container px-1.5 py-0.5 rounded-full ml-2">
+                        {t("honestGapTag")}
+                      </span>
+                    )}
                   </button>
                 ))}
               </>

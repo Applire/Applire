@@ -28,6 +28,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 interface GapHintItem {
   id: string;
   label: string;
+  kind?: "claimable" | "honest";
 }
 
 interface SectionItem {
@@ -44,6 +45,7 @@ interface SectionEditorProps {
   onSaved: (updatedHtml: string, savedContent: string, resolvedGaps: string[]) => void;
   onUnsavedChange: (hasUnsaved: boolean) => void;
   onAddressGap?: (gapId: string) => void;
+  onEnrichProfile?: (gapId: string) => void;
 }
 
 /** Imperative handle so a sibling (KaileChat) can push a suggestion into the editor. */
@@ -58,7 +60,7 @@ export interface SectionEditorHandle {
 }
 
 export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>(
-  function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddressGap }, ref) {
+  function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddressGap, onEnrichProfile }, ref) {
   const t = useTranslations("cv");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [content, setContent] = useState(section.content);
@@ -223,6 +225,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
               gap={gap}
               onDismiss={handleDismissGap}
               onAddressGap={onAddressGap ?? (() => {})}
+              onEnrichProfile={onEnrichProfile}
             />
           ))}
         </div>
