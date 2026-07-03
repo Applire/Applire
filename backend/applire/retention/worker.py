@@ -136,9 +136,11 @@ async def _purge_import_jobs(db: AsyncSession) -> int:
     """Hard-delete async CV-import jobs past their (short) TTL. These are ephemeral
     handles consumed by the polling UI within minutes; expires_at keeps the table from
     growing unbounded (E036 follow-up — async import)."""
-    # Bind the ISO-8601 string (not the datetime): SQLite compares TEXT timestamps
-    # lexically and an ISO string sorts correctly, while Postgres casts it to timestamptz.
-    now = datetime.now(timezone.utc).isoformat()
+    # Bind the datetime object, not an ISO string: asyncpg infers the bind type from
+    # the timestamptz column and rejects a str ("expected a datetime … got str"),
+    # crashing the worker on Postgres. SQLite (unit tests) accepted the string via a
+    # lexical TEXT compare, which hid the bug — the other purges here bind a datetime.
+    now = datetime.now(timezone.utc)
     try:
         result = await db.execute(
             text("DELETE FROM cv_import_jobs WHERE expires_at < :now AND deleted_at IS NULL"),
@@ -155,9 +157,11 @@ async def _purge_gap_jobs(db: AsyncSession) -> int:
     """Hard-delete async gap-analysis jobs past their (short) TTL. Ephemeral handles
     consumed by the polling UI within minutes; expires_at keeps the table from growing
     unbounded (E037 N2 — async gap analysis)."""
-    # Bind the ISO-8601 string (not the datetime): SQLite compares TEXT timestamps
-    # lexically and an ISO string sorts correctly, while Postgres casts it to timestamptz.
-    now = datetime.now(timezone.utc).isoformat()
+    # Bind the datetime object, not an ISO string: asyncpg infers the bind type from
+    # the timestamptz column and rejects a str ("expected a datetime … got str"),
+    # crashing the worker on Postgres. SQLite (unit tests) accepted the string via a
+    # lexical TEXT compare, which hid the bug — the other purges here bind a datetime.
+    now = datetime.now(timezone.utc)
     try:
         result = await db.execute(
             text("DELETE FROM gap_analysis_jobs WHERE expires_at < :now AND deleted_at IS NULL"),
