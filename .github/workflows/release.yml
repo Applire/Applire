@@ -23,9 +23,22 @@
 
 name: Release — build and publish images
 
+# Tag strategy, driven by the GitHub "pre-release" checkbox:
+#   prereleased (box ticked)   → :{{version}} + :sha only        — does NOT move :latest
+#   released    (box unticked, or a full release published)
+#                              → :{{version}} + :{{major}}.{{minor}} + :latest + :sha
+#   workflow_dispatch (manual) → :sha only                       — never moves :latest/semver
+#
+# This enables release promotion: publish a pre-release, qualify THAT image (IQ/OQ/PQ),
+# then promote it to :latest simply by editing the Release and unticking "pre-release"
+# (which fires the `released` event). See docs/RELEASING or the CHANGELOG.
+#
+# NOTE: promotion rebuilds from the immutable git tag (source-identical, GHA-cache-reused),
+# not a re-tag of the exact tested digest. For strictly bit-identical promotion, replace the
+# `released` build with a `docker buildx imagetools create` that retags the pre-release digest.
 on:
   release:
-    types: [published]
+    types: [prereleased, released]
   workflow_dispatch:
 
 env:
@@ -135,9 +148,10 @@ jobs:
         with:
           images: ${{ env.BACKEND_IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=sha
 
       - name: Create manifest and push
         working-directory: ${{ runner.temp }}/digests
@@ -153,7 +167,11 @@ jobs:
           IMAGE: ${{ env.BACKEND_IMAGE }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          if [ -n "${VERSION}" ]; then
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          else
+            echo "No version tag for this event (manual dispatch) — skipping inspect"
+          fi
 
   build-frontend:
     name: Build frontend (${{ matrix.platform }})
@@ -261,9 +279,10 @@ jobs:
         with:
           images: ${{ env.FRONTEND_IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=sha
 
       - name: Create manifest and push
         working-directory: ${{ runner.temp }}/digests
@@ -279,4 +298,8 @@ jobs:
           IMAGE: ${{ env.FRONTEND_IMAGE }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          if [ -n "${VERSION}" ]; then
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          else
+            echo "No version tag for this event (manual dispatch) — skipping inspect"
+          fi
