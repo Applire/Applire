@@ -17,15 +17,15 @@
 
 # Self-hosted Applire — pulls pre-built images from GHCR.
 #
-# Quick start (no git clone required):
+# Quick start (no git clone required — every service is a pre-built image):
 #   curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
 #   curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
-#   mkdir -p nginx && curl -o nginx/self-hosted.conf https://raw.githubusercontent.com/Applire/Applire/main/nginx/self-hosted.conf
 #   cp .env.example .env        # set LLM_PROVIDER and matching API key
 #   docker compose up -d
 #   docker compose exec backend alembic upgrade head
 #
-# To update: docker compose pull && docker compose up -d
+# The reverse proxy config is baked into the applire-nginx image (ADR-033), so there
+# is no nginx config to fetch or mount. To update: docker compose pull && up -d.
 
 services:
   postgres:
@@ -68,12 +68,14 @@ services:
     depends_on:
       - backend
 
+  # Reverse proxy — routes /api,/health,/static → backend and everything else →
+  # frontend. The config is baked into the image (ADR-033), so nothing is mounted
+  # from the host; a self-hoster who wants a custom domain/TLS can still bind-mount
+  # their own file over /etc/nginx/conf.d/default.conf.
   nginx:
-    image: nginx:alpine
+    image: ghcr.io/applire/applire-nginx:latest
     ports:
       - "80:80"
-    volumes:
-      - ./nginx/self-hosted.conf:/etc/nginx/conf.d/default.conf:ro,z
     depends_on:
       - backend
       - frontend
