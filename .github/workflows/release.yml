@@ -147,6 +147,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
         with:
           images: ${{ env.BACKEND_IMAGE }}
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
@@ -278,6 +280,8 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5
         with:
           images: ${{ env.FRONTEND_IMAGE }}
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
