@@ -21,7 +21,8 @@
 Responsibilities:
 - build_content_snapshot: extract structured snapshot from TailoredCVData at generation time
 - get_cv_sections: return merged snapshot+overrides+gap hints for GET /api/cv/{id}/sections
-- patch_cv_section: write override, re-render, optionally save to profile and auto-resolve gaps
+- patch_cv_section: write override, re-render, optionally save to profile; reports
+  which gap hints the edit covered (read-only — the gap analysis is never mutated, #117)
 - apply_overrides_to_tailored: merge section_overrides on top of TailoredCVData (used by get_cv_html)
 """
 import uuid
@@ -43,7 +44,7 @@ from applire.schemas.cv_sections import (
     SectionPatchResponse,
     SnapshotPosition,
 )
-from applire.services.cv_gap_mapper import map_gaps_to_sections
+from applire.services.cv_gap_hints import build_gap_hints, resolved_gap_hints
 
 
 # ---------------------------------------------------------------------------
@@ -144,38 +145,21 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
     snapshot = ContentSnapshot.model_validate(record.content_snapshot)
     overrides: dict = record.section_overrides or {}
 
-    # Build section content map for gap mapping
-    section_contents: dict[str, str] = {
-        "introduction": overrides.get("introduction", snapshot.introduction),
-        "skills": overrides.get("skills", "\n".join(snapshot.skills)),
-    }
-    for pos in snapshot.positions:
-        sid = f"position::{pos.id}"
-        section_contents[sid] = overrides.get(sid, "\n".join(pos.bullets))
+    section_contents = _section_contents(snapshot, overrides)
 
-    # Load gap analysis via FlowSession
-    gap_map: dict[str, list[str]] = {}
-    general_gaps: list[str] = []
+    # Gap hints = ledger entry × live document coverage (ADR-019 amended, #117).
+    # Derived fresh per request; covered entries are hidden, nothing persisted.
+    gap_map: dict[str, list[GapHintItem]] = {}
+    general_gaps: list[GapHintItem] = []
 
-    flow_result = await db.execute(
-        select(FlowSession)
-        .where(
-            FlowSession.generated_cv_id == cv_id,
-            FlowSession.deleted_at.is_(None),
+    gap_analysis = await _load_gap_analysis(cv_id, db)
+    if gap_analysis:
+        gap_map, general_gaps = build_gap_hints(
+            ledger=gap_analysis.keyword_ledger,
+            category_b=list(gap_analysis.category_b or []),
+            category_c=list(gap_analysis.category_c or []),
+            section_contents=section_contents,
         )
-        .limit(1)
-    )
-    flow = flow_result.scalar_one_or_none()
-
-    if flow and flow.gap_analysis_id:
-        gap_analysis = await db.get(GapAnalysis, flow.gap_analysis_id)
-        if gap_analysis:
-            all_gaps: list[str] = (
-                list(gap_analysis.category_b) + list(gap_analysis.category_c)
-            )
-            raw_map = map_gaps_to_sections(all_gaps, section_contents)
-            gap_map = {k: v for k, v in raw_map.items() if k != "__general__"}
-            general_gaps = raw_map.get("__general__", [])
 
     # Build section items
     sections: list[SectionItem] = []
@@ -188,10 +172,7 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
             label="Introduction",
             content=intro_content,
             has_override="introduction" in overrides,
-            gaps=[
-                GapHintItem(id=g, label=g)
-                for g in gap_map.get("introduction", [])
-            ],
+            gaps=gap_map.get("introduction", []),
         )
     )
 
@@ -206,7 +187,7 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
                 label=label,
                 content=pos_content,
                 has_override=sid in overrides,
-                gaps=[GapHintItem(id=g, label=g) for g in gap_map.get(sid, [])],
+                gaps=gap_map.get(sid, []),
             )
         )
 
@@ -218,13 +199,13 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
             label="Skills",
             content=skills_content,
             has_override="skills" in overrides,
-            gaps=[GapHintItem(id=g, label=g) for g in gap_map.get("skills", [])],
+            gaps=gap_map.get("skills", []),
         )
     )
 
     return CVSectionsResponse(
         sections=sections,
-        general_gaps=[GapHintItem(id=g, label=g) for g in general_gaps],
+        general_gaps=general_gaps,
     )
 
 
@@ -262,6 +243,10 @@ async def patch_cv_section(
     if section_id not in _VALID_STATIC_SECTION_IDS and section_id not in valid_position_ids:
         raise ValueError(f"Unknown section_id: {section_id!r}")
 
+    # Snapshot the pre-edit section contents (for the resolved-hints diff below)
+    snapshot_before = ContentSnapshot.model_validate(record.content_snapshot)
+    contents_before = _section_contents(snapshot_before, dict(record.section_overrides or {}))
+
     # Write override
     overrides = dict(record.section_overrides or {})
     overrides[section_id] = content
@@ -273,8 +258,21 @@ async def patch_cv_section(
     if save_to_profile:
         await _save_section_to_profile(cv_id, section_id, content, record, db)
 
-    # Gap auto-resolve: check which gaps now have keyword overlap with the new content
-    resolved_gaps = await _resolve_gaps(cv_id, section_id, content, db)
+    # Which hints did this edit just cover? Purely informational (#117): the UI
+    # drops the chips; the gap analysis itself is NEVER mutated — the evidence
+    # axis only moves via profile enrichment (ADR-048 two-axis model).
+    contents_after = dict(contents_before)
+    contents_after[section_id] = content
+    resolved_gaps: list[str] = []
+    gap_analysis = await _load_gap_analysis(cv_id, db)
+    if gap_analysis:
+        resolved_gaps = resolved_gap_hints(
+            ledger=gap_analysis.keyword_ledger,
+            category_b=list(gap_analysis.category_b or []),
+            category_c=list(gap_analysis.category_c or []),
+            contents_before=contents_before,
+            contents_after=contents_after,
+        )
 
     # Jinja2 re-render with overrides applied
     from applire.services.color_detection import resolve_color_context
@@ -359,17 +357,20 @@ async def _save_section_to_profile(
     await db.commit()
 
 
-async def _resolve_gaps(
-    cv_id: uuid.UUID,
-    section_id: str,
-    new_content: str,
-    db: AsyncSession,
-) -> list[str]:
-    """Return gap IDs whose keywords are now present in new_content.
+def _section_contents(snapshot: ContentSnapshot, overrides: dict) -> dict[str, str]:
+    """Current per-section text: snapshot merged with overrides (override wins)."""
+    contents: dict[str, str] = {
+        "introduction": overrides.get("introduction", snapshot.introduction),
+        "skills": overrides.get("skills", "\n".join(snapshot.skills)),
+    }
+    for pos in snapshot.positions:
+        sid = f"position::{pos.id}"
+        contents[sid] = overrides.get(sid, "\n".join(pos.bullets))
+    return contents
 
-    Also removes resolved gaps from gap_analysis.category_b / category_c.
-    Returns empty list if no gap_analysis linked to this CV.
-    """
+
+async def _load_gap_analysis(cv_id: uuid.UUID, db: AsyncSession) -> GapAnalysis | None:
+    """The gap analysis linked to this CV via its FlowSession, or None."""
     flow_result = await db.execute(
         select(FlowSession)
         .where(
@@ -380,27 +381,8 @@ async def _resolve_gaps(
     )
     flow = flow_result.scalar_one_or_none()
     if not flow or not flow.gap_analysis_id:
-        return []
-
-    gap_analysis = await db.get(GapAnalysis, flow.gap_analysis_id)
-    if not gap_analysis:
-        return []
-
-    all_gaps: list[str] = list(gap_analysis.category_b) + list(gap_analysis.category_c)
-    if not all_gaps:
-        return []
-
-    # Check which gaps have keyword overlap with the new content
-    mapping = map_gaps_to_sections(all_gaps, {section_id: new_content})
-    resolved: list[str] = mapping.get(section_id, [])
-
-    if resolved:
-        resolved_set = set(resolved)
-        gap_analysis.category_b = [g for g in gap_analysis.category_b if g not in resolved_set]
-        gap_analysis.category_c = [g for g in gap_analysis.category_c if g not in resolved_set]
-        await db.commit()
-
-    return resolved
+        return None
+    return await db.get(GapAnalysis, flow.gap_analysis_id)
 
 
 # ---------------------------------------------------------------------------

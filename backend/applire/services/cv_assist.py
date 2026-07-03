@@ -237,7 +237,14 @@ async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession) -> bool:
         return False
 
     all_gaps = list(gap_analysis.category_b) + list(gap_analysis.category_c)
-    return gap_id in all_gaps
+    if gap_id in all_gaps:
+        return True
+    # #117: hints are ledger-derived — a direct-status entry (claimable, not yet in
+    # the document) is a valid assist target even though it is not in category_b/c.
+    return any(
+        (entry.get("concept") or "") == gap_id
+        for entry in (gap_analysis.keyword_ledger or [])
+    )
 
 
 def _question_prompt(section_label: str, section_content: str, gap_id: str) -> str:
