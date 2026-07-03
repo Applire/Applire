@@ -225,10 +225,9 @@ python -m applire.mcp
 ### Self-hosting (no clone required)
 
 ```bash
-# 1. Download the required files (compose, env template, and nginx config)
+# 1. Download the two files you need (compose + env template)
 curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
 curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
-mkdir -p nginx && curl -o nginx/self-hosted.conf https://raw.githubusercontent.com/Applire/Applire/main/nginx/self-hosted.conf
 
 # 2. Configure your environment
 cp .env.example .env
@@ -241,7 +240,15 @@ docker compose up -d
 docker compose exec backend alembic upgrade head
 ```
 
+Every service — including the reverse proxy, whose config is baked into the `applire-nginx` image — is a pre-built image, so `docker compose pull` fetches a complete, working stack with no config files to place on the host.
+
 Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+> **Custom domain or TLS?** The image ships a sensible default proxy config. To override it, bind-mount your own file over the baked one — add to the `nginx` service in `docker-compose.yml`:
+> ```yaml
+>     volumes:
+>       - ./my-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+> ```
 
 To update to the latest release:
 ```bash

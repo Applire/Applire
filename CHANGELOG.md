@@ -6,6 +6,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The reverse proxy now ships as a published image — self-hosting needs no config
+  files on the host** (ADR-033/ADR-032 amended). Previously `nginx/self-hosted.conf`
+  had to be present on the host and bind-mounted, so anyone who wrote their own compose
+  or fetched only `docker-compose.yml` got an nginx with no routing ("site not found").
+  The config is now baked into `ghcr.io/applire/applire-nginx` (built by the edge and
+  release lanes alongside the backend and frontend images), so `docker compose pull &&
+  up -d` fetches a complete, working stack with nothing to place on the host. The
+  self-hosting quick-start drops the separate config-fetch step. Operators who want a
+  custom domain or TLS can still bind-mount their own file over
+  `/etc/nginx/conf.d/default.conf`; the dev stack is unchanged.
+
 ### Fixed
 - **CV view consistency — gap hints, ATS checks and match score no longer contradict
   each other** (#117, ADR-019/ADR-048 amended). "Related gaps" are now derived at read

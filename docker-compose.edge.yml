@@ -48,3 +48,6 @@ services:
 
   mcp:
     image: ghcr.io/applire/applire-backend:edge
+
+  nginx:
+    image: ghcr.io/applire/applire-nginx:edge
