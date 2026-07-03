@@ -58,4 +58,41 @@ describe("GapHint", () => {
     // No AssistMicroSession — no question text should appear
     expect(screen.queryByTestId("assist-question")).toBeNull();
   });
+
+  // #117 (ADR-019/048): an honest gap must never invite a written claim —
+  // no write/Kaile CTAs; it routes to profile enrichment instead.
+  describe("honest gap kind", () => {
+    const HONEST = { id: "DevSecOps", label: "DevSecOps", kind: "honest" as const };
+
+    it("hides the write-myself and Kaile CTAs", () => {
+      render(withIntl(<GapHint {...BASE_PROPS} gap={HONEST} />));
+      expect(screen.queryByTestId("write-myself-btn")).toBeNull();
+      expect(screen.queryByTestId("kaile-help-btn")).toBeNull();
+    });
+
+    it("shows the not-in-profile tag and an enrich-profile CTA", () => {
+      const onEnrichProfile = vi.fn();
+      render(withIntl(
+        <GapHint {...BASE_PROPS} gap={HONEST} onEnrichProfile={onEnrichProfile} />
+      ));
+      expect(screen.getByTestId("honest-gap-tag")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("enrich-profile-btn"));
+      expect(onEnrichProfile).toHaveBeenCalledWith("DevSecOps");
+    });
+
+    it("still allows dismissing the hint", () => {
+      const onDismiss = vi.fn();
+      render(withIntl(<GapHint {...BASE_PROPS} gap={HONEST} onDismiss={onDismiss} />));
+      fireEvent.click(screen.getByTestId("dismiss-hint-btn"));
+      expect(onDismiss).toHaveBeenCalledWith("DevSecOps");
+    });
+  });
+
+  it("claimable kind (default) keeps both write CTAs", () => {
+    render(withIntl(
+      <GapHint {...BASE_PROPS} gap={{ id: "Python", label: "Python", kind: "claimable" }} />
+    ));
+    expect(screen.getByTestId("write-myself-btn")).toBeTruthy();
+    expect(screen.getByTestId("kaile-help-btn")).toBeTruthy();
+  });
 });

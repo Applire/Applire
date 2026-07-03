@@ -336,6 +336,29 @@ def claimable_surface_forms(
     return forms
 
 
+def unclaimable_surface_forms(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Flatten every surface form of every NON-claimable (honest-gap) ledger entry.
+
+    Used by the ATS audit's fourth quadrant (ADR-048 amended 2026-07-03, #117): a
+    keyword PRESENT in the document whose only ledger backing is an honest gap is
+    an unsupported claim and gets a truthfulness warning. De-duplicated, order
+    preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+    """
+    forms: list[str] = []
+    seen: set[str] = set()
+    for entry in keyword_ledger or []:
+        if entry.get("claimable"):
+            continue
+        for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
+            key = _norm(sf)
+            if key and key not in seen:
+                seen.add(key)
+                forms.append(sf)
+    return forms
+
+
 def keyword_only_honest_gaps(keyword_ledger: list[dict[str, Any]] | None) -> list[str]:
     """Honest gaps that are pure ATS keywords (US204, ADR-048 §10).
 

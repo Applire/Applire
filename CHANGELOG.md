@@ -4,6 +4,26 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **CV view consistency — gap hints, ATS checks and match score no longer contradict
+  each other** (#117, ADR-019/ADR-048 amended). "Related gaps" are now derived at read
+  time from the Keyword Ledger intersected with the *current document* — a keyword
+  already in the CV no longer shows as an open gap next to itself; saving a section no
+  longer deletes honest-gap records from the stored analysis. Gap chips split by
+  evidence: profile-backed gaps keep "Write it myself / Let Kaile help", honest gaps
+  route to a profile interview instead of inviting an unsupported claim. The ATS panel
+  gains a truthfulness warning for keywords present in the document but not backed by
+  the profile, and the two numbers are labelled for what they measure ("Profile match"
+  vs "Document coverage").
+- **Concurrent positions render in the correct order** (#118). Work experience is now
+  sorted reverse-chronologically by start date (ties break on end date, ongoing roles
+  stay on top), enforced where the CV data is established; two overlapping "present"
+  roles previously kept their incidental profile order. The ATS reading-order check's
+  failure message now states what was compared instead of guessing at column
+  interleaving.
+
 ## [0.37.0-beta] – 2026-07-03
 
 The **Chocolate** release: truthful tailoring end-to-end. Everything the app claims

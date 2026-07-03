@@ -33,6 +33,9 @@ export type ATSReport = {
     // something to fabricate). Optional for back-compat with legacy reports.
     missing_claimable?: string[];
     missing_honest_gap?: string[];
+    // #117 (ADR-048 fourth quadrant): present in the document WITHOUT profile backing —
+    // an unsupported claim (truthfulness warning). Optional for back-compat.
+    present_unsupported?: string[];
   };
 } | null;
 
@@ -134,6 +137,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   const isBucketed = report.keywords.missing_claimable !== undefined;
   const missingClaimable = report.keywords.missing_claimable ?? [];
   const missingHonestGap = report.keywords.missing_honest_gap ?? [];
+  const presentUnsupported = report.keywords.present_unsupported ?? [];
 
   return (
     <>
@@ -183,6 +187,17 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                 {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
                 {" "}
                 <span className="text-on-surface">{missingHonestGap.join(", ")}</span>
+              </p>
+            )}
+            {presentUnsupported.length > 0 && (
+              <p
+                data-testid="ats-keywords-present-unsupported"
+                className="text-xs font-medium text-critical"
+              >
+                {t("presentUnsupported", { count: presentUnsupported.length })}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                {" "}
+                <span>{presentUnsupported.join(", ")}</span>
               </p>
             )}
             {/* Back-compat sentinel: a legacy report (no buckets) still renders a flat line */}

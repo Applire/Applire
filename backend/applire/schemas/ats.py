@@ -35,6 +35,11 @@ class ATSKeywordCoverage(BaseModel):
     # something to fabricate). When no ledger is available all missing default to honest-gap.
     missing_claimable: list[str] = []
     missing_honest_gap: list[str] = []
+    # ADR-048 amended 2026-07-03 (#117), the fourth quadrant: a keyword PRESENT in the
+    # document but NOT claimable per the ledger — an unsupported claim (e.g. typed in
+    # via the section editor). Surfaced as a truthfulness warning, never silently
+    # counted as ordinary coverage. Empty when no ledger is available (cannot judge).
+    present_unsupported: list[str] = []
 
 
 class ATSReport(BaseModel):

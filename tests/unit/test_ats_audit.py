@@ -65,6 +65,22 @@ def test_reading_order_fails_when_entries_swapped():
     report = _audit_cv_text(text, _CV, keywords=[])
     assert any(c.id == "reading-order" and c.status == "fail" for c in report.checks)
 
+
+def test_reading_order_failure_detail_states_comparison_without_guessing_cause():
+    """#118 — the fail detail must say WHAT was compared (CV data order vs
+    extracted-text order), not presume a cause like column interleaving: UAT
+    hit this failure from a data-ordering bug, not a layout problem."""
+    text = (
+        "Anna Bauer anna@example.com +49 151 1234567\n"
+        "Software Engineer DataHaus AG 2017 2021\n"
+        "Senior Backend Engineer Cloudwerk GmbH 2021\n"
+        "Python FastAPI Kubernetes TU Berlin M.Sc. Informatik 2014 2017\n"
+    )
+    report = _audit_cv_text(text, _CV, keywords=[])
+    detail = next(c.details for c in report.checks if c.id == "reading-order")
+    assert "column interleaving" not in detail
+    assert "extracted text" in detail and "CV data" in detail
+
 def test_year_only_date_matching():
     report = _audit_cv_text(_full_text().replace("04/2021", "April 2021"), _CV, keywords=[])
     assert report.failed == 0

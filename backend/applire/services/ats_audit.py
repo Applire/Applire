@@ -78,16 +78,30 @@ def _keyword_coverage(
     # ledger — a surfacing miss) vs "honest gap" (not in the profile). No ledger → all
     # missing are honest gaps (back-compat; never silently claimable). The audit stays
     # deterministic and local — no LLM, no synthetic score.
-    from applire.services.keyword_ledger import claimable_surface_forms
+    from applire.services.keyword_ledger import (
+        claimable_surface_forms,
+        unclaimable_surface_forms,
+    )
 
     claimable_norm = {_norm(f) for f in claimable_surface_forms(ledger)}
     missing_claimable = [k for k in missing if _norm(k) in claimable_norm]
     missing_honest_gap = [k for k in missing if _norm(k) not in claimable_norm]
+
+    # ADR-048 amended 2026-07-03 (#117), fourth quadrant: a PRESENT keyword the ledger
+    # marks unsupported (honest gap) is a truthfulness warning — it reached the document
+    # without profile evidence (e.g. typed in via the section editor). Claimable always
+    # wins on alias collisions; without a ledger we cannot judge, so nothing is flagged.
+    unclaimable_norm = {_norm(f) for f in unclaimable_surface_forms(ledger)}
+    present_unsupported = [
+        k for k in present
+        if _norm(k) in unclaimable_norm and _norm(k) not in claimable_norm
+    ]
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
         missing_claimable=missing_claimable,
         missing_honest_gap=missing_honest_gap,
+        present_unsupported=present_unsupported,
     )
 
 
@@ -144,7 +158,9 @@ def _audit_cv_text(
     if len(entry_positions) > 1 and all(p >= 0 for p in entry_positions):
         ordered = all(a <= b for a, b in zip(entry_positions, entry_positions[1:]))
         _check(checks, "reading-order", ordered,
-               "work-history entries appear out of order in the extracted text (column interleaving?)")
+               "work-history entries appear in a different order in the extracted text "
+               "than in the CV data (each entry anchored at its first occurrence of "
+               "company/role text)")
 
     for i, e in enumerate(tailored.education):
         institution_norm = _norm(e.institution)
