@@ -27,15 +27,20 @@ surface that survivors still depend on:
 - ``company_names_match`` — employer-identity check reused by ``cv_diff``.
 - ``_sort_work_by_date`` — reverse-chronological ordering reused by ``cv``.
 """
+import re
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from applire.schemas.profile import (
     Conflict,
     FieldChange,
     MasterProfileData,
     PendingConfirmation,
-    WorkEntry,
 )
+
+# Duck-typed work-entry: anything with start_date / end_date attributes
+# (profile WorkEntry, TailoredWorkEntry, ...).
+_W = TypeVar("_W")
 
 
 @dataclass
@@ -106,14 +111,32 @@ def _company_names_match(a: str, b: str) -> bool:
 company_names_match = _company_names_match
 
 
-def _sort_work_by_date(entries: list[WorkEntry]) -> list[WorkEntry]:
-    """Sort work entries reverse-chronologically (most recent first).
+def _month_key(date_str: str | None, *, missing: str) -> str:
+    """Normalise a partial date string to a sortable ``YYYY-MM`` key.
 
-    Entries with no end_date (ongoing roles) sort first (treated as 9999-12).
+    Accepts ``YYYY``, ``YYYY-M``, ``YYYY-MM`` and ``YYYY-MM-DD`` (a bare year
+    keys as month ``00``). ``None``, empty, or unparseable values (e.g.
+    "present") fall back to ``missing``.
     """
-    def _key(e: WorkEntry) -> str:
-        if not e.end_date:
-            return "9999-12"
-        return (e.end_date + "-12")[:7]
+    m = re.match(r"\s*(\d{4})(?:-(\d{1,2}))?", str(date_str)) if date_str else None
+    if not m:
+        return missing
+    return f"{m.group(1)}-{int(m.group(2) or 0):02d}"
+
+
+def _sort_work_by_date(entries: list[_W]) -> list[_W]:
+    """Sort work entries reverse-chronologically by START date (#118).
+
+    Newest start first; ties break on end date (an open end — ongoing role —
+    counts as 9999-12, so a current position never drops below an older
+    ongoing one), then on original order (``sorted`` is stable). Entries with
+    a missing/unparseable start date sort last. Duck-typed over ``start_date``
+    / ``end_date`` so profile ``WorkEntry`` and ``TailoredWorkEntry`` both work.
+    """
+    def _key(e: _W) -> tuple[str, str]:
+        return (
+            _month_key(getattr(e, "start_date", None), missing="0000-00"),
+            _month_key(getattr(e, "end_date", None), missing="9999-12"),
+        )
 
     return sorted(entries, key=_key, reverse=True)

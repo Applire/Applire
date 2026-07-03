@@ -158,7 +158,9 @@ def _audit_cv_text(
     if len(entry_positions) > 1 and all(p >= 0 for p in entry_positions):
         ordered = all(a <= b for a, b in zip(entry_positions, entry_positions[1:]))
         _check(checks, "reading-order", ordered,
-               "work-history entries appear out of order in the extracted text (column interleaving?)")
+               "work-history entries appear in a different order in the extracted text "
+               "than in the CV data (each entry anchored at its first occurrence of "
+               "company/role text)")
 
     for i, e in enumerate(tailored.education):
         institution_norm = _norm(e.institution)

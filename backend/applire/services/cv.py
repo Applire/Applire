@@ -495,6 +495,25 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
     )
 
 
+def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
+    """Deterministically re-sort ``tailored.work_history`` reverse-chronologically
+    by START date (#118) — newest first; ties break on end date (open end =
+    ongoing = 9999-12), then original order; missing/unparseable starts sort last.
+
+    The LLM's ordering is advisory only: with two concurrent open-ended
+    ("present") positions the end-date-only sort tied and the incidental profile
+    order leaked into the rendered CV. Called once, after the LLM step(s) and the
+    deterministic passthroughs, at the single site where ``tailored_data`` and
+    ``content_snapshot`` are established — everything downstream (render, section
+    editor, ATS audit) inherits the order from there. Pure; input unmutated.
+    """
+    if len(tailored.work_history) < 2:
+        return tailored
+    return tailored.model_copy(
+        update={"work_history": _sort_work_by_date(list(tailored.work_history))}
+    )
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -871,6 +890,11 @@ async def _render_cv_background(
             # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
             # single-call and segmented paths, since both converge here.
             tailored = _apply_certifications(tailored, profile_json)
+
+            # #118: enforce reverse-chronological work order (newest start first)
+            # here — the one site where tailored_data + content_snapshot are
+            # established — instead of trusting the LLM's echo of the input order.
+            tailored = _enforce_work_order(tailored)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.
