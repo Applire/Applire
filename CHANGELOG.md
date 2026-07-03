@@ -4,7 +4,7 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.37.0-beta] – 2026-07-02
+## [0.37.0-beta] – 2026-07-03
 
 The **Chocolate** release: truthful tailoring end-to-end. Everything the app claims
 about a candidate is now grounded, classified, and verifiable — from ATS keyword
@@ -49,6 +49,10 @@ coverage through gap interviews to the generated CV and cover letter.
   Accepted even by models that mandate reasoning. Deployment-wide for now; finer per-operation
   control is planned. (#85.)
 - **`LLM_DEBUG_LOG`** (#96): per-call LLM request/response logging for diagnosis.
+- **Rolling `:edge` images**: every merge to `main` now publishes
+  `ghcr.io/applire/applire-{backend,frontend}:edge` plus an immutable `:sha-<commit>`
+  tag, and a `docker-compose.edge.yml` overlay runs a persistent edge/UAT environment
+  on those images. `:latest` and semver tags remain reserved for releases.
 
 ### Changed
 - **Cap-safe segmented generation** (E036/ADR-047, #95, US188–196): CV generation is
@@ -60,6 +64,11 @@ coverage through gap interviews to the generated CV and cover letter.
 - **Completeness scoring unified** (#82) across dashboard, health hub, and profile.
 - **Flow navigation** hardened against step desync (#33, `lib/flow-routing.ts`,
   migration 0034).
+- **Release image tagging is now pre-release-aware.** Publishing a GitHub *pre-release*
+  builds `:X.Y.Z` + `:sha` tags only and does **not** move `:latest`; `:latest` and
+  `:X.Y` move only when a full (non-pre-) release is published — so self-hosters pinned
+  to `:latest` never receive a beta by surprise. A qualified pre-release is promoted by
+  simply unticking its "pre-release" box.
 
 ### Fixed
 - **Self-hosting on SELinux hosts no longer leaves the app unreachable.** The production
