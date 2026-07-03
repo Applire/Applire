@@ -18,7 +18,7 @@
 # backend/applire/schemas/cv_sections.py
 """Pydantic schemas for the CV Section Editor API (Sprint 9, ADR-019)."""
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,10 @@ class ContentSnapshot(BaseModel):
 class GapHintItem(BaseModel):
     id: str
     label: str
+    # ADR-019 amended 2026-07-03 (#117): the ledger entry's evidence status decides
+    # the CTA — "claimable" (profile-backed, offer editor/Kaile) vs "honest" (not in
+    # the profile, route to the enrichment interview; never invite a written claim).
+    kind: Literal["claimable", "honest"] = "claimable"
 
 
 class SectionItem(BaseModel):

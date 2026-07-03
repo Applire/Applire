@@ -20,6 +20,9 @@ import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ContentTab } from "../ContentTab";
 
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
+
 const MOCK_SECTIONS = [
   {
     section_id: "introduction",
@@ -93,6 +96,26 @@ describe("ContentTab", () => {
     await waitFor(() => expect(screen.getByText("Python")).toBeTruthy());
     fireEvent.click(screen.getByText("Python"));
     expect(screen.getByTestId("back-to-browse")).toBeTruthy();
+  });
+
+  // #117: an honest gap routes to the profile hub — never into the CV editor.
+  it("Browse mode: clicking an honest gap card routes to the profile hub", async () => {
+    const honestSections = [
+      {
+        ...MOCK_SECTIONS[0],
+        gaps: [{ id: "DevSecOps", label: "DevSecOps", kind: "honest" }],
+      },
+      MOCK_SECTIONS[1],
+    ];
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sections: honestSections, general_gaps: [] }),
+    } as Response);
+    render(withIntl(<ContentTab {...BASE_PROPS} />));
+    await waitFor(() => expect(screen.getByText("DevSecOps")).toBeTruthy());
+    fireEvent.click(screen.getByText("DevSecOps"));
+    expect(mockPush).toHaveBeenCalledWith("/profile");
+    expect(screen.queryByTestId("back-to-browse")).toBeNull();
   });
 
   it("Edit mode: 'Back to overview' returns to Browse", async () => {

@@ -50,6 +50,17 @@ const REPORT_WITH_BUCKETS: ATSReport = {
   },
 };
 
+const REPORT_WITH_UNSUPPORTED: ATSReport = {
+  checks: [{ id: "contact-name", status: "pass" }],
+  keywords: {
+    present: ["TypeScript", "DevSecOps"],
+    missing: [],
+    missing_claimable: [],
+    missing_honest_gap: [],
+    present_unsupported: ["DevSecOps"],
+  },
+};
+
 const REPORT_ALL_PASS: ATSReport = {
   checks: [
     { id: "contact-name", status: "pass" },
@@ -193,5 +204,19 @@ describe("ATSChecksPanel", () => {
   it("renders legacy reports without missing buckets", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
     expect(screen.getByTestId("ats-keywords-missing")).toBeInTheDocument();
+  });
+
+  // #117 (ADR-048 fourth quadrant): a present keyword without profile backing is a
+  // truthfulness warning, not silent ordinary coverage.
+  it("renders present-but-unsupported keywords as a warning row", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_UNSUPPORTED} />));
+    const row = screen.getByTestId("ats-keywords-present-unsupported");
+    expect(row).toBeInTheDocument();
+    expect(row.textContent).toContain("DevSecOps");
+  });
+
+  it("omits the unsupported row when empty or absent", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
+    expect(screen.queryByTestId("ats-keywords-present-unsupported")).toBeNull();
   });
 });

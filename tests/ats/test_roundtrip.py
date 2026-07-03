@@ -389,6 +389,93 @@ async def test_cv_certifications_survive_roundtrip(template):
     assert cert_issuer in text, f"{template}: certification issuing organization dropped in PDF"
 
 
+# ---------------------------------------------------------------------------
+# Issue #118 — two CONCURRENT open-ended positions. The tailored data arrives
+# oldest-start-first (the UAT profile order) and the summary names the current
+# employer, which is exactly the constellation that made the reading-order
+# check fire: the audit anchors each entry at its FIRST text occurrence, so the
+# wrongly-last-placed newest entry anchored inside the summary. After
+# _enforce_work_order the render must be newest-start-first and the check pass.
+# ---------------------------------------------------------------------------
+
+CV_118_WRONG_ORDER = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Anna Bauer",
+            "email": "anna.bauer@example.de",
+            "phone": "+49 151 1234567",
+            "location": "Berlin",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        # Mentions the CURRENT employer — the first-occurrence anchor lands here.
+        "summary": (
+            "Lead Data Engineer bei Alpha Analytics AG mit paralleler "
+            "Beratungstätigkeit und Schwerpunkt auf skalierbaren Datenplattformen."
+        ),
+        "work_history": [
+            {
+                "company": "Beta Consulting GmbH",
+                "role": "Senior Consultant",
+                "start_date": "2024-12",
+                "end_date": None,
+                "bullets": ["Beratung von Mittelständlern zu Datenstrategie."],
+            },
+            {
+                "company": "Alpha Analytics AG",
+                "role": "Lead Data Engineer",
+                "start_date": "2026-03",
+                "end_date": None,
+                "bullets": ["Aufbau der zentralen Datenplattform."],
+            },
+        ],
+        "skills": ["Python", "Kubernetes"],
+        "education": [
+            {
+                "institution": "TU Berlin",
+                "degree": "M.Sc.",
+                "field": "Informatik",
+                "start_date": "2014-10",
+                "end_date": "2017-09",
+            }
+        ],
+        "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_concurrent_open_ended_positions_render_newest_first(template):
+    """#118 regression — enforced order survives the real PDF round-trip:
+    newest-start-first in the document AND a passing reading-order check."""
+    from applire.services.cv import _enforce_work_order
+
+    tailored = _enforce_work_order(CV_118_WRONG_ORDER)
+    assert [w.company for w in tailored.work_history] == [
+        "Alpha Analytics AG",
+        "Beta Consulting GmbH",
+    ]
+
+    html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=tailored, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html)
+    report = audit_cv(pdf, tailored, [])
+    reading_order = [c for c in report.checks if c.id == "reading-order"]
+    assert reading_order and reading_order[0].status == "pass", (
+        f"{template}: {reading_order[0].details if reading_order else 'check missing'}"
+    )
+
+    # The newest position's WORK-SECTION marker precedes the older one's. The
+    # bullets are unique to their entries (roles/companies also occur in the
+    # summary, which would alias the index check).
+    text = _norm_probe(extract_text(pdf))
+    assert text.index(_norm_probe("Aufbau der zentralen Datenplattform")) < text.index(
+        _norm_probe("Beratung von Mittelständlern")
+    ), f"{template}: work entries not newest-start-first in extracted text"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fixture,lang", [(LETTER_DE, "de"), (LETTER_EN, "en")], ids=["de", "en"])
 @pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
