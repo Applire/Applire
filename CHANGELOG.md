@@ -19,6 +19,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `/etc/nginx/conf.d/default.conf`; the dev stack is unchanged.
 
 ### Fixed
+- **Retention worker no longer crashes on Postgres.** The `cv_import_jobs` and
+  `gap_analysis_jobs` TTL purges bound their `expires_at` cutoff as an ISO-8601 *string*;
+  asyncpg infers the bind type from the `timestamptz` column and rejects a `str`
+  (`expected a datetime … got 'str'`), so the daily retention run aborted on every real
+  Postgres deployment. The cutoff is now bound as a `datetime` like the other purges.
+  (Hidden because the SQLite unit harness compared the string lexically; a type-asserting
+  regression test now guards the bind.)
 - **CV view consistency — gap hints, ATS checks and match score no longer contradict
   each other** (#117, ADR-019/ADR-048 amended). "Related gaps" are now derived at read
   time from the Keyword Ledger intersected with the *current document* — a keyword

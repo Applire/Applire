@@ -263,8 +263,12 @@ async def _seed_import_job(db: AsyncSession, *, expires_at: datetime, deleted_at
 async def test_purge_import_jobs_deletes_expired(db):
     from applire.retention.worker import _purge_import_jobs
 
-    await _seed_import_job(db, expires_at=_ago(hours=1))
-    await _seed_import_job(db, expires_at=_now() + timedelta(hours=23))
+    # Date-scale offsets (like _purge_cvs) so the SQLite TEXT compare stays correct:
+    # the worker binds a datetime, which aiosqlite renders space-separated, and stored
+    # ISO strings are 'T'-separated — a same-day (time-only) gap would flip the lexical
+    # compare. Postgres (timestamptz) is unaffected; this is a harness-only concern.
+    await _seed_import_job(db, expires_at=_ago(days=1))
+    await _seed_import_job(db, expires_at=_now() + timedelta(days=1))
 
     deleted = await _purge_import_jobs(db)
     assert deleted == 1
@@ -303,8 +307,10 @@ async def _seed_gap_job(db: AsyncSession, *, expires_at: datetime, deleted_at: d
 async def test_purge_gap_jobs_deletes_expired(db):
     from applire.retention.worker import _purge_gap_jobs
 
-    await _seed_gap_job(db, expires_at=_ago(hours=1))
-    await _seed_gap_job(db, expires_at=_now() + timedelta(hours=23))
+    # Date-scale offsets — see the note in test_purge_import_jobs_deletes_expired
+    # (bound datetime vs stored ISO string under the SQLite harness).
+    await _seed_gap_job(db, expires_at=_ago(days=1))
+    await _seed_gap_job(db, expires_at=_now() + timedelta(days=1))
 
     deleted = await _purge_gap_jobs(db)
     assert deleted == 1
@@ -473,3 +479,43 @@ async def test_tombstone_inactive_applications_logs_warning_on_operational_error
 
     assert result == 0
     assert any(rec.levelname == "WARNING" for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_purge_import_jobs_binds_a_datetime_not_a_string():
+    """Regression: the expires_at cutoff must be bound as a datetime, not an
+    ISO string. asyncpg infers the bind type from the timestamptz column and
+    rejects a str ('expected a datetime.date or datetime.datetime instance, got
+    str') — crashing the retention worker on Postgres. SQLite accepted the string
+    (lexical TEXT compare), which is why this hid from the other unit tests.
+    """
+    from datetime import datetime
+    from unittest.mock import AsyncMock
+    from applire.retention.worker import _purge_import_jobs
+
+    mock_db = AsyncMock()
+
+    await _purge_import_jobs(mock_db)
+
+    _clause, params = mock_db.execute.call_args.args
+    assert isinstance(params["now"], datetime), (
+        f"expires_at cutoff must be a datetime for asyncpg, got {type(params['now'])}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_purge_gap_jobs_binds_a_datetime_not_a_string():
+    """Regression: same as the import-jobs purge — bind a datetime, not an ISO
+    string, so asyncpg accepts the timestamptz comparison on Postgres."""
+    from datetime import datetime
+    from unittest.mock import AsyncMock
+    from applire.retention.worker import _purge_gap_jobs
+
+    mock_db = AsyncMock()
+
+    await _purge_gap_jobs(mock_db)
+
+    _clause, params = mock_db.execute.call_args.args
+    assert isinstance(params["now"], datetime), (
+        f"expires_at cutoff must be a datetime for asyncpg, got {type(params['now'])}"
+    )
