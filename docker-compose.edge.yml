@@ -1,0 +1,50 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+# Edge overlay — a persistent UAT / staging environment on the rolling :edge images
+# that the edge lane (.github/workflows/edge.yml) publishes on every merge to main.
+#
+# USAGE — pass BOTH -f files explicitly. That is deliberate: naming -f files suppresses
+# the auto-merge of docker-compose.override.yml (the DEV override), so you get the real
+# PRODUCTION topology (self-hosted.conf, nginx on :80 only) running edge images:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.edge.yml pull
+#     docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d
+#
+# To pick up a new merge later, re-run the two lines above (pull moves :edge, up -d
+# recreates the changed containers). The backend applies DB migrations on the accumulated
+# data in the persistent `postgres_data` volume — which is the whole point of this env.
+#
+# NEVER run `down -v` here: it deletes postgres_data and destroys the accumulated data
+# that makes cross-merge data-migration testing meaningful. Plain `down` (no -v) is fine.
+#
+# Requires a `.env` alongside these files (LLM provider + key, DATABASE_URL) — same as any
+# self-host. To test a migration between two specific builds, temporarily pin an image to
+# an immutable tag instead, e.g. `ghcr.io/applire/applire-backend:sha-<commit>`.
+
+services:
+  backend:
+    image: ghcr.io/applire/applire-backend:edge
+
+  frontend:
+    image: ghcr.io/applire/applire-frontend:edge
+
+  retention:
+    image: ghcr.io/applire/applire-backend:edge
+
+  mcp:
+    image: ghcr.io/applire/applire-backend:edge
