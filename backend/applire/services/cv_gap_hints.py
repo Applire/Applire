@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from applire.schemas.cv_sections import GapHintItem
-from applire.services.ats_audit import _find, _norm
+from applire.services.ats_audit import _norm, surface_present
 from applire.services.cv_gap_mapper import map_gaps_to_sections
 
 
@@ -89,7 +89,9 @@ def _candidates(
 
 
 def _covered(candidate: _Candidate, document_norm: str) -> bool:
-    return any(_find(form, document_norm) >= 0 for form in candidate.surface_forms)
+    # US212 (#122): coverage judged by THE shared presence predicate (ats_audit),
+    # morphological fold included — hints and panel can never disagree.
+    return any(surface_present(form, document_norm) for form in candidate.surface_forms)
 
 
 def _document_norm(section_contents: dict[str, str]) -> str:
