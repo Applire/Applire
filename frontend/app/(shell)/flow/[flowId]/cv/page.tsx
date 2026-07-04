@@ -35,8 +35,6 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
-import type { ReviewChange } from "@/components/review/WhatChangedReview";
-import { getCvProfileDiff } from "@/lib/api/review";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
@@ -77,12 +75,9 @@ export default function CVPage({
   const [isGenerating, setIsGenerating] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
-  // US147 / ADR-040 — pre-download grounding review + attestation (nudge, not gate).
-  // ADR-040 (amended 2026-07-01): the pre-download notice. `null` = closed.
-  const [downloadNotice, setDownloadNotice] = useState<{
-    redFlags: ReviewChange[];
-    canSuppress: boolean;
-  } | null>(null);
+  // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
+  // `null` = closed.
+  const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
@@ -243,28 +238,18 @@ export default function CVPage({
     }
   }
 
-  // Decide whether to nudge before download (ADR-040 amendment). Show the notice
-  // when there is a real red flag (never suppressible) OR the AI-content notice
-  // hasn't been dismissed-forever; otherwise download straight away. Diff/settings
-  // failures degrade to "download directly" — a nudge must never block (ADR-040 §4).
+  // ADR-040 amendment: show the AI-content notice unless dismissed-forever. A
+  // settings failure degrades to "show the notice" — never a gate (ADR-040 §4).
   async function requestDownload() {
     if (!cvId) return;
-    let redFlags: ReviewChange[] = [];
-    let hideNotice = false;
-    try {
-      [redFlags, hideNotice] = await Promise.all([
-        getCvProfileDiff(cvId).then((d) => d.items).catch(() => []),
-        getSettings().then((s) => s.hide_predownload_notice).catch(() => false),
-      ]);
-    } catch {
-      redFlags = [];
-      hideNotice = false;
-    }
-    if (redFlags.length === 0 && hideNotice) {
+    const hideNotice = await getSettings()
+      .then((s) => s.hide_predownload_notice)
+      .catch(() => false);
+    if (hideNotice) {
       void handleDownloadPdf();
       return;
     }
-    setDownloadNotice({ redFlags, canSuppress: !hideNotice });
+    setDownloadNotice({ canSuppress: true });
   }
 
   // --- Preview phase: 70/30 split ---
@@ -374,7 +359,6 @@ export default function CVPage({
           >
             <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
               <PreDownloadNotice
-                redFlags={downloadNotice.redFlags}
                 canSuppress={downloadNotice.canSuppress}
                 onConfirm={(dontShowAgain) => {
                   if (dontShowAgain) void setHidePredownloadNotice(true);

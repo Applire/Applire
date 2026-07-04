@@ -871,7 +871,6 @@
   "predownload": {
     "title": "Vor dem Download",
     "warning": "KI-generierte Inhalte können Fehler enthalten — bitte vor dem Absenden prüfen.",
-    "redFlagsIntro": "{count, plural, one {# Angabe weicht} other {# Angaben weichen}} von deinem Profil ab — bitte vor dem Absenden prüfen:",
     "dontShowAgain": "Nicht mehr anzeigen",
     "cancel": "Abbrechen",
     "download": "Herunterladen"

@@ -871,7 +871,6 @@
   "predownload": {
     "title": "Before you download",
     "warning": "AI-generated content can have faults — please review before you submit.",
-    "redFlagsIntro": "{count, plural, one {# detail differs} other {# details differ}} from your profile — please check before submitting:",
     "dontShowAgain": "Don't show this again",
     "cancel": "Cancel",
     "download": "Download"
