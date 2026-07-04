@@ -396,11 +396,12 @@ class TestCVExtractionReviewerPrecision:
 
 
 class TestCVTailoringReviewerLedgerChecks:
-    """E037 US202 — the CV grounding reviewer must additionally (a) report which
-    claimable Keyword-Ledger terms are ABSENT from the draft (the bounded ADR-047
-    refine loop then acts on them — no new loop, no forced injection), and (b) flag
-    any forbidden honest-gap concept that appears as a claim (strengthens the
-    fabrication check). The claimable set itself rides in via the reviewer SOURCE."""
+    """E037 US202 (detection re-sourced by US213, #122) — the CV grounding reviewer
+    (a) acts on the deterministic VERIFIED COVERAGE CHECK block (it no longer scans
+    for absent claimable terms itself; its only coverage judgment is the grounding
+    waiver, riding the bounded ADR-047 loop — no new loop, no forced injection),
+    and (b) flags any forbidden honest-gap concept that appears as a claim
+    (strengthens the fabrication check). The claimable set rides in via the SOURCE."""
 
     def test_system_prompt_instructs_absent_claimable_check(self):
         from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as p

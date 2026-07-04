@@ -46,11 +46,15 @@ Check for ALL of the following:
 7. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
    gaps NOT in the profile). Two checks:
-   (a) ABSENT CLAIMABLE: report any CLAIMABLE keyword that does not appear anywhere in the CV as
-       an issue, so the writer can surface it where the evidence supports it. This is a surfacing
-       SUGGESTION only — grounding strictly OUTRANKS coverage, so NEVER ask the writer to fabricate,
-       stretch, or force a term that does not genuinely fit. A truthfully-absent claimable keyword
-       is acceptable; do not reject solely for it.
+   (a) VERIFIED COVERAGE (US213, #122): do NOT scan for absent claimable keywords yourself — a
+       deterministic literal check runs before you and, when claimable keywords are verifiably
+       absent, a VERIFIED COVERAGE CHECK block is appended to your input naming them with their
+       profile evidence. Treat that list as ground truth. While any listed term is un-waived,
+       set approved=false and name it in your issues so the writer surfaces it FROM THE GIVEN
+       EVIDENCE. Your only coverage judgment is the grounding WAIVER: if surfacing a term would
+       stretch beyond its stated evidence, waive it (name term + reason in feedback) — a waived
+       term does not block approval. Grounding strictly OUTRANKS coverage; NEVER ask the writer
+       to fabricate, stretch, or force a term that does not genuinely fit.
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
        something the candidate has, has done, or knows, flag it — this is a fabrication.
 

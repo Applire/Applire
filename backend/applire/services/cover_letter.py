@@ -481,9 +481,14 @@ async def _render_cover_letter_background(
                 ensure_ascii=False,
                 indent=2,
             )
-            # ADR-048 / US202: route the Keyword Ledger to the reviewer (absent-claimable
-            # reporting + forbidden honest-gap claim flagging). Grounding outranks coverage.
-            from applire.services.keyword_ledger import render_ledger_reviewer_block
+            # ADR-048 / US202+US213 (#122): ledger to the reviewer for the forbidden-claim
+            # check; the reviewer prompt is wrapped so each iteration carries the
+            # DETERMINISTIC verified-coverage state of the current draft (LLM detection
+            # retired — the reviewer only arbitrates grounding waivers).
+            from applire.services.keyword_ledger import (
+                coverage_reviewer_prompt_fn,
+                render_ledger_reviewer_block,
+            )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
@@ -492,7 +497,9 @@ async def _render_cover_letter_background(
                 draft=letter_data,
                 generator_prompt_fn=build_retry_prompt,
                 generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=build_review_prompt,
+                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
+                    build_review_prompt, keyword_ledger
+                ),
                 reviewer_system=REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
