@@ -343,20 +343,31 @@ async def _tailor_cv_with_fallback(
         )
 
 
-async def _review_cv_language(draft: dict, output_language: str, provider) -> dict:
+async def _review_cv_language(
+    draft: dict, output_language: str, provider, keyword_ledger: list | None = None
+) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
     directive alone leaks discipline-skill phrases; this is the enforcing pass — the same
     fix ADR-038 applied to interview questions. Never raises; no-op when the budget is 0.
+
+    #122 follow-up: this chain runs AFTER the gated tailoring loop and rewrites wording,
+    so it can silently translate a covered surface form into an unlisted synonym. The
+    same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
+    exact required-language surface form), never inserting content.
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
+    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=build_cv_language_review_prompt,
+        reviewer_prompt_fn=coverage_reviewer_prompt_fn(
+            build_cv_language_review_prompt, keyword_ledger
+        ),
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
@@ -882,8 +893,11 @@ async def _render_cv_background(
 
             # ADR-038 enforcement: ensure skill tags + prose are all in the target-job
             # language (the directive alone leaks discipline-skill phrases — #1).
+            # Carries the ledger: this pass is the LAST writer, so the US213 coverage
+            # gate must also watch its rewording (#122 follow-up).
             tailored_raw = await _review_cv_language(
-                tailored_raw, resolve_jd_language(job), provider
+                tailored_raw, resolve_jd_language(job), provider,
+                keyword_ledger=keyword_ledger,
             )
 
             tailored = TailoredCVData.model_validate(tailored_raw)
