@@ -331,3 +331,115 @@ def test_empty_letter_paragraph_skipped():
     assert "body-0" in ids
     assert "body-1" not in ids and "body-2" not in ids
     assert report.failed == 0
+
+
+# ---------------------------------------------------------------------------
+# US212 (#122, ADR-048 amended 2026-07-04): unified presence predicate —
+# surface-form union + morphological fold. Regression fixtures lifted from the
+# Chocolate UAT CV that surfaced the bug.
+# ---------------------------------------------------------------------------
+
+_LEDGER_122 = [
+    {"concept": "code review practices", "surface_forms": ["Code reviews"], "claimable": True,
+     "status": "direct", "sources": ["keyword"], "fit_weight": 0.0,
+     "evidence": "enforced code review standards at BioNTech"},
+    {"concept": "education technology", "surface_forms": ["EdTech"], "claimable": True,
+     "status": "partial", "sources": ["keyword"], "fit_weight": 0.0,
+     "evidence": "educational games development at Provadis"},
+    {"concept": "container orchestration", "surface_forms": ["container orchestration", "Kubernetes", "K8s"],
+     "claimable": True, "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+     "evidence": "led Kubernetes migration"},
+    {"concept": "SaaS", "surface_forms": ["SaaS"], "claimable": False,
+     "status": "gap", "sources": ["keyword"], "fit_weight": 0.0, "evidence": ""},
+]
+
+
+def test_plural_keyword_matches_singular_in_text():
+    """#122 'Code reviews': the literal plural is absent but 'code review standards'
+    is in the text — the morphological fold must count the keyword present."""
+    text = "Anna Bauer enforcing code review standards across teams"
+    report = _audit_cv_text(text, _CV, keywords=["Code reviews"], ledger=_LEDGER_122)
+    assert report.keywords.present == ["Code reviews"]
+    assert report.keywords.missing_claimable == []
+
+
+def test_singular_keyword_matches_plural_in_text():
+    text = "Anna Bauer ran weekly code reviews for the platform team"
+    report = _audit_cv_text(text, _CV, keywords=["Code review"], ledger=_LEDGER_122)
+    assert report.keywords.present == ["Code review"]
+
+
+def test_surface_form_alias_counts_keyword_present():
+    """Presence = union over the owning ledger entry's surface forms, not just the
+    keyword literal (panel previously literal-only; gap hints already union)."""
+    text = "Anna Bauer led the Kubernetes migration"
+    report = _audit_cv_text(text, _CV, keywords=["container orchestration"], ledger=_LEDGER_122)
+    assert report.keywords.present == ["container orchestration"]
+
+
+def test_hyphen_variant_matches():
+    text = "Anna Bauer wrote the Code-Review guidelines"
+    report = _audit_cv_text(text, _CV, keywords=["code review"], ledger=None)
+    assert report.keywords.present == ["code review"]
+
+
+def test_short_token_not_plural_folded():
+    """Guard: K8s / SaaS style tokens must NOT be stripped to a degenerate stem
+    ('k8', 'saa') that substring-matches unrelated text."""
+    report_k8 = _audit_cv_text("Anna Bauer manages a k8 fleet", _CV, keywords=["K8s"], ledger=None)
+    assert report_k8.keywords.missing == ["K8s"]
+    report_saa = _audit_cv_text("Anna Bauer worked in Saarland", _CV, keywords=["SaaS"], ledger=_LEDGER_122)
+    assert report_saa.keywords.missing == ["SaaS"]
+    assert report_saa.keywords.missing_honest_gap == ["SaaS"]
+
+
+def test_symbol_keywords_unaffected_by_fold():
+    text = "Anna Bauer builds C# services with CI/CD pipelines"
+    report = _audit_cv_text(text, _CV, keywords=["C#", "CI/CD"], ledger=None)
+    assert set(report.keywords.present) == {"C#", "CI/CD"}
+
+
+def test_edtech_true_miss_stays_missing_claimable():
+    """#122 'EdTech': evidence-adjacent prose does NOT satisfy the literal check —
+    the keyword stays missing and, per the ledger, claimable."""
+    text = "Anna Bauer developed educational games using Flash"
+    report = _audit_cv_text(text, _CV, keywords=["EdTech"], ledger=_LEDGER_122)
+    assert report.keywords.missing == ["EdTech"]
+    assert report.keywords.missing_claimable == ["EdTech"]
+
+
+def test_honest_gap_surface_form_present_flags_unsupported():
+    """Fourth quadrant (#117) with union matching: an honest-gap term present in the
+    document via any of its surface forms is a truthfulness warning."""
+    ledger = [{"concept": "SaaS", "surface_forms": ["SaaS", "software as a service"],
+               "claimable": False, "status": "gap", "sources": ["keyword"],
+               "fit_weight": 0.0, "evidence": ""}]
+    text = "Anna Bauer sells software as a service to enterprises"
+    report = _audit_cv_text(text, _CV, keywords=["SaaS"], ledger=ledger)
+    assert report.keywords.present == ["SaaS"]
+    assert report.keywords.present_unsupported == ["SaaS"]
+
+
+def test_gap_stance_not_widened_by_foreign_entry():
+    """F4 invariant holds under union matching: a keyword owned by an honest-gap
+    entry must not be counted present via a DIFFERENT claimable entry's forms.
+    Built through the REAL builder (gap-stance enforcement strips 'Azure' from
+    the claimable entry) — presence for 'Azure' may only consider the honest-gap
+    entry's own forms, even though the claimable form IS in the text."""
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            {"concept": "Cloud environment qualification (AWS, Azure)", "status": "partial",
+             "surface_forms": ["Cloud environment qualification", "Azure"],
+             "evidence": "Qualified GxP cloud environment."},
+            {"concept": "Azure", "status": "gap", "surface_forms": ["Azure"], "evidence": ""},
+        ],
+        required_skills=["Cloud environment qualification (AWS, Azure)"],
+        nice_to_have_skills=[],
+        keywords=["Azure"],
+    )
+    text = "Anna Bauer performed cloud environment qualification work"
+    report = _audit_cv_text(text, _CV, keywords=["Azure"], ledger=ledger)
+    assert report.keywords.missing == ["Azure"]
+    assert report.keywords.missing_honest_gap == ["Azure"]

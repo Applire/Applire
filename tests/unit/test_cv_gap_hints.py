@@ -390,3 +390,31 @@ class TestPresentUnsupported:
 
         cov = _keyword_coverage(_norm("Skills: DevSecOps"), ["DevSecOps"], None)
         assert cov.present_unsupported == []
+
+
+class TestSharedPresencePredicate:
+    """US212 (#122): gap hints and the ATS panel must judge coverage with the SAME
+    instrument — surface_present from ats_audit, morphological fold included."""
+
+    def _flatten(self, gap_map, general):
+        return [h for hints in gap_map.values() for h in hints] + list(general)
+
+    def test_plural_surface_form_suppressed_by_singular_document_text(self):
+        """#122 'Code reviews' class: document says 'code review standards', the
+        entry's surface form is plural — the hint must be suppressed."""
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        gap_map, general = build_gap_hints(
+            ledger=[_entry("code review practices", surface_forms=["Code reviews"])],
+            category_b=["Code reviews"],
+            category_c=[],
+            section_contents={"experience": "Enforcing code review standards across teams"},
+        )
+        assert self._flatten(gap_map, general) == []
+
+    def test_covered_delegates_to_ats_audit_surface_present(self):
+        """Parity by construction: the hint coverage check resolves to the very same
+        function object the ATS audit exports."""
+        from applire.services import ats_audit, cv_gap_hints
+
+        assert cv_gap_hints.surface_present is ats_audit.surface_present

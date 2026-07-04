@@ -853,10 +853,14 @@ async def _render_cv_background(
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
-            # ADR-048 / US202: route the Keyword Ledger to the reviewer so it can report
-            # absent-claimable keywords (the bounded ADR-047 loop then acts) and flag any
-            # forbidden honest-gap concept surfaced as a claim. Grounding outranks coverage.
-            from applire.services.keyword_ledger import render_ledger_reviewer_block
+            # ADR-048 / US202+US213 (#122): route the Keyword Ledger to the reviewer for the
+            # forbidden-claim check, and wrap the reviewer prompt so each iteration carries
+            # the DETERMINISTIC verified-coverage state of the current draft (the LLM no
+            # longer detects absent claimable terms — it only arbitrates grounding waivers).
+            from applire.services.keyword_ledger import (
+                coverage_reviewer_prompt_fn,
+                render_ledger_reviewer_block,
+            )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 source_material = f"{source_material}\n\n{ledger_block}"
@@ -866,7 +870,9 @@ async def _render_cv_background(
                 draft=tailored_raw,
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=_build_cv_review_prompt,
+                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
+                    _build_cv_review_prompt, keyword_ledger
+                ),
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,

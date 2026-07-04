@@ -41,6 +41,9 @@ def extract_text(pdf_bytes: bytes) -> str:
 def _norm(s: str) -> str:
     s = s.replace("­", "")  # soft hyphens from PDF line-breaking
     s = unicodedata.normalize("NFKC", s)
+    # US212 (#122): fold hyphens/dashes to spaces so "Code-Review" ≡ "code review".
+    # Applied to needle and haystack alike, so matching stays symmetric.
+    s = re.sub(r"[-‐-―−]", " ", s)
     return re.sub(r"\s+", " ", s).lower().strip()
 
 
@@ -50,6 +53,65 @@ def _find(needle: str, haystack_norm: str) -> int:
     if not n:
         return -1
     return haystack_norm.find(n)
+
+
+# US212 minimum sizes for the morphological fold: strip a trailing "s" only when the
+# remaining stem keeps ≥ 4 chars ("reviews" → "review", but never "SaaS" → "saa" or
+# "K8s" → "k8"); append an "s" only to an alphabetic-final token of ≥ 4 chars.
+_FOLD_MIN_STEM = 4
+
+
+def _fold_variants(needle_norm: str) -> list[str]:
+    """Deterministic singular/plural variants of a normalised phrase (final token only).
+
+    US212 (#122, ADR-048 amended 2026-07-04): generosity lives in the matching
+    layer — "Code reviews" must match a document that says "code review standards".
+    Purely morphological, guarded, no LLM.
+    """
+    variants = [needle_norm]
+    last = needle_norm.rsplit(" ", 1)[-1]
+    if last.endswith("s") and len(last) - 1 >= _FOLD_MIN_STEM:
+        variants.append(needle_norm[:-1])
+    elif not last.endswith("s") and len(last) >= _FOLD_MIN_STEM and last[-1].isalpha():
+        variants.append(needle_norm + "s")
+    return variants
+
+
+def surface_present(form: str, text_norm: str) -> bool:
+    """THE presence predicate (US212): is this surface form in this normalised text?
+
+    Single shared instrument for the ATS panel, the gap hints (#117), and the
+    generation-time coverage check (US213) — consumers may never disagree on
+    presence by construction (ADR-048 amended 2026-07-04, #122).
+    """
+    n = _norm(form)
+    if not n:
+        return False
+    return any(text_norm.find(v) >= 0 for v in _fold_variants(n))
+
+
+def _entry_norms(entry: dict[str, Any]) -> set[str]:
+    forms = entry.get("surface_forms") or [entry.get("concept", "")]
+    return {_norm(f) for f in forms} | {_norm(entry.get("concept", ""))}
+
+
+def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None) -> bool:
+    """Presence per keyword = any of {keyword literal} ∪ owning entry surface_forms ∪ concept.
+
+    Ownership honours the F4 gap stance: if any NON-claimable entry owns the keyword,
+    only non-claimable owners widen the search — a foreign claimable entry's forms must
+    never make an honest-gap keyword read as covered (ADR-048 §8 / #122).
+    """
+    k_norm = _norm(keyword)
+    entries = ledger or []
+    gap_owners = [e for e in entries if not e.get("claimable") and k_norm in _entry_norms(e)]
+    owners = gap_owners or [e for e in entries if e.get("claimable") and k_norm in _entry_norms(e)]
+    forms: list[str] = [keyword]
+    for e in owners:
+        forms.extend(e.get("surface_forms") or [])
+        if e.get("concept"):
+            forms.append(e["concept"])
+    return any(surface_present(f, text_norm) for f in forms)
 
 
 def _years(date_str: str | None) -> list[str]:
@@ -71,8 +133,10 @@ def _keyword_coverage(
         if k and k.lower() not in seen:
             seen.add(k.lower())
             unique.append(k)
-    present = [k for k in unique if _find(k, text_norm) >= 0]
-    missing = [k for k in unique if _find(k, text_norm) < 0]
+    # US212 (#122): presence via the shared predicate — surface-form union over the
+    # keyword's owning ledger entry plus the morphological fold, not the literal alone.
+    present = [k for k in unique if keyword_present(k, text_norm, ledger)]
+    missing = [k for k in unique if k not in set(present)]
 
     # US203 (ADR-048): split missing into "claimable" (the candidate supports it per the
     # ledger — a surfacing miss) vs "honest gap" (not in the profile). No ledger → all

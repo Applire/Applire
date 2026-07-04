@@ -397,9 +397,9 @@ def render_ledger_reviewer_block(
         "OUTRANKS coverage: an absent claimable keyword is a surfacing suggestion only, "
         "NEVER a reason to fabricate or stretch.",
         "",
-        "CLAIMABLE KEYWORDS (the candidate truthfully supports these). Report any that are "
-        "ABSENT from the draft as an issue so the writer can surface them where the evidence "
-        "supports it — do NOT force a term that does not fit:",
+        "CLAIMABLE KEYWORDS (the candidate truthfully supports these). Reference list for "
+        "your grounding judgments — do NOT scan the draft for absent ones yourself; a "
+        "deterministic VERIFIED COVERAGE CHECK handles absence detection (US213, #122):",
     ]
     if claimable:
         for entry in claimable:
@@ -420,6 +420,100 @@ def render_ledger_reviewer_block(
         lines.append("  (none)")
 
     return "\n".join(lines)
+
+
+def _draft_strings(node: Any) -> list[str]:
+    """Every string value in a draft document dict, however deeply nested."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [s for v in node.values() for s in _draft_strings(v)]
+    if isinstance(node, (list, tuple)):
+        return [s for v in node for s in _draft_strings(v)]
+    return []
+
+
+def verified_missing_claimable(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Claimable ledger entries verifiably ABSENT from the draft (US213, #122).
+
+    Runs THE shared presence predicate (US212, ats_audit.surface_present) over the
+    serialised draft text — the same instrument the ATS panel grades with, so the
+    pipeline can no longer ship a document its own panel will flag. Deterministic,
+    no LLM. Honest-gap entries are never reported (they must stay absent).
+    """
+    from applire.services.ats_audit import _norm as ats_norm, surface_present
+
+    claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    if not claimable:
+        return []
+    text_norm = ats_norm("\n".join(_draft_strings(draft)))
+    missing: list[dict[str, Any]] = []
+    for entry in claimable:
+        forms = list(entry.get("surface_forms") or [])
+        if entry.get("concept"):
+            forms.append(entry["concept"])
+        if not any(surface_present(f, text_norm) for f in forms):
+            missing.append(entry)
+    return missing
+
+
+def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
+    """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
+
+    This replaces the reviewer's own coverage *detection* (US202) with ground truth:
+    the list is the output of a deterministic literal check, not something to
+    re-derive. The reviewer's only coverage judgment left is the grounding waiver
+    (ADR-048 §8 — grounding strictly outranks coverage). Returns "" when empty.
+    """
+    if not entries:
+        return ""
+    lines = [
+        "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, do "
+        "not re-derive it). The following claimable keywords are ABSENT from the draft "
+        "in every known surface form:",
+    ]
+    for entry in entries:
+        forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
+        evidence = entry.get("evidence", "")
+        lines.append(f"  - {entry.get('concept', '')} [forms: {forms}] — profile evidence: {evidence}")
+    lines += [
+        "",
+        "You MUST set approved=false while any term above remains both absent and "
+        "un-waived, and name the terms in your issues so the writer surfaces them from "
+        "the profile evidence given. EXCEPTION — the grounding waiver: if surfacing a "
+        "term would stretch beyond its stated evidence, WAIVE it instead (name the term "
+        "and the reason in your feedback); a waived term does not block approval. "
+        "Grounding strictly outranks coverage — never ask the writer to fabricate.",
+    ]
+    return "\n".join(lines)
+
+
+def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | None):
+    """Wrap a reviewer_prompt_fn so every review sees the CURRENT draft's verified
+    coverage state (US213, #122).
+
+    review_and_refine calls reviewer_prompt_fn(source, draft) each iteration with the
+    latest draft, so the verified list is recomputed per pass and the block disappears
+    once the refiner has surfaced the terms — deterministic convergence signal riding
+    the existing bounded ADR-047 loop (no new loop).
+    """
+
+    def fn(source: str, draft: dict[str, Any]) -> str:
+        prompt = base_fn(source, draft)
+        missing = verified_missing_claimable(draft, keyword_ledger)
+        if missing:
+            logger.info(
+                "verified coverage check: %d claimable term(s) absent from draft: %s",
+                len(missing),
+                [e.get("concept", "") for e in missing],
+            )
+            prompt = f"{prompt}\n\n{render_verified_coverage_block(missing)}"
+        return prompt
+
+    return fn
 
 
 def build_keyword_ledger(
