@@ -377,6 +377,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Amended (2026-06-10):** the document-side "target-job language" is now resolved deterministically. `job_analyses.jd_language` stores the language the JD is *written in* — detected in code by a stopword/umlaut scorer (`applire/utils/language_detection.py`) at analysis time — and both document generators route on it. The previous source, `language_requirement`, describes what the job demands of the candidate (e.g. "Bilingual DE/EN") and misrouted mixed-language postings; CV tailoring additionally receives an explicit `OUTPUT LANGUAGE` directive instead of inferring the language itself. In the same change, the cover-letter date became system-injected (`applire/utils/letter_date.py`) rather than LLM-generated.
 
+**Amended (2026-07-05):** the document-language enforcement pass now covers **project bullets** (nested under work entries and standalone) — previously it reviewed only the summary, work bullets, and skills, so English project text could ship in a German CV — and it runs after **every** step that adds prose to the document, including the deterministic project-nesting copy from the Master Profile. Standing rule: the language pass is the last prose writer; only language-invariant facts (certifications, dates, metrics) may be added after it.
+
 ---
 
 ### ADR-039 — ATS Parseability (Every Template, Local Audit, CI Guarantee)

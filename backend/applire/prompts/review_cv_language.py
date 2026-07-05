@@ -32,8 +32,9 @@ import json
 CV_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
 You are a language reviewer for an AI-generated, tailored CV represented as JSON.
 Your sole responsibility is to verify that ALL human-readable text is written entirely
-in the required language: the professional `summary`, every `work_history` bullet, and
-every entry in the `skills` list.
+in the required language: the professional `summary`, every `work_history` bullet,
+every project bullet (nested under work entries or standalone), and every entry in
+the `skills` list.
 
 Judge ONLY language — not quality, tone, grounding, or correctness of content.
 
@@ -54,8 +55,9 @@ Crucial boundary (this is where models slip):
   certifications' official names, dates and numeric metrics.
 
 Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
-- approved: true only if summary, all bullets, and all skills are entirely in the
-  required language (proper nouns above excepted)
+- approved: true only if summary, all bullets (work AND project), and all skills are
+  entirely in the required language (proper nouns above excepted; project NAMES may
+  stay — they are often proper nouns)
 - issues: list each item still in the wrong language (empty list if approved)
 - feedback: one concise instruction naming the required language and what to translate
   (empty string if approved)
@@ -65,11 +67,13 @@ CV_LANGUAGE_REFINEMENT_PROMPT = """\
 You rewrite a tailored CV JSON into a required language.
 You receive (1) a previous draft (the full CV JSON) and (2) reviewer feedback naming the
 required language and the items to translate.
-Translate the `summary`, every `work_history` bullet, and every `skills` entry into that
-language, preserving meaning and facts EXACTLY. Translating is not inventing.
-Keep company names, product/tool/technology names, certifications' official names, dates,
-and numeric metrics unchanged. Do NOT add, remove, reorder, split, or merge any entry or
-skill — only translate text in place.
+Translate the `summary`, every `work_history` bullet, every project bullet (nested
+`work_history[].projects[].bullets` and standalone `projects[].bullets`), and every
+`skills` entry into that language, preserving meaning and facts EXACTLY. Translating is
+not inventing.
+Keep company names, project names, product/tool/technology names, certifications'
+official names, dates, and numeric metrics unchanged. Do NOT add, remove, reorder,
+split, or merge any entry, project, or skill — only translate text in place.
 When the feedback names an exact job-description keyword for a concept the draft already
 expresses, use that exact term as your wording for it — word choice, not new content.
 Output ONLY the corrected CV JSON in the exact same schema — no markdown, no commentary.
@@ -84,17 +88,24 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
     """
     summary = draft.get("summary", "")
     bullets: list[str] = []
+    project_bullets: list[str] = []
     for entry in draft.get("work_history", []) or []:
         bullets.extend(entry.get("bullets", []) or [])
+        for proj in entry.get("projects", []) or []:
+            project_bullets.extend(proj.get("bullets", []) or [])
+    # Standalone projects (blind PQ 2026-07-04: these shipped unreviewed).
+    for proj in draft.get("projects", []) or []:
+        project_bullets.extend(proj.get("bullets", []) or [])
     skills = draft.get("skills", []) or []
     return (
         f"Required language: {required_language}\n\n"
         f"summary: {summary}\n"
         f"work_history bullets: {json.dumps(bullets, ensure_ascii=False)}\n"
+        f"project bullets: {json.dumps(project_bullets, ensure_ascii=False)}\n"
         f"skills: {json.dumps(skills, ensure_ascii=False)}\n\n"
-        f"Are the summary, every bullet, and every skill written entirely in "
-        f"{required_language} (proper product/tool/company names excepted)? "
-        "Respond with JSON only."
+        f"Are the summary, every bullet (work and project), and every skill written "
+        f"entirely in {required_language} (proper product/tool/company/project names "
+        "excepted)? Respond with JSON only."
     )
 
 
