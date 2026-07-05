@@ -233,11 +233,8 @@ curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
 cp .env.example .env
 # Edit .env: set LLM_PROVIDER and the matching API key (see Configuration below)
 
-# 3. Start all services
+# 3. Start all services (database migrations run automatically on backend startup)
 docker compose up -d
-
-# 4. Run database migrations (first run only)
-docker compose exec backend alembic upgrade head
 ```
 
 Every service — including the reverse proxy, whose config is baked into the `applire-nginx` image — is a pre-built image, so `docker compose pull` fetches a complete, working stack with no config files to place on the host.
@@ -254,6 +251,28 @@ To update to the latest release:
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+### Self-hosting from source
+
+Prefer to build what you run (or can't reach GHCR)? Clone the repo and build the same
+three images locally, then start the same production topology:
+
+```bash
+git clone https://github.com/Applire/Applire.git && cd Applire
+cp .env.example .env   # set LLM_PROVIDER and the matching API key
+
+docker build -t ghcr.io/applire/applire-backend:latest ./backend
+docker build --target runner -t ghcr.io/applire/applire-frontend:latest ./frontend
+docker build -t ghcr.io/applire/applire-nginx:latest ./nginx
+
+docker compose -f docker-compose.yml up -d
+```
+
+> **Note the explicit `-f docker-compose.yml`.** Inside a clone, a plain
+> `docker compose up -d` also applies `docker-compose.override.yml` — the
+> *development* stack (hot-reload servers, source bind mounts, extra published
+> ports including the database). Great for hacking on Applire, not for serving
+> real users.
 
 > **Contributing?** See [CONTRIBUTING.md](CONTRIBUTING.md) for the build-from-source developer setup.
 
@@ -348,10 +367,11 @@ POST /api/job/analyze
   "url": "https://example.com/job"  # Optional
 }
 
-# CV Upload & Profile Enrichment
-POST /api/profile/upload
+# CV Upload & Profile Enrichment (async job — poll until done)
+POST /api/profile/import-jobs
 Content-Type: multipart/form-data
 files: [cv1.pdf, cv2.pdf]
+GET  /api/profile/import-jobs/{job_id}
 
 # Gap Analysis (session-scoped)
 POST /api/session/{session_id}/analyze-gaps
@@ -505,8 +525,9 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.37.0-beta)
+### ✅ Current Release (v0.37.1-beta)
 
+- [x] Claimable keyword coverage self-heals inside the generation pipeline — the deterministic check that grades the document also gates every writer, including the output-language pass
 - [x] Truthful keyword ledger: every job-ad keyword classified present / claimable / honest gap — one consistent source for match score, ATS panel, generators, and interview
 - [x] Profile Reconciliation Engine: typed, deterministic merge of CV imports and interview answers with conflict resolution and enrichment history
 - [x] Master Profile Health hub with snapshots/undo and no-JD interviews

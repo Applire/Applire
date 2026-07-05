@@ -4,9 +4,20 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.37.1-beta] – 2026-07-05
+
+The Chocolate release, finalised: the fix batch accumulated on top of the
+0.37.0-beta pre-release — claimable keyword coverage now self-heals inside the
+generation pipeline, the reverse proxy ships as a published image, and the
+retention worker runs clean on Postgres.
 
 ### Changed
+- **The pre-download notice is reduced to the AI-content warning** (ADR-040 amended).
+  The red-flag diff rows were retired: their references resolved incorrectly, the
+  texts were cut off, and the net effect discouraged rather than informed. The notice
+  now shows only the AI-generated-content warning with the "don't show this again"
+  checkbox (and remains informational — never a gate). A redesign is parked for a
+  later flavour.
 - **The reverse proxy now ships as a published image — self-hosting needs no config
   files on the host** (ADR-033/ADR-032 amended). Previously `nginx/self-hosted.conf`
   had to be present on the host and bind-mounted, so anyone who wrote their own compose
@@ -18,7 +29,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   custom domain or TLS can still bind-mount their own file over
   `/etc/nginx/conf.d/default.conf`; the dev stack is unchanged.
 
+### Security
+- **The self-hosted stack no longer publishes PostgreSQL on the host.** The shipped
+  `docker-compose.yml` mapped the database to `0.0.0.0:5433` with the default
+  `applire:applire` credentials — on a machine with an open firewall that is an
+  internet-reachable database. The port mapping moved to the development override;
+  in the self-hosted topology the database is reachable only on the internal compose
+  network. (Found by the pre-release blind install test.)
+
 ### Fixed
+- **Self-hosting quick-start drift.** The manual `alembic upgrade head` step is gone
+  from the README and compose header — migrations run automatically on backend
+  startup, and the documented step implied a broken install when it "did nothing".
+  The README API examples now show the async CV import (`POST /api/profile/import-jobs`
+  + poll) instead of the retired synchronous `/api/profile/upload`. A new
+  "Self-hosting from source" section documents the build-it-yourself fallback on the
+  production topology — and warns that a plain `docker compose up` inside a clone
+  auto-applies the development override.
+- **Generated documents no longer ship with system-detected claimable-keyword misses**
+  (#122, ADR-048 amended). One deterministic presence predicate (surface-form union +
+  plural/hyphen fold) is now shared by the ATS panel, the gap hints, and the generation
+  pipeline itself: a verified missing-claimable list is recomputed before every reviewer
+  pass and blocks approval until each term is surfaced from its profile evidence — or
+  explicitly waived, because grounding still outranks coverage. Applies to the CV and
+  the cover letter; the panel's "supported by your profile but not yet in the document"
+  row is no longer Marcus's manual repair work.
+- **The coverage gate also watches the pipeline's last writer** (#122 follow-up).
+  The output-language pass (ADR-038) runs *after* tailoring and could translate a
+  covered keyword into an unlisted synonym after the gate had already approved the
+  draft ("Efficiency Improvements" → "Effizienzsteigerung"). The language reviewer now
+  carries the same verified-coverage check, prescribes the exact required-language
+  surface form as a word-choice correction, and its refine output is re-reviewed
+  instead of shipping unseen (language-review retry ceiling 1 → 2).
 - **Retention worker no longer crashes on Postgres.** The `cv_import_jobs` and
   `gap_analysis_jobs` TTL purges bound their `expires_at` cutoff as an ISO-8601 *string*;
   asyncpg infers the bind type from the `timestamptz` column and rejects a `str`

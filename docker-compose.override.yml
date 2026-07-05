@@ -20,6 +20,10 @@
 # Developers: cp .env.example .env  (fill in real API keys)
 
 services:
+  postgres:
+    ports:
+      - "5433:5432"
+
   backend:
     build:
       context: ./backend

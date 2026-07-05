@@ -21,8 +21,7 @@
 #   curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
 #   curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
 #   cp .env.example .env        # set LLM_PROVIDER and matching API key
-#   docker compose up -d
-#   docker compose exec backend alembic upgrade head
+#   docker compose up -d        # migrations run automatically on backend startup
 #
 # The reverse proxy config is baked into the applire-nginx image (ADR-033), so there
 # is no nginx config to fetch or mount. To update: docker compose pull && up -d.
@@ -34,8 +33,8 @@ services:
       POSTGRES_USER: applire
       POSTGRES_PASSWORD: applire
       POSTGRES_DB: applire
-    ports:
-      - "5433:5432"
+    # No host port: the database is reachable only on the internal compose network.
+    # The dev override publishes 5433 for local tooling.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
