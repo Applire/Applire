@@ -37,6 +37,14 @@ every entry in the `skills` list.
 
 Judge ONLY language — not quality, tone, grounding, or correctness of content.
 
+One exception rides on your input: a VERIFIED COVERAGE CHECK block may follow the
+draft, listing job-description keywords deterministically absent in every known
+surface form. These are word-choice issues in your domain: when the draft carries the
+listed concept in different wording (a synonym or a translation), reject and instruct
+the writer to use the exact required-language surface form given. If the concept is
+genuinely not in the document at all, WAIVE it in your feedback instead — inserting
+new content is outside this pass, and grounding outranks coverage.
+
 Crucial boundary (this is where models slip):
 - Discipline, competency and skill PHRASES are ordinary language and MUST be in the
   required language — e.g. "Brand Identity", "Art Direction", "Motion Design",
@@ -62,6 +70,8 @@ language, preserving meaning and facts EXACTLY. Translating is not inventing.
 Keep company names, product/tool/technology names, certifications' official names, dates,
 and numeric metrics unchanged. Do NOT add, remove, reorder, split, or merge any entry or
 skill — only translate text in place.
+When the feedback names an exact job-description keyword for a concept the draft already
+expresses, use that exact term as your wording for it — word choice, not new content.
 Output ONLY the corrected CV JSON in the exact same schema — no markdown, no commentary.
 """
 

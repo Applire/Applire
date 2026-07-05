@@ -137,8 +137,12 @@ SKILL_ESTIMATION_MAX_TOKENS: int = 16384
 # Generated-document (CV + cover letter) output-language-review retries (ADR-038).
 # Enforces that skill tags + prose land in the target-job language; the tailoring
 # directive alone leaks discipline-skill phrases. 0 disables (directive-only).
+# 2 (not 1) since #122 follow-up: the language pass is the pipeline's LAST writer
+# and carries the US213 coverage gate — with a single retry its refine output would
+# ship unreviewed, so a translation that drops a covered surface form (e.g.
+# "efficiency improvement" → "Effizienzsteigerung") could never be caught.
 CV_LANGUAGE_REVIEW_MAX_RETRIES: int = int(
-    os.environ.get("CV_LANGUAGE_REVIEW_MAX_RETRIES", "1")
+    os.environ.get("CV_LANGUAGE_REVIEW_MAX_RETRIES", "2")
 )
 
 # Master Profile Health — post-merge severity classifier thresholds

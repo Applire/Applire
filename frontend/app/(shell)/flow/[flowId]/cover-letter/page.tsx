@@ -384,7 +384,6 @@ export default function CoverLetterPage({
         >
           <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <PreDownloadNotice
-              redFlags={[]}
               canSuppress={downloadNotice.canSuppress}
               onConfirm={(dontShowAgain) => {
                 if (dontShowAgain) void setHidePredownloadNotice(true);

@@ -186,3 +186,138 @@ class TestReviewerSystemPromptsArbitrateNotDetect:
         low = p.lower()
         assert "verified" in low
         assert "waive" in low
+
+
+# --- #122 follow-up (UAT 2026-07-04): the language pass is the last writer ---------
+#
+# The cv_language chain runs AFTER the gated tailoring loop and rewrites wording
+# (translation). It regressed coverage: "efficiency improvement" (a surface form)
+# was translated to "Effizienzsteigerung", which matches no surface form — the
+# tailoring gate had passed, the panel then honestly reported the term missing.
+# Fix: the same coverage wrapper feeds the language reviewer, whose boundary is
+# WORD CHOICE — use the exact required-language surface form when rewording, never
+# insert new content.
+
+_LEDGER_DE = [
+    {"concept": "Produktivitätsgewinne", "claimable": True, "status": "direct",
+     "sources": ["keyword"], "fit_weight": 0.0,
+     "surface_forms": ["Produktivitätsgewinne", "Productivity Gains", "Efficiency Improvements"],
+     "evidence": "60% efficiency improvement in AI automation project"},
+]
+
+_DRAFT_DE_SYNONYM = {
+    "summary": "IT-Führungskraft mit Fokus auf Effizienzsteigerung.",
+    "work_history": [
+        {"company": "BioNTech SE", "role": "Associate Director",
+         "bullets": ["KI-Projekt zur Effizienzsteigerung der Dokumentenerstellung"]},
+    ],
+    "skills": ["Produktivitätssteigerung"],
+}
+
+_DRAFT_DE_EXACT = {
+    "summary": "IT-Führungskraft mit Fokus auf Produktivitätsgewinne.",
+    "work_history": [
+        {"company": "BioNTech SE", "role": "Associate Director",
+         "bullets": ["KI-Projekt zur Effizienzsteigerung der Dokumentenerstellung"]},
+    ],
+    "skills": ["Produktivitätsgewinne"],
+}
+
+
+class TestLanguagePassCoverage:
+    @pytest.mark.asyncio
+    async def test_language_review_prompt_carries_verified_block(self):
+        """The language reviewer sees the deterministic coverage state of the draft
+        it is reviewing — the German synonym does not satisfy the surface forms."""
+        from applire.services.cv import _review_cv_language
+
+        provider = AsyncMock()
+        provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+        await _review_cv_language(
+            _DRAFT_DE_SYNONYM, "de", provider, keyword_ledger=_LEDGER_DE
+        )
+        prompt = provider.aparse_json.call_args_list[0].args[0]
+        assert "VERIFIED COVERAGE CHECK" in prompt
+        assert "Produktivitätsgewinne" in prompt
+
+    @pytest.mark.asyncio
+    async def test_language_review_without_ledger_has_no_block(self):
+        from applire.services.cv import _review_cv_language
+
+        provider = AsyncMock()
+        provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+        await _review_cv_language(_DRAFT_DE_SYNONYM, "de", provider)
+        prompt = provider.aparse_json.call_args_list[0].args[0]
+        assert "VERIFIED COVERAGE CHECK" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_language_loop_recovers_dropped_keyword(self):
+        """Reject → reword with the exact surface form; the refined draft satisfies
+        the same predicate the panel grades with (CV_LANGUAGE_REVIEW_MAX_RETRIES=1,
+        so the loop returns the refined draft — the predicate is the arbiter)."""
+        from applire.services.cv import _review_cv_language
+
+        provider = AsyncMock()
+        provider.aparse_json.side_effect = [
+            {"approved": False, "issues": ["use 'Produktivitätsgewinne'"],
+             "feedback": "reword the efficiency skill to the exact JD term"},
+            _DRAFT_DE_EXACT,
+            {"approved": True, "issues": [], "feedback": ""},
+        ]
+        result = await _review_cv_language(
+            _DRAFT_DE_SYNONYM, "de", provider, keyword_ledger=_LEDGER_DE
+        )
+        assert result == _DRAFT_DE_EXACT
+        assert verified_missing_claimable(result, _LEDGER_DE) == []
+        first_review_prompt = provider.aparse_json.call_args_list[0].args[0]
+        assert "VERIFIED COVERAGE CHECK" in first_review_prompt
+
+    @pytest.mark.asyncio
+    async def test_language_pass_rereviews_post_translation_draft(self):
+        """The UAT failure shape: the FIRST review sees a draft still covered via an
+        English surface form (no block); the refiner then translates that form away.
+        The gate is only effective if the translated draft is re-reviewed — the
+        second review prompt must carry the recomputed VERIFIED block (requires
+        CV_LANGUAGE_REVIEW_MAX_RETRIES >= 2; a lone refine ships unreviewed)."""
+        from applire.services.cv import _review_cv_language
+
+        draft_en_covered = {
+            "summary": "IT leader focused on efficiency improvements.",
+            "work_history": [
+                {"company": "BioNTech SE", "role": "Associate Director",
+                 "bullets": ["AI project delivering a 60% efficiency improvement"]},
+            ],
+            "skills": ["Productivity Gains"],
+        }
+        provider = AsyncMock()
+        provider.aparse_json.side_effect = [
+            {"approved": False, "issues": ["translate 'Productivity Gains'"],
+             "feedback": "translate skills into German"},
+            _DRAFT_DE_SYNONYM,          # refine 1: translation drops every surface form
+            {"approved": False, "issues": ["use 'Produktivitätsgewinne'"],
+             "feedback": "use the exact JD term"},
+            _DRAFT_DE_EXACT,            # refine 2: exact surface form restored
+        ]
+        result = await _review_cv_language(
+            draft_en_covered, "de", provider, keyword_ledger=_LEDGER_DE
+        )
+        first_prompt = provider.aparse_json.call_args_list[0].args[0]
+        second_review_prompt = provider.aparse_json.call_args_list[2].args[0]
+        assert "VERIFIED COVERAGE CHECK" not in first_prompt
+        assert "VERIFIED COVERAGE CHECK" in second_review_prompt
+        assert result == _DRAFT_DE_EXACT
+        assert verified_missing_claimable(result, _LEDGER_DE) == []
+
+    def test_language_system_prompts_define_coverage_boundary(self):
+        """The reviewer keeps the mock-keying phrase and both prompts carry the
+        word-choice boundary: exact surface forms, no invented content."""
+        from applire.prompts.review_cv_language import (
+            CV_LANGUAGE_REFINEMENT_PROMPT,
+            CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+        )
+
+        low = CV_LANGUAGE_REVIEW_SYSTEM_PROMPT.lower()
+        assert "language reviewer" in low  # MockLLMProvider keys this chain off it
+        assert "verified coverage check" in low
+        assert "waive" in low
+        assert "exact" in CV_LANGUAGE_REFINEMENT_PROMPT.lower()

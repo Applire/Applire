@@ -22,35 +22,31 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
-import type { ReviewChange } from "./WhatChangedReview";
 
 /**
- * ADR-040 (amended 2026-07-01) — the pre-download notice.
+ * ADR-040 (amended 2026-07-04) — the pre-download notice.
  *
- * Replaces the old generated-CV-vs-profile diff modal. Two modes:
- *  - **red flags present** (invented company/skill, changed date): the rows are shown and
- *    the notice is NOT suppressible — a real detected drift must always surface.
- *  - **clean**: a plain "AI-generated content can have faults" notice with an optional
- *    "Don't show this again" control (governed by the shared `hide_predownload_notice`
- *    user setting, passed in as `canSuppress`).
+ * A plain "AI-generated content can have faults" notice with an optional
+ * "Don't show this again" control (governed by the shared `hide_predownload_notice`
+ * user setting, passed in as `canSuppress`). The former red-flag diff rows were
+ * retired (Chocolate UAT: broken references, truncated text); a richer review
+ * surface is a later-flavour redesign.
  *
- * `onConfirm(dontShowAgain)` proceeds with the download; `dontShowAgain` is only ever
- * true in the clean+suppressible case. A nudge, never a gate (ADR-040 §4).
+ * `onConfirm(dontShowAgain)` proceeds with the download. A nudge, never a gate
+ * (ADR-040 §4).
  */
 export interface PreDownloadNoticeProps {
-  redFlags: ReviewChange[];
   /** The shared preference is not already set — offer the "don't show again" control. */
   canSuppress: boolean;
   onConfirm: (dontShowAgain: boolean) => void;
   onCancel: () => void;
 }
 
-export function PreDownloadNotice({ redFlags, canSuppress, onConfirm, onCancel }: PreDownloadNoticeProps) {
+export function PreDownloadNotice({ canSuppress, onConfirm, onCancel }: PreDownloadNoticeProps) {
   const t = useTranslations("predownload");
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
-  const hasRedFlags = redFlags.length > 0;
-  const showCheckbox = canSuppress && !hasRedFlags;
+  const showCheckbox = canSuppress;
 
   return (
     <section
@@ -64,23 +60,6 @@ export function PreDownloadNotice({ redFlags, canSuppress, onConfirm, onCancel }
           <p className="mt-1 text-sm text-on-surface-variant">{t("warning")}</p>
         </div>
       </div>
-
-      {hasRedFlags && (
-        <div className="mt-4">
-          <p className="text-sm font-medium text-on-surface">{t("redFlagsIntro", { count: redFlags.length })}</p>
-          <ul data-testid="predownload-redflags" className="mt-2 max-h-64 space-y-2 overflow-y-auto">
-            {redFlags.map((change, i) => (
-              <li
-                key={`${change.section}-${change.field}-${i}`}
-                data-testid="predownload-redflag-row"
-                className="rounded-lg border border-warning/40 bg-warning-container p-3 text-sm text-on-surface"
-              >
-                {change.rationale}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {showCheckbox && (
         <label
