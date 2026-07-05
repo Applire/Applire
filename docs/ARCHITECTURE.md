@@ -403,6 +403,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Why:** A self-checking LLM reviewer reduces how often a fabrication occurs but cannot, by itself, let the *user* catch one — and false content in a CV reaches a real recruiter under the user's name. A prevention reviewer plus an animated user review are complementary: one lowers how often the failure happens, the other lets a human stop it before it ships.
 
+- **Reconciler stance guard (ADR-046 amended 2026-07-05):** an interview answer that *denies* experience ("I have never built a production RAG system") must never become a profile fact. The reconciler prompt carries an explicit stance rule and must list every denied item in a `denials` array; a deterministic guard inside the engine then strips any op content matching the model's own denials (never-claim outranks claim) and drops interview-turn skill/technology claims that appear nowhere in the turn's question-and-answer text. Presence matching reuses the same shared predicate as the ATS/coverage instruments, so the truthfulness surfaces cannot disagree with each other.
+
 ---
 
 ### ADR-048 — The Keyword Ledger (Unified JD-Expectation Classification)
