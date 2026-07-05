@@ -1,0 +1,74 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+# Compose install guard (#126): the shipped docker-compose.yml must pull clean.
+#
+# The v0.37.1-beta blind install test found ghcr.io/applire/applire-nginx:latest
+# had never been published — the README's 4-command self-host install died at
+# `docker compose pull` for every new self-hoster while every internal stack
+# (dev override, edge) kept working. This guard checks, from a clean context,
+# exactly what the README advertises: fetch the raw compose from main and verify
+# every `image:` reference resolves on its registry (manifest inspect, no pull).
+#
+# Runs: after every release publish (called from release.yml), weekly (drift on
+# registries/typos), on any main push touching the compose, and on demand.
+
+name: Compose install guard
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - docker-compose.yml
+
+jobs:
+  verify-shipped-compose:
+    name: Every image in the shipped compose resolves
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the compose a self-hoster gets (raw from main)
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml \
+            -o compose-shipped.yml
+
+      - name: Verify every image manifest resolves
+        run: |
+          set -euo pipefail
+          mapfile -t images < <(
+            grep -E '^[[:space:]]*image:' compose-shipped.yml \
+              | awk '{print $2}' | sort -u
+          )
+          if [ "${#images[@]}" -eq 0 ]; then
+            echo "::error::No image references found in the shipped compose — extraction broken or file moved"
+            exit 1
+          fi
+          echo "Checking ${#images[@]} image references:"
+          fail=0
+          for ref in "${images[@]}"; do
+            if docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "OK    $ref"
+            else
+              echo "::error::$ref does not resolve on its registry — the advertised install (docker compose pull) is broken for self-hosters"
+              fail=1
+            fi
+          done
+          exit "$fail"

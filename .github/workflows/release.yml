@@ -370,3 +370,13 @@ jobs:
           else
             echo "No version tag for this event (manual dispatch) — skipping inspect"
           fi
+
+  # Compose install guard (#126): after every publish, verify from a clean
+  # context that the compose the README advertises still pulls — every image
+  # it references must resolve on its registry. Catches an image the release
+  # lane stopped publishing (the v0.37.1-beta applire-nginx:latest gap) the
+  # moment it happens instead of at the next self-hoster's front door.
+  verify-shipped-compose:
+    name: Compose install guard
+    needs: [merge-backend, merge-frontend, build-nginx]
+    uses: ./.github/workflows/compose-guard.yml
