@@ -4,6 +4,40 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.37.2-beta] – 2026-07-06
+
+Truthfulness patch for the Chocolate line. Two blockers surfaced by the
+2026-07-04 blind real-LLM journey run: an honest "I don't have that experience"
+could become a claim on the generated CV, and English project bullets could
+ship untranslated in a German CV. Both are generation-pipeline fixes — no
+schema change, no migration; existing installs update by pulling the images.
+
+### Fixed
+- **A denied skill can no longer become a CV claim** (ADR-046 amended, #127).
+  The profile reconciler encoded an interview answer's explicitly *denied*
+  technology ("no production RAG experience") as a work-entry technology, and
+  could fabricate a skill from an off-topic answer. The reconciler prompt now
+  carries an explicit stance rule and must declare every denied item; a
+  deterministic guard inside the engine strips any operation matching the
+  model's own denials (never-claim outranks claim) and drops interview-turn
+  skill/technology claims that appear nowhere in the turn's question and
+  answer. Verified by replaying the failing interview turns verbatim against
+  the real LLM.
+- **Project bullets now pass the document-language check** (ADR-038 amended).
+  Project bullets — including those copied verbatim from the Master Profile —
+  entered the generated CV *after* the output-language review, so English
+  project text could ship inside a German CV. Project nesting now runs before
+  the language pass, and the language reviewer covers project bullets (project
+  *names* are treated as proper nouns and kept).
+
+### Added
+- **CI guard: the shipped `docker-compose.yml` must pull clean** (#126). A new
+  workflow verifies — after every release publish, weekly, and on any change to
+  the shipped compose file — that every referenced image resolves on its
+  registry, so a missing published image (the v0.37.1 `applire-nginx:latest`
+  gap) is caught at publish time instead of at a self-hoster's first
+  `docker compose pull`.
+
 ## [0.37.1-beta] – 2026-07-05
 
 The Chocolate release, finalised: the fix batch accumulated on top of the

@@ -525,8 +525,10 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.37.1-beta)
+### ✅ Current Release (v0.37.2-beta)
 
+- [x] Truthfulness stance guard: an interview answer that denies experience can never become a CV claim — the reconciler's own denial verdicts deterministically outrank its edits
+- [x] Document-language enforcement covers project bullets — nothing prose-shaped enters a generated CV after the language pass
 - [x] Claimable keyword coverage self-heals inside the generation pipeline — the deterministic check that grades the document also gates every writer, including the output-language pass
 - [x] Truthful keyword ledger: every job-ad keyword classified present / claimable / honest gap — one consistent source for match score, ATS panel, generators, and interview
 - [x] Profile Reconciliation Engine: typed, deterministic merge of CV imports and interview answers with conflict resolution and enrichment history
