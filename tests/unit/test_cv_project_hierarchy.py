@@ -337,3 +337,26 @@ def test_section_editor_preserves_projects_round_trip():
     assert out.summary == "New intro"
     assert out.work_history[0].projects[0].name == "Atlas Migration"
     assert out.projects[0].name == "Open Source CLI"
+
+
+# ---------------------------------------------------------------------------
+# Blind PQ 2026-07-04: English project bullets shipped in a German CV. The
+# deterministic nesting step ran AFTER the ADR-038 language pass, so verbatim
+# profile-project copies were never language-reviewed. Nesting must happen
+# BEFORE _review_cv_language in the generation pipeline.
+# ---------------------------------------------------------------------------
+
+
+def test_projects_are_nested_before_the_language_pass():
+    import inspect
+
+    import applire.services.cv as cv
+
+    source = inspect.getsource(cv)
+    nest_call = source.index("= _nest_projects(")
+    language_call = source.index("await _review_cv_language(")
+    assert nest_call < language_call, (
+        "deterministic project nesting must precede the ADR-038 language pass — "
+        "otherwise verbatim profile-project bullets ship unreviewed (blind PQ "
+        "2026-07-04)"
+    )

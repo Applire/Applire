@@ -41,10 +41,12 @@ batch of typed operations.
 
 Output ONLY a single JSON object, with no prose and no markdown fences:
 
-  {"ops": [ ...operation objects... ], "ambiguities": [ ...request_confirmation objects... ]}
+  {"ops": [ ...operation objects... ], "ambiguities": [ ...request_confirmation objects... ], "denials": [ ...denied tokens... ]}
 
+"denials" lists the name of every skill / technology / certification / language
+the new information explicitly DENIES or disclaims experience with (see rule 8).
 If nothing in the new information should change the profile, output
-{"ops": [], "ambiguities": []}.
+{"ops": [], "ambiguities": [], "denials": [...]}.
 
 # Operation vocabulary
 
@@ -145,6 +147,21 @@ Operations:
    Reserve add_bullets for genuinely NEW responsibilities, achievements, or
    technologies; never use add_bullets merely to restate a title or the same
    fact in different words.
+
+8. STANCE (ADR-040). A denial or negative statement in the new information
+   ("I have no hands-on Azure experience", "produktionsreife RAG-Erfahrung
+   fehlt mir aber", "that would be new territory for me") is evidence AGAINST
+   that item. NEVER encode a denied item as a skill, technology, bullet, or
+   any other profile fact. A statement can be MIXED — affirming one thing while
+   denying another ("I lead an LLM project, but I have never built a production
+   RAG system"): encode ONLY the affirmed parts and omit every denied item,
+   including from add_bullets "technologies" lists. List the name of every
+   denied item in the top-level "denials" array. Facts come ONLY from the new
+   information itself, never from the question or gap label: a topic merely
+   being ASKED about is not evidence the user has it, and an answer that does
+   not address the question contributes nothing about the question's topic. If
+   the new information only denies, output {"ops": [], "ambiguities": [],
+   "denials": [...]}.
 """
 
 
@@ -176,5 +193,5 @@ def build_reconcile_prompt(
         "NEW INFORMATION to reconcile into the profile:\n"
         f"{new_info_text}\n\n"
         "Emit the JSON op batch now: "
-        '{"ops": [...], "ambiguities": [...]}.'
+        '{"ops": [...], "ambiguities": [...], "denials": [...]}.'
     )

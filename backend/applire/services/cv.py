@@ -891,20 +891,26 @@ async def _render_cv_background(
                 chain_id="cv_tailoring",
             )
 
-            # ADR-038 enforcement: ensure skill tags + prose are all in the target-job
-            # language (the directive alone leaks discipline-skill phrases — #1).
-            # Carries the ledger: this pass is the LAST writer, so the US213 coverage
-            # gate must also watch its rewording (#122 follow-up).
+            # US187: deterministically nest source projects under their parent
+            # position (or the standalone list). The LLM tailors prose; code disposes.
+            # MUST precede the language pass: these are verbatim profile copies, and
+            # nesting after review shipped English project bullets in a German CV
+            # (blind PQ 2026-07-04).
+            tailored = _nest_projects(
+                TailoredCVData.model_validate(tailored_raw), profile_json
+            )
+
+            # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
+            # are all in the target-job language (the directive alone leaks
+            # discipline-skill phrases — #1). Carries the ledger: this pass is the
+            # LAST writer, so the US213 coverage gate must also watch its rewording
+            # (#122 follow-up).
             tailored_raw = await _review_cv_language(
-                tailored_raw, resolve_jd_language(job), provider,
+                tailored.model_dump(mode="json"), resolve_jd_language(job), provider,
                 keyword_ledger=keyword_ledger,
             )
 
             tailored = TailoredCVData.model_validate(tailored_raw)
-
-            # US187: deterministically nest source projects under their parent
-            # position (or the standalone list). The LLM tailors prose; code disposes.
-            tailored = _nest_projects(tailored, profile_json)
 
             # PQ F7: deterministically copy the profile's certifications verbatim
             # (ADR-040 truthfulness) — never routed through the LLM. Covers both the

@@ -195,3 +195,7 @@ class ReconcileResult(BaseModel):
 
     ops: list[ReconcileOp] = Field(default_factory=list)
     ambiguities: list[RequestConfirmation] = Field(default_factory=list)
+    # Tokens the new information explicitly DENIES experience with (#127). The
+    # stance guard strips any op content matching these — the model's own
+    # denial verdict outranks its ops (never-claim beats claim, ADR-040).
+    denials: list[str] = Field(default_factory=list)

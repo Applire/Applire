@@ -47,6 +47,7 @@ from applire.services.profile.reconcile.ops import (
     ReconcileResult,
     RequestConfirmation,
 )
+from applire.services.profile.reconcile.stance import enforce_stance
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,11 @@ async def reconcile(
 
     ops = _parse_ops(data.get("ops"))
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
-    return ReconcileResult(ops=ops, ambiguities=ambiguities)
+    denials = _parse_denials(data.get("denials"))
+    # Stance guard (#127): the model's own denials outrank its ops, and
+    # interview-turn token claims must be grounded in the turn's text.
+    ops = enforce_stance(ops, denials=denials, new_info=new_info, source=source)
+    return ReconcileResult(ops=ops, ambiguities=ambiguities, denials=denials)
 
 
 def _parse_ops(raw: Any) -> list[ReconcileOp]:
@@ -112,6 +117,13 @@ def _parse_ops(raw: Any) -> list[ReconcileOp]:
         except ValidationError:
             logger.debug("reconcile: dropped malformed op %r", item)
     return ops
+
+
+def _parse_denials(raw: Any) -> list[str]:
+    """Denied-token list from the payload; defensively typed (#127)."""
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str) and item.strip()]
 
 
 def _parse_ambiguities(raw: Any) -> list[RequestConfirmation]:

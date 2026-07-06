@@ -70,6 +70,40 @@ class TestCVLanguageReviewPrompt:
         assert "Translate skills to German" in p
         assert "Brand Identity" in p
 
+    # Blind PQ 2026-07-04: English project bullets shipped in a German CV because
+    # the language reviewer never saw project text — only summary/bullets/skills.
+    def test_review_prompt_surfaces_project_bullets(self):
+        from applire.prompts.review_cv_language import build_cv_language_review_prompt
+
+        draft = {
+            **self._DRAFT,
+            "work_history": [
+                {
+                    "company": "Acme",
+                    "role": "Designer",
+                    "bullets": ["Led brand work"],
+                    "projects": [
+                        {"name": "QC LIMS", "bullets": ["Built the validation pipeline"]}
+                    ],
+                }
+            ],
+            "projects": [
+                {"name": "Portfolio Site", "bullets": ["Shipped a static site generator"]}
+            ],
+        }
+        p = build_cv_language_review_prompt("German", draft)
+        assert "Built the validation pipeline" in p  # nested under a work entry
+        assert "Shipped a static site generator" in p  # standalone list
+
+    def test_language_prompts_cover_projects(self):
+        from applire.prompts.review_cv_language import (
+            CV_LANGUAGE_REFINEMENT_PROMPT,
+            CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
+        )
+
+        assert "project" in CV_LANGUAGE_REVIEW_SYSTEM_PROMPT.lower()
+        assert "project" in CV_LANGUAGE_REFINEMENT_PROMPT.lower()
+
 
 class TestProfileExtractionReviewPrompts:
     def test_build_review_prompt_returns_nonempty_string(self):
