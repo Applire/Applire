@@ -73,7 +73,7 @@ Every architecture decision traces back to one or more of these principles. If a
 GapDetector → QuestionGenerator → ResponseParser → ProfileUpdater
 ```
 
-**Orchestration (superseded by ADR-045):** the original 4-node *linear* state machine was hand-rolled (no framework). As the interview gained conditional back-edges, reviewer loops, and a human-in-the-loop confirm — and converges with the unified profile-reconciliation flow into one cyclic graph — ADR-045 moves orchestration to a **declarative graph + durable checkpointer**. Hard rule: the graph orchestrates nodes only; **LLM calls stay on the provider abstraction (ADR-008)** — so providers stay pluggable and mockable. The stateful-backend, pause/resume, and one-active-session invariants below are unchanged.
+**Orchestration (see ADR-049):** the state machine is hand-rolled (no framework) — and stays that way. An interim decision (ADR-045) to move to a declarative graph substrate was superseded before implementation: profile reconciliation collapsed into a single LLM call + deterministic applier (ADR-046) and reviewer loops live inside the bounded review layer (ADR-021), so no cyclic graph remained to orchestrate. ADR-049 instead unifies all interview-shaped flows into one in-house engine. Hard rule unchanged: **LLM calls stay on the provider abstraction (ADR-009)** — so providers stay pluggable and mockable. The stateful-backend, pause/resume, and one-active-session invariants below are unchanged.
 
 **Two modes:**
 - **MODE A (Targeted):** User has profile data. Focuses on filling specific gaps from gap analysis. 3–12 questions.
@@ -82,6 +82,21 @@ GapDetector → QuestionGenerator → ResponseParser → ProfileUpdater
 Mode is auto-detected at session creation from `completeness_score` vs `MODE_B_COMPLETENESS_THRESHOLD` (0.3), but can be overridden.
 
 **Key invariant:** One active session per `(user_id, job_id)`. `POST /api/session` is idempotent — returns the existing session with `resumed: true` if one exists.
+
+---
+
+### ADR-049 — Unified Interview Session Engine (supersedes ADR-045)
+
+**Decision:** All interview-shaped flows — targeted (Mode A), guided (Mode B), profile enrichment (Mode C, ADR-028), and the standalone profile-review session — run on **one in-house engine** under `backend/applire/services/interview/`, replacing the parallel implementations that had accumulated (`services/session.py` for Modes A/B, a second engine inside the profile-enrich router for Mode C).
+
+The engine's boundary rules:
+- **Modes are plans.** A `ModePlan` strategy supplies only what differs per mode (gap sourcing, ceiling policy, completion effects); the engine owns the loop and lifecycle (idempotent resume, create-race handling, expiry). The gap-click micro-session is a targeted plan scoped to one gap, not a separate mode.
+- **Cluster kinds are typed.** A `ClusterKind` enum (`NORMAL | GATE | CONFLICT | CONFIRMATION`) with deterministic handlers replaces string-prefix dispatch.
+- **State is validated.** The session state is a Pydantic model serialized to the existing `interview_sessions.state` JSONB column — no schema change.
+- **The turn is a named pipeline:** deterministic signals → special-cluster handling → reconcile (ADR-046) → advance → ask (ADR-021 review loop). Each stage is unit-testable in isolation.
+- **LLM calls stay on the provider abstraction (ADR-009);** ADR-004's stateful-backend invariants carry forward unchanged. REST and MCP surfaces are unaffected.
+
+**Why not a graph framework:** ADR-045 had adopted LangGraph, gated on a footprint spike; before implementation, ADR-046 and ADR-021 removed the cyclic-graph shape it was meant to orchestrate. ADR-049 keeps the dependency surface of the self-hosted install unchanged; a substrate can be revisited if the flows grow genuinely cyclic again.
 
 ---
 
@@ -162,7 +177,7 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 > **EU data residency:** `mistral` (EU-hosted) and `requesty` (EU endpoint) keep data in-region, and a local `ollama` needs no cloud at all; `anthropic`/`openai` are US-hosted BYO-key options. A Claude *subscription* (Pro/Max/Team) is **not** usable — Anthropic permits only Console API keys (or Bedrock/Vertex, which `requesty`-EU routes through) in third-party apps.
 
-**Why direct SDKs over LangChain:** Even under ADR-045 (which adopts a graph-orchestration substrate), the *orchestrate-vs-execute* boundary keeps LLM execution on our own provider SDKs — never LangChain's model layer. This reduces the dependency surface and keeps the provider contract narrow and testable.
+**Why direct SDKs over LangChain:** LLM execution stays on our own provider SDKs — never LangChain's model layer (and after ADR-049 superseded ADR-045's graph substrate, no LangChain-family dependency exists at all). This reduces the dependency surface and keeps the provider contract narrow and testable.
 
 **Temperature defaults:** `0.3` for free-text completion (`acomplete`), `0.1` for structured JSON parsing (`aparse_json`).
 
