@@ -112,6 +112,7 @@ async def create_application(
             role_title=request.role_title or job.role_title,
             notes=request.notes,
             deadline=request.deadline,
+            source_url=request.source_url or job.source_url,
         )
         db.add(app)
         await db.flush()  # get app.id before potential workflow creation
@@ -204,6 +205,8 @@ async def patch_application(
         app.applied_at = request.applied_at
     if request.deadline is not None:
         app.deadline = request.deadline
+    if request.source_url is not None:
+        app.source_url = request.source_url
 
     _touch(app)
     await db.commit()

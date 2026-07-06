@@ -33,6 +33,7 @@ class CreateApplicationRequest(BaseModel):
     role_title: str | None = None
     notes: str | None = None
     deadline: datetime | None = None
+    source_url: str | None = None
 
 
 class PatchApplicationRequest(BaseModel):
@@ -43,6 +44,7 @@ class PatchApplicationRequest(BaseModel):
     notes: str | None = None
     applied_at: datetime | None = None
     deadline: datetime | None = None
+    source_url: str | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "PatchApplicationRequest":
@@ -62,6 +64,7 @@ class ApplicationResponse(BaseModel):
     notes: str | None
     applied_at: datetime | None
     deadline: datetime | None
+    source_url: str | None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
     created_at: datetime

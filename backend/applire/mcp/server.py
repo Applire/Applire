@@ -457,6 +457,8 @@ async def get_application(application_id: str) -> dict:
     description=(
         "Log an application to the user's pipeline. job_id is the JobAnalysis id; "
         "company_name/role_title default from the job when omitted. "
+        "source_url records where the posting was found (defaults from the job "
+        "when it was analyzed from a URL). "
         "start_workflow=true atomically creates the flow session."
     )
 )
@@ -466,6 +468,7 @@ async def create_application(
     company_name: str | None = None,
     role_title: str | None = None,
     deadline: str | None = None,
+    source_url: str | None = None,
 ) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     dl = None
@@ -480,6 +483,7 @@ async def create_application(
         company_name=company_name,
         role_title=role_title,
         deadline=dl,
+        source_url=source_url,
     )
     async with get_db() as db:
         uid = await _current_user_id(db)
