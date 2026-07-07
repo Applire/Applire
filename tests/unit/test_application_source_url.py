@@ -141,6 +141,65 @@ async def test_create_source_url_null_when_absent(db, user_and_job):
 
 
 @pytest.mark.asyncio
+async def test_patch_explicit_null_clears_clearable_fields(db, user_and_job):
+    """Clearing a deadline/note/source works: an explicit null is applied, not ignored.
+
+    (Regression: PATCH treated `None` as "absent", so the UI's clear action
+    silently never persisted — E039 Task 1.2 finding.)
+    """
+    user, job = user_and_job
+    created = await create_application(
+        user.id,
+        CreateApplicationRequest(
+            job_analysis_id=job.id,
+            notes="call Anna",
+            deadline=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            source_url=_MANUAL_URL,
+        ),
+        db,
+    )
+    assert created.notes == "call Anna"
+
+    patched = await patch_application(
+        created.id,
+        PatchApplicationRequest(notes=None, deadline=None, source_url=None),
+        db,
+    )
+    assert patched.notes is None
+    assert patched.deadline is None
+    assert patched.source_url is None
+
+
+@pytest.mark.asyncio
+async def test_patch_omitted_fields_stay_untouched(db, user_and_job):
+    """Partial update semantics: fields not present in the request keep their values."""
+    user, job = user_and_job
+    created = await create_application(
+        user.id,
+        CreateApplicationRequest(
+            job_analysis_id=job.id, notes="call Anna", source_url=_MANUAL_URL
+        ),
+        db,
+    )
+    patched = await patch_application(
+        created.id, PatchApplicationRequest(notes="call Anna on Friday"), db
+    )
+    assert patched.notes == "call Anna on Friday"
+    assert patched.source_url == _MANUAL_URL  # untouched
+
+
+def test_patch_validator_accepts_explicit_null_as_a_provided_field():
+    """{"deadline": null} alone is a legitimate clear request, not an empty PATCH."""
+    req = PatchApplicationRequest.model_validate({"deadline": None})
+    assert "deadline" in req.model_fields_set
+
+
+def test_patch_validator_still_rejects_truly_empty_body():
+    with pytest.raises(ValueError):
+        PatchApplicationRequest.model_validate({})
+
+
+@pytest.mark.asyncio
 async def test_patch_source_url_updates_and_resets_inactivity_timer(db, user_and_job):
     """Adding the link later counts as activity (ADR-005 applications rule)."""
     user, job = user_and_job

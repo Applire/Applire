@@ -472,6 +472,7 @@
     "viewCV": "View CV",
     "resubmit": "Resubmit",
     "unknownRole": "Unknown Role",
+    "sourceLinkLabel": "Open original job posting",
     "deadlineDays": "{count, plural, one {# day left} other {# days left}}",
     "deadlinePassed": "Deadline passed",
     "statusAnalyzing": "Analyzing",
@@ -635,7 +636,9 @@
     "created": "Created",
     "lastUpdated": "Last Updated",
     "appliedAt": "Applied At",
-    "unknownRole": "Unknown Role"
+    "unknownRole": "Unknown Role",
+    "sourceLink": "Link to the job posting",
+    "sourceLinkPlaceholder": "https://… (where you found this job)"
   },
   "import": {
     "title": "Import CV"
@@ -705,6 +708,8 @@
     "tabText": "Paste Text",
     "urlPlaceholder": "https://www.stepstone.de/stellenangebote/…",
     "textPlaceholder": "Paste the full job description here…",
+    "sourcePlaceholder": "Optional: link to the original posting (https://…)",
+    "sourceLabel": "Link to the original posting (optional)",
     "analyseButton": "Analyse →",
     "analysing": "Analysing…"
   },

@@ -73,6 +73,58 @@ describe("QuickTailorWidget", () => {
     await waitFor(() => expect(screen.getByText("Bad URL")).toBeInTheDocument());
   });
 
+  // E039/US216 — application dossier: optional source link on the text tab
+  it("shows an optional source-link field on the text tab only", () => {
+    render(<QuickTailorWidget />);
+    expect(screen.queryByPlaceholderText("sourcePlaceholder")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("tabText"));
+    expect(screen.getByPlaceholderText("sourcePlaceholder")).toBeInTheDocument();
+  });
+
+  it("passes the manual source link as source_url when creating from pasted text", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "app-1", flow_session_id: "flow-1" }),
+      });
+    render(<QuickTailorWidget />);
+    fireEvent.click(screen.getByText("tabText"));
+    fireEvent.change(screen.getByPlaceholderText("textPlaceholder"), {
+      target: { value: "Head of Department at Example AG…" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sourcePlaceholder"), {
+      target: { value: "https://www.linkedin.com/jobs/view/456" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
+    const createCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(JSON.parse(createCall[1].body)).toMatchObject({
+      job_analysis_id: "job-1",
+      source_url: "https://www.linkedin.com/jobs/view/456",
+    });
+  });
+
+  it("omits source_url when the text-tab source field is left empty", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "app-1", flow_session_id: "flow-1" }),
+      });
+    render(<QuickTailorWidget />);
+    fireEvent.click(screen.getByText("tabText"));
+    fireEvent.change(screen.getByPlaceholderText("textPlaceholder"), {
+      target: { value: "Head of Department at Example AG…" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
+    const createCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(JSON.parse(createCall[1].body)).not.toHaveProperty("source_url");
+  });
+
   it("routes to the flow index (not a hard-coded step) after creating the application", async () => {
     global.fetch = vi
       .fn()

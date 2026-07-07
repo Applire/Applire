@@ -48,6 +48,9 @@ const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey;
   none:         { labelKey: "statusTracking",      className: "bg-gray-400 text-white" },
 };
 
+// Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
+const SOURCE_LINK_ICON = "open_in_new";
+
 interface ApplicationDetail {
   id: string;
   role_title: string | null;
@@ -57,6 +60,7 @@ interface ApplicationDetail {
   notes: string | null;
   applied_at: string | null;
   deadline: string | null;
+  source_url: string | null;
   flow_session_id: string | null;
   flow_current_step: string | null;
   created_at: string;
@@ -80,6 +84,7 @@ export default function ApplicationDetailPage() {
   const [userStatus, setUserStatus] = useState("");
   const [notes, setNotes] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
 
   useEffect(() => {
     async function loadApplication() {
@@ -91,6 +96,7 @@ export default function ApplicationDetailPage() {
           setUserStatus(data.user_status);
           setNotes(data.notes || "");
           setDeadline(data.deadline ? data.deadline.slice(0, 16) : "");
+          setSourceUrl(data.source_url || "");
         } else {
           setError(t("notFound"));
         }
@@ -116,6 +122,9 @@ export default function ApplicationDetailPage() {
         payload.deadline = new Date(deadline).toISOString();
       } else if (application?.deadline) {
         payload.deadline = null;
+      }
+      if (sourceUrl.trim() !== (application?.source_url ?? "")) {
+        payload.source_url = sourceUrl.trim() || null;
       }
 
       if (Object.keys(payload).length === 0) {
@@ -280,6 +289,36 @@ export default function ApplicationDetailPage() {
                       : t("deadlineHasPassed")}
                   </p>
                 )}
+              </div>
+
+              {/* Source link (E039/US216 — where the posting was found) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t("sourceLink")}
+                </label>
+                <div className="flex items-center gap-2 max-w-xl">
+                  <Input
+                    type="url"
+                    value={sourceUrl}
+                    onChange={(e) => setSourceUrl(e.target.value)}
+                    placeholder={t("sourceLinkPlaceholder")}
+                    className="flex-1"
+                  />
+                  {application.source_url && (
+                    <a
+                      href={application.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={tDash("sourceLinkLabel")}
+                      title={tDash("sourceLinkLabel")}
+                      className="shrink-0 text-primary hover:text-teal-dim flex items-center"
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                        {SOURCE_LINK_ICON}
+                      </span>
+                    </a>
+                  )}
+                </div>
               </div>
 
               {/* Notes */}

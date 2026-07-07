@@ -472,6 +472,7 @@
     "viewCV": "Lebenslauf ansehen",
     "resubmit": "Erneut einreichen",
     "unknownRole": "Unbekannte Rolle",
+    "sourceLinkLabel": "Original-Stellenanzeige öffnen",
     "deadlineDays": "{count, plural, one {# Tag verbleibend} other {# Tage verbleibend}}",
     "deadlinePassed": "Frist abgelaufen",
     "statusAnalyzing": "Analysiere",
@@ -635,7 +636,9 @@
     "created": "Erstellt",
     "lastUpdated": "Zuletzt aktualisiert",
     "appliedAt": "Beworben am",
-    "unknownRole": "Unbekannte Rolle"
+    "unknownRole": "Unbekannte Rolle",
+    "sourceLink": "Link zur Stellenanzeige",
+    "sourceLinkPlaceholder": "https://… (wo du diese Stelle gefunden hast)"
   },
   "import": {
     "title": "Lebenslauf importieren"
@@ -705,6 +708,8 @@
     "tabText": "Text einfügen",
     "urlPlaceholder": "https://www.stepstone.de/stellenangebote/…",
     "textPlaceholder": "Vollständige Stellenbeschreibung hier einfügen…",
+    "sourcePlaceholder": "Optional: Link zur Original-Stellenanzeige (https://…)",
+    "sourceLabel": "Link zur Original-Stellenanzeige (optional)",
     "analyseButton": "Analysieren →",
     "analysing": "Analysiert…"
   },

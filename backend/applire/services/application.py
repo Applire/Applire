@@ -193,20 +193,21 @@ async def patch_application(
 ) -> ApplicationResponse:
     app = await _get_or_404(application_id, db)
 
+    provided = request.model_dump(exclude_unset=True)
+
+    # Never clearable: an explicit null is ignored, a value is applied.
     if request.user_status is not None:
         app.user_status = request.user_status.value
     if request.company_name is not None:
         app.company_name = request.company_name
     if request.role_title is not None:
         app.role_title = request.role_title
-    if request.notes is not None:
-        app.notes = request.notes
-    if request.applied_at is not None:
-        app.applied_at = request.applied_at
-    if request.deadline is not None:
-        app.deadline = request.deadline
-    if request.source_url is not None:
-        app.source_url = request.source_url
+
+    # Clearable dossier fields: an explicit null in the body clears the value
+    # (the UI's "remove deadline/note/source" action — E039/US217).
+    for field in ("notes", "applied_at", "deadline", "source_url"):
+        if field in provided:
+            setattr(app, field, provided[field])
 
     _touch(app)
     await db.commit()

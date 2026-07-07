@@ -26,6 +26,9 @@ import { markApplicationHired } from "@/lib/profile-roles";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
 
+// Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
+const SOURCE_LINK_ICON = "open_in_new";
+
 export interface DashboardApplicationCardProps {
   applicationId: string;
   roleTitle: string | null;
@@ -34,6 +37,7 @@ export interface DashboardApplicationCardProps {
   userStatus?: string;
   flowSessionId: string | null;
   updatedAt: string;
+  sourceUrl?: string | null;
   onStartFlow?: () => void;
 }
 
@@ -78,6 +82,7 @@ export function DashboardApplicationCard({
   userStatus,
   flowSessionId,
   updatedAt,
+  sourceUrl,
   onStartFlow,
 }: DashboardApplicationCardProps) {
   const router = useRouter();
@@ -161,7 +166,24 @@ export function DashboardApplicationCard({
       <p className="text-[14px] font-bold text-gray-900 font-manrope leading-snug truncate">
         {roleTitle ?? tDash("unknownRole")}
       </p>
-      <p className="text-[12px] text-gray-500 mt-0.5 truncate">{companyName ?? ""}</p>
+      <p className="text-[12px] text-gray-500 mt-0.5 truncate flex items-center gap-1.5">
+        <span className="truncate">{companyName ?? ""}</span>
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={tDash("sourceLinkLabel")}
+            title={tDash("sourceLinkLabel")}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-primary hover:text-teal-dim flex items-center"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 14 }}>
+              {SOURCE_LINK_ICON}
+            </span>
+          </a>
+        )}
+      </p>
 
       {/* Progress bar */}
       <div className="h-1 bg-gray-100 rounded-full mt-3 mb-3 overflow-hidden">

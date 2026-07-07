@@ -48,7 +48,9 @@ class PatchApplicationRequest(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "PatchApplicationRequest":
-        if all(v is None for v in self.model_dump().values()):
+        # Explicit nulls are legitimate clear requests (e.g. {"deadline": null}),
+        # so "provided" means present in the body — not non-None (E039/US217).
+        if not self.model_fields_set:
             raise ValueError("At least one field must be provided.")
         return self
 

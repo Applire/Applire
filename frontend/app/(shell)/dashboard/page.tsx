@@ -38,6 +38,7 @@ interface Application {
   user_status?: string;
   flow_session_id: string | null;
   updated_at: string;
+  source_url?: string | null;
 }
 
 export default function DashboardPage() {
@@ -152,6 +153,7 @@ export default function DashboardPage() {
                 userStatus={app.user_status}
                 flowSessionId={app.flow_session_id}
                 updatedAt={app.updated_at}
+                sourceUrl={app.source_url}
                 onStartFlow={() => handleStartFlow(app.id)}
               />
             ))}

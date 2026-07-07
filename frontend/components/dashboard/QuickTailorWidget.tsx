@@ -33,6 +33,9 @@ export function QuickTailorWidget() {
   const [mode, setMode] = useState<JdMode>("url");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
+  // E039/US216: where the posting was found — only asked for on the text tab
+  // (the URL tab's link is auto-persisted server-side via JobAnalysis.source_url)
+  const [sourceUrl, setSourceUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -56,10 +59,17 @@ export function QuickTailorWidget() {
       }
       const jobData = await analyzeRes.json();
 
+      const createBody: Record<string, unknown> = {
+        job_analysis_id: jobData.id,
+        start_workflow: true,
+      };
+      if (mode === "text" && sourceUrl.trim()) {
+        createBody.source_url = sourceUrl.trim();
+      }
       const createRes = await fetch(`${API_BASE}/api/applications`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_analysis_id: jobData.id, start_workflow: true }),
+        body: JSON.stringify(createBody),
       });
       if (!createRes.ok) {
         const err = await createRes.json();
@@ -127,13 +137,24 @@ export function QuickTailorWidget() {
             className="flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
           />
         ) : (
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={t("textPlaceholder")}
-            disabled={loading}
-            className="flex-1 min-h-[88px] resize-y border-[1.5px] border-gray-300 rounded-lg px-3.5 py-2.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
-          />
+          <div className="flex-1 flex flex-col gap-2">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={t("textPlaceholder")}
+              disabled={loading}
+              className="min-h-[88px] resize-y border-[1.5px] border-gray-300 rounded-lg px-3.5 py-2.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            />
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder={t("sourcePlaceholder")}
+              aria-label={t("sourceLabel")}
+              disabled={loading}
+              className="h-9 border-[1.5px] border-gray-200 rounded-lg px-3.5 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            />
+          </div>
         )}
         <button
           onClick={handleSubmit}

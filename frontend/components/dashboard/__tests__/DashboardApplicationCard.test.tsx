@@ -61,6 +61,27 @@ describe("DashboardApplicationCard", () => {
     mockPush.mockReset();
   });
 
+  // ── Source link (E039/US216 — dossier) ───────────────────────────────────
+
+  it("renders the source link as an external anchor when sourceUrl is set", () => {
+    renderCard({ sourceUrl: "https://jobs.example.com/123" });
+    const link = screen.getByRole("link", { name: "sourceLinkLabel" });
+    expect(link).toHaveAttribute("href", "https://jobs.example.com/123");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  it("renders no source link when sourceUrl is absent", () => {
+    renderCard();
+    expect(screen.queryByRole("link", { name: "sourceLinkLabel" })).not.toBeInTheDocument();
+  });
+
+  it("clicking the source link does not navigate to the application detail", () => {
+    renderCard({ sourceUrl: "https://jobs.example.com/123" });
+    fireEvent.click(screen.getByRole("link", { name: "sourceLinkLabel" }));
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   // ── Status derivation ────────────────────────────────────────────────────
 
   it("shows 'CV Ready' chip for completed workflow", () => {
