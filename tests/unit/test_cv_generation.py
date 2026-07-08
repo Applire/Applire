@@ -3,14 +3,15 @@
 Sprint 6 — CV Generation UI (unit tests)
 
 Covers:
-  - _slugify: pure function, no DB required
+  - filename_part: pure function, no DB required (E039/US219)
+  - get_pdf_filename: <name>_<company>_<role>.pdf contract
   - list_cvs_for_job: SQLite in-memory
   - ensure_thumbnails: skips existing files
 
 No Docker, no LLM, no external services.
 
 Run:
-    pytest tests/unit/test_iter20_cv_sprint6.py -v
+    pytest tests/unit/test_cv_generation.py -v
 """
 import sys
 from pathlib import Path
@@ -22,39 +23,44 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from applire.services.cv import _slugify
+from applire.services.cv import filename_part
 
 
-def test_slugify_lowercases():
-    assert _slugify("QA Manager") == "qa-manager"
+def test_filename_part_preserves_case_and_hyphenates_spaces():
+    assert filename_part("Senior Python Engineer") == "Senior-Python-Engineer"
 
 
-def test_slugify_replaces_spaces_with_hyphens():
-    assert _slugify("Senior Python Engineer") == "senior-python-engineer"
+def test_filename_part_transliterates_umlauts():
+    assert filename_part("Jürgen Müßig-Öztürk") == "Juergen-Muessig-Oeztuerk"
 
 
-def test_slugify_strips_special_chars_only():
-    assert _slugify("QA Manager 21 CFR Part 11") == "qa-manager-21-cfr-part-11"
+def test_filename_part_transliterates_non_german_diacritics():
+    """Non-German diacritics must fold to their base letter, never be dropped —
+    'Milan Novák' → 'Milan-Novak', not 'Milan-Novk' (found on the live path)."""
+    assert filename_part("Milan Novák") == "Milan-Novak"
+    assert filename_part("José García") == "Jose-Garcia"
+    assert filename_part("François Petříček") == "Francois-Petricek"
 
 
-def test_slugify_strips_special_chars_from_mixed_input():
-    assert _slugify("C++ Developer") == "c-developer"
+def test_filename_part_strips_special_chars():
+    assert filename_part("C++ Developer (m/w/d)") == "C-Developer-mwd"
 
 
-def test_slugify_collapses_multiple_hyphens():
-    assert _slugify("Role--Name") == "role-name"
+def test_filename_part_collapses_multiple_hyphens():
+    assert filename_part("Role--Name") == "Role-Name"
 
 
-def test_slugify_strips_leading_trailing_hyphens():
-    assert _slugify("  Role  ") == "role"
+def test_filename_part_strips_leading_trailing_whitespace():
+    assert filename_part("  Role  ") == "Role"
 
 
-def test_slugify_empty_string():
-    assert _slugify("") == ""
+def test_filename_part_empty_and_none():
+    assert filename_part("") == ""
+    assert filename_part(None) == ""
 
 
-def test_slugify_special_chars_only():
-    assert _slugify("!@#$%") == ""
+def test_filename_part_special_chars_only():
+    assert filename_part("!@#$%") == ""
 
 
 import uuid
@@ -75,6 +81,7 @@ async def db():
     import applire.models.cv
     import applire.models.session
     import applire.models.application
+    import applire.models.cover_letter
     import applire.models.flow
     import applire.models.uploads
 
@@ -161,49 +168,105 @@ async def test_list_cvs_urls_only_when_ready(db):
     assert pending_resp.pdf_url is None
 
 
-@pytest.mark.asyncio
-async def test_get_pdf_filename_contains_role_slug(db):
-    """get_pdf_filename returns lebenslauf-{slug}-{id[:8]}.pdf."""
+async def _seed_ready_cv(
+    db,
+    *,
+    role_title: str = "QA Manager 21 CFR",
+    company_name: str | None = "DataCraft GmbH",
+    contact_name: str | None = "Emma Weber",
+):
+    """JobAnalysis + ready GeneratedCV pair for filename tests. Returns cv_id."""
     from applire.models.job import JobAnalysis
     from applire.models.cv import GeneratedCV
-    from applire.services.cv import get_pdf_filename
     import uuid as _uuid
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
     job_id = _uuid.uuid4()
     cv_id = _uuid.uuid4()
-
-    # Create a JobAnalysis row (read the model to get required fields)
-    job = JobAnalysis(
+    db.add(JobAnalysis(
         id=job_id,
-        raw_text_hash="test_hash_unique_12345",
+        raw_text_hash=f"hash-{job_id}",
         raw_text="Sample job description",
-        role_title="QA Manager 21 CFR",
+        role_title=role_title,
+        company_name=company_name,
         required_skills=[],
         nice_to_have_skills=[],
         keywords=[],
         seniority_level="Senior",
         company_culture_signals=[],
         language_requirement="German",
-    )
-    db.add(job)
-
-    # Create a ready GeneratedCV linked to the job
-    cv = GeneratedCV(
+    ))
+    db.add(GeneratedCV(
         id=cv_id,
         job_analysis_id=job_id,
         profile_id=_uuid.uuid4(),
-        tailored_data={},
+        tailored_data={"contact": {"name": contact_name}} if contact_name else {},
         template="classic_german",
         status="ready",
         created_at=datetime.now(timezone.utc),
         deleted_at=None,
-    )
-    db.add(cv)
+    ))
     await db.commit()
+    return cv_id
 
+
+@pytest.mark.asyncio
+async def test_get_pdf_filename_is_name_company_role(db):
+    """E039/US219 (FMEA JF-E-Q.1): downloads must be identifiable in a Downloads
+    folder full of applications — <name>_<company>_<role>.pdf."""
+    from applire.services.cv import get_pdf_filename
+
+    cv_id = await _seed_ready_cv(db)
     filename = await get_pdf_filename(cv_id, db)
-    assert filename == f"lebenslauf-qa-manager-21-cfr-{str(cv_id)[:8]}.pdf"
+    assert filename == "Emma-Weber_DataCraft-GmbH_QA-Manager-21-CFR.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_pdf_filename_transliterates_umlauts(db):
+    """Umlaut-safe: ä→ae ö→oe ü→ue ß→ss so the name survives every filesystem."""
+    from applire.services.cv import get_pdf_filename
+
+    cv_id = await _seed_ready_cv(
+        db,
+        contact_name="Jürgen Müßig",
+        company_name="Bäckerei Höfer AG",
+        role_title="Geschäftsführer",
+    )
+    filename = await get_pdf_filename(cv_id, db)
+    assert filename == "Juergen-Muessig_Baeckerei-Hoefer-AG_Geschaeftsfuehrer.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_pdf_filename_skips_missing_company(db):
+    from applire.services.cv import get_pdf_filename
+
+    cv_id = await _seed_ready_cv(db, company_name=None)
+    filename = await get_pdf_filename(cv_id, db)
+    assert filename == "Emma-Weber_QA-Manager-21-CFR.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_pdf_filename_strips_unsafe_characters(db):
+    """Slashes, quotes & friends never reach the Content-Disposition header."""
+    from applire.services.cv import get_pdf_filename
+
+    cv_id = await _seed_ready_cv(
+        db,
+        contact_name='Emma "Em" Weber',
+        company_name="Data/Craft: GmbH & Co. KG",
+        role_title="Senior Analyst (m/w/d)",
+    )
+    filename = await get_pdf_filename(cv_id, db)
+    assert filename == "Emma-Em-Weber_DataCraft-GmbH-Co-KG_Senior-Analyst-mwd.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_pdf_filename_falls_back_when_all_parts_missing(db):
+    from applire.services.cv import get_pdf_filename
+
+    cv_id = await _seed_ready_cv(db, contact_name=None, company_name=None, role_title="")
+    filename = await get_pdf_filename(cv_id, db)
+    assert filename == f"lebenslauf-{str(cv_id)[:8]}.pdf"
 
 
 # ---------------------------------------------------------------------------

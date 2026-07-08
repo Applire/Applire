@@ -107,6 +107,28 @@ CREATE TABLE IF NOT EXISTS gap_analysis_jobs (
     expires_at TEXT NOT NULL,
     deleted_at TEXT
 );
+CREATE TABLE IF NOT EXISTS generated_cover_letters (
+    id TEXT PRIMARY KEY,
+    job_analysis_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    letter_data TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    deleted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS applications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    job_analysis_id TEXT NOT NULL,
+    workflow_status TEXT NOT NULL DEFAULT 'none',
+    user_status TEXT NOT NULL DEFAULT 'tracking',
+    submitted_cv_id TEXT,
+    submitted_cover_letter_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    deleted_at TEXT
+);
 """
 
 
@@ -519,3 +541,169 @@ async def test_purge_gap_jobs_binds_a_datetime_not_a_string():
     assert isinstance(params["now"], datetime), (
         f"expires_at cutoff must be a datetime for asyncpg, got {type(params['now'])}"
     )
+
+
+# ---------------------------------------------------------------------------
+# E039/US219 — submitted-pin retention guard (ADR-005 amendment 2026-07-06)
+# A generated document pinned as submitted on an ACTIVE application is exempt
+# from the TTL purge; once the application is tombstoned the pin no longer
+# protects it and the document re-enters the normal purge.
+# ---------------------------------------------------------------------------
+
+
+async def _seed_cover_letter(db: AsyncSession, *, expires_at: datetime, deleted_at: datetime | None = None) -> str:
+    cid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO generated_cover_letters "
+            "(id, job_analysis_id, profile_id, letter_data, created_at, expires_at, deleted_at) "
+            "VALUES (:id, :jid, :pid, '{}', :now, :exp, :del)"
+        ),
+        {"id": cid, "jid": _uid(), "pid": _uid(),
+         "now": _ts(_now()), "exp": _ts(expires_at),
+         "del": _ts(deleted_at) if deleted_at else None},
+    )
+    await db.commit()
+    return cid
+
+
+async def _seed_application(
+    db: AsyncSession,
+    *,
+    submitted_cv_id: str | None = None,
+    submitted_cover_letter_id: str | None = None,
+    deleted_at: datetime | None = None,
+) -> str:
+    aid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO applications "
+            "(id, user_id, job_analysis_id, workflow_status, user_status, "
+            " submitted_cv_id, submitted_cover_letter_id, created_at, updated_at, expires_at, deleted_at) "
+            "VALUES (:id, :uid, :jid, 'none', 'applied', :cv, :cl, :now, :now, :exp, :del)"
+        ),
+        {"id": aid, "uid": _uid(), "jid": _uid(),
+         "cv": submitted_cv_id, "cl": submitted_cover_letter_id,
+         "now": _ts(_now()), "exp": _ts(_now() + timedelta(days=700)),
+         "del": _ts(deleted_at) if deleted_at else None},
+    )
+    await db.commit()
+    return aid
+
+
+@pytest.mark.asyncio
+async def test_purge_cvs_spares_pinned_on_active_application(db):
+    from applire.retention.worker import _purge_cvs
+
+    pinned = await _seed_cv(db, expires_at=_ago(days=1))
+    await _seed_application(db, submitted_cv_id=pinned)
+
+    deleted = await _purge_cvs(db)
+    assert deleted == 0
+
+    row = (await db.execute(
+        text("SELECT COUNT(*) FROM generated_cvs WHERE id = :id"), {"id": pinned}
+    )).one()
+    assert row[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_cvs_deletes_pinned_on_tombstoned_application(db):
+    """The pin follows the application lifecycle: tombstoned app → pin no longer protects.
+
+    The worker must RELEASE the tombstoned application's pin before deleting —
+    on Postgres the FK (applications.submitted_cv_id → generated_cvs.id) makes
+    the DELETE crash otherwise (found on the live stack; SQLite doesn't enforce
+    FKs, so only the released-pin effect is assertable here)."""
+    from applire.retention.worker import _purge_cvs
+
+    pinned = await _seed_cv(db, expires_at=_ago(days=1))
+    app_id = await _seed_application(db, submitted_cv_id=pinned, deleted_at=_ago(days=2))
+
+    deleted = await _purge_cvs(db)
+    assert deleted == 1
+
+    row = (await db.execute(
+        text("SELECT submitted_cv_id FROM applications WHERE id = :id"), {"id": app_id}
+    )).one()
+    assert row[0] is None, "tombstoned application's pin must be released before the purge"
+
+
+@pytest.mark.asyncio
+async def test_purge_cvs_unpinned_normal_ttl_with_applications_present(db):
+    """Unpinned expired CVs still purge normally even when active applications exist."""
+    from applire.retention.worker import _purge_cvs
+
+    await _seed_cv(db, expires_at=_ago(days=1))
+    await _seed_application(db)  # active, but pins nothing
+
+    deleted = await _purge_cvs(db)
+    assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_cover_letters_spares_pinned_on_active_application(db):
+    from applire.retention.worker import _purge_cover_letters
+
+    pinned = await _seed_cover_letter(db, expires_at=_ago(days=1))
+    await _seed_application(db, submitted_cover_letter_id=pinned)
+
+    deleted = await _purge_cover_letters(db)
+    assert deleted == 0
+
+
+@pytest.mark.asyncio
+async def test_purge_cover_letters_deletes_pinned_on_tombstoned_application(db):
+    from applire.retention.worker import _purge_cover_letters
+
+    pinned = await _seed_cover_letter(db, expires_at=_ago(days=1))
+    app_id = await _seed_application(db, submitted_cover_letter_id=pinned, deleted_at=_ago(days=2))
+
+    deleted = await _purge_cover_letters(db)
+    assert deleted == 1
+
+    row = (await db.execute(
+        text("SELECT submitted_cover_letter_id FROM applications WHERE id = :id"), {"id": app_id}
+    )).one()
+    assert row[0] is None, "tombstoned application's pin must be released before the purge"
+
+
+@pytest.mark.asyncio
+async def test_purge_cover_letters_deletes_expired_unpinned(db):
+    from applire.retention.worker import _purge_cover_letters
+
+    await _seed_cover_letter(db, expires_at=_ago(days=1))
+    await _seed_cover_letter(db, expires_at=_now() + timedelta(days=30))
+
+    deleted = await _purge_cover_letters(db)
+    assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_count_submitted_exempt_counts_both_artifact_kinds(db):
+    """The worker report's submitted_exempt = expired-but-pinned rows (CVs + cover
+    letters) protected by an active application this run (ADR-005 auditability)."""
+    from applire.retention.worker import _count_submitted_exempt
+
+    pinned_cv = await _seed_cv(db, expires_at=_ago(days=1))
+    await _seed_application(db, submitted_cv_id=pinned_cv)
+    pinned_cl = await _seed_cover_letter(db, expires_at=_ago(days=1))
+    await _seed_application(db, submitted_cover_letter_id=pinned_cl)
+
+    # Not exempt: unexpired pin (clock not up), expired-unpinned, tombstoned app's pin.
+    fresh_cv = await _seed_cv(db, expires_at=_now() + timedelta(days=30))
+    await _seed_application(db, submitted_cv_id=fresh_cv)
+    await _seed_cv(db, expires_at=_ago(days=1))
+    dead_pin = await _seed_cv(db, expires_at=_ago(days=1))
+    await _seed_application(db, submitted_cv_id=dead_pin, deleted_at=_ago(days=2))
+
+    assert await _count_submitted_exempt(db) == 2
+
+
+@pytest.mark.asyncio
+async def test_count_submitted_exempt_zero_when_tables_absent(db):
+    from applire.retention.worker import _count_submitted_exempt
+
+    await db.execute(text("DROP TABLE applications"))
+    await db.commit()
+    assert await _count_submitted_exempt(db) == 0

@@ -1032,6 +1032,30 @@ async def test_update_application_dossier_fields_pass_through():
 
 
 @pytest.mark.asyncio
+async def test_update_application_submitted_pins_pass_through():
+    """E039/US219: the MCP tool forwards the submitted pins as UUIDs, marking
+    only the provided pin as set (omitted ≠ explicit null)."""
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()))
+    cv_id = uuid.uuid4()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        await update_application(
+            application_id=str(uuid.uuid4()),
+            submitted_cv_id=str(cv_id),
+        )
+
+    req = svc.call_args.args[1]
+    assert req.submitted_cv_id == cv_id
+    assert req.model_fields_set == {"submitted_cv_id"}
+
+
+@pytest.mark.asyncio
 async def test_update_application_invalid_status_lists_enum_values():
     from applire.mcp.server import update_application
 

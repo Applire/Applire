@@ -113,6 +113,18 @@ class Application(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # --- Submitted pins (E039/US219) ---
+    # The exact artifacts sent to the employer. While the application is not
+    # tombstoned, pinned documents are exempt from the retention TTL purge —
+    # their retention clock follows the application lifecycle (ADR-005
+    # amendment 2026-07-06). Erasure (Art. 17) still deletes them.
+    submitted_cv_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_cvs.id"), nullable=True
+    )
+    submitted_cover_letter_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_cover_letters.id"), nullable=True
+    )
+
     # --- 1:0..1 link to FlowSession ---
     flow_session_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("flow_sessions.id"), nullable=True

@@ -45,6 +45,10 @@ class PatchApplicationRequest(BaseModel):
     applied_at: datetime | None = None
     deadline: datetime | None = None
     source_url: str | None = None
+    # Submitted pins (E039/US219): value = pin (validated against the artifact),
+    # explicit null = unpin. Same present-in-body clear semantics as the dossier fields.
+    submitted_cv_id: uuid.UUID | None = None
+    submitted_cover_letter_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "PatchApplicationRequest":
@@ -67,6 +71,8 @@ class ApplicationResponse(BaseModel):
     applied_at: datetime | None
     deadline: datetime | None
     source_url: str | None
+    submitted_cv_id: uuid.UUID | None = None
+    submitted_cover_letter_id: uuid.UUID | None = None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
     created_at: datetime

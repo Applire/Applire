@@ -76,6 +76,7 @@ async def db():
     import applire.models.cv
     import applire.models.session
     import applire.models.application
+    import applire.models.cover_letter
     import applire.models.flow
     import applire.models.uploads
     import applire.models.color_profile

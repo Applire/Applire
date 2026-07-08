@@ -41,6 +41,8 @@ from applire.models.application import (
     WorkflowStatus,
     _APPLICATION_TTL_DAYS,
 )
+from applire.models.cover_letter import GeneratedCoverLetter
+from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
@@ -209,6 +211,27 @@ async def patch_application(
         if field in provided:
             setattr(app, field, provided[field])
 
+    # Submitted pins (E039/US219): value = pin, explicit null = unpin. A pin must
+    # reference a live artifact generated for THIS application's job — otherwise
+    # the "sent version" recall (Branch G) would show a document from another
+    # application, and the retention exemption (ADR-005) would protect the wrong row.
+    if "submitted_cv_id" in provided:
+        if provided["submitted_cv_id"] is not None:
+            await _validate_pin(
+                GeneratedCV, provided["submitted_cv_id"], "submitted_cv_id", app, db
+            )
+        app.submitted_cv_id = provided["submitted_cv_id"]
+    if "submitted_cover_letter_id" in provided:
+        if provided["submitted_cover_letter_id"] is not None:
+            await _validate_pin(
+                GeneratedCoverLetter,
+                provided["submitted_cover_letter_id"],
+                "submitted_cover_letter_id",
+                app,
+                db,
+            )
+        app.submitted_cover_letter_id = provided["submitted_cover_letter_id"]
+
     _touch(app)
     await db.commit()
     await db.refresh(app)
@@ -310,6 +333,24 @@ async def mark_application_hired(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+async def _validate_pin(
+    model: type,
+    artifact_id: uuid.UUID,
+    field: str,
+    app: Application,
+    db: AsyncSession,
+) -> None:
+    """A submitted pin must reference an existing, non-deleted artifact generated
+    for the application's job (E039/US219)."""
+    artifact = await db.get(model, artifact_id)
+    if artifact is None or artifact.deleted_at is not None:
+        raise ValueError(f"{field} does not reference an existing generated document.")
+    if artifact.job_analysis_id != app.job_analysis_id:
+        raise ValueError(
+            f"{field} must reference a document generated for this application's job."
+        )
 
 
 async def _get_or_404(application_id: uuid.UUID, db: AsyncSession) -> Application:

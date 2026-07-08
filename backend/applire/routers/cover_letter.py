@@ -142,12 +142,14 @@ async def get_pdf(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> Response:
     try:
+        from applire.services.cover_letter import get_cover_letter_pdf_filename
         from applire.services.cover_letter_pdf import render_pdf
         pdf_bytes = await render_pdf(cl_id)
+        filename = await get_cover_letter_pdf_filename(cl_id, db)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="cover-letter.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

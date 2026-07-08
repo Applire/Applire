@@ -85,6 +85,7 @@ async def db():
     import applire.models.flow        # noqa: F401
     import applire.models.uploads     # noqa: F401
     import applire.models.application  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401
     import applire.models.color_profile  # noqa: F401
     import applire.models.company  # noqa: F401
     import applire.models.user_settings  # noqa: F401

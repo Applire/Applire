@@ -208,3 +208,59 @@ def test_profile_exists_returns_false_after_delete(api):
     assert r.status_code == 200
     assert r.json()["exists"] is False
     assert r.json()["completeness_score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# E039/US219 — Art. 17 beats the submitted pin
+# A CV pinned as submitted is exempt from RETENTION purge (ADR-005 amendment),
+# but the user-initiated erasure cascade must still hard-delete it, and the
+# new applications.submitted_cv_id FK must not break the cascade order.
+# ---------------------------------------------------------------------------
+
+
+def _generate_cv_ready(api: str, job_id: str) -> str:
+    """Generate a CV and poll until ready. Returns cv_id."""
+    import time
+
+    r = requests.post(
+        f"{api}/api/cv/generate",
+        json={"job_id": job_id, "template": "classic_german"},
+        timeout=30,
+    )
+    assert r.status_code == 201, f"CV generate failed: {r.text}"
+    cv_id = r.json()["cv_id"]
+
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        s = requests.get(f"{api}/api/cv/{cv_id}/status", timeout=10)
+        assert s.status_code == 200
+        if s.json()["status"] == "ready":
+            return cv_id
+        assert s.json()["status"] != "failed", f"CV generation failed: {s.text}"
+        time.sleep(2)
+    raise AssertionError("CV generation did not become ready within 120s")
+
+
+def test_delete_profile_erases_pinned_submitted_cv(api):
+    """Erasure hard-deletes even artifacts pinned as submitted (Art. 17 beats the pin)."""
+    _upload_cv(api)
+    job_id = _analyze_jd(api)
+    app_id = _create_application(api, job_id)
+    cv_id = _generate_cv_ready(api, job_id)
+
+    # Pin the CV as the submitted artifact
+    r = requests.patch(
+        f"{api}/api/applications/{app_id}", json={"submitted_cv_id": cv_id}
+    )
+    assert r.status_code == 200, f"Pin failed: {r.text}"
+    assert r.json()["submitted_cv_id"] == cv_id
+
+    # Erase — must not 500 on the applications.submitted_cv_id FK
+    r = requests.delete(f"{api}/api/profile")
+    assert r.status_code == 202, f"Erasure failed: {r.text}"
+
+    # The pinned artifact is gone with everything else
+    r = requests.get(f"{api}/api/cv/{cv_id}/status")
+    assert r.status_code == 404
+    r = requests.get(f"{api}/api/applications")
+    assert r.json()["total"] == 0

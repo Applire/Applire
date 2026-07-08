@@ -38,7 +38,7 @@ Tools:
   import_cv         — seed or extend the Master Profile from a PDF or CV text
   add_role          — add a new work-experience role to the Master Profile
   create_application — create a new job application record
-  update_application — update user-managed fields (status, notes, deadline, source_url)
+  update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
 
@@ -516,7 +516,11 @@ async def create_application(
         "Update user-managed fields on an application (MCP mirror of "
         "PATCH /api/applications/{id}). Omitted fields are left unchanged. "
         f"user_status must be one of: {_USER_STATUS_VALUES}. "
-        "deadline is ISO 8601. source_url records where the posting was found."
+        "deadline is ISO 8601. source_url records where the posting was found. "
+        "submitted_cv_id / submitted_cover_letter_id pin the exact generated "
+        "document that was sent to the employer (must belong to this "
+        "application's job); pinned documents are kept while the application "
+        "is active."
     )
 )
 async def update_application(
@@ -527,6 +531,8 @@ async def update_application(
     notes: str | None = None,
     deadline: str | None = None,
     source_url: str | None = None,
+    submitted_cv_id: str | None = None,
+    submitted_cover_letter_id: str | None = None,
 ) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     # Build the request from provided fields only, so PatchApplicationRequest's
@@ -547,10 +553,17 @@ async def update_application(
             raise invalid_input("deadline must be ISO 8601 (e.g. 2026-07-01T00:00:00)")
     if source_url is not None:
         fields["source_url"] = source_url
+    if submitted_cv_id is not None:
+        fields["submitted_cv_id"] = _parse_uuid(submitted_cv_id, "submitted_cv_id")
+    if submitted_cover_letter_id is not None:
+        fields["submitted_cover_letter_id"] = _parse_uuid(
+            submitted_cover_letter_id, "submitted_cover_letter_id"
+        )
     if not fields:
         raise invalid_input(
             "At least one field must be provided (user_status, company_name, "
-            "role_title, notes, deadline, source_url)."
+            "role_title, notes, deadline, source_url, submitted_cv_id, "
+            "submitted_cover_letter_id)."
         )
     req = PatchApplicationRequest(**fields)
     async with get_db() as db:
