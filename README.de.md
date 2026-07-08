@@ -15,7 +15,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![GitHub Stars](https://img.shields.io/github/stars/Applire/Applire?style=social)](https://github.com/Applire/Applire)
 
-[🚀 Schnellstart](#-installation) • [📖 Dokumentation](docs/) • [💬 Community](#-community--support) • [🐛 Fehler melden](https://github.com/Applire/Applire/issues)
+[🌐 applire.de](https://applire.de) • [🚀 Schnellstart](#-installation) • [📖 Dokumentation](docs/) • [💬 Community](#-community--support) • [🐛 Fehler melden](https://github.com/Applire/Applire/issues)
 
 **🌐 [English](README.md) · Deutsch**
 
@@ -510,8 +510,18 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.36.2-beta)
+### ✅ Aktuelle Version (v0.37.2-beta)
 
+- [x] Wahrhaftigkeits-Schutz: Eine Interview-Antwort, die Erfahrung verneint, kann nie zur Lebenslauf-Aussage werden — die Ablehnungs-Urteile des Reconcilers überstimmen deterministisch seine eigenen Änderungen
+- [x] Durchsetzung der Dokumentsprache erfasst auch Projekt-Bullets — nach dem Sprach-Durchlauf gelangt kein prosaförmiger Text mehr in einen generierten Lebenslauf
+- [x] Abdeckung belegbarer Keywords heilt sich in der Generierungs-Pipeline selbst — die deterministische Prüfung, die das Dokument bewertet, kontrolliert auch jeden Schreibschritt einschließlich des Sprach-Durchlaufs
+- [x] Wahrhaftiges Keyword-Ledger: Jedes Keyword der Stellenanzeige klassifiziert als vorhanden / belegbar / ehrliche Lücke — eine konsistente Quelle für Match-Score, ATS-Panel, Generatoren und Interview
+- [x] Profil-Reconciliation-Engine: Typisierte, deterministische Zusammenführung von Lebenslauf-Importen und Interview-Antworten mit Konfliktauflösung und Anreicherungs-Historie
+- [x] Master-Profil-Gesundheits-Hub mit Snapshots/Undo und Interviews ohne Stellenanzeige
+- [x] ATS-Parsebarkeits-Prüfungen für jedes generierte Dokument (Panel + REST + MCP)
+- [x] Einheitlicher Dokument-Arbeitsbereich für Lebenslauf + Anschreiben je Bewerbung
+- [x] Asynchrone Import-/Lücken-/Anschreiben-Jobs — lange LLM-Schritte überstehen Refresh und Proxys
+- [x] Cap-sichere segmentierte Lebenslauf-Erzeugung (keine abgeschnittenen Dokumente bei ausführlichen Modellen)
 - [x] Upload und Parsing mehrerer Lebensläufe (PDF, DOCX, Bilder via OCR)
 - [x] Master-Profil-Konsolidierung mit Konfliktauflösung
 - [x] Analyse von Stellenbeschreibungen (Text + URL-Scraping)
@@ -529,22 +539,22 @@ Applire/
 
 ### ⏳ Als Nächstes
 
-**Verbesserungen der Kern-Erfahrung**
-- [ ] **Verfeinerung des Lücken-Interviews**: Höhere Qualität und Relevanz der Fragen
-- [ ] **Weitere Lebenslauf-Layouts**: Erweiterung der Vorlagen-Bibliothek
+Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milestone](https://github.com/Applire/Applire/milestones) — zum Mitlesen gibt es den [Blog](https://applire.de/blog/):
 
-**Marktexpansion**
-- [ ] **Unterstützung weiterer europäischer Länder**: Schrittweiser Rollout über DACH hinaus (Frankreich, Italien, Spanien, Portugal, Polen) mit lokalisierten Formaten und Sprachunterstützung
-
-**Developer Experience**
-- [ ] **MCP-Marketplace-Listing**: Distribution über die Marketplaces von Anthropic, OpenAI und Cursor
+- [ ] **Spaghettieis** (Juli 2026) — Parallele Bewerbungen werden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
+- [ ] **Stracciatella** (August 2026) — Präzisionsarbeit an der Oberfläche: Überarbeitung der Master-Profil-Ansicht, erweiterte Vorlagen-Bibliothek, feineres Finetuning von Lebenslauf und Anschreiben, klarere Prüfung vor dem Download
+- [ ] **Strawberry** (September 2026) — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen (Standard-Farbschemata, Vorlagen-Verfügbarkeit, Token-Tracking)
+- [ ] **Sorbet** (Oktober 2026) — Eine kostenlose Demo im Browser: flüchtige Profile mit strikten Aufbewahrungsfristen, eigener API-Schlüssel, nichts wird gespeichert — plus Master-Profil-Export als JSON („nimm dein Profil mit"). Die [Warteliste](https://applire.de) erfährt es zuerst
+- [ ] **Mango** (November 2026) — Über DACH hinaus: datengetriebene Länderpakete (Vorlagen, Struktur und Konventionen je Zielland), zu denen die Community beitragen kann — Pilot ist Frankreich
+- [ ] **Waldmeister** (Dezember 2026) — SaaS-Start der Applire Cloud: Abrechnung, Produktions-OIDC, DSGVO-Export und -Löschung
 
 ### 🔭 Zukunftsvision
 
 - [ ] **Vorbereitung auf Probe-Interviews**: KI-gestützte Übungssitzungen mit rollenspezifischen Fragen
 - [ ] **Karrierepfad-Beratung**: Skill-Gap-Analyse und Weiterbildungsempfehlungen
 - [ ] **Jobsuche & Empfehlungen**: Kuratierte Job-Vorschläge auf Basis des Master-Profils
-- [ ] **Mobile App**: Native Apps für iOS und Android
+- [ ] **Mobil-freundliche Oberfläche**: Responsives Erlebnis für Smartphone und Tablet
+- [ ] **MCP-Marketplace-Listings**: Distribution über Agent-Marketplaces
 
 ---
 
@@ -586,6 +596,7 @@ Mit dem Einreichen eines Pull Requests stimmst du dem [Applire CLA](CLA.md) zu. 
 
 ### Hilfe bekommen
 
+- 🌐 **[applire.de](https://applire.de)** — Website, [Blog](https://applire.de/blog/) (Deutsch und Englisch) und Beta-Warteliste
 - 📖 **[Dokumentation](docs/)** — Test-, CI/CD- und Architektur-Leitfäden
 - 🐛 **[GitHub Issues](https://github.com/Applire/Applire/issues)** — Fehler melden und Features anfragen
 - 💬 **[GitHub Discussions](https://github.com/Applire/Applire/discussions)** — Fragen stellen und Ideen teilen
@@ -623,7 +634,7 @@ Für Organisationen, die die AGPL-Anforderungen nicht erfüllen können (z. B. p
 
 ## 📬 Kontakt
 
-- **Website**: [applire.de](https://applire.de) *(in Kürze)*
+- **Website**: [applire.de](https://applire.de) — [Blog](https://applire.de/blog/) und Beta-Warteliste
 - **E-Mail**: kontakt@applire.de
 - **Issues**: [GitHub Issues](https://github.com/Applire/Applire/issues)
 - **Sicherheit**: kontakt@applire.de (siehe [SECURITY.md](SECURITY.md))
