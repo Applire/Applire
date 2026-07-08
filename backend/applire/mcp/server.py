@@ -38,6 +38,7 @@ Tools:
   import_cv         — seed or extend the Master Profile from a PDF or CV text
   add_role          — add a new work-experience role to the Master Profile
   create_application — create a new job application record
+  update_application — update user-managed fields (status, notes, deadline, source_url)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
 
@@ -60,11 +61,17 @@ from sqlalchemy import select
 from applire.config import settings
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
+from applire.models.application import UserStatus
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
 from applire.models.user import User
 from applire.providers import get_provider
-from applire.schemas.application import ApplicationListResponse, ApplicationResponse, CreateApplicationRequest
+from applire.schemas.application import (
+    ApplicationListResponse,
+    ApplicationResponse,
+    CreateApplicationRequest,
+    PatchApplicationRequest,
+)
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
@@ -404,24 +411,30 @@ async def get_flow_state(flow_id: str) -> dict:
     return result.model_dump(mode="json")
 
 
+# Valid user_status values, derived from the enum so tool descriptions and
+# error messages can never go stale again (the old literal lacked 'hired').
+_USER_STATUS_VALUES = ", ".join(m.value for m in UserStatus)
+
+
+def _parse_user_status(raw: str, field: str) -> UserStatus:
+    try:
+        return UserStatus(raw)
+    except ValueError:
+        raise invalid_input(
+            f"Invalid {field}: {raw!r}. Must be one of: {_USER_STATUS_VALUES}."
+        )
+
+
 @mcp.tool(
     description=(
         "List the user's application pipeline. "
-        "Optional status_filter: tracking, applied, rejected, offer."
+        f"Optional status_filter: {_USER_STATUS_VALUES}."
     )
 )
 async def list_applications(status_filter: str | None = None) -> list[dict]:
-    from applire.models.application import UserStatus
-
     user_status = None
     if status_filter:
-        try:
-            user_status = UserStatus(status_filter)
-        except ValueError:
-            raise invalid_input(
-                f"Invalid status_filter: {status_filter!r}. "
-                f"Must be one of: tracking, applied, rejected, offer."
-            )
+        user_status = _parse_user_status(status_filter, "status_filter")
     # Retrieve the single user from the DB (MCP runs in single-user context).
     async with get_db() as db:
         user_result = await db.execute(select(User).limit(1))
@@ -493,6 +506,60 @@ async def create_application(
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Update user-managed fields on an application (MCP mirror of "
+        "PATCH /api/applications/{id}). Omitted fields are left unchanged. "
+        f"user_status must be one of: {_USER_STATUS_VALUES}. "
+        "deadline is ISO 8601. source_url records where the posting was found."
+    )
+)
+async def update_application(
+    application_id: str,
+    user_status: str | None = None,
+    company_name: str | None = None,
+    role_title: str | None = None,
+    notes: str | None = None,
+    deadline: str | None = None,
+    source_url: str | None = None,
+) -> dict:
+    aid = _parse_uuid(application_id, "application_id")
+    # Build the request from provided fields only, so PatchApplicationRequest's
+    # model_fields_set semantics stay honest (E039: omitted ≠ explicit null).
+    fields: dict = {}
+    if user_status is not None:
+        fields["user_status"] = _parse_user_status(user_status, "user_status")
+    if company_name is not None:
+        fields["company_name"] = company_name
+    if role_title is not None:
+        fields["role_title"] = role_title
+    if notes is not None:
+        fields["notes"] = notes
+    if deadline is not None:
+        try:
+            fields["deadline"] = datetime.fromisoformat(deadline)
+        except ValueError:
+            raise invalid_input("deadline must be ISO 8601 (e.g. 2026-07-01T00:00:00)")
+    if source_url is not None:
+        fields["source_url"] = source_url
+    if not fields:
+        raise invalid_input(
+            "At least one field must be provided (user_status, company_name, "
+            "role_title, notes, deadline, source_url)."
+        )
+    req = PatchApplicationRequest(**fields)
+    async with get_db() as db:
+        try:
+            result = await app_svc.patch_application(aid, req, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except ValueError as exc:
+            raise invalid_input(str(exc))
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")

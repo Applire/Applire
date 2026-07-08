@@ -53,11 +53,15 @@ class WorkflowStatus(str, Enum):
 
 
 class UserStatus(str, Enum):
-    """User-managed. Set via PATCH /api/applications/{id}."""
+    """User-managed. Set via PATCH /api/applications/{id}.
+
+    Pipeline order (E039/US218): tracking → applied → interviewing → offer/rejected → hired.
+    """
     tracking = "tracking"   # Default on creation
     applied = "applied"
-    rejected = "rejected"
+    interviewing = "interviewing"
     offer = "offer"
+    rejected = "rejected"
     hired = "hired"
 
 

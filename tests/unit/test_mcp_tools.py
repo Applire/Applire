@@ -931,7 +931,153 @@ def test_all_agent_tools_registered():
         "get_cv_ats_report",
         "start_flow", "advance_flow", "get_flow_state",
         "import_cv", "add_role", "create_application",
-        "list_applications", "get_application",
+        "list_applications", "get_application", "update_application",
     }
     for name in expected:
         assert hasattr(srv, name), f"tool {name} not defined"
+
+
+# ---------------------------------------------------------------------------
+# E039 / US218 — status pipeline at the MCP seam
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_applications_accepts_interviewing_filter():
+    from applire.mcp.server import list_applications
+
+    cm, session = _mock_db()
+    user_row = MagicMock(); user_row.id = uuid.uuid4()
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+    svc_result = MagicMock(); svc_result.items = []
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.list_applications", AsyncMock(return_value=svc_result)) as svc,
+    ):
+        result = await list_applications(status_filter="interviewing")
+
+    assert result == []
+    from applire.models.application import UserStatus
+    assert svc.call_args.kwargs["user_status"] == UserStatus.interviewing
+
+
+@pytest.mark.asyncio
+async def test_list_applications_invalid_filter_lists_all_enum_values():
+    """The error message is derived from the enum, not a hard-coded list
+    (the old literal was already stale — it lacked 'hired')."""
+    from applire.mcp.server import list_applications
+
+    with pytest.raises(McpError) as exc:
+        await list_applications(status_filter="bogus")
+
+    assert exc.value.error.code == -32602
+    msg = exc.value.error.message
+    for value in ("tracking", "applied", "interviewing", "offer", "rejected", "hired"):
+        assert value in msg, f"{value!r} missing from error message: {msg}"
+
+
+# ---------------------------------------------------------------------------
+# E039 — update_application (MCP mirror of PATCH /api/applications/{id})
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_application_sets_status():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), user_status="interviewing")
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        result = await update_application(
+            application_id=str(uuid.uuid4()), user_status="interviewing"
+        )
+
+    assert result["user_status"] == "interviewing"
+    from applire.models.application import UserStatus
+    req = svc.call_args.args[1]
+    assert req.user_status == UserStatus.interviewing
+    # Omitted fields must not be marked as provided (clear-semantics seam):
+    assert req.model_fields_set == {"user_status"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_dossier_fields_pass_through():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()))
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        await update_application(
+            application_id=str(uuid.uuid4()),
+            notes="Recruiter called back",
+            deadline="2026-08-01T00:00:00",
+            source_url="https://jobs.example.com/123",
+        )
+
+    req = svc.call_args.args[1]
+    assert req.notes == "Recruiter called back"
+    assert req.source_url == "https://jobs.example.com/123"
+    assert req.deadline.year == 2026 and req.deadline.month == 8
+    assert req.model_fields_set == {"notes", "deadline", "source_url"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_invalid_status_lists_enum_values():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(
+            application_id=str(uuid.uuid4()), user_status="ghosted"
+        )
+
+    assert exc.value.error.code == -32602
+    assert "interviewing" in exc.value.error.message
+
+
+@pytest.mark.asyncio
+async def test_update_application_no_fields_is_invalid_input():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(application_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_update_application_bad_deadline_is_invalid_input():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(
+            application_id=str(uuid.uuid4()), deadline="next Tuesday"
+        )
+
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_update_application_not_found():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application",
+              AsyncMock(side_effect=LookupError("Application x not found"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await update_application(
+                application_id=str(uuid.uuid4()), user_status="applied"
+            )
+    assert exc.value.error.code == -32001
