@@ -483,6 +483,11 @@
     "statusApplied": "Beworben",
     "statusRejected": "Abgelehnt",
     "statusOffer": "Angebot",
+    "statusHired": "Eingestellt",
+    "statusSelectLabel": "Bewerbungsstatus",
+    "filterAll": "Alle ({count})",
+    "filterStatusChip": "{label} ({count})",
+    "noApplicationsForFilter": "Keine Bewerbungen mit diesem Status.",
     "modalDescription": "Füge eine Stellenbeschreibungs-URL oder Text ein, um eine neue Bewerbung zu starten. Dein bestehendes Profil wird verwendet — kein erneutes Hochladen nötig.",
     "jdTabUrl": "URL",
     "jdTabText": "Text einfügen",
@@ -638,7 +643,13 @@
     "appliedAt": "Beworben am",
     "unknownRole": "Unbekannte Rolle",
     "sourceLink": "Link zur Stellenanzeige",
-    "sourceLinkPlaceholder": "https://… (wo du diese Stelle gefunden hast)"
+    "sourceLinkPlaceholder": "https://… (wo du diese Stelle gefunden hast)",
+    "markAppliedTitle": "Bewerbung abgeschickt?",
+    "markAppliedBody": "Du hast diesen Lebenslauf gerade heruntergeladen. Wenn die Bewerbung raus ist, markiere sie als „Beworben“, damit dein Dashboard den echten Stand zeigt.",
+    "markAppliedConfirm": "Als „Beworben“ markieren",
+    "markAppliedDecline": "Noch nicht",
+    "staleStatusPrompt": "Diese Bewerbung steht seit {days} Tagen auf „{status}“ – ist das noch aktuell?",
+    "staleStatusStillCurrent": "Noch aktuell"
   },
   "import": {
     "title": "Lebenslauf importieren"

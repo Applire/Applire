@@ -35,7 +35,9 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
+import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -78,6 +80,12 @@ export default function CVPage({
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
   // `null` = closed.
   const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
+  // E039/US218 natural-moment prompt: after a download, offer to mark the
+  // application as applied (only when it's still in `tracking`). `null` = closed.
+  const [markAppliedPrompt, setMarkAppliedPrompt] = useState<{
+    applicationId: string;
+    stampAppliedAt: boolean;
+  } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
@@ -233,8 +241,25 @@ export default function CVPage({
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+      void offerMarkApplied();
     } catch {
       // silently fail
+    }
+  }
+
+  // The download is the cheapest truthful moment to update the pipeline status
+  // (E039/US218, FMEA JF-E-P2.1). Only nudge while the application is still
+  // `tracking` — anything later means the user already maintains the status.
+  async function offerMarkApplied() {
+    const applicationId = flowState?.application_id;
+    if (!applicationId) return;
+    try {
+      const app = await getApplication(applicationId);
+      if (app.user_status === "tracking") {
+        setMarkAppliedPrompt({ applicationId, stampAppliedAt: app.applied_at == null });
+      }
+    } catch {
+      // Best-effort — no prompt is fine.
     }
   }
 
@@ -369,6 +394,13 @@ export default function CVPage({
               />
             </div>
           </div>
+        )}
+        {markAppliedPrompt && (
+          <MarkAppliedPrompt
+            applicationId={markAppliedPrompt.applicationId}
+            stampAppliedAt={markAppliedPrompt.stampAppliedAt}
+            onClose={() => setMarkAppliedPrompt(null)}
+          />
         )}
         {showCoverLetterModal && flowState?.job_id && (
           <GenerateCoverLetterModal

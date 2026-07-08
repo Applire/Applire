@@ -16,8 +16,9 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DashboardApplicationCard } from "../DashboardApplicationCard";
+import { patchApplicationStatus } from "@/lib/api/applications";
 
 const mockPush = vi.fn();
 
@@ -27,6 +28,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
+}));
+
+vi.mock("@/lib/api/applications", () => ({
+  patchApplicationStatus: vi.fn().mockResolvedValue({ user_status: "interviewing" }),
 }));
 
 vi.mock("@/lib/profile-roles", () => ({
@@ -192,6 +197,42 @@ describe("DashboardApplicationCard", () => {
   it("renders fallback text when roleTitle is null", () => {
     renderCard({ roleTitle: null, companyName: null });
     expect(screen.getByText("unknownRole")).toBeInTheDocument();
+  });
+
+  // ── Status pipeline control (E039/US218) ─────────────────────────────────
+
+  it("renders a status select with the current user status", () => {
+    renderCard({ userStatus: "applied" });
+    const select = screen.getByRole("combobox", { name: "statusSelectLabel" });
+    expect(select).toHaveValue("applied");
+  });
+
+  it("defaults the status select to tracking when userStatus is absent", () => {
+    renderCard();
+    expect(screen.getByRole("combobox", { name: "statusSelectLabel" })).toHaveValue("tracking");
+  });
+
+  it("offers all six pipeline statuses", () => {
+    renderCard();
+    const select = screen.getByRole("combobox", { name: "statusSelectLabel" });
+    const values = Array.from(select.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    expect(values).toEqual(["tracking", "applied", "interviewing", "offer", "rejected", "hired"]);
+  });
+
+  it("changing the status PATCHes the application and notifies the parent", async () => {
+    const onStatusChange = vi.fn();
+    renderCard({ userStatus: "applied", onStatusChange });
+    fireEvent.change(screen.getByRole("combobox", { name: "statusSelectLabel" }), {
+      target: { value: "interviewing" },
+    });
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith("interviewing"));
+    expect(patchApplicationStatus).toHaveBeenCalledWith("app-1", "interviewing");
+  });
+
+  it("clicking the status select does not navigate to the detail page", () => {
+    renderCard();
+    fireEvent.click(screen.getByRole("combobox", { name: "statusSelectLabel" }));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   // ── Mark as Hired affordance ─────────────────────────────────────────────

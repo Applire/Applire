@@ -27,18 +27,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
+import { patchApplicationStatus } from "@/lib/api/applications";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 type WorkflowStatusLabelKey = "statusAnalyzing" | "statusInterviewing" | "statusGeneratingCV" | "statusCVReady" | "statusTracking";
-type UserStatusLabelKey = "statusTracking" | "statusApplied" | "statusRejected" | "statusOffer";
-
-const USER_STATUS_OPTIONS: Array<{ value: string; labelKey: UserStatusLabelKey; className: string }> = [
-  { value: "tracking", labelKey: "statusTracking",  className: "bg-gray-400 text-white" },
-  { value: "applied",  labelKey: "statusApplied",   className: "bg-blue-500 text-white" },
-  { value: "rejected", labelKey: "statusRejected",  className: "bg-critical text-white" },
-  { value: "offer",    labelKey: "statusOffer",     className: "bg-success text-white" },
-];
 
 const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey; className: string }> = {
   analyzing:    { labelKey: "statusAnalyzing",    className: "bg-teal text-white" },
@@ -85,6 +79,9 @@ export default function ApplicationDetailPage() {
   const [notes, setNotes] = useState("");
   const [deadline, setDeadline] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+
+  // Stale-status refresh prompt (E039/US218, JF-E-P2.1) — session-local dismiss.
+  const [staleDismissed, setStaleDismissed] = useState(false);
 
   useEffect(() => {
     async function loadApplication() {
@@ -155,6 +152,22 @@ export default function ApplicationDetailPage() {
     }
   };
 
+  // Quick status set from the stale-status banner. "Still current" re-PATCHes
+  // the unchanged status — that touches updated_at server-side, resetting the
+  // staleness clock so the prompt doesn't nag on every visit.
+  const handleQuickStatus = async (next: string) => {
+    setStaleDismissed(true);
+    try {
+      const updated = await patchApplicationStatus(appId, next);
+      setUserStatus(next);
+      setApplication((app) =>
+        app ? { ...app, user_status: next, updated_at: updated.updated_at } : app
+      );
+    } catch {
+      // Nudge, not a gate — the regular status select + save still works.
+    }
+  };
+
   const handleResume = () => {
     if (application?.flow_session_id) {
       router.push(`/flow/${application.flow_session_id}`);
@@ -191,6 +204,15 @@ export default function ApplicationDetailPage() {
     ? Math.ceil((new Date(application.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
 
+  const showStalePrompt =
+    !staleDismissed && isStaleStatus(application.user_status, application.updated_at);
+  const staleDays = Math.floor(
+    (Date.now() - new Date(application.updated_at).getTime()) / (24 * 36e5)
+  );
+  const currentStatusOption = USER_STATUS_OPTIONS.find(
+    (o) => o.value === application.user_status
+  );
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
       <AppTopbar
@@ -203,6 +225,47 @@ export default function ApplicationDetailPage() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Stale-status refresh prompt (E039/US218, JF-E-P2.1) */}
+          {showStalePrompt && (
+            <div
+              className="p-4 rounded-lg bg-warning-container border border-warning/40"
+              data-testid="stale-status-prompt"
+            >
+              <p className="text-sm text-on-surface mb-3">
+                {t("staleStatusPrompt", {
+                  status: currentStatusOption ? tDash(currentStatusOption.labelKey) : application.user_status,
+                  days: staleDays,
+                })}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {staleNextStatuses(application.user_status).map((next) => {
+                  const option = USER_STATUS_OPTIONS.find((o) => o.value === next);
+                  if (!option) return null;
+                  return (
+                    <button
+                      key={next}
+                      type="button"
+                      onClick={() => void handleQuickStatus(next)}
+                      className={cn(
+                        "text-xs font-bold px-3 py-1.5 rounded-full",
+                        option.className
+                      )}
+                    >
+                      {tDash(option.labelKey)}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => void handleQuickStatus(application.user_status)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant bg-white hover:bg-surface-container"
+                >
+                  {t("staleStatusStillCurrent")}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Success/Error Messages */}
           {success && (
             <div className="p-4 rounded-lg bg-success/10 border border-success/20">

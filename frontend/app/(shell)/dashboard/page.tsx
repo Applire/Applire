@@ -26,6 +26,8 @@ import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressB
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
+import { USER_STATUS_OPTIONS, countByUserStatus } from "@/lib/user-status";
+import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const MAX_CARDS = 6;
@@ -47,6 +49,8 @@ export default function DashboardPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [userName, setUserName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Pipeline filter (E039/US218) — null = all statuses.
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   // Bumped when background CV imports finish (PQ F1) — remounts the Profile
   // Strength card so it re-fetches instead of keeping the pre-import score.
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
@@ -87,8 +91,18 @@ export default function DashboardPage() {
     }
   }
 
+  function handleStatusChange(appId: string, userStatus: string) {
+    setApplications((apps) =>
+      apps.map((a) => (a.id === appId ? { ...a, user_status: userStatus } : a))
+    );
+  }
+
   const firstName = userName?.split(" ")[0] ?? null;
   const inProgress = applications.filter((a) => a.workflow_status !== "none").length;
+  const statusCounts = countByUserStatus(applications);
+  const visibleApplications = statusFilter
+    ? applications.filter((a) => (a.user_status ?? "tracking") === statusFilter)
+    : applications;
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -131,6 +145,42 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Pipeline filter chips (E039/US218) — only statuses that exist get a chip */}
+        {applications.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-3.5 flex-wrap" data-testid="status-filter-chips">
+            <button
+              onClick={() => setStatusFilter(null)}
+              className={cn(
+                "text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors",
+                statusFilter === null
+                  ? "bg-neutral-dark text-white border-neutral-dark"
+                  : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"
+              )}
+            >
+              {t("filterAll", { count: applications.length })}
+            </button>
+            {USER_STATUS_OPTIONS.filter((o) => statusCounts[o.value]).map((option) => (
+              <button
+                key={option.value}
+                onClick={() =>
+                  setStatusFilter((f) => (f === option.value ? null : option.value))
+                }
+                className={cn(
+                  "text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors",
+                  statusFilter === option.value
+                    ? cn(option.className, "border-transparent")
+                    : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"
+                )}
+              >
+                {t("filterStatusChip", {
+                  label: t(option.labelKey),
+                  count: statusCounts[option.value],
+                })}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="grid grid-cols-2 gap-3.5">
             {[...Array(4)].map((_, i) => (
@@ -141,9 +191,13 @@ export default function DashboardPage() {
           <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-dashed border-gray-300">
             <p className="text-[13px] text-gray-400">{t("noApplications")}</p>
           </div>
+        ) : visibleApplications.length === 0 ? (
+          <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-dashed border-gray-300">
+            <p className="text-[13px] text-gray-400">{t("noApplicationsForFilter")}</p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-3.5">
-            {applications.slice(0, MAX_CARDS).map((app) => (
+            {visibleApplications.slice(0, MAX_CARDS).map((app) => (
               <DashboardApplicationCard
                 key={app.id}
                 applicationId={app.id}
@@ -155,6 +209,7 @@ export default function DashboardPage() {
                 updatedAt={app.updated_at}
                 sourceUrl={app.source_url}
                 onStartFlow={() => handleStartFlow(app.id)}
+                onStatusChange={(s) => handleStatusChange(app.id, s)}
               />
             ))}
           </div>

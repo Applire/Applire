@@ -483,6 +483,11 @@
     "statusApplied": "Applied",
     "statusRejected": "Rejected",
     "statusOffer": "Offer",
+    "statusHired": "Hired",
+    "statusSelectLabel": "Application status",
+    "filterAll": "All ({count})",
+    "filterStatusChip": "{label} ({count})",
+    "noApplicationsForFilter": "No applications with this status.",
     "modalDescription": "Paste a job description URL or text to start a new application. Your existing profile will be used — no need to re-upload your CV.",
     "jdTabUrl": "URL",
     "jdTabText": "Paste Text",
@@ -638,7 +643,13 @@
     "appliedAt": "Applied At",
     "unknownRole": "Unknown Role",
     "sourceLink": "Link to the job posting",
-    "sourceLinkPlaceholder": "https://… (where you found this job)"
+    "sourceLinkPlaceholder": "https://… (where you found this job)",
+    "markAppliedTitle": "Application submitted?",
+    "markAppliedBody": "You just downloaded this CV. If the application went out, mark it as applied so your dashboard reflects the real state.",
+    "markAppliedConfirm": "Mark as applied",
+    "markAppliedDecline": "Not yet",
+    "staleStatusPrompt": "This application has been on \"{status}\" for {days} days — is that still up to date?",
+    "staleStatusStillCurrent": "Still current"
   },
   "import": {
     "title": "Import CV"

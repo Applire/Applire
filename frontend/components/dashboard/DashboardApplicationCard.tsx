@@ -23,6 +23,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
+import { patchApplicationStatus } from "@/lib/api/applications";
+import { USER_STATUS_OPTIONS } from "@/lib/user-status";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
 
@@ -39,6 +41,8 @@ export interface DashboardApplicationCardProps {
   updatedAt: string;
   sourceUrl?: string | null;
   onStartFlow?: () => void;
+  /** Notifies the dashboard after a successful status PATCH (filter chips re-count). */
+  onStatusChange?: (userStatus: string) => void;
 }
 
 function deriveCardStatus(workflowStatus: string, updatedAt: string): CardStatus {
@@ -84,6 +88,7 @@ export function DashboardApplicationCard({
   updatedAt,
   sourceUrl,
   onStartFlow,
+  onStatusChange,
 }: DashboardApplicationCardProps) {
   const router = useRouter();
   const tDash = useTranslations("dashboard");
@@ -93,7 +98,25 @@ export function DashboardApplicationCard({
 
   const tHired = useTranslations("profileUpdate.markHired");
   const [hiring, setHiring] = useState(false);
-  const showMarkHired = workflowStatus === "completed" && userStatus !== "hired";
+
+  // Pipeline status (E039/US218) — optimistic local state, reverted on PATCH failure.
+  const [userStatusValue, setUserStatusValue] = useState(userStatus ?? "tracking");
+  const showMarkHired = workflowStatus === "completed" && userStatusValue !== "hired";
+
+  async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value;
+    const previous = userStatusValue;
+    setUserStatusValue(next);
+    try {
+      await patchApplicationStatus(applicationId, next);
+      onStatusChange?.(next);
+    } catch {
+      setUserStatusValue(previous);
+    }
+  }
+
+  const statusOption =
+    USER_STATUS_OPTIONS.find((o) => o.value === userStatusValue) ?? USER_STATUS_OPTIONS[0];
 
   const relativeTime = (() => {
     const h = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 36e5);
@@ -158,9 +181,29 @@ export function DashboardApplicationCard({
         >
           {initial}
         </div>
-        <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
-          {tDash(chip.labelKey)}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {/* Pipeline status control (E039/US218) — editable right on the card */}
+          <select
+            value={userStatusValue}
+            onChange={(e) => void handleStatusChange(e)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={tDash("statusSelectLabel")}
+            title={tDash("statusSelectLabel")}
+            className={cn(
+              "text-[10px] font-bold pl-2 pr-1 py-0.5 rounded-full uppercase tracking-wide cursor-pointer border-0",
+              statusOption.className
+            )}
+          >
+            {USER_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {tDash(option.labelKey)}
+              </option>
+            ))}
+          </select>
+          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
+            {tDash(chip.labelKey)}
+          </span>
+        </div>
       </div>
 
       <p className="text-[14px] font-bold text-gray-900 font-manrope leading-snug truncate">
