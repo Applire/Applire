@@ -66,6 +66,88 @@ async def test_analyze_jd_empty_text_raises():
     assert exc_info.value.error.code == -32602
 
 
+@pytest.mark.asyncio
+async def test_analyze_jd_carries_duplicate_of_hint():
+    """MCP mirror of the Branch F enrichment (E039/US220) — the agent channel
+    must see the same repost hint as the UI."""
+    from datetime import datetime, timezone
+
+    from applire.mcp.server import analyze_jd
+    from applire.schemas.application import DuplicateOfHint
+    from applire.schemas.job import JobAnalysisResponse
+
+    cm, _ = _mock_db()
+    job_id = uuid.uuid4()
+    analysis = JobAnalysisResponse(
+        id=job_id,
+        role_title="Backend Engineer",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+        raw_text_hash="abc",
+    )
+    hint = DuplicateOfHint(
+        application_id=uuid.uuid4(),
+        job_analysis_id=job_id,
+        company_name="Acme GmbH",
+        role_title="Backend Engineer",
+        analyzed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        matched_on="job",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
+        patch(
+            "applire.mcp.server.app_svc.find_duplicate_application",
+            AsyncMock(return_value=hint),
+        ),
+    ):
+        result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
+
+    assert result["duplicate_of"]["matched_on"] == "job"
+    assert result["duplicate_of"]["company_name"] == "Acme GmbH"
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_without_user_still_succeeds():
+    """No user yet (fresh install) — the hint is skipped, analysis still returns."""
+    from applire.mcp.server import analyze_jd
+    from applire.schemas.job import JobAnalysisResponse
+
+    cm, _ = _mock_db()
+    analysis = JobAnalysisResponse(
+        id=uuid.uuid4(),
+        role_title="Backend Engineer",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+        raw_text_hash="abc",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)),
+        patch(
+            "applire.mcp.server._current_user_id",
+            AsyncMock(side_effect=Exception("no user")),
+        ),
+    ):
+        result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
+
+    assert result["role_title"] == "Backend Engineer"
+    assert result["duplicate_of"] is None
+
+
 # ---------------------------------------------------------------------------
 # get_profile
 # ---------------------------------------------------------------------------

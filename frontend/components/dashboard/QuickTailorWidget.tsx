@@ -22,6 +22,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import {
+  DuplicateJdDialog,
+  type DuplicateOfHint,
+} from "@/components/applications/DuplicateJdDialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 type JdMode = "url" | "text";
@@ -38,29 +42,22 @@ export function QuickTailorWidget() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // E039/US220 (journey Branch F): analysis matched a job already in the
+  // pipeline — hold the create step until the user picks open-existing /
+  // continue-as-new / dismiss. Recognition, never a gate.
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    jobId: string;
+    hint: DuplicateOfHint;
+  } | null>(null);
 
   const canSubmit = (mode === "url" && url.trim()) || (mode === "text" && text.trim());
 
-  async function handleSubmit() {
-    if (!canSubmit) return;
+  async function createApplicationAndRoute(jobId: string) {
     setLoading(true);
     setError("");
     try {
-      const jdPayload = mode === "url" ? { url } : { text };
-      const analyzeRes = await fetch(`${API_BASE}/api/job/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(jdPayload),
-      });
-      if (!analyzeRes.ok) {
-        const err = await analyzeRes.json();
-        setError(err.detail ?? tDash("errorAnalysisFailed"));
-        return;
-      }
-      const jobData = await analyzeRes.json();
-
       const createBody: Record<string, unknown> = {
-        job_analysis_id: jobData.id,
+        job_analysis_id: jobId,
         start_workflow: true,
       };
       if (mode === "text" && sourceUrl.trim()) {
@@ -87,8 +84,52 @@ export function QuickTailorWidget() {
     }
   }
 
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setLoading(true);
+    setError("");
+    try {
+      const jdPayload = mode === "url" ? { url } : { text };
+      const analyzeRes = await fetch(`${API_BASE}/api/job/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(jdPayload),
+      });
+      if (!analyzeRes.ok) {
+        const err = await analyzeRes.json();
+        setError(err.detail ?? tDash("errorAnalysisFailed"));
+        return;
+      }
+      const jobData = await analyzeRes.json();
+
+      if (jobData.duplicate_of) {
+        setDuplicatePrompt({ jobId: jobData.id, hint: jobData.duplicate_of });
+        return;
+      }
+      await createApplicationAndRoute(jobData.id);
+    } catch {
+      setError(tDash("errorUnexpected"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="bg-white rounded-[14px] border border-gray-200 shadow-sm px-[22px] py-5 relative overflow-hidden">
+      {duplicatePrompt && (
+        <DuplicateJdDialog
+          hint={duplicatePrompt.hint}
+          onOpenExisting={() =>
+            router.push(`/applications/${duplicatePrompt.hint.application_id}`)
+          }
+          onContinueNew={() => {
+            const jobId = duplicatePrompt.jobId;
+            setDuplicatePrompt(null);
+            void createApplicationAndRoute(jobId);
+          }}
+          onDismiss={() => setDuplicatePrompt(null)}
+        />
+      )}
       {/* gradient top-border */}
       <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-gold via-primary to-gold" />
 

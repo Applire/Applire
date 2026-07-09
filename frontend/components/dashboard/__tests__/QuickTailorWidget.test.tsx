@@ -19,9 +19,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QuickTailorWidget } from "../QuickTailorWidget";
 
-// next-intl mock
+// next-intl mock (useLocale: the embedded DuplicateJdDialog formats dates)
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => "de",
 }));
 
 const mockPush = vi.fn();
@@ -141,5 +142,100 @@ describe("QuickTailorWidget", () => {
     // The flow index page owns step routing; pushing a step directly
     // desyncs the flow state machine for returning users.
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
+  });
+
+  // E039/US220 — journey Branch F: duplicate-JD recognition
+  describe("duplicate-JD hint", () => {
+    const DUP_HINT = {
+      application_id: "app-9",
+      job_analysis_id: "job-1",
+      company_name: "DataCraft GmbH",
+      role_title: "Senior Data Analyst",
+      analyzed_at: "2026-07-05T10:00:00Z",
+      matched_on: "job",
+    };
+
+    function analyzeWithHint() {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: "job-1", duplicate_of: DUP_HINT }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: "app-new", flow_session_id: "flow-2" }),
+        });
+      render(<QuickTailorWidget />);
+      fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+        target: { value: "https://example.de/job/123" },
+      });
+      fireEvent.click(screen.getByText("analyseButton"));
+    }
+
+    it("shows the Branch F dialog instead of silently creating the application", async () => {
+      analyzeWithHint();
+      await waitFor(() =>
+        expect(screen.getByTestId("duplicate-jd-dialog")).toBeInTheDocument(),
+      );
+      // no application was created, no navigation happened
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("'open existing' navigates to the existing application", async () => {
+      analyzeWithHint();
+      await waitFor(() =>
+        expect(screen.getByTestId("duplicate-jd-dialog")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("duplicate-jd-open-existing"));
+      expect(mockPush).toHaveBeenCalledWith("/applications/app-9");
+      expect(global.fetch).toHaveBeenCalledTimes(1); // still no create call
+    });
+
+    it("'continue as new' proceeds with the normal create + flow routing", async () => {
+      analyzeWithHint();
+      await waitFor(() =>
+        expect(screen.getByTestId("duplicate-jd-dialog")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("duplicate-jd-continue-new"));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-2"));
+      const createCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
+      expect(JSON.parse(createCall[1].body)).toMatchObject({
+        job_analysis_id: "job-1",
+        start_workflow: true,
+      });
+    });
+
+    it("dismissing the dialog leaves the dashboard untouched (never blocks)", async () => {
+      analyzeWithHint();
+      await waitFor(() =>
+        expect(screen.getByTestId("duplicate-jd-dialog")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("duplicate-jd-dismiss"));
+      expect(screen.queryByTestId("duplicate-jd-dialog")).not.toBeInTheDocument();
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("no dialog when the analysis carries no hint", async () => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: "job-1", duplicate_of: null }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: "app-1", flow_session_id: "flow-1" }),
+        });
+      render(<QuickTailorWidget />);
+      fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+        target: { value: "https://example.de/job/123" },
+      });
+      fireEvent.click(screen.getByText("analyseButton"));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
+      expect(screen.queryByTestId("duplicate-jd-dialog")).not.toBeInTheDocument();
+    });
   });
 });

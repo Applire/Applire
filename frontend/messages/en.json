@@ -664,7 +664,13 @@
     "openPdf": "Open PDF",
     "coverLetterSubmitted": "Cover letter (submitted)",
     "markSubmittedAction": "Mark as submitted",
-    "submittedRemove": "Remove mark"
+    "submittedRemove": "Remove mark",
+    "duplicateTitle": "You may already know this job",
+    "duplicateBody": "This looks like the job you analyzed on {date} ({company} — {role}).",
+    "duplicateBodyPlain": "This looks like the job you analyzed on {date}.",
+    "duplicateOpenExisting": "Open existing application (analyzed {date})",
+    "duplicateContinueNew": "Continue as new",
+    "duplicateDismiss": "Close"
   },
   "import": {
     "title": "Import CV"

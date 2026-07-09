@@ -30,6 +30,7 @@ Manages the Application entity lifecycle:
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,7 @@ from applire.schemas.application import (
     ApplicationListResponse,
     ApplicationResponse,
     CreateApplicationRequest,
+    DuplicateOfHint,
     PatchApplicationRequest,
 )
 from applire.schemas.application_mark_hired import MarkHiredResponse
@@ -335,9 +337,104 @@ async def mark_application_hired(
     )
 
 
+async def find_duplicate_application(
+    user_id: uuid.UUID,
+    *,
+    job_analysis_id: uuid.UUID,
+    source_url: str | None,
+    raw_text: str,
+    db: AsyncSession,
+) -> DuplicateOfHint | None:
+    """Check a freshly analyzed JD against the USER'S pipeline (E039/US220).
+
+    Journey Branch F: senior roles get reposted across boards — recognise the
+    job Emma already has instead of letting a phantom application appear.
+    Conservative first cut (journey OQ #10 owns any fuzzy threshold later):
+
+      1. "job"        — the analyzed JD resolved to a job_analysis row the user
+                        already has an application for (analyze_jd's global
+                        URL/text-hash dedup collapses exact reposts upstream)
+      2. "source_url" — normalized URL equality against the sibling job's URL
+                        or the application's dossier source_url (text-tab capture)
+      3. "text"       — whitespace/case-normalized JD-text equality
+
+    Per-user boundary (epic 4.1 🔒): the query starts from `applications`
+    (user-scoped) and reaches job_analyses only through the user's own rows —
+    the shared/global job_analyses table is never scanned across users.
+    """
+    result = await db.execute(
+        select(Application, JobAnalysis)
+        .join(JobAnalysis, Application.job_analysis_id == JobAnalysis.id)
+        .where(
+            Application.user_id == user_id,
+            Application.deleted_at.is_(None),
+        )
+        .order_by(Application.updated_at.desc())
+    )
+    rows = result.all()
+    if not rows:
+        return None
+
+    norm_url = _normalize_source_url(source_url)
+    norm_text = _normalize_jd_text(raw_text)
+
+    for app, sibling_job in rows:
+        if app.job_analysis_id == job_analysis_id:
+            matched_on = "job"
+        elif norm_url is not None and norm_url in (
+            _normalize_source_url(sibling_job.source_url),
+            _normalize_source_url(app.source_url),
+        ):
+            matched_on = "source_url"
+        elif norm_text and norm_text == _normalize_jd_text(sibling_job.raw_text):
+            matched_on = "text"
+        else:
+            continue
+        return DuplicateOfHint(
+            application_id=app.id,
+            job_analysis_id=app.job_analysis_id,
+            company_name=app.company_name,
+            role_title=app.role_title,
+            analyzed_at=app.created_at,
+            matched_on=matched_on,
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+# Query params that identify a click, not a job — stripped before URL comparison.
+_TRACKING_PARAMS = {"gclid", "fbclid", "ref", "source", "src", "cid"}
+
+
+def _normalize_source_url(url: str | None) -> str | None:
+    """Conservative URL identity: scheme, www., trailing slash, fragment and
+    tracking params are noise; the rest of the query stays (board job ids often
+    live there)."""
+    if not url or not url.strip():
+        return None
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    if not host:
+        return url.strip().lower().rstrip("/")
+    query = urlencode(
+        [
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if not k.lower().startswith("utm_") and k.lower() not in _TRACKING_PARAMS
+        ]
+    )
+    base = f"{host}{parts.path.rstrip('/')}"
+    return f"{base}?{query}" if query else base
+
+
+def _normalize_jd_text(text: str | None) -> str:
+    """Near-exact text identity: case and whitespace runs are repost noise."""
+    if not text:
+        return ""
+    return " ".join(text.lower().split())
 
 
 async def _validate_pin(

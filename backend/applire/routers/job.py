@@ -16,6 +16,7 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -34,10 +35,13 @@ from applire.schemas.gap import (
     GapJobStatusResponse,
 )
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
+from applire.services.application import find_duplicate_application
 from applire.services.gap import analyze_gaps
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
 from applire.services.job import analyze_jd
 from applire.services.scraper import ScraperError, scrape_job_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/job", tags=["job"])
 
@@ -49,9 +53,10 @@ def _get_provider() -> LLMProvider:
 @router.post("/analyze", response_model=JobAnalysisResponse, status_code=status.HTTP_200_OK)
 async def analyze_job_description(
     body: JobAnalyzeRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> JobAnalysisResponse:
     if body.url:
         try:
@@ -72,7 +77,7 @@ async def analyze_job_description(
         source_url = None
 
     try:
-        return await analyze_jd(text, db, provider, source_url=source_url)
+        analysis = await analyze_jd(text, db, provider, source_url=source_url)
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -89,6 +94,24 @@ async def analyze_job_description(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+    # Branch F (E039/US220): flag a repost of a job already in the user's
+    # pipeline. Best-effort read-model enrichment — a failure here must never
+    # take down a successful analysis, so log-and-continue instead of raising.
+    try:
+        user = await auth.get_current_user(request)
+        if user is not None:
+            analysis.duplicate_of = await find_duplicate_application(
+                user.id,
+                job_analysis_id=analysis.id,
+                source_url=source_url,
+                raw_text=text,
+                db=db,
+            )
+    except Exception:
+        logger.warning("duplicate-JD check failed; returning analysis without hint.", exc_info=True)
+
+    return analysis
 
 
 @router.get("/{job_id}", response_model=JobAnalysisResponse, status_code=status.HTTP_200_OK)

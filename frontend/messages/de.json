@@ -664,7 +664,13 @@
     "openPdf": "PDF öffnen",
     "coverLetterSubmitted": "Anschreiben (eingereicht)",
     "markSubmittedAction": "Als eingereicht markieren",
-    "submittedRemove": "Markierung entfernen"
+    "submittedRemove": "Markierung entfernen",
+    "duplicateTitle": "Diese Stelle kennst du vielleicht schon",
+    "duplicateBody": "Das sieht aus wie die Stelle, die du am {date} analysiert hast ({company} – {role}).",
+    "duplicateBodyPlain": "Das sieht aus wie die Stelle, die du am {date} analysiert hast.",
+    "duplicateOpenExisting": "Vorhandene Bewerbung öffnen (analysiert am {date})",
+    "duplicateContinueNew": "Als neue Bewerbung fortfahren",
+    "duplicateDismiss": "Schließen"
   },
   "import": {
     "title": "Lebenslauf importieren"

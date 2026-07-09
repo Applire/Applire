@@ -19,10 +19,28 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
 from applire.models.application import UserStatus, WorkflowStatus
+
+
+class DuplicateOfHint(BaseModel):
+    """Read model for the duplicate-JD hint (E039/US220, journey Branch F).
+
+    Rides on the analyze response when the freshly analyzed JD matches one of
+    the USER'S existing applications. analyzed_at is the application's
+    created_at — the shared job_analyses row's timestamp may belong to another
+    user's first analysis, which must never leak into this hint.
+    """
+
+    application_id: uuid.UUID
+    job_analysis_id: uuid.UUID
+    company_name: str | None = None
+    role_title: str | None = None
+    analyzed_at: datetime
+    matched_on: Literal["job", "source_url", "text"]
 
 
 class CreateApplicationRequest(BaseModel):

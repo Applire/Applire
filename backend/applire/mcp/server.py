@@ -180,7 +180,11 @@ async def import_cv(
 @mcp.tool(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
-        "Provide exactly one of: text (the JD body) or url (scraped server-side)."
+        "Provide exactly one of: text (the JD body) or url (scraped server-side). "
+        "If the JD matches a job already in the user's application pipeline "
+        "(repost recognition), the response carries a duplicate_of hint with the "
+        "existing application_id — offer to open that application instead of "
+        "creating a new one; never block on it."
     )
 )
 async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
@@ -205,6 +209,20 @@ async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
             result = await job_svc.analyze_jd(jd_text, db, provider, source_url=source_url)
         except Exception as exc:
             raise internal(str(exc))
+        # Branch F (E039/US220): repost hint against the user's own pipeline.
+        # Best-effort — no user yet (fresh install) or any lookup failure just
+        # skips the hint; the analysis itself must never fail because of it.
+        try:
+            uid = await _current_user_id(db)
+            result.duplicate_of = await app_svc.find_duplicate_application(
+                uid,
+                job_analysis_id=result.id,
+                source_url=source_url,
+                raw_text=jd_text,
+                db=db,
+            )
+        except Exception:
+            pass
     return result.model_dump(mode="json")
 
 
