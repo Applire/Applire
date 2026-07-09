@@ -28,6 +28,7 @@ import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard"
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
 import { USER_STATUS_OPTIONS, countByUserStatus } from "@/lib/user-status";
 import { cn } from "@/lib/utils";
+import type { StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const MAX_CARDS = 6;
@@ -43,6 +44,7 @@ interface Application {
   source_url?: string | null;
   submitted_cv_id?: string | null;
   submitted_cv_created_at?: string | null;
+  stale_cv?: StaleCVInfo | null;
 }
 
 export default function DashboardPage() {
@@ -212,6 +214,7 @@ export default function DashboardPage() {
                 sourceUrl={app.source_url}
                 submittedCvId={app.submitted_cv_id}
                 submittedCvCreatedAt={app.submitted_cv_created_at}
+                staleCv={app.stale_cv}
                 onStartFlow={() => handleStartFlow(app.id)}
                 onStatusChange={(s) => handleStatusChange(app.id, s)}
               />

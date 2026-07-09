@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
 import { patchApplicationStatus } from "@/lib/api/applications";
 import { SubmittedDocumentsCard } from "@/components/applications/SubmittedDocumentsCard";
+import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
+import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -60,6 +62,7 @@ interface ApplicationDetail {
   submitted_cv_id: string | null;
   submitted_cv_created_at: string | null;
   submitted_cover_letter_id: string | null;
+  stale_cv?: StaleCVInfo | null;
   flow_session_id: string | null;
   flow_current_step: string | null;
   created_at: string;
@@ -87,6 +90,10 @@ export default function ApplicationDetailPage() {
 
   // Stale-status refresh prompt (E039/US218, JF-E-P2.1) — session-local dismiss.
   const [staleDismissed, setStaleDismissed] = useState(false);
+
+  // Stale-CV re-tailor nudge (E039/US221, Branch H) — dismissal is PERSISTED
+  // server-side (stale_cv_dismissed_at), unlike the session-local one above.
+  const [retailoring, setRetailoring] = useState(false);
 
   useEffect(() => {
     async function loadApplication() {
@@ -170,6 +177,55 @@ export default function ApplicationDetailPage() {
       );
     } catch {
       // Nudge, not a gate — the regular status select + save still works.
+    }
+  };
+
+  // One-click re-tailor (E039/US221): a NEW version through the EXISTING
+  // generation pipeline (POST /api/cv/generate) with the stale version's
+  // template, landing on the flow CV page which picks up the pending job.
+  // The pinned submitted version is never touched. The gained delta rides
+  // along as a query param so the new version can explain itself.
+  const handleRetailor = async () => {
+    if (!application?.stale_cv || !application.flow_session_id) return;
+    setRetailoring(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/cv/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: application.job_analysis_id,
+          template: application.stale_cv.latest_cv_template,
+        }),
+      });
+      if (!res.ok) {
+        setError(t("staleCvRetailorFailed"));
+        return;
+      }
+      const gained = encodeGained(application.stale_cv.gained);
+      router.push(
+        `/flow/${application.flow_session_id}/cv${gained ? `?retailored=${encodeURIComponent(gained)}` : "?retailored=1"}`
+      );
+    } catch {
+      setError(t("staleCvRetailorFailed"));
+    } finally {
+      setRetailoring(false);
+    }
+  };
+
+  const handleStaleCvDismiss = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/applications/${appId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismiss_stale_cv: true }),
+      });
+      if (res.ok) {
+        const updated: ApplicationDetail = await res.json();
+        setApplication(updated);
+      }
+    } catch {
+      // Nudge, not a gate — leaving the banner up is the worst case.
     }
   };
 
@@ -269,6 +325,17 @@ export default function ApplicationDetailPage() {
                 </button>
               </div>
             </div>
+          )}
+
+          {/* Stale-CV re-tailor nudge (E039/US221, journey Branch H) */}
+          {application.stale_cv && (
+            <StaleCvBanner
+              gained={application.stale_cv.gained}
+              canRetailor={!!application.flow_session_id}
+              retailoring={retailoring}
+              onRetailor={() => void handleRetailor()}
+              onDismiss={() => void handleStaleCvDismiss()}
+            />
           )}
 
           {/* Success/Error Messages */}

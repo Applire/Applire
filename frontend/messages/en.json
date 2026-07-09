@@ -349,7 +349,10 @@
     "actionsTab": "Actions",
     "markSubmitted": "Mark as submitted",
     "markSubmittedPinned": "Marked as submitted",
-    "markSubmittedRemove": "Remove mark"
+    "markSubmittedRemove": "Remove mark",
+    "retailoredNote": "Re-tailored — your profile gained since the previous version: {gained}",
+    "retailoredNotePlain": "Re-tailored from your current profile",
+    "retailoredNoteClose": "Close note"
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
@@ -524,7 +527,9 @@
     "profileCompleteButton": "Complete Profile",
     "sentBadge": "Sent · {date}",
     "sentBadgeAriaLabel": "Submitted version from {date}",
-    "sentBadgePlain": "Sent"
+    "sentBadgePlain": "Sent",
+    "staleCvBadge": "Profile grew",
+    "staleCvBadgeTitle": "Your profile has grown since this application's latest CV"
   },
   "profile": {
     "title": "My Profile",
@@ -670,7 +675,14 @@
     "duplicateBodyPlain": "This looks like the job you analyzed on {date}.",
     "duplicateOpenExisting": "Open existing application (analyzed {date})",
     "duplicateContinueNew": "Continue as new",
-    "duplicateDismiss": "Close"
+    "duplicateDismiss": "Close",
+    "staleCvTitle": "Your profile has grown",
+    "staleCvBody": "Since this CV version your profile gained: {gained}. Re-tailor now?",
+    "staleCvBodyPlain": "Your profile has grown since this CV version. Re-tailor now?",
+    "staleCvRetailor": "Re-tailor",
+    "staleCvRetailoring": "Re-tailoring…",
+    "staleCvDismiss": "Dismiss",
+    "staleCvRetailorFailed": "The CV could not be re-tailored. Please try again."
   },
   "import": {
     "title": "Import CV"

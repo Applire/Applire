@@ -125,6 +125,13 @@ class Application(Base):
         ForeignKey("generated_cover_letters.id"), nullable=True
     )
 
+    # --- Stale-CV nudge dismissal (E039/US221) ---
+    # Persisted so "not now" survives reloads; the indicator re-arms when an
+    # enrichment lands AFTER this timestamp (the profile grew again).
+    stale_cv_dismissed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # --- 1:0..1 link to FlowSession ---
     flow_session_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("flow_sessions.id"), nullable=True

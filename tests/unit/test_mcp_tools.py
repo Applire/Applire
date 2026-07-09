@@ -1138,6 +1138,30 @@ async def test_update_application_submitted_pins_pass_through():
 
 
 @pytest.mark.asyncio
+async def test_update_application_dismiss_stale_cv_passes_through():
+    """E039/US221: an agent can dismiss the stale-CV nudge — the flag reaches
+    PatchApplicationRequest as a provided field."""
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), stale_cv=None)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        result = await update_application(
+            application_id=str(uuid.uuid4()),
+            dismiss_stale_cv=True,
+        )
+
+    assert result["stale_cv"] is None
+    req = svc.call_args.args[1]
+    assert req.dismiss_stale_cv is True
+    assert req.model_fields_set == {"dismiss_stale_cv"}
+
+
+@pytest.mark.asyncio
 async def test_update_application_invalid_status_lists_enum_values():
     from applire.mcp.server import update_application
 

@@ -349,7 +349,10 @@
     "actionsTab": "Aktionen",
     "markSubmitted": "Als eingereicht markieren",
     "markSubmittedPinned": "Als eingereicht markiert",
-    "markSubmittedRemove": "Markierung entfernen"
+    "markSubmittedRemove": "Markierung entfernen",
+    "retailoredNote": "Neu zugeschnitten — dein Profil hat seit der letzten Version dazugewonnen: {gained}",
+    "retailoredNotePlain": "Neu zugeschnitten aus deinem aktuellen Profil",
+    "retailoredNoteClose": "Hinweis schließen"
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
@@ -524,7 +527,9 @@
     "profileCompleteButton": "Profil vervollständigen",
     "sentBadge": "Gesendet · {date}",
     "sentBadgeAriaLabel": "Eingereichte Version vom {date}",
-    "sentBadgePlain": "Gesendet"
+    "sentBadgePlain": "Gesendet",
+    "staleCvBadge": "Profil gewachsen",
+    "staleCvBadgeTitle": "Dein Profil ist seit dem letzten Lebenslauf dieser Bewerbung gewachsen"
   },
   "profile": {
     "title": "Mein Profil",
@@ -670,7 +675,14 @@
     "duplicateBodyPlain": "Das sieht aus wie die Stelle, die du am {date} analysiert hast.",
     "duplicateOpenExisting": "Vorhandene Bewerbung öffnen (analysiert am {date})",
     "duplicateContinueNew": "Als neue Bewerbung fortfahren",
-    "duplicateDismiss": "Schließen"
+    "duplicateDismiss": "Schließen",
+    "staleCvTitle": "Dein Profil ist gewachsen",
+    "staleCvBody": "Seit dieser Lebenslauf-Version hat dein Profil dazugewonnen: {gained}. Jetzt neu zuschneiden?",
+    "staleCvBodyPlain": "Dein Profil ist seit dieser Lebenslauf-Version gewachsen. Jetzt neu zuschneiden?",
+    "staleCvRetailor": "Neu zuschneiden",
+    "staleCvRetailoring": "Wird neu zugeschnitten…",
+    "staleCvDismiss": "Ausblenden",
+    "staleCvRetailorFailed": "Der Lebenslauf konnte nicht neu zugeschnitten werden. Bitte versuche es erneut."
   },
   "import": {
     "title": "Lebenslauf importieren"

@@ -96,6 +96,26 @@ describe("DashboardApplicationCard", () => {
     expect(screen.queryByTestId("sent-badge")).toBeNull();
   });
 
+  // ── Stale-CV indicator (E039/US221 — journey Branch H) ───────────────────
+
+  it("shows the profile-grew badge when the backend flags the CV as stale", () => {
+    renderCard({
+      staleCv: {
+        latest_cv_id: "cv-1",
+        latest_cv_created_at: "2026-07-01T10:00:00Z",
+        latest_cv_template: "classic_german",
+        profile_enriched_at: "2026-07-08T10:00:00Z",
+        gained: [{ section: "skills", count: 3 }],
+      },
+    });
+    expect(screen.getByTestId("stale-cv-badge")).toHaveTextContent("staleCvBadge");
+  });
+
+  it("shows no stale badge when the hint is absent", () => {
+    renderCard();
+    expect(screen.queryByTestId("stale-cv-badge")).toBeNull();
+  });
+
   it("renders no source link when sourceUrl is absent", () => {
     renderCard();
     expect(screen.queryByRole("link", { name: "sourceLinkLabel" })).not.toBeInTheDocument();

@@ -39,8 +39,13 @@ import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
+
+// Non-user-facing Material Symbols identifiers — JS consts to avoid the JSX literal rule
+const GROWTH_ICON = "trending_up";
+const CLOSE_ICON = "close";
 
 type Phase = "photo_prompt" | "template_select" | "generating" | "preview" | "complete";
 type CVTemplate = "classic_german" | "modern_swiss" | "executive" | "tech_developer" | "creative_sidebar" | "academic" | "compact_pro";
@@ -69,6 +74,7 @@ export default function CVPage({
   const router = useRouter();
   const t = useTranslations("cv");
   const tDoc = useTranslations("document");
+  const tProfile = useTranslations("profile");
 
   const [phase, setPhase] = useState<Phase | null>(null); // null = initializing
   const [cvId, setCvId] = useState<string | null>(null);
@@ -88,12 +94,22 @@ export default function CVPage({
     stampAppliedAt: boolean;
     submittedCvId?: string;
   } | null>(null);
+  // E039/US221: arrived via one-click re-tailor — the new version explains
+  // itself ("changed because your profile gained X"). null = normal visit.
+  // Read from window.location on mount (useSearchParams would force a
+  // Suspense boundary on this page for no gain).
+  const [retailoredGained, setRetailoredGained] = useState<StaleCVGained[] | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
   const [atsRefresh, setAtsRefresh] = useState(0);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
+
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get("retailored");
+    if (param) setRetailoredGained(decodeGained(param));
+  }, []);
 
   // Restore state from server on mount — determine correct phase before rendering
   useEffect(() => {
@@ -363,6 +379,33 @@ export default function CVPage({
 
     return (
       <div data-testid="cv-page">
+        {/* E039/US221: the freshly re-tailored version explains itself —
+            "changed because your profile gained X" (delta from the nudge). */}
+        {retailoredGained !== null && (
+          <div
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-[55] max-w-xl w-[calc(100%-2rem)] flex items-start gap-2 p-3 rounded-lg bg-primary-container border border-primary/30 shadow-md"
+            data-testid="retailored-note"
+          >
+            <span className="material-symbols-outlined text-primary" aria-hidden="true" style={{ fontSize: 18 }}>
+              {GROWTH_ICON}
+            </span>
+            <p className="flex-1 text-sm text-on-surface">
+              {retailoredGained.length > 0
+                ? t("retailoredNote", { gained: formatGained(retailoredGained, tProfile) })
+                : t("retailoredNotePlain")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setRetailoredGained(null)}
+              aria-label={t("retailoredNoteClose")}
+              className="text-on-surface-variant hover:text-on-surface"
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                {CLOSE_ICON}
+              </span>
+            </button>
+          </div>
+        )}
         <DocumentWorkspace
           flowId={flowId}
           activeDoc="cv"

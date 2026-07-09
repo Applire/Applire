@@ -53,6 +53,8 @@ from applire.schemas.application import (
     CreateApplicationRequest,
     DuplicateOfHint,
     PatchApplicationRequest,
+    StaleCVGained,
+    StaleCVInfo,
 )
 from applire.schemas.application_mark_hired import MarkHiredResponse
 from applire.schemas.profile import MasterProfileData
@@ -183,6 +185,7 @@ async def list_applications(
                 data.flow_current_step = flow.current_step
         items.append(data)
     await _enrich_submitted_cv_meta(items, db)
+    await _enrich_stale_cv(items, db)
     return ApplicationListResponse(items=items, total=len(items))
 
 
@@ -190,6 +193,7 @@ async def get_application(application_id: uuid.UUID, db: AsyncSession) -> Applic
     app = await _get_or_404(application_id, db)
     data = ApplicationResponse.model_validate(app)
     await _enrich_submitted_cv_meta([data], db)
+    await _enrich_stale_cv([data], db)
     return data
 
 
@@ -237,11 +241,17 @@ async def patch_application(
             )
         app.submitted_cover_letter_id = provided["submitted_cover_letter_id"]
 
+    # Stale-CV nudge dismissal (E039/US221): stamp-only — the indicator re-arms
+    # by itself when a NEWER enrichment lands, so there is no un-dismiss.
+    if request.dismiss_stale_cv:
+        app.stale_cv_dismissed_at = datetime.now(timezone.utc)
+
     _touch(app)
     await db.commit()
     await db.refresh(app)
     data = ApplicationResponse.model_validate(app)
     await _enrich_submitted_cv_meta([data], db)
+    await _enrich_stale_cv([data], db)
     return data
 
 
@@ -476,6 +486,114 @@ async def _enrich_submitted_cv_meta(
     for item in items:
         if item.submitted_cv_id is not None:
             item.submitted_cv_created_at = created_map.get(item.submitted_cv_id)
+
+
+# No re-tailor nudge once the pipeline has ended — there is nothing left to send.
+_STALE_CV_TERMINAL_STATUSES = {UserStatus.rejected.value, UserStatus.hired.value}
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    """SQLite returns naive datetimes and legacy trail entries may lack an
+    offset — treat both as UTC so comparisons never mix aware and naive."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _parse_trail_timestamp(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return _as_utc(value)
+    if isinstance(value, str):
+        try:
+            return _as_utc(datetime.fromisoformat(value))
+        except ValueError:
+            return None
+    return None
+
+
+async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -> None:
+    """Fill the stale_cv read model (E039/US221, journey Branch H).
+
+    An application is stale when its newest READY generated CV predates the
+    newest Master-Profile enrichment record — the profile grew after tailoring.
+    The `gained` delta aggregates the enrichment changes newer than that CV so
+    the nudge can explain WHAT grew. Dismissal (stale_cv_dismissed_at) mutes
+    the hint until an even newer enrichment lands. Batched for the dashboard:
+    one profile read + one CV query for the whole page.
+    """
+    candidates = [
+        i for i in items if i.user_status not in _STALE_CV_TERMINAL_STATUSES
+    ]
+    if not candidates:
+        return
+
+    profile_result = await db.execute(
+        select(MasterProfile.profile_json)
+        .where(MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc())
+        .limit(1)
+    )
+    profile_json = profile_result.scalar_one_or_none()
+    if not profile_json:
+        return
+    trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
+    records: list[tuple[datetime, list[dict]]] = []
+    for rec in trail:
+        ts = _parse_trail_timestamp(rec.get("timestamp"))
+        if ts is not None:
+            records.append((ts, rec.get("changes") or []))
+    if not records:
+        return
+    enriched_at = max(ts for ts, _ in records)
+
+    job_ids = {i.job_analysis_id for i in candidates}
+    cv_result = await db.execute(
+        select(
+            GeneratedCV.id,
+            GeneratedCV.job_analysis_id,
+            GeneratedCV.created_at,
+            GeneratedCV.template,
+        )
+        .where(
+            GeneratedCV.job_analysis_id.in_(job_ids),
+            GeneratedCV.status == "ready",
+            GeneratedCV.deleted_at.is_(None),
+        )
+        .order_by(GeneratedCV.created_at.desc())
+    )
+    latest_by_job: dict[uuid.UUID, tuple] = {}
+    for row in cv_result:
+        latest_by_job.setdefault(row.job_analysis_id, row)  # first = newest
+
+    for item in candidates:
+        latest = latest_by_job.get(item.job_analysis_id)
+        if latest is None:
+            continue
+        cv_created_at = _as_utc(latest.created_at)
+        if enriched_at <= cv_created_at:
+            continue
+        dismissed_at = _as_utc(item.stale_cv_dismissed_at)
+        if dismissed_at is not None and enriched_at <= dismissed_at:
+            continue
+
+        section_counts: dict[str, int] = {}
+        for ts, changes in records:
+            if ts <= cv_created_at:
+                continue
+            for change in changes:
+                section = (change or {}).get("section")
+                if section:
+                    section_counts[section] = section_counts.get(section, 0) + 1
+        item.stale_cv = StaleCVInfo(
+            latest_cv_id=latest.id,
+            latest_cv_created_at=cv_created_at,
+            latest_cv_template=latest.template,
+            profile_enriched_at=enriched_at,
+            gained=[
+                StaleCVGained(section=s, count=c)
+                for s, c in sorted(section_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+        )
 
 
 async def _get_or_404(application_id: uuid.UUID, db: AsyncSession) -> Application:

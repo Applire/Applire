@@ -25,12 +25,14 @@ import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
 import { patchApplicationStatus } from "@/lib/api/applications";
 import { USER_STATUS_OPTIONS } from "@/lib/user-status";
+import type { StaleCVInfo } from "@/lib/stale-cv";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
 
 // Non-user-facing Material Symbols identifiers — JS consts to avoid the JSX literal rule
 const SOURCE_LINK_ICON = "open_in_new";
 const SENT_BADGE_ICON = "send";
+const STALE_CV_ICON = "trending_up";
 
 export interface DashboardApplicationCardProps {
   applicationId: string;
@@ -45,6 +47,9 @@ export interface DashboardApplicationCardProps {
   submittedCvId?: string | null;
   /** The pin's version identity: its creation date (see ApplicationResponse). */
   submittedCvCreatedAt?: string | null;
+  /** Stale-CV hint (E039/US221): profile grew after the newest CV — badge only;
+      the full nudge (delta + re-tailor + dismiss) lives on the detail page. */
+  staleCv?: StaleCVInfo | null;
   onStartFlow?: () => void;
   /** Notifies the dashboard after a successful status PATCH (filter chips re-count). */
   onStatusChange?: (userStatus: string) => void;
@@ -94,6 +99,7 @@ export function DashboardApplicationCard({
   sourceUrl,
   submittedCvId,
   submittedCvCreatedAt,
+  staleCv,
   onStartFlow,
   onStatusChange,
 }: DashboardApplicationCardProps) {
@@ -238,6 +244,18 @@ export function DashboardApplicationCard({
                   date: new Date(submittedCvCreatedAt).toLocaleDateString(),
                 })
               : tDash("sentBadgePlain")}
+          </span>
+        )}
+        {staleCv && (
+          <span
+            data-testid="stale-cv-badge"
+            title={tDash("staleCvBadgeTitle")}
+            className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-container text-primary"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>
+              {STALE_CV_ICON}
+            </span>
+            {tDash("staleCvBadge")}
           </span>
         )}
         {sourceUrl && (

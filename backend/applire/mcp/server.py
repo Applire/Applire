@@ -38,7 +38,7 @@ Tools:
   import_cv         — seed or extend the Master Profile from a PDF or CV text
   add_role          — add a new work-experience role to the Master Profile
   create_application — create a new job application record
-  update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins)
+  update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins, stale-CV dismiss)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
 
@@ -471,7 +471,16 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
     return [item.model_dump(mode="json") for item in result.items]
 
 
-@mcp.tool(description="Get details for a specific application by ID.")
+@mcp.tool(
+    description=(
+        "Get details for a specific application by ID. A non-null stale_cv "
+        "field means the Master Profile grew after the newest CV was tailored "
+        "(stale_cv.gained lists what changed per section) — offer to re-tailor "
+        "via generate_cv for the same job, or mute the hint with "
+        "update_application(dismiss_stale_cv=true). Never regenerate without "
+        "asking; a pinned submitted version is never replaced."
+    )
+)
 async def get_application(application_id: str) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     async with get_db() as db:
@@ -538,7 +547,9 @@ async def create_application(
         "submitted_cv_id / submitted_cover_letter_id pin the exact generated "
         "document that was sent to the employer (must belong to this "
         "application's job); pinned documents are kept while the application "
-        "is active."
+        "is active. dismiss_stale_cv=true mutes an application's stale-CV "
+        "re-tailor hint (the stale_cv field on get/list responses) until the "
+        "profile grows again."
     )
 )
 async def update_application(
@@ -551,6 +562,7 @@ async def update_application(
     source_url: str | None = None,
     submitted_cv_id: str | None = None,
     submitted_cover_letter_id: str | None = None,
+    dismiss_stale_cv: bool | None = None,
 ) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     # Build the request from provided fields only, so PatchApplicationRequest's
@@ -577,11 +589,13 @@ async def update_application(
         fields["submitted_cover_letter_id"] = _parse_uuid(
             submitted_cover_letter_id, "submitted_cover_letter_id"
         )
+    if dismiss_stale_cv is not None:
+        fields["dismiss_stale_cv"] = dismiss_stale_cv
     if not fields:
         raise invalid_input(
             "At least one field must be provided (user_status, company_name, "
             "role_title, notes, deadline, source_url, submitted_cv_id, "
-            "submitted_cover_letter_id)."
+            "submitted_cover_letter_id, dismiss_stale_cv)."
         )
     req = PatchApplicationRequest(**fields)
     async with get_db() as db:
