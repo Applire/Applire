@@ -277,3 +277,63 @@ async def test_response_exposes_pin_fields_as_null_by_default(db, app_with_cv):
     app, _job, _cv = app_with_cv
     assert app.submitted_cv_id is None
     assert app.submitted_cover_letter_id is None
+
+
+# ---------------------------------------------------------------------------
+# Submitted-version read model (E039/US219 frontend — "sent badge with version")
+# ---------------------------------------------------------------------------
+# The version identity is the pinned CV's creation timestamp, NOT an ordinal:
+# retention purges older unpinned CVs (ADR-005), which would renumber "v3" to
+# "v1" — a date stays stable and is what Emma recalls ("the July 5th version").
+
+
+def _naive_equal(a, b) -> bool:
+    """Compare datetimes ignoring tzinfo (SQLite round-trips naive)."""
+    strip = lambda d: d.replace(tzinfo=None)  # noqa: E731
+    return strip(a) == strip(b)
+
+
+@pytest.mark.asyncio
+async def test_patch_response_carries_submitted_cv_created_at(db, app_with_cv):
+    app, _job, cv = app_with_cv
+
+    result = await patch_application(
+        app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db
+    )
+    assert result.submitted_cv_created_at is not None
+    assert _naive_equal(result.submitted_cv_created_at, cv.created_at)
+
+
+@pytest.mark.asyncio
+async def test_get_application_carries_submitted_cv_created_at(db, app_with_cv):
+    from applire.services.application import get_application
+
+    app, _job, cv = app_with_cv
+    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+
+    result = await get_application(app.id, db)
+    assert result.submitted_cv_created_at is not None
+    assert _naive_equal(result.submitted_cv_created_at, cv.created_at)
+
+
+@pytest.mark.asyncio
+async def test_list_applications_carries_submitted_cv_created_at(db, app_with_cv):
+    """The list endpoint feeds the dashboard sent badge — batch enrichment."""
+    from applire.services.application import list_applications
+
+    app, _job, cv = app_with_cv
+    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+
+    result = await list_applications(_STUB_USER_ID, db)
+    item = next(i for i in result.items if i.id == app.id)
+    assert item.submitted_cv_created_at is not None
+    assert _naive_equal(item.submitted_cv_created_at, cv.created_at)
+
+
+@pytest.mark.asyncio
+async def test_submitted_cv_created_at_is_null_when_unpinned(db, app_with_cv):
+    from applire.services.application import get_application
+
+    app, _job, _cv = app_with_cv
+    result = await get_application(app.id, db)
+    assert result.submitted_cv_created_at is None

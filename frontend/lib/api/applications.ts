@@ -24,22 +24,29 @@ export interface ApplicationPatchResult {
   user_status: string;
   applied_at: string | null;
   updated_at: string;
+  submitted_cv_id?: string | null;
+  submitted_cv_created_at?: string | null;
 }
 
 /**
  * PATCH /api/applications/{id} — set the user-managed pipeline status
  * (E039/US218). With `stampAppliedAt`, also records the submission moment;
  * only pass it on the FIRST transition to `applied` (applied_at is otherwise
- * user-owned and must not be silently overwritten).
+ * user-owned and must not be silently overwritten). With `submittedCvId`,
+ * additionally pins the sent CV version in the same PATCH (E039/US219 —
+ * the post-download prompt knows exactly which version just went out).
  */
 export async function patchApplicationStatus(
   applicationId: string,
   userStatus: string,
-  opts: { stampAppliedAt?: boolean } = {},
+  opts: { stampAppliedAt?: boolean; submittedCvId?: string } = {},
 ): Promise<ApplicationPatchResult> {
   const body: Record<string, unknown> = { user_status: userStatus };
   if (opts.stampAppliedAt) {
     body.applied_at = new Date().toISOString();
+  }
+  if (opts.submittedCvId) {
+    body.submitted_cv_id = opts.submittedCvId;
   }
   const res = await fetch(`${API_BASE}/api/applications/${applicationId}`, {
     method: "PATCH",
@@ -50,10 +57,34 @@ export async function patchApplicationStatus(
   return (await res.json()) as ApplicationPatchResult;
 }
 
+/**
+ * PATCH /api/applications/{id} — pin (or with null: unpin) the submitted CV
+ * version (E039/US219, journey Branch G). An explicit null is the backend's
+ * clear semantics, so unpin must send `{"submitted_cv_id": null}`, not omit it.
+ */
+export async function patchSubmittedCv(
+  applicationId: string,
+  cvId: string | null,
+): Promise<ApplicationPatchResult> {
+  const res = await fetch(`${API_BASE}/api/applications/${applicationId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ submitted_cv_id: cvId }),
+  });
+  if (!res.ok) throw new Error(`application patch ${res.status}`);
+  return (await res.json()) as ApplicationPatchResult;
+}
+
 /** GET /api/applications/{id} — used by natural-moment prompts to check current state. */
 export async function getApplication(
   applicationId: string,
-): Promise<{ id: string; user_status: string; applied_at: string | null }> {
+): Promise<{
+  id: string;
+  user_status: string;
+  applied_at: string | null;
+  submitted_cv_id?: string | null;
+  submitted_cv_created_at?: string | null;
+}> {
   const res = await fetch(`${API_BASE}/api/applications/${applicationId}`);
   if (!res.ok) throw new Error(`application get ${res.status}`);
   return await res.json();

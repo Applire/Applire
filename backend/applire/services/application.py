@@ -180,12 +180,15 @@ async def list_applications(
             if flow is not None:
                 data.flow_current_step = flow.current_step
         items.append(data)
+    await _enrich_submitted_cv_meta(items, db)
     return ApplicationListResponse(items=items, total=len(items))
 
 
 async def get_application(application_id: uuid.UUID, db: AsyncSession) -> ApplicationResponse:
     app = await _get_or_404(application_id, db)
-    return ApplicationResponse.model_validate(app)
+    data = ApplicationResponse.model_validate(app)
+    await _enrich_submitted_cv_meta([data], db)
+    return data
 
 
 async def patch_application(
@@ -235,7 +238,9 @@ async def patch_application(
     _touch(app)
     await db.commit()
     await db.refresh(app)
-    return ApplicationResponse.model_validate(app)
+    data = ApplicationResponse.model_validate(app)
+    await _enrich_submitted_cv_meta([data], db)
+    return data
 
 
 async def delete_application(application_id: uuid.UUID, db: AsyncSession) -> None:
@@ -351,6 +356,29 @@ async def _validate_pin(
         raise ValueError(
             f"{field} must reference a document generated for this application's job."
         )
+
+
+async def _enrich_submitted_cv_meta(
+    items: list[ApplicationResponse], db: AsyncSession
+) -> None:
+    """Fill submitted_cv_created_at for pinned items (E039/US219 read model).
+
+    One batched query for the whole page — the dashboard list must not go N+1.
+    The timestamp is the sent badge's "version" identity; ordinals would
+    renumber whenever retention purges an older unpinned CV.
+    """
+    pinned_ids = {i.submitted_cv_id for i in items if i.submitted_cv_id is not None}
+    if not pinned_ids:
+        return
+    result = await db.execute(
+        select(GeneratedCV.id, GeneratedCV.created_at).where(
+            GeneratedCV.id.in_(pinned_ids)
+        )
+    )
+    created_map = {row.id: row.created_at for row in result}
+    for item in items:
+        if item.submitted_cv_id is not None:
+            item.submitted_cv_created_at = created_map.get(item.submitted_cv_id)
 
 
 async def _get_or_404(application_id: uuid.UUID, db: AsyncSession) -> Application:

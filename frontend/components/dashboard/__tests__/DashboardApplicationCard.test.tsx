@@ -27,7 +27,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${Object.values(params).join(",")}` : key,
 }));
 
 vi.mock("@/lib/api/applications", () => ({
@@ -74,6 +75,25 @@ describe("DashboardApplicationCard", () => {
     expect(link).toHaveAttribute("href", "https://jobs.example.com/123");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  // ── Sent badge (E039/US219 — pinned submitted version) ───────────────────
+
+  it("shows the sent badge with the pinned version's date (US219)", () => {
+    renderCard({
+      submittedCvId: "cv-9",
+      submittedCvCreatedAt: "2026-07-05T10:00:00Z",
+    });
+    const badge = screen.getByTestId("sent-badge");
+    // Version identity = the pin's creation date, rendered via the sentBadge key
+    expect(badge).toHaveTextContent(
+      `sentBadge:${new Date("2026-07-05T10:00:00Z").toLocaleDateString()}`,
+    );
+  });
+
+  it("shows no sent badge when nothing is pinned", () => {
+    renderCard();
+    expect(screen.queryByTestId("sent-badge")).toBeNull();
   });
 
   it("renders no source link when sourceUrl is absent", () => {

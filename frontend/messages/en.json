@@ -346,7 +346,10 @@
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Match score: {score}%",
     "profileChangeLog": "{action}: {section}/{field}",
-    "actionsTab": "Actions"
+    "actionsTab": "Actions",
+    "markSubmitted": "Mark as submitted",
+    "markSubmittedPinned": "Marked as submitted",
+    "markSubmittedRemove": "Remove mark"
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
@@ -518,7 +521,10 @@
     "profileCheckSkills": "Skills",
     "profileCheckEducation": "Education",
     "profileCheckSummary": "Summary",
-    "profileCompleteButton": "Complete Profile"
+    "profileCompleteButton": "Complete Profile",
+    "sentBadge": "Sent · {date}",
+    "sentBadgeAriaLabel": "Submitted version from {date}",
+    "sentBadgePlain": "Sent"
   },
   "profile": {
     "title": "My Profile",
@@ -649,7 +655,16 @@
     "markAppliedConfirm": "Mark as applied",
     "markAppliedDecline": "Not yet",
     "staleStatusPrompt": "This application has been on \"{status}\" for {days} days — is that still up to date?",
-    "staleStatusStillCurrent": "Still current"
+    "staleStatusStillCurrent": "Still current",
+    "markAppliedPinHint": "This version will be recorded as submitted — so you know later exactly what the company has.",
+    "submittedDocsTitle": "Submitted documents",
+    "submittedVersionLabel": "Submitted version",
+    "versionFrom": "Version from {date}",
+    "lastGeneratedNotMarked": "Last generated — not marked as sent",
+    "openPdf": "Open PDF",
+    "coverLetterSubmitted": "Cover letter (submitted)",
+    "markSubmittedAction": "Mark as submitted",
+    "submittedRemove": "Remove mark"
   },
   "import": {
     "title": "Import CV"

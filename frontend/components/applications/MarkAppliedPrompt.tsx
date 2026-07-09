@@ -25,6 +25,12 @@ interface MarkAppliedPromptProps {
   applicationId: string;
   /** True when the application has no applied_at yet — the first submission. */
   stampAppliedAt: boolean;
+  /**
+   * The CV version that was just downloaded (E039/US219). When set, confirming
+   * also pins it as the submitted version — the download prompt is the one
+   * moment we know exactly which version went out, so capture it at zero cost.
+   */
+  submittedCvId?: string;
   onClose: () => void;
 }
 
@@ -34,14 +40,14 @@ interface MarkAppliedPromptProps {
  * is the cheapest moment to keep the pipeline status truthful. A nudge, not
  * a gate — declining just closes it.
  */
-export function MarkAppliedPrompt({ applicationId, stampAppliedAt, onClose }: MarkAppliedPromptProps) {
+export function MarkAppliedPrompt({ applicationId, stampAppliedAt, submittedCvId, onClose }: MarkAppliedPromptProps) {
   const t = useTranslations("applications");
   const [saving, setSaving] = useState(false);
 
   async function handleConfirm() {
     setSaving(true);
     try {
-      await patchApplicationStatus(applicationId, "applied", { stampAppliedAt });
+      await patchApplicationStatus(applicationId, "applied", { stampAppliedAt, submittedCvId });
     } catch {
       // Best-effort nudge — a failed PATCH must not trap the user in the dialog.
     } finally {
@@ -63,7 +69,14 @@ export function MarkAppliedPrompt({ applicationId, stampAppliedAt, onClose }: Ma
         <h3 className="font-heading text-lg font-bold text-on-surface mb-2">
           {t("markAppliedTitle")}
         </h3>
-        <p className="text-sm text-on-surface-variant mb-5">{t("markAppliedBody")}</p>
+        <p className="text-sm text-on-surface-variant mb-5">
+          {t("markAppliedBody")}
+          {submittedCvId && (
+            <span className="block mt-2 text-xs text-on-surface-variant">
+              {t("markAppliedPinHint")}
+            </span>
+          )}
+        </p>
         <div className="flex justify-end gap-2">
           <button
             type="button"

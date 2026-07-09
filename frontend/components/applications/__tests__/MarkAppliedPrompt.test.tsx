@@ -61,6 +61,36 @@ describe("MarkAppliedPrompt (E039/US218 — post-download natural moment)", () =
     expect(mockPatch).toHaveBeenCalledWith("app-1", "applied", { stampAppliedAt: false });
   });
 
+  it("pins the downloaded CV version on confirm when submittedCvId is provided (US219)", async () => {
+    const onClose = vi.fn();
+    render(
+      <MarkAppliedPrompt
+        applicationId="app-1"
+        stampAppliedAt
+        submittedCvId="cv-9"
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "markAppliedConfirm" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(mockPatch).toHaveBeenCalledWith("app-1", "applied", {
+      stampAppliedAt: true,
+      submittedCvId: "cv-9",
+    });
+  });
+
+  it("mentions the version pin in the body only when a CV is being pinned", () => {
+    const { rerender } = render(
+      <MarkAppliedPrompt applicationId="app-1" stampAppliedAt submittedCvId="cv-9" onClose={() => {}} />,
+    );
+    expect(screen.getByText("markAppliedPinHint")).toBeInTheDocument();
+
+    rerender(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={() => {}} />);
+    expect(screen.queryByText("markAppliedPinHint")).not.toBeInTheDocument();
+  });
+
   it("decline closes without any PATCH", () => {
     const onClose = vi.fn();
     render(<MarkAppliedPrompt applicationId="app-1" stampAppliedAt onClose={onClose} />);

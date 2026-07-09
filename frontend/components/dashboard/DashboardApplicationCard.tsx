@@ -28,8 +28,9 @@ import { USER_STATUS_OPTIONS } from "@/lib/user-status";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
 
-// Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
+// Non-user-facing Material Symbols identifiers — JS consts to avoid the JSX literal rule
 const SOURCE_LINK_ICON = "open_in_new";
+const SENT_BADGE_ICON = "send";
 
 export interface DashboardApplicationCardProps {
   applicationId: string;
@@ -40,6 +41,10 @@ export interface DashboardApplicationCardProps {
   flowSessionId: string | null;
   updatedAt: string;
   sourceUrl?: string | null;
+  /** Pinned submitted CV (E039/US219) — presence drives the sent badge. */
+  submittedCvId?: string | null;
+  /** The pin's version identity: its creation date (see ApplicationResponse). */
+  submittedCvCreatedAt?: string | null;
   onStartFlow?: () => void;
   /** Notifies the dashboard after a successful status PATCH (filter chips re-count). */
   onStatusChange?: (userStatus: string) => void;
@@ -87,6 +92,8 @@ export function DashboardApplicationCard({
   flowSessionId,
   updatedAt,
   sourceUrl,
+  submittedCvId,
+  submittedCvCreatedAt,
   onStartFlow,
   onStatusChange,
 }: DashboardApplicationCardProps) {
@@ -211,6 +218,28 @@ export function DashboardApplicationCard({
       </p>
       <p className="text-[12px] text-gray-500 mt-0.5 truncate flex items-center gap-1.5">
         <span className="truncate">{companyName ?? ""}</span>
+        {submittedCvId && (
+          <span
+            data-testid="sent-badge"
+            title={
+              submittedCvCreatedAt
+                ? tDash("sentBadgeAriaLabel", {
+                    date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                  })
+                : undefined
+            }
+            className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#dcfce7] text-[#166534]"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>
+              {SENT_BADGE_ICON}
+            </span>
+            {submittedCvCreatedAt
+              ? tDash("sentBadge", {
+                  date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                })
+              : tDash("sentBadgePlain")}
+          </span>
+        )}
         {sourceUrl && (
           <a
             href={sourceUrl}

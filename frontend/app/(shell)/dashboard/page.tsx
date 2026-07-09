@@ -41,6 +41,8 @@ interface Application {
   flow_session_id: string | null;
   updated_at: string;
   source_url?: string | null;
+  submitted_cv_id?: string | null;
+  submitted_cv_created_at?: string | null;
 }
 
 export default function DashboardPage() {
@@ -208,6 +210,8 @@ export default function DashboardPage() {
                 flowSessionId={app.flow_session_id}
                 updatedAt={app.updated_at}
                 sourceUrl={app.source_url}
+                submittedCvId={app.submitted_cv_id}
+                submittedCvCreatedAt={app.submitted_cv_created_at}
                 onStartFlow={() => handleStartFlow(app.id)}
                 onStatusChange={(s) => handleStatusChange(app.id, s)}
               />

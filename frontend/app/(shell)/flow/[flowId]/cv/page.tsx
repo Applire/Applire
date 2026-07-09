@@ -82,9 +82,11 @@ export default function CVPage({
   const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
   // E039/US218 natural-moment prompt: after a download, offer to mark the
   // application as applied (only when it's still in `tracking`). `null` = closed.
+  // Carries the downloaded CV id so confirming also pins the sent version (US219).
   const [markAppliedPrompt, setMarkAppliedPrompt] = useState<{
     applicationId: string;
     stampAppliedAt: boolean;
+    submittedCvId?: string;
   } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
@@ -256,7 +258,11 @@ export default function CVPage({
     try {
       const app = await getApplication(applicationId);
       if (app.user_status === "tracking") {
-        setMarkAppliedPrompt({ applicationId, stampAppliedAt: app.applied_at == null });
+        setMarkAppliedPrompt({
+          applicationId,
+          stampAppliedAt: app.applied_at == null,
+          submittedCvId: cvId ?? undefined,
+        });
       }
     } catch {
       // Best-effort — no prompt is fine.
@@ -346,6 +352,7 @@ export default function CVPage({
             flowId={flowId}
             applicationId={flowState?.application_id ?? null}
             coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
+            cvId={cvId}
             onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
             onRegenerateSame={() => void handleGenerate(template)}
             onNext={() => setPhase("complete")}
@@ -399,6 +406,7 @@ export default function CVPage({
           <MarkAppliedPrompt
             applicationId={markAppliedPrompt.applicationId}
             stampAppliedAt={markAppliedPrompt.stampAppliedAt}
+            submittedCvId={markAppliedPrompt.submittedCvId}
             onClose={() => setMarkAppliedPrompt(null)}
           />
         )}

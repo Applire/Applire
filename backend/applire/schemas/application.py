@@ -73,6 +73,10 @@ class ApplicationResponse(BaseModel):
     source_url: str | None
     submitted_cv_id: uuid.UUID | None = None
     submitted_cover_letter_id: uuid.UUID | None = None
+    # Read model: the pinned CV's creation timestamp — the stable "version"
+    # identity for the sent badge (an ordinal would renumber when retention
+    # purges older unpinned CVs). Enriched by the service layer, not a column.
+    submitted_cv_created_at: datetime | None = None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
     created_at: datetime

@@ -346,7 +346,10 @@
     "matchScorePercent": "{score}%",
     "matchScoreAriaLabel": "Übereinstimmung: {score}%",
     "profileChangeLog": "{action}: {section}/{field}",
-    "actionsTab": "Aktionen"
+    "actionsTab": "Aktionen",
+    "markSubmitted": "Als eingereicht markieren",
+    "markSubmittedPinned": "Als eingereicht markiert",
+    "markSubmittedRemove": "Markierung entfernen"
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
@@ -518,7 +521,10 @@
     "profileCheckSkills": "Fähigkeiten",
     "profileCheckEducation": "Ausbildung",
     "profileCheckSummary": "Zusammenfassung",
-    "profileCompleteButton": "Profil vervollständigen"
+    "profileCompleteButton": "Profil vervollständigen",
+    "sentBadge": "Gesendet · {date}",
+    "sentBadgeAriaLabel": "Eingereichte Version vom {date}",
+    "sentBadgePlain": "Gesendet"
   },
   "profile": {
     "title": "Mein Profil",
@@ -649,7 +655,16 @@
     "markAppliedConfirm": "Als „Beworben“ markieren",
     "markAppliedDecline": "Noch nicht",
     "staleStatusPrompt": "Diese Bewerbung steht seit {days} Tagen auf „{status}“ – ist das noch aktuell?",
-    "staleStatusStillCurrent": "Noch aktuell"
+    "staleStatusStillCurrent": "Noch aktuell",
+    "markAppliedPinHint": "Diese Version wird als eingereicht vermerkt – so weißt du später genau, was das Unternehmen vorliegen hat.",
+    "submittedDocsTitle": "Eingereichte Unterlagen",
+    "submittedVersionLabel": "Eingereichte Version",
+    "versionFrom": "Version vom {date}",
+    "lastGeneratedNotMarked": "Zuletzt generiert – nicht als gesendet markiert",
+    "openPdf": "PDF öffnen",
+    "coverLetterSubmitted": "Anschreiben (eingereicht)",
+    "markSubmittedAction": "Als eingereicht markieren",
+    "submittedRemove": "Markierung entfernen"
   },
   "import": {
     "title": "Lebenslauf importieren"

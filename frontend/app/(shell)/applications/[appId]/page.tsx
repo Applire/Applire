@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
 import { patchApplicationStatus } from "@/lib/api/applications";
+import { SubmittedDocumentsCard } from "@/components/applications/SubmittedDocumentsCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -47,6 +48,7 @@ const SOURCE_LINK_ICON = "open_in_new";
 
 interface ApplicationDetail {
   id: string;
+  job_analysis_id: string;
   role_title: string | null;
   company_name: string | null;
   workflow_status: string;
@@ -55,6 +57,9 @@ interface ApplicationDetail {
   applied_at: string | null;
   deadline: string | null;
   source_url: string | null;
+  submitted_cv_id: string | null;
+  submitted_cv_created_at: string | null;
+  submitted_cover_letter_id: string | null;
   flow_session_id: string | null;
   flow_current_step: string | null;
   created_at: string;
@@ -306,6 +311,18 @@ export default function ApplicationDetailPage() {
               </div>
             </div>
           </Card>
+
+          {/* Submitted documents — Branch G recall (E039/US219): "what exactly
+              do THEY have?". Keyed on the pin so a PATCH elsewhere on this page
+              (e.g. via save) doesn't leave a stale card. */}
+          <SubmittedDocumentsCard
+            key={application.submitted_cv_id ?? "unpinned"}
+            applicationId={application.id}
+            jobAnalysisId={application.job_analysis_id}
+            submittedCvId={application.submitted_cv_id}
+            submittedCvCreatedAt={application.submitted_cv_created_at}
+            submittedCoverLetterId={application.submitted_cover_letter_id}
+          />
 
           {/* Status Management */}
           <Card className="p-6">
