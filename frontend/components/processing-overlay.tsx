@@ -58,6 +58,15 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   const router = useRouter();
   const t = useTranslations("processing");
 
+  // The step list is the run's actual plan (#114 / blind PQ F10): no JD provided →
+  // no "Analyzing job description" step and no "Detecting gaps" step (gap analysis
+  // only runs against a job). Guided onboarding always analyzes a JD (mandatory).
+  // Derived from props, which are fixed for the lifetime of the overlay.
+  const jdProvided = jdMode === "url" ? jdUrl.trim().length > 0 : jdText.trim().length > 0;
+  const hasJdStep = guided || jdProvided;
+  // Index of the first upload step; all step arithmetic below shifts by this.
+  const jdOffset = hasJdStep ? 1 : 0;
+
   const [steps, setSteps] = useState<ProgressStep[]>(() =>
     guided
       ? [
@@ -65,7 +74,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           { label: t("preparingInterview"), status: "pending" as const },
         ]
       : [
-          { label: t("analyzingJD"), status: "pending" as const },
+          ...(hasJdStep ? [{ label: t("analyzingJD"), status: "pending" as const }] : []),
           ...files.map((_, i) => ({
             label:
               files.length === 1
@@ -74,7 +83,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             status: "pending" as const,
           })),
           { label: t("buildingProfile"), status: "pending" as const },
-          { label: t("detectingGaps"), status: "pending" as const },
+          ...(hasJdStep ? [{ label: t("detectingGaps"), status: "pending" as const }] : []),
         ]
   );
 
@@ -126,7 +135,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // A truncation/timeout gets the reassuring "nothing was changed" copy; other
   // failures the generic one. The raw provider text never shows.
   const markFileFailed = useRef((i: number, e: unknown) => {
-    const uploadIdx = 1 + i;
+    const uploadIdx = jdOffset + i;
     const code = e instanceof CVImportError ? e.errorCode : null;
     const msg =
       code === "llm_truncated" || code === "llm_timeout"
@@ -155,7 +164,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // or null on failure. One failure never throws — the batch keeps going (FMEA
   // JF-M-2.2) and the user can Retry.
   const awaitOne = useRef(async (i: number, importId: string): Promise<UploadOk | null> => {
-    const uploadIdx = 1 + i;
+    const uploadIdx = jdOffset + i;
     try {
       const body = await pollCvImport(importId, {
         apiBase: API_BASE,
@@ -197,14 +206,15 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     }) => {
       const { flowId, jobId, jdFailReason } = pipelineCtx.current;
       if (!flowId) return;
-      const profileIdx = 1 + total;
-      const gapsIdx = 2 + total;
+      const profileIdx = jdOffset + total;
+      // Only planned when a JD exists — without a job there is no gap analysis.
+      const gapsIdx = profileIdx + 1;
       const cvFailedCount = total - parsedCount;
 
       setStepStatus(profileIdx, "active");
       await new Promise((r) => setTimeout(r, 400));
       setStepStatus(profileIdx, "done");
-      setStepStatus(gapsIdx, "active");
+      if (hasJdStep) setStepStatus(gapsIdx, "active");
 
       const gapsQuery = (() => {
         const p = new URLSearchParams();
@@ -221,7 +231,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
       })();
 
       if (!jobId) {
-        setStepStatus(gapsIdx, "done");
+        if (hasJdStep) setStepStatus(gapsIdx, "done");
         await new Promise((r) => setTimeout(r, 400));
         router.push(`/flow/${flowId}/gaps${gapsQuery}`);
         return;
@@ -258,7 +268,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   async function retryFile(uploadIdx: number) {
     setRetrying(uploadIdx);
     setStepStatus(uploadIdx, "active");
-    const ok = await uploadOne(uploadIdx - 1);
+    const ok = await uploadOne(uploadIdx - jdOffset);
     setRetrying(null);
     if (ok && error && pipelineCtx.current.flowId) {
       // Recovery: at least one CV now parsed. Clear the hard error and resume.
@@ -297,8 +307,8 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         let jobId: string | null = null;
         let jdFailReason: "url_invalid" | "fetch_failed" | null = null;
 
-        // Step 0: Analyze Job Description
-        setStepStatus(0, "active");
+        // Step 0 (only planned when a JD exists): Analyze Job Description
+        if (hasJdStep) setStepStatus(0, "active");
         if (jdMode === "url" && jdUrl.trim()) {
           const res = await fetch(`${API_BASE}/api/job/analyze`, {
             method: "POST",
@@ -351,12 +361,14 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           const data = await res.json();
           jobId = data.id;
           setStepStatus(0, "done");
-        } else {
+        } else if (hasJdStep) {
+          // Guided run without a JD text/url — the step exists but nothing to analyze
+          // (the pipeline errors with noCvNeedJd below).
           setStepStatus(0, "done");
         }
 
         // Activate the first upload step then create the flow session
-        setStepStatus(1, "active");
+        setStepStatus(jdOffset, "active");
 
         let flowId: string;
         if (jobId !== null) {
@@ -428,7 +440,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         let anyNotCv = false;
         let totalUndated = 0;
         for (let i = 0; i < files.length; i++) {
-          const uploadIdx = 1 + i;
+          const uploadIdx = jdOffset + i;
           const importId = importIds[i];
           if (importId === null) continue; // POST failed — step already marked error
           if (i > 0) setStepStatus(uploadIdx, "active");
@@ -485,7 +497,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             {Object.keys(fileErrors).length > 0 && (
               <div className="space-y-2" data-testid="processing-file-errors">
                 {files.map((file, i) => {
-                  const uploadIdx = 1 + i;
+                  const uploadIdx = jdOffset + i;
                   const msg = fileErrors[uploadIdx];
                   if (!msg) return null;
                   return (
@@ -539,7 +551,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             {Object.keys(fileErrors).length > 0 && (
               <div className="w-full space-y-2 mt-3" data-testid="processing-file-errors">
                 {files.map((file, i) => {
-                  const uploadIdx = 1 + i;
+                  const uploadIdx = jdOffset + i;
                   const msg = fileErrors[uploadIdx];
                   if (!msg) return null;
                   return (
