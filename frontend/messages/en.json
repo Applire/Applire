@@ -266,7 +266,6 @@
     "progressSubtitle": "AI is rendering your CV",
     "stepQueued": "In queue…",
     "stepRendering": "Rendering CV…",
-    "stepDone": "Done!",
     "generationStale": "Still running in the background — you'll be redirected automatically.",
     "generationFailed": "Generation failed.",
     "generationFailedTruncated": "Your CV couldn't be generated in one pass — it may be too detailed for the current AI model. Please try again.",

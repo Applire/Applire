@@ -266,7 +266,6 @@
     "progressSubtitle": "KI rendert Ihren Lebenslauf",
     "stepQueued": "In der Warteschlange…",
     "stepRendering": "Lebenslauf wird gerendert…",
-    "stepDone": "Fertig!",
     "generationStale": "Läuft noch im Hintergrund — du wirst automatisch weitergeleitet.",
     "generationFailed": "Generierung fehlgeschlagen.",
     "generationFailedTruncated": "Dein Lebenslauf ließ sich nicht in einem Durchgang erstellen — er ist dem aktuellen KI-Modell vielleicht zu umfangreich. Bitte versuche es erneut.",

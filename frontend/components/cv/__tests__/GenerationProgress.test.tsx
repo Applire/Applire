@@ -30,7 +30,7 @@ const DEFAULT_PROPS = {
 describe("GenerationProgress", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("renders all three step labels immediately", () => {
+  it("renders only real phase steps — no 'Done!' placeholder step (#114)", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: false,
       status: 500,
@@ -41,7 +41,8 @@ describe("GenerationProgress", () => {
 
     expect(screen.getByText("In queue…")).toBeInTheDocument();
     expect(screen.getByText("Rendering CV…")).toBeInTheDocument();
-    expect(screen.getByText("Done!")).toBeInTheDocument();
+    // "Done!" is not a phase of the run — it must never render as a pending step.
+    expect(screen.queryByText("Done!")).not.toBeInTheDocument();
   });
 
   it("marks queued step active and others pending on initial render", () => {
