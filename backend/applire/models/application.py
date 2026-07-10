@@ -53,11 +53,15 @@ class WorkflowStatus(str, Enum):
 
 
 class UserStatus(str, Enum):
-    """User-managed. Set via PATCH /api/applications/{id}."""
+    """User-managed. Set via PATCH /api/applications/{id}.
+
+    Pipeline order (E039/US218): tracking → applied → interviewing → offer/rejected → hired.
+    """
     tracking = "tracking"   # Default on creation
     applied = "applied"
-    rejected = "rejected"
+    interviewing = "interviewing"
     offer = "offer"
+    rejected = "rejected"
     hired = "hired"
 
 
@@ -98,11 +102,33 @@ class Application(Base):
     role_title: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- User-managed fields ---
+    # Where the posting was found (E039/US216): denormalized from
+    # JobAnalysis.source_url on create, user-overridable for pasted JDs.
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     deadline: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --- Submitted pins (E039/US219) ---
+    # The exact artifacts sent to the employer. While the application is not
+    # tombstoned, pinned documents are exempt from the retention TTL purge —
+    # their retention clock follows the application lifecycle (ADR-005
+    # amendment 2026-07-06). Erasure (Art. 17) still deletes them.
+    submitted_cv_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_cvs.id"), nullable=True
+    )
+    submitted_cover_letter_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_cover_letters.id"), nullable=True
+    )
+
+    # --- Stale-CV nudge dismissal (E039/US221) ---
+    # Persisted so "not now" survives reloads; the indicator re-arms when an
+    # enrichment lands AFTER this timestamp (the profile grew again).
+    stale_cv_dismissed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

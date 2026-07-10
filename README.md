@@ -15,7 +15,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![GitHub Stars](https://img.shields.io/github/stars/Applire/Applire?style=social)](https://github.com/Applire/Applire)
 
-[🚀 Quick Start](#-installation) • [📖 Documentation](docs/) • [💬 Community](#-community--support) • [🐛 Report Bug](https://github.com/Applire/Applire/issues)
+[🌐 applire.de](https://applire.de) • [🚀 Quick Start](#-installation) • [📖 Documentation](docs/) • [💬 Community](#-community--support) • [🐛 Report Bug](https://github.com/Applire/Applire/issues)
 
 **🌐 English · [Deutsch](README.de.md)**
 
@@ -554,22 +554,22 @@ Applire/
 
 ### ⏳ Next Up
 
-**Core Experience Improvements**
-- [ ] **Gap Interview Refinement**: Enhanced question quality and relevance
-- [ ] **Additional CV Layouts**: Expanding template library
+Applire ships in dessert-named releases, each tracked as a public [milestone](https://github.com/Applire/Applire/milestones) — follow along on the [blog](https://applire.de/en/blog/):
 
-**Market Expansion**
-- [ ] **European Country Support**: Gradual rollout beyond DACH (France, Italy, Spain, Portugal, Poland) with localized formats and language support
-
-**Developer Experience**
-- [ ] **MCP Marketplace Listing**: Distribution via Anthropic, OpenAI, and Cursor marketplaces
+- [ ] **Spaghettieis** (July 2026) — Parallel applications become first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
+- [ ] **Stracciatella** (August 2026) — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
+- [ ] **Strawberry** (September 2026) — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls (default color schemes, template availability, token tracking)
+- [ ] **Sorbet** (October 2026) — A free hosted demo in the browser: ephemeral profiles with strict TTLs, bring your own API key, nothing stored — plus Master Profile export as JSON ("take your profile with you"). The [waitlist](https://applire.de) hears first when it goes live
+- [ ] **Mango** (November 2026) — Beyond DACH: data-driven country packs (templates, structure, and conventions per target country) the community can contribute to, with France as the pilot
+- [ ] **Waldmeister** (December 2026) — Applire Cloud SaaS go-live: billing, production OIDC, GDPR export and erasure
 
 ### 🔭 Future Vision
 
 - [ ] **Mock Interview Preparation**: AI-powered practice sessions with role-specific questions
 - [ ] **Career Path Advisory**: Skill gap analysis and training recommendations
 - [ ] **Job Search & Recommendation**: Curated job suggestions based on Master Profile
-- [ ] **Mobile App**: iOS and Android native applications
+- [ ] **Mobile-Friendly UI**: A responsive experience for phones and tablets
+- [ ] **MCP Marketplace Listings**: Distribution via agent marketplaces
 
 ---
 
@@ -611,6 +611,7 @@ By submitting a pull request you agree to the [Applire CLA](CLA.md). This allows
 
 ### Get Help
 
+- 🌐 **[applire.de](https://applire.de)** — Website, [blog](https://applire.de/en/blog/) (English and German), and beta waitlist
 - 📖 **[Documentation](docs/)** — Testing, CI/CD, and architecture guides
 - 🐛 **[GitHub Issues](https://github.com/Applire/Applire/issues)** — Report bugs and request features
 - 💬 **[GitHub Discussions](https://github.com/Applire/Applire/discussions)** — Ask questions and share ideas
@@ -648,7 +649,7 @@ For organizations that cannot comply with AGPL requirements (e.g., proprietary S
 
 ## 📬 Contact
 
-- **Website**: [applire.de](https://applire.de) *(coming soon)*
+- **Website**: [applire.de](https://applire.de) — [blog](https://applire.de/en/blog/) and beta waitlist
 - **Email**: kontakt@applire.de
 - **Issues**: [GitHub Issues](https://github.com/Applire/Applire/issues)
 - **Security**: kontakt@applire.de (see [SECURITY.md](SECURITY.md))

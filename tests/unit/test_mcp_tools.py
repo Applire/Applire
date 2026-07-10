@@ -66,6 +66,88 @@ async def test_analyze_jd_empty_text_raises():
     assert exc_info.value.error.code == -32602
 
 
+@pytest.mark.asyncio
+async def test_analyze_jd_carries_duplicate_of_hint():
+    """MCP mirror of the Branch F enrichment (E039/US220) — the agent channel
+    must see the same repost hint as the UI."""
+    from datetime import datetime, timezone
+
+    from applire.mcp.server import analyze_jd
+    from applire.schemas.application import DuplicateOfHint
+    from applire.schemas.job import JobAnalysisResponse
+
+    cm, _ = _mock_db()
+    job_id = uuid.uuid4()
+    analysis = JobAnalysisResponse(
+        id=job_id,
+        role_title="Backend Engineer",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+        raw_text_hash="abc",
+    )
+    hint = DuplicateOfHint(
+        application_id=uuid.uuid4(),
+        job_analysis_id=job_id,
+        company_name="Acme GmbH",
+        role_title="Backend Engineer",
+        analyzed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        matched_on="job",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
+        patch(
+            "applire.mcp.server.app_svc.find_duplicate_application",
+            AsyncMock(return_value=hint),
+        ),
+    ):
+        result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
+
+    assert result["duplicate_of"]["matched_on"] == "job"
+    assert result["duplicate_of"]["company_name"] == "Acme GmbH"
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_without_user_still_succeeds():
+    """No user yet (fresh install) — the hint is skipped, analysis still returns."""
+    from applire.mcp.server import analyze_jd
+    from applire.schemas.job import JobAnalysisResponse
+
+    cm, _ = _mock_db()
+    analysis = JobAnalysisResponse(
+        id=uuid.uuid4(),
+        role_title="Backend Engineer",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+        raw_text_hash="abc",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)),
+        patch(
+            "applire.mcp.server._current_user_id",
+            AsyncMock(side_effect=Exception("no user")),
+        ),
+    ):
+        result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
+
+    assert result["role_title"] == "Backend Engineer"
+    assert result["duplicate_of"] is None
+
+
 # ---------------------------------------------------------------------------
 # get_profile
 # ---------------------------------------------------------------------------
@@ -931,7 +1013,201 @@ def test_all_agent_tools_registered():
         "get_cv_ats_report",
         "start_flow", "advance_flow", "get_flow_state",
         "import_cv", "add_role", "create_application",
-        "list_applications", "get_application",
+        "list_applications", "get_application", "update_application",
     }
     for name in expected:
         assert hasattr(srv, name), f"tool {name} not defined"
+
+
+# ---------------------------------------------------------------------------
+# E039 / US218 — status pipeline at the MCP seam
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_applications_accepts_interviewing_filter():
+    from applire.mcp.server import list_applications
+
+    cm, session = _mock_db()
+    user_row = MagicMock(); user_row.id = uuid.uuid4()
+    ures = MagicMock(); ures.scalar_one_or_none.return_value = user_row
+    session.execute = AsyncMock(return_value=ures)
+    svc_result = MagicMock(); svc_result.items = []
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.list_applications", AsyncMock(return_value=svc_result)) as svc,
+    ):
+        result = await list_applications(status_filter="interviewing")
+
+    assert result == []
+    from applire.models.application import UserStatus
+    assert svc.call_args.kwargs["user_status"] == UserStatus.interviewing
+
+
+@pytest.mark.asyncio
+async def test_list_applications_invalid_filter_lists_all_enum_values():
+    """The error message is derived from the enum, not a hard-coded list
+    (the old literal was already stale — it lacked 'hired')."""
+    from applire.mcp.server import list_applications
+
+    with pytest.raises(McpError) as exc:
+        await list_applications(status_filter="bogus")
+
+    assert exc.value.error.code == -32602
+    msg = exc.value.error.message
+    for value in ("tracking", "applied", "interviewing", "offer", "rejected", "hired"):
+        assert value in msg, f"{value!r} missing from error message: {msg}"
+
+
+# ---------------------------------------------------------------------------
+# E039 — update_application (MCP mirror of PATCH /api/applications/{id})
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_application_sets_status():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), user_status="interviewing")
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        result = await update_application(
+            application_id=str(uuid.uuid4()), user_status="interviewing"
+        )
+
+    assert result["user_status"] == "interviewing"
+    from applire.models.application import UserStatus
+    req = svc.call_args.args[1]
+    assert req.user_status == UserStatus.interviewing
+    # Omitted fields must not be marked as provided (clear-semantics seam):
+    assert req.model_fields_set == {"user_status"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_dossier_fields_pass_through():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()))
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        await update_application(
+            application_id=str(uuid.uuid4()),
+            notes="Recruiter called back",
+            deadline="2026-08-01T00:00:00",
+            source_url="https://jobs.example.com/123",
+        )
+
+    req = svc.call_args.args[1]
+    assert req.notes == "Recruiter called back"
+    assert req.source_url == "https://jobs.example.com/123"
+    assert req.deadline.year == 2026 and req.deadline.month == 8
+    assert req.model_fields_set == {"notes", "deadline", "source_url"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_submitted_pins_pass_through():
+    """E039/US219: the MCP tool forwards the submitted pins as UUIDs, marking
+    only the provided pin as set (omitted ≠ explicit null)."""
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()))
+    cv_id = uuid.uuid4()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        await update_application(
+            application_id=str(uuid.uuid4()),
+            submitted_cv_id=str(cv_id),
+        )
+
+    req = svc.call_args.args[1]
+    assert req.submitted_cv_id == cv_id
+    assert req.model_fields_set == {"submitted_cv_id"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_dismiss_stale_cv_passes_through():
+    """E039/US221: an agent can dismiss the stale-CV nudge — the flag reaches
+    PatchApplicationRequest as a provided field."""
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), stale_cv=None)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
+    ):
+        result = await update_application(
+            application_id=str(uuid.uuid4()),
+            dismiss_stale_cv=True,
+        )
+
+    assert result["stale_cv"] is None
+    req = svc.call_args.args[1]
+    assert req.dismiss_stale_cv is True
+    assert req.model_fields_set == {"dismiss_stale_cv"}
+
+
+@pytest.mark.asyncio
+async def test_update_application_invalid_status_lists_enum_values():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(
+            application_id=str(uuid.uuid4()), user_status="ghosted"
+        )
+
+    assert exc.value.error.code == -32602
+    assert "interviewing" in exc.value.error.message
+
+
+@pytest.mark.asyncio
+async def test_update_application_no_fields_is_invalid_input():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(application_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_update_application_bad_deadline_is_invalid_input():
+    from applire.mcp.server import update_application
+
+    with pytest.raises(McpError) as exc:
+        await update_application(
+            application_id=str(uuid.uuid4()), deadline="next Tuesday"
+        )
+
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_update_application_not_found():
+    from applire.mcp.server import update_application
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.app_svc.patch_application",
+              AsyncMock(side_effect=LookupError("Application x not found"))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await update_application(
+                application_id=str(uuid.uuid4()), user_status="applied"
+            )
+    assert exc.value.error.code == -32001

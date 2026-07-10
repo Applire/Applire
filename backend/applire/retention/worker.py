@@ -17,10 +17,12 @@
 
 """GDPR retention worker — runs TTL sweeps and emits a JSON report (ADR 005).
 
-Rules (ADR 005 v2 — amended iter17):
+Rules (ADR 005 v2 — amended iter17; submitted-pin exemption 2026-07-06):
   uploads          → hard-delete after 7 days
   interview_sessions → hard-delete after 30 days
-  generated_cvs    → hard-delete after expires_at
+  generated_cvs    → hard-delete after expires_at, UNLESS pinned as submitted
+                     on an active application (E039/US219 — same for cover
+                     letters; report field: submitted_exempt)
   applications     → soft-delete (deleted_at) after 730 days inactivity
   master_profiles  → soft-delete after 730 days inactivity
   users            → soft-delete after 730 days inactivity
@@ -116,12 +118,39 @@ async def _purge_sessions(db: AsyncSession) -> int:
 
 
 async def _purge_cvs(db: AsyncSession) -> int:
-    """Hard-delete generated CVs whose expires_at is in the past."""
+    """Hard-delete generated CVs whose expires_at is in the past.
+
+    Submitted-pin exemption (E039/US219, ADR-005 amendment 2026-07-06): a CV
+    pinned as submitted on an ACTIVE application follows the application
+    lifecycle, not the calendar TTL. Once the application is tombstoned the
+    NOT EXISTS guard stops matching and the row purges on the next run.
+    """
     now = datetime.now(timezone.utc)
     try:
+        # A tombstoned application no longer protects its pin, but its FK still
+        # POINTS at the row — Postgres rejects the DELETE unless the pin is
+        # released first. Only pins on rows this purge is about to delete are
+        # touched, so a reactivated application keeps its pin while the
+        # document is alive.
+        await db.execute(
+            text(
+                "UPDATE applications SET submitted_cv_id = NULL "
+                "WHERE deleted_at IS NOT NULL AND submitted_cv_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cvs c "
+                "  WHERE c.id = applications.submitted_cv_id "
+                "  AND c.expires_at < :now AND c.deleted_at IS NULL"
+                ")"
+            ),
+            {"now": now},
+        )
         result = await db.execute(
             text(
-                "DELETE FROM generated_cvs WHERE expires_at < :now AND deleted_at IS NULL"
+                "DELETE FROM generated_cvs WHERE expires_at < :now AND deleted_at IS NULL "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM applications a "
+                "  WHERE a.submitted_cv_id = generated_cvs.id AND a.deleted_at IS NULL"
+                ")"
             ),
             {"now": now},
         )
@@ -264,17 +293,66 @@ async def _reap_stale_cv_jobs(db: AsyncSession) -> int:
 
 
 async def _purge_cover_letters(db: AsyncSession) -> int:
-    """Hard-delete generated cover letters whose expires_at is in the past."""
+    """Hard-delete generated cover letters whose expires_at is in the past.
+
+    Same submitted-pin exemption as _purge_cvs (E039/US219, ADR-005 amendment),
+    including the release of tombstoned applications' pins before the DELETE
+    (the FK would otherwise block the purge on Postgres).
+    """
     now = datetime.now(timezone.utc)
     try:
+        await db.execute(
+            text(
+                "UPDATE applications SET submitted_cover_letter_id = NULL "
+                "WHERE deleted_at IS NOT NULL AND submitted_cover_letter_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cover_letters l "
+                "  WHERE l.id = applications.submitted_cover_letter_id "
+                "  AND l.expires_at < :now AND l.deleted_at IS NULL"
+                ")"
+            ),
+            {"now": now},
+        )
         result = await db.execute(
             text(
-                "DELETE FROM generated_cover_letters WHERE expires_at < :now AND deleted_at IS NULL"
+                "DELETE FROM generated_cover_letters WHERE expires_at < :now AND deleted_at IS NULL "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM applications a "
+                "  WHERE a.submitted_cover_letter_id = generated_cover_letters.id "
+                "  AND a.deleted_at IS NULL"
+                ")"
             ),
             {"now": now},
         )
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
+    except (ProgrammingError, OperationalError):
+        await db.rollback()
+        return 0
+
+
+async def _count_submitted_exempt(db: AsyncSession) -> int:
+    """Count expired rows spared this run by the submitted-pin exemption — CVs
+    plus cover letters pinned on an active application (ADR-005 auditability:
+    the JSON report must show what was deliberately NOT purged)."""
+    now = datetime.now(timezone.utc)
+    try:
+        result = await db.execute(
+            text(
+                "SELECT "
+                "(SELECT COUNT(*) FROM generated_cvs c "
+                " WHERE c.expires_at < :now AND c.deleted_at IS NULL "
+                " AND EXISTS (SELECT 1 FROM applications a "
+                "   WHERE a.submitted_cv_id = c.id AND a.deleted_at IS NULL)) "
+                "+ "
+                "(SELECT COUNT(*) FROM generated_cover_letters l "
+                " WHERE l.expires_at < :now AND l.deleted_at IS NULL "
+                " AND EXISTS (SELECT 1 FROM applications a "
+                "   WHERE a.submitted_cover_letter_id = l.id AND a.deleted_at IS NULL))"
+            ),
+            {"now": now},
+        )
+        return result.scalar_one()
     except (ProgrammingError, OperationalError):
         await db.rollback()
         return 0
@@ -312,6 +390,10 @@ async def run() -> None:
     async with AsyncSessionLocal() as db:
         uploads_deleted = await _purge_uploads(db)
         sessions_deleted = await _purge_sessions(db)
+        # Counted before the purges: the exempt rows are exactly the ones the
+        # guarded DELETEs skip, so ordering doesn't change the number — but
+        # counting first keeps the report honest if a later purge errors.
+        submitted_exempt = await _count_submitted_exempt(db)
         cvs_deleted = await _purge_cvs(db)
         profiles_tombstoned = await _tombstone_inactive_profiles(db)
         users_tombstoned = await _tombstone_inactive_users(db)
@@ -335,5 +417,6 @@ async def run() -> None:
         "stale_cl_jobs_failed": stale_cl_jobs_failed,
         "cv_import_jobs_deleted": import_jobs_deleted,
         "gap_analysis_jobs_deleted": gap_jobs_deleted,
+        "submitted_exempt": submitted_exempt,
     }
     print(json.dumps(report), flush=True)

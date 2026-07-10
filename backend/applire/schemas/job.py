@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from applire.schemas.application import DuplicateOfHint
+
 
 def _coerce_to_list(v: object) -> list[str]:
     if isinstance(v, list):
@@ -62,6 +64,11 @@ class JobAnalysisResponse(BaseModel):
     berufsbild_label: Optional[str] = None
     raw_text_hash: str
     source_url: Optional[str] = None
+    # E039/US220 (journey Branch F): set when this JD matches one of the user's
+    # existing applications — a repost recognition hint, never a block. Enriched
+    # by the caller (router / MCP tool), not by analyze_jd itself: the service
+    # stays user-agnostic like the job_analyses table it manages.
+    duplicate_of: Optional[DuplicateOfHint] = None
 
     model_config = {"from_attributes": True}
 

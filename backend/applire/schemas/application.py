@@ -19,10 +19,55 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
 from applire.models.application import UserStatus, WorkflowStatus
+
+
+class DuplicateOfHint(BaseModel):
+    """Read model for the duplicate-JD hint (E039/US220, journey Branch F).
+
+    Rides on the analyze response when the freshly analyzed JD matches one of
+    the USER'S existing applications. analyzed_at is the application's
+    created_at — the shared job_analyses row's timestamp may belong to another
+    user's first analysis, which must never leak into this hint.
+    """
+
+    application_id: uuid.UUID
+    job_analysis_id: uuid.UUID
+    company_name: str | None = None
+    role_title: str | None = None
+    analyzed_at: datetime
+    matched_on: Literal["job", "source_url", "text"]
+
+
+class StaleCVGained(BaseModel):
+    """One line of the explained delta: how many enrichment changes a profile
+    section gained since the CV was generated (E039/US221)."""
+
+    section: str
+    count: int
+
+
+class StaleCVInfo(BaseModel):
+    """Read model for the stale-CV indicator (E039/US221, journey Branch H).
+
+    Present when the application's newest READY generated CV predates the
+    newest Master-Profile enrichment record and the user hasn't dismissed the
+    hint since. `gained` is the explained delta — per-section change counts
+    aggregated from enrichment records newer than the CV — so the re-tailor
+    nudge can say WHAT the profile gained (Branch H: "the re-tailor must
+    explain what changed, or the new version erodes trust").
+    latest_cv_template lets one-click re-tailor keep the version's template.
+    """
+
+    latest_cv_id: uuid.UUID
+    latest_cv_created_at: datetime
+    latest_cv_template: str
+    profile_enriched_at: datetime
+    gained: list[StaleCVGained]
 
 
 class CreateApplicationRequest(BaseModel):
@@ -33,6 +78,7 @@ class CreateApplicationRequest(BaseModel):
     role_title: str | None = None
     notes: str | None = None
     deadline: datetime | None = None
+    source_url: str | None = None
 
 
 class PatchApplicationRequest(BaseModel):
@@ -43,10 +89,20 @@ class PatchApplicationRequest(BaseModel):
     notes: str | None = None
     applied_at: datetime | None = None
     deadline: datetime | None = None
+    source_url: str | None = None
+    # Submitted pins (E039/US219): value = pin (validated against the artifact),
+    # explicit null = unpin. Same present-in-body clear semantics as the dossier fields.
+    submitted_cv_id: uuid.UUID | None = None
+    submitted_cover_letter_id: uuid.UUID | None = None
+    # Stale-CV nudge dismissal (E039/US221): True stamps stale_cv_dismissed_at.
+    # There is no un-dismiss — the hint re-arms by itself on the next enrichment.
+    dismiss_stale_cv: bool | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "PatchApplicationRequest":
-        if all(v is None for v in self.model_dump().values()):
+        # Explicit nulls are legitimate clear requests (e.g. {"deadline": null}),
+        # so "provided" means present in the body — not non-None (E039/US217).
+        if not self.model_fields_set:
             raise ValueError("At least one field must be provided.")
         return self
 
@@ -62,6 +118,18 @@ class ApplicationResponse(BaseModel):
     notes: str | None
     applied_at: datetime | None
     deadline: datetime | None
+    source_url: str | None
+    submitted_cv_id: uuid.UUID | None = None
+    submitted_cover_letter_id: uuid.UUID | None = None
+    # Read model: the pinned CV's creation timestamp — the stable "version"
+    # identity for the sent badge (an ordinal would renumber when retention
+    # purges older unpinned CVs). Enriched by the service layer, not a column.
+    submitted_cv_created_at: datetime | None = None
+    # Read model: stale-CV indicator (E039/US221) — set by the service layer
+    # when the newest ready CV predates the newest profile enrichment and the
+    # user hasn't dismissed the nudge since. None = nothing to re-tailor.
+    stale_cv: StaleCVInfo | None = None
+    stale_cv_dismissed_at: datetime | None = None
     flow_session_id: uuid.UUID | None
     flow_current_step: str | None = None
     created_at: datetime

@@ -212,6 +212,30 @@ async def get_cover_letter_status(
     )
 
 
+async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+    """Build the Content-Disposition filename for a cover-letter PDF (E039/US219).
+
+    Format: <name>_<company>_<role>_Anschreiben.pdf — same contract as the CV
+    filename; the suffix keeps the pair from colliding in a Downloads folder.
+    """
+    from applire.services.cv import compose_document_filename
+
+    cl = await db.get(GeneratedCoverLetter, cl_id)
+    if cl is None or cl.deleted_at is not None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+
+    profile = await db.get(MasterProfile, cl.profile_id)
+    name = ((profile.profile_json or {}).get("personal_info") or {}).get("name") if profile else None
+    job = await db.get(JobAnalysis, cl.job_analysis_id)
+    return compose_document_filename(
+        name,
+        job.company_name if job else None,
+        job.role_title if job else None,
+        suffix="Anschreiben",
+        fallback=f"anschreiben-{str(cl_id)[:8]}",
+    )
+
+
 async def get_cover_letter_html(
     cl_id: uuid.UUID,
     db: AsyncSession,

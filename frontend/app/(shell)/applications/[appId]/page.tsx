@@ -27,18 +27,15 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
+import { patchApplicationStatus } from "@/lib/api/applications";
+import { SubmittedDocumentsCard } from "@/components/applications/SubmittedDocumentsCard";
+import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
+import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 type WorkflowStatusLabelKey = "statusAnalyzing" | "statusInterviewing" | "statusGeneratingCV" | "statusCVReady" | "statusTracking";
-type UserStatusLabelKey = "statusTracking" | "statusApplied" | "statusRejected" | "statusOffer";
-
-const USER_STATUS_OPTIONS: Array<{ value: string; labelKey: UserStatusLabelKey; className: string }> = [
-  { value: "tracking", labelKey: "statusTracking",  className: "bg-gray-400 text-white" },
-  { value: "applied",  labelKey: "statusApplied",   className: "bg-blue-500 text-white" },
-  { value: "rejected", labelKey: "statusRejected",  className: "bg-critical text-white" },
-  { value: "offer",    labelKey: "statusOffer",     className: "bg-success text-white" },
-];
 
 const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey; className: string }> = {
   analyzing:    { labelKey: "statusAnalyzing",    className: "bg-teal text-white" },
@@ -48,8 +45,12 @@ const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey;
   none:         { labelKey: "statusTracking",      className: "bg-gray-400 text-white" },
 };
 
+// Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
+const SOURCE_LINK_ICON = "open_in_new";
+
 interface ApplicationDetail {
   id: string;
+  job_analysis_id: string;
   role_title: string | null;
   company_name: string | null;
   workflow_status: string;
@@ -57,6 +58,11 @@ interface ApplicationDetail {
   notes: string | null;
   applied_at: string | null;
   deadline: string | null;
+  source_url: string | null;
+  submitted_cv_id: string | null;
+  submitted_cv_created_at: string | null;
+  submitted_cover_letter_id: string | null;
+  stale_cv?: StaleCVInfo | null;
   flow_session_id: string | null;
   flow_current_step: string | null;
   created_at: string;
@@ -80,6 +86,14 @@ export default function ApplicationDetailPage() {
   const [userStatus, setUserStatus] = useState("");
   const [notes, setNotes] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+
+  // Stale-status refresh prompt (E039/US218, JF-E-P2.1) — session-local dismiss.
+  const [staleDismissed, setStaleDismissed] = useState(false);
+
+  // Stale-CV re-tailor nudge (E039/US221, Branch H) — dismissal is PERSISTED
+  // server-side (stale_cv_dismissed_at), unlike the session-local one above.
+  const [retailoring, setRetailoring] = useState(false);
 
   useEffect(() => {
     async function loadApplication() {
@@ -91,6 +105,7 @@ export default function ApplicationDetailPage() {
           setUserStatus(data.user_status);
           setNotes(data.notes || "");
           setDeadline(data.deadline ? data.deadline.slice(0, 16) : "");
+          setSourceUrl(data.source_url || "");
         } else {
           setError(t("notFound"));
         }
@@ -116,6 +131,9 @@ export default function ApplicationDetailPage() {
         payload.deadline = new Date(deadline).toISOString();
       } else if (application?.deadline) {
         payload.deadline = null;
+      }
+      if (sourceUrl.trim() !== (application?.source_url ?? "")) {
+        payload.source_url = sourceUrl.trim() || null;
       }
 
       if (Object.keys(payload).length === 0) {
@@ -143,6 +161,71 @@ export default function ApplicationDetailPage() {
       setError(t("saveFailed"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Quick status set from the stale-status banner. "Still current" re-PATCHes
+  // the unchanged status — that touches updated_at server-side, resetting the
+  // staleness clock so the prompt doesn't nag on every visit.
+  const handleQuickStatus = async (next: string) => {
+    setStaleDismissed(true);
+    try {
+      const updated = await patchApplicationStatus(appId, next);
+      setUserStatus(next);
+      setApplication((app) =>
+        app ? { ...app, user_status: next, updated_at: updated.updated_at } : app
+      );
+    } catch {
+      // Nudge, not a gate — the regular status select + save still works.
+    }
+  };
+
+  // One-click re-tailor (E039/US221): a NEW version through the EXISTING
+  // generation pipeline (POST /api/cv/generate) with the stale version's
+  // template, landing on the flow CV page which picks up the pending job.
+  // The pinned submitted version is never touched. The gained delta rides
+  // along as a query param so the new version can explain itself.
+  const handleRetailor = async () => {
+    if (!application?.stale_cv || !application.flow_session_id) return;
+    setRetailoring(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/cv/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: application.job_analysis_id,
+          template: application.stale_cv.latest_cv_template,
+        }),
+      });
+      if (!res.ok) {
+        setError(t("staleCvRetailorFailed"));
+        return;
+      }
+      const gained = encodeGained(application.stale_cv.gained);
+      router.push(
+        `/flow/${application.flow_session_id}/cv${gained ? `?retailored=${encodeURIComponent(gained)}` : "?retailored=1"}`
+      );
+    } catch {
+      setError(t("staleCvRetailorFailed"));
+    } finally {
+      setRetailoring(false);
+    }
+  };
+
+  const handleStaleCvDismiss = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/applications/${appId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismiss_stale_cv: true }),
+      });
+      if (res.ok) {
+        const updated: ApplicationDetail = await res.json();
+        setApplication(updated);
+      }
+    } catch {
+      // Nudge, not a gate — leaving the banner up is the worst case.
     }
   };
 
@@ -182,6 +265,15 @@ export default function ApplicationDetailPage() {
     ? Math.ceil((new Date(application.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
 
+  const showStalePrompt =
+    !staleDismissed && isStaleStatus(application.user_status, application.updated_at);
+  const staleDays = Math.floor(
+    (Date.now() - new Date(application.updated_at).getTime()) / (24 * 36e5)
+  );
+  const currentStatusOption = USER_STATUS_OPTIONS.find(
+    (o) => o.value === application.user_status
+  );
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
       <AppTopbar
@@ -194,6 +286,58 @@ export default function ApplicationDetailPage() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Stale-status refresh prompt (E039/US218, JF-E-P2.1) */}
+          {showStalePrompt && (
+            <div
+              className="p-4 rounded-lg bg-warning-container border border-warning/40"
+              data-testid="stale-status-prompt"
+            >
+              <p className="text-sm text-on-surface mb-3">
+                {t("staleStatusPrompt", {
+                  status: currentStatusOption ? tDash(currentStatusOption.labelKey) : application.user_status,
+                  days: staleDays,
+                })}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {staleNextStatuses(application.user_status).map((next) => {
+                  const option = USER_STATUS_OPTIONS.find((o) => o.value === next);
+                  if (!option) return null;
+                  return (
+                    <button
+                      key={next}
+                      type="button"
+                      onClick={() => void handleQuickStatus(next)}
+                      className={cn(
+                        "text-xs font-bold px-3 py-1.5 rounded-full",
+                        option.className
+                      )}
+                    >
+                      {tDash(option.labelKey)}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => void handleQuickStatus(application.user_status)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant bg-white hover:bg-surface-container"
+                >
+                  {t("staleStatusStillCurrent")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Stale-CV re-tailor nudge (E039/US221, journey Branch H) */}
+          {application.stale_cv && (
+            <StaleCvBanner
+              gained={application.stale_cv.gained}
+              canRetailor={!!application.flow_session_id}
+              retailoring={retailoring}
+              onRetailor={() => void handleRetailor()}
+              onDismiss={() => void handleStaleCvDismiss()}
+            />
+          )}
+
           {/* Success/Error Messages */}
           {success && (
             <div className="p-4 rounded-lg bg-success/10 border border-success/20">
@@ -234,6 +378,18 @@ export default function ApplicationDetailPage() {
               </div>
             </div>
           </Card>
+
+          {/* Submitted documents — Branch G recall (E039/US219): "what exactly
+              do THEY have?". Keyed on the pin so a PATCH elsewhere on this page
+              (e.g. via save) doesn't leave a stale card. */}
+          <SubmittedDocumentsCard
+            key={application.submitted_cv_id ?? "unpinned"}
+            applicationId={application.id}
+            jobAnalysisId={application.job_analysis_id}
+            submittedCvId={application.submitted_cv_id}
+            submittedCvCreatedAt={application.submitted_cv_created_at}
+            submittedCoverLetterId={application.submitted_cover_letter_id}
+          />
 
           {/* Status Management */}
           <Card className="p-6">
@@ -280,6 +436,36 @@ export default function ApplicationDetailPage() {
                       : t("deadlineHasPassed")}
                   </p>
                 )}
+              </div>
+
+              {/* Source link (E039/US216 — where the posting was found) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t("sourceLink")}
+                </label>
+                <div className="flex items-center gap-2 max-w-xl">
+                  <Input
+                    type="url"
+                    value={sourceUrl}
+                    onChange={(e) => setSourceUrl(e.target.value)}
+                    placeholder={t("sourceLinkPlaceholder")}
+                    className="flex-1"
+                  />
+                  {application.source_url && (
+                    <a
+                      href={application.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={tDash("sourceLinkLabel")}
+                      title={tDash("sourceLinkLabel")}
+                      className="shrink-0 text-primary hover:text-teal-dim flex items-center"
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                        {SOURCE_LINK_ICON}
+                      </span>
+                    </a>
+                  )}
+                </div>
               </div>
 
               {/* Notes */}

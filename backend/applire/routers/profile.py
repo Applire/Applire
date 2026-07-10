@@ -773,10 +773,17 @@ async def erase_profile(
         # 2. Break Application ↔ FlowSession circular FK so each side can be deleted.
         #    Nullify Application.flow_session_id first so we can delete FlowSession rows
         #    without violating the Application.flow_session_id → flow_sessions.id FK.
+        #    Same for the submitted pins (E039/US219): generated_cvs /
+        #    generated_cover_letters are deleted in steps 4/5c while applications
+        #    still exist — Art. 17 beats the pin, so the pin must let go first.
         await db.execute(
             update(Application)
             .where(Application.user_id == uid)
-            .values(flow_session_id=None)
+            .values(
+                flow_session_id=None,
+                submitted_cv_id=None,
+                submitted_cover_letter_id=None,
+            )
         )
 
         # 3. flow_sessions — must come before generated_cvs and interview_sessions

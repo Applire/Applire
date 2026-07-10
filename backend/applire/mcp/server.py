@@ -38,6 +38,7 @@ Tools:
   import_cv         — seed or extend the Master Profile from a PDF or CV text
   add_role          — add a new work-experience role to the Master Profile
   create_application — create a new job application record
+  update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins, stale-CV dismiss)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
 
@@ -60,11 +61,17 @@ from sqlalchemy import select
 from applire.config import settings
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
+from applire.models.application import UserStatus
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
 from applire.models.user import User
 from applire.providers import get_provider
-from applire.schemas.application import ApplicationListResponse, ApplicationResponse, CreateApplicationRequest
+from applire.schemas.application import (
+    ApplicationListResponse,
+    ApplicationResponse,
+    CreateApplicationRequest,
+    PatchApplicationRequest,
+)
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
@@ -173,7 +180,11 @@ async def import_cv(
 @mcp.tool(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
-        "Provide exactly one of: text (the JD body) or url (scraped server-side)."
+        "Provide exactly one of: text (the JD body) or url (scraped server-side). "
+        "If the JD matches a job already in the user's application pipeline "
+        "(repost recognition), the response carries a duplicate_of hint with the "
+        "existing application_id — offer to open that application instead of "
+        "creating a new one; never block on it."
     )
 )
 async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
@@ -198,6 +209,20 @@ async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
             result = await job_svc.analyze_jd(jd_text, db, provider, source_url=source_url)
         except Exception as exc:
             raise internal(str(exc))
+        # Branch F (E039/US220): repost hint against the user's own pipeline.
+        # Best-effort — no user yet (fresh install) or any lookup failure just
+        # skips the hint; the analysis itself must never fail because of it.
+        try:
+            uid = await _current_user_id(db)
+            result.duplicate_of = await app_svc.find_duplicate_application(
+                uid,
+                job_analysis_id=result.id,
+                source_url=source_url,
+                raw_text=jd_text,
+                db=db,
+            )
+        except Exception:
+            pass
     return result.model_dump(mode="json")
 
 
@@ -404,24 +429,30 @@ async def get_flow_state(flow_id: str) -> dict:
     return result.model_dump(mode="json")
 
 
+# Valid user_status values, derived from the enum so tool descriptions and
+# error messages can never go stale again (the old literal lacked 'hired').
+_USER_STATUS_VALUES = ", ".join(m.value for m in UserStatus)
+
+
+def _parse_user_status(raw: str, field: str) -> UserStatus:
+    try:
+        return UserStatus(raw)
+    except ValueError:
+        raise invalid_input(
+            f"Invalid {field}: {raw!r}. Must be one of: {_USER_STATUS_VALUES}."
+        )
+
+
 @mcp.tool(
     description=(
         "List the user's application pipeline. "
-        "Optional status_filter: tracking, applied, rejected, offer."
+        f"Optional status_filter: {_USER_STATUS_VALUES}."
     )
 )
 async def list_applications(status_filter: str | None = None) -> list[dict]:
-    from applire.models.application import UserStatus
-
     user_status = None
     if status_filter:
-        try:
-            user_status = UserStatus(status_filter)
-        except ValueError:
-            raise invalid_input(
-                f"Invalid status_filter: {status_filter!r}. "
-                f"Must be one of: tracking, applied, rejected, offer."
-            )
+        user_status = _parse_user_status(status_filter, "status_filter")
     # Retrieve the single user from the DB (MCP runs in single-user context).
     async with get_db() as db:
         user_result = await db.execute(select(User).limit(1))
@@ -440,7 +471,16 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
     return [item.model_dump(mode="json") for item in result.items]
 
 
-@mcp.tool(description="Get details for a specific application by ID.")
+@mcp.tool(
+    description=(
+        "Get details for a specific application by ID. A non-null stale_cv "
+        "field means the Master Profile grew after the newest CV was tailored "
+        "(stale_cv.gained lists what changed per section) — offer to re-tailor "
+        "via generate_cv for the same job, or mute the hint with "
+        "update_application(dismiss_stale_cv=true). Never regenerate without "
+        "asking; a pinned submitted version is never replaced."
+    )
+)
 async def get_application(application_id: str) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     async with get_db() as db:
@@ -457,6 +497,8 @@ async def get_application(application_id: str) -> dict:
     description=(
         "Log an application to the user's pipeline. job_id is the JobAnalysis id; "
         "company_name/role_title default from the job when omitted. "
+        "source_url records where the posting was found (defaults from the job "
+        "when it was analyzed from a URL). "
         "start_workflow=true atomically creates the flow session."
     )
 )
@@ -466,6 +508,7 @@ async def create_application(
     company_name: str | None = None,
     role_title: str | None = None,
     deadline: str | None = None,
+    source_url: str | None = None,
 ) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     dl = None
@@ -480,6 +523,7 @@ async def create_application(
         company_name=company_name,
         role_title=role_title,
         deadline=dl,
+        source_url=source_url,
     )
     async with get_db() as db:
         uid = await _current_user_id(db)
@@ -489,6 +533,78 @@ async def create_application(
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Update user-managed fields on an application (MCP mirror of "
+        "PATCH /api/applications/{id}). Omitted fields are left unchanged. "
+        f"user_status must be one of: {_USER_STATUS_VALUES}. "
+        "deadline is ISO 8601. source_url records where the posting was found. "
+        "submitted_cv_id / submitted_cover_letter_id pin the exact generated "
+        "document that was sent to the employer (must belong to this "
+        "application's job); pinned documents are kept while the application "
+        "is active. dismiss_stale_cv=true mutes an application's stale-CV "
+        "re-tailor hint (the stale_cv field on get/list responses) until the "
+        "profile grows again."
+    )
+)
+async def update_application(
+    application_id: str,
+    user_status: str | None = None,
+    company_name: str | None = None,
+    role_title: str | None = None,
+    notes: str | None = None,
+    deadline: str | None = None,
+    source_url: str | None = None,
+    submitted_cv_id: str | None = None,
+    submitted_cover_letter_id: str | None = None,
+    dismiss_stale_cv: bool | None = None,
+) -> dict:
+    aid = _parse_uuid(application_id, "application_id")
+    # Build the request from provided fields only, so PatchApplicationRequest's
+    # model_fields_set semantics stay honest (E039: omitted ≠ explicit null).
+    fields: dict = {}
+    if user_status is not None:
+        fields["user_status"] = _parse_user_status(user_status, "user_status")
+    if company_name is not None:
+        fields["company_name"] = company_name
+    if role_title is not None:
+        fields["role_title"] = role_title
+    if notes is not None:
+        fields["notes"] = notes
+    if deadline is not None:
+        try:
+            fields["deadline"] = datetime.fromisoformat(deadline)
+        except ValueError:
+            raise invalid_input("deadline must be ISO 8601 (e.g. 2026-07-01T00:00:00)")
+    if source_url is not None:
+        fields["source_url"] = source_url
+    if submitted_cv_id is not None:
+        fields["submitted_cv_id"] = _parse_uuid(submitted_cv_id, "submitted_cv_id")
+    if submitted_cover_letter_id is not None:
+        fields["submitted_cover_letter_id"] = _parse_uuid(
+            submitted_cover_letter_id, "submitted_cover_letter_id"
+        )
+    if dismiss_stale_cv is not None:
+        fields["dismiss_stale_cv"] = dismiss_stale_cv
+    if not fields:
+        raise invalid_input(
+            "At least one field must be provided (user_status, company_name, "
+            "role_title, notes, deadline, source_url, submitted_cv_id, "
+            "submitted_cover_letter_id, dismiss_stale_cv)."
+        )
+    req = PatchApplicationRequest(**fields)
+    async with get_db() as db:
+        try:
+            result = await app_svc.patch_application(aid, req, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except ValueError as exc:
+            raise invalid_input(str(exc))
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")

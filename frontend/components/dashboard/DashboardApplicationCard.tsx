@@ -23,8 +23,16 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
+import { patchApplicationStatus } from "@/lib/api/applications";
+import { USER_STATUS_OPTIONS } from "@/lib/user-status";
+import type { StaleCVInfo } from "@/lib/stale-cv";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
+
+// Non-user-facing Material Symbols identifiers — JS consts to avoid the JSX literal rule
+const SOURCE_LINK_ICON = "open_in_new";
+const SENT_BADGE_ICON = "send";
+const STALE_CV_ICON = "trending_up";
 
 export interface DashboardApplicationCardProps {
   applicationId: string;
@@ -34,7 +42,17 @@ export interface DashboardApplicationCardProps {
   userStatus?: string;
   flowSessionId: string | null;
   updatedAt: string;
+  sourceUrl?: string | null;
+  /** Pinned submitted CV (E039/US219) — presence drives the sent badge. */
+  submittedCvId?: string | null;
+  /** The pin's version identity: its creation date (see ApplicationResponse). */
+  submittedCvCreatedAt?: string | null;
+  /** Stale-CV hint (E039/US221): profile grew after the newest CV — badge only;
+      the full nudge (delta + re-tailor + dismiss) lives on the detail page. */
+  staleCv?: StaleCVInfo | null;
   onStartFlow?: () => void;
+  /** Notifies the dashboard after a successful status PATCH (filter chips re-count). */
+  onStatusChange?: (userStatus: string) => void;
 }
 
 function deriveCardStatus(workflowStatus: string, updatedAt: string): CardStatus {
@@ -78,7 +96,12 @@ export function DashboardApplicationCard({
   userStatus,
   flowSessionId,
   updatedAt,
+  sourceUrl,
+  submittedCvId,
+  submittedCvCreatedAt,
+  staleCv,
   onStartFlow,
+  onStatusChange,
 }: DashboardApplicationCardProps) {
   const router = useRouter();
   const tDash = useTranslations("dashboard");
@@ -88,7 +111,25 @@ export function DashboardApplicationCard({
 
   const tHired = useTranslations("profileUpdate.markHired");
   const [hiring, setHiring] = useState(false);
-  const showMarkHired = workflowStatus === "completed" && userStatus !== "hired";
+
+  // Pipeline status (E039/US218) — optimistic local state, reverted on PATCH failure.
+  const [userStatusValue, setUserStatusValue] = useState(userStatus ?? "tracking");
+  const showMarkHired = workflowStatus === "completed" && userStatusValue !== "hired";
+
+  async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value;
+    const previous = userStatusValue;
+    setUserStatusValue(next);
+    try {
+      await patchApplicationStatus(applicationId, next);
+      onStatusChange?.(next);
+    } catch {
+      setUserStatusValue(previous);
+    }
+  }
+
+  const statusOption =
+    USER_STATUS_OPTIONS.find((o) => o.value === userStatusValue) ?? USER_STATUS_OPTIONS[0];
 
   const relativeTime = (() => {
     const h = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 36e5);
@@ -153,15 +194,86 @@ export function DashboardApplicationCard({
         >
           {initial}
         </div>
-        <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
-          {tDash(chip.labelKey)}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {/* Pipeline status control (E039/US218) — editable right on the card */}
+          <select
+            value={userStatusValue}
+            onChange={(e) => void handleStatusChange(e)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={tDash("statusSelectLabel")}
+            title={tDash("statusSelectLabel")}
+            className={cn(
+              "text-[10px] font-bold pl-2 pr-1 py-0.5 rounded-full uppercase tracking-wide cursor-pointer border-0",
+              statusOption.className
+            )}
+          >
+            {USER_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {tDash(option.labelKey)}
+              </option>
+            ))}
+          </select>
+          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
+            {tDash(chip.labelKey)}
+          </span>
+        </div>
       </div>
 
       <p className="text-[14px] font-bold text-gray-900 font-manrope leading-snug truncate">
         {roleTitle ?? tDash("unknownRole")}
       </p>
-      <p className="text-[12px] text-gray-500 mt-0.5 truncate">{companyName ?? ""}</p>
+      <p className="text-[12px] text-gray-500 mt-0.5 truncate flex items-center gap-1.5">
+        <span className="truncate">{companyName ?? ""}</span>
+        {submittedCvId && (
+          <span
+            data-testid="sent-badge"
+            title={
+              submittedCvCreatedAt
+                ? tDash("sentBadgeAriaLabel", {
+                    date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                  })
+                : undefined
+            }
+            className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#dcfce7] text-[#166534]"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>
+              {SENT_BADGE_ICON}
+            </span>
+            {submittedCvCreatedAt
+              ? tDash("sentBadge", {
+                  date: new Date(submittedCvCreatedAt).toLocaleDateString(),
+                })
+              : tDash("sentBadgePlain")}
+          </span>
+        )}
+        {staleCv && (
+          <span
+            data-testid="stale-cv-badge"
+            title={tDash("staleCvBadgeTitle")}
+            className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-container text-primary"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>
+              {STALE_CV_ICON}
+            </span>
+            {tDash("staleCvBadge")}
+          </span>
+        )}
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={tDash("sourceLinkLabel")}
+            title={tDash("sourceLinkLabel")}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-primary hover:text-teal-dim flex items-center"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 14 }}>
+              {SOURCE_LINK_ICON}
+            </span>
+          </a>
+        )}
+      </p>
 
       {/* Progress bar */}
       <div className="h-1 bg-gray-100 rounded-full mt-3 mb-3 overflow-hidden">

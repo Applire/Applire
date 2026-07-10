@@ -39,6 +39,7 @@ import base64 as _base64
 import json as _json
 import logging
 import re
+import unicodedata
 import uuid
 from datetime import timezone
 from pathlib import Path
@@ -378,15 +379,6 @@ async def _review_cv_language(
 logger = logging.getLogger(__name__)
 
 
-def _slugify(text: str) -> str:
-    """Convert a role title to a URL-safe slug for use in filenames."""
-    text = text.lower()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"-+", "-", text)
-    return text.strip("-")
-
-
 def _project_bullets(source_project: dict) -> list[str]:
     """Collapse a source ProjectEntry's responsibilities + achievements into the
     flat bullet list TailoredProjectEntry renders. Description leads when present
@@ -720,16 +712,64 @@ async def list_cvs_for_job(
 # ---------------------------------------------------------------------------
 
 
+def filename_part(value: str | None) -> str:
+    """Sanitize one segment of a download filename (E039/US219, FMEA JF-E-Q.1).
+
+    Umlaut-safe (ä→ae, ß→ss per DIN 5007-2) and diacritic-safe (á→a, č→c via
+    NFKD fold — a name must never lose letters), whitespace→hyphen, everything
+    else outside [A-Za-z0-9-] dropped. Case is preserved so the file reads like
+    a document title in a Downloads folder, not a URL slug.
+    """
+    if not value:
+        return ""
+    # German umlauts first — the two-letter forms are the expected DACH spelling
+    # and would be lost to a plain base-letter fold (ü→u, not ue).
+    for src, dst in (
+        ("ä", "ae"), ("ö", "oe"), ("ü", "ue"),
+        ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"),
+        ("ß", "ss"),
+    ):
+        value = value.replace(src, dst)
+    # Fold remaining diacritics to their base letter (á→a, é→e, č→c) instead of
+    # dropping them — "Milan Novák" must become "Milan-Novak", never "Milan-Novk".
+    value = "".join(
+        ch for ch in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(ch)
+    )
+    value = re.sub(r"[\s_]+", "-", value.strip())
+    value = re.sub(r"[^A-Za-z0-9-]", "", value)
+    return re.sub(r"-+", "-", value).strip("-")
+
+
+def compose_document_filename(
+    *parts: str | None, suffix: str = "", fallback: str
+) -> str:
+    """Join sanitized parts as <name>_<company>_<role>[_suffix].pdf; empty parts
+    are skipped. When nothing survives sanitization, fall back to a stable id-
+    based name so the header never carries an empty filename."""
+    clean = [p for p in (filename_part(part) for part in parts) if p]
+    if not clean:
+        return f"{fallback}.pdf"
+    if suffix:
+        clean.append(suffix)
+    return "_".join(clean) + ".pdf"
+
+
 async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
     """Build the Content-Disposition filename for a CV PDF.
 
-    Format: lebenslauf-{role_title_slug}-{cv_id[:8]}.pdf
-    Falls back to lebenslauf-cv-{cv_id[:8]}.pdf if job not found.
+    Format: <name>_<company>_<role>.pdf (sanitized, umlaut-safe) — the download
+    must stay identifiable among a pipeline's worth of files (E039/US219).
     """
     record = await _load_cv_ready(cv_id, db)
     job = await db.get(JobAnalysis, record.job_analysis_id)
-    role_slug = _slugify(job.role_title) if job and job.role_title else "cv"
-    return f"lebenslauf-{role_slug}-{str(cv_id)[:8]}.pdf"
+    contact = (record.tailored_data or {}).get("contact") or {}
+    return compose_document_filename(
+        contact.get("name"),
+        job.company_name if job else None,
+        job.role_title if job else None,
+        fallback=f"lebenslauf-{str(cv_id)[:8]}",
+    )
 
 
 # ---------------------------------------------------------------------------

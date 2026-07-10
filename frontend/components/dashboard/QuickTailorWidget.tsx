@@ -22,6 +22,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import {
+  DuplicateJdDialog,
+  type DuplicateOfHint,
+} from "@/components/applications/DuplicateJdDialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 type JdMode = "url" | "text";
@@ -33,10 +37,52 @@ export function QuickTailorWidget() {
   const [mode, setMode] = useState<JdMode>("url");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
+  // E039/US216: where the posting was found — only asked for on the text tab
+  // (the URL tab's link is auto-persisted server-side via JobAnalysis.source_url)
+  const [sourceUrl, setSourceUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // E039/US220 (journey Branch F): analysis matched a job already in the
+  // pipeline — hold the create step until the user picks open-existing /
+  // continue-as-new / dismiss. Recognition, never a gate.
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    jobId: string;
+    hint: DuplicateOfHint;
+  } | null>(null);
 
   const canSubmit = (mode === "url" && url.trim()) || (mode === "text" && text.trim());
+
+  async function createApplicationAndRoute(jobId: string) {
+    setLoading(true);
+    setError("");
+    try {
+      const createBody: Record<string, unknown> = {
+        job_analysis_id: jobId,
+        start_workflow: true,
+      };
+      if (mode === "text" && sourceUrl.trim()) {
+        createBody.source_url = sourceUrl.trim();
+      }
+      const createRes = await fetch(`${API_BASE}/api/applications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createBody),
+      });
+      if (!createRes.ok) {
+        const err = await createRes.json();
+        setError(createRes.status === 409 ? tDash("errorAppExists") : (err.detail ?? tDash("errorCreateAppFailed")));
+        return;
+      }
+      const appData = await createRes.json();
+      // Route via the flow index — it advances the state machine and picks
+      // the correct step (returning users skip cv_import entirely).
+      router.push(`/flow/${appData.flow_session_id}`);
+    } catch {
+      setError(tDash("errorUnexpected"));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -56,20 +102,11 @@ export function QuickTailorWidget() {
       }
       const jobData = await analyzeRes.json();
 
-      const createRes = await fetch(`${API_BASE}/api/applications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_analysis_id: jobData.id, start_workflow: true }),
-      });
-      if (!createRes.ok) {
-        const err = await createRes.json();
-        setError(createRes.status === 409 ? tDash("errorAppExists") : (err.detail ?? tDash("errorCreateAppFailed")));
+      if (jobData.duplicate_of) {
+        setDuplicatePrompt({ jobId: jobData.id, hint: jobData.duplicate_of });
         return;
       }
-      const appData = await createRes.json();
-      // Route via the flow index — it advances the state machine and picks
-      // the correct step (returning users skip cv_import entirely).
-      router.push(`/flow/${appData.flow_session_id}`);
+      await createApplicationAndRoute(jobData.id);
     } catch {
       setError(tDash("errorUnexpected"));
     } finally {
@@ -79,6 +116,20 @@ export function QuickTailorWidget() {
 
   return (
     <div className="bg-white rounded-[14px] border border-gray-200 shadow-sm px-[22px] py-5 relative overflow-hidden">
+      {duplicatePrompt && (
+        <DuplicateJdDialog
+          hint={duplicatePrompt.hint}
+          onOpenExisting={() =>
+            router.push(`/applications/${duplicatePrompt.hint.application_id}`)
+          }
+          onContinueNew={() => {
+            const jobId = duplicatePrompt.jobId;
+            setDuplicatePrompt(null);
+            void createApplicationAndRoute(jobId);
+          }}
+          onDismiss={() => setDuplicatePrompt(null)}
+        />
+      )}
       {/* gradient top-border */}
       <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-gold via-primary to-gold" />
 
@@ -127,13 +178,24 @@ export function QuickTailorWidget() {
             className="flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
           />
         ) : (
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={t("textPlaceholder")}
-            disabled={loading}
-            className="flex-1 min-h-[88px] resize-y border-[1.5px] border-gray-300 rounded-lg px-3.5 py-2.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
-          />
+          <div className="flex-1 flex flex-col gap-2">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={t("textPlaceholder")}
+              disabled={loading}
+              className="min-h-[88px] resize-y border-[1.5px] border-gray-300 rounded-lg px-3.5 py-2.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            />
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder={t("sourcePlaceholder")}
+              aria-label={t("sourceLabel")}
+              disabled={loading}
+              className="h-9 border-[1.5px] border-gray-200 rounded-lg px-3.5 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            />
+          </div>
         )}
         <button
           onClick={handleSubmit}

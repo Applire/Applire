@@ -35,10 +35,17 @@ import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
+import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
+import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
+
+// Non-user-facing Material Symbols identifiers — JS consts to avoid the JSX literal rule
+const GROWTH_ICON = "trending_up";
+const CLOSE_ICON = "close";
 
 type Phase = "photo_prompt" | "template_select" | "generating" | "preview" | "complete";
 type CVTemplate = "classic_german" | "modern_swiss" | "executive" | "tech_developer" | "creative_sidebar" | "academic" | "compact_pro";
@@ -67,6 +74,7 @@ export default function CVPage({
   const router = useRouter();
   const t = useTranslations("cv");
   const tDoc = useTranslations("document");
+  const tProfile = useTranslations("profile");
 
   const [phase, setPhase] = useState<Phase | null>(null); // null = initializing
   const [cvId, setCvId] = useState<string | null>(null);
@@ -78,12 +86,30 @@ export default function CVPage({
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
   // `null` = closed.
   const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
+  // E039/US218 natural-moment prompt: after a download, offer to mark the
+  // application as applied (only when it's still in `tracking`). `null` = closed.
+  // Carries the downloaded CV id so confirming also pins the sent version (US219).
+  const [markAppliedPrompt, setMarkAppliedPrompt] = useState<{
+    applicationId: string;
+    stampAppliedAt: boolean;
+    submittedCvId?: string;
+  } | null>(null);
+  // E039/US221: arrived via one-click re-tailor — the new version explains
+  // itself ("changed because your profile gained X"). null = normal visit.
+  // Read from window.location on mount (useSearchParams would force a
+  // Suspense boundary on this page for no gain).
+  const [retailoredGained, setRetailoredGained] = useState<StaleCVGained[] | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
   const [atsRefresh, setAtsRefresh] = useState(0);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
+
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get("retailored");
+    if (param) setRetailoredGained(decodeGained(param));
+  }, []);
 
   // Restore state from server on mount — determine correct phase before rendering
   useEffect(() => {
@@ -233,8 +259,29 @@ export default function CVPage({
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+      void offerMarkApplied();
     } catch {
       // silently fail
+    }
+  }
+
+  // The download is the cheapest truthful moment to update the pipeline status
+  // (E039/US218, FMEA JF-E-P2.1). Only nudge while the application is still
+  // `tracking` — anything later means the user already maintains the status.
+  async function offerMarkApplied() {
+    const applicationId = flowState?.application_id;
+    if (!applicationId) return;
+    try {
+      const app = await getApplication(applicationId);
+      if (app.user_status === "tracking") {
+        setMarkAppliedPrompt({
+          applicationId,
+          stampAppliedAt: app.applied_at == null,
+          submittedCvId: cvId ?? undefined,
+        });
+      }
+    } catch {
+      // Best-effort — no prompt is fine.
     }
   }
 
@@ -321,6 +368,7 @@ export default function CVPage({
             flowId={flowId}
             applicationId={flowState?.application_id ?? null}
             coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
+            cvId={cvId}
             onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
             onRegenerateSame={() => void handleGenerate(template)}
             onNext={() => setPhase("complete")}
@@ -331,6 +379,33 @@ export default function CVPage({
 
     return (
       <div data-testid="cv-page">
+        {/* E039/US221: the freshly re-tailored version explains itself —
+            "changed because your profile gained X" (delta from the nudge). */}
+        {retailoredGained !== null && (
+          <div
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-[55] max-w-xl w-[calc(100%-2rem)] flex items-start gap-2 p-3 rounded-lg bg-primary-container border border-primary/30 shadow-md"
+            data-testid="retailored-note"
+          >
+            <span className="material-symbols-outlined text-primary" aria-hidden="true" style={{ fontSize: 18 }}>
+              {GROWTH_ICON}
+            </span>
+            <p className="flex-1 text-sm text-on-surface">
+              {retailoredGained.length > 0
+                ? t("retailoredNote", { gained: formatGained(retailoredGained, tProfile) })
+                : t("retailoredNotePlain")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setRetailoredGained(null)}
+              aria-label={t("retailoredNoteClose")}
+              className="text-on-surface-variant hover:text-on-surface"
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                {CLOSE_ICON}
+              </span>
+            </button>
+          </div>
+        )}
         <DocumentWorkspace
           flowId={flowId}
           activeDoc="cv"
@@ -369,6 +444,14 @@ export default function CVPage({
               />
             </div>
           </div>
+        )}
+        {markAppliedPrompt && (
+          <MarkAppliedPrompt
+            applicationId={markAppliedPrompt.applicationId}
+            stampAppliedAt={markAppliedPrompt.stampAppliedAt}
+            submittedCvId={markAppliedPrompt.submittedCvId}
+            onClose={() => setMarkAppliedPrompt(null)}
+          />
         )}
         {showCoverLetterModal && flowState?.job_id && (
           <GenerateCoverLetterModal

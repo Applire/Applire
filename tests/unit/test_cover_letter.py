@@ -1193,3 +1193,85 @@ async def test_get_cover_letter_status_pending_letter_data_is_none(db):
 
     result = await get_cover_letter_status(cl.id, db, "http://localhost:8001")
     assert result.letter_data is None
+
+
+# ---------------------------------------------------------------------------
+# E039/US219 — cover-letter download filename (FMEA JF-E-Q.1)
+# Mirrors the CV filename contract; the "_Anschreiben" suffix keeps the pair
+# from colliding in a Downloads folder when both artifacts are fetched.
+# ---------------------------------------------------------------------------
+
+
+async def _seed_letter_with_context(
+    db,
+    *,
+    profile_name: str | None = "Emma Weber",
+    company_name: str | None = "DataCraft GmbH",
+    role_title: str = "Data Analyst",
+):
+    """MasterProfile + JobAnalysis + ready cover letter. Returns cl_id."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+
+    profile = MasterProfile(
+        profile_json={"personal_info": {"name": profile_name}} if profile_name else {},
+    )
+    job = JobAnalysis(
+        raw_text_hash=f"hash-{uuid.uuid4()}",
+        raw_text="Sample JD",
+        role_title=role_title,
+        company_name=company_name,
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+    )
+    db.add_all([profile, job])
+    await db.flush()
+
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        template="classic_german",
+        letter_data={},
+        pre_gen_inputs={},
+        status="ready",
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+    return cl.id
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_is_name_company_role(db):
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(db)
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == "Emma-Weber_DataCraft-GmbH_Data-Analyst_Anschreiben.pdf"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_transliterates_umlauts(db):
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(
+        db, profile_name="Jörg Groß", company_name="Über GmbH", role_title="Bäcker"
+    )
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == "Joerg-Gross_Ueber-GmbH_Baecker_Anschreiben.pdf"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_falls_back_when_parts_missing(db):
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(
+        db, profile_name=None, company_name=None, role_title=""
+    )
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == f"anschreiben-{str(cl_id)[:8]}.pdf"

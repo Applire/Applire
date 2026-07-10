@@ -9,6 +9,7 @@ def test_userstatus_has_hired():
 
 
 def test_userstatus_member_set():
+    # 'interviewing' added by E039/US218 (migration 0044).
     assert {m.value for m in UserStatus} == {
-        "tracking", "applied", "rejected", "offer", "hired"
+        "tracking", "applied", "interviewing", "rejected", "offer", "hired"
     }

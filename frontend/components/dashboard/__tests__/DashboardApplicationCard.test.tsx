@@ -16,8 +16,9 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DashboardApplicationCard } from "../DashboardApplicationCard";
+import { patchApplicationStatus } from "@/lib/api/applications";
 
 const mockPush = vi.fn();
 
@@ -26,7 +27,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${Object.values(params).join(",")}` : key,
+}));
+
+vi.mock("@/lib/api/applications", () => ({
+  patchApplicationStatus: vi.fn().mockResolvedValue({ user_status: "interviewing" }),
 }));
 
 vi.mock("@/lib/profile-roles", () => ({
@@ -59,6 +65,66 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof DashboardAppl
 describe("DashboardApplicationCard", () => {
   beforeEach(() => {
     mockPush.mockReset();
+  });
+
+  // ── Source link (E039/US216 — dossier) ───────────────────────────────────
+
+  it("renders the source link as an external anchor when sourceUrl is set", () => {
+    renderCard({ sourceUrl: "https://jobs.example.com/123" });
+    const link = screen.getByRole("link", { name: "sourceLinkLabel" });
+    expect(link).toHaveAttribute("href", "https://jobs.example.com/123");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  // ── Sent badge (E039/US219 — pinned submitted version) ───────────────────
+
+  it("shows the sent badge with the pinned version's date (US219)", () => {
+    renderCard({
+      submittedCvId: "cv-9",
+      submittedCvCreatedAt: "2026-07-05T10:00:00Z",
+    });
+    const badge = screen.getByTestId("sent-badge");
+    // Version identity = the pin's creation date, rendered via the sentBadge key
+    expect(badge).toHaveTextContent(
+      `sentBadge:${new Date("2026-07-05T10:00:00Z").toLocaleDateString()}`,
+    );
+  });
+
+  it("shows no sent badge when nothing is pinned", () => {
+    renderCard();
+    expect(screen.queryByTestId("sent-badge")).toBeNull();
+  });
+
+  // ── Stale-CV indicator (E039/US221 — journey Branch H) ───────────────────
+
+  it("shows the profile-grew badge when the backend flags the CV as stale", () => {
+    renderCard({
+      staleCv: {
+        latest_cv_id: "cv-1",
+        latest_cv_created_at: "2026-07-01T10:00:00Z",
+        latest_cv_template: "classic_german",
+        profile_enriched_at: "2026-07-08T10:00:00Z",
+        gained: [{ section: "skills", count: 3 }],
+      },
+    });
+    expect(screen.getByTestId("stale-cv-badge")).toHaveTextContent("staleCvBadge");
+  });
+
+  it("shows no stale badge when the hint is absent", () => {
+    renderCard();
+    expect(screen.queryByTestId("stale-cv-badge")).toBeNull();
+  });
+
+  it("renders no source link when sourceUrl is absent", () => {
+    renderCard();
+    expect(screen.queryByRole("link", { name: "sourceLinkLabel" })).not.toBeInTheDocument();
+  });
+
+  it("clicking the source link does not navigate to the application detail", () => {
+    renderCard({ sourceUrl: "https://jobs.example.com/123" });
+    fireEvent.click(screen.getByRole("link", { name: "sourceLinkLabel" }));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   // ── Status derivation ────────────────────────────────────────────────────
@@ -171,6 +237,42 @@ describe("DashboardApplicationCard", () => {
   it("renders fallback text when roleTitle is null", () => {
     renderCard({ roleTitle: null, companyName: null });
     expect(screen.getByText("unknownRole")).toBeInTheDocument();
+  });
+
+  // ── Status pipeline control (E039/US218) ─────────────────────────────────
+
+  it("renders a status select with the current user status", () => {
+    renderCard({ userStatus: "applied" });
+    const select = screen.getByRole("combobox", { name: "statusSelectLabel" });
+    expect(select).toHaveValue("applied");
+  });
+
+  it("defaults the status select to tracking when userStatus is absent", () => {
+    renderCard();
+    expect(screen.getByRole("combobox", { name: "statusSelectLabel" })).toHaveValue("tracking");
+  });
+
+  it("offers all six pipeline statuses", () => {
+    renderCard();
+    const select = screen.getByRole("combobox", { name: "statusSelectLabel" });
+    const values = Array.from(select.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    expect(values).toEqual(["tracking", "applied", "interviewing", "offer", "rejected", "hired"]);
+  });
+
+  it("changing the status PATCHes the application and notifies the parent", async () => {
+    const onStatusChange = vi.fn();
+    renderCard({ userStatus: "applied", onStatusChange });
+    fireEvent.change(screen.getByRole("combobox", { name: "statusSelectLabel" }), {
+      target: { value: "interviewing" },
+    });
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith("interviewing"));
+    expect(patchApplicationStatus).toHaveBeenCalledWith("app-1", "interviewing");
+  });
+
+  it("clicking the status select does not navigate to the detail page", () => {
+    renderCard();
+    fireEvent.click(screen.getByRole("combobox", { name: "statusSelectLabel" }));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   // ── Mark as Hired affordance ─────────────────────────────────────────────
