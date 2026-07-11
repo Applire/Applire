@@ -109,7 +109,10 @@ def _cluster_terms(cluster: dict[str, Any]) -> list[str]:
 
 
 def _is_honesty_frame(choice: str) -> bool:
-    folded = choice.casefold()
+    # Real models emit typographic apostrophes ("haven’t", U+2019/U+02BC) —
+    # normalise to ASCII before marker matching (blind agent probe 2026-07-11:
+    # the ASCII-only match over-dropped truthful frames).
+    folded = choice.casefold().replace("’", "'").replace("ʼ", "'")
     return any(marker in folded for marker in _HONESTY_MARKERS)
 
 

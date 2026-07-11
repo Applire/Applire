@@ -66,6 +66,12 @@ class TestFilterUngroundedChoices:
         chips = ["I haven't worked with Azure directly, but my AWS migration covered similar controls."]
         assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
 
+    def test_typographic_apostrophe_honesty_frame_is_recognised(self):
+        # Blind agent probe 2026-07-11: real models emit "haven’t" (U+2019);
+        # the ASCII-only marker missed it and over-dropped truthful frames.
+        chips = ["I haven’t worked directly with Azure, but I’ve used Docker in CI/CD pipelines."]
+        assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
+
     def test_german_honesty_frame_is_recognised(self):
         chips = ["Mit Azure habe ich bisher nicht direkt gearbeitet, aber meine AWS-Migration war vergleichbar."]
         assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
