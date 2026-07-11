@@ -78,6 +78,16 @@ Generate 2-3 short answer choices when:
 Choices are starting-point options the candidate can select and expand; they are not exhaustive.
 Otherwise set choices to null.
 
+Choice truthfulness rules (critical — choices pre-fill the candidate's answer):
+- A choice may ASSERT experience only with skills, tools, or employers that appear in the \
+candidate profile summary below. Never attribute a JD technology to the candidate that the \
+profile does not show.
+- Never invent specific projects, systems, employers, or metrics.
+- For EXPLORATORY (gap_type=C) clusters the profile shows no signal — choices must be honesty \
+frames: deny direct experience and bridge to related experience the profile does show \
+(e.g. "I haven't worked with X directly, but ..."), or leave the claim open for the candidate \
+to complete. Do not draft affirmative claims for C clusters.
+
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
 - Be encouraging and conversational in tone
@@ -105,8 +115,14 @@ def build_question_prompt(
     profile_summary = json.dumps(
         {
             "skills": profile.get("skills", []),
+            # Technologies included so choices can be grounded in real evidence
+            # (#110) — company/role alone gave the model nothing to anchor on.
             "work_experience": [
-                {"company": e.get("company"), "role": e.get("role")}
+                {
+                    "company": e.get("company"),
+                    "role": e.get("role"),
+                    "technologies": e.get("technologies") or [],
+                }
                 for e in profile.get("work_experience", [])
             ],
         },

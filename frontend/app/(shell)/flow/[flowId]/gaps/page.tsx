@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
-import { gapCounts } from "@/lib/match-utils";
+import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -48,6 +48,8 @@ interface GapAnalysis {
   category_c: string[];
   strengths: string[];
   gap_clusters: GapCluster[];
+  // ADR-048 fit-slice — the canonical requirement set all counts derive from (#111)
+  keyword_ledger?: LedgerChipEntry[];
 }
 
 interface FlowState {
@@ -762,15 +764,25 @@ export default function GapsPage({
         </div>
       )}
 
-      {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4) */}
-      {jobEcho && (
-        <JobEchoCard
-          companyName={jobEcho.company_name}
-          roleTitle={jobEcho.role_title}
-          requiredSkills={jobEcho.required_skills}
-          niceToHaveSkills={jobEcho.nice_to_have_skills}
-        />
-      )}
+      {/* Section 1c: Parsed-JD echo — what we read from the job ad (US158, FMEA 4.3/4.4).
+          Chips + count come from the ledger fit-slice so the echo total always
+          equals the badge math below (#111); raw JD lists only pre-ledger. */}
+      {jobEcho &&
+        (() => {
+          const echoChips = canonicalRequirementChips(
+            gaps?.keyword_ledger,
+            jobEcho.required_skills,
+            jobEcho.nice_to_have_skills,
+          );
+          return (
+            <JobEchoCard
+              companyName={jobEcho.company_name}
+              roleTitle={jobEcho.role_title}
+              requiredSkills={echoChips.required}
+              niceToHaveSkills={echoChips.niceToHave}
+            />
+          );
+        })()}
 
       {/* Section 2: Match Score */}
       <Card className="p-6 mb-8">

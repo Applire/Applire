@@ -63,6 +63,7 @@ from applire.prompts.review_question_language import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.session import InterviewState
+from applire.services.choice_grounding import filter_ungrounded_choices
 from applire.services.reviewer import review_and_refine
 from applire.utils.display import format_display_value
 
@@ -289,6 +290,12 @@ async def question_generator_with_profile(
     reviewed = await _review_question_language(draft, lang, provider)
     rc = reviewed.get("choices")
     reviewed["choices"] = rc if isinstance(rc, list) and rc else None
+    # #110 (blind PQ F5): the code-level truthfulness guarantee — a chip that
+    # asserts an un-evidenced JD/cluster term never reaches the user, no matter
+    # what the prompt produced. Honesty frames pass.
+    reviewed["choices"] = filter_ungrounded_choices(
+        reviewed["choices"], cluster, profile, gap_category
+    )
     reviewed["question"] = str(reviewed.get("question", "")).strip()
     return reviewed
 

@@ -57,6 +57,36 @@ export interface GapCounts {
   itemsToAddress: number; // partials + gaps — gates the section and the interview CTA
 }
 
+/** The slim ledger projection the gaps screen reads (ADR-048 fit-slice). */
+export interface LedgerChipEntry {
+  concept: string;
+  fit_weight: number; // 1.0 required / 0.5 nice_to_have / 0.0 keyword-only
+  sources?: string[];
+}
+
+/**
+ * Canonical JD-echo chips (#111, blind PQ F6): when a Keyword Ledger exists,
+ * the echo card lists and counts the SAME fit-weighted slice the badges and
+ * the match score are computed from — the raw JD lists disagree with the
+ * ledger math whenever concepts were merged or classification widened
+ * ("17 requirements detected" vs "24 direct matches"). Pre-ledger analyses
+ * fall back to the raw JD lists.
+ */
+export function canonicalRequirementChips(
+  ledger: LedgerChipEntry[] | null | undefined,
+  rawRequired: string[],
+  rawNiceToHave: string[],
+): { required: string[]; niceToHave: string[] } {
+  const fitSlice = (ledger ?? []).filter((e) => (e.fit_weight ?? 0) > 0);
+  if (fitSlice.length === 0) {
+    return { required: rawRequired, niceToHave: rawNiceToHave };
+  }
+  return {
+    required: fitSlice.filter((e) => e.fit_weight >= 1).map((e) => e.concept),
+    niceToHave: fitSlice.filter((e) => e.fit_weight < 1).map((e) => e.concept),
+  };
+}
+
 /**
  * Derive every gap count shown on the gaps screen from a single source.
  *

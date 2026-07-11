@@ -418,3 +418,110 @@ class TestSharedPresencePredicate:
         from applire.services import ats_audit, cv_gap_hints
 
         assert cv_gap_hints.surface_present is ats_audit.surface_present
+
+
+class TestClusterDedupe:
+    """#111 (blind PQ F6): near-duplicate ledger concepts that the gap clusters
+    already group must surface as ONE sidebar hint, labelled by the cluster —
+    never 'Cloud qualification' / 'Cloud environment qualification (AWS, Azure)'
+    / 'Azure' as three chips for one gap."""
+
+    CLUSTER = {
+        "id": "cluster-cloud",
+        "label": "Cloud environment qualification",
+        "category": "C",
+        "gaps": [
+            "Cloud qualification",
+            "Cloud environment qualification (AWS, Azure)",
+            "Azure",
+        ],
+        "jd_skills": ["Azure"],
+        "jd_context": "",
+    }
+
+    def _flatten(self, gap_map, general):
+        return [h for hints in gap_map.values() for h in hints] + list(general)
+
+    def _ledger(self):
+        return [
+            _entry("Cloud qualification", status="gap"),
+            _entry("Cloud environment qualification (AWS, Azure)", status="gap"),
+            _entry("Azure", status="gap"),
+        ]
+
+    def test_cluster_members_collapse_to_one_hint(self):
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        gap_map, general = build_gap_hints(
+            ledger=self._ledger(),
+            category_b=[],
+            category_c=[e["concept"] for e in self._ledger()],
+            section_contents={"skills": "Python\nGxP validation"},
+            gap_clusters=[self.CLUSTER],
+        )
+        hints = self._flatten(gap_map, general)
+        assert [h.label for h in hints] == ["Cloud environment qualification"]
+        assert hints[0].kind == "honest"
+
+    def test_partially_covered_cluster_still_collapses_the_rest(self):
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        # "Azure" is covered by the document -> suppressed individually; the two
+        # remaining open members still merge into one cluster hint.
+        gap_map, general = build_gap_hints(
+            ledger=self._ledger(),
+            category_b=[],
+            category_c=[e["concept"] for e in self._ledger()],
+            section_contents={"skills": "Azure\nPython"},
+            gap_clusters=[self.CLUSTER],
+        )
+        hints = self._flatten(gap_map, general)
+        assert [h.label for h in hints] == ["Cloud environment qualification"]
+
+    def test_single_open_member_keeps_its_own_concept_label(self):
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        # Only one member remains open -> no merge, the concept label stays
+        # (a cluster label on a single concept would only blur it).
+        gap_map, general = build_gap_hints(
+            ledger=[_entry("Azure", status="gap")],
+            category_b=[],
+            category_c=["Azure"],
+            section_contents={"skills": "Python"},
+            gap_clusters=[self.CLUSTER],
+        )
+        hints = self._flatten(gap_map, general)
+        assert [h.label for h in hints] == ["Azure"]
+
+    def test_mixed_kind_cluster_merges_as_honest(self):
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        # One claimable + one honest member: the merged hint must route to
+        # enrichment (honest), never invite a claim covering the honest half.
+        ledger = [
+            _entry("Cloud qualification", status="partial"),
+            _entry("Azure", status="gap"),
+        ]
+        gap_map, general = build_gap_hints(
+            ledger=ledger,
+            category_b=["Cloud qualification"],
+            category_c=["Azure"],
+            section_contents={"skills": "Python"},
+            gap_clusters=[self.CLUSTER],
+        )
+        hints = self._flatten(gap_map, general)
+        assert [h.label for h in hints] == ["Cloud environment qualification"]
+        assert hints[0].kind == "honest"
+
+    def test_unclustered_candidates_unaffected(self):
+        from applire.services.cv_gap_hints import build_gap_hints
+
+        gap_map, general = build_gap_hints(
+            ledger=[_entry("DevSecOps", status="gap"), _entry("Azure", status="gap")],
+            category_b=[],
+            category_c=["DevSecOps", "Azure"],
+            section_contents={"skills": "Python"},
+            gap_clusters=[self.CLUSTER],  # DevSecOps is not a member
+        )
+        hints = self._flatten(gap_map, general)
+        assert sorted(h.label for h in hints) == ["Azure", "DevSecOps"]

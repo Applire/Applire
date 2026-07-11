@@ -159,6 +159,8 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
             category_b=list(gap_analysis.category_b or []),
             category_c=list(gap_analysis.category_c or []),
             section_contents=section_contents,
+            # #111: collapse near-duplicate concepts the clusters already group.
+            gap_clusters=list(gap_analysis.gap_clusters or []),
         )
 
     # Build section items

@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from "vitest";
-import { gapCounts } from "../match-utils";
+import { canonicalRequirementChips, gapCounts } from "../match-utils";
 
 const NONE = new Set<string>();
 
@@ -63,5 +63,35 @@ describe("gapCounts", () => {
   it("is tolerant of null / missing categories", () => {
     const counts = gapCounts(null, NONE);
     expect(counts).toEqual({ directMatches: 0, likelyMatches: 0, gaps: 0, itemsToAddress: 0 });
+  });
+});
+
+describe("canonicalRequirementChips", () => {
+  // #111 (blind PQ F6): the JD-echo card must count/list the SAME fit-slice the
+  // badges and score are computed from — never the raw JD lists next to ledger
+  // math ("17 requirements detected" vs "24 direct matches").
+  const ledger = [
+    { concept: "Python", fit_weight: 1.0, sources: ["required"] },
+    { concept: "Kubernetes", fit_weight: 1.0, sources: ["required", "keyword"] },
+    { concept: "Terraform", fit_weight: 0.5, sources: ["nice_to_have"] },
+    { concept: "agile", fit_weight: 0.0, sources: ["keyword"] }, // keyword-only: excluded
+  ];
+
+  it("derives chips from the ledger fit-slice when a ledger exists", () => {
+    const chips = canonicalRequirementChips(ledger, ["raw-a", "raw-b"], ["raw-c"]);
+    expect(chips.required).toEqual(["Python", "Kubernetes"]);
+    expect(chips.niceToHave).toEqual(["Terraform"]);
+  });
+
+  it("total equals the badge math (A+B+C fit-slice size)", () => {
+    const chips = canonicalRequirementChips(ledger, [], []);
+    expect(chips.required.length + chips.niceToHave.length).toBe(3);
+  });
+
+  it("falls back to the raw JD lists for pre-ledger analyses", () => {
+    const chips = canonicalRequirementChips(null, ["raw-a"], ["raw-c"]);
+    expect(chips.required).toEqual(["raw-a"]);
+    expect(chips.niceToHave).toEqual(["raw-c"]);
+    expect(canonicalRequirementChips([], ["raw-a"], []).required).toEqual(["raw-a"]);
   });
 });
