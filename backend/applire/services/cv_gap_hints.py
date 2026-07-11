@@ -98,11 +98,65 @@ def _document_norm(section_contents: dict[str, str]) -> str:
     return _norm("\n".join(section_contents.values()))
 
 
+def _merge_cluster_duplicates(
+    open_candidates: list[_Candidate],
+    gap_clusters: list[dict[str, Any]] | None,
+) -> list[_Candidate]:
+    """Collapse near-duplicate concepts the gap clusters already group (#111).
+
+    The ledger's deterministic prefix/mirror collapse can't see that "Azure"
+    and "Cloud qualification" are one gap — but the semantic clusters can. Two
+    or more open candidates whose labels are members of the same cluster merge
+    into ONE hint labelled by the cluster; a lone member keeps its own concept
+    label. The merged hint is honest if ANY member is honest (a claim must
+    never cover an honest half), and carries the union of surface forms.
+    """
+    if not gap_clusters:
+        return open_candidates
+
+    member_to_cluster: dict[str, dict[str, Any]] = {}
+    for cluster in gap_clusters:
+        for member in cluster.get("gaps") or []:
+            member_to_cluster.setdefault(_norm(str(member)), cluster)
+
+    grouped: dict[str, list[_Candidate]] = {}
+    order: list[tuple[str, _Candidate | None]] = []  # (cluster_id, single) preserving position
+    for cand in open_candidates:
+        cluster = member_to_cluster.get(_norm(cand.label))
+        if cluster is None:
+            order.append(("", cand))
+            continue
+        cid = str(cluster.get("id") or cluster.get("label"))
+        if cid not in grouped:
+            order.append((cid, None))
+        grouped.setdefault(cid, []).append(cand)
+
+    clusters_by_id = {
+        str(c.get("id") or c.get("label")): c for c in gap_clusters
+    }
+    out: list[_Candidate] = []
+    for cid, single in order:
+        if single is not None:
+            out.append(single)
+            continue
+        members = grouped[cid]
+        if len(members) == 1:
+            out.append(members[0])
+            continue
+        cluster = clusters_by_id[cid]
+        label = str(cluster.get("label") or members[0].label)
+        kind = "honest" if any(m.kind == "honest" for m in members) else "claimable"
+        forms = tuple(dict.fromkeys(f for m in members for f in m.surface_forms))
+        out.append(_Candidate(label=label, kind=kind, surface_forms=forms))
+    return out
+
+
 def build_gap_hints(
     ledger: list[dict[str, Any]] | None,
     category_b: list[str],
     category_c: list[str],
     section_contents: dict[str, str],
+    gap_clusters: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, list[GapHintItem]], list[GapHintItem]]:
     """Return (section_id -> hints, general hints) for the current document.
 
@@ -113,6 +167,7 @@ def build_gap_hints(
     doc = _document_norm(section_contents)
     open_candidates = [c for c in _candidates(ledger, category_b, category_c)
                        if not _covered(c, doc)]
+    open_candidates = _merge_cluster_duplicates(open_candidates, gap_clusters)
     if not open_candidates:
         return {}, []
 
