@@ -30,7 +30,7 @@ import {
 } from "@/components/profile/MergeGateDialog";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { ProgressWidget, type ProgressStep } from "@/components/ui/progress-widget";
-import { startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
+import { startCvImport, pollCvImport, CVImportError, type CVUploadResult } from "@/lib/import-cv";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
@@ -132,14 +132,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
-      let data: {
-        status?: string;
-        gate?: string;
-        staged_id?: string;
-        account_name?: string | null;
-        cv_name?: string | null;
-        completeness_score?: number | null;
-      };
+      // The ZIP endpoint answers the same shape as the async CV import job.
+      let data: CVUploadResult;
 
       if (isZip) {
         // LinkedIn archive import stays synchronous (fast, no heavy LLM pass) —
