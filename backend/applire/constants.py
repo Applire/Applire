@@ -169,3 +169,9 @@ GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))
 UPLOAD_TTL_DAYS: int = int(os.environ.get("UPLOAD_TTL_DAYS", "7"))
 PROFILE_INACTIVITY_TTL_DAYS: int = int(os.environ.get("PROFILE_INACTIVITY_TTL_DAYS", "730"))
+
+# Orphan-file grace period (issue #152, dFMEA SF-PROFILE.5). The retention
+# worker's orphan scan skips files younger than this: the upload flow saves
+# the file BEFORE committing its DB row, so a young unreferenced file may be
+# an in-flight upload, not an orphan.
+ORPHAN_FILE_GRACE_HOURS: int = int(os.environ.get("ORPHAN_FILE_GRACE_HOURS", "1"))

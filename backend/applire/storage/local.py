@@ -19,6 +19,7 @@
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from applire.storage.base import StorageProvider
@@ -54,6 +55,25 @@ class LocalStorageProvider(StorageProvider):
                 pass
 
         await asyncio.get_event_loop().run_in_executor(None, _delete)
+
+    async def list_files(self) -> list[tuple[str, datetime]]:
+        """Enumerate files under the upload dir as (path, mtime-UTC) pairs.
+
+        Paths use the same form save() returns (str of base / name), so they
+        compare directly against uploads.file_path / photo_url DB values.
+        """
+        base = self._base
+
+        def _list() -> list[tuple[str, datetime]]:
+            if not base.exists():
+                return []
+            return [
+                (str(p), datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc))
+                for p in base.rglob("*")
+                if p.is_file()
+            ]
+
+        return await asyncio.get_running_loop().run_in_executor(None, _list)
 
     async def read(self, file_path: str) -> bytes:
         path = Path(file_path)

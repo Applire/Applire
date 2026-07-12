@@ -707,3 +707,235 @@ async def test_count_submitted_exempt_zero_when_tables_absent(db):
     await db.execute(text("DROP TABLE applications"))
     await db.commit()
     assert await _count_submitted_exempt(db) == 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #152 (dFMEA SF-PROFILE.5) — orphan-file scan
+# Files on the uploads volume with no uploads row AND no profile-photo
+# reference are orphans (e.g. GDPR erasure committed rows but the post-commit
+# file delete failed). The scan reclaims them after a grace period.
+# ---------------------------------------------------------------------------
+
+import json as _json
+import os as _os
+from pathlib import Path as _Path
+
+_CREATE_UPLOADS_TABLE = (
+    "CREATE TABLE IF NOT EXISTS uploads ("
+    " id TEXT PRIMARY KEY,"
+    " user_id TEXT,"
+    " original_filename TEXT NOT NULL DEFAULT 'cv.pdf',"
+    " content_hash TEXT NOT NULL DEFAULT '',"
+    " mime_type TEXT NOT NULL DEFAULT 'application/pdf',"
+    " file_path TEXT NOT NULL,"
+    " byte_size INTEGER NOT NULL DEFAULT 1,"
+    " created_at TEXT NOT NULL,"
+    " expires_at TEXT NOT NULL)"
+)
+
+
+async def _create_uploads_table(db: AsyncSession) -> None:
+    await db.execute(text(_CREATE_UPLOADS_TABLE))
+    await db.commit()
+
+
+async def _seed_upload_row(db: AsyncSession, *, file_path: str) -> str:
+    uid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO uploads (id, file_path, created_at, expires_at) "
+            "VALUES (:id, :fp, :now, :exp)"
+        ),
+        {"id": uid, "fp": file_path, "now": _ts(_now()),
+         "exp": _ts(_now() + timedelta(days=7))},
+    )
+    await db.commit()
+    return uid
+
+
+async def _seed_profile_with_photo(
+    db: AsyncSession, *, photo_url: str, deleted_at: datetime | None = None
+) -> str:
+    pid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO master_profiles (id, profile_json, created_at, updated_at, deleted_at) "
+            "VALUES (:id, :pj, :now, :now, :del)"
+        ),
+        {"id": pid,
+         "pj": _json.dumps({"personal_info": {"name": "Emma", "photo_url": photo_url}}),
+         "now": _ts(_now()),
+         "del": _ts(deleted_at) if deleted_at else None},
+    )
+    await db.commit()
+    return pid
+
+
+def _write_upload_file(base: _Path, name: str, *, age_hours: float) -> str:
+    """Create a file on the fake uploads volume with a backdated mtime."""
+    f = base / name
+    f.write_bytes(b"%PDF-1.4 test")
+    stamp = (_now() - timedelta(hours=age_hours)).timestamp()
+    _os.utime(f, (stamp, stamp))
+    return str(f)
+
+
+@pytest.fixture
+def local_storage(tmp_path, monkeypatch):
+    """Point the worker's get_storage() at a LocalStorageProvider on tmp_path."""
+    from applire.storage.local import LocalStorageProvider
+
+    provider = LocalStorageProvider(str(tmp_path))
+    monkeypatch.setattr("applire.storage.get_storage", lambda: provider)
+    return tmp_path
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_deletes_unreferenced_old_file(db, local_storage, caplog):
+    """A file past the grace period with no uploads row and no photo reference
+    is an orphan → deleted, counted, and logged at INFO with its path."""
+    import logging
+
+    from applire.retention.worker import _scan_orphan_files
+
+    await _create_uploads_table(db)
+    orphan = _write_upload_file(local_storage, "orphan.pdf", age_hours=2)
+
+    with caplog.at_level(logging.INFO, logger="applire.retention.worker"):
+        deleted = await _scan_orphan_files(db)
+
+    assert deleted == 1
+    assert not _Path(orphan).exists()
+    assert any(
+        rec.levelname == "INFO" and "orphan.pdf" in rec.getMessage()
+        for rec in caplog.records
+    ), "each orphan deletion must be logged at INFO with the file path"
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_keeps_file_with_uploads_row(db, local_storage):
+    from applire.retention.worker import _scan_orphan_files
+
+    await _create_uploads_table(db)
+    referenced = _write_upload_file(local_storage, "cv.pdf", age_hours=2)
+    await _seed_upload_row(db, file_path=referenced)
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+    assert _Path(referenced).exists()
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_keeps_profile_photo(db, local_storage):
+    """Profile photos have NO uploads row — referenced only via
+    profile_json.personal_info.photo_url. The scan must never eat them."""
+    from applire.retention.worker import _scan_orphan_files
+
+    await _create_uploads_table(db)
+    photo = _write_upload_file(local_storage, "photo.jpg", age_hours=48)
+    await _seed_profile_with_photo(db, photo_url=photo)
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+    assert _Path(photo).exists()
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_keeps_photo_of_soft_deleted_profile(db, local_storage):
+    """A soft-deleted profile still owns its photo until hard erasure — the
+    referenced set must include tombstoned master_profiles rows too."""
+    from applire.retention.worker import _scan_orphan_files
+
+    await _create_uploads_table(db)
+    photo = _write_upload_file(local_storage, "photo.webp", age_hours=48)
+    await _seed_profile_with_photo(db, photo_url=photo, deleted_at=_ago(days=3))
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+    assert _Path(photo).exists()
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_spares_young_files_grace_period(db, local_storage):
+    """The upload flow saves the file BEFORE committing the DB row — a young
+    unreferenced file may be an in-flight upload, never an orphan yet."""
+    from applire.retention.worker import _scan_orphan_files
+
+    await _create_uploads_table(db)
+    in_flight = _write_upload_file(local_storage, "inflight.pdf", age_hours=0)
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+    assert _Path(in_flight).exists()
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_skipped_for_non_local_storage(db, monkeypatch, tmp_path):
+    """A storage backend without enumeration support (e.g. S3 in Cloud) must
+    skip the scan gracefully — no deletes, count 0."""
+    from applire.retention.worker import _scan_orphan_files
+    from applire.storage.base import StorageProvider
+
+    class _OpaqueStorage(StorageProvider):
+        async def save(self, file_bytes: bytes, filename: str) -> str:
+            raise NotImplementedError
+
+        async def delete(self, file_path: str) -> None:
+            raise AssertionError("scan must not delete on a non-enumerable backend")
+
+        async def read(self, file_path: str) -> bytes:
+            raise NotImplementedError
+
+    monkeypatch.setattr("applire.storage.get_storage", lambda: _OpaqueStorage())
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_deletes_nothing_when_uploads_table_absent(db, local_storage):
+    """If the referenced set cannot be built (uploads table missing), the scan
+    must fail safe: delete nothing rather than treat everything as orphaned."""
+    from applire.retention.worker import _scan_orphan_files
+
+    # NOTE: uploads table deliberately NOT created
+    survivor = _write_upload_file(local_storage, "survivor.pdf", age_hours=5)
+
+    deleted = await _scan_orphan_files(db)
+
+    assert deleted == 0
+    assert _Path(survivor).exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_report_includes_orphan_count(db, local_storage, monkeypatch, capsys):
+    """run() must execute the orphan scan and report the count in its JSON
+    summary alongside the other purge counters."""
+    import applire.retention.worker as worker_mod
+
+    await _create_uploads_table(db)
+    _write_upload_file(local_storage, "orphan.pdf", age_hours=2)
+
+    class _FactoryShim:
+        """Mimic AsyncSessionLocal() as an async context manager yielding db."""
+
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(worker_mod, "AsyncSessionLocal", _FactoryShim())
+
+    await worker_mod.run()
+
+    report = _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert report["orphan_files_deleted"] == 1
