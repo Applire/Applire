@@ -286,7 +286,7 @@ async def test_create_application_reuse_reactivates_soft_deleted(db, user_and_jo
     _, job = user_and_job
     req = CreateApplicationRequest(job_analysis_id=job.id)
     first = await create_application(_STUB_USER_ID, req, db)
-    await delete_application(first.id, db)
+    await delete_application(first.id, _STUB_USER_ID, db)
 
     revived = await create_application(_STUB_USER_ID, req, db)
 
@@ -354,7 +354,7 @@ async def test_list_applications_returns_all(db, user_and_job):
 async def test_list_applications_excludes_deleted(db, user_and_job):
     _, job = user_and_job
     resp = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    await delete_application(resp.id, db)
+    await delete_application(resp.id, _STUB_USER_ID, db)
 
     result = await list_applications(_STUB_USER_ID, db)
     assert result.total == 0
@@ -383,7 +383,7 @@ async def test_list_applications_filter_by_user_status(db, user_and_job):
     r1 = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job1.id), db)
     await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job2.id), db)
 
-    await patch_application(r1.id, PatchApplicationRequest(user_status=UserStatus.applied), db)
+    await patch_application(r1.id, _STUB_USER_ID, PatchApplicationRequest(user_status=UserStatus.applied), db)
 
     result = await list_applications(_STUB_USER_ID, db, user_status=UserStatus.applied)
     assert result.total == 1
@@ -431,24 +431,24 @@ async def test_list_applications_filter_by_workflow_status(db, user_and_job):
 async def test_get_application_found(db, user_and_job):
     _, job = user_and_job
     created = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    fetched = await get_application(created.id, db)
+    fetched = await get_application(created.id, _STUB_USER_ID, db)
     assert fetched.id == created.id
 
 
 @pytest.mark.asyncio
 async def test_get_application_not_found(db):
     with pytest.raises(LookupError):
-        await get_application(uuid.uuid4(), db)
+        await get_application(uuid.uuid4(), _STUB_USER_ID, db)
 
 
 @pytest.mark.asyncio
 async def test_get_application_deleted_raises(db, user_and_job):
     _, job = user_and_job
     resp = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    await delete_application(resp.id, db)
+    await delete_application(resp.id, _STUB_USER_ID, db)
 
     with pytest.raises(LookupError):
-        await get_application(resp.id, db)
+        await get_application(resp.id, _STUB_USER_ID, db)
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +460,7 @@ async def test_get_application_deleted_raises(db, user_and_job):
 async def test_patch_application_updates_user_status(db, user_and_job):
     _, job = user_and_job
     resp = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    patched = await patch_application(resp.id, PatchApplicationRequest(user_status=UserStatus.applied), db)
+    patched = await patch_application(resp.id, _STUB_USER_ID, PatchApplicationRequest(user_status=UserStatus.applied), db)
     assert patched.user_status == UserStatus.applied
 
 
@@ -468,14 +468,14 @@ async def test_patch_application_updates_user_status(db, user_and_job):
 async def test_patch_application_updates_notes(db, user_and_job):
     _, job = user_and_job
     resp = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    patched = await patch_application(resp.id, PatchApplicationRequest(notes="call recruiter Monday"), db)
+    patched = await patch_application(resp.id, _STUB_USER_ID, PatchApplicationRequest(notes="call recruiter Monday"), db)
     assert patched.notes == "call recruiter Monday"
 
 
 @pytest.mark.asyncio
 async def test_patch_application_not_found(db):
     with pytest.raises(LookupError):
-        await patch_application(uuid.uuid4(), PatchApplicationRequest(notes="x"), db)
+        await patch_application(uuid.uuid4(), _STUB_USER_ID, PatchApplicationRequest(notes="x"), db)
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +489,7 @@ async def test_delete_application_soft_deletes(db, user_and_job):
 
     _, job = user_and_job
     resp = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db)
-    await delete_application(resp.id, db)
+    await delete_application(resp.id, _STUB_USER_ID, db)
 
     result = await db.execute(select(Application).where(Application.id == resp.id))
     app = result.scalar_one()
@@ -507,7 +507,7 @@ async def test_delete_application_cascades_to_flow_session(db, user_and_job):
         CreateApplicationRequest(job_analysis_id=job.id, start_workflow=True),
         db,
     )
-    await delete_application(resp.id, db)
+    await delete_application(resp.id, _STUB_USER_ID, db)
 
     result = await db.execute(select(FlowSession).where(FlowSession.id == resp.flow_session_id))
     flow = result.scalar_one()
@@ -517,7 +517,7 @@ async def test_delete_application_cascades_to_flow_session(db, user_and_job):
 @pytest.mark.asyncio
 async def test_delete_application_not_found(db):
     with pytest.raises(LookupError):
-        await delete_application(uuid.uuid4(), db)
+        await delete_application(uuid.uuid4(), _STUB_USER_ID, db)
 
 
 # ---------------------------------------------------------------------------
@@ -656,3 +656,79 @@ async def test_sync_workflow_status_resets_expires_at(db, user_and_job):
     # Must be far in the future (> 700 days from now)
     min_expected = datetime.now() + timedelta(days=700)
     assert _naive(app.expires_at) > min_expected
+
+
+# ---------------------------------------------------------------------------
+# Per-user scoping on the detail paths (dFMEA SF-APP.1)
+#
+# get/patch/delete/start/mark-hired must resolve the row (id, user_id) — a
+# foreign user's id yields the same 404 as a missing one, so existence is
+# never leaked across users. Matches the scoping list/create always had.
+# ---------------------------------------------------------------------------
+
+_FOREIGN_USER_ID = uuid.UUID("00000000-0000-0000-0000-00000000009f")
+
+
+@pytest.mark.asyncio
+async def test_get_application_foreign_user_404(db, user_and_job):
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    with pytest.raises(LookupError):
+        await get_application(created.id, _FOREIGN_USER_ID, db)
+    # owner still sees it
+    assert (await get_application(created.id, _STUB_USER_ID, db)).id == created.id
+
+
+@pytest.mark.asyncio
+async def test_patch_application_foreign_user_404_and_untouched(db, user_and_job):
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    with pytest.raises(LookupError):
+        await patch_application(
+            created.id,
+            _FOREIGN_USER_ID,
+            PatchApplicationRequest(user_status=UserStatus.hired),
+            db,
+        )
+    fetched = await get_application(created.id, _STUB_USER_ID, db)
+    assert fetched.user_status == UserStatus.tracking
+
+
+@pytest.mark.asyncio
+async def test_delete_application_foreign_user_404_and_untouched(db, user_and_job):
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    with pytest.raises(LookupError):
+        await delete_application(created.id, _FOREIGN_USER_ID, db)
+    # still alive for the owner
+    assert (await get_application(created.id, _STUB_USER_ID, db)).id == created.id
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_foreign_user_404(db, user_and_job):
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    with pytest.raises(LookupError):
+        await start_application_workflow(created.id, _FOREIGN_USER_ID, db)
+
+
+@pytest.mark.asyncio
+async def test_mark_hired_foreign_user_404(db, user_and_job):
+    from applire.services.application import mark_application_hired
+
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+    )
+    with pytest.raises(LookupError):
+        await mark_application_hired(created.id, _FOREIGN_USER_ID, db)
+    fetched = await get_application(created.id, _STUB_USER_ID, db)
+    assert fetched.user_status == UserStatus.tracking

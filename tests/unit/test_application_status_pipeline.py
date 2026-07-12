@@ -142,7 +142,7 @@ async def test_patch_sets_interviewing(db, user_and_jobs):
         _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=jobs[0].id), db
     )
     patched = await patch_application(
-        created.id, PatchApplicationRequest(user_status=UserStatus.interviewing), db
+        created.id, _STUB_USER_ID, PatchApplicationRequest(user_status=UserStatus.interviewing), db
     )
     assert patched.user_status == UserStatus.interviewing
 
@@ -157,7 +157,7 @@ async def test_list_filters_by_interviewing(db, user_and_jobs):
         _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=jobs[1].id), db
     )
     await patch_application(
-        first.id, PatchApplicationRequest(user_status=UserStatus.interviewing), db
+        first.id, _STUB_USER_ID, PatchApplicationRequest(user_status=UserStatus.interviewing), db
     )
 
     result = await list_applications(

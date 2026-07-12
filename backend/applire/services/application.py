@@ -189,8 +189,10 @@ async def list_applications(
     return ApplicationListResponse(items=items, total=len(items))
 
 
-async def get_application(application_id: uuid.UUID, db: AsyncSession) -> ApplicationResponse:
-    app = await _get_or_404(application_id, db)
+async def get_application(
+    application_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
+) -> ApplicationResponse:
+    app = await _get_or_404(application_id, user_id, db)
     data = ApplicationResponse.model_validate(app)
     await _enrich_submitted_cv_meta([data], db)
     await _enrich_stale_cv([data], db)
@@ -199,10 +201,11 @@ async def get_application(application_id: uuid.UUID, db: AsyncSession) -> Applic
 
 async def patch_application(
     application_id: uuid.UUID,
+    user_id: uuid.UUID,
     request: PatchApplicationRequest,
     db: AsyncSession,
 ) -> ApplicationResponse:
-    app = await _get_or_404(application_id, db)
+    app = await _get_or_404(application_id, user_id, db)
 
     provided = request.model_dump(exclude_unset=True)
 
@@ -255,9 +258,11 @@ async def patch_application(
     return data
 
 
-async def delete_application(application_id: uuid.UUID, db: AsyncSession) -> None:
+async def delete_application(
+    application_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
+) -> None:
     """Soft-delete the application and its attached FlowSession (if any)."""
-    app = await _get_or_404(application_id, db)
+    app = await _get_or_404(application_id, user_id, db)
     now = datetime.now(timezone.utc)
     app.deleted_at = now
 
@@ -278,7 +283,7 @@ async def start_application_workflow(
 
     Returns HTTP 409 semantics via ConflictError if workflow already started.
     """
-    app = await _get_or_404(application_id, db)
+    app = await _get_or_404(application_id, user_id, db)
 
     if app.flow_session_id is not None:
         # User-facing message — no internal identifiers (router surfaces str(exc)
@@ -319,18 +324,11 @@ async def sync_workflow_status(
 
 async def mark_application_hired(
     application_id: uuid.UUID,
+    user_id: uuid.UUID,
     db: AsyncSession,
 ) -> MarkHiredResponse:
     """Idempotent: marks the application as hired and returns the redirect URL."""
-    result = await db.execute(
-        select(Application).where(
-            Application.id == application_id,
-            Application.deleted_at.is_(None),
-        )
-    )
-    app_row = result.scalar_one_or_none()
-    if app_row is None:
-        raise LookupError(f"Application {application_id} not found")
+    app_row = await _get_or_404(application_id, user_id, db)
 
     app_row.user_status = UserStatus.hired.value
     if app_row.applied_at is None:
@@ -596,10 +594,15 @@ async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -
         )
 
 
-async def _get_or_404(application_id: uuid.UUID, db: AsyncSession) -> Application:
+async def _get_or_404(
+    application_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
+) -> Application:
+    # Scoped to the owning user like list/create/start — a foreign id yields the
+    # same 404 as a missing one, so existence is not leaked across users.
     result = await db.execute(
         select(Application).where(
             Application.id == application_id,
+            Application.user_id == user_id,
             Application.deleted_at.is_(None),
         )
     )

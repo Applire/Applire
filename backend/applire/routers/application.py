@@ -98,10 +98,11 @@ async def get(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> ApplicationResponse:
+    user = await auth.get_current_user(request)
     try:
-        return await get_application(application_id, db)
+        return await get_application(application_id, user.id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -112,11 +113,12 @@ async def patch(
     body: PatchApplicationRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> ApplicationResponse:
     """Update user-managed fields. workflow_status is system-managed and will be rejected (422)."""
+    user = await auth.get_current_user(request)
     try:
-        return await patch_application(application_id, body, db)
+        return await patch_application(application_id, user.id, body, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
@@ -130,11 +132,12 @@ async def delete(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> None:
     """Soft-delete the application and cascade to attached FlowSession."""
+    user = await auth.get_current_user(request)
     try:
-        await delete_application(application_id, db)
+        await delete_application(application_id, user.id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
@@ -166,10 +169,12 @@ async def start_workflow(
 @router.post("/{application_id}/mark-hired", response_model=MarkHiredResponse)
 async def mark_hired(
     application_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> MarkHiredResponse:
+    user = await auth.get_current_user(request)
     try:
-        return await mark_application_hired(application_id, db)
+        return await mark_application_hired(application_id, user.id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

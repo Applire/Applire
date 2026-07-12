@@ -1074,6 +1074,7 @@ async def test_update_application_sets_status():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
     ):
         result = await update_application(
@@ -1082,7 +1083,7 @@ async def test_update_application_sets_status():
 
     assert result["user_status"] == "interviewing"
     from applire.models.application import UserStatus
-    req = svc.call_args.args[1]
+    req = svc.call_args.args[2]
     assert req.user_status == UserStatus.interviewing
     # Omitted fields must not be marked as provided (clear-semantics seam):
     assert req.model_fields_set == {"user_status"}
@@ -1097,6 +1098,7 @@ async def test_update_application_dossier_fields_pass_through():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
     ):
         await update_application(
@@ -1106,7 +1108,7 @@ async def test_update_application_dossier_fields_pass_through():
             source_url="https://jobs.example.com/123",
         )
 
-    req = svc.call_args.args[1]
+    req = svc.call_args.args[2]
     assert req.notes == "Recruiter called back"
     assert req.source_url == "https://jobs.example.com/123"
     assert req.deadline.year == 2026 and req.deadline.month == 8
@@ -1125,6 +1127,7 @@ async def test_update_application_submitted_pins_pass_through():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
     ):
         await update_application(
@@ -1132,7 +1135,7 @@ async def test_update_application_submitted_pins_pass_through():
             submitted_cv_id=str(cv_id),
         )
 
-    req = svc.call_args.args[1]
+    req = svc.call_args.args[2]
     assert req.submitted_cv_id == cv_id
     assert req.model_fields_set == {"submitted_cv_id"}
 
@@ -1148,6 +1151,7 @@ async def test_update_application_dismiss_stale_cv_passes_through():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch("applire.mcp.server.app_svc.patch_application", AsyncMock(return_value=mock_result)) as svc,
     ):
         result = await update_application(
@@ -1156,7 +1160,7 @@ async def test_update_application_dismiss_stale_cv_passes_through():
         )
 
     assert result["stale_cv"] is None
-    req = svc.call_args.args[1]
+    req = svc.call_args.args[2]
     assert req.dismiss_stale_cv is True
     assert req.model_fields_set == {"dismiss_stale_cv"}
 
@@ -1203,6 +1207,7 @@ async def test_update_application_not_found():
     cm, _ = _mock_db()
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch("applire.mcp.server.app_svc.patch_application",
               AsyncMock(side_effect=LookupError("Application x not found"))),
     ):

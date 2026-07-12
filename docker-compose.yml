@@ -26,9 +26,19 @@
 # The reverse proxy config is baked into the applire-nginx image (ADR-033), so there
 # is no nginx config to fetch or mount. To update: docker compose pull && up -d.
 
+# Bounded container logs — without rotation the docker json-file driver grows
+# without limit and can fill the host disk (which takes PostgreSQL down with it).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: applire
       POSTGRES_PASSWORD: applire
@@ -45,6 +55,8 @@ services:
 
   backend:
     image: ghcr.io/applire/applire-backend:latest
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
     env_file:
@@ -52,20 +64,37 @@ services:
         required: false
     expose:
       - "8000"
+    # User files (CV uploads, profile photos) live under /app/data/uploads and must
+    # survive image updates — the volume is deliberately scoped to the uploads dir,
+    # NOT /app/data: data/static ships read-only release content (templates) inside
+    # the image and must not be shadowed by stale volume state.
+    volumes:
+      - applire_uploads:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
+    # start_period covers the alembic migrations that run at boot; curl is not
+    # guaranteed in the image, so the probe uses the Python stdlib.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   frontend:
     image: ghcr.io/applire/applire-frontend:latest
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       BACKEND_URL: http://backend:8000
     expose:
       - "3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # Reverse proxy — routes /api,/health,/static → backend and everything else →
   # frontend. The config is baked into the image (ADR-033), so nothing is mounted
@@ -73,11 +102,15 @@ services:
   # their own file over /etc/nginx/conf.d/default.conf.
   nginx:
     image: ghcr.io/applire/applire-nginx:latest
+    restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   ollama:
     image: ollama/ollama
@@ -88,13 +121,19 @@ services:
       - ollama_data:/root/.ollama
 
   # Retention worker — daily GDPR TTL enforcement (ADR 005).
+  # Shares the uploads volume with the backend: TTL enforcement deletes the expired
+  # upload FILES too (storage.delete), which silently no-ops without shared storage.
   retention:
     image: ghcr.io/applire/applire-backend:latest
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
     env_file:
       - path: .env
         required: false
+    volumes:
+      - applire_uploads:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,14 +144,18 @@ services:
   # MCP server — stdio transport for agent integration (ADR 010).
   # For actual agent use, launch directly: python -m applire.mcp
   # See the README (Model Context Protocol section) for Claude Desktop / Cursor configuration.
+  # No restart policy on purpose: an interactive stdio process, opt-in via profile.
   mcp:
     image: ghcr.io/applire/applire-backend:latest
     profiles: [mcp]
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
     env_file:
       - path: .env
         required: false
+    volumes:
+      - applire_uploads:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,3 +167,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  applire_uploads:
