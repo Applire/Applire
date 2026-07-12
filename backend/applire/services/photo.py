@@ -88,7 +88,9 @@ async def upload_photo(
     ext = _EXT_MAP[content_type]
     path = await storage.save(file_bytes, f"photo{ext}")
 
-    # Delete old file after the new one is safely stored (best-effort; retention worker cleans up orphans)
+    # Delete old file after the new one is safely stored (best-effort; if this
+    # fails, the retention worker's orphan scan reclaims the old file within
+    # 24h once nothing references it — issue #152)
     if old_path:
         try:
             await storage.delete(old_path)

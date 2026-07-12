@@ -845,19 +845,27 @@ async def erase_profile(
         )
 
     # --- File deletion (outside transaction; failures are non-blocking) ---
+    # ERROR, not warning: a leftover file is PII outliving an Art. 17 request
+    # until the retention worker's daily orphan scan reclaims it (issue #152).
     for path in upload_paths:
         try:
             await storage.delete(path)
         except Exception as exc:
-            logger.warning("Failed to delete upload file %s: %s (will be reaped)", path, exc)
+            logger.error(
+                "Failed to delete upload file %s after GDPR erasure: %s "
+                "(retention orphan scan reclaims it within 24h)",
+                path,
+                exc,
+            )
 
     # Delete profile photo (GDPR Art. 17)
     if _photo_url_before_erasure:
         try:
             await storage.delete(_photo_url_before_erasure)
         except Exception as exc:
-            logger.warning(
-                "Failed to delete photo file %s: %s (will be reaped)",
+            logger.error(
+                "Failed to delete photo file %s after GDPR erasure: %s "
+                "(retention orphan scan reclaims it within 24h)",
                 _photo_url_before_erasure,
                 exc,
             )
