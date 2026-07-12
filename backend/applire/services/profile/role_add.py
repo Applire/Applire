@@ -84,6 +84,7 @@ def apply_add_role(profile: MasterProfileData, req: AddRoleRequest) -> AddRoleRe
         location=req.location,
         start_date=req.start_date,
         end_date=None,
+        is_current=True,  # #155 — a just-started role IS the current position
         industry_context=req.industry,
     )
     profile.work_experience.insert(0, new_entry)
@@ -91,6 +92,7 @@ def apply_add_role(profile: MasterProfileData, req: AddRoleRequest) -> AddRoleRe
     closed_ids: list[str] = []
     for entry in req.close_roles:
         by_id[entry.role_id].end_date = entry.end_date
+        by_id[entry.role_id].is_current = False  # #155 — known ended
         closed_ids.append(entry.role_id)
 
     # Audit

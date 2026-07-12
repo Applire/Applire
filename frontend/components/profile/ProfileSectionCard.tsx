@@ -86,6 +86,9 @@ interface WorkEntryShape {
   location?: string | null;
   start_date?: string | null;
   end_date?: string | null;
+  // #155 — tri-state current-position marker (true = ongoing, false = ended,
+  // null/undefined = unknown)
+  is_current?: boolean | null;
   responsibilities?: string[] | null;
   achievements?: string[] | null;
   technologies?: string[] | null;
@@ -136,10 +139,18 @@ function formatPeriod(
   start?: string | null,
   end?: string | null,
   presentLabel?: string,
+  isCurrent?: boolean | null,
 ): string | null {
   if (!nonEmpty(start) && !nonEmpty(end)) return null;
   const left = nonEmpty(start) ? start : "—";
-  const right = nonEmpty(end) ? end : (presentLabel ?? "—");
+  // #155 — an explicit is_current === true always renders the present label;
+  // an empty end keeps the existing present-label fallback.
+  const right =
+    isCurrent === true
+      ? (presentLabel ?? "—")
+      : nonEmpty(end)
+        ? end
+        : (presentLabel ?? "—");
   return `${left} → ${right}`;
 }
 
@@ -204,7 +215,12 @@ export function ProfileSectionBody({
       <div className="space-y-4">
         {entries.map((e, i) => {
           const role = e.role || e.title || "";
-          const period = formatPeriod(e.start_date, e.end_date, t("present"));
+          const period = formatPeriod(
+            e.start_date,
+            e.end_date,
+            t("present"),
+            e.is_current,
+          );
           const bullets = [
             ...(e.achievements ?? []),
             ...(e.responsibilities ?? []),

@@ -95,3 +95,53 @@ async def test_bridge_preserves_existing_enrichment_history():
     assert history[0]["source_session_id"] == "earlier"
     assert history[1]["source"] == "interview"
     assert history[1]["source_session_id"] == "s2"
+
+
+@pytest.mark.asyncio
+async def test_current_position_answer_resolves_end_date_gap():
+    """#155 — "this is my current position" must converge: the reconciler emits
+    set_field is_current=true, end_date stays null, and re-detection no longer
+    reports the end_date gap for that entry."""
+    from applire.services.profile.completeness import field_gaps
+
+    profile = MasterProfileData.model_validate(
+        {
+            "work_experience": [
+                {
+                    "company": "Acme",
+                    "role": "Dev",
+                    "start_date": "2020-01",
+                    "end_date": None,
+                    "achievements": ["Shipped X"],
+                    "expected_fields": [],
+                }
+            ]
+        }
+    ).model_dump(mode="json")
+    work_id = profile["work_experience"][0]["id"]
+    gap = "end_date: Dev @ Acme"
+    assert gap in field_gaps(profile)
+
+    class _CurrentMarker:
+        async def aparse_json(self, prompt, **kwargs):
+            return {
+                "ops": [
+                    {"op": "set_field", "target": work_id, "field": "is_current", "value": True}
+                ],
+                "ambiguities": [],
+                "denials": [],
+            }
+
+    out = await reconcile_interview_turn(
+        profile_dict=profile,
+        gap=gap,
+        question="When did you leave this role, or is it your current position?",
+        answer="This is my current position.",
+        provider=_CurrentMarker(),
+        session_id="s1",
+    )
+    assert out.addressed is True
+    entry = out.profile_dict["work_experience"][0]
+    assert entry["is_current"] is True
+    assert entry["end_date"] is None
+    assert gap not in field_gaps(out.profile_dict)

@@ -91,3 +91,18 @@ def test_unknown_op_rejected():
     adapter = TypeAdapter(ReconcileOp)
     with pytest.raises(ValidationError):
         adapter.validate_python({"op": "delete_everything", "target": "w1"})
+
+
+def test_upsert_work_carries_is_current_marker():
+    # #155 — the op vocabulary can record "current position" without an end_date.
+    from applire.services.profile.reconcile.ops import ReconcileOp, UpsertWork
+
+    adapter = TypeAdapter(ReconcileOp)
+    parsed = adapter.validate_python(
+        {"op": "upsert_work", "ref": "w1", "company": "X", "role": "Y", "is_current": True}
+    )
+    assert isinstance(parsed, UpsertWork)
+    assert parsed.is_current is True
+    # tri-state default: omitted → None (unknown)
+    plain = adapter.validate_python({"op": "upsert_work", "ref": "w1", "company": "X", "role": "Y"})
+    assert plain.is_current is None

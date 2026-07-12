@@ -46,6 +46,9 @@ class UpsertWork(BaseModel):
     role: str
     start_date: str | None = None
     end_date: str | None = None
+    # #155 — tri-state current-position marker (None = unknown). True records
+    # "ongoing role" while end_date stays null (the extraction convention).
+    is_current: bool | None = None
     location: str | None = None
     team_size: int | None = None
     industry_context: str | None = None

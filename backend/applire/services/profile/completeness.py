@@ -108,15 +108,21 @@ def field_present(entry: dict, field: str) -> bool:
     - ``achievements``: value must be a non-empty list (``not entry.get(...)``
       is the gap signal, so ``bool(value)`` is the presence signal).
     - ``team_size``: value must not be ``None`` (0 is valid / present).
+    - ``end_date``: present when non-empty OR the entry is marked as the
+      current position (``is_current is True``, #155) — a current job has no
+      end date by convention and must not be re-asked.
     - Everything else (``budget_managed``, ``industry_context``,
-      ``start_date``, ``end_date``): truthy — non-empty string / not None.
+      ``start_date``): truthy — non-empty string / not None.
     """
     value = entry.get(field)
     if field == "achievements":
         return bool(value)  # non-empty list
     if field == "team_size":
         return value is not None  # 0 is a valid team size
-    # budget_managed, industry_context, start_date, end_date
+    if field == "end_date":
+        # #155 — is_current=True means "ongoing"; null end_date is then intentional.
+        return bool(value) or entry.get("is_current") is True
+    # budget_managed, industry_context, start_date
     # stricter than the old 'is None': an empty string counts as missing
     return bool(value)
 

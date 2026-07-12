@@ -498,3 +498,62 @@ def test_apply_ops_result_always_revalidates():
     ]
     result = apply_ops(profile, ops, SOURCE)
     _roundtrips(result.profile)
+
+
+# ── #155: is_current marker (current-position convergence) ───────────────────
+
+
+def test_set_field_fills_is_current_marker():
+    # "This is my current position" → set_field is_current=true; end_date stays
+    # null (the extraction convention), and the fill-only rule is satisfied
+    # because None → True fills an empty tri-state field.
+    work = WorkEntry(company="Acme", role="Dev", end_date=None)
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="is_current", value=True)]
+    result = apply_ops(profile, ops, "interview")
+    entry = result.profile.work_experience[0]
+    assert entry.is_current is True
+    assert entry.end_date is None
+    assert any(c.field == "is_current" for c in result.changes)
+    _roundtrips(result.profile)
+
+
+def test_set_field_is_current_fill_only_never_flips_known_false():
+    # False = "known ended" is a real value; fill-only means it is never overwritten.
+    work = WorkEntry(company="Acme", role="Dev", is_current=False)
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="is_current", value=True)]
+    result = apply_ops(profile, ops, "interview")
+    assert result.profile.work_experience[0].is_current is False
+    assert not any(c.field == "is_current" for c in result.changes)
+
+
+def test_set_field_coerces_string_true_into_is_current():
+    # LLMs sometimes emit "true" as a string; Pydantic lax-bool accepts it.
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [SetField(target=work.id, field="is_current", value="true")]
+    result = apply_ops(profile, ops, "interview")
+    assert result.profile.work_experience[0].is_current is True
+    _roundtrips(result.profile)
+
+
+def test_upsert_work_fills_is_current_on_existing_entry():
+    work = WorkEntry(company="Acme", role="Dev", end_date=None)
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="Acme", role="Dev", is_current=True)
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    entry = result.profile.work_experience[0]
+    assert entry.is_current is True
+    assert entry.end_date is None
+    _roundtrips(result.profile)
+
+
+def test_upsert_work_new_entry_carries_is_current():
+    profile = MasterProfileData()
+    ops = [UpsertWork(ref="w1", target=None, company="Neu GmbH", role="Lead", is_current=True)]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.work_experience[0].is_current is True
+    _roundtrips(result.profile)

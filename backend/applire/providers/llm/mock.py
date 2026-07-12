@@ -75,6 +75,7 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
             "role": "Senior Software Engineer",
             "start_date": "2021-03",
             "end_date": None,
+            "is_current": True,  # #155 — extraction marks ongoing roles explicitly
             "description": "Backend development with Python and FastAPI.",
             "bullets": [
                 "Built REST APIs serving 50k daily active users.",
@@ -399,7 +400,7 @@ class MockLLMProvider(LLMProvider):
         # extraction run.
         if "cv experience outliner" in system_lower:
             return {"work_experience": [
-                {k: w.get(k) for k in ("company", "role", "start_date", "end_date")}
+                {k: w.get(k) for k in ("company", "role", "start_date", "end_date", "is_current")}
                 for w in (_PROFILE_PARSE_RESPONSE.get("work_experience") or [])
             ]}
         if "cv experience detail extractor" in system_lower:

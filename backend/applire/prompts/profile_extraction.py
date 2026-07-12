@@ -50,6 +50,7 @@ Schema:
       "role": "string — job title",
       "start_date": "string — e.g. '2020-01' or '2020'",
       "end_date": "string or null — null means current position",
+      "is_current": "boolean — true when the source marks the role as ongoing ('present', 'heute', 'seit ...'); keep end_date null for such roles",
       "bullets": ["list of achievement/responsibility bullet points"]
     }
   ],

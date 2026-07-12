@@ -119,3 +119,21 @@ def test_appends_enrichment_record():
     assert history[-1].source == "manual_role_add"
     sections = {c.section for c in history[-1].changes}
     assert "work_experience" in sections
+
+
+def test_new_role_marked_current_and_closed_role_marked_ended():
+    # #155 — a just-added (hired) role IS the current position; a closed role has
+    # a known end. Keeps the enrich loop from re-asking end_date for either.
+    old = WorkEntry(company="A", role="Lead", start_date="2023-01-01", end_date=None)
+    profile = _profile_with(old)
+    req = AddRoleRequest(
+        title="New",
+        company="B",
+        start_date="2026-06-01",
+        close_roles=[CloseRoleEntry(role_id=old.id, end_date="2026-05-31")],
+        source="manual",
+    )
+    result = apply_add_role(profile, req)
+    assert result.profile.work_experience[0].is_current is True
+    closed = next(w for w in result.profile.work_experience if w.id == old.id)
+    assert closed.is_current is False
