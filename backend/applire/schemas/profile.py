@@ -86,6 +86,10 @@ class ExperienceBase(BaseModel):
     # str — LLM returns partial dates like "2020-01"; not valid ISO date
     start_date: str | None = None
     end_date: str | None = None
+    # #155 — explicit current/ongoing marker, tri-state: None = unknown,
+    # True = current position (end_date stays null by convention),
+    # False = known ended. Additive JSONB field — legacy rows load as None.
+    is_current: bool | None = None
     responsibilities: list[str] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     technologies: list[str] = Field(default_factory=list)

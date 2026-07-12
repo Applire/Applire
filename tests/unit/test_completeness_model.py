@@ -98,3 +98,34 @@ def test_score_and_gaps_share_expected_set():
           "start_date": "2020", "end_date": "2021", "achievements": ["x"]}
     assert C.work_experience_richness([ic]) == 1.0           # budget/team not expected → full
     assert not [g for g in C.field_gaps({"work_experience": [ic]}) if "@ A" in g]
+
+
+# ── #155: is_current marker — a current position has no end_date gap ─────────
+
+
+def test_end_date_present_when_is_current_true():
+    assert C.field_present({**IC, "is_current": True}, "end_date") is True
+
+
+def test_end_date_missing_when_is_current_false_or_unknown():
+    assert C.field_present({**IC, "is_current": False}, "end_date") is False
+    assert C.field_present({**IC, "is_current": None}, "end_date") is False
+    assert C.field_present(IC, "end_date") is False
+
+
+def test_real_end_date_present_regardless_of_marker():
+    assert C.field_present({**IC, "end_date": "2023-01", "is_current": False}, "end_date") is True
+
+
+def test_current_position_emits_no_end_date_gap():
+    gaps = C.field_gaps({"work_experience": [{**IC, "is_current": True}]})
+    assert "end_date: Junior Developer @ Acme" not in gaps
+    # other gaps on the same entry are unaffected
+    assert "achievements: Junior Developer @ Acme" in gaps
+
+
+def test_current_position_counts_toward_richness():
+    entry = {"role": "Dev", "company": "A", "expected_fields": [],
+             "start_date": "2020", "end_date": None, "is_current": True,
+             "achievements": ["x"]}
+    assert C.work_experience_richness([entry]) == 1.0

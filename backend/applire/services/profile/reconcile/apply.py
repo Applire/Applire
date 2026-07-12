@@ -373,6 +373,7 @@ def _apply_upsert_work(op, profile, ref_map, changes):
             role=op.role or "",
             start_date=op.start_date,
             end_date=op.end_date,
+            is_current=op.is_current,
             location=op.location,
             team_size=op.team_size,
             industry_context=op.industry_context,
@@ -401,6 +402,7 @@ def _apply_upsert_work(op, profile, ref_map, changes):
             "role": op.role,
             "start_date": op.start_date,
             "end_date": op.end_date,
+            "is_current": op.is_current,  # #155 — None (unknown) is never written
             "location": op.location,
             "team_size": op.team_size,
             "industry_context": op.industry_context,

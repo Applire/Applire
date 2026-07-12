@@ -24,3 +24,10 @@ def test_legacy_workentry_without_id_backfills_on_load():
     we = WorkEntry.model_validate({"company": "Acme", "role": "Lead"})
     assert isinstance(we.id, str)
     uuid.UUID(we.id)
+
+
+def test_legacy_workentry_without_is_current_loads_as_unknown():
+    # #155 — additive JSONB field: old rows have no is_current and must still
+    # validate, loading as tri-state "unknown" (None).
+    we = WorkEntry.model_validate({"company": "Acme", "role": "Lead", "end_date": None})
+    assert we.is_current is None

@@ -60,6 +60,7 @@ Return:
       "location": "Office city/country or null",
       "start_date": "e.g. '2020-01' or '2020' or null",
       "end_date": "e.g. '2023-06' or null for current",
+      "is_current": "true when the source marks the role as ongoing ('present', 'heute', 'seit ...'); keep end_date null for such roles; false when it ended; null when unstated",
       "industry_context": "Industry/domain or null",
       "team_size": "Integer team size or null",
       "budget_managed": "Budget amount as string or null"

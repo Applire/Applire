@@ -54,6 +54,7 @@ _SCHEMA_DESCRIPTION = """\
       "location": "Office city/country or null",
       "start_date": "e.g. '2020-01' or '2020' — partial dates accepted",
       "end_date": "e.g. '2023-06' or null for current position",
+      "is_current": "true when the source marks the role as ongoing ('present', 'heute', 'seit ...'); keep end_date null for such roles; false when it ended; null when unstated",
       "responsibilities": ["Responsibility bullet points"],
       "achievements": ["Achievement bullet points with metrics where stated"],
       "technologies": ["Tools, languages, frameworks mentioned"],

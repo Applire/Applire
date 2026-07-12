@@ -44,7 +44,7 @@ Output ONLY a single JSON object, with no prose and no markdown fences:
   {"ops": [ ...operation objects... ], "ambiguities": [ ...request_confirmation objects... ], "denials": [ ...denied tokens... ]}
 
 "denials" lists the name of every skill / technology / certification / language
-the new information explicitly DENIES or disclaims experience with (see rule 8).
+the new information explicitly DENIES or disclaims experience with (see rule 9).
 If nothing in the new information should change the profile, output
 {"ops": [], "ambiguities": [], "denials": [...]}.
 
@@ -61,8 +61,8 @@ Every operation object has an "op" field naming its type. Entity operations
 Operations:
 
 - upsert_work — a job / employment. Fields: ref, target, company, role,
-  start_date, end_date, location, team_size (int), industry_context,
-  budget_managed. company and role are required.
+  start_date, end_date, is_current (bool), location, team_size (int),
+  industry_context, budget_managed. company and role are required.
 
 - upsert_project — a project, possibly done WITHIN a job or volunteer role.
   Fields: ref, target, name, parent (the existing id OR the local ref of the
@@ -148,7 +148,16 @@ Operations:
    technologies; never use add_bullets merely to restate a title or the same
    fact in different words.
 
-8. STANCE (ADR-040). A denial or negative statement in the new information
+8. CURRENT POSITION. When the new information states that a role is ongoing /
+   current ("this is my current position", "I still work there", "bis heute",
+   "seit 2021", "yes, it's my current job"), record that explicitly: emit
+   {"op": "set_field", "target": <that entity's id>, "field": "is_current",
+   "value": true} (or set is_current: true on the matching upsert op) and leave
+   end_date null — a current position has NO end date. When the new information
+   gives an actual end date instead, set end_date (is_current: false is
+   acceptable but optional). Never invent an end date for a current role.
+
+9. STANCE (ADR-040). A denial or negative statement in the new information
    ("I have no hands-on Azure experience", "produktionsreife RAG-Erfahrung
    fehlt mir aber", "that would be new territory for me") is evidence AGAINST
    that item. NEVER encode a denied item as a skill, technology, bullet, or

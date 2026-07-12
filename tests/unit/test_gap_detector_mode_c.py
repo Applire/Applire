@@ -150,3 +150,23 @@ def test_complete_entry_with_missing_budget_detected():
 def test_empty_profile_returns_empty_list():
     gaps = gap_detector_mode_c({})
     assert gaps == []
+
+
+def test_is_current_suppresses_end_date_gap():
+    # #155 — "this is my current position" is a valid answer: the marker makes
+    # end_date count as present, so the enrich loop converges instead of re-asking.
+    profile = {
+        "work_experience": [
+            {
+                "company": "Acme Corp",
+                "role": "Senior Engineer",
+                "start_date": "2020-01",
+                "end_date": None,
+                "is_current": True,
+                "achievements": ["Led migration"],
+                "expected_fields": [],
+            }
+        ]
+    }
+    gaps = gap_detector_mode_c(profile)
+    assert "end_date: Senior Engineer @ Acme Corp" not in gaps
