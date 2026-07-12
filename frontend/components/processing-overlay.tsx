@@ -88,6 +88,15 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   );
 
   const [jdNote, setJdNote] = useState<string | null>(null);
+  // #151: a blocked/invalid JD URL PAUSES the pipeline instead of silently
+  // degrading to a JD-less run. The user either pastes the JD text inline
+  // (pipeline resumes with the analyzed job) or explicitly continues without.
+  const [jdRecovery, setJdRecovery] = useState<{
+    code: "url_invalid" | "fetch_failed";
+    text: string;
+    error: string | null;
+    submitting: boolean;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // F1/F8 (run3): per-file parse failures surfaced inline with a clean message
   // and a Retry, so one bad CV neither strands the overlay nor loses the batch.
@@ -262,111 +271,13 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     },
   ).current;
 
-  // Retry just the one failed file/step, in place — never restarts the flow. If
-  // the retry succeeds and it was the file blocking onboarding (all had failed),
-  // resume the pipeline from where it stalled instead of stranding the user.
-  async function retryFile(uploadIdx: number) {
-    setRetrying(uploadIdx);
-    setStepStatus(uploadIdx, "active");
-    const ok = await uploadOne(uploadIdx - jdOffset);
-    setRetrying(null);
-    if (ok && error && pipelineCtx.current.flowId) {
-      // Recovery: at least one CV now parsed. Clear the hard error and resume.
-      setError(null);
-      const remainingErrors = Object.keys(fileErrors).filter(
-        (k) => Number(k) !== uploadIdx,
-      ).length;
-      const parsedCount = files.length - remainingErrors;
+  // Everything AFTER JD analysis: create the flow session (with the job when one
+  // was analyzed), run the guided branch or the upload queue, then finish the
+  // pipeline. Extracted so the #151 pause-and-paste recovery can resume the run
+  // exactly as if the URL had worked (or, on explicit skip, without a job).
+  const continueAfterJd = useRef(
+    async (jobId: string | null, jdFailReason: "url_invalid" | "fetch_failed" | null) => {
       try {
-        await finishPipeline(parsedCount, files.length, {
-          nameMismatch: ok.name_mismatch,
-          notCv: ok.looks_like_cv === false,
-          undated: ok.undated_positions,
-        });
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : t("uploadFailed"));
-      }
-    }
-  }
-
-  useEffect(() => {
-    // A fresh controller every mount, so abortRef always points at THIS mount's
-    // controller. Under React StrictMode (mount→unmount→remount in dev) the first
-    // controller is aborted by its own cleanup, but the surviving second mount
-    // installs a live one. runPipeline runs exactly once (the `started` guard) and
-    // reads abortRef.current LAZILY at upload time, so it picks up the live signal
-    // — never the aborted one. (Regression: guarding the whole effect left abortRef
-    // pinned to an aborted controller, so the CV-import fetch rejected before
-    // sending — no POST, and a false "couldn't read your CVs". Caught on the real
-    // proxied path by blind PQ; JD-analyze carries no signal so it masked the bug.)
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    async function runPipeline() {
-      try {
-        let jobId: string | null = null;
-        let jdFailReason: "url_invalid" | "fetch_failed" | null = null;
-
-        // Step 0 (only planned when a JD exists): Analyze Job Description
-        if (hasJdStep) setStepStatus(0, "active");
-        if (jdMode === "url" && jdUrl.trim()) {
-          const res = await fetch(`${API_BASE}/api/job/analyze`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: jdUrl.trim() }),
-          });
-          if (!res.ok) {
-            if (res.status === 422) {
-              let body: { detail?: { error_code?: string; message?: string } | string | unknown[] } | null = null;
-              try {
-                body = await res.json();
-              } catch {
-                // body stays null
-              }
-              const detail =
-                body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)
-                  ? body.detail
-                  : null;
-              const errorCode = detail?.error_code;
-              if (errorCode === "jd_url_invalid") {
-                setStepStatus(0, "done");
-                setJdNote(t("jdUrlInvalid"));
-                jdFailReason = "url_invalid";
-              } else if (errorCode === "jd_fetch_failed") {
-                setStepStatus(0, "done");
-                setJdNote(t("jdFetchFailed"));
-                jdFailReason = "fetch_failed";
-              } else {
-                const msg =
-                  typeof body?.detail === "string"
-                    ? body.detail
-                    : detail?.message ?? res.statusText ?? `HTTP ${res.status}`;
-                throw new Error(msg);
-              }
-            } else {
-              throw new Error(await apiErrorMessage(res));
-            }
-          } else {
-            const data = await res.json();
-            jobId = data.id;
-            setStepStatus(0, "done");
-          }
-        } else if (jdMode === "text" && jdText.trim()) {
-          const res = await fetch(`${API_BASE}/api/job/analyze`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: jdText }),
-          });
-          if (!res.ok) throw new Error(await apiErrorMessage(res));
-          const data = await res.json();
-          jobId = data.id;
-          setStepStatus(0, "done");
-        } else if (hasJdStep) {
-          // Guided run without a JD text/url — the step exists but nothing to analyze
-          // (the pipeline errors with noCvNeedJd below).
-          setStepStatus(0, "done");
-        }
-
         // Activate the first upload step then create the flow session
         setStepStatus(jdOffset, "active");
 
@@ -463,6 +374,161 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
           notCv: anyNotCv,
           undated: totalUndated,
         });
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : t("genericError"));
+      }
+    },
+  ).current;
+
+  // #151 pause-and-paste: analyze the pasted JD text and, on success, resume the
+  // pipeline exactly as if the URL had worked (flow created with the new job —
+  // no jd_status query param, no degraded run).
+  async function submitPastedJd() {
+    const current = jdRecovery;
+    if (!current || !current.text.trim() || current.submitting) return;
+    setJdRecovery({ ...current, submitting: true, error: null });
+    setStepStatus(0, "active");
+    try {
+      const res = await fetch(`${API_BASE}/api/job/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: current.text }),
+      });
+      if (!res.ok) {
+        const msg = await apiErrorMessage(res);
+        setStepStatus(0, "error");
+        setJdRecovery({ ...current, submitting: false, error: msg || t("jdPasteFailed") });
+        return;
+      }
+      const data = await res.json();
+      setStepStatus(0, "done");
+      setJdRecovery(null);
+      await continueAfterJd(data.id, null);
+    } catch {
+      setStepStatus(0, "error");
+      setJdRecovery({ ...current, submitting: false, error: t("jdPasteFailed") });
+    }
+  }
+
+  // #151: the old silent degradation, now as an EXPLICIT user choice — flow
+  // without a job, amber note, jd_status param, gaps-page recovery banner.
+  async function continueWithoutJd() {
+    const current = jdRecovery;
+    if (!current || current.submitting) return;
+    setJdRecovery(null);
+    setStepStatus(0, "done");
+    setJdNote(current.code === "url_invalid" ? t("jdUrlInvalid") : t("jdFetchFailed"));
+    await continueAfterJd(null, current.code);
+  }
+
+  // Retry just the one failed file/step, in place — never restarts the flow. If
+  // the retry succeeds and it was the file blocking onboarding (all had failed),
+  // resume the pipeline from where it stalled instead of stranding the user.
+  async function retryFile(uploadIdx: number) {
+    setRetrying(uploadIdx);
+    setStepStatus(uploadIdx, "active");
+    const ok = await uploadOne(uploadIdx - jdOffset);
+    setRetrying(null);
+    if (ok && error && pipelineCtx.current.flowId) {
+      // Recovery: at least one CV now parsed. Clear the hard error and resume.
+      setError(null);
+      const remainingErrors = Object.keys(fileErrors).filter(
+        (k) => Number(k) !== uploadIdx,
+      ).length;
+      const parsedCount = files.length - remainingErrors;
+      try {
+        await finishPipeline(parsedCount, files.length, {
+          nameMismatch: ok.name_mismatch,
+          notCv: ok.looks_like_cv === false,
+          undated: ok.undated_positions,
+        });
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : t("uploadFailed"));
+      }
+    }
+  }
+
+  useEffect(() => {
+    // A fresh controller every mount, so abortRef always points at THIS mount's
+    // controller. Under React StrictMode (mount→unmount→remount in dev) the first
+    // controller is aborted by its own cleanup, but the surviving second mount
+    // installs a live one. runPipeline runs exactly once (the `started` guard) and
+    // reads abortRef.current LAZILY at upload time, so it picks up the live signal
+    // — never the aborted one. (Regression: guarding the whole effect left abortRef
+    // pinned to an aborted controller, so the CV-import fetch rejected before
+    // sending — no POST, and a false "couldn't read your CVs". Caught on the real
+    // proxied path by blind PQ; JD-analyze carries no signal so it masked the bug.)
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    async function runPipeline() {
+      try {
+        let jobId: string | null = null;
+
+        // Step 0 (only planned when a JD exists): Analyze Job Description
+        if (hasJdStep) setStepStatus(0, "active");
+        if (jdMode === "url" && jdUrl.trim()) {
+          const res = await fetch(`${API_BASE}/api/job/analyze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: jdUrl.trim() }),
+          });
+          if (!res.ok) {
+            if (res.status === 422) {
+              let body: { detail?: { error_code?: string; message?: string } | string | unknown[] } | null = null;
+              try {
+                body = await res.json();
+              } catch {
+                // body stays null
+              }
+              const detail =
+                body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)
+                  ? body.detail
+                  : null;
+              const errorCode = detail?.error_code;
+              if (errorCode === "jd_url_invalid" || errorCode === "jd_fetch_failed") {
+                // #151: STOP the pipeline — no flow yet, no silent JD-less run.
+                // The user pastes the JD inline (resume with the analyzed job)
+                // or explicitly chooses to continue without one.
+                setStepStatus(0, "error");
+                setJdRecovery({
+                  code: errorCode === "jd_url_invalid" ? "url_invalid" : "fetch_failed",
+                  text: "",
+                  error: null,
+                  submitting: false,
+                });
+                return;
+              }
+              const msg =
+                typeof body?.detail === "string"
+                  ? body.detail
+                  : detail?.message ?? res.statusText ?? `HTTP ${res.status}`;
+              throw new Error(msg);
+            } else {
+              throw new Error(await apiErrorMessage(res));
+            }
+          } else {
+            const data = await res.json();
+            jobId = data.id;
+            setStepStatus(0, "done");
+          }
+        } else if (jdMode === "text" && jdText.trim()) {
+          const res = await fetch(`${API_BASE}/api/job/analyze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: jdText }),
+          });
+          if (!res.ok) throw new Error(await apiErrorMessage(res));
+          const data = await res.json();
+          jobId = data.id;
+          setStepStatus(0, "done");
+        } else if (hasJdStep) {
+          // Guided run without a JD text/url — the step exists but nothing to analyze
+          // (the pipeline errors with noCvNeedJd in continueAfterJd).
+          setStepStatus(0, "done");
+        }
+
+        await continueAfterJd(jobId, null);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : t("genericError"));
       }
@@ -580,6 +646,74 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             )}
             {jdNote && (
               <p className="text-xs text-on-surface-variant mt-3 text-center">{jdNote}</p>
+            )}
+            {/* #151 pause-and-paste: the scrape was blocked (or the URL invalid).
+                The pipeline is PAUSED — the user pastes the JD text to continue
+                with a real job, or explicitly continues without one. */}
+            {jdRecovery && (
+              <div
+                data-testid="jd-paste-recovery"
+                className="w-full mt-4 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4"
+              >
+                <p className="text-sm text-amber-800">
+                  {jdRecovery.code === "url_invalid"
+                    ? t("jdUrlInvalidPaste")
+                    : t("jdFetchFailedPaste")}
+                </p>
+                {jdRecovery.error && (
+                  <p data-testid="jd-paste-error" className="text-xs text-critical">
+                    {jdRecovery.error}
+                  </p>
+                )}
+                <textarea
+                  data-testid="jd-paste-textarea"
+                  className={
+                    "w-full resize-none text-xs font-body border border-gray-200 rounded px-2 py-1.5 bg-white " +
+                    "focus:outline-none focus:ring-1 focus:ring-teal/50 focus:border-teal " +
+                    "disabled:opacity-50 min-h-[120px]"
+                  }
+                  placeholder={t("jdPastePlaceholder")}
+                  value={jdRecovery.text}
+                  onChange={(e) =>
+                    setJdRecovery((r) => (r ? { ...r, text: e.target.value } : r))
+                  }
+                  disabled={jdRecovery.submitting}
+                  rows={6}
+                />
+                <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                  {/* Guided onboarding requires a job — no JD-less escape there. */}
+                  {!guided && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="jd-skip-button"
+                      disabled={jdRecovery.submitting}
+                      onClick={() => void continueWithoutJd()}
+                    >
+                      {t("continueWithoutJd")}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    data-testid="jd-paste-submit"
+                    disabled={!jdRecovery.text.trim() || jdRecovery.submitting}
+                    onClick={() => void submitPastedJd()}
+                  >
+                    {jdRecovery.submitting ? t("analyzingPastedText") : t("analyzePastedText")}
+                  </Button>
+                </div>
+                {guided && (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={onCancel}
+                      data-testid="cancel-button"
+                      className="px-2 py-1 text-xs font-medium text-on-surface-variant hover:text-neutral-dark transition-colors"
+                    >
+                      {t("goBack")}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
