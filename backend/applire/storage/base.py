@@ -18,6 +18,7 @@
 """StorageProvider ABC — pluggable file storage backend (ADR 014)."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 
 class StorageProvider(ABC):
@@ -32,3 +33,15 @@ class StorageProvider(ABC):
     @abstractmethod
     async def read(self, file_path: str) -> bytes:
         """Return the raw bytes at *file_path*. Raises FileNotFoundError if absent."""
+
+    async def list_files(self) -> list[tuple[str, datetime]] | None:
+        """Enumerate stored files as ``(path, last_modified_utc)`` pairs.
+
+        Optional capability (issue #152): the retention worker's orphan scan
+        uses it to reclaim files no DB row references any more. Backends that
+        cannot (or choose not to) enumerate keep this default and return
+        ``None`` — callers must then skip the scan gracefully. Deliberately
+        non-abstract so existing providers (e.g. Cloud's S3 backend) keep
+        working unchanged.
+        """
+        return None

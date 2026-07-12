@@ -28,6 +28,9 @@ Rules (ADR 005 v2 — amended iter17; submitted-pin exemption 2026-07-06):
   users            → soft-delete after 730 days inactivity
   generated_cvs (stale generation jobs) → mark failed after 10 minutes in
                      pending/generating (stale job reaper, arc42 §5.3.4)
+  orphan files     → delete upload-volume files no DB row references any more
+                     (issue #152, dFMEA SF-PROFILE.5 — e.g. a GDPR erasure whose
+                     post-commit file delete failed), after a grace period
 
 Technical debt note: Retention Worker is architecturally isolated but co-located.
   Extract to `applire-ops` when Cloud Edition requires singleton scheduling,
@@ -46,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.constants import (
     GENERATED_DOCUMENTS_TTL_DAYS as _GENERATED_DOCS_TTL_DAYS,
     INTERVIEW_SESSION_TTL_DAYS as _SESSION_TTL_DAYS,
+    ORPHAN_FILE_GRACE_HOURS as _ORPHAN_GRACE_HOURS,
     PROFILE_INACTIVITY_TTL_DAYS as _INACTIVITY_TTL_DAYS,
     UPLOAD_TTL_DAYS as _UPLOADS_TTL_DAYS,
 )
@@ -98,6 +102,84 @@ async def _purge_uploads(db: AsyncSession) -> int:
             logger.warning("Retention: failed to delete upload file %s: %s", path, exc)
 
     return result.rowcount  # type: ignore[return-value]
+
+
+async def _scan_orphan_files(db: AsyncSession) -> int:
+    """Delete upload-volume files that no DB row references any more.
+
+    Issue #152 (dFMEA SF-PROFILE.5): GDPR erasure deletes rows first, commits,
+    then deletes files best-effort — a failed file delete leaves PII on disk
+    with nothing pointing at it. Photo replacement (services/photo.py) can
+    orphan the old photo file the same way. This scan is the safety net.
+
+    Referenced set = every uploads.file_path row ∪ every
+    master_profiles.profile_json.personal_info.photo_url (ALL rows, including
+    soft-deleted profiles — a tombstoned profile still owns its photo until
+    hard erasure; photos have NO uploads row, so forgetting them here would
+    delete every live profile photo).
+
+    Safety rules:
+      * storage backends without enumeration support (list_files() → None,
+        e.g. Cloud's S3 provider) skip the scan entirely;
+      * if the referenced set cannot be built (table absent / DB error) the
+        scan deletes NOTHING — fail safe, never fail deletey;
+      * files younger than ORPHAN_FILE_GRACE_HOURS are spared: the upload
+        flow saves the file before committing its DB row, so a young
+        unreferenced file may be an in-flight upload.
+    """
+    from pathlib import Path
+
+    from applire.storage import get_storage
+
+    storage = get_storage()
+    listing = await storage.list_files()
+    if listing is None:
+        logger.info(
+            "Retention: orphan scan skipped (storage backend does not support enumeration)"
+        )
+        return 0
+
+    referenced: set[str] = set()
+    try:
+        rows = await db.execute(text("SELECT file_path FROM uploads"))
+        referenced.update(row[0] for row in rows.fetchall())
+
+        prof_rows = await db.execute(text("SELECT profile_json FROM master_profiles"))
+        for (profile_json,) in prof_rows.fetchall():
+            if isinstance(profile_json, str):  # SQLite test harness stores TEXT
+                try:
+                    profile_json = json.loads(profile_json)
+                except ValueError:
+                    continue
+            if not isinstance(profile_json, dict):
+                continue
+            photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
+            if photo_url:
+                referenced.add(photo_url)
+    except (ProgrammingError, OperationalError):
+        # Can't trust the referenced set → delete nothing this run.
+        await db.rollback()
+        return 0
+
+    # Compare resolved absolute paths too, in case the configured upload dir
+    # is expressed differently between save time and scan time.
+    referenced_resolved = {str(Path(p).resolve()) for p in referenced}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_ORPHAN_GRACE_HOURS)
+    deleted = 0
+    for path, mtime in listing:
+        if path in referenced or str(Path(path).resolve()) in referenced_resolved:
+            continue
+        if mtime >= cutoff:
+            continue  # grace period — possibly an in-flight upload
+        try:
+            await storage.delete(path)
+        except Exception as exc:
+            logger.warning("Retention: failed to delete orphan file %s: %s", path, exc)
+            continue
+        logger.info("Retention: deleted orphan upload file %s", path)
+        deleted += 1
+    return deleted
 
 
 async def _purge_sessions(db: AsyncSession) -> int:
@@ -403,6 +485,10 @@ async def run() -> None:
         stale_cl_jobs_failed = await _reap_stale_cl_jobs(db)
         import_jobs_deleted = await _purge_import_jobs(db)
         gap_jobs_deleted = await _purge_gap_jobs(db)
+        # After _purge_uploads so files whose rows were just TTL-purged are not
+        # double-counted; anything its file pass failed to remove ages past the
+        # grace period and is reclaimed here on a later run.
+        orphan_files_deleted = await _scan_orphan_files(db)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -418,5 +504,6 @@ async def run() -> None:
         "cv_import_jobs_deleted": import_jobs_deleted,
         "gap_analysis_jobs_deleted": gap_jobs_deleted,
         "submitted_exempt": submitted_exempt,
+        "orphan_files_deleted": orphan_files_deleted,
     }
     print(json.dumps(report), flush=True)
