@@ -36,6 +36,7 @@ import {
   type UiLanguage,
 } from "@/components/profile/ProfileSectionCard";
 import { useLocale } from "@/lib/providers/locale-provider";
+import { countWorkEntryGaps, type WorkEntryGapFields } from "@/lib/profile-gaps";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -49,7 +50,10 @@ interface ProfileSection {
     title?: string;
     company?: string;
     start_date?: string;
-    end_date?: string;
+    end_date?: string | null;
+    // #155 — tri-state current-position marker (true = ongoing, false = ended,
+    // null/undefined = unknown)
+    is_current?: boolean | null;
     description?: string;
   }>;
   education?: Array<{
@@ -129,26 +133,12 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
   certifications: "sectionCertifications",
 };
 
-function countWorkEntryGaps(entry: {
-  description?: string | null;
-  title?: string | null;
-  company?: string | null;
-}): number {
-  let count = 0;
-  if (!entry.description) count++;
-  return count;
-}
-
 // F9.2 — a summary is "missing" only when NO language has one. A profile with an
 // English summary but no German one is NOT incomplete; the missing-language nuance
 // is surfaced inline by ProfileSectionBody, not as a whole-section gap.
 function hasProfileGaps(
   profile: {
-    work_experience?: Array<{
-      description?: string | null;
-      title?: string | null;
-      company?: string | null;
-    }> | null;
+    work_experience?: Array<WorkEntryGapFields> | null;
     professional_summary?: SummaryValue;
   },
   uiLanguage: UiLanguage,
@@ -474,9 +464,7 @@ export default function ProfilePage() {
                         {(value as Array<Record<string, unknown>>)
                           .filter(
                             (entry) =>
-                              countWorkEntryGaps(
-                                entry as { description?: string | null },
-                              ) > 0,
+                              countWorkEntryGaps(entry as WorkEntryGapFields) > 0,
                           )
                           .map((entry, idx) => {
                             const company = (entry["company"] as string) ?? "";

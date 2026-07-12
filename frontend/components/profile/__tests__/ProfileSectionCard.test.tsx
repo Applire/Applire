@@ -58,6 +58,64 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
     expect(document.body.textContent).not.toMatch(/"source":/);
   });
 
+  // #155 — is_current=true renders the present label; a real end date still wins
+  // when the entry is not current; the null-fallback behaviour is unchanged.
+  it("renders the present label for a current position (is_current === true)", () => {
+    const work = [
+      {
+        role: "Senior Software Engineer",
+        company: "Logivia",
+        start_date: "2020-03",
+        end_date: null,
+        is_current: true,
+      },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText(/2020-03 → present/)).toBeInTheDocument();
+  });
+
+  it("renders the end date for an ended position (is_current === false)", () => {
+    const work = [
+      {
+        role: "Software Engineer",
+        company: "StartupX",
+        start_date: "2018-06",
+        end_date: "2021-02",
+        is_current: false,
+      },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText(/2018-06 → 2021-02/)).toBeInTheDocument();
+  });
+
+  it("keeps the null-fallback: no end date and no marker still shows the present label", () => {
+    const work = [
+      {
+        role: "Engineer",
+        company: "Acme",
+        start_date: "2022-01",
+        end_date: null,
+      },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText(/2022-01 → present/)).toBeInTheDocument();
+  });
+
   it("renders skills as named chips with a proficiency label, hiding source/refs", () => {
     const skills = [
       { name: "Kubernetes", category: "technical", proficiency: "advanced", source: "work:Logivia" },
