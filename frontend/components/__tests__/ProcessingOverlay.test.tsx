@@ -41,13 +41,15 @@ const DEFAULT_PROPS = {
   onCancel: vi.fn(),
 };
 
-describe("ProcessingOverlay — JD URL error handling", () => {
+describe("ProcessingOverlay — blocked JD scrape pauses for inline paste (#151)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     mockPush.mockClear();
   });
 
-  it("marks JD step as skipped and continues to upload when JD analyze returns jd_fetch_failed", async () => {
+  it("pauses with a paste textarea and does NOT auto-continue when JD analyze returns jd_fetch_failed", async () => {
+    let flowCreated = false;
+    let importPosted = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
 
@@ -60,60 +62,49 @@ describe("ProcessingOverlay — JD URL error handling", () => {
           json: async () => ({ detail: { error_code: "jd_fetch_failed", message: "blocked" } }),
         } as Response;
       }
-
-      // Flow creation (bare flow, no job)
-      if (url.includes("/api/flow") && !url.includes("advance") && !url.includes("state")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ flow_id: "test-flow-xyz" }),
-        } as Response;
+      if (url.includes("/api/applications")) {
+        flowCreated = true;
+        return { ok: true, status: 200, json: async () => ({ flow_session_id: "should-not-happen" }) } as Response;
       }
-
-      // CV import (async job: POST /import-jobs then poll /import-jobs/{id})
-      if (url.includes("/api/profile/import-jobs/")) {
-        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      if (url.includes("/api/flow") && !url.includes("advance") && !url.includes("state")) {
+        flowCreated = true;
+        return { ok: true, status: 200, json: async () => ({ flow_id: "should-not-happen" }) } as Response;
       }
       if (url.includes("/api/profile/import-jobs")) {
+        importPosted = true;
         return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
       }
-
-      // Fallback
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-      } as Response;
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
 
     render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} />));
 
-    // JD step skip message must appear
+    // The recovery block with the paste textarea must appear
     await waitFor(
       () => {
-        expect(
-          screen.getByText("The site blocked us — you can paste the text later")
-        ).toBeInTheDocument();
+        expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument();
       },
       { timeout: 5000 }
     );
-
-    // No hard error block should be rendered
+    expect(
+      screen.getByText(
+        "The site blocked us from reading that job posting. Paste the job description below to continue."
+      )
+    ).toBeInTheDocument();
+    // Both explicit actions are offered
+    expect(screen.getByTestId("jd-paste-submit")).toBeInTheDocument();
+    expect(screen.getByTestId("jd-skip-button")).toBeInTheDocument();
+    // No hard error block
     expect(screen.queryByTestId("processing-error")).toBeNull();
-
-    // Upload step must become active (pipeline continued)
-    await waitFor(
-      () => {
-        expect(screen.getByText("Uploading CV")).toBeInTheDocument();
-      },
-      { timeout: 5000 }
-    );
+    // And the pipeline did NOT silently continue: no flow, no uploads, no redirect.
+    expect(flowCreated).toBe(false);
+    expect(importPosted).toBe(false);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("marks JD step as skipped with url_invalid copy when error_code is jd_url_invalid", async () => {
+  it("shows the url_invalid paste copy when error_code is jd_url_invalid", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
-
       if (url.includes("/api/job/analyze")) {
         return {
           ok: false,
@@ -122,22 +113,6 @@ describe("ProcessingOverlay — JD URL error handling", () => {
           json: async () => ({ detail: { error_code: "jd_url_invalid", message: "not a valid url" } }),
         } as Response;
       }
-
-      if (url.includes("/api/flow") && !url.includes("advance") && !url.includes("state")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ flow_id: "test-flow-abc" }),
-        } as Response;
-      }
-
-      if (url.includes("/api/profile/import-jobs/")) {
-        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
-      }
-      if (url.includes("/api/profile/import-jobs")) {
-        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
-      }
-
       return { ok: true, status: 200, json: async () => ({}) } as Response;
     });
 
@@ -146,13 +121,174 @@ describe("ProcessingOverlay — JD URL error handling", () => {
     await waitFor(
       () => {
         expect(
-          screen.getByText("That doesn't look like a valid URL — you can add it later")
+          screen.getByText(
+            "That doesn't look like a valid URL. Paste the job description below to continue."
+          )
         ).toBeInTheDocument();
       },
       { timeout: 5000 }
     );
-
+    expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument();
     expect(screen.queryByTestId("processing-error")).toBeNull();
+  });
+
+  it("analyzes pasted text and continues the pipeline with the job (no jd_status)", async () => {
+    const analyzeBodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/job/analyze")) {
+        const body = (init?.body as string) ?? "{}";
+        analyzeBodies.push(body);
+        if (body.includes('"url"')) {
+          return {
+            ok: false,
+            status: 422,
+            statusText: "Unprocessable Entity",
+            json: async () => ({ detail: { error_code: "jd_fetch_failed", message: "blocked" } }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ id: "job-pasted", role_title: "QA" }) } as Response;
+      }
+      if (url.includes("/api/applications")) {
+        return { ok: true, status: 200, json: async () => ({ flow_session_id: "flow-pasted" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      if (url.includes("/api/flow/flow-pasted/state")) {
+        return { ok: true, status: 200, json: async () => ({ job_id: "job-pasted" }) } as Response;
+      }
+      if (url.includes("/api/job/job-pasted/gap-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: { id: "gap-1", match_score: 0.8 } }) } as Response;
+      }
+      if (url.includes("/api/job/job-pasted/gap-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ gap_job_id: "gj-1", status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} />));
+
+    await waitFor(() => expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+
+    fireEvent.change(screen.getByTestId("jd-paste-textarea"), {
+      target: { value: "Senior QA Engineer at Acme. 5 years of testing experience required." },
+    });
+    fireEvent.click(screen.getByTestId("jd-paste-submit"));
+
+    // The pipeline resumes exactly as if the URL had worked: flow created from the
+    // analyzed job, gaps redirect WITHOUT any jd_status param.
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-pasted/gaps"), {
+      timeout: 5000,
+    });
+    expect(analyzeBodies.length).toBe(2);
+    expect(JSON.parse(analyzeBodies[1])).toEqual({
+      text: "Senior QA Engineer at Acme. 5 years of testing experience required.",
+    });
+  });
+
+  it("shows the analyze error inline and keeps the textarea when the paste fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/job/analyze")) {
+        const body = (init?.body as string) ?? "{}";
+        if (body.includes('"url"')) {
+          return {
+            ok: false,
+            status: 422,
+            statusText: "Unprocessable Entity",
+            json: async () => ({ detail: { error_code: "jd_fetch_failed", message: "blocked" } }),
+          } as Response;
+        }
+        // Pasted text rejected (US159 not-a-JD path → plain string detail)
+        return {
+          ok: false,
+          status: 422,
+          statusText: "Unprocessable Entity",
+          json: async () => ({ detail: "That doesn't look like a job description." }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} />));
+
+    await waitFor(() => expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+
+    fireEvent.change(screen.getByTestId("jd-paste-textarea"), {
+      target: { value: "some pasted content" },
+    });
+    fireEvent.click(screen.getByTestId("jd-paste-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("jd-paste-error")).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    expect(screen.getByTestId("jd-paste-error")).toHaveTextContent(
+      "That doesn't look like a job description."
+    );
+    // The textarea stays so the user can fix and retry
+    expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("processing-error")).toBeNull();
+  });
+
+  it("explicit continue-without preserves the old JD-less behaviour (flow without job + jd_status param)", async () => {
+    let flowBody: string | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/job/analyze")) {
+        return {
+          ok: false,
+          status: 422,
+          statusText: "Unprocessable Entity",
+          json: async () => ({ detail: { error_code: "jd_fetch_failed", message: "blocked" } }),
+        } as Response;
+      }
+      if (url.includes("/api/flow") && !url.includes("advance") && !url.includes("state")) {
+        flowBody = (init?.body as string) ?? null;
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-skip" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} />));
+
+    await waitFor(() => expect(screen.getByTestId("jd-skip-button")).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    fireEvent.click(screen.getByTestId("jd-skip-button"));
+
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-skip/gaps")),
+      { timeout: 5000 }
+    );
+    const pushedUrl = mockPush.mock.calls[0][0] as string;
+    expect(pushedUrl).toContain("jd_status=fetch_failed");
+    // The flow was created WITHOUT a job — old degraded behaviour, now an explicit choice.
+    expect(flowBody).not.toBeNull();
+    expect(JSON.parse(flowBody as unknown as string)).toEqual({ job_id: null });
+    // The amber "skipped" note is shown, like before.
+    expect(screen.getByText("The site blocked us — you can paste the text later")).toBeInTheDocument();
+  });
+});
+
+describe("ProcessingOverlay — JD URL error handling", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
   });
 
   it("still hard-stops on unrecognised 422 (no error_code)", async () => {
