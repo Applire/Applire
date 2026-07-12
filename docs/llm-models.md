@@ -42,6 +42,31 @@ A model at or above this floor will run every Applire flow comfortably:
   (most OpenRouter models, OpenAI/Anthropic) give the cleanest results; reasoning-mandatory
   models are handled automatically but spend more tokens.
 
+## Models to watch: forced ("mandatory") reasoning
+
+A few models — mostly seen on OpenRouter — are *forced* to "think" before every answer, and
+you cannot turn it off. Because reasoning tokens are billed from the **same output budget**
+as the answer (OpenRouter: *"reasoning tokens are considered output tokens"*), a model that
+over-thinks can spend its budget reasoning and cut a document short, or simply run much
+slower. Applire detects and works around this automatically — it raises budgets, segments
+(ADR-047), and, when a model rejects "thinking off", retries with reasoning left on — so
+these models still *work*. They are just a rougher ride. Given a choice, prefer a model
+whose reasoning can be bounded or disabled.
+
+Examples of forced-reasoning models (mid-2026 — treat the names as examples; the *behaviour*
+is the durable signal):
+
+- **Google Gemini Flash / Pro** — reasoning is flagged `mandatory` and cannot be disabled;
+  this is the classic cause of a CV that truncates or a noticeably slow interview.
+- **`deepseek/deepseek-v3.1-terminus`** — reasoning on by default, no way to turn it off.
+- **`stepfun/step-3.5-flash:free`** — rejects any request that disables reasoning (HTTP 400).
+- Any "reasoning-only" model with no non-thinking mode (o-series / R1-style) for the short
+  interview calls.
+
+**If you want to run one anyway**, set `OPENROUTER_REASONING_EFFORT=low` to cap the thinking
+(OpenRouter only), and give it a generous output budget. Models like **Mistral**, **Claude**,
+**GPT**, or a **Qwen3** *non-thinking* variant sidestep the issue entirely.
+
 ## Picking by priority
 
 **If EU data residency matters** (the typical DACH case):
@@ -72,6 +97,7 @@ A model at or above this floor will run every Applire flow comfortably:
 |---|---|---|
 | Generation retries or takes several steps | Model has a small output ceiling — segmentation is doing its job | Nothing required; pick a higher-output model for fewer steps |
 | Occasional "couldn't finish — try again" | Transient provider error or a reasoning-heavy model | Retry; consider bounding reasoning (`OPENROUTER_REASONING_EFFORT=low`) |
+| Generation is much slower than expected, or a document cuts off | A forced-reasoning model spending the budget on "thinking" (see above) | `OPENROUTER_REASONING_EFFORT=low`, or switch to a model whose reasoning can be disabled |
 | Frequent malformed output on a tiny local model | Model too small for reliable structured output | Use a larger instruct model |
 
 > Model names and limits change quickly — treat any specific model mentioned here as an
