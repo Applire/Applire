@@ -167,7 +167,7 @@ async def test_no_generated_cv_no_hint(db):
     """An application without a ready CV can't be stale — nothing to re-tailor."""
     db.add(_make_profile([_enrichment_record(_iso(_NOW), [_change("skills")])]))
     app = await _make_application(db)
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is None
 
 
@@ -181,7 +181,7 @@ async def test_cv_newer_than_enrichment_no_hint(db):
     db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=1)))
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is None
 
 
@@ -205,7 +205,7 @@ async def test_enrichment_after_cv_sets_hint_with_gained_delta(db):
     db.add(cv)
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     hint = result.stale_cv
     assert hint is not None
     assert hint.latest_cv_id == cv.id
@@ -231,14 +231,14 @@ async def test_only_ready_cvs_count(db):
     db.add(_make_cv(app.job_analysis_id, created_at=_NOW, status="failed"))
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is not None  # ready CV (5d old) predates enrichment
 
     # A second application whose job only has a pending CV → no hint.
     app2 = await _make_application(db)
     db.add(_make_cv(app2.job_analysis_id, created_at=_NOW - timedelta(days=5), status="pending"))
     await db.commit()
-    result2 = await get_application(app2.id, db)
+    result2 = await get_application(app2.id, _STUB_USER_ID, db)
     assert result2.stale_cv is None
 
 
@@ -254,15 +254,15 @@ async def test_retailor_clears_hint_and_keeps_pin(db):
     db.add(v1)
     await db.commit()
     await patch_application(
-        app.id, PatchApplicationRequest(submitted_cv_id=v1.id), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=v1.id), db
     )
-    assert (await get_application(app.id, db)).stale_cv is not None
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is not None
 
     # One-click re-tailor lands a NEW version through the same pipeline.
     db.add(_make_cv(app.job_analysis_id, created_at=_NOW))
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is None
     assert result.submitted_cv_id == v1.id  # pin untouched
 
@@ -278,9 +278,9 @@ async def test_terminal_status_no_hint(db):
         db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
         await db.commit()
         await patch_application(
-            app.id, PatchApplicationRequest(user_status=status), db
+            app.id, _STUB_USER_ID, PatchApplicationRequest(user_status=status), db
         )
-        result = await get_application(app.id, db)
+        result = await get_application(app.id, _STUB_USER_ID, db)
         assert result.stale_cv is None, f"user_status={status} must not nudge"
 
 
@@ -296,7 +296,7 @@ async def test_soft_deleted_cv_ignored(db):
     db.add_all([old, fresh_deleted])
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is not None
     assert result.stale_cv.latest_cv_id == old.id
 
@@ -306,7 +306,7 @@ async def test_no_profile_no_hint(db):
     app = await _make_application(db)
     db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
     await db.commit()
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is None
 
 
@@ -339,7 +339,7 @@ async def test_naive_enrichment_timestamp_handled(db):
     db.add(_make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=5)))
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is not None
 
 
@@ -358,12 +358,12 @@ async def test_dismiss_persists(db):
     await db.commit()
 
     patched = await patch_application(
-        app.id, PatchApplicationRequest(dismiss_stale_cv=True), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
     )
     assert patched.stale_cv is None
 
     # Persisted: a later read is still quiet.
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is None
 
 
@@ -383,9 +383,9 @@ async def test_new_enrichment_rearms_after_dismiss(db):
     await db.commit()
 
     await patch_application(
-        app.id, PatchApplicationRequest(dismiss_stale_cv=True), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(dismiss_stale_cv=True), db
     )
-    assert (await get_application(app.id, db)).stale_cv is None
+    assert (await get_application(app.id, _STUB_USER_ID, db)).stale_cv is None
 
     # The profile grows again — strictly after the dismissal.
     profile = (await db.execute(select(MasterProfile))).scalar_one()
@@ -402,7 +402,7 @@ async def test_new_enrichment_rearms_after_dismiss(db):
     }
     await db.commit()
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.stale_cv is not None
     assert [(g.section, g.count) for g in result.stale_cv.gained] == [
         ("skills", 1),
@@ -421,6 +421,7 @@ async def test_dismiss_false_is_a_noop(db):
 
     patched = await patch_application(
         app.id,
+        _STUB_USER_ID,
         PatchApplicationRequest(dismiss_stale_cv=False, notes="keep"),
         db,
     )

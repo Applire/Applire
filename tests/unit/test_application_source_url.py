@@ -163,6 +163,7 @@ async def test_patch_explicit_null_clears_clearable_fields(db, user_and_job):
 
     patched = await patch_application(
         created.id,
+        _STUB_USER_ID,
         PatchApplicationRequest(notes=None, deadline=None, source_url=None),
         db,
     )
@@ -183,7 +184,7 @@ async def test_patch_omitted_fields_stay_untouched(db, user_and_job):
         db,
     )
     patched = await patch_application(
-        created.id, PatchApplicationRequest(notes="call Anna on Friday"), db
+        created.id, _STUB_USER_ID, PatchApplicationRequest(notes="call Anna on Friday"), db
     )
     assert patched.notes == "call Anna on Friday"
     assert patched.source_url == _MANUAL_URL  # untouched
@@ -210,7 +211,7 @@ async def test_patch_source_url_updates_and_resets_inactivity_timer(db, user_and
     expires_before = created.expires_at
 
     patched = await patch_application(
-        created.id, PatchApplicationRequest(source_url=_MANUAL_URL), db
+        created.id, _STUB_USER_ID, PatchApplicationRequest(source_url=_MANUAL_URL), db
     )
     assert patched.source_url == _MANUAL_URL
     assert patched.expires_at >= expires_before

@@ -166,6 +166,7 @@ async def test_get_application_happy_path():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch(
             "applire.mcp.server.app_svc.get_application",
             AsyncMock(return_value=mock_app),
@@ -197,6 +198,7 @@ async def test_get_application_not_found_raises():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch(
             "applire.mcp.server.app_svc.get_application",
             AsyncMock(side_effect=LookupError("Application not found")),

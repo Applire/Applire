@@ -285,7 +285,7 @@ async def test_soft_deleted_application_is_ignored(db, user):
 
     job = _make_job(source_url="https://stepstone.de/jobs/123")
     app = await _add_application(db, job)
-    await delete_application(app.id, db)
+    await delete_application(app.id, _STUB_USER_ID, db)
 
     hint = await find_duplicate_application(
         _STUB_USER_ID,

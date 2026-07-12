@@ -484,8 +484,9 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
 async def get_application(application_id: str) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     async with get_db() as db:
+        uid = await _current_user_id(db)
         try:
-            result = await app_svc.get_application(aid, db)
+            result = await app_svc.get_application(aid, uid, db)
         except LookupError as exc:
             raise not_found(str(exc))
         except Exception as exc:
@@ -599,8 +600,9 @@ async def update_application(
         )
     req = PatchApplicationRequest(**fields)
     async with get_db() as db:
+        uid = await _current_user_id(db)
         try:
-            result = await app_svc.patch_application(aid, req, db)
+            result = await app_svc.patch_application(aid, uid, req, db)
         except LookupError as exc:
             raise not_found(str(exc))
         except ValueError as exc:

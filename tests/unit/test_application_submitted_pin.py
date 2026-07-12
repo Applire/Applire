@@ -152,7 +152,7 @@ async def test_patch_sets_submitted_cv_id(db, app_with_cv):
     app, _job, cv = app_with_cv
 
     result = await patch_application(
-        app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db
     )
     assert result.submitted_cv_id == cv.id
 
@@ -165,7 +165,7 @@ async def test_patch_sets_submitted_cover_letter_id(db, app_with_cv):
     await db.commit()
 
     result = await patch_application(
-        app.id, PatchApplicationRequest(submitted_cover_letter_id=cl.id), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cover_letter_id=cl.id), db
     )
     assert result.submitted_cover_letter_id == cl.id
 
@@ -177,7 +177,7 @@ async def test_pin_resets_inactivity_timer(db, app_with_cv):
 
     before = datetime.now(timezone.utc) + timedelta(days=700)
     result = await patch_application(
-        app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db
     )
     expires = result.expires_at
     if expires.tzinfo is None:
@@ -193,10 +193,10 @@ async def test_pin_resets_inactivity_timer(db, app_with_cv):
 @pytest.mark.asyncio
 async def test_patch_clears_submitted_cv_id_with_explicit_null(db, app_with_cv):
     app, _job, cv = app_with_cv
-    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+    await patch_application(app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db)
 
     result = await patch_application(
-        app.id, PatchApplicationRequest(submitted_cv_id=None), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=None), db
     )
     assert result.submitted_cv_id is None
 
@@ -204,10 +204,10 @@ async def test_patch_clears_submitted_cv_id_with_explicit_null(db, app_with_cv):
 @pytest.mark.asyncio
 async def test_patch_omitting_pin_leaves_it_unchanged(db, app_with_cv):
     app, _job, cv = app_with_cv
-    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+    await patch_application(app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db)
 
     result = await patch_application(
-        app.id, PatchApplicationRequest(notes="called the recruiter"), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(notes="called the recruiter"), db
     )
     assert result.submitted_cv_id == cv.id
 
@@ -223,7 +223,7 @@ async def test_patch_rejects_nonexistent_cv(db, app_with_cv):
 
     with pytest.raises(ValueError, match="submitted_cv_id.*reference"):
         await patch_application(
-            app.id, PatchApplicationRequest(submitted_cv_id=uuid.uuid4()), db
+            app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=uuid.uuid4()), db
         )
 
 
@@ -238,7 +238,7 @@ async def test_patch_rejects_cv_of_different_job(db, app_with_cv):
 
     with pytest.raises(ValueError, match="submitted_cv_id.*reference"):
         await patch_application(
-            app.id, PatchApplicationRequest(submitted_cv_id=other_cv.id), db
+            app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=other_cv.id), db
         )
 
 
@@ -251,7 +251,7 @@ async def test_patch_rejects_soft_deleted_cv(db, app_with_cv):
 
     with pytest.raises(ValueError, match="submitted_cv_id.*reference"):
         await patch_application(
-            app.id, PatchApplicationRequest(submitted_cv_id=dead_cv.id), db
+            app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=dead_cv.id), db
         )
 
 
@@ -262,6 +262,7 @@ async def test_patch_rejects_nonexistent_cover_letter(db, app_with_cv):
     with pytest.raises(ValueError, match="submitted_cover_letter_id.*reference"):
         await patch_application(
             app.id,
+            _STUB_USER_ID,
             PatchApplicationRequest(submitted_cover_letter_id=uuid.uuid4()),
             db,
         )
@@ -298,7 +299,7 @@ async def test_patch_response_carries_submitted_cv_created_at(db, app_with_cv):
     app, _job, cv = app_with_cv
 
     result = await patch_application(
-        app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db
+        app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db
     )
     assert result.submitted_cv_created_at is not None
     assert _naive_equal(result.submitted_cv_created_at, cv.created_at)
@@ -309,9 +310,9 @@ async def test_get_application_carries_submitted_cv_created_at(db, app_with_cv):
     from applire.services.application import get_application
 
     app, _job, cv = app_with_cv
-    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+    await patch_application(app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db)
 
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.submitted_cv_created_at is not None
     assert _naive_equal(result.submitted_cv_created_at, cv.created_at)
 
@@ -322,7 +323,7 @@ async def test_list_applications_carries_submitted_cv_created_at(db, app_with_cv
     from applire.services.application import list_applications
 
     app, _job, cv = app_with_cv
-    await patch_application(app.id, PatchApplicationRequest(submitted_cv_id=cv.id), db)
+    await patch_application(app.id, _STUB_USER_ID, PatchApplicationRequest(submitted_cv_id=cv.id), db)
 
     result = await list_applications(_STUB_USER_ID, db)
     item = next(i for i in result.items if i.id == app.id)
@@ -335,5 +336,5 @@ async def test_submitted_cv_created_at_is_null_when_unpinned(db, app_with_cv):
     from applire.services.application import get_application
 
     app, _job, _cv = app_with_cv
-    result = await get_application(app.id, db)
+    result = await get_application(app.id, _STUB_USER_ID, db)
     assert result.submitted_cv_created_at is None

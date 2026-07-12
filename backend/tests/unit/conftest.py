@@ -90,6 +90,11 @@ async def seed_application(async_db: AsyncSession):
     from applire.models.application import Application, UserStatus
     from applire.models.job import JobAnalysis
 
+    # The detail routes are scoped to the authenticated user (dFMEA SF-APP.1),
+    # so seeded rows must belong to the NoAuthProvider stub user the test app
+    # resolves — a random user_id now yields an (intended) 404.
+    from applire.auth.no_auth import _STUB_USER_ID
+
     async def _seed(*, user_status: str = UserStatus.tracking.value) -> Application:
         # Insert a minimal JobAnalysis for the FK
         ja = JobAnalysis(
@@ -103,7 +108,7 @@ async def seed_application(async_db: AsyncSession):
         await async_db.flush()  # populate ja.id
 
         app = Application(
-            user_id=uuid.uuid4(),
+            user_id=_STUB_USER_ID,
             job_analysis_id=ja.id,
             user_status=user_status,
             company_name="Acme",
