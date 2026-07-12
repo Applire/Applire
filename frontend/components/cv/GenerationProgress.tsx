@@ -107,7 +107,9 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry }: Generatio
   }, [cvId, flowId, onReady, t]);
 
   const activeIndex = activeStepIndex(status);
-  const labels = [t("stepQueued"), t("stepRendering"), t("stepDone")];
+  // Only real phases of the run (#114): queued → rendering. "Done" is not a
+  // phase — on ready both steps flip to done and onReady navigates away.
+  const labels = [t("stepQueued"), t("stepRendering")];
   const progressSteps: ProgressStep[] = labels.map((label, i) => ({
     label,
     status:

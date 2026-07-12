@@ -211,6 +211,76 @@ describe("ProcessingOverlay — JD URL error handling", () => {
   });
 });
 
+describe("ProcessingOverlay — step list reflects the actual run plan (#114 / blind PQ F10)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  it("plans no JD step and no gaps step when no JD was provided", () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ flow_id: "flow-nojd" }),
+    } as Response);
+
+    render(
+      withIntl(
+        <ProcessingOverlay files={[mockFile]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />
+      )
+    );
+
+    expect(screen.queryByText("Analyzing job description…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Detecting Gaps")).not.toBeInTheDocument();
+    expect(screen.getByText("Uploading CV")).toBeInTheDocument();
+    expect(screen.getByText("Building profile…")).toBeInTheDocument();
+  });
+
+  it("plans the JD and gaps steps when a JD text is provided", () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ flow_id: "flow-jd" }),
+    } as Response);
+
+    render(
+      withIntl(
+        <ProcessingOverlay files={[mockFile]} jdMode="text" jdUrl="" jdText="Senior QA Engineer at Acme" onCancel={vi.fn()} />
+      )
+    );
+
+    expect(screen.getByText("Analyzing job description…")).toBeInTheDocument();
+    expect(screen.getByText("Detecting Gaps")).toBeInTheDocument();
+  });
+
+  it("no-JD run keeps per-file failure/retry aligned with the shorter step list", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-nojd-fail" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "failed", error_code: "invalid_document", result: null }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "Emma_CV.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    // The failed file surfaces against ITS step (index 0 in the no-JD plan).
+    await waitFor(
+      () => expect(screen.getByTestId("processing-file-errors")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    expect(screen.getByText("Emma_CV.pdf")).toBeInTheDocument();
+    expect(screen.getByTestId("retry-file-0")).toBeInTheDocument();
+  });
+});
+
 describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
   afterEach(() => {
     vi.restoreAllMocks();

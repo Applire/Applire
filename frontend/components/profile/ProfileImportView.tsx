@@ -29,6 +29,8 @@ import {
   type StagedResolveResult,
 } from "@/components/profile/MergeGateDialog";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { ProgressWidget, type ProgressStep } from "@/components/ui/progress-widget";
+import { startCvImport, pollCvImport, CVImportError, type CVUploadResult } from "@/lib/import-cv";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
@@ -64,13 +66,20 @@ async function readApiError(res: Response): Promise<string> {
   return getApiErrorMessage(res);
 }
 
+// The current phase of an in-flight update (#114 / US177): honest, stepped labels
+// instead of a static "Uploading…" through minutes of LLM merge work.
+type UploadPhase = "idle" | "uploading" | "merging" | "importing";
+
 export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
   const tp = useTranslations("profileUpdate");
   const tg = useTranslations("mergeGate");
+  const tproc = useTranslations("processing");
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<UploadPhase>("idle");
+  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
   const [flowError, setFlowError] = useState("");
   const [completenessScore, setCompletenessScore] = useState<number | null>(null);
@@ -80,6 +89,26 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
 
   const mainInputRef = useRef<HTMLInputElement>(null);
   const linkedinInputRef = useRef<HTMLInputElement>(null);
+  // Aborts an in-flight import poll if the view unmounts, so a long merge can't
+  // outlive the component. A fresh controller per mount; handleFile reads the
+  // signal lazily at call time (StrictMode-safe — events fire on the live mount).
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return () => controller.abort();
+  }, []);
+
+  // Heartbeat while a step runs — a long LLM merge must never read as a hang.
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0);
+      return;
+    }
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/profile/uploads`)
@@ -101,26 +130,44 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     setUploadSuccess(false);
     setCompletenessScore(null);
     setLoading(true);
+    const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const isZip = file.name.toLowerCase().endsWith(".zip");
-      // TODO(E036 follow-up): route the CV path through the async import job
-      // (lib/import-cv.ts) like the onboarding overlay, so this update path also can't
-      // 504 on a slow/output-capped model. Kept sync for now (separate test surface).
-      const endpoint = isZip ? "/api/profile/import" : "/api/profile/upload";
+      // The ZIP endpoint answers the same shape as the async CV import job.
+      let data: CVUploadResult;
 
-      const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(await readApiError(res));
-
-      const data = await res.json();
+      if (isZip) {
+        // LinkedIn archive import stays synchronous (fast, no heavy LLM pass) —
+        // one honest "importing" phase with a heartbeat.
+        setPhase("importing");
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(`${API_BASE}/api/profile/import`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await readApiError(res));
+        data = await res.json();
+      } else {
+        // #114 / US177 (and the E036 follow-up TODO): the CV path runs through the
+        // async import job like the onboarding overlay — the POST returns fast (the
+        // upload phase), the LLM parse+merge is polled (the merge phase). No more
+        // static "Uploading…" through minutes of merge work, and no proxy 504
+        // dropping the CV on a slow model.
+        setPhase("uploading");
+        const importId = await startCvImport(file, {
+          apiBase: API_BASE,
+          signal: abortRef.current?.signal,
+        });
+        setPhase("merging");
+        data = await pollCvImport(importId, {
+          apiBase: API_BASE,
+          signal: abortRef.current?.signal,
+        });
+      }
 
       // US167: the pre-merge gate held the merge. Park nothing happened to the
       // profile — open the resolve dialog instead of treating it as a success.
       if (data.status === "GATED") {
         setGateInfo({
           gate: data.gate as MergeGate,
-          stagedId: data.staged_id,
+          stagedId: data.staged_id as string,
           accountName: data.account_name,
           cvName: data.cv_name,
         });
@@ -130,9 +177,20 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
 
       await proceedAfterUpdate(data.completeness_score ?? null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("uploadErrorGeneric"));
+      if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
+      if (e instanceof CVImportError) {
+        // Stable machine code from the import job — localized, never raw text.
+        setError(
+          e.errorCode === "llm_truncated" || e.errorCode === "llm_timeout"
+            ? tproc("uploadTryAgain")
+            : tproc("uploadFailed")
+        );
+      } else {
+        setError(e instanceof Error ? e.message : t("uploadErrorGeneric"));
+      }
     } finally {
       setLoading(false);
+      setPhase("idle");
     }
   }
 
@@ -262,7 +320,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
               <span aria-hidden="true" className="material-symbols-outlined text-white text-[36px]" style={{ fontVariationSettings: "'FILL' 1" }}>cloud_upload</span>
             </div>
             <h3 className="font-manrope text-[18px] font-bold text-primary mb-1.5">
-              {loading ? t("uploading") : t("dropTitle")}
+              {t("dropTitle")}
             </h3>
             <p className="text-sm text-on-surface-variant mb-5 leading-relaxed max-w-xs">
               {t("subtitle")}
@@ -298,6 +356,42 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
             <span aria-hidden="true" className="material-symbols-outlined text-outline-variant text-[20px]">chevron_right</span>
           </button>
+
+          {/* Stepped progress while the update runs (#114 / US177) — the widget
+              names the actual phase; the heartbeat keeps a long LLM merge from
+              reading as a hang. */}
+          {loading && (
+            <div
+              data-testid="import-progress"
+              className="mt-3 bg-white/90 backdrop-blur-md border border-outline-variant rounded-xl p-5 flex flex-col items-center shadow-[0_0_40px_-10px_rgba(0,51,153,0.1)]"
+            >
+              <ProgressWidget
+                steps={
+                  phase === "importing"
+                    ? ([{ label: t("stepImporting"), status: "active" }] as ProgressStep[])
+                    : ([
+                        {
+                          label: t("stepUploading"),
+                          status: phase === "uploading" ? "active" : "done",
+                        },
+                        {
+                          label: t("stepMerging"),
+                          status: phase === "merging" ? "active" : "pending",
+                        },
+                      ] as ProgressStep[])
+                }
+                title={t("progressTitle")}
+              />
+              <p
+                data-testid="import-heartbeat"
+                className="text-xs text-on-surface-variant mt-3 text-center"
+              >
+                {elapsed >= 20
+                  ? tproc("stillWorkingElapsed", { seconds: elapsed })
+                  : tproc("stillWorking")}
+              </p>
+            </div>
+          )}
 
           {/* Success strip */}
           {uploadSuccess && !error && (

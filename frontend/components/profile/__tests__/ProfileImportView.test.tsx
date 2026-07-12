@@ -38,6 +38,43 @@ function makeFetchMock(response: object, ok = true, status = 200) {
   });
 }
 
+/**
+ * URL-dispatched fetch mock for the async CV import contract (#114 / US177):
+ * POST /api/profile/import-jobs → 202 {import_id}; GET /import-jobs/{id} → poll
+ * response. `extra` handles any additional endpoints (flow state, gaps, resolve…).
+ */
+function importJobsMock(
+  pollResponse: object | ((url: string) => object),
+  extra?: (url: string) => { ok: boolean; status?: number; body: object } | null
+) {
+  return vi.fn((url: unknown) => {
+    const u = url as string;
+    const hit = extra?.(u);
+    if (hit)
+      return Promise.resolve({
+        ok: hit.ok,
+        status: hit.status ?? (hit.ok ? 200 : 500),
+        statusText: hit.ok ? "OK" : "Error",
+        json: () => Promise.resolve(hit.body),
+      });
+    if (u.includes("/api/profile/uploads"))
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    if (u.includes("/api/profile/import-jobs/")) {
+      const body = typeof pollResponse === "function" ? pollResponse(u) : pollResponse;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+    }
+    if (u.includes("/api/profile/import-jobs"))
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({ import_id: "imp-1", status: "pending" }),
+      });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  }) as unknown as typeof fetch;
+}
+
+const READY = (result: object) => ({ status: "ready", error_code: null, result });
+
 describe("ProfileImportView", () => {
   beforeEach(() => {
     mockPush.mockReset();
@@ -58,26 +95,6 @@ describe("ProfileImportView", () => {
   it("renders the LinkedIn secondary card", () => {
     render(<ProfileImportView />);
     expect(screen.getByText("linkedinCardTitle")).toBeInTheDocument();
-  });
-
-  it("routes a PDF file to /api/profile/upload", async () => {
-    const uploadResponse = { completeness_score: 0.85 };
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })         // history
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(uploadResponse) }) // upload
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });        // history refresh
-
-    render(<ProfileImportView />);
-
-    const input = screen.getByTestId("main-file-input");
-    const file = new File(["content"], "resume.pdf", { type: "application/pdf" });
-    fireEvent.change(input, { target: { files: [file] } });
-
-    await waitFor(() => {
-      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const uploadCall = calls.find((c) => (c[0] as string).includes("/api/profile/upload"));
-      expect(uploadCall).toBeDefined();
-    });
   });
 
   it("routes a ZIP file to /api/profile/import", async () => {
@@ -101,10 +118,7 @@ describe("ProfileImportView", () => {
   });
 
   it("shows success strip with completeness score after PDF upload", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.84 }) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+    global.fetch = importJobsMock(READY({ completeness_score: 0.84 }));
 
     render(<ProfileImportView />);
 
@@ -117,15 +131,12 @@ describe("ProfileImportView", () => {
     });
   });
 
-  it("shows error strip when upload fails", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 422,
-        statusText: "Unprocessable Entity",
-        json: () => Promise.resolve({ detail: "Datei konnte nicht verarbeitet werden" }),
-      });
+  it("shows a clean localized error strip when the import job can't be created", async () => {
+    global.fetch = importJobsMock(READY({}), (u) =>
+      /\/api\/profile\/import-jobs$/.test(u)
+        ? { ok: false, status: 422, body: { detail: "Datei konnte nicht verarbeitet werden" } }
+        : null
+    );
 
     render(<ProfileImportView />);
 
@@ -134,17 +145,14 @@ describe("ProfileImportView", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(screen.getByText("Datei konnte nicht verarbeitet werden")).toBeInTheDocument();
+      expect(screen.getByText("uploadFailed")).toBeInTheDocument();
     });
   });
 
   // F3 (#72): a standalone update no longer silently bounces the user. It shows a
   // success strip with an explicit "Review what changed" CTA into the merge review.
   it("shows a review CTA after standalone upload success and does not auto-redirect", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.9 }) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+    global.fetch = importJobsMock(READY({ completeness_score: 0.9 }));
 
     render(<ProfileImportView />);
 
@@ -163,18 +171,20 @@ describe("ProfileImportView", () => {
   });
 
   // F3 (#72): a raw pydantic/UUID validation message must never reach the user.
+  // On the async path nothing from a failed POST is rendered at all — only the
+  // localized generic copy.
   it("suppresses a leaked UUID validation error behind a friendly message", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 422,
-        statusText: "Unprocessable Entity",
-        json: () =>
-          Promise.resolve({
-            detail: [{ msg: "Input should be a valid UUID, invalid character: found `n` at 1" }],
-          }),
-      });
+    global.fetch = importJobsMock(READY({}), (u) =>
+      /\/api\/profile\/import-jobs$/.test(u)
+        ? {
+            ok: false,
+            status: 422,
+            body: {
+              detail: [{ msg: "Input should be a valid UUID, invalid character: found `n` at 1" }],
+            },
+          }
+        : null
+    );
 
     render(<ProfileImportView />);
 
@@ -183,20 +193,19 @@ describe("ProfileImportView", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(screen.getByText(/Invalid input/i)).toBeInTheDocument();
+      expect(screen.getByText("uploadFailed")).toBeInTheDocument();
     });
     expect(screen.queryByText(/UUID/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/pydantic/i)).not.toBeInTheDocument();
   });
 
   it("navigates to /flow/:id/gaps when flowId is provided", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                    // history on mount
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.9 }) }) // upload
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                          // history refresh (after upload)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ job_id: "job-123" }) })        // flow state
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: "gap-456" }) })            // gaps
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });                          // advance
+    global.fetch = importJobsMock(READY({ completeness_score: 0.9 }), (u) => {
+      if (u.includes("/api/flow/flow-abc/state")) return { ok: true, body: { job_id: "job-123" } };
+      if (u.includes("/api/job/job-123/gaps")) return { ok: true, body: { id: "gap-456" } };
+      if (u.includes("/api/flow/flow-abc/advance")) return { ok: true, body: {} };
+      return null;
+    });
 
     render(<ProfileImportView flowId="flow-abc" />);
 
@@ -210,16 +219,11 @@ describe("ProfileImportView", () => {
   });
 
   it("shows success strip and amber flow-error when proceedToGaps fails after upload", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                    // history on mount
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.88 }) }) // upload succeeds
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                    // history refresh
-      .mockResolvedValueOnce({                                                                  // flow state fails
-        ok: false,
-        status: 504,
-        statusText: "Gateway Timeout",
-        json: () => Promise.resolve({ detail: "Upstream timeout" }),
-      });
+    global.fetch = importJobsMock(READY({ completeness_score: 0.88 }), (u) =>
+      u.includes("/api/flow/flow-xyz/state")
+        ? { ok: false, status: 504, body: { detail: "Upstream timeout" } }
+        : null
+    );
 
     render(<ProfileImportView flowId="flow-xyz" />);
 
@@ -244,11 +248,9 @@ describe("ProfileImportView", () => {
   // "Invalid input" warning) and must show the "Review what changed" CTA so the
   // hand-off matches the standalone path.
   it("does not fetch gaps and shows the review CTA on the in-flow no-JD path", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                          // history on mount
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ completeness_score: 0.99 }) }) // upload succeeds
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })                          // history refresh
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ job_id: null }) });            // flow state — no JD
+    global.fetch = importJobsMock(READY({ completeness_score: 0.99 }), (u) =>
+      u.includes("/api/flow/flow-no-jd/state") ? { ok: true, body: { job_id: null } } : null
+    );
 
     render(<ProfileImportView flowId="flow-no-jd" />);
 
@@ -272,6 +274,96 @@ describe("ProfileImportView", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
+  // #114 (blind PQ F10) / US177: the update-profile upload no longer shows a static
+  // "Uploading…" label through minutes of LLM merging. The CV path runs through the
+  // async import-jobs API and a stepped ProgressWidget names the actual phase.
+  describe("async import with stepped progress (#114 / US177)", () => {
+    function urlMock(pollResponse: object) {
+      return vi.fn((url: unknown) => {
+        const u = url as string;
+        if (u.includes("/api/profile/uploads"))
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        if (u.includes("/api/profile/import-jobs/"))
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(pollResponse) });
+        if (u.includes("/api/profile/import-jobs"))
+          return Promise.resolve({
+            ok: true,
+            status: 202,
+            json: () => Promise.resolve({ import_id: "imp-1", status: "pending" }),
+          });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }) as unknown as typeof fetch;
+    }
+
+    it("routes a PDF through the async import-jobs API, never the sync /upload", async () => {
+      global.fetch = urlMock({ status: "ready", error_code: null, result: { completeness_score: 0.9 } });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+      expect(calls.some((u) => u.includes("/api/profile/import-jobs"))).toBe(true);
+      expect(calls.some((u) => /\/api\/profile\/upload$/.test(u))).toBe(false);
+    });
+
+    it("shows the merge phase as active while the import job is processing", async () => {
+      // Job never finishes in this test — we only assert the honest phase labels.
+      global.fetch = urlMock({ status: "processing", error_code: null, result: null });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => {
+        // Upload finished (POST returned) — the widget names the real phase now.
+        const merging = screen.getByText("stepMerging").closest("[data-step-status]");
+        expect(merging).toHaveAttribute("data-step-status", "active");
+        const uploading = screen.getByText("stepUploading").closest("[data-step-status]");
+        expect(uploading).toHaveAttribute("data-step-status", "done");
+      });
+      // The old static label is gone.
+      expect(screen.queryByText("uploading")).not.toBeInTheDocument();
+    });
+
+    it("maps a failed import job to clean localized copy (no raw text)", async () => {
+      global.fetch = urlMock({ status: "failed", error_code: "llm_truncated", result: null });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => expect(screen.getByText("uploadTryAgain")).toBeInTheDocument());
+    });
+
+    it("opens the merge-gate dialog when the async import resolves GATED", async () => {
+      global.fetch = urlMock({
+        status: "ready",
+        error_code: null,
+        result: {
+          status: "GATED",
+          gate: "name_divergence",
+          account_name: "Max Muster",
+          cv_name: "Markus Brandt",
+          staged_id: "staged-1",
+          completeness_score: 0,
+        },
+      });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "markus.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+  });
+
   it("shows empty history state when no uploads", async () => {
     global.fetch = makeFetchMock([]);
     render(<ProfileImportView />);
@@ -280,61 +372,21 @@ describe("ProfileImportView", () => {
     });
   });
 
-  it("opens the merge-gate dialog on a GATED upload instead of navigating", async () => {
-    global.fetch = vi.fn((url: unknown) => {
-      const u = url as string;
-      if (u.includes("/api/profile/uploads"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      if (u.includes("/api/profile/upload"))
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              status: "GATED",
-              gate: "name_divergence",
-              account_name: "Max Muster",
-              cv_name: "Markus Brandt",
-              staged_id: "staged-1",
-              completeness_score: 0,
-            }),
-        });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-    }) as unknown as typeof fetch;
-
-    render(<ProfileImportView />);
-    const input = screen.getByTestId("main-file-input");
-    const file = new File(["content"], "markus.pdf", { type: "application/pdf" });
-    fireEvent.change(input, { target: { files: [file] } });
-
-    await waitFor(() => expect(screen.getByTestId("merge-gate-dialog")).toBeInTheDocument());
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
   it("surfaces the review CTA after merging from the gate dialog (F3)", async () => {
-    global.fetch = vi.fn((url: unknown) => {
-      const u = url as string;
-      if (u.includes("/api/profile/uploads"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      if (u.includes("/resolve"))
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ action: "merge", profile_id: "p1", completeness_score: 0.9 }),
-        });
-      if (u.includes("/api/profile/upload"))
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              status: "GATED",
-              gate: "name_divergence",
-              account_name: "Max Muster",
-              cv_name: "Markus Brandt",
-              staged_id: "staged-1",
-              completeness_score: 0,
-            }),
-        });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-    }) as unknown as typeof fetch;
+    global.fetch = importJobsMock(
+      READY({
+        status: "GATED",
+        gate: "name_divergence",
+        account_name: "Max Muster",
+        cv_name: "Markus Brandt",
+        staged_id: "staged-1",
+        completeness_score: 0,
+      }),
+      (u) =>
+        u.includes("/resolve")
+          ? { ok: true, body: { action: "merge", profile_id: "p1", completeness_score: 0.9 } }
+          : null
+    );
 
     render(<ProfileImportView />);
     fireEvent.change(screen.getByTestId("main-file-input"), {
@@ -351,25 +403,15 @@ describe("ProfileImportView", () => {
   });
 
   it("closes the gate dialog and stays put after discarding", async () => {
-    global.fetch = vi.fn((url: unknown) => {
-      const u = url as string;
-      if (u.includes("/api/profile/uploads"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      if (u.includes("/resolve"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ action: "discard" }) });
-      if (u.includes("/api/profile/upload"))
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              status: "GATED",
-              gate: "not_a_cv",
-              staged_id: "staged-2",
-              completeness_score: 0,
-            }),
-        });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-    }) as unknown as typeof fetch;
+    global.fetch = importJobsMock(
+      READY({
+        status: "GATED",
+        gate: "not_a_cv",
+        staged_id: "staged-2",
+        completeness_score: 0,
+      }),
+      (u) => (u.includes("/resolve") ? { ok: true, body: { action: "discard" } } : null)
+    );
 
     render(<ProfileImportView />);
     fireEvent.change(screen.getByTestId("main-file-input"), {
