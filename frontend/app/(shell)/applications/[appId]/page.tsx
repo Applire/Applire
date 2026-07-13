@@ -67,6 +67,8 @@ interface ApplicationDetail {
   flow_current_step: string | null;
   created_at: string;
   updated_at: string;
+  /** Removal date — the announced purge moment while cancelled (US222). */
+  expires_at?: string | null;
 }
 
 export default function ApplicationDetailPage() {
@@ -286,6 +288,30 @@ export default function ApplicationDetailPage() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Cancelled banner (US222, Branch I): the deletion is announced,
+              never silent — removal date + Restore until the purge. */}
+          {application.user_status === "cancelled" && (
+            <div
+              className="p-4 rounded-lg bg-warning-container border border-warning/40 flex items-center justify-between gap-4"
+              data-testid="cancelled-banner"
+            >
+              <p className="text-sm text-on-surface">
+                {application.expires_at
+                  ? t("cancelledBanner", {
+                      date: new Date(application.expires_at).toLocaleDateString(),
+                    })
+                  : t("cancelledBannerNoDate")}
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleQuickStatus("tracking")}
+                className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary-container"
+              >
+                {tDash("cancelledRestore")}
+              </button>
+            </div>
+          )}
+
           {/* Stale-status refresh prompt (E039/US218, JF-E-P2.1) */}
           {showStalePrompt && (
             <div

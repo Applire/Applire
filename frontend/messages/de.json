@@ -103,7 +103,15 @@
       "errorFlowNotFound": "Ablauf nicht gefunden. Bitte starten Sie erneut.",
       "percentComplete": "{pct} % abgeschlossen",
       "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden"
-    }
+    },
+    "cancelApplication": "Bewerbung abbrechen",
+    "cancelApplicationInline": "Kein Match? Bewerbung abbrechen",
+    "cancelDialogTitle": "Diese Bewerbung abbrechen?",
+    "cancelDialogBody": "Die Bewerbung wandert in den Bereich „Abgebrochen“ auf dem Dashboard und wird nach einer Frist endgültig entfernt — inklusive der erzeugten Dokumente. Bis dahin kannst du sie jederzeit wiederherstellen.",
+    "cancelDialogError": "Abbrechen fehlgeschlagen. Bitte versuche es erneut.",
+    "cancelDialogKeep": "Weitermachen",
+    "cancelDialogConfirm": "Bewerbung abbrechen",
+    "cancelDialogBusy": "Wird abgebrochen …"
   },
   "gaps": {
     "title": "Lückenanalyse",
@@ -535,7 +543,11 @@
     "sentBadgeAriaLabel": "Eingereichte Version vom {date}",
     "sentBadgePlain": "Gesendet",
     "staleCvBadge": "Profil gewachsen",
-    "staleCvBadgeTitle": "Dein Profil ist seit dem letzten Lebenslauf dieser Bewerbung gewachsen"
+    "staleCvBadgeTitle": "Dein Profil ist seit dem letzten Lebenslauf dieser Bewerbung gewachsen",
+    "statusCancelled": "Abgebrochen",
+    "cancelledSection": "Abgebrochene Bewerbungen ({count})",
+    "cancelledRemovalDate": "Wird entfernt am {date}",
+    "cancelledRestore": "Wiederherstellen"
   },
   "profile": {
     "title": "Mein Profil",
@@ -688,7 +700,9 @@
     "staleCvRetailor": "Neu zuschneiden",
     "staleCvRetailoring": "Wird neu zugeschnitten…",
     "staleCvDismiss": "Ausblenden",
-    "staleCvRetailorFailed": "Der Lebenslauf konnte nicht neu zugeschnitten werden. Bitte versuche es erneut."
+    "staleCvRetailorFailed": "Der Lebenslauf konnte nicht neu zugeschnitten werden. Bitte versuche es erneut.",
+    "cancelledBanner": "Diese Bewerbung ist abgebrochen und wird am {date} endgültig entfernt — inklusive der erzeugten Dokumente. Bis dahin kannst du sie wiederherstellen.",
+    "cancelledBannerNoDate": "Diese Bewerbung ist abgebrochen und wird nach Ablauf einer Frist endgültig entfernt. Bis dahin kannst du sie wiederherstellen."
   },
   "import": {
     "title": "Lebenslauf importieren"

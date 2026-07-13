@@ -252,11 +252,13 @@ describe("DashboardApplicationCard", () => {
     expect(screen.getByRole("combobox", { name: "statusSelectLabel" })).toHaveValue("tracking");
   });
 
-  it("offers all six pipeline statuses", () => {
+  it("offers the full pipeline including cancelled (US222)", () => {
     renderCard();
     const select = screen.getByRole("combobox", { name: "statusSelectLabel" });
     const values = Array.from(select.querySelectorAll("option")).map((o) => o.getAttribute("value"));
-    expect(values).toEqual(["tracking", "applied", "interviewing", "offer", "rejected", "hired"]);
+    expect(values).toEqual([
+      "tracking", "applied", "interviewing", "offer", "rejected", "hired", "cancelled",
+    ]);
   });
 
   it("changing the status PATCHes the application and notifies the parent", async () => {
