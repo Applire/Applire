@@ -126,6 +126,7 @@
     "analyzing": "Analyzing your profile…",
     "analysisError": "Something went wrong analyzing your profile. Please try again.",
     "masterProfileCreated": "Master Profile Created",
+    "masterProfileUpdated": "Master Profile Updated",
     "cvParsedPartial": "{parsed} of {total} CVs were read — the rest couldn't be parsed and weren't added to your profile.",
     "jdEchoTitle": "What we read from the job ad",
     "jdEchoSubtitle": "Check this matches the posting before you start the interview.",

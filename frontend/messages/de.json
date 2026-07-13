@@ -126,6 +126,7 @@
     "analyzing": "Profil wird analysiert…",
     "analysisError": "Bei der Analyse deines Profils ist etwas schiefgelaufen. Bitte versuche es erneut.",
     "masterProfileCreated": "Master-Profil erstellt",
+    "masterProfileUpdated": "Master-Profil aktualisiert",
     "cvParsedPartial": "{parsed} von {total} Lebensläufen wurden gelesen — die übrigen konnten nicht verarbeitet und nicht zum Profil hinzugefügt werden.",
     "jdEchoTitle": "Das haben wir aus der Stellenanzeige gelesen",
     "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt, bevor du das Interview startest.",

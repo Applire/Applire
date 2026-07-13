@@ -109,6 +109,33 @@ describe("hasMergeReview", () => {
     ).toBe(false);
   });
 
+  // Flow-scoping (Spaghettieis UAT): the gaps page must only announce a merge
+  // that happened in THIS run — a merge from the initial onboarding import
+  // otherwise haunts every later follow-up flow's gap view.
+  it("ignores import merges from BEFORE `since` (older run)", () => {
+    expect(
+      hasMergeReview(
+        trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "2026-07-13T09:00:00Z", changes: [change("merged")] }] }),
+        { since: "2026-07-13T10:00:00Z" },
+      ),
+    ).toBe(false);
+  });
+
+  it("counts import merges AT or AFTER `since` (this run)", () => {
+    expect(
+      hasMergeReview(
+        trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "2026-07-13T10:00:05Z", changes: [change("merged")] }] }),
+        { since: "2026-07-13T10:00:00Z" },
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps pending conflicts actionable regardless of `since`", () => {
+    expect(
+      hasMergeReview(trail({ pendingConflicts: [change("updated")] }), { since: "2026-07-13T10:00:00Z" }),
+    ).toBe(true);
+  });
+
   it("returns true for a cv_upload 'merged' change (import source still counts)", () => {
     expect(
       hasMergeReview(trail({ enrichmentHistory: [{ source: "cv_upload", timestamp: "t", changes: [change("merged")] }] })),
