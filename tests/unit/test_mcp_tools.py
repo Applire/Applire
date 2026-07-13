@@ -1056,7 +1056,7 @@ async def test_list_applications_invalid_filter_lists_all_enum_values():
 
     assert exc.value.error.code == -32602
     msg = exc.value.error.message
-    for value in ("tracking", "applied", "interviewing", "offer", "rejected", "hired"):
+    for value in ("tracking", "applied", "interviewing", "offer", "rejected", "hired", "cancelled"):
         assert value in msg, f"{value!r} missing from error message: {msg}"
 
 

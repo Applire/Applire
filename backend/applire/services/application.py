@@ -32,9 +32,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.constants import CANCELLED_APPLICATION_TTL_DAYS as _CANCELLED_TTL_DAYS
 from applire.models.application import (
     Application,
     STEP_TO_WORKFLOW_STATUS,
@@ -109,6 +110,11 @@ async def create_application(
     if app is not None:
         if app.deleted_at is not None:
             app.deleted_at = None  # reactivate a previously removed application
+        if app.user_status == UserStatus.cancelled.value:
+            # Re-adding the job is an explicit re-engagement (duplicate-JD
+            # "continue" path) — restore, or the application would silently
+            # vanish when the cancelled grace window ends (US222).
+            app.user_status = UserStatus.tracking.value
         _touch(app)
     else:
         app = Application(
@@ -285,9 +291,14 @@ async def start_application_workflow(
     """
     app = await _get_or_404(application_id, user_id, db)
 
-    if app.flow_session_id is not None:
+    if app.user_status == UserStatus.cancelled.value:
         # User-facing message — no internal identifiers (router surfaces str(exc)
         # verbatim as the API `detail`).
+        raise ConflictError(
+            "This application was cancelled. Restore it before starting the workflow."
+        )
+
+    if app.flow_session_id is not None:
         raise ConflictError(
             "This application's workflow has already been started."
         )
@@ -317,7 +328,15 @@ async def sync_workflow_status(
         .values(
             workflow_status=new_ws.value,
             updated_at=now,
-            expires_at=now + timedelta(days=_APPLICATION_TTL_DAYS),
+            # A cancelled application keeps its short clock (US222) — a flow
+            # advance must not stretch the announced removal date to two years.
+            expires_at=case(
+                (
+                    Application.user_status == UserStatus.cancelled.value,
+                    Application.expires_at,
+                ),
+                else_=now + timedelta(days=_APPLICATION_TTL_DAYS),
+            ),
         )
     )
 
@@ -333,6 +352,9 @@ async def mark_application_hired(
     app_row.user_status = UserStatus.hired.value
     if app_row.applied_at is None:
         app_row.applied_at = datetime.now(timezone.utc)
+    # Re-arms the standard inactivity clock — relevant when the application was
+    # cancelled and running on the short clock (US222).
+    _touch(app_row)
     await db.commit()
 
     return MarkHiredResponse(
@@ -487,7 +509,11 @@ async def _enrich_submitted_cv_meta(
 
 
 # No re-tailor nudge once the pipeline has ended — there is nothing left to send.
-_STALE_CV_TERMINAL_STATUSES = {UserStatus.rejected.value, UserStatus.hired.value}
+_STALE_CV_TERMINAL_STATUSES = {
+    UserStatus.rejected.value,
+    UserStatus.hired.value,
+    UserStatus.cancelled.value,
+}
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -662,7 +688,17 @@ async def _start_workflow(
 
 
 def _touch(app: Application) -> None:
-    """Reset the GDPR inactivity timer on any update."""
+    """Reset the GDPR inactivity timer on any update.
+
+    A cancelled application runs on the SHORT clock (US222, ADR-005 amendment
+    2026-07-13): touches while cancelled re-arm CANCELLED_APPLICATION_TTL_DAYS,
+    not the standard inactivity TTL — otherwise a dossier edit would stretch
+    the announced removal date back to two years. Restoring (any other status,
+    set before this call) re-arms the standard clock. TTL 0 = disabled.
+    """
     now = datetime.now(timezone.utc)
     app.updated_at = now
-    app.expires_at = now + timedelta(days=_APPLICATION_TTL_DAYS)
+    if app.user_status == UserStatus.cancelled.value and _CANCELLED_TTL_DAYS > 0:
+        app.expires_at = now + timedelta(days=_CANCELLED_TTL_DAYS)
+    else:
+        app.expires_at = now + timedelta(days=_APPLICATION_TTL_DAYS)

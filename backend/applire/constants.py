@@ -166,6 +166,13 @@ SNAPSHOT_MAX_PER_PROFILE: int = int(
 
 # GDPR retention TTLs — configurable via environment variables (ADR-005 amendment, Sprint 25)
 GENERATED_DOCUMENTS_TTL_DAYS: int = int(os.environ.get("GENERATED_DOCUMENTS_TTL_DAYS", "90"))
+# Cancelled-application grace window (US222/issue #158, ADR-005 amendment
+# 2026-07-13). Cancelling an application re-arms its inactivity timer to this
+# many days; after the tombstone, its generated documents (incl. submitted
+# pins) are purged regardless of GENERATED_DOCUMENTS_TTL_DAYS. 0 = disabled
+# (cancelled applications keep the normal inactivity TTL). Admin-UI
+# configurability is parked for the Admin persona (Strawberry).
+CANCELLED_APPLICATION_TTL_DAYS: int = int(os.environ.get("CANCELLED_APPLICATION_TTL_DAYS", "7"))
 INTERVIEW_SESSION_TTL_DAYS: int = int(os.environ.get("INTERVIEW_SESSION_TTL_DAYS", "30"))
 UPLOAD_TTL_DAYS: int = int(os.environ.get("UPLOAD_TTL_DAYS", "7"))
 PROFILE_INACTIVITY_TTL_DAYS: int = int(os.environ.get("PROFILE_INACTIVITY_TTL_DAYS", "730"))
