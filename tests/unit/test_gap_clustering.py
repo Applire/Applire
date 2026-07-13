@@ -91,6 +91,10 @@ async def test_cluster_gaps_persists_clusters():
 
     db = MagicMock()
     db.commit = AsyncMock()
+    # Standalone re-cluster path: the record is already session-managed, so
+    # cluster_gaps persists. (In _run_analysis the record is NOT yet in the
+    # session — clusters land in the record's single publishing commit.)
+    db.__contains__ = MagicMock(return_value=True)
 
     # cluster_gaps now resolves the UI language for jd_context (#3, ADR-038).
     from unittest.mock import patch

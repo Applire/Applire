@@ -31,7 +31,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import DateTime, String, Text, Uuid
+from sqlalchemy import DateTime, Index, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
@@ -57,6 +57,24 @@ def _expires_at() -> datetime:
 
 class GapAnalysisJob(Base):
     __tablename__ = "gap_analysis_jobs"
+    # At most ONE live (pending/processing) job per job_analysis_id. The
+    # create_gap_job SELECT dedup is check-then-insert and lost a 7 ms race
+    # (two kickoffs → two full LLM analyses; Spaghettieis UAT 2026-07-13) —
+    # this partial unique index makes the DB the arbiter; the service catches
+    # the IntegrityError and returns the winner.
+    __table_args__ = (
+        Index(
+            "uq_gap_jobs_live_kickoff",
+            "job_analysis_id",
+            unique=True,
+            sqlite_where=text(
+                "status IN ('pending','processing') AND deleted_at IS NULL"
+            ),
+            postgresql_where=text(
+                "status IN ('pending','processing') AND deleted_at IS NULL"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # The JobAnalysis this gap job analyses; indexed for the concurrent-dedup lookup.

@@ -30,6 +30,7 @@ import uuid
 from collections.abc import Callable
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.db.session import AsyncSessionLocal
@@ -63,14 +64,10 @@ def classify_gap_error(exc: BaseException) -> str:
     return "gap_failed"
 
 
-async def create_gap_job(
-    db: AsyncSession, *, job_analysis_id: uuid.UUID, user_id: uuid.UUID | None
-) -> GapAnalysisJob:
-    """Create a pending gap-analysis job and return it (the kick-off's immediate handle).
-
-    Concurrent dedup: if a non-terminal job already exists for this job_analysis_id (e.g.
-    the overlay and the gaps page both fired), reuse it instead of spawning a second LLM
-    run."""
+async def _find_nonterminal_job(
+    db: AsyncSession, job_analysis_id: uuid.UUID
+) -> GapAnalysisJob | None:
+    """The newest live (pending/processing) job for a job_analysis_id, if any."""
     existing = await db.execute(
         select(GapAnalysisJob)
         .where(
@@ -81,7 +78,21 @@ async def create_gap_job(
         .order_by(GapAnalysisJob.created_at.desc())
         .limit(1)
     )
-    reused = existing.scalar_one_or_none()
+    return existing.scalar_one_or_none()
+
+
+async def create_gap_job(
+    db: AsyncSession, *, job_analysis_id: uuid.UUID, user_id: uuid.UUID | None
+) -> GapAnalysisJob:
+    """Create a pending gap-analysis job and return it (the kick-off's immediate handle).
+
+    Concurrent dedup: if a non-terminal job already exists for this job_analysis_id (e.g.
+    the overlay and the gaps page both fired), reuse it instead of spawning a second LLM
+    run. The SELECT alone lost a 7 ms race (two kickoffs → two full LLM analyses;
+    Spaghettieis UAT 2026-07-13), so the uq_gap_jobs_live_kickoff partial unique index
+    is the real arbiter — a lost race lands here as IntegrityError and we return the
+    winner's job."""
+    reused = await _find_nonterminal_job(db, job_analysis_id)
     if reused is not None:
         return reused
 
@@ -91,7 +102,14 @@ async def create_gap_job(
         status=GapJobStatus.pending.value,
     )
     db.add(job)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        winner = await _find_nonterminal_job(db, job_analysis_id)
+        if winner is not None:
+            return winner
+        raise
     await db.refresh(job)
     return job
 
