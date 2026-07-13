@@ -215,7 +215,9 @@ export default function DashboardPage() {
           </div>
         ) : visibleApplications.length === 0 ? (
           <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-dashed border-gray-300">
-            <p className="text-[13px] text-gray-400">{t("noApplicationsForFilter")}</p>
+            <p className="text-[13px] text-gray-400">
+              {statusFilter ? t("noApplicationsForFilter") : t("noApplications")}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3.5">

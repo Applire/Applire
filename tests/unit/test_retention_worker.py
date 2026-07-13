@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS flow_sessions (
     job_id TEXT NOT NULL,
     current_step TEXT NOT NULL DEFAULT 'jd_analysis',
     application_id TEXT,
+    generated_cv_id TEXT,
+    generated_cover_letter_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT
@@ -703,15 +705,23 @@ async def test_purge_cover_letters_deletes_pinned_on_tombstoned_application(db):
 # ---------------------------------------------------------------------------
 
 
-async def _seed_flow_session(db: AsyncSession, *, application_id: str) -> str:
+async def _seed_flow_session(
+    db: AsyncSession,
+    *,
+    application_id: str,
+    generated_cv_id: str | None = None,
+    generated_cover_letter_id: str | None = None,
+) -> str:
     fid = _uid()
     await db.execute(
         text(
             "INSERT INTO flow_sessions "
-            "(id, user_id, job_id, current_step, application_id, created_at, updated_at, deleted_at) "
-            "VALUES (:id, :uid, :jid, 'gap_analysis', :aid, :now, :now, NULL)"
+            "(id, user_id, job_id, current_step, application_id, "
+            " generated_cv_id, generated_cover_letter_id, created_at, updated_at, deleted_at) "
+            "VALUES (:id, :uid, :jid, 'gap_analysis', :aid, :cv, :cl, :now, :now, NULL)"
         ),
-        {"id": fid, "uid": _uid(), "jid": _uid(), "aid": application_id, "now": _ts(_now())},
+        {"id": fid, "uid": _uid(), "jid": _uid(), "aid": application_id,
+         "cv": generated_cv_id, "cl": generated_cover_letter_id, "now": _ts(_now())},
     )
     await db.commit()
     return fid
@@ -729,7 +739,9 @@ async def test_cancelled_purge_deletes_docs_and_pins_of_tombstoned_cancelled_app
         db, user_status="cancelled", deleted_at=_ago(days=1),
         job_analysis_id=job, submitted_cv_id=cv, submitted_cover_letter_id=cl,
     )
-    flow_id = await _seed_flow_session(db, application_id=app_id)
+    flow_id = await _seed_flow_session(
+        db, application_id=app_id, generated_cv_id=cv, generated_cover_letter_id=cl
+    )
 
     cvs, letters, flows = await _purge_cancelled_documents(db)
     assert (cvs, letters, flows) == (1, 1, 1)
@@ -748,10 +760,21 @@ async def test_cancelled_purge_deletes_docs_and_pins_of_tombstoned_cancelled_app
     )).one()
     assert pins == (None, None), "cancelled application's pins must be released before the purge"
 
-    flow_deleted = (await db.execute(
-        text("SELECT deleted_at FROM flow_sessions WHERE id = :id"), {"id": flow_id}
-    )).one()[0]
-    assert flow_deleted is not None, "cancelled application's flow session must be tombstoned"
+    flow_row = (await db.execute(
+        text(
+            "SELECT deleted_at, generated_cv_id, generated_cover_letter_id "
+            "FROM flow_sessions WHERE id = :id"
+        ),
+        {"id": flow_id},
+    )).one()
+    assert flow_row[0] is not None, "cancelled application's flow session must be tombstoned"
+    # The flow's artifact FKs must be RELEASED before the document DELETE — on
+    # Postgres flow_sessions_generated_cv_id_fkey otherwise aborts the purge
+    # (found on the live stack; SQLite doesn't enforce FKs, so only the
+    # released-reference effect is assertable here).
+    assert (flow_row[1], flow_row[2]) == (None, None), (
+        "flow session's generated_cv_id / generated_cover_letter_id must be released"
+    )
 
 
 @pytest.mark.asyncio

@@ -88,7 +88,7 @@ export function CancelApplicationButton({
           role="dialog"
           aria-modal="true"
           aria-label={t("cancelDialogTitle")}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
         >
           <div className="bg-white rounded-xl p-6 shadow-xl max-w-md w-full">
             <h3 className="text-base font-bold text-on-surface mb-2">

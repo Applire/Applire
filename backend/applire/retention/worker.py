@@ -48,7 +48,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text, update
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import (
@@ -501,6 +501,44 @@ async def _purge_cancelled_documents(db: AsyncSession) -> tuple[int, int, int]:
             ),
             {"st": cancelled},
         )
+        # Release flow-session artifact references to the doomed rows — the FKs
+        # flow_sessions_generated_cv_id_fkey / _generated_cover_letter_id_fkey
+        # otherwise abort the DELETE on Postgres (found on the live stack;
+        # SQLite unit tests don't enforce FKs).
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cv_id = NULL "
+                "WHERE generated_cv_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cvs c "
+                "  WHERE c.id = flow_sessions.generated_cv_id AND c.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = c.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = c.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cover_letter_id = NULL "
+                "WHERE generated_cover_letter_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cover_letters l "
+                "  WHERE l.id = flow_sessions.generated_cover_letter_id AND l.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = l.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = l.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
         cvs_result = await db.execute(
             text(
                 "DELETE FROM generated_cvs WHERE deleted_at IS NULL "
@@ -541,7 +579,9 @@ async def _purge_cancelled_documents(db: AsyncSession) -> tuple[int, int, int]:
             cls_result.rowcount,   # type: ignore[return-value]
             flows_result.rowcount,  # type: ignore[return-value]
         )
-    except (ProgrammingError, OperationalError) as exc:
+    except (ProgrammingError, OperationalError, IntegrityError) as exc:
+        # IntegrityError included so an unforeseen FK can never abort the whole
+        # nightly run — the row survives to the next run, the report shows 0.
         logger.warning("_purge_cancelled_documents skipped: %s", exc)
         await db.rollback()
         return (0, 0, 0)
