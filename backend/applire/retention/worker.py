@@ -23,7 +23,12 @@ Rules (ADR 005 v2 — amended iter17; submitted-pin exemption 2026-07-06):
   generated_cvs    → hard-delete after expires_at, UNLESS pinned as submitted
                      on an active application (E039/US219 — same for cover
                      letters; report field: submitted_exempt)
-  applications     → soft-delete (deleted_at) after 730 days inactivity
+  applications     → soft-delete (deleted_at) after 730 days inactivity;
+                     CANCELLED applications run on a short clock
+                     (CANCELLED_APPLICATION_TTL_DAYS, default 7 — set by the
+                     service on cancel) and, once tombstoned, get their
+                     generated documents hard-deleted incl. submitted pins
+                     (US222/issue #158, ADR-005 amendment 2026-07-13)
   master_profiles  → soft-delete after 730 days inactivity
   users            → soft-delete after 730 days inactivity
   generated_cvs (stale generation jobs) → mark failed after 10 minutes in
@@ -43,7 +48,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text, update
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import (
@@ -440,6 +445,148 @@ async def _count_submitted_exempt(db: AsyncSession) -> int:
         return 0
 
 
+async def _purge_cancelled_documents(db: AsyncSession) -> tuple[int, int, int]:
+    """Hard-delete generated documents of cancelled, tombstoned applications
+    (US222/issue #158, ADR-005 amendment 2026-07-13).
+
+    An explicit cancellation ends the processing purpose: once the shortened
+    grace window has passed and the application is tombstoned, its documents
+    are deleted REGARDLESS of GENERATED_DOCUMENTS_TTL_DAYS — including
+    submitted pins (the UI announced the removal date throughout the window,
+    so the US219 "never silently expired" principle holds). The linked flow
+    session is tombstoned too.
+
+    Guard: documents of a job with ANY live application are spared — protects
+    the duplicate-JD reuse path today and, since generated documents carry no
+    user column, the multi-user seam (job_analyses rows are shared) tomorrow.
+    Returns (cvs_deleted, cover_letters_deleted, flow_sessions_tombstoned).
+    """
+    now = datetime.now(timezone.utc)
+    cancelled = "cancelled"
+    try:
+        # Release pins pointing at rows this purge is about to delete (the FK
+        # would otherwise block the DELETE on Postgres — same pattern as the
+        # calendar-TTL purges above).
+        await db.execute(
+            text(
+                "UPDATE applications SET submitted_cv_id = NULL "
+                "WHERE deleted_at IS NOT NULL AND submitted_cv_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cvs c "
+                "  WHERE c.id = applications.submitted_cv_id AND c.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = c.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = c.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
+        await db.execute(
+            text(
+                "UPDATE applications SET submitted_cover_letter_id = NULL "
+                "WHERE deleted_at IS NOT NULL AND submitted_cover_letter_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cover_letters l "
+                "  WHERE l.id = applications.submitted_cover_letter_id AND l.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = l.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = l.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
+        # Release flow-session artifact references to the doomed rows — the FKs
+        # flow_sessions_generated_cv_id_fkey / _generated_cover_letter_id_fkey
+        # otherwise abort the DELETE on Postgres (found on the live stack;
+        # SQLite unit tests don't enforce FKs).
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cv_id = NULL "
+                "WHERE generated_cv_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cvs c "
+                "  WHERE c.id = flow_sessions.generated_cv_id AND c.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = c.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = c.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cover_letter_id = NULL "
+                "WHERE generated_cover_letter_id IS NOT NULL "
+                "AND EXISTS ("
+                "  SELECT 1 FROM generated_cover_letters l "
+                "  WHERE l.id = flow_sessions.generated_cover_letter_id AND l.deleted_at IS NULL "
+                "  AND EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "    AND a.job_analysis_id = l.job_analysis_id) "
+                "  AND NOT EXISTS (SELECT 1 FROM applications b "
+                "    WHERE b.deleted_at IS NULL "
+                "    AND b.job_analysis_id = l.job_analysis_id)"
+                ")"
+            ),
+            {"st": cancelled},
+        )
+        cvs_result = await db.execute(
+            text(
+                "DELETE FROM generated_cvs WHERE deleted_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM applications a "
+                "  WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "  AND a.job_analysis_id = generated_cvs.job_analysis_id) "
+                "AND NOT EXISTS (SELECT 1 FROM applications b "
+                "  WHERE b.deleted_at IS NULL "
+                "  AND b.job_analysis_id = generated_cvs.job_analysis_id)"
+            ),
+            {"st": cancelled},
+        )
+        cls_result = await db.execute(
+            text(
+                "DELETE FROM generated_cover_letters WHERE deleted_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM applications a "
+                "  WHERE a.deleted_at IS NOT NULL AND a.user_status = :st "
+                "  AND a.job_analysis_id = generated_cover_letters.job_analysis_id) "
+                "AND NOT EXISTS (SELECT 1 FROM applications b "
+                "  WHERE b.deleted_at IS NULL "
+                "  AND b.job_analysis_id = generated_cover_letters.job_analysis_id)"
+            ),
+            {"st": cancelled},
+        )
+        flows_result = await db.execute(
+            text(
+                "UPDATE flow_sessions SET deleted_at = :now "
+                "WHERE deleted_at IS NULL AND application_id IN ("
+                "  SELECT id FROM applications "
+                "  WHERE deleted_at IS NOT NULL AND user_status = :st"
+                ")"
+            ),
+            {"now": now, "st": cancelled},
+        )
+        await db.commit()
+        return (
+            cvs_result.rowcount,   # type: ignore[return-value]
+            cls_result.rowcount,   # type: ignore[return-value]
+            flows_result.rowcount,  # type: ignore[return-value]
+        )
+    except (ProgrammingError, OperationalError, IntegrityError) as exc:
+        # IntegrityError included so an unforeseen FK can never abort the whole
+        # nightly run — the row survives to the next run, the report shows 0.
+        logger.warning("_purge_cancelled_documents skipped: %s", exc)
+        await db.rollback()
+        return (0, 0, 0)
+
+
 async def _reap_stale_cl_jobs(db: AsyncSession) -> int:
     """Mark cover letter generation jobs stuck > 10 minutes in pending/generating as failed."""
     from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
@@ -480,6 +627,13 @@ async def run() -> None:
         profiles_tombstoned = await _tombstone_inactive_profiles(db)
         users_tombstoned = await _tombstone_inactive_users(db)
         applications_tombstoned = await _tombstone_inactive_applications(db)
+        # After the tombstone sweep so a cancelled application whose grace
+        # window ended TODAY purges in the same run (US222).
+        (
+            cancelled_cvs_deleted,
+            cancelled_cover_letters_deleted,
+            cancelled_flows_tombstoned,
+        ) = await _purge_cancelled_documents(db)
         stale_cv_jobs_failed = await _reap_stale_cv_jobs(db)
         cover_letters_deleted = await _purge_cover_letters(db)
         stale_cl_jobs_failed = await _reap_stale_cl_jobs(db)
@@ -498,6 +652,9 @@ async def run() -> None:
         "master_profiles_tombstoned": profiles_tombstoned,
         "users_tombstoned": users_tombstoned,
         "applications_tombstoned": applications_tombstoned,
+        "cancelled_cvs_deleted": cancelled_cvs_deleted,
+        "cancelled_cover_letters_deleted": cancelled_cover_letters_deleted,
+        "cancelled_flows_tombstoned": cancelled_flows_tombstoned,
         "stale_cv_jobs_failed": stale_cv_jobs_failed,
         "generated_cover_letters_deleted": cover_letters_deleted,
         "stale_cl_jobs_failed": stale_cl_jobs_failed,

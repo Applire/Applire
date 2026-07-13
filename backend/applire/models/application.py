@@ -56,6 +56,9 @@ class UserStatus(str, Enum):
     """User-managed. Set via PATCH /api/applications/{id}.
 
     Pipeline order (E039/US218): tracking → applied → interviewing → offer/rejected → hired.
+    'cancelled' (US222/issue #158) is terminal like rejected/hired and shortens
+    the retention clock to CANCELLED_APPLICATION_TTL_DAYS (ADR-005 amendment
+    2026-07-13); any transition out of it is the restore path.
     """
     tracking = "tracking"   # Default on creation
     applied = "applied"
@@ -63,6 +66,7 @@ class UserStatus(str, Enum):
     offer = "offer"
     rejected = "rejected"
     hired = "hired"
+    cancelled = "cancelled"
 
 
 # Map FlowSession.current_step → WorkflowStatus

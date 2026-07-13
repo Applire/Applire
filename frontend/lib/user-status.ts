@@ -39,7 +39,25 @@ export const USER_STATUS_OPTIONS: UserStatusOption[] = [
   { value: "offer",        labelKey: "statusOffer",        className: "bg-success text-white" },
   { value: "rejected",     labelKey: "statusRejected",     className: "bg-critical text-white" },
   { value: "hired",        labelKey: "statusHired",        className: "bg-[#166534] text-white" },
+  // US222/issue #158 — terminal walk-away; short retention clock (ADR-005).
+  { value: "cancelled",    labelKey: "statusCancelled",    className: "bg-gray-500 text-white" },
 ];
+
+/**
+ * US222: cancelled applications leave the active portfolio — they render in
+ * their own collapsed dashboard section (removal date + restore) and are
+ * excluded from active counts, filter chips and the card grid.
+ */
+export function splitCancelled<T extends { user_status?: string | null }>(
+  apps: T[],
+): { active: T[]; cancelled: T[] } {
+  const active: T[] = [];
+  const cancelled: T[] = [];
+  for (const app of apps) {
+    ((app.user_status ?? "tracking") === "cancelled" ? cancelled : active).push(app);
+  }
+  return { active, cancelled };
+}
 
 /** Days after which an unchanged active status counts as stale (JF-E-P2.1). */
 export const STALE_STATUS_DAYS = 14;

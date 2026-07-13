@@ -10,5 +10,6 @@ def test_userstatus_has_interviewing():
 
 def test_userstatus_member_set():
     assert {m.value for m in UserStatus} == {
-        "tracking", "applied", "interviewing", "offer", "rejected", "hired"
+        "tracking", "applied", "interviewing", "offer", "rejected", "hired",
+        "cancelled",
     }

@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { StatCard } from "@/components/ui/stat-card";
 import { JobEchoCard } from "@/components/gaps/JobEchoCard";
+import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
@@ -58,6 +59,8 @@ interface FlowState {
   available_actions: Record<string, string>;
   gap_summary?: { gap_analysis_id: string } | null;
   job_summary?: { role_title: string } | null;
+  /** Linked Application — enables the walk-away action (US222, Branch I). */
+  application_id?: string | null;
 }
 
 interface ProfileStats {
@@ -968,6 +971,17 @@ export default function GapsPage({
           {t("exploreProfile")}
         </a>
       </div>
+
+      {/* US222 (Branch I): the honest walk-away at the match-score decision —
+          a quiet tertiary action; the score may tell Emma this isn't worth it. */}
+      {flowState?.application_id && (
+        <div className="flex justify-center mt-5">
+          <CancelApplicationButton
+            applicationId={flowState.application_id}
+            variant="inline"
+          />
+        </div>
+      )}
     </div>
   );
 }

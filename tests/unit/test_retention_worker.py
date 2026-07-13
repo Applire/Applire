@@ -129,6 +129,18 @@ CREATE TABLE IF NOT EXISTS applications (
     expires_at TEXT NOT NULL,
     deleted_at TEXT
 );
+CREATE TABLE IF NOT EXISTS flow_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    current_step TEXT NOT NULL DEFAULT 'jd_analysis',
+    application_id TEXT,
+    generated_cv_id TEXT,
+    generated_cover_letter_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+);
 """
 
 
@@ -224,7 +236,13 @@ async def test_purge_sessions_spares_recent_sessions(db):
 # ---------------------------------------------------------------------------
 
 
-async def _seed_cv(db: AsyncSession, *, expires_at: datetime, deleted_at: datetime | None = None) -> str:
+async def _seed_cv(
+    db: AsyncSession,
+    *,
+    expires_at: datetime,
+    deleted_at: datetime | None = None,
+    job_analysis_id: str | None = None,
+) -> str:
     cid = _uid()
     await db.execute(
         text(
@@ -232,7 +250,7 @@ async def _seed_cv(db: AsyncSession, *, expires_at: datetime, deleted_at: dateti
             "(id, job_analysis_id, profile_id, tailored_data, template, created_at, expires_at, deleted_at) "
             "VALUES (:id, :jid, :pid, '{}', 'classic_german', :now, :exp, :del)"
         ),
-        {"id": cid, "jid": _uid(), "pid": _uid(),
+        {"id": cid, "jid": job_analysis_id or _uid(), "pid": _uid(),
          "now": _ts(_now()), "exp": _ts(expires_at),
          "del": _ts(deleted_at) if deleted_at else None},
     )
@@ -551,7 +569,13 @@ async def test_purge_gap_jobs_binds_a_datetime_not_a_string():
 # ---------------------------------------------------------------------------
 
 
-async def _seed_cover_letter(db: AsyncSession, *, expires_at: datetime, deleted_at: datetime | None = None) -> str:
+async def _seed_cover_letter(
+    db: AsyncSession,
+    *,
+    expires_at: datetime,
+    deleted_at: datetime | None = None,
+    job_analysis_id: str | None = None,
+) -> str:
     cid = _uid()
     await db.execute(
         text(
@@ -559,7 +583,7 @@ async def _seed_cover_letter(db: AsyncSession, *, expires_at: datetime, deleted_
             "(id, job_analysis_id, profile_id, letter_data, created_at, expires_at, deleted_at) "
             "VALUES (:id, :jid, :pid, '{}', :now, :exp, :del)"
         ),
-        {"id": cid, "jid": _uid(), "pid": _uid(),
+        {"id": cid, "jid": job_analysis_id or _uid(), "pid": _uid(),
          "now": _ts(_now()), "exp": _ts(expires_at),
          "del": _ts(deleted_at) if deleted_at else None},
     )
@@ -573,6 +597,8 @@ async def _seed_application(
     submitted_cv_id: str | None = None,
     submitted_cover_letter_id: str | None = None,
     deleted_at: datetime | None = None,
+    user_status: str = "applied",
+    job_analysis_id: str | None = None,
 ) -> str:
     aid = _uid()
     await db.execute(
@@ -580,9 +606,10 @@ async def _seed_application(
             "INSERT INTO applications "
             "(id, user_id, job_analysis_id, workflow_status, user_status, "
             " submitted_cv_id, submitted_cover_letter_id, created_at, updated_at, expires_at, deleted_at) "
-            "VALUES (:id, :uid, :jid, 'none', 'applied', :cv, :cl, :now, :now, :exp, :del)"
+            "VALUES (:id, :uid, :jid, 'none', :status, :cv, :cl, :now, :now, :exp, :del)"
         ),
-        {"id": aid, "uid": _uid(), "jid": _uid(),
+        {"id": aid, "uid": _uid(), "jid": job_analysis_id or _uid(),
+         "status": user_status,
          "cv": submitted_cv_id, "cl": submitted_cover_letter_id,
          "now": _ts(_now()), "exp": _ts(_now() + timedelta(days=700)),
          "del": _ts(deleted_at) if deleted_at else None},
@@ -666,6 +693,125 @@ async def test_purge_cover_letters_deletes_pinned_on_tombstoned_application(db):
         text("SELECT submitted_cover_letter_id FROM applications WHERE id = :id"), {"id": app_id}
     )).one()
     assert row[0] is None, "tombstoned application's pin must be released before the purge"
+
+
+# ---------------------------------------------------------------------------
+# US222 / issue #158 — cancelled-application document purge (ADR-005 amendment
+# 2026-07-13). Once a CANCELLED application is tombstoned, its generated
+# documents are hard-deleted regardless of GENERATED_DOCUMENTS_TTL_DAYS —
+# including submitted pins (the cancellation was explicit and the UI announced
+# the removal date). Per-job guard: a job with ANY live application keeps its
+# documents (duplicate-JD reuse; multi-user seam — job_analyses rows are shared).
+# ---------------------------------------------------------------------------
+
+
+async def _seed_flow_session(
+    db: AsyncSession,
+    *,
+    application_id: str,
+    generated_cv_id: str | None = None,
+    generated_cover_letter_id: str | None = None,
+) -> str:
+    fid = _uid()
+    await db.execute(
+        text(
+            "INSERT INTO flow_sessions "
+            "(id, user_id, job_id, current_step, application_id, "
+            " generated_cv_id, generated_cover_letter_id, created_at, updated_at, deleted_at) "
+            "VALUES (:id, :uid, :jid, 'gap_analysis', :aid, :cv, :cl, :now, :now, NULL)"
+        ),
+        {"id": fid, "uid": _uid(), "jid": _uid(), "aid": application_id,
+         "cv": generated_cv_id, "cl": generated_cover_letter_id, "now": _ts(_now())},
+    )
+    await db.commit()
+    return fid
+
+
+@pytest.mark.asyncio
+async def test_cancelled_purge_deletes_docs_and_pins_of_tombstoned_cancelled_app(db):
+    from applire.retention.worker import _purge_cancelled_documents
+
+    job = _uid()
+    # Far-future expiry proves the purge ignores GENERATED_DOCUMENTS_TTL_DAYS.
+    cv = await _seed_cv(db, expires_at=_now() + timedelta(days=365), job_analysis_id=job)
+    cl = await _seed_cover_letter(db, expires_at=_now() + timedelta(days=365), job_analysis_id=job)
+    app_id = await _seed_application(
+        db, user_status="cancelled", deleted_at=_ago(days=1),
+        job_analysis_id=job, submitted_cv_id=cv, submitted_cover_letter_id=cl,
+    )
+    flow_id = await _seed_flow_session(
+        db, application_id=app_id, generated_cv_id=cv, generated_cover_letter_id=cl
+    )
+
+    cvs, letters, flows = await _purge_cancelled_documents(db)
+    assert (cvs, letters, flows) == (1, 1, 1)
+
+    remaining_cv = (await db.execute(
+        text("SELECT COUNT(*) FROM generated_cvs WHERE id = :id"), {"id": cv}
+    )).one()[0]
+    remaining_cl = (await db.execute(
+        text("SELECT COUNT(*) FROM generated_cover_letters WHERE id = :id"), {"id": cl}
+    )).one()[0]
+    assert (remaining_cv, remaining_cl) == (0, 0)
+
+    pins = (await db.execute(
+        text("SELECT submitted_cv_id, submitted_cover_letter_id FROM applications WHERE id = :id"),
+        {"id": app_id},
+    )).one()
+    assert pins == (None, None), "cancelled application's pins must be released before the purge"
+
+    flow_row = (await db.execute(
+        text(
+            "SELECT deleted_at, generated_cv_id, generated_cover_letter_id "
+            "FROM flow_sessions WHERE id = :id"
+        ),
+        {"id": flow_id},
+    )).one()
+    assert flow_row[0] is not None, "cancelled application's flow session must be tombstoned"
+    # The flow's artifact FKs must be RELEASED before the document DELETE — on
+    # Postgres flow_sessions_generated_cv_id_fkey otherwise aborts the purge
+    # (found on the live stack; SQLite doesn't enforce FKs, so only the
+    # released-reference effect is assertable here).
+    assert (flow_row[1], flow_row[2]) == (None, None), (
+        "flow session's generated_cv_id / generated_cover_letter_id must be released"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_purge_spares_docs_when_a_live_application_shares_the_job(db):
+    from applire.retention.worker import _purge_cancelled_documents
+
+    job = _uid()
+    await _seed_cv(db, expires_at=_now() + timedelta(days=365), job_analysis_id=job)
+    await _seed_application(db, user_status="cancelled", deleted_at=_ago(days=1), job_analysis_id=job)
+    await _seed_application(db, user_status="applied", job_analysis_id=job)  # live sibling
+
+    cvs, letters, flows = await _purge_cancelled_documents(db)
+    assert cvs == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_purge_ignores_non_cancelled_tombstones(db):
+    from applire.retention.worker import _purge_cancelled_documents
+
+    job = _uid()
+    await _seed_cv(db, expires_at=_now() + timedelta(days=365), job_analysis_id=job)
+    await _seed_application(db, user_status="applied", deleted_at=_ago(days=1), job_analysis_id=job)
+
+    cvs, letters, flows = await _purge_cancelled_documents(db)
+    assert cvs == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_purge_ignores_cancelled_app_still_in_grace_window(db):
+    from applire.retention.worker import _purge_cancelled_documents
+
+    job = _uid()
+    await _seed_cv(db, expires_at=_now() + timedelta(days=365), job_analysis_id=job)
+    await _seed_application(db, user_status="cancelled", job_analysis_id=job)  # NOT tombstoned
+
+    cvs, letters, flows = await _purge_cancelled_documents(db)
+    assert cvs == 0
 
 
 @pytest.mark.asyncio

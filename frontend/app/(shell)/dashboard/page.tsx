@@ -26,7 +26,8 @@ import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressB
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
-import { USER_STATUS_OPTIONS, countByUserStatus } from "@/lib/user-status";
+import { USER_STATUS_OPTIONS, countByUserStatus, splitCancelled } from "@/lib/user-status";
+import { patchApplicationStatus } from "@/lib/api/applications";
 import { cn } from "@/lib/utils";
 import type { StaleCVInfo } from "@/lib/stale-cv";
 
@@ -45,6 +46,8 @@ interface Application {
   submitted_cv_id?: string | null;
   submitted_cv_created_at?: string | null;
   stale_cv?: StaleCVInfo | null;
+  /** Removal date of a cancelled application (US222, ADR-005 short clock). */
+  expires_at?: string | null;
 }
 
 export default function DashboardPage() {
@@ -101,12 +104,27 @@ export default function DashboardPage() {
     );
   }
 
+  async function handleRestore(appId: string) {
+    try {
+      await patchApplicationStatus(appId, "tracking");
+      setApplications((apps) =>
+        apps.map((a) => (a.id === appId ? { ...a, user_status: "tracking" } : a))
+      );
+    } catch {
+      // non-fatal — the row simply stays in the cancelled section
+    }
+  }
+
   const firstName = userName?.split(" ")[0] ?? null;
-  const inProgress = applications.filter((a) => a.workflow_status !== "none").length;
-  const statusCounts = countByUserStatus(applications);
+  // US222: cancelled applications leave the active portfolio entirely — own
+  // collapsed section below, excluded from counts, chips and the grid.
+  const { active: activeApplications, cancelled: cancelledApplications } =
+    splitCancelled(applications);
+  const inProgress = activeApplications.filter((a) => a.workflow_status !== "none").length;
+  const statusCounts = countByUserStatus(activeApplications);
   const visibleApplications = statusFilter
-    ? applications.filter((a) => (a.user_status ?? "tracking") === statusFilter)
-    : applications;
+    ? activeApplications.filter((a) => (a.user_status ?? "tracking") === statusFilter)
+    : activeApplications;
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -137,9 +155,9 @@ export default function DashboardPage() {
         {/* Active applications */}
         <div className="flex items-center justify-between mb-3.5">
           <h2 className="text-[15px] font-extrabold text-neutral-dark font-manrope">
-            {t("activeApplications", { count: applications.length })}
+            {t("activeApplications", { count: activeApplications.length })}
           </h2>
-          {applications.length > MAX_CARDS && (
+          {activeApplications.length > MAX_CARDS && (
             <button
               onClick={() => router.push("/documents")}
               className="text-[12px] font-bold text-teal hover:underline"
@@ -150,7 +168,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Pipeline filter chips (E039/US218) — only statuses that exist get a chip */}
-        {applications.length > 0 && (
+        {activeApplications.length > 0 && (
           <div className="flex items-center gap-1.5 mb-3.5 flex-wrap" data-testid="status-filter-chips">
             <button
               onClick={() => setStatusFilter(null)}
@@ -161,7 +179,7 @@ export default function DashboardPage() {
                   : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"
               )}
             >
-              {t("filterAll", { count: applications.length })}
+              {t("filterAll", { count: activeApplications.length })}
             </button>
             {USER_STATUS_OPTIONS.filter((o) => statusCounts[o.value]).map((option) => (
               <button
@@ -191,13 +209,15 @@ export default function DashboardPage() {
               <div key={i} className="h-36 bg-white rounded-xl border border-gray-200 animate-pulse" />
             ))}
           </div>
-        ) : applications.length === 0 ? (
+        ) : activeApplications.length === 0 && cancelledApplications.length === 0 ? (
           <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-dashed border-gray-300">
             <p className="text-[13px] text-gray-400">{t("noApplications")}</p>
           </div>
         ) : visibleApplications.length === 0 ? (
           <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-dashed border-gray-300">
-            <p className="text-[13px] text-gray-400">{t("noApplicationsForFilter")}</p>
+            <p className="text-[13px] text-gray-400">
+              {statusFilter ? t("noApplicationsForFilter") : t("noApplications")}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3.5">
@@ -220,6 +240,51 @@ export default function DashboardPage() {
               />
             ))}
           </div>
+        )}
+
+        {/* Cancelled applications (US222, Branch I) — collapsed, out of the
+            active portfolio. Each row announces its removal date (ADR-005
+            short clock) and offers Restore until the purge. */}
+        {cancelledApplications.length > 0 && (
+          <details className="mt-6" data-testid="cancelled-section">
+            <summary className="cursor-pointer text-[13px] font-bold text-gray-500 hover:text-gray-700 select-none">
+              {t("cancelledSection", { count: cancelledApplications.length })}
+            </summary>
+            <div className="mt-3 flex flex-col gap-2">
+              {cancelledApplications.map((app) => (
+                <div
+                  key={app.id}
+                  data-testid="cancelled-row"
+                  className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-bold text-gray-700 truncate">
+                      {app.role_title ?? t("unknownRole")}
+                    </p>
+                    <p className="text-[12px] text-gray-400 truncate">
+                      {app.company_name ?? ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {app.expires_at && (
+                      <span className="text-[11.5px] text-gray-400">
+                        {t("cancelledRemovalDate", {
+                          date: new Date(app.expires_at).toLocaleDateString(),
+                        })}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleRestore(app.id)}
+                      className="text-[12px] font-bold px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary-container"
+                    >
+                      {t("cancelledRestore")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </main>
     </div>

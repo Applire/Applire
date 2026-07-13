@@ -103,7 +103,15 @@
       "errorFlowNotFound": "Flow not found. Please start over.",
       "percentComplete": "{pct}% complete",
       "usuallyTakes": "This usually takes about 30 seconds"
-    }
+    },
+    "cancelApplication": "Cancel application",
+    "cancelApplicationInline": "Not a fit? Cancel this application",
+    "cancelDialogTitle": "Cancel this application?",
+    "cancelDialogBody": "The application moves to the Cancelled section on your dashboard and is permanently removed after a grace period — including its generated documents. You can restore it any time until then.",
+    "cancelDialogError": "Cancelling failed. Please try again.",
+    "cancelDialogKeep": "Keep working",
+    "cancelDialogConfirm": "Cancel application",
+    "cancelDialogBusy": "Cancelling…"
   },
   "gaps": {
     "title": "Gap Analysis",
@@ -535,7 +543,11 @@
     "sentBadgeAriaLabel": "Submitted version from {date}",
     "sentBadgePlain": "Sent",
     "staleCvBadge": "Profile grew",
-    "staleCvBadgeTitle": "Your profile has grown since this application's latest CV"
+    "staleCvBadgeTitle": "Your profile has grown since this application's latest CV",
+    "statusCancelled": "Cancelled",
+    "cancelledSection": "Cancelled applications ({count})",
+    "cancelledRemovalDate": "Will be removed on {date}",
+    "cancelledRestore": "Restore"
   },
   "profile": {
     "title": "My Profile",
@@ -688,7 +700,9 @@
     "staleCvRetailor": "Re-tailor",
     "staleCvRetailoring": "Re-tailoring…",
     "staleCvDismiss": "Dismiss",
-    "staleCvRetailorFailed": "The CV could not be re-tailored. Please try again."
+    "staleCvRetailorFailed": "The CV could not be re-tailored. Please try again.",
+    "cancelledBanner": "This application is cancelled and will be permanently removed on {date} — including its generated documents. You can restore it until then.",
+    "cancelledBannerNoDate": "This application is cancelled and will be permanently removed after a grace period. You can restore it until then."
   },
   "import": {
     "title": "Import CV"

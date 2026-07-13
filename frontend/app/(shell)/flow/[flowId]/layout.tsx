@@ -23,6 +23,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { STEP_ROUTE, resolveFlowRedirect, activeStepSegment } from "@/lib/flow-routing";
 
@@ -42,6 +43,8 @@ interface FlowState {
   available_actions: Record<string, string>;
   job_summary?: { role_title: string } | null;
   profile_completeness?: number | null;
+  /** Linked Application — enables the walk-away action (US222, Branch I). */
+  application_id?: string | null;
 }
 
 
@@ -111,6 +114,13 @@ export default function FlowLayout({
         steps={steps}
         trailingBadge={flowState?.job_summary?.role_title}
       />
+      {/* US222 (Branch I): the walk-away is reachable from EVERY flow step —
+          discreet, never competing with the step's primary actions. */}
+      {flowState?.application_id && (
+        <div className="w-full max-w-[960px] mx-auto px-5 pt-3 flex justify-end">
+          <CancelApplicationButton applicationId={flowState.application_id} />
+        </div>
+      )}
       <div className={cn(
         "flex-1 w-full overflow-y-auto",
         currentSegment === "cv" || currentSegment === "cover-letter"

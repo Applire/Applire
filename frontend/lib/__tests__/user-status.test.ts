@@ -22,6 +22,7 @@ import {
   isStaleStatus,
   staleNextStatuses,
   countByUserStatus,
+  splitCancelled,
 } from "../user-status";
 
 const DAY = 24 * 36e5;
@@ -39,6 +40,7 @@ describe("USER_STATUS_OPTIONS", () => {
       "offer",
       "rejected",
       "hired",
+      "cancelled",
     ]);
   });
 
@@ -47,6 +49,24 @@ describe("USER_STATUS_OPTIONS", () => {
       expect(opt.labelKey).toMatch(/^status/);
       expect(opt.className.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("splitCancelled (US222 — cancelled applications leave the active portfolio)", () => {
+  const apps = [
+    { id: "a", user_status: "applied" },
+    { id: "b", user_status: "cancelled" },
+    { id: "c" }, // no status = tracking
+  ];
+
+  it("separates cancelled applications from the active ones", () => {
+    const { active, cancelled } = splitCancelled(apps);
+    expect(active.map((a) => a.id)).toEqual(["a", "c"]);
+    expect(cancelled.map((a) => a.id)).toEqual(["b"]);
+  });
+
+  it("a cancelled status never counts as stale", () => {
+    expect(isStaleStatus("cancelled", daysAgo(STALE_STATUS_DAYS + 10), NOW)).toBe(false);
   });
 });
 
