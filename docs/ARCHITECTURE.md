@@ -102,7 +102,7 @@ The engine's boundary rules:
 
 ### ADR-005 / ADR-017 — GDPR Retention Worker
 
-**Decision:** A dedicated `retention` service in Docker Compose runs `python -m applire.retention` daily and enforces five TTL rules:
+**Decision:** A dedicated `retention` service in Docker Compose runs `python -m applire.retention` daily and enforces these TTL rules:
 
 | Entity | TTL | Action |
 |---|---|---|
@@ -110,9 +110,12 @@ The engine's boundary rules:
 | `interview_sessions` | 30 days | Hard delete |
 | `generated_cvs` / `generated_cover_letters` | 90 days (human) / 24 hours (agent) | Hard delete at `expires_at` |
 | `applications` | 730 days inactivity (timer resets on every update) | Soft delete (`deleted_at`) |
+| `applications` (cancelled by the user) | `CANCELLED_APPLICATION_TTL_DAYS` (default 7; `0` = disabled) | Soft delete, then its generated documents (incl. submitted pins) are hard-deleted |
 | `master_profiles` / `users` | 730 days inactivity | Soft delete (`deleted_at`) |
 
 **Purpose-bound exemption for submitted artifacts (2026-07, amendment):** a generated CV or cover letter that is **pinned as submitted** on an application (`applications.submitted_cv_id` / `submitted_cover_letter_id`) is exempt from the generated-documents purge while its application is alive. GDPR storage limitation is purpose-based, not calendar-based — a multi-month hiring process still needs the exact artifact that was sent (interview prep). The pin's retention clock follows the application lifecycle: once the application is soft-deleted by the inactivity rule above, the pinned document re-enters the normal purge. Nothing is retained indefinitely.
+
+**User-initiated cancellation (2026-07, amendment):** cancelling an application (`user_status = cancelled`) shortens its retention clock to `CANCELLED_APPLICATION_TTL_DAYS` (default 7 days, env-overridable, `0` disables). The UI shows the scheduled removal date and a restore action for the whole window; after the tombstone, the worker hard-deletes the application's generated documents **including submitted pins**, regardless of `GENERATED_DOCUMENTS_TTL_DAYS` — the explicit cancellation ends the processing purpose, and the deletion was announced, never silent. Documents of a job that still has a live application are always spared.
 
 **Why a separate service:** Data hygiene is a core operational concern (ADR-017 formalises the worker as a first-class operational building block, not a peripheral add-on). Each run emits a JSON report to stdout for audit.
 
