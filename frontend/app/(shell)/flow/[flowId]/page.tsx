@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { use, useEffect } from "react";
+import { use, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { STEP_ROUTE } from "@/lib/flow-routing";
@@ -43,6 +43,11 @@ export default function FlowIndexPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("flow");
+  // Run the advance-and-analyze pipeline exactly once across StrictMode's dev
+  // double-mount (same pattern as ProcessingOverlay). Without this, two
+  // simultaneous gap-jobs kickoffs raced past the backend dedup and ran the
+  // full LLM analysis twice (Spaghettieis UAT 2026-07-13).
+  const started = useRef(false);
 
   useEffect(() => {
     async function advanceAndRedirect() {
@@ -99,7 +104,10 @@ export default function FlowIndexPage({
       router.replace("/");
     }
 
-    void advanceAndRedirect();
+    if (!started.current) {
+      started.current = true;
+      void advanceAndRedirect();
+    }
   }, [flowId, router]);
 
   return (
