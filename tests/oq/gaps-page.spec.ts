@@ -161,6 +161,33 @@ test.describe("Gaps page", () => {
     await expect(page).toHaveURL(`/flow/${FLOW_ID}/interview`, { timeout: 10000 });
   });
 
+  test("Quick Interview offered to RETURNING user with gaps; onboarding hero hidden (ADR-016 amended)", async ({ page }) => {
+    // Spaghettieis UAT: the follow-up flow (returning + job) hid both the gap
+    // mitigation path and must not open with the onboarding "Master Profile
+    // Created" summary.
+    await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...MOCK_FLOW_STATE, user_type: "returning", created_at: "2026-07-13T10:00:00Z" }),
+      })
+    );
+    await page.route(`**/api/job/${JOB_ID}/gaps`, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_GAP_ANALYSIS) })
+    );
+    await page.route(`**/api/profile`, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_PROFILE) })
+    );
+
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(page.getByTestId("gap-analysis-page")).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("interview-button")).toBeVisible();
+    await expect(page.getByTestId("generate-cv-button")).toBeVisible();
+    // No onboarding chrome on a JD-only follow-up.
+    await expect(page.getByText(/Master Profile Created|Master-Profil erstellt/)).toHaveCount(0);
+  });
+
   test("clicking a gap cluster card starts the micro-session inline", async ({ page }) => {
     await setupGapsPageMocks(page);
 
