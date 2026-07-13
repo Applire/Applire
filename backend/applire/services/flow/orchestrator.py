@@ -230,7 +230,14 @@ async def advance_flow(
 
     flow.current_step = target
     flow.available_actions = _compute_actions(
-        target, flow.user_type, await _has_open_gate(db)
+        target,
+        flow.user_type,
+        await _has_open_gate(db),
+        has_gaps=(
+            await _gap_items_present(db, flow.gap_analysis_id)
+            if target == "gap_analysis"
+            else None
+        ),
     )
     flow.updated_at = datetime.now(timezone.utc)
     if target == "complete":
@@ -368,28 +375,53 @@ async def _has_open_gate(db: AsyncSession) -> bool:
 
 
 def _compute_actions(
-    step: str, user_type: str, has_open_gate: bool = False
+    step: str,
+    user_type: str,
+    has_open_gate: bool = False,
+    has_gaps: bool | None = None,
 ) -> dict[str, str]:
-    """Return available_actions dict for a given (step, user_type).
+    """Return available_actions dict for a given step.
 
-    ``has_open_gate`` withdraws the returning-user skip-to-generation shortcut so
-    a parked integrity gate is always confirmed in the interview first (US163).
+    At ``gap_analysis`` the interview offer is GAP-driven, not user-type-driven
+    (ADR-016 amended 2026-07-13, Spaghettieis UAT): gaps detected → the user
+    gets the mitigation option regardless of new/returning; a clean sweep goes
+    straight to CV generation. ``has_gaps=None`` (analysis not resolvable)
+    keeps the offer — never silently remove the mitigation path.
+
+    ``has_open_gate`` forces the interview so a parked Tier-1 integrity gate is
+    always confirmed there first (US163, ADR-041) — even on a clean sweep.
     """
     if step == "jd_analysis":
         return {"next": "gap_analysis"} if user_type == "returning" else {"next": "cv_import"}
     if step == "cv_import":
         return {"next": "gap_analysis"}
     if step == "gap_analysis":
-        if user_type == "returning" and not has_open_gate:
-            return {"next": "cv_generation"}
-        if user_type == "returning":
+        if has_open_gate:
             return {"next": "interview"}
+        if has_gaps is False:
+            return {"next": "cv_generation"}
         return {"next": "interview", "skip": "cv_generation"}
     if step == "interview":
         return {"next": "cv_generation"}
     if step == "cv_generation":
         return {"next": "complete"}
     return {}
+
+
+async def _gap_items_present(
+    db: AsyncSession, gap_analysis_id: uuid.UUID | None
+) -> bool | None:
+    """Whether the analysis found anything to address (partials OR gaps).
+
+    None when the artifact can't be resolved — the caller keeps the safe
+    default (interview offered).
+    """
+    if gap_analysis_id is None:
+        return None
+    gap = await db.get(GapAnalysis, gap_analysis_id)
+    if gap is None:
+        return None
+    return bool(gap.category_b or []) or bool(gap.category_c or [])
 
 
 async def _build_state_response(
