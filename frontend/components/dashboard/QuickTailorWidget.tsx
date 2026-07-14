@@ -115,7 +115,7 @@ export function QuickTailorWidget() {
   }
 
   return (
-    <div className="bg-white rounded-[14px] border border-gray-200 shadow-sm px-[22px] py-5 relative overflow-hidden">
+    <div className="w-full bg-white rounded-[14px] border border-gray-200 shadow-sm px-4 sm:px-[22px] py-5 relative overflow-hidden">
       {duplicatePrompt && (
         <DuplicateJdDialog
           hint={duplicatePrompt.hint}
@@ -165,8 +165,9 @@ export function QuickTailorWidget() {
         ))}
       </div>
 
-      {/* Inputs */}
-      <div className="flex gap-2.5 items-end">
+      {/* Inputs — US224: stacked below sm so the row never squashes on a
+          phone screen; row layout returns at sm and up. */}
+      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-end">
         {mode === "url" ? (
           <input
             type="url"
@@ -175,10 +176,10 @@ export function QuickTailorWidget() {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder={t("urlPlaceholder")}
             disabled={loading}
-            className="flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            className="w-full sm:flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
           />
         ) : (
-          <div className="flex-1 flex flex-col gap-2">
+          <div className="w-full sm:flex-1 flex flex-col gap-2">
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -200,7 +201,7 @@ export function QuickTailorWidget() {
         <button
           onClick={handleSubmit}
           disabled={!canSubmit || loading}
-          className="h-10 px-5 bg-primary text-white rounded-lg text-[13px] font-bold font-manrope self-end whitespace-nowrap hover:bg-teal-dim disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full sm:w-auto h-10 px-5 bg-primary text-white rounded-lg text-[13px] font-bold font-manrope sm:self-end whitespace-nowrap hover:bg-teal-dim disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? t("analysing") : t("analyseButton")}
         </button>

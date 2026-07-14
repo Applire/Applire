@@ -74,6 +74,39 @@ describe("QuickTailorWidget", () => {
     await waitFor(() => expect(screen.getByText("Bad URL")).toBeInTheDocument());
   });
 
+  // US224 — mobile Quick Tailor capture: the input+button row must stack
+  // (not squash) below sm so both tabs stay usable at 390px.
+  describe("mobile capture row (US224)", () => {
+    it("stacks the URL input and button into a column below sm, row at sm+", () => {
+      render(<QuickTailorWidget />);
+      const input = screen.getByPlaceholderText("urlPlaceholder");
+      const row = input.parentElement as HTMLElement;
+      expect(row.className).toContain("flex-col");
+      expect(row.className).toContain("sm:flex-row");
+      expect(input.className).toContain("w-full");
+    });
+
+    it("makes the Analyse button full-width below sm on both tabs", () => {
+      render(<QuickTailorWidget />);
+      const urlButton = screen.getByText("analyseButton");
+      expect(urlButton.className).toContain("w-full");
+      expect(urlButton.className).toContain("sm:w-auto");
+
+      fireEvent.click(screen.getByText("tabText"));
+      const textButton = screen.getByText("analyseButton");
+      expect(textButton.className).toContain("w-full");
+      expect(textButton.className).toContain("sm:w-auto");
+    });
+
+    it("keeps the text-tab textarea full-width in the stacked row", () => {
+      render(<QuickTailorWidget />);
+      fireEvent.click(screen.getByText("tabText"));
+      const textarea = screen.getByPlaceholderText("textPlaceholder");
+      const wrapper = textarea.parentElement as HTMLElement;
+      expect(wrapper.className).toContain("w-full");
+    });
+  });
+
   // E039/US216 — application dossier: optional source link on the text tab
   it("shows an optional source-link field on the text tab only", () => {
     render(<QuickTailorWidget />);

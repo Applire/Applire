@@ -64,9 +64,13 @@ export function DuplicateJdDialog({
       role="dialog"
       aria-modal="true"
       data-testid="duplicate-jd-dialog"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
     >
-      <div className="bg-white rounded-xl p-6 shadow-xl max-w-md w-full relative">
+      {/* US224: same component, presentation-only divergence (ADR-050 §2) —
+          below md this is a bottom sheet (full-width, top corners only,
+          capped height); md and up keeps the original centred modal card. */}
+      <div className="bg-white rounded-t-2xl md:rounded-xl p-6 shadow-xl w-full md:max-w-md max-h-[85vh] overflow-y-auto relative">
+        <div aria-hidden="true" className="md:hidden mx-auto mb-3 h-1 w-10 rounded-full bg-gray-300" />
         <div className="flex items-start gap-3 mb-2">
           <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
