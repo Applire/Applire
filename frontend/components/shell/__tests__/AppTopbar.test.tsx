@@ -16,19 +16,22 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import messages from "@/messages/de.json";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }));
 
-function withIntl(c: React.ReactNode) {
+function withIntl(c: React.ReactNode, userName: string | null = null) {
   return (
-    <NextIntlClientProvider locale="de" messages={messages}>{c}</NextIntlClientProvider>
+    <NextIntlClientProvider locale="de" messages={messages}>
+      <ShellUserProvider userName={userName}>{c}</ShellUserProvider>
+    </NextIntlClientProvider>
   );
 }
 
@@ -59,5 +62,41 @@ describe("AppTopbar", () => {
     expect(screen.getByText(messages.flow.stepProfile)).toBeInTheDocument();
     expect(screen.getByText(messages.flow.stepGaps)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+  });
+
+  // US223: below md the persistent AppSidebar is hidden, so every AppTopbar
+  // mode needs its own hamburger affordance into the equivalent drawer nav.
+  it("renders a hamburger button that opens the mobile nav drawer", () => {
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />));
+    expect(screen.queryByTestId("mobile-nav-drawer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: messages.shell.openNavAriaLabel }));
+    expect(screen.getByTestId("mobile-nav-drawer")).toBeInTheDocument();
+  });
+
+  it("renders the hamburger in every topbar mode (detail, flow)", () => {
+    const { unmount } = render(withIntl(
+      <AppTopbar mode="detail" backHref="/dashboard" backLabelKey="shell.dashboard" pageTitle="Senior QA Manager" />
+    ));
+    expect(screen.getByRole("button", { name: messages.shell.openNavAriaLabel })).toBeInTheDocument();
+    unmount();
+
+    render(withIntl(
+      <AppTopbar mode="flow" steps={[
+        { key: "cv_import", labelKey: "flow.stepProfile", state: "active" },
+      ]} />
+    ));
+    expect(screen.getByRole("button", { name: messages.shell.openNavAriaLabel })).toBeInTheDocument();
+  });
+
+  it("shows the fallback avatar letter when no userName has loaded yet", () => {
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />));
+    expect(screen.getByRole("button", { name: messages.shell.openSettingsAriaLabel }).textContent).toBe(
+      messages.shell.topbarUserInitial
+    );
+  });
+
+  it("shows the real user's initials on the avatar once userName is threaded via context", () => {
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, "Max Mustermann"));
+    expect(screen.getByRole("button", { name: messages.shell.openSettingsAriaLabel }).textContent).toBe("MM");
   });
 });

@@ -764,7 +764,9 @@
     "appLogoAlt": "Applire",
     "topbarSeparator": "|",
     "topbarUserInitial": "A",
-    "backArrowLabel": "← {label}"
+    "backArrowLabel": "← {label}",
+    "openNavAriaLabel": "Open navigation",
+    "navDrawerDescription": "Main navigation"
   },
   "quickTailor": {
     "title": "Quick Tailor",

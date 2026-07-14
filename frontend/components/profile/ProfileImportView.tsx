@@ -263,12 +263,17 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
 
   return (
     <>
-      <AppTopbar
-        mode="detail"
-        backHref="/profile"
-        backLabelKey="shell.profile"
-        pageTitle={tp("importTitle")}
-      />
+      {/* Standalone (/profile/upload) needs its own bar; inside a flow
+          (flowId set) the flow layout already renders AppTopbar (mode="flow")
+          — a second bar here would stack two bars on one page (US223). */}
+      {!flowId && (
+        <AppTopbar
+          mode="detail"
+          backHref="/profile"
+          backLabelKey="shell.profile"
+          pageTitle={tp("importTitle")}
+        />
+      )}
     <div className="p-8 max-w-[1100px] mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* ── Left column ── */}

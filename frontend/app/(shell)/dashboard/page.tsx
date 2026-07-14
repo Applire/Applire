@@ -147,7 +147,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Top row: Quick Tailor + Profile Strength */}
-        <div className="grid grid-cols-[1fr_260px] gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 mb-6">
           <QuickTailorWidget />
           <ProfileStrengthCard key={profileRefreshKey} />
         </div>

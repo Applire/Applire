@@ -20,21 +20,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
-
-interface NavItem {
-  key: "dashboard" | "profile" | "import" | "documents" | "settings" | "admin";
-  href: string;
-  icon: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", href: "/dashboard",        icon: "dashboard"    },
-  { key: "profile",   href: "/profile",          icon: "person_book"  },
-  { key: "import",    href: "/profile/upload",   icon: "upload_file"  },
-  { key: "documents", href: "/documents",        icon: "description"  },
-  { key: "settings",  href: "/settings",         icon: "settings"     },
-  { key: "admin",     href: "/admin/appearance", icon: "shield_person" },
-];
+import { NAV_ITEMS } from "./nav-items";
 
 interface AppSidebarProps {
   userName?: string | null;
@@ -54,7 +40,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
     // enrichment/review panel never traps navigation — the sidebar stays clickable.
     <aside
       data-testid="app-sidebar"
-      className="relative z-[60] w-60 min-w-[240px] bg-white border-r border-gray-200 flex flex-col h-full"
+      className="relative z-[60] w-60 min-w-[240px] bg-white border-r border-gray-200 hidden md:flex md:flex-col h-full"
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-[18px] border-b border-gray-100">

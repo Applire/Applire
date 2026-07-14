@@ -33,6 +33,7 @@ vi.mock("@/lib/profile-roles", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams("source=manual"),
+  usePathname: () => "/profile/upload",
 }));
 
 describe("AddRoleView — manual mode", () => {
@@ -74,6 +75,7 @@ describe("AddRoleView — jd_paste mode", () => {
     vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
       useSearchParams: () => new URLSearchParams("source=jd_paste"),
+      usePathname: () => "/profile/upload",
     }));
     const { AddRoleView: View } = await import("../AddRoleView");
     render(withIntl(<View openRoles={[]} />, "en"));
@@ -95,6 +97,7 @@ describe("AddRoleView — application pre-fill", () => {
     vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
       useSearchParams: () => new URLSearchParams("source=application&application_id=abc"),
+      usePathname: () => "/profile/upload",
     }));
     global.fetch = vi.fn(async (url) => {
       if (String(url).includes("/api/applications/abc")) {
@@ -126,6 +129,7 @@ describe("AddRoleView — close roles step", () => {
     vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
       useSearchParams: () => new URLSearchParams("source=manual"),
+      usePathname: () => "/profile/upload",
     }));
   });
 
@@ -169,6 +173,7 @@ describe("AddRoleView — fetches open roles when no prop supplied", () => {
     vi.doMock("next/navigation", () => ({
       useRouter: () => ({ push: vi.fn() }),
       useSearchParams: () => new URLSearchParams("source=manual"),
+      usePathname: () => "/profile/upload",
     }));
   });
 
