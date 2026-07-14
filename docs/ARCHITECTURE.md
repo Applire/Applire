@@ -297,7 +297,7 @@ Source tracking (an `EnrichmentRecord` for every change) is mandatory — every 
 jd_analysis → cv_import → gap_analysis → interview → cv_generation → complete
 ```
 
-Returning users skip `cv_import`; users with a sufficiently complete profile may skip `interview`. A user with a job but **no CV** takes the no-CV onboarding path `jd_analysis → interview` (skipping `cv_import` + `gap_analysis`) — the guided interview builds the Master Profile from scratch, then `interview → cv_generation` as usual.
+Returning users skip `cv_import`. **The interview offer is gap-driven (amended 2026-07-13):** at `gap_analysis`, when the analysis found items to address the interview is offered (with a skip to generation) for *both* user types; a clean sweep goes straight to `cv_generation`; a parked profile-integrity gate forces the interview (ADR-041). A user with a job but **no CV** takes the no-CV onboarding path `jd_analysis → interview` (skipping `cv_import` + `gap_analysis`) — the guided interview builds the Master Profile from scratch, then `interview → cv_generation` as usual.
 
 Key invariants:
 - One `flow_session` per `(user_id, job_id)`, enforced by a unique constraint.
@@ -305,6 +305,7 @@ Key invariants:
 - Steps that produce artifacts (gap analysis, interview, cv generation) require `artifact_id` in `AdvanceFlowRequest` — missing `artifact_id` returns HTTP 422.
 - Invalid step transitions return HTTP 409 with `allowed_transitions` for client recovery.
 - `flow_sessions` carries no PII — it is a routing record. GDPR TTLs live on child records.
+- Concurrent gap-analysis kickoffs are DB-arbitrated (amended 2026-07-13): partial unique indexes allow one live gap job per `job_analysis_id` and one live analysis row per `(job_analysis_id, input_fingerprint)`; services recover from a lost race by adopting the winner, and an analysis row is committed only WITH its gap clusters (never readable half-built).
 
 ---
 

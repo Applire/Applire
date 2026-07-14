@@ -386,9 +386,14 @@ class TestGateInjectionIntoSession:
 
 class TestGateForcesInterviewRouting:
     def test_returning_user_skips_interview_without_a_gate(self):
+        # ADR-016 amended 2026-07-13: the skip is GAP-driven — a returning user
+        # goes straight to generation only when the analysis found nothing to
+        # address (and no gate is parked).
         from applire.services.flow.orchestrator import _compute_actions
 
-        actions = _compute_actions("gap_analysis", "returning", has_open_gate=False)
+        actions = _compute_actions(
+            "gap_analysis", "returning", has_open_gate=False, has_gaps=False
+        )
         assert actions["next"] == "cv_generation"
 
     def test_open_gate_routes_returning_user_into_the_interview(self):

@@ -170,9 +170,37 @@ def test_compute_actions_gap_analysis_new():
     assert "skip" in actions and actions["skip"] == "cv_generation"
 
 
-def test_compute_actions_gap_analysis_returning():
+def test_compute_actions_gap_analysis_gaps_offer_interview_any_user_type():
+    """ADR-016 amendment (2026-07-13): the interview offer is GAP-driven, not
+    user-type-driven. A returning user with gaps must get the mitigation
+    option (Emma journey Branch A/B — Spaghettieis UAT finding)."""
+    for user_type in ("new", "returning"):
+        actions = _compute_actions(user_type=user_type, step="gap_analysis", has_gaps=True)
+        assert actions == {"next": "interview", "skip": "cv_generation"}, user_type
+
+
+def test_compute_actions_gap_analysis_no_gaps_go_straight_to_generation():
+    """No gaps detected → the system proceeds directly to CV generation; an
+    interview would have nothing to mitigate (either user type)."""
+    for user_type in ("new", "returning"):
+        actions = _compute_actions(user_type=user_type, step="gap_analysis", has_gaps=False)
+        assert actions == {"next": "cv_generation"}, user_type
+
+
+def test_compute_actions_gap_analysis_unknown_gaps_keeps_offer():
+    """Unknown analysis (e.g. artifact not resolvable) → keep the safe default:
+    never silently remove the mitigation option."""
     actions = _compute_actions("gap_analysis", "returning")
-    assert actions == {"next": "cv_generation"}
+    assert actions == {"next": "interview", "skip": "cv_generation"}
+
+
+def test_compute_actions_gap_analysis_open_gate_forces_interview():
+    """ADR-041: a parked Tier-1 gate always forces the interview — even when
+    the JD analysis found no gaps (the gate is confirmed there)."""
+    actions = _compute_actions(
+        "gap_analysis", "returning", has_open_gate=True, has_gaps=False
+    )
+    assert actions == {"next": "interview"}
 
 
 def test_compute_actions_interview():
@@ -274,6 +302,63 @@ async def test_advance_flow_valid_transition(db, user_and_job):
     # new user skipped cv_import → gap_analysis directly allowed from jd_analysis
     assert result.current_step == "gap_analysis"
     assert result.available_actions["next"] == "interview"
+
+
+@pytest.mark.asyncio
+async def test_advance_to_gap_analysis_resolves_offer_from_artifact(db, user_and_job):
+    """advance_flow(gap_analysis) reads the actual analysis: gaps present →
+    interview offered; clean sweep → straight to cv_generation (ADR-016
+    amendment 2026-07-13, Spaghettieis UAT)."""
+    from applire.models.gap import GapAnalysis
+    from applire.models.profile import MasterProfile
+
+    _, job = user_and_job
+    profile = MasterProfile(id=uuid.uuid4(), profile_json={"personal_info": {}})
+    gap_with_items = GapAnalysis(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        input_fingerprint="fp-items",
+        match_score=0.4,
+        critical_gaps=[], minor_gaps=[], strengths=[], keyword_gaps=[],
+        category_b=["Kubernetes"], category_c=["Terraform"],
+    )
+    db.add_all([profile, gap_with_items])
+    await db.commit()
+
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    result = await advance_flow(
+        flow_resp.flow_id,
+        AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_with_items.id),
+        db,
+    )
+    assert result.available_actions == {"next": "interview", "skip": "cv_generation"}
+
+
+@pytest.mark.asyncio
+async def test_advance_to_gap_analysis_clean_sweep_skips_interview(db, user_and_job):
+    from applire.models.gap import GapAnalysis
+    from applire.models.profile import MasterProfile
+
+    _, job = user_and_job
+    profile = MasterProfile(id=uuid.uuid4(), profile_json={"personal_info": {}})
+    clean = GapAnalysis(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        input_fingerprint="fp-clean",
+        match_score=0.95,
+        critical_gaps=[], minor_gaps=[], strengths=[], keyword_gaps=[],
+        category_a=["Python", "FastAPI"], category_b=[], category_c=[],
+    )
+    db.add_all([profile, clean])
+    await db.commit()
+
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    result = await advance_flow(
+        flow_resp.flow_id,
+        AdvanceFlowRequest(step="gap_analysis", artifact_id=clean.id),
+        db,
+    )
+    assert result.available_actions == {"next": "cv_generation"}
 
 
 @pytest.mark.asyncio

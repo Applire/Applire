@@ -31,6 +31,7 @@ import math
 import uuid
 
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
@@ -210,7 +211,12 @@ async def cluster_gaps(
         except Exception:
             pass
     gap_analysis.gap_clusters = validated
-    await db.commit()
+    # Persist only when the record is already in the session (the standalone
+    # re-cluster path). _run_analysis now clusters BEFORE adding the record so
+    # classification + clusters publish in ONE commit — a committed row must
+    # never be readable without its clusters (Spaghettieis UAT 2026-07-13).
+    if gap_analysis in db:
+        await db.commit()
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -331,12 +337,41 @@ async def _run_analysis(
         keyword_ledger=keyword_ledger,
         requirement_breakdown=scored["requirement_breakdown"],
     )
-    db.add(record)
-    await db.commit()
-    await db.refresh(record)
 
-    # Phase 2: semantic clustering
+    # Phase 2: semantic clustering — BEFORE the record is published. Committing
+    # the row first opened a window where GET /gaps served it with empty
+    # gap_clusters and the gaps screen hung on "Analyzing your profile…"
+    # forever (Spaghettieis UAT 2026-07-13). A committed analysis now always
+    # carries its clusters; if clustering dies, nothing is published and the
+    # async gap job fails cleanly (retry recomputes from scratch).
     await cluster_gaps(record, job, provider, db)
+
+    db.add(record)
+    # Captured before the commit: rollback expires ORM objects, so the recovery
+    # path must not lazy-load `job.id` (sync IO inside the async session).
+    job_id = job.id
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_gap_analyses_live_fingerprint: a concurrent run committed the same
+        # (job, fingerprint) between our idempotency pre-check and this commit.
+        # Adopt the winner's row — one row, one score (E037 PQ #3).
+        await db.rollback()
+        winner_result = await db.execute(
+            select(GapAnalysis)
+            .where(
+                GapAnalysis.job_analysis_id == job_id,
+                GapAnalysis.input_fingerprint == fingerprint,
+                GapAnalysis.deleted_at.is_(None),
+            )
+            .order_by(desc(GapAnalysis.created_at))
+            .limit(1)
+        )
+        winner = winner_result.scalar_one_or_none()
+        if winner is None:
+            raise
+        await repoint_flow_gap_analysis(job_id, winner.id, db)
+        return GapAnalysisResponse.model_validate(winner)
     await db.refresh(record)
 
     # Keep the owning flow's gap_analysis_id FK pointed at the newest analysis so

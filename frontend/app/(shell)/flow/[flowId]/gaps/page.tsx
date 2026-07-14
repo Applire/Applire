@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
@@ -31,7 +31,7 @@ import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
-import { getProfileChanges, hasMergeReview } from "@/lib/api/review";
+import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
 import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
 
@@ -54,13 +54,15 @@ interface GapAnalysis {
 }
 
 interface FlowState {
-  job_id: string;
+  job_id: string | null;
   user_type: "new" | "returning";
   available_actions: Record<string, string>;
   gap_summary?: { gap_analysis_id: string } | null;
   job_summary?: { role_title: string } | null;
   /** Linked Application — enables the walk-away action (US222, Branch I). */
   application_id?: string | null;
+  /** Flow creation time — scopes the merge pointer to THIS run's imports. */
+  created_at?: string | null;
 }
 
 interface ProfileStats {
@@ -460,8 +462,9 @@ export default function GapsPage({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
-  // #67: only show the slim merge-review pointer when a merge actually happened.
-  const [hasMerge, setHasMerge] = useState(false);
+  // #67: the slim merge-review pointer needs the trail; whether it shows is
+  // derived below, scoped to THIS flow's imports (Spaghettieis UAT).
+  const [profileTrail, setProfileTrail] = useState<ProfileChanges | null>(null);
 
   // Gap-Click state keyed by cluster ID
   const [gapStates, setGapStates] = useState<Record<string, GapClickState>>({});
@@ -477,11 +480,11 @@ export default function GapsPage({
     nice_to_have_skills: string[];
   } | null>(null);
 
-  // #67: gate the slim merge-review pointer on whether a merge actually happened.
+  // #67: fetch the trail once; the merge pointer derives from it per flow context.
   useEffect(() => {
     let cancelled = false;
     getProfileChanges()
-      .then((trail) => { if (!cancelled) setHasMerge(hasMergeReview(trail)); })
+      .then((trail) => { if (!cancelled) setProfileTrail(trail); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -493,6 +496,28 @@ export default function GapsPage({
         if (!fsRes.ok) throw new Error("Flow not found");
         const fs: FlowState = await fsRes.json();
         setFlowState(fs);
+
+        // CV-only ingestion run (no job on the flow): there is nothing to
+        // analyze — the page shows the profile summary + merge review only.
+        // Fetching /api/job/null/gaps here used to surface a raw 422 error.
+        if (!fs.job_id) {
+          try {
+            const profileRes = await fetch(`${API_BASE}/api/profile`);
+            if (profileRes.ok) {
+              const profileData = await profileRes.json();
+              const stats = profileData.stats ?? {};
+              setProfileStats({
+                positions: stats.positions ?? 0,
+                projects: stats.projects ?? 0,
+                certifications: stats.certifications ?? 0,
+                data_points: stats.data_points ?? 0,
+              });
+            }
+          } catch {
+            // Keep defaults
+          }
+          return;
+        }
 
         // Best-effort: echo what we read from the job ad (US158, FMEA 4.3/4.4).
         if (fs.job_id) {
@@ -568,6 +593,32 @@ export default function GapsPage({
     }
     void load();
   }, [flowId]);
+
+  // Belt-and-braces for a legacy half-built analysis row (clusters written in
+  // a second commit before this fix): when items exist but clusters haven't
+  // landed, re-read the analysis a few times instead of showing a dead
+  // "Analyzing your profile…" forever. New rows always publish clustered.
+  const clusterPolls = useRef(0);
+  useEffect(() => {
+    const jobId = flowState?.job_id;
+    if (!jobId || !gaps) return;
+    if ((gaps.gap_clusters?.length ?? 0) > 0) return;
+    const items = (gaps.category_b?.length ?? 0) + (gaps.category_c?.length ?? 0);
+    if (items === 0 || clusterPolls.current >= 10) return;
+    let cancelled = false;
+    const id = setTimeout(async () => {
+      clusterPolls.current += 1;
+      try {
+        const res = await fetch(`${API_BASE}/api/job/${jobId}/gaps`);
+        if (res.ok && !cancelled) {
+          setGaps(await res.json());
+        }
+      } catch {
+        // transient — the next poll (if any) retries
+      }
+    }, 3000);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [flowState?.job_id, gaps]);
 
   function updateGapState(clusterId: string, patch: Partial<GapClickState>) {
     setGapStates((prev) => ({
@@ -723,28 +774,50 @@ export default function GapsPage({
   // still gates the section and the interview CTA.
   const counts = gapCounts(gaps, resolvedGaps);
 
+  // Flow context cases (Spaghettieis UAT, ADR-016 amended 2026-07-13):
+  //   Case 1  JD + CVs (first run, "new")  → hero + this-run merge pointer + analysis
+  //   Case 2  CVs only (no job)            → profile summary + merge pointer only
+  //   Case 3  JD only (follow-up)          → analysis only; no onboarding chrome
+  const hasJob = Boolean(flowState?.job_id);
+  const isIngestionRun = !hasJob || flowState?.user_type === "new";
+  // Merge pointer: only on ingestion runs, and only when THIS run merged
+  // (the trail is user-global — an onboarding merge must not haunt follow-ups).
+  const hasMerge =
+    isIngestionRun && profileTrail
+      ? hasMergeReview(profileTrail, { since: flowState?.created_at ?? undefined })
+      : false;
+  // The interview offer is gap-driven, never user-type-driven: gaps detected →
+  // the user gets the mitigation option; a clean sweep goes straight to CV.
+  const offerInterview = hasJob && counts.itemsToAddress > 0;
+
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
       <JdRecoveryBanner />
       <CvParseBanner />
       <InputWarningsBanner />
-      {/* Section 1: Master Profile Summary */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-success text-white">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-            </svg>
+      {/* Section 1: Master Profile Summary — ingestion runs only (cases 1+2).
+          A JD-only follow-up imported nothing; opening it with onboarding
+          chrome misread as a "CV merge report" (Spaghettieis UAT). */}
+      {isIngestionRun && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-success text-white">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="font-heading text-xl font-bold text-neutral-dark">
+              {flowState?.user_type === "new" ? t("masterProfileCreated") : t("masterProfileUpdated")}
+            </h2>
           </div>
-          <h2 className="font-heading text-xl font-bold text-neutral-dark">{t("masterProfileCreated")}</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard value={profileStats.positions} label={t("statPositions")} />
+            <StatCard value={profileStats.projects} label={t("statProjects")} />
+            <StatCard value={profileStats.certifications} label={t("statCertifications")} />
+            <StatCard value={profileStats.data_points} label={t("statDataPoints")} />
+          </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard value={profileStats.positions} label={t("statPositions")} />
-          <StatCard value={profileStats.projects} label={t("statProjects")} />
-          <StatCard value={profileStats.certifications} label={t("statCertifications")} />
-          <StatCard value={profileStats.data_points} label={t("statDataPoints")} />
-        </div>
-      </div>
+      )}
 
       {/* Section 1b: merge review moved out of the flow (#67) — slim pointer, only when a merge happened. */}
       {hasMerge && (
@@ -787,7 +860,8 @@ export default function GapsPage({
           );
         })()}
 
-      {/* Section 2: Match Score */}
+      {/* Section 2: Match Score — only when this flow analyses a job */}
+      {hasJob && gaps && (
       <Card className="p-6 mb-8">
         <div className="flex flex-col lg:flex-row items-center gap-6">
           <ScoreCircle score={matchScore} size={100} />
@@ -813,9 +887,10 @@ export default function GapsPage({
           </div>
         </div>
       </Card>
+      )}
 
       {/* Section 3: Cluster-based gap display */}
-      {counts.itemsToAddress > 0 && (
+      {hasJob && counts.itemsToAddress > 0 && (
         <div data-testid="gaps-section" className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-heading text-lg font-bold text-neutral-dark">
@@ -879,6 +954,7 @@ export default function GapsPage({
       )}
 
       {/* Detailed breakdown */}
+      {hasJob && gaps && (
       <details className="mb-8">
         <summary className="cursor-pointer text-sm text-teal hover:underline mb-2">
           {t("viewBreakdown")}
@@ -922,6 +998,7 @@ export default function GapsPage({
           </Card>
         </div>
       </details>
+      )}
 
       {/* Error */}
       {error && (
@@ -935,11 +1012,16 @@ export default function GapsPage({
         </div>
       )}
 
-      {/* CTAs */}
+      {/* CTAs — the interview offer is GAP-driven (ADR-016 amended): anyone
+          with items to address gets the mitigation option. It leads for new
+          users; returning users keep Generate as the primary path (Emma
+          journey: "optional but tempting"), and a clean sweep goes straight
+          to generation. */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-        {flowState?.user_type === "new" && counts.itemsToAddress > 0 && (
+        {offerInterview && (
           <div className="flex flex-col items-center">
             <Button
+              variant={flowState?.user_type === "new" ? "primary" : "secondary"}
               size="lg"
               onClick={() => void advance("interview")}
               disabled={actionLoading}
@@ -953,16 +1035,18 @@ export default function GapsPage({
             </p>
           </div>
         )}
-        <Button
-          variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
-          size="lg"
-          onClick={() => void advance("cv_generation")}
-          disabled={actionLoading}
-          className="min-w-[200px]"
-          data-testid="generate-cv-button"
-        >
-          {t("generateCV")}
-        </Button>
+        {hasJob && (
+          <Button
+            variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
+            size="lg"
+            onClick={() => void advance("cv_generation")}
+            disabled={actionLoading}
+            className="min-w-[200px]"
+            data-testid="generate-cv-button"
+          >
+            {t("generateCV")}
+          </Button>
+        )}
         <a
           href="/profile"
           className="text-sm text-teal underline hover:no-underline"

@@ -100,11 +100,25 @@ const IMPORT_SOURCES = new Set(["cv_upload", "cv_paste", "linkedin_import", "xin
  * an import-source change with action "merged"/"updated", or a pending conflict.
  * A first single-CV import yields only "added" changes → false (#67).
  * Manual edits (source: "manual_edit") do NOT count as a merge (#67).
+ *
+ * `since` scopes the check to THIS run (Spaghettieis UAT): the trail is
+ * user-global, so without it a merge from the initial onboarding import haunts
+ * every later flow's gap view. Pending conflicts stay unscoped — they are
+ * actionable until resolved, whenever they arose.
  */
-export function hasMergeReview(trail: ProfileChanges): boolean {
+export function hasMergeReview(
+  trail: ProfileChanges,
+  opts?: { since?: string },
+): boolean {
+  const sinceMs = opts?.since ? Date.parse(opts.since) : null;
   const records = trail.enrichmentHistory ?? [];
   const mergeChanges = records
     .filter((r) => IMPORT_SOURCES.has(r.source))
+    .filter((r) => {
+      if (sinceMs === null || Number.isNaN(sinceMs)) return true;
+      const ts = Date.parse(r.timestamp);
+      return Number.isNaN(ts) ? true : ts >= sinceMs;
+    })
     .flatMap((r) => r.changes ?? [])
     .filter((c) => c.action === "merged" || c.action === "updated");
   const conflicts = trail.pendingConflicts ?? [];

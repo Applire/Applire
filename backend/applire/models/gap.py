@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, JSON, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, JSON, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +29,20 @@ from applire.db.session import Base
 
 class GapAnalysis(Base):
     __tablename__ = "gap_analyses"
+    # One LIVE analysis per (job, input fingerprint) — the app-level idempotency
+    # check in analyze_gaps is check-then-insert and lost a 7 ms race (two rows,
+    # two scores, the "Analyzing your profile…" hang; Spaghettieis UAT 2026-07-13).
+    # Legacy NULL fingerprints and soft-deleted rows stay outside the constraint.
+    __table_args__ = (
+        Index(
+            "uq_gap_analyses_live_fingerprint",
+            "job_analysis_id",
+            "input_fingerprint",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL AND input_fingerprint IS NOT NULL"),
+            postgresql_where=text("deleted_at IS NULL AND input_fingerprint IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     job_analysis_id: Mapped[uuid.UUID] = mapped_column(
