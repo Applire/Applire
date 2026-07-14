@@ -171,4 +171,13 @@ describe("AppSidebar", () => {
     expect(aside.className).toContain("relative");
     expect(aside.className).toContain("z-[60]");
   });
+
+  // US223: below md the fixed 240px sidebar is hidden — mobile gets the
+  // hamburger + MobileNavDrawer (AppTopbar) instead.
+  it("is hidden below md and reappears as a flex column at md and up", () => {
+    render(<AppSidebar />);
+    const aside = screen.getByTestId("app-sidebar");
+    expect(aside.className).toContain("hidden");
+    expect(aside.className).toContain("md:flex");
+  });
 });

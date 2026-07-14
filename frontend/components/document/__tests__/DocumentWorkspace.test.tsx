@@ -59,4 +59,60 @@ describe("DocumentWorkspace", () => {
     expect(screen.getByTestId("slot-preview")).toBeTruthy();
     expect(screen.getByTestId("slot-sidebar")).toBeTruthy();
   });
+
+  // E040/US226 — responsive layout, jsdom can't evaluate media queries so these
+  // assert the class strings that encode the below-md/md+ behavior.
+  describe("responsive layout classes (E040/US226)", () => {
+    it("wraps the sidebar slot in `hidden md:contents` (hidden below md, direct flex child at md+)", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const wrapper = screen.getByTestId("slot-sidebar").parentElement;
+      expect(wrapper?.className).toContain("hidden");
+      expect(wrapper?.className).toContain("md:contents");
+    });
+
+    it("wraps the inline atsPanel slot in `hidden md:block` (moves into the command bar's sheet below md)", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const wrapper = screen.getByTestId("slot-ats").parentElement;
+      expect(wrapper?.className).toContain("hidden");
+      expect(wrapper?.className).toContain("md:block");
+    });
+
+    it("renders the commandBar slot when supplied", () => {
+      render(
+        withIntl(
+          <DocumentWorkspace
+            {...BASE}
+            commandBar={<div data-testid="slot-commandbar">command bar</div>}
+          />
+        )
+      );
+      expect(screen.getByTestId("slot-commandbar")).toBeTruthy();
+    });
+
+    it("omits the commandBar slot when not supplied", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      expect(screen.queryByTestId("slot-commandbar")).toBeNull();
+    });
+
+    it("hides the top-bar Download button below md when a commandBar is supplied (avoids a redundant CTA)", () => {
+      render(
+        withIntl(
+          <DocumentWorkspace
+            {...BASE}
+            commandBar={<div data-testid="slot-commandbar">command bar</div>}
+          />
+        )
+      );
+      const className = screen.getByTestId("document-download-btn").className;
+      expect(className).toContain("hidden");
+      expect(className).toContain("md:inline-flex");
+    });
+
+    it("keeps the top-bar Download button visible below md when no commandBar is supplied", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const className = screen.getByTestId("document-download-btn").className;
+      expect(className).not.toContain("hidden");
+      expect(className).toContain("inline-flex");
+    });
+  });
 });

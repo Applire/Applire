@@ -29,8 +29,14 @@ interface DocumentWorkspaceProps {
   preview: ReactNode;
   /** ATS checks panel, shown directly below the document. Optional. */
   atsPanel?: ReactNode;
-  /** Right-hand refinement sidebar. */
+  /** Right-hand refinement sidebar. Hidden below `md` (E040 / US226). */
   sidebar: ReactNode;
+  /**
+   * Mobile-only floating command bar (E040 / US226). Rendered as a
+   * `flex-shrink-0` child at the bottom of the fixed-height column below `md`;
+   * the component itself is responsible for its `md:hidden` visibility.
+   */
+  commandBar?: ReactNode;
 }
 
 /**
@@ -48,6 +54,7 @@ export function DocumentWorkspace({
   preview,
   atsPanel,
   sidebar,
+  commandBar,
 }: DocumentWorkspaceProps) {
   return (
     <div
@@ -59,16 +66,27 @@ export function DocumentWorkspace({
         activeDoc={activeDoc}
         onDownloadPdf={onDownloadPdf}
         downloadDisabled={downloadDisabled}
+        // E040/US226: a command bar carries its own primary Download action —
+        // hide the top-bar one below `md` so mobile shows a single CTA.
+        hideDownloadBelowMd={Boolean(commandBar)}
       />
       <div className="flex flex-1 min-h-0">
-        {/* Left column: document preview + ATS panel below it */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto px-4 py-3 gap-3">
+        {/* Left column: document preview + ATS panel below it.
+            Below md the preview goes full-width (the sidebar is hidden) and the
+            ATS panel moves into the command bar's bottom sheet, so it's hidden
+            here to avoid a duplicate. */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto px-3 py-2 md:px-4 md:py-3 gap-3">
           <div className="flex-1 min-h-0 flex flex-col">{preview}</div>
-          {atsPanel}
+          {atsPanel && <div className="hidden md:block">{atsPanel}</div>}
         </div>
-        {/* Right column: refinement sidebar */}
-        {sidebar}
+        {/* Right column: refinement sidebar — desktop only (E040 / US226).
+            `hidden md:contents` keeps the aside a direct flex child at md+
+            (preserving its width / flex-shrink) while dropping it below md. */}
+        {sidebar && <div className="hidden md:contents">{sidebar}</div>}
       </div>
+      {/* Mobile-only command bar — a flex-shrink-0 row pinned to the bottom of
+          the fixed-height container (no position:fixed, no measured spacer). */}
+      {commandBar}
     </div>
   );
 }

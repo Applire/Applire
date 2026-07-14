@@ -178,8 +178,13 @@ jobs:
         env:
           CI: true
 
-      - name: Run Playwright OQ tests
-        run: node_modules/.bin/playwright test tests/oq/
+      - name: Run Playwright OQ tests (desktop)
+        run: node_modules/.bin/playwright test tests/oq/ --project=chromium
+        env:
+          CI: true
+
+      - name: Run Playwright OQ tests (mobile, US227)
+        run: node_modules/.bin/playwright test tests/oq/mobile/ --project=mobile-chromium
         env:
           CI: true
 

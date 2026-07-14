@@ -46,12 +46,38 @@ export default defineConfig({
 
   /**
    * Test projects
-   * Currently using Chromium only. Can be extended to include Firefox, WebKit later.
+   * Desktop Chromium (all OQ specs except tests/oq/mobile/) plus a dedicated
+   * mobile-viewport Chromium lane (tests/oq/mobile/ only, see below). Can be
+   * extended to include Firefox, WebKit later.
    */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // US227 review finding: the mobile-chromium project below scopes itself
+      // to tests/oq/mobile/ via its own testMatch, but this project still
+      // inherits the global testMatch (**/oq/**/*.spec.ts) — without this
+      // testIgnore it would run every mobile spec a SECOND time, serially
+      // (workers: 1), just at the desktop viewport. Excludes ONLY oq/mobile/ —
+      // desktop coverage of every other OQ spec is unchanged.
+      testIgnore: ['**/oq/mobile/**'],
+    },
+
+    // US227 (E040 ADR-050 §6): mobile-viewport OQ lane — 390x844 (a small
+    // Android-class viewport), touch-enabled, mobile Chrome UA. Scoped to its
+    // own directory via testMatch so it never doubles up with the desktop
+    // project above (which explicitly ignores tests/oq/mobile/).
+    {
+      name: 'mobile-chromium',
+      testMatch: ['**/oq/mobile/**/*.spec.ts'],
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+      },
     },
 
     // Uncomment to add WebKit testing in the future

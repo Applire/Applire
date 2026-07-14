@@ -130,7 +130,7 @@ export default function DashboardPage() {
     <div className="flex flex-col flex-1 overflow-hidden">
       <AppTopbar mode="section" titleKey="shell.dashboard" />
 
-      <main className="flex-1 overflow-y-auto px-8 py-7">
+      <main className="flex-1 overflow-y-auto px-4 md:px-8 py-5 md:py-7">
         {/* PQ F1: truthful dashboard — CV imports may still be running server-side
             (e.g. after a refresh interrupted onboarding). Say so instead of showing
             a half-imported profile as complete; refresh the strength card when done. */}
@@ -147,7 +147,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Top row: Quick Tailor + Profile Strength */}
-        <div className="grid grid-cols-[1fr_260px] gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4 mb-6">
           <QuickTailorWidget />
           <ProfileStrengthCard key={profileRefreshKey} />
         </div>
@@ -204,7 +204,7 @@ export default function DashboardPage() {
         )}
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-36 bg-white rounded-xl border border-gray-200 animate-pulse" />
             ))}
@@ -220,7 +220,7 @@ export default function DashboardPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5" data-testid="applications-grid">
             {visibleApplications.slice(0, MAX_CARDS).map((app) => (
               <DashboardApplicationCard
                 key={app.id}

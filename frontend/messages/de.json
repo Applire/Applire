@@ -764,7 +764,9 @@
     "appLogoAlt": "Applire",
     "topbarSeparator": "|",
     "topbarUserInitial": "A",
-    "backArrowLabel": "← {label}"
+    "backArrowLabel": "← {label}",
+    "openNavAriaLabel": "Navigation öffnen",
+    "navDrawerDescription": "Hauptnavigation"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1021,5 +1023,14 @@
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",
     "validUntil": "gültig bis {date}"
+  },
+  "commandBar": {
+    "atsChecks": "ATS-Checks",
+    "fineTune": "Feinschliff",
+    "downloadPdf": "PDF herunterladen",
+    "atsSheetTitle": "ATS-Checks",
+    "fineTuneSheetTitle": "Feinschliff",
+    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}",
+    "fineTuneDegradedNotice": "Die Bearbeitung ist für größere Bildschirme optimiert. Hier kannst du prüfen; für die volle Bearbeitung öffne diesen Lebenslauf am Computer."
   }
 }

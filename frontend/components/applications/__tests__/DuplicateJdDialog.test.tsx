@@ -100,4 +100,32 @@ describe("DuplicateJdDialog", () => {
     expect(onOpenExisting).not.toHaveBeenCalled();
     expect(onContinueNew).not.toHaveBeenCalled();
   });
+
+  // US224 — same component, presentation-only divergence (ADR-050 §2): below
+  // md this re-presents as a bottom sheet; md and up keeps the centred modal.
+  describe("mobile presentation (US224)", () => {
+    it("pins the panel to the bottom of the viewport below md, centred at md+", () => {
+      renderDialog();
+      const overlay = screen.getByTestId("duplicate-jd-dialog");
+      expect(overlay.className).toContain("items-end");
+      expect(overlay.className).toContain("md:items-center");
+    });
+
+    it("gives the panel bottom-sheet corners below md and a bounded modal card at md+", () => {
+      renderDialog();
+      const overlay = screen.getByTestId("duplicate-jd-dialog");
+      const panel = overlay.firstElementChild as HTMLElement;
+      expect(panel.className).toContain("rounded-t-2xl");
+      expect(panel.className).toContain("md:rounded-xl");
+      expect(panel.className).toContain("w-full");
+      expect(panel.className).toContain("md:max-w-md");
+    });
+
+    it("still exposes every action (open existing, continue new, dismiss) in the mobile presentation", () => {
+      renderDialog();
+      expect(screen.getByTestId("duplicate-jd-open-existing")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-jd-continue-new")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-jd-dismiss")).toBeInTheDocument();
+    });
+  });
 });

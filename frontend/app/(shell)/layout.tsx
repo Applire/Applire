@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/shell/AppSidebar";
+import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -38,11 +39,13 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-dim">
-      <AppSidebar userName={userName} />
-      <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
-        {children}
+    <ShellUserProvider userName={userName}>
+      <div className="flex h-screen overflow-hidden bg-surface-dim">
+        <AppSidebar userName={userName} />
+        <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
+          {children}
+        </div>
       </div>
-    </div>
+    </ShellUserProvider>
   );
 }

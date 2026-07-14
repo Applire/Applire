@@ -115,7 +115,10 @@ export function QuickTailorWidget() {
   }
 
   return (
-    <div className="bg-white rounded-[14px] border border-gray-200 shadow-sm px-[22px] py-5 relative overflow-hidden">
+    <div
+      data-testid="quick-tailor-widget"
+      className="w-full bg-white rounded-[14px] border border-gray-200 shadow-sm px-4 sm:px-[22px] py-5 relative overflow-hidden"
+    >
       {duplicatePrompt && (
         <DuplicateJdDialog
           hint={duplicatePrompt.hint}
@@ -151,6 +154,7 @@ export function QuickTailorWidget() {
         {(["url", "text"] as JdMode[]).map((m) => (
           <button
             key={m}
+            data-testid={`quick-tailor-tab-${m}`}
             onClick={() => setMode(m)}
             className={cn(
               "px-4 pb-2 text-[13px] font-semibold relative font-manrope transition-colors",
@@ -165,8 +169,9 @@ export function QuickTailorWidget() {
         ))}
       </div>
 
-      {/* Inputs */}
-      <div className="flex gap-2.5 items-end">
+      {/* Inputs — US224: stacked below sm so the row never squashes on a
+          phone screen; row layout returns at sm and up. */}
+      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-end">
         {mode === "url" ? (
           <input
             type="url"
@@ -175,15 +180,17 @@ export function QuickTailorWidget() {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder={t("urlPlaceholder")}
             disabled={loading}
-            className="flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+            data-testid="quick-tailor-url-input"
+            className="w-full sm:flex-1 h-10 border-[1.5px] border-gray-300 rounded-lg px-3.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
           />
         ) : (
-          <div className="flex-1 flex flex-col gap-2">
+          <div className="w-full sm:flex-1 flex flex-col gap-2">
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={t("textPlaceholder")}
               disabled={loading}
+              data-testid="quick-tailor-text-input"
               className="min-h-[88px] resize-y border-[1.5px] border-gray-300 rounded-lg px-3.5 py-2.5 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
             />
             <input
@@ -193,6 +200,7 @@ export function QuickTailorWidget() {
               placeholder={t("sourcePlaceholder")}
               aria-label={t("sourceLabel")}
               disabled={loading}
+              data-testid="quick-tailor-source-input"
               className="h-9 border-[1.5px] border-gray-200 rounded-lg px-3.5 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
             />
           </div>
@@ -200,7 +208,8 @@ export function QuickTailorWidget() {
         <button
           onClick={handleSubmit}
           disabled={!canSubmit || loading}
-          className="h-10 px-5 bg-primary text-white rounded-lg text-[13px] font-bold font-manrope self-end whitespace-nowrap hover:bg-teal-dim disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          data-testid="quick-tailor-submit"
+          className="w-full sm:w-auto h-10 px-5 bg-primary text-white rounded-lg text-[13px] font-bold font-manrope sm:self-end whitespace-nowrap hover:bg-teal-dim disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? t("analysing") : t("analyseButton")}
         </button>

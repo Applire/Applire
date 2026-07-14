@@ -55,14 +55,20 @@ const sheetVariants: Record<string, string> = {
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   side?: "top" | "right" | "bottom" | "left";
+  /**
+   * Override the overlay's stacking context (defaults to z-50) — e.g. a nav
+   * drawer that must sit above other z-50 slide-over panels so it is never
+   * trapped behind one (F9.1 / #76).
+   */
+  overlayClassName?: string;
 }
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
+>(({ side = "right", className, overlayClassName, children, ...props }, ref) => (
   <SheetPortal>
-    <SheetOverlay />
+    <SheetOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(

@@ -39,6 +39,7 @@ import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -423,6 +424,21 @@ export default function CVPage({
               tabs={sidebarTabs}
               collapsed={!panelOpen}
               onToggleCollapse={() => setPanelOpen((o) => !o)}
+            />
+          }
+          commandBar={
+            <MobileCommandBar
+              atsReport={atsReport}
+              atsPanel={<ATSChecksPanel report={atsReport} />}
+              fineTuneSurface={
+                <ContentTab
+                  cvId={cvId}
+                  flowSummary={flowSummary}
+                  onSectionSave={refreshPreviewAndAts}
+                  onUnsavedChange={() => {}}
+                />
+              }
+              onDownloadPdf={() => void requestDownload()}
             />
           }
         />

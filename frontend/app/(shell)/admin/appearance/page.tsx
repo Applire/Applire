@@ -34,7 +34,7 @@ export default function AppearancePage() {
         pageTitle={t("appearanceTitle")}
       />
       <main className="flex-1 px-6 py-6 overflow-y-auto">
-        <div className="max-w-6xl mx-auto flex gap-5">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-5">
           <SchemeEditor />
           <ThemePreview />
         </div>

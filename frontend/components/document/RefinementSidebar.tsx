@@ -124,7 +124,7 @@ export function RefinementSidebar({
 
   return (
     <aside
-      className="w-[400px] h-full flex flex-col flex-shrink-0 surface-glass border-l border-outline-variant transition-[width] duration-200 ease-in-out"
+      className="w-full max-w-[400px] md:w-[400px] h-full flex flex-col flex-shrink-0 surface-glass border-l border-outline-variant transition-[width] duration-200 ease-in-out"
       data-testid="refinement-sidebar"
     >
       {/* Navy status header */}

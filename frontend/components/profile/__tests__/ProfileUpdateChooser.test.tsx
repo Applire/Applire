@@ -22,6 +22,7 @@ import { withIntl } from "@/lib/test-utils/with-intl";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/profile/upload",
 }));
 
 describe("ProfileUpdateChooser", () => {

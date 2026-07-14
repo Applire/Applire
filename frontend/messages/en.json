@@ -764,7 +764,9 @@
     "appLogoAlt": "Applire",
     "topbarSeparator": "|",
     "topbarUserInitial": "A",
-    "backArrowLabel": "← {label}"
+    "backArrowLabel": "← {label}",
+    "openNavAriaLabel": "Open navigation",
+    "navDrawerDescription": "Main navigation"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1021,5 +1023,14 @@
     "panelCollapse": "Collapse panel",
     "panelExpand": "Expand panel",
     "validUntil": "valid until {date}"
+  },
+  "commandBar": {
+    "atsChecks": "ATS Checks",
+    "fineTune": "Fine-tune",
+    "downloadPdf": "Download PDF",
+    "atsSheetTitle": "ATS Checks",
+    "fineTuneSheetTitle": "Fine-tune",
+    "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}",
+    "fineTuneDegradedNotice": "Editing is optimised for a larger screen. You can review here, but for the full editing experience open this CV on your computer."
   }
 }

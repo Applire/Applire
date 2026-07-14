@@ -23,6 +23,7 @@ const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => "/profile/upload",
 }));
 
 vi.mock("next-intl", () => ({
@@ -95,6 +96,19 @@ describe("ProfileImportView", () => {
   it("renders the LinkedIn secondary card", () => {
     render(<ProfileImportView />);
     expect(screen.getByText("linkedinCardTitle")).toBeInTheDocument();
+  });
+
+  it("renders its own AppTopbar when used standalone (no flowId)", () => {
+    render(<ProfileImportView />);
+    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+  });
+
+  // US223: the flow layout already renders AppTopbar (mode="flow") for every
+  // /flow/[flowId]/* route — a second bar here would stack two bars on one
+  // page (the /flow/[flowId]/import route regression this guards against).
+  it("suppresses its own AppTopbar when used inside a flow to avoid stacking a second bar", () => {
+    render(<ProfileImportView flowId="flow-abc" />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
   it("routes a ZIP file to /api/profile/import", async () => {

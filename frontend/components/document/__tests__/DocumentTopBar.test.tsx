@@ -59,4 +59,18 @@ describe("DocumentTopBar", () => {
     render(withIntl(<DocumentTopBar {...BASE} downloadDisabled />));
     expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("keeps the download button visible below md by default (no command bar present)", () => {
+    render(withIntl(<DocumentTopBar {...BASE} />));
+    const className = screen.getByTestId("document-download-btn").className;
+    expect(className).not.toContain("hidden");
+    expect(className).toContain("inline-flex");
+  });
+
+  it("hides the download button below md when hideDownloadBelowMd is set (E040/US226 — avoids a redundant CTA next to the mobile command bar)", () => {
+    render(withIntl(<DocumentTopBar {...BASE} hideDownloadBelowMd />));
+    const className = screen.getByTestId("document-download-btn").className;
+    expect(className).toContain("hidden");
+    expect(className).toContain("md:inline-flex");
+  });
 });

@@ -172,7 +172,7 @@ export function SchemeEditor() {
   ];
 
   return (
-    <div className="w-[340px] flex-shrink-0 flex flex-col gap-4">
+    <div className="w-full max-w-[340px] md:w-[340px] flex-shrink-0 flex flex-col gap-4">
 
       {/* Saved Schemes */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
