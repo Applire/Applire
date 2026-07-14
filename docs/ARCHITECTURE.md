@@ -482,6 +482,14 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-050 — Mobile Support via Responsive Retrofit
+
+**Decision:** Mobile support is delivered by making the single Next.js frontend responsive with Tailwind breakpoints — there is no native app, no separate mobile route tree, and (for now) no PWA. Below the `md` breakpoint the fixed sidebar shell becomes a top app bar with drawer navigation, and feature pages stack single-column (390px is the supported floor). Existing panels and dialogs re-present as bottom sheets on small viewports; document-centric screens (CV review) use a floating bottom command bar whose actions open the same components used on desktop — divergence is presentation-only, logic and API calls are never forked. The decision requires zero backend changes.
+
+**Why:** One codebase and one design system mean the mobile experience inherits every future feature by default, at the cost of having no offline/home-screen/share-sheet capability until a PWA layer is added later. New frontend contributions are expected to render correctly at 390px; a mobile-viewport Playwright project guards the core tailoring path.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
