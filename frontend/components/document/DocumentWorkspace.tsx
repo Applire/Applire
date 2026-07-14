@@ -66,6 +66,9 @@ export function DocumentWorkspace({
         activeDoc={activeDoc}
         onDownloadPdf={onDownloadPdf}
         downloadDisabled={downloadDisabled}
+        // E040/US226: a command bar carries its own primary Download action —
+        // hide the top-bar one below `md` so mobile shows a single CTA.
+        hideDownloadBelowMd={Boolean(commandBar)}
       />
       <div className="flex flex-1 min-h-0">
         {/* Left column: document preview + ATS panel below it.

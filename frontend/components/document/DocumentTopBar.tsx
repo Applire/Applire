@@ -26,6 +26,12 @@ interface DocumentTopBarProps {
   activeDoc: "cv" | "cover-letter";
   onDownloadPdf: () => void;
   downloadDisabled?: boolean;
+  /**
+   * E040 / US226: hide this Download button below `md` when the page also
+   * renders a MobileCommandBar with its own primary Download action, so
+   * mobile never shows two Download CTAs at once. Desktop is unaffected.
+   */
+  hideDownloadBelowMd?: boolean;
 }
 
 /**
@@ -40,6 +46,7 @@ export function DocumentTopBar({
   activeDoc,
   onDownloadPdf,
   downloadDisabled = false,
+  hideDownloadBelowMd = false,
 }: DocumentTopBarProps) {
   const t = useTranslations("document");
 
@@ -92,7 +99,9 @@ export function DocumentTopBar({
         onClick={onDownloadPdf}
         disabled={downloadDisabled}
         data-testid="document-download-btn"
-        className="btn-pill-primary inline-flex items-center gap-2 hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none"
+        className={`btn-pill-primary items-center gap-2 hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none ${
+          hideDownloadBelowMd ? "hidden md:inline-flex" : "inline-flex"
+        }`}
       >
         <Download className="w-4 h-4" aria-hidden="true" />
         {t("downloadPdf")}
