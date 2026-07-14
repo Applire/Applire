@@ -45,7 +45,7 @@ type ActiveSheet = "ats" | "fineTune" | null;
  * exactly three actions (Versions was cut — ADR-050 amendment 2026-07-14):
  * ATS Checks (bottom sheet, pass-count badge), Fine-tune (bottom sheet hosting
  * the existing ContentTab, read-degraded), and Download PDF (primary). It opens
- * existing, reachable components — never the orphaned CVPreview/FineTunePanel.
+ * the live CV-page components (ATSChecksPanel, ContentTab) — no forked panels.
  *
  * Presentation-only: no new panel content, no API surface. Rendered as a
  * `flex-shrink-0` child at the bottom of the fixed-height DocumentWorkspace
