@@ -41,7 +41,11 @@ tests/
 │   ├── match-page.spec.ts
 │   ├── photo-management.spec.ts
 │   ├── profile-enrichment.spec.ts
-│   └── upload-flow.spec.ts
+│   ├── upload-flow.spec.ts
+│   └── mobile/                  # 390x844 viewport lane (US227, ADR-050 §6)
+│       ├── dashboard-shell.spec.ts
+│       ├── gaps-triage.spec.ts
+│       └── cv-review.spec.ts
 ├── pq/                          # Performance Qualification — persona journeys
 │   ├── marcus/
 │   │   ├── marcus-new-user-journey.spec.ts
@@ -101,6 +105,38 @@ npx playwright test tests/oq/gaps-page.spec.ts --headed
 ```
 
 The default `playwright.config.ts` uses `testMatch: ['**/iq/**/*.spec.ts', '**/oq/**/*.spec.ts']` so PQ specs are never picked up by accident.
+
+### Mobile-viewport OQ lane (390x844, US227)
+
+A second Playwright project, `mobile-chromium`, runs the specs under `tests/oq/mobile/` at a
+390x844 viewport with `hasTouch: true` and a mobile Chrome UA (ADR-050 §6 — the responsive
+retrofit gets its own CI-caught regression lane instead of relying on the next manual UAT).
+It is scoped via a per-project `testMatch`, and the desktop `chromium` project carries a
+matching `testIgnore: ['**/oq/mobile/**']` so the two projects never run the same spec twice
+under `workers: 1` (once desktop, once mobile — never desktop-twice or mobile-in-desktop).
+
+```bash
+docker compose up -d   # mock-provider stack, same as any other OQ run
+
+# Desktop OQ lane (unchanged)
+npx playwright test --project=chromium tests/oq/
+
+# Mobile OQ lane (390x844)
+npx playwright test --project=mobile-chromium
+
+# Both lanes, one invocation (the default project list runs every project
+# matching its own testMatch, so nothing doubles up)
+npx playwright test
+```
+
+Each mobile spec asserts `document.body.scrollWidth <= window.innerWidth` on shell pages (no
+horizontal body overflow — an a11y snapshot can't catch this, only real pixels can) and
+captures a full-page screenshot via `testInfo.attach()` (also written to `test-results/`) as
+an evidence artifact. Covers: dashboard/shell (hamburger → `MobileNavDrawer`, single-column
+`applications-grid`), gap triage (`gaps-decision-bar` fixed at the viewport bottom, US225),
+and CV review (`MobileCommandBar`'s three actions — ATS Checks, Fine-tune, Download PDF —
+US226). Stays hermetic like every other OQ spec: `page.route()` mocks only, `LLM_PROVIDER=mock`,
+no real backend/LLM calls.
 
 ### PQ tests (requires Docker stack)
 
