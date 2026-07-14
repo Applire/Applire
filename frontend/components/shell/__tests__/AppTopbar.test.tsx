@@ -88,15 +88,21 @@ describe("AppTopbar", () => {
     expect(screen.getByRole("button", { name: messages.shell.openNavAriaLabel })).toBeInTheDocument();
   });
 
-  it("shows the fallback avatar letter when no userName has loaded yet", () => {
+  it("shows the fallback avatar letter on the mobile avatar when no userName has loaded yet", () => {
     render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />));
-    expect(screen.getByRole("button", { name: messages.shell.openSettingsAriaLabel }).textContent).toBe(
-      messages.shell.topbarUserInitial
-    );
+    expect(screen.getByTestId("topbar-avatar-mobile").textContent).toBe(messages.shell.topbarUserInitial);
   });
 
-  it("shows the real user's initials on the avatar once userName is threaded via context", () => {
+  it("shows the real user's initials on the mobile avatar once userName is threaded via context", () => {
     render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, "Max Mustermann"));
-    expect(screen.getByRole("button", { name: messages.shell.openSettingsAriaLabel }).textContent).toBe("MM");
+    expect(screen.getByTestId("topbar-avatar-mobile").textContent).toBe("MM");
+  });
+
+  // AC: "Desktop (md: and up) keeps the current persistent sidebar and
+  // AppTopbar unchanged" — the desktop avatar keeps the placeholder letter
+  // regardless of userName; only the below-md avatar shows real initials.
+  it("keeps the desktop avatar unchanged (placeholder letter) even when userName is threaded via context", () => {
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, "Max Mustermann"));
+    expect(screen.getByTestId("topbar-avatar-desktop").textContent).toBe(messages.shell.topbarUserInitial);
   });
 });

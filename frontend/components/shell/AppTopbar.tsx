@@ -160,7 +160,14 @@ export function AppTopbar(props: AppTopbarProps) {
             onClick={() => router.push("/settings")}
             className="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-primary-container to-surface-container-highest flex items-center justify-center text-[12px] font-bold text-primary cursor-pointer"
           >
-            {initials ?? t("shell.topbarUserInitial")}
+            {/* Below md: real initials (US223). md and up: unchanged — the
+                same placeholder letter AppTopbar always showed here. */}
+            <span className="md:hidden" data-testid="topbar-avatar-mobile">
+              {initials ?? t("shell.topbarUserInitial")}
+            </span>
+            <span className="hidden md:inline" data-testid="topbar-avatar-desktop">
+              {t("shell.topbarUserInitial")}
+            </span>
           </button>
         </div>
       </header>
