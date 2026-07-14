@@ -100,6 +100,7 @@ export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
               <button
                 key={key}
                 type="button"
+                data-testid={`nav-item-${key}`}
                 onClick={() => navigate(href)}
                 className={cn(
                   "flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors text-left",

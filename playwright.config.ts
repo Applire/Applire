@@ -46,7 +46,9 @@ export default defineConfig({
 
   /**
    * Test projects
-   * Currently using Chromium only. Can be extended to include Firefox, WebKit later.
+   * Desktop Chromium (all OQ specs except tests/oq/mobile/) plus a dedicated
+   * mobile-viewport Chromium lane (tests/oq/mobile/ only, see below). Can be
+   * extended to include Firefox, WebKit later.
    */
   projects: [
     {
@@ -61,10 +63,10 @@ export default defineConfig({
       testIgnore: ['**/oq/mobile/**'],
     },
 
-    // US227 (E040 ADR-050 §6): mobile-viewport OQ lane — 390x844 (iPhone-class
-    // small screen), touch-enabled, mobile Chrome UA. Scoped to its own
-    // directory via testMatch so it never doubles up with the desktop project
-    // above (which explicitly ignores tests/oq/mobile/).
+    // US227 (E040 ADR-050 §6): mobile-viewport OQ lane — 390x844 (a small
+    // Android-class viewport), touch-enabled, mobile Chrome UA. Scoped to its
+    // own directory via testMatch so it never doubles up with the desktop
+    // project above (which explicitly ignores tests/oq/mobile/).
     {
       name: 'mobile-chromium',
       testMatch: ['**/oq/mobile/**/*.spec.ts'],

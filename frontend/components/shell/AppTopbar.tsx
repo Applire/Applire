@@ -91,6 +91,7 @@ export function AppTopbar(props: AppTopbarProps) {
         <button
           type="button"
           aria-label={t("shell.openNavAriaLabel")}
+          data-testid="mobile-nav-hamburger"
           onClick={() => setDrawerOpen(true)}
           className="md:hidden -ml-2 w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-surface-container hover:text-primary transition-colors flex-shrink-0"
         >

@@ -44,6 +44,7 @@ tests/
 │   ├── upload-flow.spec.ts
 │   └── mobile/                  # 390x844 viewport lane (US227, ADR-050 §6)
 │       ├── dashboard-shell.spec.ts
+│       ├── capture.spec.ts
 │       ├── gaps-triage.spec.ts
 │       └── cv-review.spec.ts
 ├── pq/                          # Performance Qualification — persona journeys

@@ -131,7 +131,7 @@ test.describe("Mobile dashboard + shell (390x844)", () => {
     // The drawer is not mounted/visible until opened.
     await expect(page.getByTestId("mobile-nav-drawer")).toBeHidden();
 
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByTestId("mobile-nav-hamburger").click();
     const drawer = page.getByTestId("mobile-nav-drawer");
     await expect(drawer).toBeVisible({ timeout: 5000 });
 
@@ -142,7 +142,7 @@ test.describe("Mobile dashboard + shell (390x844)", () => {
     });
 
     // Tap a nav item — the drawer both navigates AND closes itself.
-    await drawer.getByRole("button", { name: "My Profile" }).click();
+    await drawer.getByTestId("nav-item-profile").click();
     await expect(page).toHaveURL(/\/profile$/, { timeout: 5000 });
     await expect(drawer).toBeHidden({ timeout: 5000 });
   });
