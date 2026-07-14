@@ -479,6 +479,28 @@ export default function GapsPage({
     required_skills: string[];
     nice_to_have_skills: string[];
   } | null>(null);
+  // US225: below md the decision bar (interview/generate/explore/cancel)
+  // becomes `fixed` at the viewport bottom; this spacer reserves the same
+  // height in normal flow so the fixed bar never permanently covers the
+  // match-score/gap cards above it. Measured (not hard-coded) because the
+  // bar's content varies across the three flow-context modes (Case 1/2/3)
+  // and with/without the cancel action.
+  const decisionBarRef = useRef<HTMLDivElement>(null);
+  const [decisionBarHeight, setDecisionBarHeight] = useState(0);
+  useEffect(() => {
+    const el = decisionBarRef.current;
+    if (!el) return;
+    const measure = () => setDecisionBarHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // `loading` matters here, not just its usual suspects: decisionBarRef only
+    // attaches once the loading branch (an early return, above) stops
+    // rendering — without it in the deps, the one re-run triggered by `gaps`
+    // arriving can land on the render where `loading` is still true and the
+    // ref is still null, and never fires again.
+  }, [gaps, flowState, actionLoading, loading]);
 
   // #67: fetch the trail once; the merge pointer derives from it per flow context.
   useEffect(() => {
@@ -1016,56 +1038,79 @@ export default function GapsPage({
           with items to address gets the mitigation option. It leads for new
           users; returning users keep Generate as the primary path (Emma
           journey: "optional but tempting"), and a clean sweep goes straight
-          to generation. */}
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-        {offerInterview && (
-          <div className="flex flex-col items-center">
+          to generation.
+          US225: below md the whole decision cluster (interview/generate/
+          explore/cancel) becomes a FIXED bottom bar — "pursue or not" stays
+          within thumb reach at all times, not just once scrolled to the end.
+          A spacer (sized to the bar's real, content-dependent height via
+          ResizeObserver) keeps it from covering the match-score/gap cards
+          that sit earlier in the same scrollable column — position:sticky
+          was tried first and rejected: nested inside the flow layout's own
+          scrollable column, it pinned as soon as the page loaded, overlapping
+          the match-score card above it instead of waiting for real scroll.
+          md and up: unchanged inline layout. */}
+      <div aria-hidden="true" className="md:hidden" style={{ height: decisionBarHeight }} />
+      <div
+        ref={decisionBarRef}
+        data-testid="gaps-decision-bar"
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-30 px-5 pt-4",
+          "pb-[max(1rem,env(safe-area-inset-bottom))]",
+          "bg-surface-dim/95 backdrop-blur-sm border-t border-gray-200",
+          "md:static md:z-auto md:mx-0 md:mt-8 md:px-0 md:pt-0 md:pb-0",
+          "md:bg-transparent md:backdrop-blur-none md:border-t-0",
+        )}
+      >
+        <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
+          {offerInterview && (
+            <div className="flex flex-col items-center w-full sm:w-auto">
+              <Button
+                variant={flowState?.user_type === "new" ? "primary" : "secondary"}
+                size="lg"
+                onClick={() => void advance("interview")}
+                disabled={actionLoading}
+                className="w-full sm:w-auto sm:min-w-[240px]"
+                data-testid="interview-button"
+              >
+                {t("startInterview")}
+              </Button>
+              <p className="text-xs italic text-gray-500 mt-2">
+                {t("gapInterviewHint")}
+              </p>
+            </div>
+          )}
+          {hasJob && (
             <Button
-              variant={flowState?.user_type === "new" ? "primary" : "secondary"}
+              variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
               size="lg"
-              onClick={() => void advance("interview")}
+              onClick={() => void advance("cv_generation")}
               disabled={actionLoading}
-              className="min-w-[240px]"
-              data-testid="interview-button"
+              className="w-full sm:w-auto sm:min-w-[200px]"
+              data-testid="generate-cv-button"
             >
-              {t("startInterview")}
+              {t("generateCV")}
             </Button>
-            <p className="text-xs italic text-gray-500 mt-2">
-              {t("gapInterviewHint")}
-            </p>
+          )}
+          <a
+            href="/profile"
+            className="text-sm text-teal underline hover:no-underline"
+            onClick={(e) => { e.preventDefault(); router.push("/profile"); }}
+          >
+            {t("exploreProfile")}
+          </a>
+        </div>
+
+        {/* US222 (Branch I): the honest walk-away at the match-score decision —
+            a quiet tertiary action; the score may tell Emma this isn't worth it. */}
+        {flowState?.application_id && (
+          <div className="flex justify-center mt-5">
+            <CancelApplicationButton
+              applicationId={flowState.application_id}
+              variant="inline"
+            />
           </div>
         )}
-        {hasJob && (
-          <Button
-            variant={flowState?.user_type === "returning" || counts.itemsToAddress === 0 ? "primary" : "secondary"}
-            size="lg"
-            onClick={() => void advance("cv_generation")}
-            disabled={actionLoading}
-            className="min-w-[200px]"
-            data-testid="generate-cv-button"
-          >
-            {t("generateCV")}
-          </Button>
-        )}
-        <a
-          href="/profile"
-          className="text-sm text-teal underline hover:no-underline"
-          onClick={(e) => { e.preventDefault(); router.push("/profile"); }}
-        >
-          {t("exploreProfile")}
-        </a>
       </div>
-
-      {/* US222 (Branch I): the honest walk-away at the match-score decision —
-          a quiet tertiary action; the score may tell Emma this isn't worth it. */}
-      {flowState?.application_id && (
-        <div className="flex justify-center mt-5">
-          <CancelApplicationButton
-            applicationId={flowState.application_id}
-            variant="inline"
-          />
-        </div>
-      )}
     </div>
   );
 }

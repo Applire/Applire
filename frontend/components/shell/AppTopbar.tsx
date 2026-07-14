@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -62,10 +62,26 @@ export function AppTopbar(props: AppTopbarProps) {
   const t = useTranslations();
   const { userName } = useShellUser();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const activeStepRef = useRef<HTMLSpanElement | null>(null);
 
   const initials = userName
     ? userName.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase()
     : null;
+
+  // US225: at 390px four full-text step pills don't all fit next to the
+  // hamburger + bell + avatar — the strip scrolls horizontally (overflow-x-auto
+  // below), so make sure the ACTIVE step is the one in view instead of
+  // whichever one happened to render first.
+  const activeStepKey = props.mode === "flow"
+    ? props.steps.find((s) => s.state === "active")?.key
+    : undefined;
+  useEffect(() => {
+    // jsdom (unit tests) doesn't implement scrollIntoView — guard defensively
+    // rather than assume every render environment has it.
+    if (activeStepKey && typeof activeStepRef.current?.scrollIntoView === "function") {
+      activeStepRef.current.scrollIntoView({ inline: "center", block: "nearest" });
+    }
+  }, [activeStepKey]);
 
   return (
     <>
@@ -105,12 +121,17 @@ export function AppTopbar(props: AppTopbarProps) {
           )}
 
           {props.mode === "flow" && (
-            <div className="flex items-center gap-1.5 overflow-x-auto">
+            // US225: below md the pills shrink and the trailing role-title
+            // badge (decorative context, not a step) is dropped so the active
+            // step stays reachable within 390px instead of relying solely on
+            // the horizontal scroll for every pill.
+            <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto">
               {props.steps.map((s) => (
                 <span
                   key={s.key}
+                  ref={s.state === "active" ? activeStepRef : undefined}
                   className={cn(
-                    "px-3 py-1 rounded-full text-[12px] font-semibold whitespace-nowrap",
+                    "px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[11px] md:text-[12px] font-semibold whitespace-nowrap shrink-0",
                     s.state === "done"   && "bg-success text-white",
                     s.state === "active" && "bg-primary text-white",
                     s.state === "pending" && "bg-surface-container text-gray-500",
@@ -121,7 +142,7 @@ export function AppTopbar(props: AppTopbarProps) {
               ))}
               {props.trailingBadge && (
                 <span
-                  className="ml-2 px-2.5 py-1 rounded-full text-[12px] text-gray-600 bg-gray-100 max-w-[260px] truncate"
+                  className="hidden md:inline-block ml-2 px-2.5 py-1 rounded-full text-[12px] text-gray-600 bg-gray-100 max-w-[260px] truncate shrink-0"
                   title={props.trailingBadge}
                 >
                   {props.trailingBadge}
