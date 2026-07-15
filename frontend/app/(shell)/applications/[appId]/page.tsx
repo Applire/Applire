@@ -132,6 +132,9 @@ export default function ApplicationDetailPage() {
   const [jobAnalysis, setJobAnalysis] = useState<JobAnalysisSummary | null>(null);
   // Newest ready CV's template — the header Re-tailor payload (1.1 exposes it).
   const [newestReadyTemplate, setNewestReadyTemplate] = useState<string | null>(null);
+  // Newest ready CV's target_pages (whole-branch review Finding 2) — the header
+  // Re-tailor fallback source when stale_cv is absent (non-stale applications).
+  const [newestReadyTargetPages, setNewestReadyTargetPages] = useState<number | null>(null);
 
   // Stale-status refresh prompt (E039/US218, JF-E-P2.1) — session-local dismiss.
   const [staleDismissed, setStaleDismissed] = useState(false);
@@ -172,14 +175,17 @@ export default function ApplicationDetailPage() {
           })
           .catch(() => {});
 
-        // Newest ready CV's template — the header Re-tailor payload.
+        // Newest ready CV's template + target_pages — the header Re-tailor payload.
         void fetch(`${API_BASE}/api/cv?job_id=${data.job_analysis_id}`)
           .then((r) => (r.ok ? r.json() : []))
-          .then((list: Array<{ status: string; template?: string | null }>) => {
+          .then((list: Array<{ status: string; template?: string | null; target_pages?: number | null }>) => {
             const newestReady = Array.isArray(list)
               ? list.find((cv) => cv.status === "ready")
               : undefined;
-            if (!cancelled) setNewestReadyTemplate(newestReady?.template ?? null);
+            if (!cancelled) {
+              setNewestReadyTemplate(newestReady?.template ?? null);
+              setNewestReadyTargetPages(newestReady?.target_pages ?? null);
+            }
           })
           .catch(() => {});
       } catch (err) {
@@ -276,10 +282,15 @@ export default function ApplicationDetailPage() {
     try {
       const body: Record<string, unknown> = { job_id: application.job_analysis_id };
       if (newestReadyTemplate) body.template = newestReadyTemplate;
-      // E042/US239: same forwarding as the stale-CV nudge (handleRetailor) —
-      // the read model's target_pages, when present, is the newest ready CV's target.
-      if (application.stale_cv?.target_pages != null) {
-        body.target_pages = application.stale_cv.target_pages;
+      // Whole-branch review Finding 2: stale_cv is only populated when the
+      // profile changed after the newest CV, so on a non-stale application
+      // application.stale_cv is null and its target_pages silently vanished.
+      // Prefer stale_cv's target (it reflects the freshest re-tailor context)
+      // but fall back to the newest ready CV's own target_pages, which is
+      // always available regardless of staleness.
+      const targetPages = application.stale_cv?.target_pages ?? newestReadyTargetPages;
+      if (targetPages != null) {
+        body.target_pages = targetPages;
       }
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",

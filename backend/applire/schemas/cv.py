@@ -73,6 +73,11 @@ class CVStatusResponse(BaseModel):
     expires_at: datetime
     template: Optional[str] = None      # E041/US232: version identity in the dossier documents zone
     created_at: Optional[datetime] = None
+    # E042/US236 (ADR-051 §1, whole-branch review Finding 2): the target page
+    # count this CV was rendered at (None = region standard / no override).
+    # Lets the header re-tailor button forward the newest READY CV's target
+    # even on non-stale applications, where stale_cv is absent.
+    target_pages: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

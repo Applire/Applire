@@ -821,6 +821,7 @@ async def get_cv_status(
             record.error_code or ("generation_failed" if status == CVGenerationStatus.failed else None)
         ),
         expires_at=record.expires_at,
+        target_pages=record.target_pages,
     )
 
 
@@ -857,6 +858,7 @@ async def list_cvs_for_job(
             expires_at=r.expires_at,
             template=r.template,
             created_at=r.created_at,
+            target_pages=r.target_pages,
         )
         for r in records
     ]

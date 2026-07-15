@@ -62,7 +62,12 @@ async def db():
     await engine.dispose()
 
 
-def _make_cv(job_id: uuid.UUID, status: str = "ready", offset_seconds: int = 0):
+def _make_cv(
+    job_id: uuid.UUID,
+    status: str = "ready",
+    offset_seconds: int = 0,
+    target_pages: int | None = None,
+):
     from applire.models.cv import GeneratedCV
     return GeneratedCV(
         id=uuid.uuid4(),
@@ -72,6 +77,7 @@ def _make_cv(job_id: uuid.UUID, status: str = "ready", offset_seconds: int = 0):
         template="continental",
         status=status,
         created_at=datetime.now(timezone.utc) + timedelta(seconds=offset_seconds),
+        target_pages=target_pages,
     )
 
 
@@ -96,3 +102,37 @@ async def test_list_cvs_for_job_carries_template_and_created_at(db):
     for response_item, orm_row in ((result[0], newer), (result[1], older)):
         assert response_item.template == orm_row.template == "continental"
         assert response_item.created_at == orm_row.created_at
+
+
+@pytest.mark.asyncio
+async def test_cv_status_responses_carry_target_pages(db):
+    # Whole-branch review Finding 2: the header re-tailor button reads
+    # target_pages off the newest READY CV's status response when no
+    # stale_cv is present. CVStatusResponse must round-trip the column
+    # from both GET /api/cv/{id}/status and GET /api/jobs/{id}/cvs.
+    from applire.services.cv import get_cv_status, list_cvs_for_job
+
+    job_id = uuid.uuid4()
+    cv = _make_cv(job_id, status="ready", target_pages=3)
+    db.add(cv)
+    await db.commit()
+
+    status_result = await get_cv_status(cv.id, db, "http://localhost:8001")
+    assert status_result.target_pages == 3
+
+    list_result = await list_cvs_for_job(job_id, db, "http://localhost:8001")
+    assert list_result[0].target_pages == 3
+
+
+@pytest.mark.asyncio
+async def test_cv_status_responses_carry_null_target_pages(db):
+    # NULL (region-standard / no override) must round-trip as None too.
+    from applire.services.cv import get_cv_status
+
+    job_id = uuid.uuid4()
+    cv = _make_cv(job_id, status="ready", target_pages=None)
+    db.add(cv)
+    await db.commit()
+
+    status_result = await get_cv_status(cv.id, db, "http://localhost:8001")
+    assert status_result.target_pages is None
