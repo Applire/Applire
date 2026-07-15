@@ -154,7 +154,8 @@ describe("DashboardApplicationCard", () => {
     expect(screen.getByText("chipInProgress")).toBeInTheDocument();
   });
 
-  // ── Action button labels ─────────────────────────────────────────────────
+  // ── Action button labels (E041/US235 — button opens the dossier, same as
+  // the card body, so every flow-session status now reads "Open") ─────────
 
   it("action button shows 'Open' for cv_ready", () => {
     renderCard({ workflowStatus: "completed" });
@@ -166,14 +167,14 @@ describe("DashboardApplicationCard", () => {
     expect(screen.getByRole("button", { name: /actionStartFlow/i })).toBeInTheDocument();
   });
 
-  it("action button shows 'Resume' for in_progress", () => {
+  it("action button shows 'Open' for in_progress", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: NOW });
-    expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open/i })).toBeInTheDocument();
   });
 
-  it("action button shows 'Continue' for interrupted", () => {
+  it("action button shows 'Open' for interrupted", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: STALE_48H });
-    expect(screen.getByRole("button", { name: /continue/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open/i })).toBeInTheDocument();
   });
 
   // ── Card click routing ───────────────────────────────────────────────────
@@ -185,27 +186,28 @@ describe("DashboardApplicationCard", () => {
     expect(mockPush).toHaveBeenCalledWith("/applications/app-1");
   });
 
-  // ── Action button routing ────────────────────────────────────────────────
+  // ── Action button routing (E041/US235) ───────────────────────────────────
 
-  // All flow actions route via the flow index — the layout guard / index page
-  // resolve the real current_step; hard-coded steps desync the state machine.
+  // The button now routes into the dossier, exactly like the card body — the
+  // dossier header itself offers Resume (mid-flow) / Open CV (completed), so
+  // no capability is lost by no longer hard-coding a flow step here.
 
-  it("Open button navigates to the flow index", () => {
+  it("Open button (cv_ready) navigates to /applications/{id}", () => {
     renderCard({ workflowStatus: "completed", flowSessionId: "flow-99" });
     fireEvent.click(screen.getByRole("button", { name: /open/i }));
-    expect(mockPush).toHaveBeenCalledWith("/flow/flow-99");
+    expect(mockPush).toHaveBeenCalledWith("/applications/app-1");
   });
 
-  it("Resume button navigates to the flow index", () => {
+  it("Open button (in_progress) navigates to /applications/{id}", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: NOW, flowSessionId: "flow-42" });
-    fireEvent.click(screen.getByRole("button", { name: /resume/i }));
-    expect(mockPush).toHaveBeenCalledWith("/flow/flow-42");
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    expect(mockPush).toHaveBeenCalledWith("/applications/app-1");
   });
 
-  it("Continue button (interrupted) navigates to the flow index", () => {
+  it("Open button (interrupted) navigates to /applications/{id}", () => {
     renderCard({ workflowStatus: "analyzing", updatedAt: STALE_48H, flowSessionId: "flow-7" });
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    expect(mockPush).toHaveBeenCalledWith("/flow/flow-7");
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    expect(mockPush).toHaveBeenCalledWith("/applications/app-1");
   });
 
   it("Start Flow button calls onStartFlow callback", () => {
@@ -214,6 +216,27 @@ describe("DashboardApplicationCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /actionStartFlow/i }));
     expect(onStartFlow).toHaveBeenCalled();
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  // ── Action button testid gating (E041/US235 — expanded to ALL flow-session
+  // statuses; PQ selectors depend on this) ─────────────────────────────────
+
+  it("shows the open-btn testid for cv_ready, in_progress, and interrupted", () => {
+    const { unmount: unmountCvReady } = renderCard({ workflowStatus: "completed" });
+    expect(screen.getByTestId("dashboard-card-open-btn")).toBeInTheDocument();
+    unmountCvReady();
+
+    const { unmount: unmountInProgress } = renderCard({ workflowStatus: "analyzing", updatedAt: NOW });
+    expect(screen.getByTestId("dashboard-card-open-btn")).toBeInTheDocument();
+    unmountInProgress();
+
+    renderCard({ workflowStatus: "analyzing", updatedAt: STALE_48H });
+    expect(screen.getByTestId("dashboard-card-open-btn")).toBeInTheDocument();
+  });
+
+  it("omits the open-btn testid on tracking cards", () => {
+    renderCard({ workflowStatus: "none" });
+    expect(screen.queryByTestId("dashboard-card-open-btn")).toBeNull();
   });
 
   // ── Display fields ───────────────────────────────────────────────────────

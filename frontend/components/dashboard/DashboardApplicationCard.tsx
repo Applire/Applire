@@ -139,9 +139,10 @@ export function DashboardApplicationCard({
     if (status === "tracking") {
       onStartFlow?.();
     } else if (flowSessionId) {
-      // Always enter via the flow index — the layout guard redirects to the
-      // backend's actual current_step; hard-coding a step desyncs the flow.
-      router.push(`/flow/${flowSessionId}`);
+      // Same destination as the card body (E041/US235) — the dossier header
+      // offers Resume (mid-flow) / Open CV (completed), so no capability is
+      // lost by not hard-coding a flow step here.
+      router.push(`/applications/${applicationId}`);
     }
   }
 
@@ -156,17 +157,19 @@ export function DashboardApplicationCard({
     }
   }
 
-  type ActionKey = "actionResume" | "actionOpen" | "actionContinue" | "actionStartFlow";
+  // E041/US235 — the button opens the dossier for every flow-session status
+  // (same destination as the card body), so it reads "Open" uniformly; only
+  // the tracking card (no flow session yet) keeps its distinct start action.
+  type ActionKey = "actionOpen" | "actionStartFlow";
   const ACTION_LABEL: Record<CardStatus, ActionKey> = {
-    in_progress: "actionResume",
+    in_progress: "actionOpen",
     cv_ready:    "actionOpen",
-    interrupted: "actionContinue",
+    interrupted: "actionOpen",
     tracking:    "actionStartFlow",
   };
 
   // Icon names are non-user-facing Material Symbols identifiers — kept as JS vars to avoid JSX literal rule
-  const actionIcon: string =
-    status === "cv_ready" ? "open_in_new" : status === "tracking" ? "bolt" : "play_arrow";
+  const actionIcon: string = status === "tracking" ? "bolt" : "open_in_new";
 
   return (
     <div
@@ -272,7 +275,7 @@ export function DashboardApplicationCard({
         <div className="flex items-center gap-2">
           <button
             onClick={handleAction}
-            data-testid={status === "cv_ready" ? "dashboard-card-open-btn" : undefined}
+            data-testid={status !== "tracking" ? "dashboard-card-open-btn" : undefined}
             className={cn(
               "text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors",
               status === "cv_ready"

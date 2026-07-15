@@ -119,7 +119,10 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
     await expect(page.getByTestId("dashboard-card-open-btn").first()).toBeVisible();
   });
 
-  test("Open button on dashboard card navigates to the CV view", async ({ page }) => {
+  test("Open button on dashboard card navigates to the CV view (via the dossier)", async ({ page }) => {
+    // E041/US235 — the dashboard card's Open button now opens the per-application
+    // dossier (like the card body); the dossier header's Open CV action is where
+    // Felix actually reaches the CV. No capability is lost — same intent, one hop.
     await runFullOnboardingFlow(page);
     await page.goto("/dashboard");
     await expect(page.getByTestId("dashboard-card-open-btn").first()).toBeVisible({
@@ -127,6 +130,9 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
     });
 
     await page.getByTestId("dashboard-card-open-btn").first().click();
+    await expect(page).toHaveURL(/\/applications\/.+/, { timeout: 10000 });
+
+    await page.getByTestId("dossier-open-cv").click();
     await expect(page).toHaveURL(/\/flow\/.+\/cv/, { timeout: 10000 });
   });
 

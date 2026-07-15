@@ -558,7 +558,7 @@ export default function ApplicationDetailPage() {
             {/* Actions row */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {isCompleted && (
-                <Button onClick={handleViewCV}>{t("openCvAction")}</Button>
+                <Button data-testid="dossier-open-cv" onClick={handleViewCV}>{t("openCvAction")}</Button>
               )}
               {isMidFlow && (
                 <Button onClick={handleResume}>{t("resumeAction")}</Button>
