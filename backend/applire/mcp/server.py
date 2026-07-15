@@ -238,10 +238,12 @@ async def get_profile() -> dict:
 @mcp.tool(
     description=(
         "Update a section of the MasterProfile. "
-        "section must be one of: work_history, skills, education, languages, contact."
+        f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
+        "data is a dict for object-shaped sections (e.g. personal_info) or a list "
+        "for list-shaped sections (e.g. skills, work_experience)."
     )
 )
-async def update_profile(section: str, data: dict) -> dict:
+async def update_profile(section: str, data: dict | list) -> dict:
     async with get_db() as db:
         try:
             result = await profile_svc.patch_profile_section(section, data, db)

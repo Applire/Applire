@@ -247,6 +247,69 @@ async def test_update_profile_no_profile_raises():
     assert exc_info.value.error.code == -32001
 
 
+@pytest.mark.asyncio
+async def test_update_profile_list_section_survives_protocol_layer():
+    """#167: calling the Python function directly bypasses FastMCP's argument
+    validation entirely (that's why the tests above pass even though the tool
+    used to advertise ``data: dict``). Route through ``mcp.call_tool`` — the same
+    layer a real agent hits over stdio — so a list-valued section (skills,
+    education, ...) is actually exercised against the tool's JSON schema."""
+    from applire.mcp.server import mcp
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), completeness=90)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.profile_svc.patch_profile_section",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        output = await mcp.call_tool(
+            "update_profile", {"section": "skills", "data": ["Python", "FastAPI"]}
+        )
+
+    assert output is not None
+
+
+@pytest.mark.asyncio
+async def test_update_profile_tool_schema_accepts_list_for_data():
+    """The advertised inputSchema for ``data`` must allow both an object (dict
+    sections like personal_info) and an array (list sections like skills)."""
+    from applire.mcp.server import mcp
+
+    tools = await mcp.list_tools()
+    update_profile_tool = next(t for t in tools if t.name == "update_profile")
+    data_schema = update_profile_tool.inputSchema["properties"]["data"]
+
+    accepted_types = set()
+    if "type" in data_schema:
+        accepted_types.add(data_schema["type"])
+    for variant in data_schema.get("anyOf", []):
+        if "type" in variant:
+            accepted_types.add(variant["type"])
+
+    assert "array" in accepted_types, f"data schema does not accept arrays: {data_schema}"
+    assert "object" in accepted_types, f"data schema does not accept objects: {data_schema}"
+
+
+def test_update_profile_description_derives_from_valid_sections():
+    """The tool description must never drift from the service's real
+    ``_VALID_SECTIONS`` set — the old hardcoded list advertised nonexistent
+    sections (``work_history``, ``contact``) and omitted real ones."""
+    from applire.mcp.server import mcp
+    from applire.services import profile as profile_svc
+
+    tool = mcp._tool_manager.get_tool("update_profile")
+    for section in profile_svc._VALID_SECTIONS:
+        assert section in tool.description, f"{section!r} missing from update_profile description"
+    for bogus in ("work_history", "contact"):
+        assert bogus not in tool.description, (
+            f"update_profile description advertises nonexistent section {bogus!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # analyze_gaps
 # ---------------------------------------------------------------------------
