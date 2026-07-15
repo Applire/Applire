@@ -367,7 +367,12 @@
     "markSubmittedRemove": "Markierung entfernen",
     "retailoredNote": "Neu zugeschnitten — dein Profil hat seit der letzten Version dazugewonnen: {gained}",
     "retailoredNotePlain": "Neu zugeschnitten aus deinem aktuellen Profil",
-    "retailoredNoteClose": "Hinweis schließen"
+    "retailoredNoteClose": "Hinweis schließen",
+    "targetPagesLabel": "Ziel-Seitenzahl",
+    "targetPagesStandardOption": "2 Seiten — DACH-Standard",
+    "targetPagesOption": "{count} Seiten",
+    "targetPagesRegionStandardOption": "Regionsstandard",
+    "targetPagesBeyondNormHint": "Über der DACH-Norm — geeignet für Senior- oder Führungsprofile."
   },
   "saveScopePrompt": {
     "saveToProfile": "Im Master-Profil speichern?",
@@ -468,6 +473,8 @@
     "deleting": "Wird gelöscht…",
     "defaultCVColor": "Standard-Farbe für Lebensläufe",
     "defaultCVColorHint": "Wird verwendet, wenn keine Firmenfarbe erkannt werden kann.",
+    "defaultCVLength": "Standard-Seitenzahl für Lebensläufe",
+    "defaultCVLengthHint": "Die Ausgangs-Seitenzahl für neue Lebensläufe, sofern du für eine einzelne Generierung nichts anderes wählst.",
     "saved": "Gespeichert ✓",
     "back": "← Zurück"
   },
@@ -909,7 +916,7 @@
       "body": "Anschreiben-Absatz erkannt",
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
-      "page-length": "Seitenlänge innerhalb der DACH-Norm"
+      "page-length": "Seitenlänge"
     }
   },
   "admin": {

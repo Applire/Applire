@@ -23,6 +23,7 @@ import { use, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/cv/TemplateSelector";
+import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { GenerationProgress } from "@/components/cv/GenerationProgress";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
@@ -102,6 +103,10 @@ export default function CVPage({
   const [retailoredGained, setRetailoredGained] = useState<StaleCVGained[] | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
+  // E042/US239 (ADR-051 §1): per-generation page-target override, sent as
+  // `target_pages` in the generate POST body. Defaults to the user's
+  // `target_cv_pages` setting when set, else the DACH standard (2).
+  const [targetPages, setTargetPages] = useState<number>(2);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
   const [atsRefresh, setAtsRefresh] = useState(0);
 
@@ -110,6 +115,20 @@ export default function CVPage({
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("retailored");
     if (param) setRetailoredGained(decodeGained(param));
+  }, []);
+
+  // E042/US239: seed the page-target selector from the user's saved default.
+  // A settings failure just keeps the DACH-standard (2) default — never a gate.
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setTargetPages(s.target_cv_pages ?? 2);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Restore state from server on mount — determine correct phase before rendering
@@ -221,7 +240,7 @@ export default function CVPage({
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: flowState.job_id, template: tpl }),
+        body: JSON.stringify({ job_id: flowState.job_id, template: tpl, target_pages: targetPages }),
       });
       if (!res.ok) return;
       const data: { cv_id: string; status: string; expires_at: string } = await res.json();
@@ -503,7 +522,13 @@ export default function CVPage({
       )}
 
       {phase === "template_select" && (
-        <TemplateSelector onGenerate={handleGenerate} isLoading={isGenerating} />
+        <TemplateSelector
+          onGenerate={handleGenerate}
+          isLoading={isGenerating}
+          extraControls={
+            <TargetPagesSelect value={targetPages} onChange={(v) => setTargetPages(v ?? 2)} />
+          }
+        />
       )}
 
       {phase === "generating" && cvId && (

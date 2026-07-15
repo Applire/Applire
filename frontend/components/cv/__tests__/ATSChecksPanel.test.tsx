@@ -61,6 +61,25 @@ const REPORT_WITH_UNSUPPORTED: ATSReport = {
   },
 };
 
+// E042/US239 (ADR-051): a page-length check can PASS with a non-null `details`
+// string (advisory states — "meets your chosen target" / "acceptable for senior
+// profiles"). The trap: the panel only rendered `details` for FAILING checks —
+// this report exercises the advisory-pass path, mirroring the real backend shape.
+const REPORT_WITH_ADVISORY: ATSReport = {
+  checks: [
+    { id: "contact-name", status: "pass" },
+    {
+      id: "page-length",
+      status: "pass",
+      details: "3 pages — meets your chosen target of 3; the DACH norm is 2 pages",
+    },
+  ],
+  keywords: {
+    present: ["TypeScript"],
+    missing: [],
+  },
+};
+
 const REPORT_ALL_PASS: ATSReport = {
   checks: [
     { id: "contact-name", status: "pass" },
@@ -218,5 +237,35 @@ describe("ATSChecksPanel", () => {
   it("omits the unsupported row when empty or absent", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
     expect(screen.queryByTestId("ats-keywords-present-unsupported")).toBeNull();
+  });
+
+  // E042/US239: a passing check WITH details (page-length advisory) must surface
+  // its details on the compact card, distinctly from a failure.
+  it("renders a passing check's details as an advisory row on the compact card", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />));
+    const advisoryRow = screen.getByTestId("ats-advisory-page-length");
+    expect(advisoryRow).toBeInTheDocument();
+    expect(advisoryRow.textContent).toContain("meets your chosen target of 3");
+    // Never rendered as a failure row
+    expect(screen.queryByTestId("ats-check-page-length")).toBeNull();
+  });
+
+  // A pass-with-advisory check must not flip the overall structure status to "issues"
+  it("keeps structureOk when the only details-bearing check is a pass", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />));
+    expect(screen.getByTestId("ats-structure-status")).toBeInTheDocument();
+    expect(screen.queryByText(/structureIssues/)).toBeNull();
+  });
+
+  // The drawer's grouped view must also surface the advisory detail, styled
+  // distinctly (data-testid) from a failing check's detail.
+  it("shows a pass-with-advisory detail inside the drawer group", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />));
+    fireEvent.click(screen.getByTestId("ats-details-button"));
+    const advisory = screen.getByTestId("ats-drawer-advisory-page-length");
+    expect(advisory.textContent).toContain("meets your chosen target of 3");
+    // The group itself still reads as passing (no failing entries)
+    const group = screen.getByTestId("ats-drawer-check-page-length");
+    expect(group.textContent).not.toContain("✗");
   });
 });

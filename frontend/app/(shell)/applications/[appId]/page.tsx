@@ -236,13 +236,20 @@ export default function ApplicationDetailPage() {
     setRetailoring(true);
     setActionError("");
     try {
+      // E042/US239 (ADR-051 amendment §4): forward the stale version's persisted
+      // page target so the re-tailor keeps the same length; omitted (not sent as
+      // null) when absent — the backend then resolves via settings/region default.
+      const body: Record<string, unknown> = {
+        job_id: application.job_analysis_id,
+        template: application.stale_cv.latest_cv_template,
+      };
+      if (application.stale_cv.target_pages != null) {
+        body.target_pages = application.stale_cv.target_pages;
+      }
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: application.job_analysis_id,
-          template: application.stale_cv.latest_cv_template,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         setActionError(t("staleCvRetailorFailed"));
@@ -269,6 +276,11 @@ export default function ApplicationDetailPage() {
     try {
       const body: Record<string, unknown> = { job_id: application.job_analysis_id };
       if (newestReadyTemplate) body.template = newestReadyTemplate;
+      // E042/US239: same forwarding as the stale-CV nudge (handleRetailor) —
+      // the read model's target_pages, when present, is the newest ready CV's target.
+      if (application.stale_cv?.target_pages != null) {
+        body.target_pages = application.stale_cv.target_pages;
+      }
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -67,12 +67,17 @@ interface TemplateSelectorProps {
   onGenerate: (template: CVTemplate) => void;
   isLoading?: boolean;
   actionLabel?: string;
+  // E042/US239 (ADR-051 §1): an optional slot rendered directly above the
+  // generate button — the page-target selector lands here so it stays
+  // visually tied to "the generate action" without restructuring this component.
+  extraControls?: ReactNode;
 }
 
 export function TemplateSelector({
   onGenerate,
   isLoading = false,
   actionLabel,
+  extraControls,
 }: TemplateSelectorProps) {
   const t = useTranslations("cv");
   const [selected, setSelected] = useState<CVTemplate>("classic_german");
@@ -130,6 +135,8 @@ export function TemplateSelector({
           );
         })}
       </div>
+
+      {extraControls && <div className="mb-3 flex justify-end">{extraControls}</div>}
 
       <button
         type="button"

@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type ATSCheck = { id: string; status: "pass" | "fail"; details?: string | null };
@@ -125,6 +126,11 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
 
   const labelKey = (id: string) => `checks.${baseId(id)}`;
   const failed = report.checks.filter((c) => c.status === "fail");
+  // E042/US239 (ADR-051): a PASSING check can carry a non-null `details` string
+  // (e.g. page-length passing "beyond the norm by choice"/"acceptable for senior
+  // profiles"). These are informational, never failures — style and group them
+  // separately so a pass-with-advisory never reads as a problem.
+  const passingAdvisory = report.checks.filter((c) => c.status === "pass" && c.details);
   const present = report.keywords.present.length;
   const total = present + report.keywords.missing.length;
   const coverageLabel = t("keywordCoverage", { present, total });
@@ -225,8 +231,10 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
           </Button>
         </div>
 
-        {/* Failures stay loud: rendered inline on the compact card, no interaction needed */}
-        {failed.length > 0 && (
+        {/* Failures stay loud: rendered inline on the compact card, no interaction needed.
+            Pass-with-advisory checks (e.g. page-length beyond the norm by choice) render
+            alongside them with informational — not failure — styling. */}
+        {(failed.length > 0 || passingAdvisory.length > 0) && (
           <ul className="mt-2 space-y-1 border-t border-outline-variant pt-2">
             {failed.map((c) => (
               <li
@@ -245,6 +253,23 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                       {c.details}
                     </span>
                   ) : null}
+                </span>
+              </li>
+            ))}
+            {passingAdvisory.map((c) => (
+              <li
+                key={c.id}
+                data-testid={`ats-advisory-${c.id}`}
+                className="flex items-start gap-2 text-sm text-on-surface"
+              >
+                <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span>
+                  {t(labelKey(c.id))}
+                  <span className="text-on-surface-variant">
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
+                    {" — "}
+                    {c.details}
+                  </span>
                 </span>
               </li>
             ))}
@@ -287,6 +312,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                 const passed = g.checks.filter((c) => c.status === "pass").length;
                 const groupOk = passed === g.checks.length;
                 const failing = g.checks.filter((c) => c.status === "fail");
+                const advisory = g.checks.filter((c) => c.status === "pass" && c.details);
                 return (
                   <li
                     key={g.base}
@@ -316,6 +342,17 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                           </span>
                         ) : null,
                       )}
+                      {/* Pass-with-advisory detail — informational styling (text-primary),
+                          never the failure gray/red used above. */}
+                      {advisory.map((c) => (
+                        <span
+                          key={c.id}
+                          data-testid={`ats-drawer-advisory-${c.id}`}
+                          className="block text-xs text-primary"
+                        >
+                          {c.details}
+                        </span>
+                      ))}
                     </span>
                   </li>
                 );

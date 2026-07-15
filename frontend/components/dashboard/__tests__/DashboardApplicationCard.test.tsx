@@ -106,6 +106,7 @@ describe("DashboardApplicationCard", () => {
         latest_cv_template: "classic_german",
         profile_enriched_at: "2026-07-08T10:00:00Z",
         gained: [{ section: "skills", count: 3 }],
+        target_pages: null,
       },
     });
     expect(screen.getByTestId("stale-cv-badge")).toHaveTextContent("staleCvBadge");
