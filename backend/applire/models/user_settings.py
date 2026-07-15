@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
@@ -43,6 +43,11 @@ class UserSettings(Base):
     hide_predownload_notice: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False
     )
+    # E042/US236 (ADR-051 §1): per-user default target CV page count.
+    # NULL = "use region standard" (REGION_NORMS[region].cv_standard_pages via
+    # resolve_target_pages()). No upper cap — users may deliberately exceed
+    # the norm; validated >= 1 at the API layer.
+    target_cv_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

@@ -155,3 +155,60 @@ class TestPreDownloadNoticeSetting:
         result = await get_settings(db)
         assert result["ui_language"] == "de"
         assert result["hide_predownload_notice"] is True
+
+
+class TestTargetCvPagesSetting:
+    # E042/US236 (ADR-051 §1): NULL = "use region standard"; per-generation
+    # override still wins at generation time (Task 1.1 only persists the setting).
+    @pytest.mark.asyncio
+    async def test_get_settings_defaults_target_cv_pages_null_when_no_row(self, db):
+        from applire.routers.settings import get_settings
+        result = await get_settings(db)
+        assert result["target_cv_pages"] is None
+
+    @pytest.mark.asyncio
+    async def test_patch_stores_and_returns_target_cv_pages(self, db):
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, target_cv_pages=3)
+        result = await get_settings(db)
+        assert result["target_cv_pages"] == 3
+
+    @pytest.mark.asyncio
+    async def test_patch_rejects_zero(self, db):
+        from applire.routers.settings import update_settings
+        with pytest.raises(ValueError, match="target_cv_pages"):
+            await update_settings(db, target_cv_pages=0)
+
+    @pytest.mark.asyncio
+    async def test_patch_rejects_negative(self, db):
+        from applire.routers.settings import update_settings
+        with pytest.raises(ValueError, match="target_cv_pages"):
+            await update_settings(db, target_cv_pages=-1)
+
+    @pytest.mark.asyncio
+    async def test_patch_accepts_value_above_region_norm(self, db):
+        # No upper cap — users may deliberately exceed the DACH 2-page standard.
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, target_cv_pages=7)
+        result = await get_settings(db)
+        assert result["target_cv_pages"] == 7
+
+    @pytest.mark.asyncio
+    async def test_target_cv_pages_independent_of_other_fields(self, db):
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, ui_language="de")
+        await update_settings(db, target_cv_pages=3)
+        result = await get_settings(db)
+        assert result["ui_language"] == "de"
+        assert result["target_cv_pages"] == 3
+
+    @pytest.mark.asyncio
+    async def test_omitting_target_cv_pages_leaves_existing_value_untouched(self, db):
+        # None at the service layer means "not provided" (same convention as
+        # accent_hex/ui_language/hide_predownload_notice) — it is NOT a clear
+        # request. Clearing back to "use region standard" is out of scope here.
+        from applire.routers.settings import update_settings, get_settings
+        await update_settings(db, target_cv_pages=3)
+        await update_settings(db, ui_language="de")
+        result = await get_settings(db)
+        assert result["target_cv_pages"] == 3
