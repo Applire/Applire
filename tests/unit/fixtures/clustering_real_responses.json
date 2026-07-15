@@ -1,0 +1,136 @@
+[
+  {
+    "ts": "2026-07-15T13:21:20.674165+00:00",
+    "response": {
+      "id": "cluster-cloud-devops",
+      "label": "Cloud & DevOps Infrastructure",
+      "category": "C",
+      "gaps": [
+        "cloud infrastructure",
+        "CI/CD",
+        "monitoring"
+      ],
+      "jd_skills": [
+        "Cloud infrastructure management",
+        "CI/CD pipelines",
+        "Monitoring and software delivery practices"
+      ],
+      "jd_context": "I need to manage cloud infrastructure, CI/CD pipelines, and monitoring practices to ensure reliable software delivery across our engineering organization."
+    }
+  },
+  {
+    "ts": "2026-07-15T14:10:25.275545+00:00",
+    "response": {
+      "clusters": [
+        {
+          "id": "cluster-javascript-ecosystem",
+          "label": "JavaScript Ecosystem",
+          "category": "C",
+          "gaps": [
+            "JavaScript",
+            "React",
+            "Node.js"
+          ],
+          "jd_skills": [
+            "JavaScript and TypeScript ecosystems (React, React Native, Node.js)"
+          ],
+          "jd_context": "I need deep hands-on expertise across the JavaScript and TypeScript ecosystem, including React and Node.js, to effectively review architecture and guide engineering decisions."
+        },
+        {
+          "id": "cluster-mobile-development",
+          "label": "Mobile Development",
+          "category": "C",
+          "gaps": [
+            "mobile application",
+            "React Native"
+          ],
+          "jd_skills": [
+            "JavaScript and TypeScript ecosystems (React, React Native, Node.js)"
+          ],
+          "jd_context": "I must be able to evaluate and govern mobile application architecture, particularly React Native, as it is a core part of our product stack."
+        },
+        {
+          "id": "cluster-saas-b2c-products",
+          "label": "SaaS & B2C Product Experience",
+          "category": "B",
+          "gaps": [
+            "Experience with SaaS, subscription-based, or consumer-facing products",
+            "Experience with B2C products at scale",
+            "SaaS",
+            "B2C"
+          ],
+          "jd_skills": [
+            "Experience with SaaS, subscription-based, or consumer-facing products",
+            "Experience with B2C products at scale"
+          ],
+          "jd_context": "Having shipped SaaS and B2C products at scale helps me anticipate the operational and architectural challenges our consumer-facing platform faces."
+        },
+        {
+          "id": "cluster-performance-scalability",
+          "label": "Performance & Scalability",
+          "category": "C",
+          "gaps": [
+            "performance",
+            "scalability",
+            "monitoring"
+          ],
+          "jd_skills": [
+            "Monitoring and software delivery practices",
+            "Cloud infrastructure management"
+          ],
+          "jd_context": "I am responsible for ensuring our platform performs well under load, scales reliably, and is continuously monitored to catch issues early."
+        },
+        {
+          "id": "cluster-code-quality-review",
+          "label": "Code Quality & Review",
+          "category": "B",
+          "gaps": [
+            "Code reviews and production code assessment"
+          ],
+          "jd_skills": [
+            "Code reviews and production code assessment",
+            "Architecture review and decision-making"
+          ],
+          "jd_context": "I must rigorously assess production code and conduct architecture reviews to uphold engineering standards across the team."
+        },
+        {
+          "id": "cluster-incident-prevention",
+          "label": "Incident Prevention",
+          "category": "B",
+          "gaps": [
+            "Incident prevention strategies"
+          ],
+          "jd_skills": [
+            "Incident prevention strategies"
+          ],
+          "jd_context": "I need proven incident prevention strategies to safeguard reliability and minimise downtime for our consumer-facing users."
+        },
+        {
+          "id": "cluster-technical-leadership",
+          "label": "Technical Leadership",
+          "category": "C",
+          "gaps": [
+            "CTO"
+          ],
+          "jd_skills": [
+            "Technical leadership and people management",
+            "Technical governance and engineering standards"
+          ],
+          "jd_context": "I am expected to operate at a CTO-level of technical leadership, setting governance and standards while managing people and external partners."
+        },
+        {
+          "id": "cluster-remote-work",
+          "label": "Remote Team Work",
+          "category": "B",
+          "gaps": [
+            "remote"
+          ],
+          "jd_skills": [
+            "Distributed team and external partner management"
+          ],
+          "jd_context": "I must thrive in a distributed, remote-first environment while effectively managing external engineering partners and internal teams."
+        }
+      ]
+    }
+  }
+]

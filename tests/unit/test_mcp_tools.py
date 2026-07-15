@@ -247,6 +247,69 @@ async def test_update_profile_no_profile_raises():
     assert exc_info.value.error.code == -32001
 
 
+@pytest.mark.asyncio
+async def test_update_profile_list_section_survives_protocol_layer():
+    """#167: calling the Python function directly bypasses FastMCP's argument
+    validation entirely (that's why the tests above pass even though the tool
+    used to advertise ``data: dict``). Route through ``mcp.call_tool`` — the same
+    layer a real agent hits over stdio — so a list-valued section (skills,
+    education, ...) is actually exercised against the tool's JSON schema."""
+    from applire.mcp.server import mcp
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), completeness=90)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.profile_svc.patch_profile_section",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        output = await mcp.call_tool(
+            "update_profile", {"section": "skills", "data": ["Python", "FastAPI"]}
+        )
+
+    assert output is not None
+
+
+@pytest.mark.asyncio
+async def test_update_profile_tool_schema_accepts_list_for_data():
+    """The advertised inputSchema for ``data`` must allow both an object (dict
+    sections like personal_info) and an array (list sections like skills)."""
+    from applire.mcp.server import mcp
+
+    tools = await mcp.list_tools()
+    update_profile_tool = next(t for t in tools if t.name == "update_profile")
+    data_schema = update_profile_tool.inputSchema["properties"]["data"]
+
+    accepted_types = set()
+    if "type" in data_schema:
+        accepted_types.add(data_schema["type"])
+    for variant in data_schema.get("anyOf", []):
+        if "type" in variant:
+            accepted_types.add(variant["type"])
+
+    assert "array" in accepted_types, f"data schema does not accept arrays: {data_schema}"
+    assert "object" in accepted_types, f"data schema does not accept objects: {data_schema}"
+
+
+def test_update_profile_description_derives_from_valid_sections():
+    """The tool description must never drift from the service's real
+    ``_VALID_SECTIONS`` set — the old hardcoded list advertised nonexistent
+    sections (``work_history``, ``contact``) and omitted real ones."""
+    from applire.mcp.server import mcp
+    from applire.services import profile as profile_svc
+
+    tool = mcp._tool_manager.get_tool("update_profile")
+    for section in profile_svc._VALID_SECTIONS:
+        assert section in tool.description, f"{section!r} missing from update_profile description"
+    for bogus in ("work_history", "contact"):
+        assert bogus not in tool.description, (
+            f"update_profile description advertises nonexistent section {bogus!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # analyze_gaps
 # ---------------------------------------------------------------------------
@@ -577,6 +640,175 @@ async def test_get_cv_ats_report_bad_uuid_raises():
 
     with pytest.raises(McpError) as exc:
         await get_cv_ats_report(cv_id="not-a-uuid")
+    assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
+# generate_cover_letter / get_cover_letter_status / get_cover_letter_ats_report (#170)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_happy_path():
+    from applire.mcp.server import generate_cover_letter
+
+    job_id = str(uuid.uuid4())
+    cl_id = uuid.uuid4()
+    cm, _ = _mock_db()
+    mock_result = _mock_result(
+        cover_letter_id=str(cl_id),
+        status="pending",
+        html_url=f"http://localhost:8001/api/cover-letter/{cl_id}/html",
+        pdf_url=f"http://localhost:8001/api/cover-letter/{cl_id}/pdf",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.cover_letter_svc.generate_cover_letter",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await generate_cover_letter(job_id=job_id)
+
+    assert "cover_letter_id" in result
+    assert "html_url" in result
+    assert "pdf_url" in result
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_invalid_uuid_raises():
+    from applire.mcp.server import generate_cover_letter
+
+    with pytest.raises(McpError) as exc_info:
+        await generate_cover_letter(job_id="not-a-uuid")
+
+    assert exc_info.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_no_flow_session_raises():
+    """service raises LookupError when no FlowSession exists for the job (#170)."""
+    from applire.mcp.server import generate_cover_letter
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.cover_letter_svc.generate_cover_letter",
+            AsyncMock(side_effect=LookupError("No flow session found for job")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc_info:
+            await generate_cover_letter(job_id=str(uuid.uuid4()))
+
+    assert exc_info.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_happy_path():
+    from applire.mcp.server import get_cover_letter_status
+
+    cm, _ = _mock_db()
+    cl_id = str(uuid.uuid4())
+    mock_result = _mock_result(
+        cover_letter_id=cl_id, status="ready",
+        pdf_url=f"http://x/api/cover-letter/{cl_id}/pdf",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_status",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await get_cover_letter_status(cover_letter_id=cl_id)
+
+    assert result["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_not_found_raises():
+    from applire.mcp.server import get_cover_letter_status
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_status",
+            AsyncMock(side_effect=LookupError("Cover letter not found")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_cover_letter_status(cover_letter_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_bad_uuid_raises():
+    from applire.mcp.server import get_cover_letter_status
+
+    with pytest.raises(McpError) as exc:
+        await get_cover_letter_status(cover_letter_id="not-a-uuid")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_returns_report():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    cm, _ = _mock_db()
+    cl_id = str(uuid.uuid4())
+    mock_result = _mock_result(
+        document_id=cl_id,
+        status="ready",
+        report={"document": "cover_letter", "checks": [], "keywords": {"present": [], "missing": []}},
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_ats_report",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await get_cover_letter_ats_report(cover_letter_id=cl_id)
+
+    assert result["status"] == "ready"
+    assert result["report"]["document"] == "cover_letter"
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_unknown_id_raises():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_ats_report",
+            AsyncMock(side_effect=LookupError("Cover letter not found")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_cover_letter_ats_report(cover_letter_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_bad_uuid_raises():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    with pytest.raises(McpError) as exc:
+        await get_cover_letter_ats_report(cover_letter_id="not-a-uuid")
     assert exc.value.error.code == -32602
 
 
@@ -1216,3 +1448,91 @@ async def test_update_application_not_found():
                 application_id=str(uuid.uuid4()), user_status="applied"
             )
     assert exc.value.error.code == -32001
+
+
+# ---------------------------------------------------------------------------
+# APPLIRE_BASE_URL startup warning (#168)
+# ---------------------------------------------------------------------------
+
+
+def test_warn_if_base_url_unset_logs_when_env_var_absent(monkeypatch, caplog):
+    """Pydantic-settings can't tell 'default' from 'explicitly set to the
+    default', so the check must read os.environ directly. Simulate the
+    undocumented-deployment case: the var is absent, only the config default
+    applies."""
+    from applire.mcp.server import warn_if_base_url_unset
+
+    monkeypatch.delenv("APPLIRE_BASE_URL", raising=False)
+    with caplog.at_level("WARNING", logger="applire.mcp.server"):
+        warn_if_base_url_unset()
+
+    assert any("APPLIRE_BASE_URL" in r.message for r in caplog.records)
+
+
+def test_warn_if_base_url_unset_silent_when_env_var_set(monkeypatch, caplog):
+    """No warning once the deployer has explicitly set APPLIRE_BASE_URL —
+    even if they happened to set it to the same value as the default."""
+    from applire.mcp.server import warn_if_base_url_unset
+
+    monkeypatch.setenv("APPLIRE_BASE_URL", "http://localhost:8001")
+    with caplog.at_level("WARNING", logger="applire.mcp.server"):
+        warn_if_base_url_unset()
+
+    assert not any("APPLIRE_BASE_URL" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Registered tool/resource set vs. tests/test_mcp_server.py's docker-tier
+# expectation — a hermetic cross-check (no Docker) so a drift is caught in
+# the fast unit tier, not only when someone remembers to run the stdio tests.
+# ---------------------------------------------------------------------------
+
+
+def _load_test_mcp_server_module():
+    """Load tests/test_mcp_server.py by path — it lives outside any package
+    (tests/ has no __init__.py) so it can't be imported by name from here."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "test_mcp_server.py"
+    spec = importlib.util.spec_from_file_location("test_mcp_server", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.asyncio
+async def test_expected_tools_matches_live_registration():
+    """tests/test_mcp_server.py:_EXPECTED_TOOLS must equal the tools actually
+    registered on the FastMCP instance. That file's strict-equality assertion
+    only runs against the Docker stack; this mirrors the same check
+    hermetically so CI's unit tier catches drift immediately (#167/#170:
+    _EXPECTED_TOOLS listed only 9 tools while 18, now 21, were registered)."""
+    from applire.mcp.server import mcp
+
+    module = _load_test_mcp_server_module()
+    tools = await mcp.list_tools()
+    names = {t.name for t in tools}
+
+    assert names == module._EXPECTED_TOOLS, (
+        f"Live tool set != tests/test_mcp_server.py._EXPECTED_TOOLS.\n"
+        f"Only live: {names - module._EXPECTED_TOOLS}\n"
+        f"Only expected: {module._EXPECTED_TOOLS - names}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expected_resource_templates_matches_live_registration():
+    """Same cross-check for resource templates — flow://{flow_id} was
+    previously missing from _EXPECTED_TEMPLATE_URIS."""
+    from applire.mcp.server import mcp
+
+    module = _load_test_mcp_server_module()
+    templates = await mcp.list_resource_templates()
+    uris = {t.uriTemplate for t in templates}
+
+    assert uris == module._EXPECTED_TEMPLATE_URIS, (
+        f"Live template URIs != tests/test_mcp_server.py._EXPECTED_TEMPLATE_URIS.\n"
+        f"Only live: {uris - module._EXPECTED_TEMPLATE_URIS}\n"
+        f"Only expected: {module._EXPECTED_TEMPLATE_URIS - uris}"
+    )

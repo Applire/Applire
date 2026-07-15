@@ -906,7 +906,10 @@
       "education": "Ausbildungseintrag erkannt",
       "skills": "Alle Fähigkeiten sind maschinenlesbar",
       "recipient-company": "Empfängerunternehmen erkannt",
-      "body": "Anschreiben-Absatz erkannt"
+      "body": "Anschreiben-Absatz erkannt",
+      "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
+      "skills-near-dupe": "Keine ähnlichen Skills",
+      "page-length": "Seitenlänge innerhalb der DACH-Norm"
     }
   },
   "admin": {

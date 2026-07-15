@@ -239,13 +239,25 @@ def test_kaile_agent_journey(agent):
     agent.call("advance_flow", flow_id=flow_id, step="cv_generation")
     agent.call("advance_flow", flow_id=flow_id, step="complete", artifact_id=cv_id)
 
-    # 8. Log the application to the pipeline and confirm it is listed.
+    # 8. Generate a cover letter for the same job (#170). Like generate_cv, the
+    #    agent channel renders inline (no BackgroundTasks) — terminal status is
+    #    expected on the first poll, not after retries.
+    cl = agent.call("generate_cover_letter", job_id=job_id)
+    cl_id = cl["cover_letter_id"]
+    assert cl_id, "generate_cover_letter must return a cover_letter_id"
+    cl_status = agent.call("get_cover_letter_status", cover_letter_id=cl_id)
+    assert cl_status["status"] == "ready", f"Cover letter not ready over MCP: {cl_status}"
+    ats = agent.call("get_cover_letter_ats_report", cover_letter_id=cl_id)
+    assert ats["document_id"] == cl_id
+    assert ats["status"] == "ready"
+
+    # 9. Log the application to the pipeline and confirm it is listed.
     app = agent.call("create_application", job_id=job_id)
     app_id = app["id"]
     pipeline = agent.call("list_applications")
     assert any(item["id"] == app_id for item in pipeline), "application not in pipeline"
 
-    # 9. Final recovery read: the flow has reached completion.
+    # 10. Final recovery read: the flow has reached completion.
     final = agent.call("get_flow_state", flow_id=flow_id)
     assert final["current_step"] == "complete", (
         f"flow did not reach completion: {final['current_step']}"

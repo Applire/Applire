@@ -216,6 +216,192 @@ def test_nest_projects_noop_when_no_projects():
 
 
 # ---------------------------------------------------------------------------
+# #169 — a bullet the LLM emits BOTH as a role bullet AND inside the project
+# nested under that role must not render twice. Suppression is deterministic
+# (normalized-form equality via ats_audit._norm) and only touches nested
+# projects; standalone projects are never deduped against a role.
+# ---------------------------------------------------------------------------
+
+
+def _tailored_role_with_bullets(bullets: list[str]):
+    from applire.schemas.cv import TailoredCVData, TailoredContact, TailoredWorkEntry
+
+    return TailoredCVData(
+        contact=TailoredContact(name="Anna"),
+        work_history=[
+            TailoredWorkEntry(
+                company="Acme GmbH", role="Senior Engineer", start_date="2020",
+                bullets=bullets,
+            ),
+        ],
+    )
+
+
+def test_nest_projects_drops_exact_duplicate_role_bullet():
+    from applire.services.cv import _nest_projects
+
+    tailored = _tailored_role_with_bullets(
+        ["Led the platform migration", "Mentored juniors"]
+    )
+    profile_json = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer"},
+        ],
+        "projects": [
+            {
+                "name": "Atlas",
+                "responsibilities": ["Led the platform migration", "Built a new API"],
+                "associated_experience": "work-1",
+            }
+        ],
+    }
+    nested = _nest_projects(tailored, profile_json)
+    acme = next(w for w in nested.work_history if w.company == "Acme GmbH")
+    proj_bullets = acme.projects[0].bullets
+    assert "Built a new API" in proj_bullets
+    assert "Led the platform migration" not in proj_bullets, (
+        "a bullet already on the parent role must not repeat inside its nested project"
+    )
+
+
+def test_nest_projects_drops_dash_and_case_variant_bullet():
+    from applire.services.cv import _nest_projects
+
+    tailored = _tailored_role_with_bullets(["Enforced Code-Review standards"])
+    profile_json = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer"},
+        ],
+        "projects": [
+            {
+                "name": "Atlas",
+                "responsibilities": ["enforced code review standards", "Shipped v2"],
+                "associated_experience": "work-1",
+            }
+        ],
+    }
+    nested = _nest_projects(tailored, profile_json)
+    acme = next(w for w in nested.work_history if w.company == "Acme GmbH")
+    assert acme.projects[0].bullets == ["Shipped v2"], (
+        "dash/case-variant duplicate must be suppressed via the ats_audit normalizer"
+    )
+
+
+def test_nest_projects_keeps_project_when_all_bullets_suppressed():
+    from applire.services.cv import _nest_projects
+
+    tailored = _tailored_role_with_bullets(["Owned the rollout"])
+    profile_json = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer"},
+        ],
+        "projects": [
+            {
+                "name": "Rollout Project",
+                "responsibilities": ["Owned the rollout"],
+                "associated_experience": "work-1",
+            }
+        ],
+    }
+    nested = _nest_projects(tailored, profile_json)
+    acme = next(w for w in nested.work_history if w.company == "Acme GmbH")
+    assert [p.name for p in acme.projects] == ["Rollout Project"], (
+        "US187: the project heading survives even when all its bullets are suppressed"
+    )
+    assert acme.projects[0].bullets == []
+
+
+def test_nest_projects_does_not_dedupe_standalone_against_role():
+    """A standalone project (no parent) must keep a bullet that coincidentally
+    matches some role's bullet — suppression is scoped to the nesting parent."""
+    from applire.services.cv import _nest_projects
+
+    tailored = _tailored_role_with_bullets(["Shared infra work"])
+    profile_json = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer"},
+        ],
+        "projects": [
+            {
+                "name": "Open Source CLI",
+                "responsibilities": ["Shared infra work"],
+                "associated_experience": None,
+            }
+        ],
+    }
+    nested = _nest_projects(tailored, profile_json)
+    assert nested.projects[0].bullets == ["Shared infra work"]
+
+
+# ---------------------------------------------------------------------------
+# #172 — render-side skill dedup. The CV must be clean even when the master
+# profile still carries near-duplicate skills. Uses the shared predicate; keeps
+# the more-specific occurrence in the first-seen position (stable order).
+# ---------------------------------------------------------------------------
+
+
+def _cv_with_skills(skills: list[str]):
+    from applire.schemas.cv import TailoredCVData, TailoredContact
+
+    return TailoredCVData(contact=TailoredContact(name="Anna"), skills=skills)
+
+
+def test_dedup_skills_collapses_uat_near_dupes_stable_order():
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills([
+        "Team Leadership",
+        "Python",
+        "Team Leadership and Mentorship",
+        "Project Management",
+        "Cross Functional Project Management",
+    ])
+    out = _dedup_skills(cv)
+    assert out.skills == [
+        "Team Leadership and Mentorship",
+        "Python",
+        "Cross Functional Project Management",
+    ]
+
+
+def test_dedup_skills_keeps_first_on_equal_specificity():
+    from applire.services.cv import _dedup_skills
+
+    out = _dedup_skills(_cv_with_skills(["Python", "python", "FastAPI"]))
+    assert out.skills == ["Python", "FastAPI"]
+
+
+def test_dedup_skills_noop_when_all_distinct():
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills(["Python", "Kubernetes", "FastAPI"])
+    out = _dedup_skills(cv)
+    assert out.skills == ["Python", "Kubernetes", "FastAPI"]
+
+
+def test_dedup_skills_keeps_single_token_containment_distinct():
+    """Bare single-token containment ('React' ⊂ 'React Native') is NOT a near-dupe
+    (#172 strict) — the render dedup must keep BOTH, never drop a legit skill."""
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills(["React", "React Native", "AWS", "AWS Lambda"])
+    out = _dedup_skills(cv)
+    assert out.skills == ["React", "React Native", "AWS", "AWS Lambda"]
+
+
+def test_dedup_skills_runs_after_language_pass_in_pipeline():
+    """The dedup must sit after the ADR-038 language pass — skill tags are reworded
+    there, so deduping earlier would miss twins the reviewer introduces."""
+    import inspect
+    import applire.services.cv as cv
+
+    source = inspect.getsource(cv)
+    lang_call = source.index("await _review_cv_language(")
+    dedup_call = source.index("= _dedup_skills(")
+    assert lang_call < dedup_call, "_dedup_skills must run after the language pass"
+
+
+# ---------------------------------------------------------------------------
 # Templates: every CV template renders a nested project's name + bullet, and the
 # project text appears after its parent company in the source order.
 # ---------------------------------------------------------------------------
