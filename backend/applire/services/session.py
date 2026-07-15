@@ -66,7 +66,7 @@ from applire.schemas.session import (
     SessionMessageResponse,
     SessionStateResponse,
 )
-from applire.services.gap import analyze_gaps
+from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
     build_confirmation_clusters,
@@ -807,15 +807,22 @@ async def _create_targeted_session(
         await db.commit()
         await db.refresh(record)
         # #166: "strong match" is only honest when there really are NO critical
-        # gaps. When category_c is non-empty but nothing is askable, clustering
-        # silently failed (JSON-object-mode parse loss) — telling the candidate
-        # they're a strong match is a dangerous lie. Emit an honest fallback.
-        if gap_analysis.category_c:
+        # gaps. has_clustering_input() mirrors cluster_gaps()'s OWN augmented
+        # input (persisted category_c PLUS keyword-only honest gaps, #166
+        # Important-1) — checking raw category_c alone missed the case where
+        # category_c is empty but keyword-only honest gaps were non-empty, so
+        # clustering had real input yet still produced nothing askable. When
+        # that shared predicate says there was something to cluster, clustering
+        # silently failed (JSON-object-mode parse loss, or the keyword-only path)
+        # — telling the candidate they're a strong match is a dangerous lie.
+        # Emit an honest fallback instead.
+        if has_clustering_input(gap_analysis):
             logger.warning(
-                "targeted session %s: category_c non-empty (%d) but no askable "
-                "clusters/gates — clustering likely failed; emitting honest fallback",
+                "targeted session %s: clustering had input (category_c=%d) but no "
+                "askable clusters/gates — clustering likely failed; emitting honest "
+                "fallback",
                 record.id,
-                len(gap_analysis.category_c),
+                len(gap_analysis.category_c or []),
             )
             no_gaps_msg = (
                 "The gap interview is currently unavailable — "

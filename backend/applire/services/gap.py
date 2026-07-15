@@ -206,6 +206,39 @@ async def analyze_gaps_for_session(
 # ---------------------------------------------------------------------------
 
 
+def askable_gap_inputs(gap_analysis: GapAnalysis) -> list:
+    """The augmented category_c list cluster_gaps() actually clusters on (#166
+    Important-1).
+
+    Persisted ``gap_analysis.category_c`` PLUS keyword-only honest gaps (US204,
+    ADR-048 §10): concepts that carry no fit weight and so never reach category_c
+    on their own, deduped against the category_c entries already present. This is
+    the SINGLE place that augmentation happens — any other caller that needs to
+    know "what will cluster_gaps() see as input" must go through this helper
+    rather than re-deriving it, or it will silently diverge (the exact bug this
+    fixes: a session-side guard that keyed on raw category_c alone).
+    """
+    category_c = list(gap_analysis.category_c or [])
+    seen_c = {_norm_gap(g) for g in category_c}
+    for concept in keyword_only_honest_gaps(getattr(gap_analysis, "keyword_ledger", None)):
+        if _norm_gap(concept) not in seen_c:
+            category_c.append(concept)
+            seen_c.add(_norm_gap(concept))
+    return category_c
+
+
+def has_clustering_input(gap_analysis: GapAnalysis) -> bool:
+    """True when cluster_gaps() has non-empty input to work with.
+
+    Mirrors cluster_gaps()'s own "was there something to cluster" test — the
+    augmented category_c (askable_gap_inputs) OR category_b. Callers outside
+    cluster_gaps (e.g. the session honest-fallback guard) MUST use this instead
+    of inspecting gap_analysis.category_c directly, so the two can never diverge
+    again (#166 Important-1).
+    """
+    return bool(askable_gap_inputs(gap_analysis) or list(gap_analysis.category_b or []))
+
+
 async def cluster_gaps(
     gap_analysis: GapAnalysis,
     job: JobAnalysis,
@@ -222,12 +255,7 @@ async def cluster_gaps(
     # never reach category_c — route them into the interview here, deduped against
     # the category_c gaps already present. The clustering LLM merges by domain and
     # writes an estimate-honest jd_context, so they surface as askable clusters.
-    category_c = list(gap_analysis.category_c or [])
-    seen_c = {_norm_gap(g) for g in category_c}
-    for concept in keyword_only_honest_gaps(getattr(gap_analysis, "keyword_ledger", None)):
-        if _norm_gap(concept) not in seen_c:
-            category_c.append(concept)
-            seen_c.add(_norm_gap(concept))
+    category_c = askable_gap_inputs(gap_analysis)
     raw = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(gap_analysis.category_b or []),
@@ -251,7 +279,7 @@ async def cluster_gaps(
     # (JSON-mode envelope not unwrapped, truncation, …) — NOT a genuine "no gaps"
     # outcome. Downstream a false-empty here made the interview tell candidates with
     # critical gaps that they were a "strong match" (#166). Surface it loudly.
-    if not validated and (category_c or list(gap_analysis.category_b or [])):
+    if not validated and has_clustering_input(gap_analysis):
         logger.warning(
             "cluster_gaps: produced 0 clusters from non-empty gaps "
             "(category_c=%d, category_b=%d) — likely a clustering parse failure; "

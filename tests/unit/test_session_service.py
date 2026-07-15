@@ -607,6 +607,52 @@ class TestCreateSession:
         assert result.estimated_questions == 0
 
     @pytest.mark.asyncio
+    async def test_targeted_session_keyword_only_honest_gaps_empty_clusters_is_honest(self, sqlite_session):
+        """#166 Important-1: persisted category_c=[] and category_b=[], but the
+        keyword ledger carries a keyword-only honest gap (US204, ADR-048 §10) —
+        real askable input that cluster_gaps() would have clustered on
+        (askable_gap_inputs() augments category_c with exactly this). When
+        clustering still produced zero clusters (gap_clusters=[]), the OLD guard
+        (`if gap_analysis.category_c:`) missed this case entirely — category_c
+        itself is empty — and emitted the false "strong match" message. The fix
+        must catch this via the shared has_clustering_input() predicate."""
+        from applire.services.session import create_session
+        from applire.schemas.session import SessionCreateRequest
+        from applire.models.gap import GapAnalysis
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = GapAnalysis(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            match_score=0.5,
+            critical_gaps=[],
+            minor_gaps=[],
+            strengths=["Python"],
+            keyword_gaps=[],
+            category_a=[],
+            category_b=[],
+            category_c=[],  # empty — the old guard's blind spot
+            keyword_ledger=[
+                {"concept": "Kubernetes", "claimable": False, "fit_weight": 0},
+            ],
+            gap_clusters=[],  # clustering silently produced nothing askable
+        )
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+        result = await create_session(req, sqlite_session, _mock_provider())
+
+        assert "strong match" not in result.first_question.lower()
+        assert "strong match" not in result.question.lower()
+        assert result.estimated_questions == 0
+
+    @pytest.mark.asyncio
     async def test_creates_micro_session_with_target_gap(self, sqlite_session):
         """Micro-session scoped to a single gap."""
         from applire.services.session import create_session

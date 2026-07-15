@@ -1,4 +1,11 @@
 """Unit tests for gap clustering schema and service."""
+import json as _json
+from pathlib import Path as _Path
+from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
+
+import pytest
+
 from applire.schemas.gap_cluster import GapClusterSchema
 
 
@@ -45,11 +52,6 @@ def test_build_clustering_prompt_localizes_jd_context_to_ui_language():
     common = dict(category_b=[], category_c=["X"], required_skills=[], nice_to_have_skills=[])
     assert "ENGLISH" in build_clustering_prompt(**common, lang="en")
     assert "GERMAN" in build_clustering_prompt(**common, lang="de")
-
-
-import uuid
-from unittest.mock import AsyncMock, MagicMock
-import pytest
 
 
 @pytest.mark.asyncio
@@ -140,9 +142,6 @@ def test_gap_detector_c_before_b():
 # object envelope, which downstream turned into a false "strong match".
 # ---------------------------------------------------------------------------
 
-import json as _json
-from pathlib import Path as _Path
-
 _VALID_CLUSTER = {
     "id": "cluster-agentic",
     "label": "Agentic AI Systems",
@@ -196,23 +195,25 @@ def test_unwrap_clusters_unknown_shape_empty():
     assert _unwrap_clusters("nope") == []
 
 
-import uuid as _uuid
-from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
-
-
 def _cluster_gaps_provider(return_value):
     provider = _MagicMock()
     provider.aparse_json = _AsyncMock(return_value=return_value)
     return provider
 
 
-def _cluster_gaps_ga(category_c=None, category_b=None):
+def _cluster_gaps_ga(category_c=None, category_b=None, keyword_ledger=None):
     from applire.models.gap import GapAnalysis
     ga = _MagicMock(spec=GapAnalysis)
     ga.category_b = category_b if category_b is not None else []
     ga.category_c = category_c if category_c is not None else ["LLMs", "Agentic Systems"]
-    ga.keyword_ledger = None
+    ga.keyword_ledger = keyword_ledger
     return ga
+
+
+def _honest_keyword_entry(concept, claimable=False, fit_weight=0):
+    """A keyword-only honest-gap ledger entry (US204, ADR-048 §10): not
+    claimable AND no fit weight, so it never reaches category_c on its own."""
+    return {"concept": concept, "claimable": claimable, "fit_weight": fit_weight}
 
 
 def _cluster_gaps_job():
@@ -281,3 +282,74 @@ async def test_cluster_gaps_real_requesty_responses(caplog):
     ga2 = await _run_cluster_gaps(envelope["response"])
     assert len(ga2.gap_clusters) == 8
     assert ga2.gap_clusters[0]["id"] == "cluster-javascript-ecosystem"
+
+
+# ---------------------------------------------------------------------------
+# #166 Important-1: cluster_gaps() clusters on category_c PLUS keyword-only
+# honest gaps, but the session-side honest-fallback guard used to key on raw
+# category_c alone — a caller could diverge from what was actually clustered
+# on. askable_gap_inputs()/has_clustering_input() are the single shared
+# predicate that both cluster_gaps() and the session guard now use.
+# ---------------------------------------------------------------------------
+
+
+def test_askable_gap_inputs_augments_with_keyword_only_honest_gaps():
+    """Persisted category_c=[] but a keyword-only honest gap exists in the
+    ledger → it must still show up as askable input."""
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(category_c=[], keyword_ledger=[_honest_keyword_entry("Kubernetes")])
+    assert askable_gap_inputs(ga) == ["Kubernetes"]
+
+
+def test_askable_gap_inputs_dedupes_against_category_c():
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(
+        category_c=["Kubernetes"],
+        keyword_ledger=[_honest_keyword_entry("kubernetes")],  # different casing
+    )
+    assert askable_gap_inputs(ga) == ["Kubernetes"]
+
+
+def test_askable_gap_inputs_empty_when_nothing_present():
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(category_c=[], keyword_ledger=[])
+    assert askable_gap_inputs(ga) == []
+
+
+def test_has_clustering_input_true_for_keyword_only_honest_gaps_with_empty_category_c():
+    """The #166 Important-1 regression: persisted category_c=[] and category_b=[]
+    but keyword-only honest gaps are non-empty → has_clustering_input() must be
+    True, matching what cluster_gaps() actually clusters on."""
+    from applire.services.gap import has_clustering_input
+    ga = _cluster_gaps_ga(category_c=[], category_b=[], keyword_ledger=[_honest_keyword_entry("Kubernetes")])
+    assert has_clustering_input(ga) is True
+
+
+def test_has_clustering_input_false_when_everything_empty():
+    from applire.services.gap import has_clustering_input
+    ga = _cluster_gaps_ga(category_c=[], category_b=[], keyword_ledger=[])
+    assert has_clustering_input(ga) is False
+
+
+def test_has_clustering_input_true_for_category_b_alone():
+    from applire.services.gap import has_clustering_input
+    ga = _cluster_gaps_ga(category_c=[], category_b=["Git basics"], keyword_ledger=[])
+    assert has_clustering_input(ga) is True
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_uses_keyword_only_honest_gaps_as_clustering_input():
+    """cluster_gaps() must still feed keyword-only honest gaps into the
+    clustering prompt even when persisted category_c is empty (regression
+    guard for the askable_gap_inputs() extraction)."""
+    from applire.services.gap import cluster_gaps
+    ga = _cluster_gaps_ga(category_c=[], category_b=[], keyword_ledger=[_honest_keyword_entry("Kubernetes")])
+    job = _cluster_gaps_job()
+    provider = _cluster_gaps_provider({"clusters": []})
+    db = _MagicMock()
+    db.commit = _AsyncMock()
+    db.__contains__ = _MagicMock(return_value=True)
+    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+        await cluster_gaps(ga, job, provider, db)
+    prompt_arg = provider.aparse_json.call_args.args[0]
+    assert "Kubernetes" in prompt_arg
