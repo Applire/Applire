@@ -20,7 +20,10 @@
 // E042/US239 (ADR-051 §1) — shared CV page-target control. Used by the flow
 // CV step (per-generation override, never null) and the settings page
 // (persisted default, null = "region standard"). A compact <select> — the
-// brief calls a 2/3/4/5 picker acceptable over a free-text spinner.
+// option list is fixed to 2-5 pages because that's the realistic DACH CV
+// range (2 = the norm, up to 5 for senior/academic profiles); a free-text
+// spinner would let users pick implausible page counts the layout can't
+// honestly hit.
 
 import { useTranslations } from "next-intl";
 
