@@ -166,7 +166,9 @@ export function DossierDocumentsZone({
     .slice()
     .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
 
-  const isEmpty = visibleCvs.length === 0 && !coverLetter;
+  // Row rendering rules mirror the CV list: expired → hidden.
+  const showCoverLetter = !!coverLetter && coverLetter.status !== "expired";
+  const isEmpty = visibleCvs.length === 0 && !showCoverLetter;
 
   return (
     <Card className="p-6" data-testid="dossier-documents-zone">
@@ -273,7 +275,7 @@ export function DossierDocumentsZone({
             );
           })}
 
-          {coverLetter && (
+          {showCoverLetter && coverLetter && (
             (() => {
               const isClPinned = application.submitted_cover_letter_id === coverLetter.cover_letter_id;
               const isClReady = coverLetter.status === "ready";

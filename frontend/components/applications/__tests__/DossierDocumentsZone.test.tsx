@@ -205,6 +205,17 @@ describe("DossierDocumentsZone (US232 — full version recall)", () => {
     await waitFor(() => expect(onPinChange).toHaveBeenCalled());
   });
 
+  it("hides an expired cover letter row, mirroring the CV expired rule", async () => {
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [],
+      coverLetter: { ...COVER_LETTER, status: "expired" },
+    });
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    expect(screen.queryByTestId("dossier-cl-row")).not.toBeInTheDocument();
+    expect(screen.getByText("No versions yet.")).toBeInTheDocument();
+  });
+
   it("renders a cover-letter row with a link to the flow cover-letter draft", async () => {
     await renderZone({ application: baseApplication(), cvItems: [], coverLetter: COVER_LETTER });
     const clRow = await screen.findByTestId("dossier-cl-row");
