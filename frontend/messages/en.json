@@ -708,6 +708,7 @@
     "coverLetterDraftLink": "View draft",
     "documentsLoadFailed": "Documents could not be loaded.",
     "noDocumentsYet": "No versions yet.",
+    "pinActionFailed": "This could not be saved. Please try again.",
     "duplicateTitle": "You may already know this job",
     "duplicateBody": "This looks like the job you analyzed on {date} ({company} — {role}).",
     "duplicateBodyPlain": "This looks like the job you analyzed on {date}.",

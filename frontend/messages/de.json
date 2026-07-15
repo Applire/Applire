@@ -708,6 +708,7 @@
     "coverLetterDraftLink": "Entwurf ansehen",
     "documentsLoadFailed": "Unterlagen konnten nicht geladen werden.",
     "noDocumentsYet": "Noch keine Versionen.",
+    "pinActionFailed": "Das konnte nicht gespeichert werden. Bitte versuche es erneut.",
     "duplicateTitle": "Diese Stelle kennst du vielleicht schon",
     "duplicateBody": "Das sieht aus wie die Stelle, die du am {date} analysiert hast ({company} – {role}).",
     "duplicateBodyPlain": "Das sieht aus wie die Stelle, die du am {date} analysiert hast.",

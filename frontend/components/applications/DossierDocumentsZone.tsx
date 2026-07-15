@@ -119,7 +119,7 @@ export function DossierDocumentsZone({
       await patchSubmittedCv(application.id, cvId);
       onPinChange();
     } catch {
-      onError(t("staleCvRetailorFailed"));
+      onError(t("pinActionFailed"));
     } finally {
       setSavingId(null);
     }
@@ -131,7 +131,7 @@ export function DossierDocumentsZone({
       await patchSubmittedCv(application.id, null);
       onPinChange();
     } catch {
-      onError(t("staleCvRetailorFailed"));
+      onError(t("pinActionFailed"));
     } finally {
       setSavingId(null);
     }
@@ -143,7 +143,7 @@ export function DossierDocumentsZone({
       await patchSubmittedCoverLetter(application.id, clId);
       onPinChange();
     } catch {
-      onError(t("staleCvRetailorFailed"));
+      onError(t("pinActionFailed"));
     } finally {
       setSavingId(null);
     }
@@ -155,7 +155,7 @@ export function DossierDocumentsZone({
       await patchSubmittedCoverLetter(application.id, null);
       onPinChange();
     } catch {
-      onError(t("staleCvRetailorFailed"));
+      onError(t("pinActionFailed"));
     } finally {
       setSavingId(null);
     }
