@@ -307,6 +307,67 @@ def test_upsert_skill_freetext_category_does_not_crash():
     result = apply_ops(profile, ops, SOURCE)
     assert len(result.profile.skills) == 1
     assert result.profile.skills[0].name == "Azure"
+
+
+# ── #172: near-duplicate skill merge on import ────────────────────────────────
+
+
+def test_upsert_skill_near_dupe_merges_and_keeps_more_specific_name():
+    """Incoming 'Team Leadership and Mentorship' strictly contains existing
+    'Team Leadership' → merge (no second skill); the more-specific name wins;
+    refs union, higher proficiency kept."""
+    work = WorkEntry(company="Acme", role="Lead")
+    existing = Skill(name="Team Leadership", proficiency="intermediate",
+                     experience_refs=["ref-old"])
+    profile = MasterProfileData(work_experience=[work], skills=[existing])
+    ops = [UpsertSkill(name="Team Leadership and Mentorship", proficiency="advanced",
+                       evidence=[work.id])]
+    result = apply_ops(profile, ops, SOURCE)
+
+    assert len(result.profile.skills) == 1
+    sk = result.profile.skills[0]
+    assert sk.name == "Team Leadership and Mentorship"
+    assert sk.proficiency == "advanced"
+    assert set(sk.experience_refs) == {"ref-old", work.id}
+
+
+def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
+    """Incoming 'Team Leadership' is a subset of existing 'Team Leadership and
+    Mentorship' → merge but keep the existing (more specific) name."""
+    existing = Skill(name="Team Leadership and Mentorship", proficiency="advanced")
+    profile = MasterProfileData(skills=[existing])
+    ops = [UpsertSkill(name="Team Leadership", proficiency="expert")]
+    result = apply_ops(profile, ops, SOURCE)
+
+    assert len(result.profile.skills) == 1
+    sk = result.profile.skills[0]
+    assert sk.name == "Team Leadership and Mentorship"
+    assert sk.proficiency == "expert"  # higher proficiency still wins
+
+
+def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
+    """A compound incoming skill that near-dupes MULTIPLE existing atoms must NOT
+    silently merge — it emits a RequestConfirmation and leaves the atoms intact."""
+    profile = MasterProfileData(skills=[Skill(name="Docker"), Skill(name="Kubernetes")])
+    ops = [UpsertSkill(name="Docker & Kubernetes", proficiency="advanced")]
+    result = apply_ops(profile, ops, SOURCE)
+
+    # No silent merge: the two atoms are untouched, no compound appended.
+    names = {s.name for s in result.profile.skills}
+    assert names == {"Docker", "Kubernetes"}
+    assert len(result.pending_confirmations) == 1
+    conf = result.pending_confirmations[0]
+    assert "Docker" in conf.question and "Kubernetes" in conf.question
+    assert conf.options  # the user is offered distinct one-tap answers
+
+
+def test_upsert_skill_distinct_skill_still_appends():
+    """'JavaScript' must not merge into 'Java' — token-level distinctness holds."""
+    profile = MasterProfileData(skills=[Skill(name="Java")])
+    ops = [UpsertSkill(name="JavaScript")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert {s.name for s in result.profile.skills} == {"Java", "JavaScript"}
+    assert result.pending_confirmations == []
     assert result.profile.skills[0].category == "technical"
 
 

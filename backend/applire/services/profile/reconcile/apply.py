@@ -262,7 +262,7 @@ def apply_ops(
         elif isinstance(op, AddBullets):
             _apply_add_bullets(op, resolve, changes)
         elif isinstance(op, UpsertSkill):
-            _apply_upsert_skill(op, new_profile, resolve, changes)
+            _apply_upsert_skill(op, new_profile, resolve, changes, pending)
         elif isinstance(op, UpsertCertification):
             _apply_upsert_certification(op, new_profile, changes)
         elif isinstance(op, UpsertLanguage):
@@ -514,7 +514,12 @@ def _apply_add_bullets(op, resolve, changes):
             changes.append(_merged(section, field, None, incoming))
 
 
-def _apply_upsert_skill(op, profile, resolve, changes):
+def _apply_upsert_skill(op, profile, resolve, changes, pending):
+    # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
+    # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
+    # 'Team Leadership' instead of littering the profile with morphological twins.
+    from applire.services.ats_audit import skill_tokens, skills_near_dupe
+
     evidence_ids: list[str] = []
     for handle in op.evidence:
         ent = resolve(handle)
@@ -524,17 +529,41 @@ def _apply_upsert_skill(op, profile, resolve, changes):
                 evidence_ids.append(ent_id)
         # else: leave unresolved handles out (defensive)
 
-    existing = next(
-        (s for s in profile.skills if _norm(s.name) == _norm(op.name)), None
-    )
-    if existing is not None:
+    near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+
+    # An incoming skill that near-dupes MULTIPLE existing skills spans more than one
+    # distinct atom (e.g. 'Docker & Kubernetes' over existing 'Docker' AND
+    # 'Kubernetes'). Silently merging would collapse distinct skills or swallow an
+    # atom that also exists separately — defer to the user via the confirmations
+    # channel (E037 PQ #4) instead of guessing.
+    if len(near) >= 2:
+        names = [s.name for s in near]
+        joined = ", ".join(names)
+        pending.append(
+            RequestConfirmation(
+                question=(
+                    f"'{op.name}' overlaps several skills already on your profile "
+                    f"({joined}). Should it replace them or be kept as a separate skill?"
+                ),
+                options=[f"Merge into '{op.name}'", "Keep the existing skills"],
+                context={"incoming_skill": op.name, "overlapping_skills": names},
+            )
+        )
+        return
+
+    if len(near) == 1:
+        existing = near[0]
         _append_dedup(existing.experience_refs, evidence_ids)
         if op.proficiency:
             new_rank = _PROFICIENCY_ORDER.get(op.proficiency.lower())
             cur_rank = _PROFICIENCY_ORDER.get(existing.proficiency, 1)
             if new_rank is not None and new_rank > cur_rank:
                 existing.proficiency = op.proficiency.lower()
-        changes.append(_merged("skills", "name", None, op.name))
+        # Keep the more-specific/longer name ONLY when the incoming strictly
+        # contains the existing tokens; otherwise the existing name stays.
+        if skill_tokens(op.name) > skill_tokens(existing.name):
+            existing.name = op.name
+        changes.append(_merged("skills", "name", None, existing.name))
         return
 
     skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}

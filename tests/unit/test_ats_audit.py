@@ -15,8 +15,74 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import pytest
+
 from applire.schemas.cv import TailoredCVData
 from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+
+
+# ---------------------------------------------------------------------------
+# #172 — the shared near-duplicate skill predicate. ONE instrument used by the
+# reconciler (import merge), the render-side CV dedup, and the ATS audit.
+# ---------------------------------------------------------------------------
+
+# Real UAT pairs (2026-07-15 edge run) that rendered as separate skills but mean
+# the same thing (or a strict refinement) — must be near-dupes.
+_UAT_NEAR_DUPE_PAIRS = [
+    ("Team Leadership", "Team Leadership and Mentorship"),
+    ("Project Management", "Cross Functional Project Management"),
+    ("GxP Compliance", "Regulatory Compliance and Validation Methodologies (GxP, CSV)"),
+    ("Docker", "Cloud Infrastructure & Deployment (Docker Compose)"),
+    ("Stakeholder Management", "Stakeholder Management & C-Level Consulting"),
+]
+
+# Pairs that share a token or look similar but are genuinely distinct skills —
+# must NOT merge.
+_MUST_NOT_MERGE_PAIRS = [
+    ("Java", "JavaScript"),
+    ("Python", "TypeScript"),
+    ("Team Leadership", "Project Leadership"),
+    ("React", "Vue"),
+]
+
+
+@pytest.mark.parametrize("a,b", _UAT_NEAR_DUPE_PAIRS)
+def test_skills_near_dupe_true_for_uat_pairs(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is True
+    assert skills_near_dupe(b, a) is True  # symmetric
+
+
+@pytest.mark.parametrize("a,b", _MUST_NOT_MERGE_PAIRS)
+def test_skills_near_dupe_false_for_distinct_pairs(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is False
+    assert skills_near_dupe(b, a) is False
+
+
+def test_skills_near_dupe_jaccard_boundary():
+    """Non-containment high-overlap: 6 of 8 tokens shared → Jaccard 0.75 → dupe;
+    dropping the overlap below the threshold → not a dupe."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    a = "alpha beta gamma delta epsilon zeta eta"      # 7 tokens
+    b = "alpha beta gamma delta epsilon zeta theta"    # 7 tokens, 6 shared → 6/8
+    assert skills_near_dupe(a, b) is True
+    c = "alpha beta gamma delta epsilon phi"           # 6 tokens
+    d = "alpha beta gamma delta epsilon rho sigma"     # shares 5, 5/8 = 0.625
+    assert skills_near_dupe(c, d) is False
+
+
+def test_skill_tokens_folds_variants_and_strips_punct():
+    from applire.services.ats_audit import skill_tokens
+
+    assert skill_tokens("Code-Review") == skill_tokens("code reviews")
+    # Conjunctions/ampersands are dropped; parenthesised tokens are unwrapped.
+    assert "gxp" in skill_tokens("Methodologies (GxP, CSV)")
+    assert "csv" in skill_tokens("Methodologies (GxP, CSV)")
+    assert "&" not in skill_tokens("Docker & Kubernetes")
 
 _CV = TailoredCVData.model_validate({
     "contact": {"name": "Anna Bauer", "email": "anna@example.com", "phone": "+49 151 1234567", "location": "Berlin"},

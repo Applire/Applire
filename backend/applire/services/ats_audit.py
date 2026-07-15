@@ -90,6 +90,66 @@ def surface_present(form: str, text_norm: str) -> bool:
     return any(text_norm.find(v) >= 0 for v in _fold_variants(n))
 
 
+# ── #172: near-duplicate skill detection ─────────────────────────────────────
+# ONE shared instrument for the reconciler (merge on import, apply.py), the
+# render-side CV skill dedup (cv.py), and the ATS "skills-near-dupe" audit — so
+# the three layers can never disagree on what counts as the same skill by another
+# name (the coverage-vs-heal lesson, #122: the loop that grades is the loop that
+# heals). Deterministic, no LLM.
+
+_SKILL_STOPWORDS = frozenset(
+    {"and", "or", "the", "of", "for", "with", "a", "an", "to", "in", "&"}
+)
+# Punctuation stripped only from token EDGES, so "(gxp," → "gxp" and "csv)" → "csv"
+# while token-internal symbols survive ("C#", "CI/CD", "C++").
+_SKILL_EDGE_PUNCT = "()[]{},;:.\"'`"
+_NEAR_DUPE_JACCARD = 0.75
+
+
+def _skill_stem(token: str) -> str:
+    """Guarded singular fold, consistent with ``_fold_variants``: drop a trailing
+    "s" only when the stem keeps ≥ ``_FOLD_MIN_STEM`` chars (never "SaaS" → "saa")."""
+    if token.endswith("s") and len(token) - 1 >= _FOLD_MIN_STEM:
+        return token[:-1]
+    return token
+
+
+def skill_tokens(name: str) -> frozenset[str]:
+    """The normalised content-token set of a skill name (#172).
+
+    ``_norm`` (NFKC, dash→space, casefold, whitespace collapse) then edge-punctuation
+    stripping, conjunction/article removal, and a guarded plural fold — so
+    formatting and morphological variants ('Code-Review', 'code reviews') land on
+    one set. Token-internal symbols (C#, CI/CD, .NET→net) are preserved.
+    """
+    tokens: set[str] = set()
+    for raw in _norm(name).split():
+        t = raw.strip(_SKILL_EDGE_PUNCT)
+        if not t or t in _SKILL_STOPWORDS:
+            continue
+        tokens.add(_skill_stem(t))
+    return frozenset(tokens)
+
+
+def skills_near_dupe(a: str, b: str) -> bool:
+    """Do two skill names denote the same (or a strict-subset) skill? (#172)
+
+    True when one token set is a subset of the other — a modifier refinement
+    ('Team Leadership' ⊂ 'Team Leadership and Mentorship') or a compound naming an
+    atom ('Docker' ⊂ 'Cloud Infrastructure & Deployment (Docker Compose)') — OR
+    when token overlap (Jaccard) reaches ``_NEAR_DUPE_JACCARD``. Token-level, so
+    'Java' ≠ 'JavaScript' and 'Python' ≠ 'TypeScript' (distinct single tokens, no
+    containment). Symmetric; empty token sets never match.
+    """
+    ta, tb = skill_tokens(a), skill_tokens(b)
+    if not ta or not tb:
+        return False
+    if ta <= tb or tb <= ta:
+        return True
+    union = ta | tb
+    return len(ta & tb) / len(union) >= _NEAR_DUPE_JACCARD
+
+
 def _entry_norms(entry: dict[str, Any]) -> set[str]:
     forms = entry.get("surface_forms") or [entry.get("concept", "")]
     return {_norm(f) for f in forms} | {_norm(entry.get("concept", ""))}

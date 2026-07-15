@@ -545,6 +545,33 @@ def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
     )
 
 
+def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
+    """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
+    when the master profile is still dirty (the reconciler merges going forward, but
+    existing profiles carry twins like 'Team Leadership' + 'Team Leadership and
+    Mentorship'). Uses the SAME shared predicate as the reconciler and the audit.
+
+    Keeps the first-seen occurrence's POSITION (stable order) but upgrades its name
+    to the more-specific variant when a later near-dupe strictly contains it. Pure;
+    input unmutated. Must run AFTER the ADR-038 language pass, which rewords tags.
+    """
+    from applire.services.ats_audit import skill_tokens, skills_near_dupe
+
+    original = list(tailored.skills or [])
+    kept: list[str] = []
+    for s in original:
+        dup_idx = next(
+            (i for i, k in enumerate(kept) if skills_near_dupe(k, s)), None
+        )
+        if dup_idx is None:
+            kept.append(s)
+        elif skill_tokens(s) > skill_tokens(kept[dup_idx]):
+            kept[dup_idx] = s  # upgrade in place to the more-specific name
+    if kept == original:
+        return tailored
+    return tailored.model_copy(update={"skills": kept})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -991,6 +1018,11 @@ async def _render_cv_background(
             # here — the one site where tailored_data + content_snapshot are
             # established — instead of trusting the LLM's echo of the input order.
             tailored = _enforce_work_order(tailored)
+
+            # #172: collapse near-duplicate skill tags (the shared ats_audit
+            # predicate) so the CV is clean even when the master profile still
+            # carries twins. After the language pass, which rewords the tags.
+            tailored = _dedup_skills(tailored)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.

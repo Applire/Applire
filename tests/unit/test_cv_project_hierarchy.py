@@ -334,6 +334,64 @@ def test_nest_projects_does_not_dedupe_standalone_against_role():
 
 
 # ---------------------------------------------------------------------------
+# #172 — render-side skill dedup. The CV must be clean even when the master
+# profile still carries near-duplicate skills. Uses the shared predicate; keeps
+# the more-specific occurrence in the first-seen position (stable order).
+# ---------------------------------------------------------------------------
+
+
+def _cv_with_skills(skills: list[str]):
+    from applire.schemas.cv import TailoredCVData, TailoredContact
+
+    return TailoredCVData(contact=TailoredContact(name="Anna"), skills=skills)
+
+
+def test_dedup_skills_collapses_uat_near_dupes_stable_order():
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills([
+        "Team Leadership",
+        "Python",
+        "Team Leadership and Mentorship",
+        "Project Management",
+        "Cross Functional Project Management",
+    ])
+    out = _dedup_skills(cv)
+    assert out.skills == [
+        "Team Leadership and Mentorship",
+        "Python",
+        "Cross Functional Project Management",
+    ]
+
+
+def test_dedup_skills_keeps_first_on_equal_specificity():
+    from applire.services.cv import _dedup_skills
+
+    out = _dedup_skills(_cv_with_skills(["Python", "python", "FastAPI"]))
+    assert out.skills == ["Python", "FastAPI"]
+
+
+def test_dedup_skills_noop_when_all_distinct():
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills(["Python", "Kubernetes", "FastAPI"])
+    out = _dedup_skills(cv)
+    assert out.skills == ["Python", "Kubernetes", "FastAPI"]
+
+
+def test_dedup_skills_runs_after_language_pass_in_pipeline():
+    """The dedup must sit after the ADR-038 language pass — skill tags are reworded
+    there, so deduping earlier would miss twins the reviewer introduces."""
+    import inspect
+    import applire.services.cv as cv
+
+    source = inspect.getsource(cv)
+    lang_call = source.index("await _review_cv_language(")
+    dedup_call = source.index("= _dedup_skills(")
+    assert lang_call < dedup_call, "_dedup_skills must run after the language pass"
+
+
+# ---------------------------------------------------------------------------
 # Templates: every CV template renders a nested project's name + bullet, and the
 # project text appears after its parent company in the source order.
 # ---------------------------------------------------------------------------
