@@ -455,6 +455,7 @@ def _audit_letter_text(
     letter_data: dict[str, Any],
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    page_count: int | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -477,6 +478,21 @@ def _audit_letter_text(
             continue  # empty/whitespace paragraph — nothing to verify (mirrors the CV-side empty-field guard)
         _check(checks, f"body-{i}", _find(probe, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
 
+    # E042/US240 (ADR-051 §6): DETECTION-ONLY page-length check against the region's
+    # 1-page letter norm — deliberately no target resolution, no user setting, no
+    # condense loop for letters this flavour (unlike the CV band in _audit_cv_text).
+    # Same check id ("page-length") as the CV check — the frontend ATSChecksPanel and
+    # the checks.page-length i18n key are shared by both document types. Skipped when
+    # no count is given (text-only callers/tests), mirroring the CV behaviour. The
+    # norm number always comes from REGION_NORMS — never hard-coded (ADR-051 §1).
+    if page_count is not None:
+        region = DEFAULT_REGION
+        letter_pages = REGION_NORMS[region].letter_pages
+        _check(
+            checks, "page-length", page_count <= letter_pages,
+            f"{page_count} pages — a {region} cover letter is {letter_pages} page",
+        )
+
     return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger))
 
 
@@ -490,5 +506,10 @@ def audit_cover_letter(
 
     ``ledger`` (ADR-048/US203) splits each MISSING keyword into *missing-claimable* vs
     *missing-honest-gap*.
+
+    E042/US240: reads the real page count via :func:`extract_text_and_pages` (one
+    PdfReader pass, #171a-style) and threads it into :func:`_audit_letter_text` for
+    the detection-only page-length check.
     """
-    return _audit_letter_text(extract_text(pdf_bytes), letter_data, keywords, ledger)
+    text, page_count = extract_text_and_pages(pdf_bytes)
+    return _audit_letter_text(text, letter_data, keywords, ledger, page_count=page_count)
