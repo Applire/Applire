@@ -32,8 +32,23 @@ _UAT_NEAR_DUPE_PAIRS = [
     ("Team Leadership", "Team Leadership and Mentorship"),
     ("Project Management", "Cross Functional Project Management"),
     ("GxP Compliance", "Regulatory Compliance and Validation Methodologies (GxP, CSV)"),
-    ("Docker", "Cloud Infrastructure & Deployment (Docker Compose)"),
     ("Stakeholder Management", "Stakeholder Management & C-Level Consulting"),
+]
+
+# Bare single-token containment — one side is a SINGLE token strictly inside the
+# other, larger token set. Under the strict predicate (#172, 2026-07-15 UAT) this
+# is NOT an auto-merge: 'React' ⊂ 'React Native' are distinct skills, and merging
+# would silently swallow one (persisted corruption) or rename Docker into a
+# compound. The reconciler routes these to a user confirmation instead — never a
+# silent merge — so `skills_near_dupe` must return False for them.
+_SINGLE_TOKEN_CONTAINMENT_PAIRS = [
+    ("React", "React Native"),
+    ("AWS", "AWS Lambda"),
+    ("Spring", "Spring Boot"),
+    ("Vue", "Vue Router"),
+    ("Excel", "Excel VBA"),
+    ("Docker", "Docker & Kubernetes"),
+    ("Docker", "Cloud Infrastructure & Deployment (Docker Compose)"),
 ]
 
 # Pairs that share a token or look similar but are genuinely distinct skills —
@@ -62,6 +77,17 @@ def test_skills_near_dupe_false_for_distinct_pairs(a, b):
     assert skills_near_dupe(b, a) is False
 
 
+@pytest.mark.parametrize("a,b", _SINGLE_TOKEN_CONTAINMENT_PAIRS)
+def test_skills_near_dupe_false_for_single_token_containment(a, b):
+    """Bare single-token containment is NOT an auto-merge near-dupe (#172 strict):
+    'React' ⊂ 'React Native' must stay distinct so the merge never silently drops
+    a genuine skill."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is False
+    assert skills_near_dupe(b, a) is False
+
+
 def test_skills_near_dupe_jaccard_boundary():
     """Non-containment high-overlap: 6 of 8 tokens shared → Jaccard 0.75 → dupe;
     dropping the overlap below the threshold → not a dupe."""
@@ -83,6 +109,17 @@ def test_skill_tokens_folds_variants_and_strips_punct():
     assert "gxp" in skill_tokens("Methodologies (GxP, CSV)")
     assert "csv" in skill_tokens("Methodologies (GxP, CSV)")
     assert "&" not in skill_tokens("Docker & Kubernetes")
+
+
+def test_skill_tokens_stems_only_purely_alpha_tokens():
+    """The plural fold must skip tokens with internal punctuation, so 'node.js'
+    stays intact instead of losing its trailing 's' ('node.j') (#172 minor)."""
+    from applire.services.ats_audit import skill_tokens
+
+    assert skill_tokens("node.js") == frozenset({"node.js"})
+    assert "node.j" not in skill_tokens("node.js")
+    # Purely-alphabetic plurals still fold as before.
+    assert skill_tokens("reviews") == skill_tokens("review")
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +201,15 @@ def test_skills_near_dupe_check_flags_uat_pair():
 
 def test_skills_near_dupe_check_passes_on_clean_skills():
     report = _audit_cv_text(_full_text(), _CV, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "pass"
+
+
+def test_skills_near_dupe_check_passes_on_single_token_containment():
+    """React + React Native are distinct skills; the audit must not flag a legit CV
+    that legitimately lists both (#172 strict predicate)."""
+    cv = _CV.model_copy(update={"skills": ["React", "React Native", "Python"]})
+    report = _audit_cv_text(_full_text(), cv, keywords=[])
     c = _check_by_id(report, "skills-near-dupe")
     assert c is not None and c.status == "pass"
 

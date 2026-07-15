@@ -18,6 +18,8 @@
 """ADR-046 — deterministic applier acceptance + edge tests."""
 from __future__ import annotations
 
+import pytest
+
 from applire.schemas.profile import (
     MasterProfileData,
     Skill,
@@ -346,8 +348,9 @@ def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
 
 
 def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
-    """A compound incoming skill that near-dupes MULTIPLE existing atoms must NOT
-    silently merge — it emits a RequestConfirmation and leaves the atoms intact."""
+    """A compound incoming skill that relates to MULTIPLE existing atoms by
+    single-token containment must NOT silently merge — it emits a
+    RequestConfirmation and leaves the atoms intact."""
     profile = MasterProfileData(skills=[Skill(name="Docker"), Skill(name="Kubernetes")])
     ops = [UpsertSkill(name="Docker & Kubernetes", proficiency="advanced")]
     result = apply_ops(profile, ops, SOURCE)
@@ -359,6 +362,60 @@ def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
     conf = result.pending_confirmations[0]
     assert "Docker" in conf.question and "Kubernetes" in conf.question
     assert conf.options  # the user is offered distinct one-tap answers
+
+
+def test_upsert_skill_single_token_containment_asks_confirmation_no_rename():
+    """'Docker' existing + incoming 'Docker & Kubernetes' relate ONLY by
+    single-token containment → confirmation, and the existing 'Docker' is NEVER
+    renamed into the compound (that was the fabrication bug, #172)."""
+    profile = MasterProfileData(skills=[Skill(name="Docker", proficiency="advanced")])
+    ops = [UpsertSkill(name="Docker & Kubernetes", proficiency="expert")]
+    result = apply_ops(profile, ops, SOURCE)
+
+    names = {s.name for s in result.profile.skills}
+    assert names == {"Docker"}  # unchanged: no rename, no compound appended
+    assert result.profile.skills[0].proficiency == "advanced"  # untouched
+    assert len(result.pending_confirmations) == 1
+    conf = result.pending_confirmations[0]
+    assert "Docker & Kubernetes" in conf.question
+    assert conf.context.get("incoming_skill") == "Docker & Kubernetes"
+
+
+def test_upsert_skill_react_native_not_merged_into_react():
+    """'React' existing + incoming 'React Native' must NOT merge — both survive as
+    distinct skills and the user is asked to confirm (#172 strict predicate)."""
+    profile = MasterProfileData(skills=[Skill(name="React", proficiency="advanced")])
+    ops = [UpsertSkill(name="React Native", category="technical",
+                       proficiency="intermediate")]
+    result = apply_ops(profile, ops, SOURCE)
+
+    # The existing skill is untouched; nothing silently collapsed.
+    assert {s.name for s in result.profile.skills} == {"React"}
+    assert result.profile.skills[0].name == "React"
+    assert len(result.pending_confirmations) == 1
+    conf = result.pending_confirmations[0]
+    # Context must carry everything needed to act on the answer later.
+    assert conf.context.get("incoming_skill") == "React Native"
+    assert conf.context.get("category") == "technical"
+    assert conf.context.get("proficiency") == "intermediate"
+
+
+@pytest.mark.parametrize("existing,incoming", [
+    ("AWS", "AWS Lambda"),
+    ("Spring", "Spring Boot"),
+    ("Vue", "Vue Router"),
+    ("Excel", "Excel VBA"),
+])
+def test_upsert_skill_single_token_containment_pairs_ask_confirmation(existing, incoming):
+    """Every bare single-token containment pair defers to a confirmation instead of
+    silently merging or renaming."""
+    profile = MasterProfileData(skills=[Skill(name=existing)])
+    ops = [UpsertSkill(name=incoming)]
+    result = apply_ops(profile, ops, SOURCE)
+
+    assert {s.name for s in result.profile.skills} == {existing}
+    assert len(result.pending_confirmations) == 1
+    assert result.pending_confirmations[0].context.get("incoming_skill") == incoming
 
 
 def test_upsert_skill_distinct_skill_still_appends():

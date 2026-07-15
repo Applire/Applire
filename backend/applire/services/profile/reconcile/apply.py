@@ -518,7 +518,11 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
     # 'Team Leadership' instead of littering the profile with morphological twins.
-    from applire.services.ats_audit import skill_tokens, skills_near_dupe
+    from applire.services.ats_audit import (
+        skill_tokens,
+        skills_near_dupe,
+        skills_single_token_containment,
+    )
 
     evidence_ids: list[str] = []
     for handle in op.evidence:
@@ -532,8 +536,7 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
     near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
 
     # An incoming skill that near-dupes MULTIPLE existing skills spans more than one
-    # distinct atom (e.g. 'Docker & Kubernetes' over existing 'Docker' AND
-    # 'Kubernetes'). Silently merging would collapse distinct skills or swallow an
+    # distinct atom. Silently merging would collapse distinct skills or swallow an
     # atom that also exists separately — defer to the user via the confirmations
     # channel (E037 PQ #4) instead of guessing.
     if len(near) >= 2:
@@ -550,6 +553,41 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
             )
         )
         return
+
+    # No auto-merge match. Before appending, check for BARE single-token containment
+    # with any existing skill ('React' vs 'React Native', 'Docker' vs 'Docker &
+    # Kubernetes'). These are NOT auto-merged (strict predicate, #172) — silently
+    # merging swallowed a genuine skill or renamed an atom into a compound. Ask the
+    # user instead; carry enough context that answering later loses nothing.
+    if not near:
+        containment = [
+            s for s in profile.skills
+            if skills_single_token_containment(s.name, op.name)
+        ]
+        if containment:
+            related = [s.name for s in containment]
+            joined = ", ".join(related)
+            pending.append(
+                RequestConfirmation(
+                    question=(
+                        f"'{op.name}' shares a word with skills already on your "
+                        f"profile ({joined}) but may be a distinct skill. Add it "
+                        f"separately, or merge it into an existing one?"
+                    ),
+                    options=[
+                        f"Add '{op.name}' as a separate skill",
+                        "Merge into the existing skill",
+                    ],
+                    context={
+                        "incoming_skill": op.name,
+                        "related_skills": related,
+                        "category": op.category,
+                        "proficiency": op.proficiency,
+                        "evidence_refs": evidence_ids,
+                    },
+                )
+            )
+            return
 
     if len(near) == 1:
         existing = near[0]

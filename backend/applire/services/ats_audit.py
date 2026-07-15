@@ -115,8 +115,12 @@ _NEAR_DUPE_JACCARD = 0.75
 
 def _skill_stem(token: str) -> str:
     """Guarded singular fold, consistent with ``_fold_variants``: drop a trailing
-    "s" only when the stem keeps ≥ ``_FOLD_MIN_STEM`` chars (never "SaaS" → "saa")."""
-    if token.endswith("s") and len(token) - 1 >= _FOLD_MIN_STEM:
+    "s" only when the stem keeps ≥ ``_FOLD_MIN_STEM`` chars (never "SaaS" → "saa").
+
+    Only *purely-alphabetic* tokens are folded — a token with internal punctuation
+    ('node.js', 'ci/cd') is a proper noun / identifier, not an English plural, so
+    stripping its trailing 's' would corrupt it ('node.js' → 'node.j')."""
+    if token.isalpha() and token.endswith("s") and len(token) - 1 >= _FOLD_MIN_STEM:
         return token[:-1]
     return token
 
@@ -139,22 +143,53 @@ def skill_tokens(name: str) -> frozenset[str]:
 
 
 def skills_near_dupe(a: str, b: str) -> bool:
-    """Do two skill names denote the same (or a strict-subset) skill? (#172)
+    """Are two skill names safe to AUTO-merge as the same skill? (#172, strict)
 
-    True when one token set is a subset of the other — a modifier refinement
-    ('Team Leadership' ⊂ 'Team Leadership and Mentorship') or a compound naming an
-    atom ('Docker' ⊂ 'Cloud Infrastructure & Deployment (Docker Compose)') — OR
-    when token overlap (Jaccard) reaches ``_NEAR_DUPE_JACCARD``. Token-level, so
-    'Java' ≠ 'JavaScript' and 'Python' ≠ 'TypeScript' (distinct single tokens, no
-    containment). Symmetric; empty token sets never match.
+    True only when EITHER:
+
+    * token-set containment where the *contained* side has ≥ 2 tokens — a modifier
+      refinement of a real multi-word skill ('Team Leadership' ⊂ 'Team Leadership
+      and Mentorship', 'GxP Compliance' ⊂ 'Regulatory Compliance … (GxP, CSV)'), OR
+    * token overlap (Jaccard) reaches ``_NEAR_DUPE_JACCARD``.
+
+    **Bare single-token containment is NOT a near-dupe.** One token strictly inside
+    a larger set ('React' ⊂ 'React Native', 'Docker' ⊂ 'Docker & Kubernetes') names
+    a *distinct* skill, and auto-merging would silently drop it or rename the atom
+    into a compound (persisted corruption, UAT 2026-07-15). The reconciler routes
+    such pairs to a user confirmation via :func:`skills_single_token_containment`.
+
+    Token-level, so 'Java' ≠ 'JavaScript'. Symmetric; empty token sets never match.
     """
     ta, tb = skill_tokens(a), skill_tokens(b)
     if not ta or not tb:
         return False
-    if ta <= tb or tb <= ta:
+    # Containment counts only when the contained (smaller/equal) side is itself a
+    # multi-token name — never a bare single token inside a larger set.
+    if ta <= tb and len(ta) >= 2:
+        return True
+    if tb <= ta and len(tb) >= 2:
         return True
     union = ta | tb
     return len(ta & tb) / len(union) >= _NEAR_DUPE_JACCARD
+
+
+def skills_single_token_containment(a: str, b: str) -> bool:
+    """Do two skill names relate ONLY by bare single-token containment? (#172)
+
+    True when one token set is a *strict* subset of the other and the contained
+    side is a single token — 'React' vs 'React Native', 'Docker' vs 'Docker &
+    Kubernetes'. These are deliberately excluded from :func:`skills_near_dupe`
+    (never auto-merged); the reconciler surfaces them as a user confirmation.
+    Symmetric; empty token sets never match; equal sets are not containment.
+    """
+    ta, tb = skill_tokens(a), skill_tokens(b)
+    if not ta or not tb:
+        return False
+    if ta < tb and len(ta) == 1:
+        return True
+    if tb < ta and len(tb) == 1:
+        return True
+    return False
 
 
 def _entry_norms(entry: dict[str, Any]) -> set[str]:

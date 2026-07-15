@@ -379,6 +379,16 @@ def test_dedup_skills_noop_when_all_distinct():
     assert out.skills == ["Python", "Kubernetes", "FastAPI"]
 
 
+def test_dedup_skills_keeps_single_token_containment_distinct():
+    """Bare single-token containment ('React' ⊂ 'React Native') is NOT a near-dupe
+    (#172 strict) — the render dedup must keep BOTH, never drop a legit skill."""
+    from applire.services.cv import _dedup_skills
+
+    cv = _cv_with_skills(["React", "React Native", "AWS", "AWS Lambda"])
+    out = _dedup_skills(cv)
+    assert out.skills == ["React", "React Native", "AWS", "AWS Lambda"]
+
+
 def test_dedup_skills_runs_after_language_pass_in_pipeline():
     """The dedup must sit after the ADR-038 language pass — skill tags are reworded
     there, so deduping earlier would miss twins the reviewer introduces."""
