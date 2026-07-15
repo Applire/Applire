@@ -200,6 +200,10 @@ async def get_application(
 ) -> ApplicationResponse:
     app = await _get_or_404(application_id, user_id, db)
     data = ApplicationResponse.model_validate(app)
+    if app.flow_session_id is not None:
+        flow = await db.get(FlowSession, app.flow_session_id)
+        if flow is not None:
+            data.flow_current_step = flow.current_step
     await _enrich_submitted_cv_meta([data], db)
     await _enrich_stale_cv([data], db)
     return data

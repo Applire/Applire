@@ -451,6 +451,44 @@ async def test_get_application_deleted_raises(db, user_and_job):
         await get_application(resp.id, _STUB_USER_ID, db)
 
 
+@pytest.mark.asyncio
+async def test_get_application_enriches_flow_current_step_complete(db, user_and_job):
+    """Detail read model must mirror the list path: completed flow (US233)."""
+    from applire.models.flow import FlowSession
+
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID,
+        CreateApplicationRequest(job_analysis_id=job.id, start_workflow=True),
+        db,
+    )
+    flow = await db.get(FlowSession, created.flow_session_id)
+    flow.current_step = "complete"
+    await db.commit()
+
+    fetched = await get_application(created.id, _STUB_USER_ID, db)
+    assert fetched.flow_current_step == "complete"
+
+
+@pytest.mark.asyncio
+async def test_get_application_enriches_flow_current_step_mid_flow(db, user_and_job):
+    """Mid-flow state (interview) must also be enriched, not just the terminal step."""
+    from applire.models.flow import FlowSession
+
+    _, job = user_and_job
+    created = await create_application(
+        _STUB_USER_ID,
+        CreateApplicationRequest(job_analysis_id=job.id, start_workflow=True),
+        db,
+    )
+    flow = await db.get(FlowSession, created.flow_session_id)
+    flow.current_step = "interview"
+    await db.commit()
+
+    fetched = await get_application(created.id, _STUB_USER_ID, db)
+    assert fetched.flow_current_step == "interview"
+
+
 # ---------------------------------------------------------------------------
 # patch_application
 # ---------------------------------------------------------------------------
