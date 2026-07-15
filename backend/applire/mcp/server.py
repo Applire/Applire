@@ -354,16 +354,23 @@ async def send_message(session_id: str, message: str) -> dict:
     description=(
         "Generate a tailored CV for the given job. "
         "Returns cv_id, html_url, and pdf_url. "
-        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL)."
+        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). "
+        "Optional target_pages pins the CV to a specific page count for this "
+        "generation only (DACH norm: 2 pages standard, 3 max); omit it to use "
+        "the user's default setting, then the region standard."
     )
 )
-async def generate_cv(job_id: str) -> dict:
+async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     provider = get_provider()
     async with get_db() as db:
         try:
             result = await cv_svc.generate_cv(
-                jid, db, provider, base_url=settings.applire_base_url
+                jid,
+                db,
+                provider,
+                base_url=settings.applire_base_url,
+                target_pages=target_pages,
             )
         except LookupError as exc:
             raise not_found(str(exc))
