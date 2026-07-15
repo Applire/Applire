@@ -558,6 +558,73 @@ def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
     )
 
 
+def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """Deterministically back-fill the profile ``WorkEntry.id`` onto tailored work
+    entries whose ``id`` is empty (E042/US238 fix round).
+
+    The single-call fast path's LLM schema omits ``id`` (and the ADR-038 language
+    pass re-emits the JSON, so even carried ids can be dropped) — but the condense
+    loop's budget lookup is keyed by profile ``WorkEntry.id``. Without this pass the
+    DEFAULT generation path would never match a role, silently skip condensation,
+    and report "condensed to the maximum" without having condensed anything.
+
+    Identity rule, mirroring ``_nest_projects``: match by case-folded, stripped
+    company+role; each profile id is assigned at most once. Entries left ambiguous
+    (duplicate company+role pairs, e.g. a re-hire) or unmatched fall back to
+    POSITIONAL pairing — sound because tailoring rule 6 guarantees the output entry
+    count equals the profile's, and both lists are enforced reverse-chronological
+    (``_sort_work_by_date`` upstream, ``_enforce_work_order`` on the tailored side —
+    call this AFTER it). When the counts differ, unmatched entries keep an empty id
+    (no budget applied) rather than risk a wrong role's budget. Pure; no LLM; the
+    input is left unmutated.
+    """
+    source = profile_json.get("work_experience") or []
+    if not source or not tailored.work_history:
+        return tailored
+    if all(w.id for w in tailored.work_history):
+        return tailored  # segmented path (or already back-filled) — nothing to do
+
+    def _key(company: object, role: object) -> tuple[str, str]:
+        return (
+            (company if isinstance(company, str) else "").strip().lower(),
+            (role if isinstance(role, str) else "").strip().lower(),
+        )
+
+    ids_by_key: dict[tuple[str, str], list[str]] = {}
+    for s in source:
+        sid = str(s.get("id") or "")
+        if sid:
+            ids_by_key.setdefault(_key(s.get("company"), s.get("role")), []).append(sid)
+
+    data = tailored.model_dump()
+    work: list[dict] = data.get("work_history") or []
+    used: set[str] = {w["id"] for w in work if w.get("id")}
+
+    unmatched: list[int] = []
+    for i, w in enumerate(work):
+        if w.get("id"):
+            continue
+        candidates = [
+            sid for sid in ids_by_key.get(_key(w.get("company"), w.get("role")), [])
+            if sid not in used
+        ]
+        if len(candidates) == 1:
+            w["id"] = candidates[0]
+            used.add(candidates[0])
+        else:
+            unmatched.append(i)
+
+    # Positional fallback (documented above): only when the counts line up 1:1.
+    if unmatched and len(work) == len(source):
+        for i in unmatched:
+            sid = str(source[i].get("id") or "")
+            if sid and sid not in used:
+                work[i]["id"] = sid
+                used.add(sid)
+
+    return TailoredCVData.model_validate(data)
+
+
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
@@ -1069,6 +1136,15 @@ async def _render_cv_background(
             # here — the one site where tailored_data + content_snapshot are
             # established — instead of trusting the LLM's echo of the input order.
             tailored = _enforce_work_order(tailored)
+
+            # E042/US238 fix round: back-fill profile WorkEntry.ids onto the tailored
+            # entries. The single-call path's schema omits `id` (and the language pass
+            # can drop carried ids), but the condense loop's budget lookup is keyed by
+            # them. MUST run after _enforce_work_order — the positional fallback for
+            # ambiguous company+role pairs relies on both lists sharing the enforced
+            # reverse-chronological order. Uses the SORTED profile_json (still bound
+            # here; the photo step below rebinds the name to the raw profile dict).
+            tailored = _backfill_work_ids(tailored, profile_json)
 
             # #172: collapse near-duplicate skill tags (the shared ats_audit
             # predicate) so the CV is clean even when the master profile still

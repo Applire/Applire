@@ -430,6 +430,13 @@ def audit_cv(
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
+    NOTE (E042/US238): production no longer calls this — the CV pipeline's condense
+    loop needs the page count itself, so ``services/cv._update_ats_report`` extracts
+    once via :func:`extract_text_and_pages` and audits via :func:`_audit_cv_text`
+    directly. This PDF-level convenience wrapper is kept as the entry point for the
+    ADR-039 render-roundtrip harness (``tests/ats/test_roundtrip.py``) and unit tests;
+    keep its behaviour in lockstep with the production pair above.
+
     ``ledger`` (the Keyword Ledger, ADR-048/US203) annotates each MISSING keyword as
     *missing-claimable* (supported by the profile per the ledger) vs *missing-honest-gap*.
 

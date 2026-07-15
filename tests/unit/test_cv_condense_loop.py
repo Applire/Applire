@@ -265,3 +265,149 @@ async def test_null_target_row_resolves_target_at_audit(db):
 
     pc = _page_check(cv.ats_report)
     assert pc["status"] == "pass" and pc["details"] is None  # 2 <= standard 2, no advisory
+
+
+# --- LOW 1: the re-render provably reflects the condensed data --------------
+
+@pytest.mark.asyncio
+async def test_second_render_sees_condensed_tailored_data(db):
+    """The loop's re-render must observe the in-session mutation of tailored_data —
+    here the render seam ECHOES the record's live bullet count instead of following a
+    scripted page schedule, so the loop can only terminate because the condense pass
+    actually changed the data the second render reads."""
+    cv = await _seed_cv(db, n_bullets=5, target_pages=2)
+    from applire.services.cv import _update_ats_report, CondenseContext
+
+    async def echo_html(cv_id, session):
+        n = len(cv.tailored_data["work_history"][0]["bullets"])
+        return f"<html>{n}</html>"
+
+    async def html_to_pdf(html):
+        return html.encode()
+
+    def extract(pdf_bytes):
+        n = int(pdf_bytes.decode().strip("<html>/"))
+        return (f"text with {n} bullets", 3 if n > 2 else 2)
+
+    extract_mock = MagicMock(side_effect=extract)
+    with patch("applire.services.cv.get_cv_html", new=echo_html), \
+         patch("applire.services.cv._html_to_pdf", new=html_to_pdf), \
+         patch("applire.services.ats_audit.extract_text_and_pages", new=extract_mock):
+        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+
+    # 5 bullets → 3 pages → condense to 2 → the echoed render now reports 2 pages.
+    assert extract_mock.call_count == 2
+    assert extract_mock.call_args_list[1].args[0] == b"<html>2</html>", \
+        "second render must be produced FROM the condensed data"
+    assert len(cv.tailored_data["work_history"][0]["bullets"]) == 2
+    pc = _page_check(cv.ats_report)
+    assert pc["status"] == "pass" and pc["details"] is None
+
+
+# --- HIGH regression: fast-path payload (no work-entry ids) must still condense ---
+
+_PROFILE_WORK_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+def _fastpath_profile_json() -> dict:
+    return {
+        "contact": {"first_name": "Anna", "last_name": "Bauer",
+                    "email": "anna@example.com", "phone": None, "location": "Berlin",
+                    "linkedin": None, "xing": None, "portfolio": None},
+        "professional_summary": {"de": "Erfahrene Entwicklerin", "en": ""},
+        "work_experience": [
+            {
+                "id": _PROFILE_WORK_ID,
+                "company": "Acme GmbH",
+                "role": "Software Engineer",
+                "start_date": "2020-01",
+                "end_date": None,
+                "responsibilities": [f"Aufgabe {i}" for i in range(7)],
+            }
+        ],
+        "education": [], "skills": [], "languages": [], "certifications": [],
+    }
+
+
+def _fastpath_llm_payload() -> dict:
+    # Shaped like the single-call fast path's LLM output: NO `id` on work entries
+    # (the schema omits it) — TailoredWorkEntry.id defaults to "".
+    return {
+        "contact": {"name": "Anna Bauer", "email": "anna@example.com"},
+        "summary": "Erfahrene Entwicklerin.",
+        "work_history": [
+            {
+                "company": "Acme GmbH",
+                "role": "Software Engineer",
+                "start_date": "2020-01",
+                "end_date": None,
+                "bullets": [f"Bullet {i}" for i in range(7)],
+            }
+        ],
+        "skills": ["Python"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_fastpath_payload_without_ids_still_condenses(db):
+    """HIGH regression (reviewer finding): the DEFAULT single-call path emits work
+    entries WITHOUT ids while the budget is keyed by profile WorkEntry.id (a UUID).
+    _backfill_work_ids must bridge that seam so the loop actually condenses — and
+    never emits the false 'condensed to the maximum' wording without condensing."""
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import _render_cv_background
+
+    job_id, profile_id, cv_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    db.add_all([
+        JobAnalysis(
+            id=job_id, raw_text_hash=str(job_id), raw_text="job",
+            role_title="Engineer", required_skills=[], nice_to_have_skills=[],
+            keywords=["Python"], seniority_level="mid", company_culture_signals=[],
+            language_requirement="de",
+        ),
+        MasterProfile(
+            id=profile_id, profile_json=_fastpath_profile_json(),
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        GeneratedCV(
+            id=cv_id, job_analysis_id=job_id, profile_id=profile_id,
+            tailored_data={}, template="classic_german", status="pending",
+            target_pages=2,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            expires_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        ),
+    ])
+    await db.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = _fastpath_llm_payload()
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    # Real budget (computed from the profile → keyed by the UUID), real backfill,
+    # real condense, real audit; only the LLM + render/count seams are mocked.
+    extract = MagicMock(side_effect=[("text", 3), ("text", 2)])
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=mock_provider), \
+         patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", new=extract):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    record = await db.get(GeneratedCV, cv_id)
+    assert record.status == "ready"
+    entry = record.tailored_data["work_history"][0]
+    assert entry["id"] == _PROFILE_WORK_ID, "profile id must be back-filled onto the entry"
+    # Current role, void relevance → top tier, ceiling 5 at target 2: 7 → 5 bullets.
+    assert len(entry["bullets"]) == 5, "condensation must fire on the fast-path payload"
+    assert extract.call_count == 2, "overrun → one condense pass → re-render"
+    pc = _page_check(record.ats_report)
+    assert pc["status"] == "pass" and pc["details"] is None
+    assert len(record.content_snapshot["positions"][0]["bullets"]) == 5
