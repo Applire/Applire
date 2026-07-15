@@ -59,6 +59,7 @@ from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
+from applire.norms import resolve_target_pages
 from applire.prompts.cv_tailoring import (
     CV_TAILORING_REFINEMENT_PROMPT,
     SYSTEM_PROMPT,
@@ -628,6 +629,7 @@ async def generate_cv(
     background_tasks: BackgroundTasks | None = None,
     template: CVTemplate = "classic_german",
     base_url: str = "http://localhost:8001",
+    target_pages: int | None = None,
 ) -> CVGenerateResponse:
     """Create a GeneratedCV record and render it.
 
@@ -635,6 +637,11 @@ async def generate_cv(
     sent. The MCP/agent channel has no request lifecycle, so it omits it
     (``background_tasks=None``) and we render inline before returning — the agent
     polls ``get_cv_status`` and sees a terminal status on the first read.
+
+    ``target_pages`` (E042/US236, ADR-051 §1) is the optional per-generation
+    override. Precedence — resolved once here and persisted on the row —
+    is override > the user's ``UserSettings.target_cv_pages`` > the DACH
+    region standard (``resolve_target_pages``).
     """
     # Validate job exists
     job = await db.get(JobAnalysis, job_id)
@@ -652,6 +659,17 @@ async def generate_cv(
     if profile is None:
         raise LookupError("No profile found — import a CV first")
 
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+
+    settings_result = await db.execute(
+        select(UserSettings.target_cv_pages).where(
+            UserSettings.user_id == _CE_STUB_USER_ID
+        )
+    )
+    user_setting = settings_result.scalar_one_or_none()
+    resolved_target_pages = resolve_target_pages(target_pages, user_setting)
+
     # Create pending record
     record = GeneratedCV(
         job_analysis_id=job_id,
@@ -659,6 +677,7 @@ async def generate_cv(
         tailored_data={},  # populated by background task
         template=template,
         status=CVGenerationStatus.pending.value,
+        target_pages=resolved_target_pages,
     )
     db.add(record)
     await db.commit()

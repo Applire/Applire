@@ -286,3 +286,127 @@ def test_tailored_cv_data_coerces_null_summary_to_empty_string():
         "languages": [],
     })
     assert data.summary == ""
+
+
+# ---------------------------------------------------------------------------
+# target_pages resolution + persistence at CV-row creation time (E042/US236,
+# ADR-051 §1). generate_cv resolves via resolve_target_pages() and persists
+# the result on the new row; _render_cv_background is stubbed out so this
+# stays hermetic (no LLM, no Playwright).
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, patch
+
+
+@pytest_asyncio.fixture
+async def target_pages_db():
+    """In-memory SQLite session with all models generate_cv touches, including
+    UserSettings (needed for the target_cv_pages fallback lookup)."""
+    from applire.db.session import Base
+    import applire.models.user
+    import applire.models.job
+    import applire.models.profile
+    import applire.models.gap
+    import applire.models.cv
+    import applire.models.session
+    import applire.models.application
+    import applire.models.cover_letter
+    import applire.models.flow
+    import applire.models.uploads
+    import applire.models.color_profile
+    import applire.models.company
+    import applire.models.user_settings
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+
+    await engine.dispose()
+
+
+async def _seed_job_and_profile(db):
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+
+    job_id = uuid.uuid4()
+    db.add(JobAnalysis(
+        id=job_id,
+        raw_text_hash=f"hash-{job_id}",
+        raw_text="Sample job description",
+        role_title="Backend Engineer",
+        company_name="DataCraft GmbH",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="German",
+    ))
+    db.add(MasterProfile(
+        id=uuid.uuid4(),
+        profile_json={"personal_info": {"full_name": "Emma Beispiel"}},
+    ))
+    await db.commit()
+    return job_id
+
+
+async def _seed_user_settings(db, target_cv_pages: int | None):
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+    from applire.models.user import User
+
+    db.add(User(id=_CE_STUB_USER_ID, email="local@applire.community"))
+    db.add(UserSettings(user_id=_CE_STUB_USER_ID, target_cv_pages=target_cv_pages))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_generate_cv_persists_override_when_given(target_pages_db):
+    from applire.services.cv import generate_cv
+    from applire.models.cv import GeneratedCV
+
+    db = target_pages_db
+    job_id = await _seed_job_and_profile(db)
+    await _seed_user_settings(db, target_cv_pages=1)
+
+    with patch("applire.services.cv._render_cv_background", AsyncMock()):
+        result = await generate_cv(job_id, db, provider=object(), target_pages=3)
+
+    record = await db.get(GeneratedCV, result.cv_id)
+    assert record.target_pages == 3
+
+
+@pytest.mark.asyncio
+async def test_generate_cv_persists_user_setting_when_no_override(target_pages_db):
+    from applire.services.cv import generate_cv
+    from applire.models.cv import GeneratedCV
+
+    db = target_pages_db
+    job_id = await _seed_job_and_profile(db)
+    await _seed_user_settings(db, target_cv_pages=1)
+
+    with patch("applire.services.cv._render_cv_background", AsyncMock()):
+        result = await generate_cv(job_id, db, provider=object())
+
+    record = await db.get(GeneratedCV, result.cv_id)
+    assert record.target_pages == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_cv_persists_dach_standard_when_neither_given(target_pages_db):
+    from applire.services.cv import generate_cv
+    from applire.models.cv import GeneratedCV
+
+    db = target_pages_db
+    job_id = await _seed_job_and_profile(db)
+    # No UserSettings row at all — resolve_target_pages must still fall back cleanly.
+
+    with patch("applire.services.cv._render_cv_background", AsyncMock()):
+        result = await generate_cv(job_id, db, provider=object())
+
+    record = await db.get(GeneratedCV, result.cv_id)
+    assert record.target_pages == 2
