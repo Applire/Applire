@@ -91,10 +91,16 @@ async def generate_cover_letter(
     request: CoverLetterGenerateRequest,
     db: AsyncSession,
     provider: LLMProvider,
-    background_tasks: BackgroundTasks,
-    base_url: str,
+    background_tasks: BackgroundTasks | None = None,
+    base_url: str = "http://localhost:8001",
 ) -> CoverLetterGenerateResponse:
-    """Create a pending GeneratedCoverLetter and enqueue the background render."""
+    """Create a GeneratedCoverLetter record and render it.
+
+    REST passes a ``BackgroundTasks`` so rendering runs after the response is
+    sent. The MCP/agent channel has no request lifecycle, so it omits it
+    (``background_tasks=None``) and we render inline before returning — the
+    agent polls ``get_cover_letter_status`` and sees a terminal status on the
+    first read (mirrors services/cv.py:generate_cv)."""
     # Resolve flow session for this job
     flow_result = await db.execute(
         select(FlowSession).where(
@@ -161,17 +167,24 @@ async def generate_cover_letter(
     await db.commit()
     await db.refresh(cl)
 
-    # Enqueue background render
-    background_tasks.add_task(
-        _render_cover_letter_background,
-        cl_id=cl.id,
-        cv_id=flow.generated_cv_id,
-        job_id=request.job_id,
-    )
+    if background_tasks is None:
+        # Agent channel: no request lifecycle to defer to — render inline.
+        await _render_cover_letter_background(
+            cl_id=cl.id, cv_id=flow.generated_cv_id, job_id=request.job_id
+        )
+        await db.refresh(cl)
+    else:
+        # REST: enqueue heavy work — runs after the response is sent.
+        background_tasks.add_task(
+            _render_cover_letter_background,
+            cl_id=cl.id,
+            cv_id=flow.generated_cv_id,
+            job_id=request.job_id,
+        )
 
     return CoverLetterGenerateResponse(
         cover_letter_id=cl.id,
-        status=CoverLetterStatus.pending,
+        status=CoverLetterStatus(cl.status),
         html_url=f"{base_url}/api/cover-letter/{cl.id}/html",
         pdf_url=f"{base_url}/api/cover-letter/{cl.id}/pdf",
         expires_at=cl.expires_at,

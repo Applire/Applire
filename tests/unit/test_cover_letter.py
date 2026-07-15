@@ -454,6 +454,85 @@ async def test_generate_cover_letter_creates_pending_record(db):
     assert flow.generated_cover_letter_id == response.cover_letter_id
 
 
+@pytest.mark.asyncio
+async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db):
+    """#170: the MCP/agent channel has no FastAPI request lifecycle to defer
+    to (unlike REST, which always passes a real BackgroundTasks), so
+    background_tasks must be optional and, when omitted, the render must run
+    inline before the call returns — mirroring services/cv.py:generate_cv."""
+    from unittest.mock import AsyncMock, patch
+    from applire.models.cover_letter import CoverLetterStatus
+    from applire.models.flow import FlowSession
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.models.user import User
+    from applire.schemas.cover_letter import CoverLetterGenerateRequest
+
+    user = User(id=uuid.uuid4(), email="test2@test.com")
+    db.add(user)
+    job = JobAnalysis(
+        id=uuid.uuid4(),
+        raw_text_hash="def456",
+        raw_text="QA Manager at Roche",
+        role_title="QA Manager",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="senior",
+        company_culture_signals=[],
+        language_requirement="de",
+    )
+    db.add(job)
+    profile = MasterProfile(profile_json={
+        "contact": {"name": "Marcus Bauer", "email": "m@test.com"},
+        "summary": "QA Expert",
+        "work_history": [],
+        "skills": [],
+        "education": [],
+        "languages": [],
+    })
+    db.add(profile)
+    await db.flush()
+
+    flow = FlowSession(
+        user_id=user.id,
+        job_id=job.id,
+        generated_cv_id=None,
+        available_actions={},
+    )
+    db.add(flow)
+    await db.commit()
+
+    mock_provider = AsyncMock()
+
+    async def _fake_render_inline(cl_id, cv_id, job_id):
+        # Stand-in for the real LLM+Jinja2+Playwright render — flips the
+        # record to a terminal status, same observable effect the agent
+        # relies on (get_cover_letter_status/generate_cover_letter's own
+        # return value must both see it without a second poll).
+        from applire.models.cover_letter import GeneratedCoverLetter
+        rec = await db.get(GeneratedCoverLetter, cl_id)
+        rec.status = CoverLetterStatus.ready.value
+        await db.commit()
+
+    from applire.services.cover_letter import generate_cover_letter
+    request = CoverLetterGenerateRequest(job_id=job.id, tone="formal")
+
+    with patch(
+        "applire.services.cover_letter._render_cover_letter_background",
+        AsyncMock(side_effect=_fake_render_inline),
+    ) as mock_render:
+        response = await generate_cover_letter(
+            request, db, mock_provider, base_url="http://localhost:8001"
+        )
+
+    mock_render.assert_awaited_once()
+    assert response.status == CoverLetterStatus.ready, (
+        "generate_cover_letter must reflect the post-render status when it "
+        "rendered inline, not the stale 'pending' it wrote before rendering"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task 8 (continued) — service helper functions
 # ---------------------------------------------------------------------------

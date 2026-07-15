@@ -644,6 +644,175 @@ async def test_get_cv_ats_report_bad_uuid_raises():
 
 
 # ---------------------------------------------------------------------------
+# generate_cover_letter / get_cover_letter_status / get_cover_letter_ats_report (#170)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_happy_path():
+    from applire.mcp.server import generate_cover_letter
+
+    job_id = str(uuid.uuid4())
+    cl_id = uuid.uuid4()
+    cm, _ = _mock_db()
+    mock_result = _mock_result(
+        cover_letter_id=str(cl_id),
+        status="pending",
+        html_url=f"http://localhost:8001/api/cover-letter/{cl_id}/html",
+        pdf_url=f"http://localhost:8001/api/cover-letter/{cl_id}/pdf",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.cover_letter_svc.generate_cover_letter",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await generate_cover_letter(job_id=job_id)
+
+    assert "cover_letter_id" in result
+    assert "html_url" in result
+    assert "pdf_url" in result
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_invalid_uuid_raises():
+    from applire.mcp.server import generate_cover_letter
+
+    with pytest.raises(McpError) as exc_info:
+        await generate_cover_letter(job_id="not-a-uuid")
+
+    assert exc_info.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_generate_cover_letter_no_flow_session_raises():
+    """service raises LookupError when no FlowSession exists for the job (#170)."""
+    from applire.mcp.server import generate_cover_letter
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.cover_letter_svc.generate_cover_letter",
+            AsyncMock(side_effect=LookupError("No flow session found for job")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc_info:
+            await generate_cover_letter(job_id=str(uuid.uuid4()))
+
+    assert exc_info.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_happy_path():
+    from applire.mcp.server import get_cover_letter_status
+
+    cm, _ = _mock_db()
+    cl_id = str(uuid.uuid4())
+    mock_result = _mock_result(
+        cover_letter_id=cl_id, status="ready",
+        pdf_url=f"http://x/api/cover-letter/{cl_id}/pdf",
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_status",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await get_cover_letter_status(cover_letter_id=cl_id)
+
+    assert result["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_not_found_raises():
+    from applire.mcp.server import get_cover_letter_status
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_status",
+            AsyncMock(side_effect=LookupError("Cover letter not found")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_cover_letter_status(cover_letter_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_status_bad_uuid_raises():
+    from applire.mcp.server import get_cover_letter_status
+
+    with pytest.raises(McpError) as exc:
+        await get_cover_letter_status(cover_letter_id="not-a-uuid")
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_returns_report():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    cm, _ = _mock_db()
+    cl_id = str(uuid.uuid4())
+    mock_result = _mock_result(
+        document_id=cl_id,
+        status="ready",
+        report={"document": "cover_letter", "checks": [], "keywords": {"present": [], "missing": []}},
+    )
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_ats_report",
+            AsyncMock(return_value=mock_result),
+        ),
+    ):
+        result = await get_cover_letter_ats_report(cover_letter_id=cl_id)
+
+    assert result["status"] == "ready"
+    assert result["report"]["document"] == "cover_letter"
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_unknown_id_raises():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.cover_letter_svc.get_cover_letter_ats_report",
+            AsyncMock(side_effect=LookupError("Cover letter not found")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc:
+            await get_cover_letter_ats_report(cover_letter_id=str(uuid.uuid4()))
+
+    assert exc.value.error.code == -32001
+
+
+@pytest.mark.asyncio
+async def test_get_cover_letter_ats_report_bad_uuid_raises():
+    from applire.mcp.server import get_cover_letter_ats_report
+
+    with pytest.raises(McpError) as exc:
+        await get_cover_letter_ats_report(cover_letter_id="not-a-uuid")
+    assert exc.value.error.code == -32602
+
+
+# ---------------------------------------------------------------------------
 # start_flow / advance_flow / get_flow_state
 # ---------------------------------------------------------------------------
 

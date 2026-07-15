@@ -32,6 +32,10 @@ Tools:
   send_message      — advance an active interview session
   generate_cv       — generate a tailored CV
   get_cv_status     — poll CV generation status and retrieve download URLs
+  get_cv_ats_report — get the persisted ATS audit report for a generated CV
+  generate_cover_letter       — generate a cover letter for a job (#170)
+  get_cover_letter_status     — poll cover letter generation status (#170)
+  get_cover_letter_ats_report — ATS audit report for a generated cover letter (#170)
   start_flow        — create or resume a flow session (US109)
   advance_flow      — advance a flow to the next step (US109)
   get_flow_state    — get current flow session state (US109)
@@ -74,6 +78,7 @@ from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
 )
+from applire.schemas.cover_letter import CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
@@ -81,6 +86,7 @@ from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
 from applire.services.scraper import ScraperError, scrape_job_url
 from applire.services import application as app_svc
+from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
@@ -396,6 +402,70 @@ async def get_cv_ats_report(cv_id: str) -> dict:
     async with get_db() as db:
         try:
             result = await cv_svc.get_cv_ats_report(cid, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Generate a cover letter for the given job. Requires an existing flow "
+        "session for the job (call start_flow first) — raises not_found if none "
+        "exists. Returns cover_letter_id, status, html_url, and pdf_url. "
+        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). Editing a "
+        "generated cover letter's sections is UI-only — there is no MCP tool for it."
+    )
+)
+async def generate_cover_letter(job_id: str) -> dict:
+    jid = _parse_uuid(job_id, "job_id")
+    provider = get_provider()
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.generate_cover_letter(
+                CoverLetterGenerateRequest(job_id=jid),
+                db,
+                provider,
+                base_url=settings.applire_base_url,
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Poll the status of a cover letter generation. "
+        "Returns {cover_letter_id, status, html_url?, pdf_url?, expires_at?}. "
+        "status: 'pending' | 'generating' | 'ready' | 'failed'."
+    )
+)
+async def get_cover_letter_status(cover_letter_id: str) -> dict:
+    cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.get_cover_letter_status(
+                cid, db, settings.applire_base_url
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Get the persisted ATS audit report for a generated cover letter (ADR-039). "
+        "Returns {document_id, status, report}; report is null while generation/audit "
+        "is pending or unavailable. report = {checks: [{id, status, details?}], "
+        "keywords: {present, missing}} — named checks, no aggregate score."
+    )
+)
+async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
+    cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.get_cover_letter_ats_report(cid, db)
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")
