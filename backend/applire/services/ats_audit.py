@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pypdf import PdfReader
 
+from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
 from applire.schemas.cv import TailoredCVData
 
@@ -287,6 +288,9 @@ def _audit_cv_text(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
+    target: int | None = None,
+    region: str = DEFAULT_REGION,
+    condensation_exhausted: bool = False,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -371,21 +375,45 @@ def _audit_cv_text(
                "bullets duplicated between a role and its nested project: "
                + "; ".join(f"'{b}'" for b in collisions))
 
-    # #171a: DACH page-length policy. ATSCheck has no "warn" status, so 3 pages
-    # passes but carries an advisory detail; > 3 fails. Skipped when no count given
-    # (text-only callers/tests).
+    # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
+    # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to
+    # the region max passes (carrying an advisory detail when it deviates from the
+    # region standard or the chosen target); only over the max fails. Skipped when no
+    # count is given (text-only callers/tests). All norm numbers come from REGION_NORMS
+    # — never hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend
+    # i18n keys on it).
     if page_count is not None:
-        if page_count <= 2:
-            checks.append(ATSCheck(id="page-length", status="pass", details=None))
-        elif page_count == 3:
+        norm = REGION_NORMS[region]
+        standard = norm.cv_standard_pages
+        maximum = norm.cv_max_pages
+        tgt = target if target is not None else standard
+        if page_count <= tgt:
+            if tgt > standard:
+                checks.append(ATSCheck(
+                    id="page-length", status="pass",
+                    details=f"{page_count} pages — meets your chosen target of {tgt}; "
+                            f"the {region} norm is {standard} pages",
+                ))
+            else:
+                checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        elif page_count <= maximum:
             checks.append(ATSCheck(
                 id="page-length", status="pass",
-                details="3 pages — acceptable for senior profiles; the DACH norm is 2 pages",
+                details=f"{page_count} pages — acceptable for senior profiles; "
+                        f"the {region} norm is {standard} pages",
+            ))
+        elif condensation_exhausted:
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — condensed to the maximum; length driven by "
+                        f"education/skills volume; exceeds the {region} norm of {standard} "
+                        f"pages (max {maximum})",
             ))
         else:
             checks.append(ATSCheck(
                 id="page-length", status="fail",
-                details=f"{page_count} pages — exceeds the DACH norm of 2 pages (max 3)",
+                details=f"{page_count} pages — exceeds the {region} norm of {standard} "
+                        f"pages (max {maximum})",
             ))
 
     return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
@@ -396,14 +424,23 @@ def audit_cv(
     tailored: TailoredCVData,
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    target: int | None = None,
+    region: str = DEFAULT_REGION,
+    condensation_exhausted: bool = False,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
     ``ledger`` (the Keyword Ledger, ADR-048/US203) annotates each MISSING keyword as
     *missing-claimable* (supported by the profile per the ledger) vs *missing-honest-gap*.
+
+    ``target``/``region``/``condensation_exhausted`` (E042/US238, ADR-051 §5) drive the
+    target-aware page-length band; ``target`` defaults to the region standard.
     """
     text, page_count = extract_text_and_pages(pdf_bytes)
-    return _audit_cv_text(text, tailored, keywords, ledger, page_count=page_count)
+    return _audit_cv_text(
+        text, tailored, keywords, ledger, page_count=page_count,
+        target=target, region=region, condensation_exhausted=condensation_exhausted,
+    )
 
 
 def _audit_letter_text(
