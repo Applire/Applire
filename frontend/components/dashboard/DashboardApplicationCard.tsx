@@ -24,7 +24,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { markApplicationHired } from "@/lib/profile-roles";
 import { patchApplicationStatus } from "@/lib/api/applications";
-import { USER_STATUS_OPTIONS } from "@/lib/user-status";
+import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import type { StaleCVInfo } from "@/lib/stale-cv";
 
 export type CardStatus = "in_progress" | "cv_ready" | "interrupted" | "tracking";
@@ -116,8 +116,7 @@ export function DashboardApplicationCard({
   const [userStatusValue, setUserStatusValue] = useState(userStatus ?? "tracking");
   const showMarkHired = workflowStatus === "completed" && userStatusValue !== "hired";
 
-  async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const next = e.target.value;
+  async function handleStatusChange(next: string) {
     const previous = userStatusValue;
     setUserStatusValue(next);
     try {
@@ -127,9 +126,6 @@ export function DashboardApplicationCard({
       setUserStatusValue(previous);
     }
   }
-
-  const statusOption =
-    USER_STATUS_OPTIONS.find((o) => o.value === userStatusValue) ?? USER_STATUS_OPTIONS[0];
 
   const relativeTime = (() => {
     const h = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 36e5);
@@ -143,9 +139,10 @@ export function DashboardApplicationCard({
     if (status === "tracking") {
       onStartFlow?.();
     } else if (flowSessionId) {
-      // Always enter via the flow index — the layout guard redirects to the
-      // backend's actual current_step; hard-coding a step desyncs the flow.
-      router.push(`/flow/${flowSessionId}`);
+      // Same destination as the card body (E041/US235) — the dossier header
+      // offers Resume (mid-flow) / Open CV (completed), so no capability is
+      // lost by not hard-coding a flow step here.
+      router.push(`/applications/${applicationId}`);
     }
   }
 
@@ -160,17 +157,19 @@ export function DashboardApplicationCard({
     }
   }
 
-  type ActionKey = "actionResume" | "actionOpen" | "actionContinue" | "actionStartFlow";
+  // E041/US235 — the button opens the dossier for every flow-session status
+  // (same destination as the card body), so it reads "Open" uniformly; only
+  // the tracking card (no flow session yet) keeps its distinct start action.
+  type ActionKey = "actionOpen" | "actionStartFlow";
   const ACTION_LABEL: Record<CardStatus, ActionKey> = {
-    in_progress: "actionResume",
+    in_progress: "actionOpen",
     cv_ready:    "actionOpen",
-    interrupted: "actionContinue",
+    interrupted: "actionOpen",
     tracking:    "actionStartFlow",
   };
 
   // Icon names are non-user-facing Material Symbols identifiers — kept as JS vars to avoid JSX literal rule
-  const actionIcon: string =
-    status === "cv_ready" ? "open_in_new" : status === "tracking" ? "bolt" : "play_arrow";
+  const actionIcon: string = status === "tracking" ? "bolt" : "open_in_new";
 
   return (
     <div
@@ -195,24 +194,12 @@ export function DashboardApplicationCard({
           {initial}
         </div>
         <div className="flex items-center gap-1.5">
-          {/* Pipeline status control (E039/US218) — editable right on the card */}
-          <select
+          {/* Pipeline status control (E039/US218, extracted E041/US231) — editable right on the card */}
+          <UserStatusChipSelect
             value={userStatusValue}
-            onChange={(e) => void handleStatusChange(e)}
-            onClick={(e) => e.stopPropagation()}
-            aria-label={tDash("statusSelectLabel")}
-            title={tDash("statusSelectLabel")}
-            className={cn(
-              "text-[10px] font-bold pl-2 pr-1 py-0.5 rounded-full uppercase tracking-wide cursor-pointer border-0",
-              statusOption.className
-            )}
-          >
-            {USER_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {tDash(option.labelKey)}
-              </option>
-            ))}
-          </select>
+            onChange={(next) => void handleStatusChange(next)}
+            stopClickPropagation
+          />
           <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide", chip.className)}>
             {tDash(chip.labelKey)}
           </span>
@@ -288,7 +275,7 @@ export function DashboardApplicationCard({
         <div className="flex items-center gap-2">
           <button
             onClick={handleAction}
-            data-testid={status === "cv_ready" ? "dashboard-card-open-btn" : undefined}
+            data-testid={status !== "tracking" ? "dashboard-card-open-btn" : undefined}
             className={cn(
               "text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors",
               status === "cv_ready"
