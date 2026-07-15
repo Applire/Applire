@@ -27,8 +27,8 @@ named clusters for a DACH job applicant.
 Input: lists of Category B and Category C gaps from a gap analysis, plus the job's required and \
 nice-to-have skills.
 
-Output: a JSON array of cluster objects. Each cluster absorbs multiple gaps that share the same \
-semantic domain.
+Output: a JSON object with a single key "clusters" whose value is an array of cluster objects. \
+Each cluster absorbs multiple gaps that share the same semantic domain.
 
 Schema for each cluster object:
 {
@@ -47,7 +47,7 @@ Rules:
 - jd_context: one sentence, written entirely in the OUTPUT LANGUAGE stated in the user message (the candidate's UI language), regardless of the language of the gaps or the job description
 - Target 5-12 clusters; never more clusters than input gaps
 - Every input gap must appear in exactly one cluster
-- Respond ONLY with a valid JSON array - no markdown, no explanations"""
+- Respond ONLY with a valid JSON object of the form {"clusters": [ ... ]} - no markdown, no explanations"""
 
 
 def build_clustering_prompt(
@@ -66,5 +66,5 @@ def build_clustering_prompt(
         f"Required skills from JD:\n{json.dumps(required_skills, ensure_ascii=False)}\n\n"
         f"Nice-to-have skills from JD:\n{json.dumps(nice_to_have_skills, ensure_ascii=False)}\n\n"
         f"OUTPUT LANGUAGE: write every cluster's jd_context entirely in {language_name}.\n\n"
-        "Group the gaps into semantic clusters. Return a JSON array."
+        'Group the gaps into semantic clusters. Return a JSON object: {"clusters": [ ... ]}.'
     )
