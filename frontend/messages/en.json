@@ -906,7 +906,10 @@
       "education": "Education entry parsed",
       "skills": "All skills are machine-readable",
       "recipient-company": "Recipient company parsed",
-      "body": "Letter paragraph parsed"
+      "body": "Letter paragraph parsed",
+      "duplicate-bullets": "No duplicate bullet points",
+      "skills-near-dupe": "No near-duplicate skills",
+      "page-length": "Page length within the DACH norm"
     }
   },
   "admin": {

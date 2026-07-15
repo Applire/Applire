@@ -33,9 +33,16 @@ from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
 from applire.schemas.cv import TailoredCVData
 
 
-def extract_text(pdf_bytes: bytes) -> str:
+def extract_text_and_pages(pdf_bytes: bytes) -> tuple[str, int]:
+    """Extracted text plus page count from a single PdfReader pass (#171a)."""
     reader = PdfReader(BytesIO(pdf_bytes))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    pages = reader.pages
+    text = "\n".join((page.extract_text() or "") for page in pages)
+    return text, len(pages)
+
+
+def extract_text(pdf_bytes: bytes) -> str:
+    return extract_text_and_pages(pdf_bytes)[0]
 
 
 def _norm(s: str) -> str:
@@ -244,6 +251,7 @@ def _audit_cv_text(
     tailored: TailoredCVData,
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    page_count: int | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -302,6 +310,49 @@ def _audit_cv_text(
         _check(checks, "skills", not missing_skills,
                "skills missing from extracted text: " + ", ".join(missing_skills))
 
+        # #172: near-duplicate skill tags in the rendered CV (belt-and-braces over
+        # the render-side dedup — the SAME shared predicate).
+        near_pairs = [
+            (a, b)
+            for i, a in enumerate(tailored.skills)
+            for b in tailored.skills[i + 1:]
+            if skills_near_dupe(a, b)
+        ]
+        _check(checks, "skills-near-dupe", not near_pairs,
+               "near-duplicate skills: " + "; ".join(f"'{a}' ~ '{b}'" for a, b in near_pairs))
+
+    # #169: a role bullet repeated inside a project nested under that role (belt-and-
+    # braces over the deterministic suppression in cv._nest_projects). Only emitted
+    # when there is at least one nested project to compare.
+    if any((w.projects or []) for w in tailored.work_history):
+        collisions: list[str] = []
+        for w in tailored.work_history:
+            role_norms = {_norm(b) for b in (w.bullets or []) if b and _norm(b)}
+            for proj in (w.projects or []):
+                for pb in (proj.bullets or []):
+                    if pb and _norm(pb) in role_norms:
+                        collisions.append(pb)
+        _check(checks, "duplicate-bullets", not collisions,
+               "bullets duplicated between a role and its nested project: "
+               + "; ".join(f"'{b}'" for b in collisions))
+
+    # #171a: DACH page-length policy. ATSCheck has no "warn" status, so 3 pages
+    # passes but carries an advisory detail; > 3 fails. Skipped when no count given
+    # (text-only callers/tests).
+    if page_count is not None:
+        if page_count <= 2:
+            checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        elif page_count == 3:
+            checks.append(ATSCheck(
+                id="page-length", status="pass",
+                details="3 pages — acceptable for senior profiles; the DACH norm is 2 pages",
+            ))
+        else:
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — exceeds the DACH norm of 2 pages (max 3)",
+            ))
+
     return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
 
 
@@ -316,7 +367,8 @@ def audit_cv(
     ``ledger`` (the Keyword Ledger, ADR-048/US203) annotates each MISSING keyword as
     *missing-claimable* (supported by the profile per the ledger) vs *missing-honest-gap*.
     """
-    return _audit_cv_text(extract_text(pdf_bytes), tailored, keywords, ledger)
+    text, page_count = extract_text_and_pages(pdf_bytes)
+    return _audit_cv_text(text, tailored, keywords, ledger, page_count=page_count)
 
 
 def _audit_letter_text(

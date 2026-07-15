@@ -84,6 +84,111 @@ def test_skill_tokens_folds_variants_and_strips_punct():
     assert "csv" in skill_tokens("Methodologies (GxP, CSV)")
     assert "&" not in skill_tokens("Docker & Kubernetes")
 
+
+# ---------------------------------------------------------------------------
+# #171a / #169 / #172 — three new deterministic CV checks: page-length,
+# duplicate-bullets, skills-near-dupe.
+# ---------------------------------------------------------------------------
+
+
+def _check_by_id(report, cid):
+    return next((c for c in report.checks if c.id == cid), None)
+
+
+def test_page_length_check_absent_without_page_count():
+    """Callers that don't supply a page count get no page-length check (back-compat
+    with every text-only test)."""
+    report = _audit_cv_text(_full_text(), _CV, keywords=[])
+    assert _check_by_id(report, "page-length") is None
+
+
+def test_page_length_two_pages_pass_no_advisory():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+
+
+def test_page_length_three_pages_pass_with_advisory():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass"
+    assert c.details and "3 pages" in c.details and "2" in c.details
+
+
+def test_page_length_over_three_pages_fails():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=6)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "6" in c.details and "2" in c.details
+
+
+_CV_DUP_BULLET = TailoredCVData.model_validate({
+    "contact": {"name": "Anna Bauer"},
+    "work_history": [
+        {
+            "company": "Acme GmbH", "role": "Engineer", "start_date": "2020",
+            "bullets": ["Led the platform migration", "Mentored the team"],
+            "projects": [
+                {"name": "Atlas", "bullets": ["Led the platform migration", "Shipped v2"]},
+            ],
+        },
+    ],
+    "skills": [],
+})
+
+
+def test_duplicate_bullets_check_flags_role_vs_project_collision():
+    report = _audit_cv_text("Anna Bauer", _CV_DUP_BULLET, keywords=[])
+    c = _check_by_id(report, "duplicate-bullets")
+    assert c is not None and c.status == "fail"
+    assert "Led the platform migration" in (c.details or "")
+
+
+def test_duplicate_bullets_check_passes_when_project_bullets_distinct():
+    cv = _CV_DUP_BULLET.model_copy(deep=True)
+    cv.work_history[0].projects[0].bullets = ["Shipped v2"]
+    report = _audit_cv_text("Anna Bauer", cv, keywords=[])
+    c = _check_by_id(report, "duplicate-bullets")
+    assert c is not None and c.status == "pass"
+
+
+def test_skills_near_dupe_check_flags_uat_pair():
+    cv = _CV.model_copy(update={
+        "skills": ["Team Leadership", "Team Leadership and Mentorship", "Python"]
+    })
+    report = _audit_cv_text(_full_text(), cv, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "fail"
+    assert "Team Leadership" in (c.details or "")
+
+
+def test_skills_near_dupe_check_passes_on_clean_skills():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "pass"
+
+
+def test_audit_cv_threads_page_count_from_pdf():
+    """audit_cv must read the real PDF page count and run the page-length check."""
+    from io import BytesIO
+    from pypdf import PdfReader, PdfWriter
+    from applire.services.ats_audit import audit_cv
+
+    def _blank_pdf(n: int) -> bytes:
+        writer = PdfWriter()
+        for _ in range(n):
+            writer.add_blank_page(width=595, height=842)  # A4 points
+        buf = BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    report = audit_cv(_blank_pdf(5), _CV, keywords=[])
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail" and "5" in (c.details or "")
+
+    report_ok = audit_cv(_blank_pdf(2), _CV, keywords=[])
+    assert _check_by_id(report_ok, "page-length").status == "pass"
+
 _CV = TailoredCVData.model_validate({
     "contact": {"name": "Anna Bauer", "email": "anna@example.com", "phone": "+49 151 1234567", "location": "Berlin"},
     "summary": "Backend engineer with cloud focus.",
