@@ -212,3 +212,49 @@ class TestTargetCvPagesSetting:
         await update_settings(db, ui_language="de")
         result = await get_settings(db)
         assert result["target_cv_pages"] == 3
+
+
+class TestTargetCvPagesExplicitClear:
+    # Whole-branch review Finding 1: the frontend's "Region standard" option
+    # sends {"target_cv_pages": null} explicitly (distinct from omitting the
+    # key). The PATCH route must distinguish explicit-null (clear) from
+    # omitted (leave untouched) via Pydantic's model_fields_set. Exercised
+    # over the real HTTP route since that's where the distinction is made.
+    @pytest_asyncio.fixture
+    async def client(self, db):
+        from applire.auth import get_auth_provider
+        from applire.db.session import get_db
+        from applire.routers.settings import router
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from unittest.mock import MagicMock
+
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+
+    @pytest.mark.asyncio
+    async def test_explicit_null_clears_stored_target_cv_pages(self, db, client):
+        from applire.routers.settings import update_settings, get_settings
+
+        await update_settings(db, target_cv_pages=3)
+        resp = await client.patch("/api/settings", json={"target_cv_pages": None})
+        assert resp.status_code == 200
+        assert resp.json()["target_cv_pages"] is None
+
+        result = await get_settings(db)
+        assert result["target_cv_pages"] is None
+
+    @pytest.mark.asyncio
+    async def test_omitted_key_over_http_leaves_value_untouched(self, db, client):
+        from applire.routers.settings import update_settings
+
+        await update_settings(db, target_cv_pages=3)
+        resp = await client.patch("/api/settings", json={"ui_language": "de"})
+        assert resp.status_code == 200
+        assert resp.json()["target_cv_pages"] == 3

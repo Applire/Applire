@@ -105,8 +105,16 @@ async def update_settings(
     ui_language: str | None = None,
     hide_predownload_notice: bool | None = None,
     target_cv_pages: int | None = None,
+    clear_target_cv_pages: bool = False,
 ) -> dict:
-    """Service logic — upsert user settings. All fields are optional."""
+    """Service logic — upsert user settings. All fields are optional.
+
+    target_cv_pages=None means "not provided" (leave untouched), matching the
+    other optional fields. To explicitly clear a stored value back to NULL
+    ("use region standard"), pass clear_target_cv_pages=True — the caller
+    (the PATCH route) is responsible for distinguishing an explicit-null
+    request body field from an omitted one via model_fields_set.
+    """
     from applire.models.user_settings import UserSettings
     from applire.models.color_profile import ColorProfile
 
@@ -144,7 +152,9 @@ async def update_settings(
     if hide_predownload_notice is not None:
         row.hide_predownload_notice = hide_predownload_notice
 
-    if target_cv_pages is not None:
+    if clear_target_cv_pages:
+        row.target_cv_pages = None
+    elif target_cv_pages is not None:
         row.target_cv_pages = target_cv_pages
 
     await db.commit()
@@ -180,6 +190,13 @@ async def api_patch_settings(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SettingsResponse:
+    # Distinguish an explicit {"target_cv_pages": null} (clear the stored
+    # value → "use region standard") from an omitted key (leave untouched).
+    # Pydantic only exposes this via model_fields_set — body.target_cv_pages
+    # alone is ambiguous between the two (both are None).
+    clear_target_cv_pages = (
+        "target_cv_pages" in body.model_fields_set and body.target_cv_pages is None
+    )
     try:
         result = await update_settings(
             db,
@@ -187,6 +204,7 @@ async def api_patch_settings(
             ui_language=body.ui_language,
             hide_predownload_notice=body.hide_predownload_notice,
             target_cv_pages=body.target_cv_pages,
+            clear_target_cv_pages=clear_target_cv_pages,
         )
         return SettingsResponse(**result)
     except ValueError as exc:
