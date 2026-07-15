@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from applire.services.cv_budget import BudgetResult
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
@@ -189,6 +190,7 @@ async def generate_cv_segmented(
     output_language: str,
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -199,6 +201,12 @@ async def generate_cv_segmented(
     — section writers only produce tailored prose. Work order stays reverse-chronological
     (single-call rule-2 parity); the outline's role_order is advisory. The assembled dict is
     handed to the same coherence + language review as the single-call path by the caller.
+
+    ``budget`` (E042/US237, ADR-051 §3) — the deterministic per-role bullet-count ceiling
+    table, threaded into the outline call and each per-role work-section call so the model
+    aims at the target page count directly. Not to be confused with the per-call TOKEN
+    budget (``SEGMENT_MAX_TOKENS``) below — deliberately named ``token_budget`` to avoid
+    the collision.
     """
     from applire.prompts.cv_segmented import (
         EDUCATION_SECTION_SYSTEM_PROMPT,
@@ -215,7 +223,7 @@ async def generate_cv_segmented(
         build_work_section_prompt,
     )
 
-    budget = SEGMENT_MAX_TOKENS
+    token_budget = SEGMENT_MAX_TOKENS
 
     # Reverse-chronological order is the orchestrator's policy (rule-2 parity), independent
     # of whatever the outline suggests — keeps the segmented path consistent with single-call.
@@ -228,21 +236,21 @@ async def generate_cv_segmented(
         w["id"] = w.get("id") or f"w{i}"
 
     directive = await provider.aparse_json(
-        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger),
+        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger, budget),
         system=OUTLINE_SYSTEM_PROMPT,
         temperature=0.3,
-        max_tokens=budget,
+        max_tokens=token_budget,
     )
 
     work_entries: list[dict] = []
     for w in work_src:
         section = await provider.aparse_json(
             build_work_section_prompt(
-                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger
+                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger, budget
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=budget,
+            max_tokens=token_budget,
         )
         work_entries.append({
             "id": w["id"],
@@ -256,21 +264,21 @@ async def generate_cv_segmented(
 
     summary_res = await provider.aparse_json(
         build_summary_prompt(directive, job_analysis, profile, critical_gaps, output_language),
-        system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     skills_res = await provider.aparse_json(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger
         ),
-        system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     edu_res = await provider.aparse_json(
         build_education_prompt(profile, output_language),
-        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     projects_res = await provider.aparse_json(
         build_projects_prompt(directive, job_analysis, profile, output_language),
-        system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
 
     sections = {
@@ -307,6 +315,7 @@ async def _tailor_cv_with_fallback(
     output_language: str,
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
@@ -315,12 +324,13 @@ async def _tailor_cv_with_fallback(
     is fed to the same coherence + language review as before by the caller.
 
     ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
-    claimable-vs-forbidden keyword split."""
+    claimable-vs-forbidden keyword split. ``budget`` (E042/US237, ADR-051 §3) is the
+    deterministic per-role bullet-count ceiling table, threaded into whichever path runs."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
-            keyword_ledger=keyword_ledger,
+            keyword_ledger=keyword_ledger, budget=budget,
         )
     try:
         return await provider.aparse_json(
@@ -328,6 +338,7 @@ async def _tailor_cv_with_fallback(
                 job_analysis, profile, keyword_gaps, critical_gaps,
                 output_language=output_language,
                 keyword_ledger=keyword_ledger,
+                budget=budget,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -341,7 +352,7 @@ async def _tailor_cv_with_fallback(
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
-            keyword_ledger=keyword_ledger,
+            keyword_ledger=keyword_ledger, budget=budget,
         )
 
 
@@ -966,6 +977,25 @@ async def _render_cv_background(
                     e.model_dump() for e in _sort_work_by_date(we)
                 ]
 
+            # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
+            # BEFORE generation, from the profile + Keyword Ledger + this row's resolved
+            # target_pages (Task 1.1 persists it non-NULL for every new row; the fallback
+            # here only guards a pre-E042 legacy record). Threaded into both LLM paths
+            # below so the model aims at the target page count directly.
+            from applire.services.cv_budget import attach_projects, compute_bullet_budgets
+
+            resolved_target_pages = (
+                record.target_pages
+                if record.target_pages is not None
+                else resolve_target_pages(None, None)
+            )
+            budget_work_entries = attach_projects(
+                profile_json.get("work_experience") or [], profile_json.get("projects") or []
+            )
+            budget = compute_bullet_budgets(
+                budget_work_entries, keyword_ledger, resolved_target_pages
+            )
+
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
@@ -977,6 +1007,7 @@ async def _render_cv_background(
                 output_language=resolve_jd_language(job),
                 provider=provider,
                 keyword_ledger=keyword_ledger,
+                budget=budget,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
