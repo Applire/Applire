@@ -52,9 +52,18 @@ def resolve_target_pages(
 
     Precedence: per-generation ``override`` > user ``setting`` >
     ``REGION_NORMS[region].cv_standard_pages``.
+
+    Raises ``ValueError`` on a target below 1 — REST callers block these via
+    schema validation (``Field(ge=1)``), but the resolver is the chokepoint
+    every channel funnels through, so no caller can persist an invalid target
+    (E042 Task 1.1 review finding).
     """
     if override is not None:
+        if override < 1:
+            raise ValueError("target_pages must be >= 1")
         return override
     if setting is not None:
+        if setting < 1:
+            raise ValueError("target_cv_pages setting must be >= 1")
         return setting
     return REGION_NORMS[region].cv_standard_pages

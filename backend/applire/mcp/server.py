@@ -71,6 +71,7 @@ from applire.models.application import UserStatus
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
 from applire.models.user import User
+from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
 from applire.schemas.application import (
     ApplicationListResponse,
@@ -356,12 +357,16 @@ async def send_message(session_id: str, message: str) -> dict:
         "Returns cv_id, html_url, and pdf_url. "
         "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). "
         "Optional target_pages pins the CV to a specific page count for this "
-        "generation only (DACH norm: 2 pages standard, 3 max); omit it to use "
+        f"generation only ({DEFAULT_REGION} norm: "
+        f"{REGION_NORMS[DEFAULT_REGION].cv_standard_pages} pages standard, "
+        f"{REGION_NORMS[DEFAULT_REGION].cv_max_pages} max); omit it to use "
         "the user's default setting, then the region standard."
     )
 )
 async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id")
+    if target_pages is not None and target_pages < 1:
+        raise invalid_input("target_pages must be >= 1")
     provider = get_provider()
     async with get_db() as db:
         try:

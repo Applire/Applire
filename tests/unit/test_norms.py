@@ -25,6 +25,8 @@ REGION_NORMS[region].cv_standard_pages. No Docker, no LLM.
 import sys
 from pathlib import Path
 
+import pytest
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -62,3 +64,15 @@ def test_resolve_target_pages_explicit_region():
 
 def test_resolve_target_pages_override_beats_setting_even_when_both_present():
     assert resolve_target_pages(override=5, setting=2) == 5
+
+
+@pytest.mark.parametrize("bad", [0, -1, -5])
+def test_resolve_target_pages_rejects_override_below_one(bad):
+    with pytest.raises(ValueError, match="target_pages must be >= 1"):
+        resolve_target_pages(override=bad, setting=None)
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_resolve_target_pages_rejects_setting_below_one(bad):
+    with pytest.raises(ValueError, match="target_cv_pages setting must be >= 1"):
+        resolve_target_pages(override=None, setting=bad)

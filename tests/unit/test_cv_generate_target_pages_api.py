@@ -261,3 +261,25 @@ async def test_mcp_generate_cv_defaults_target_pages_to_none():
 
     _, kwargs = mock_generate.call_args
     assert kwargs.get("target_pages") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_target", [0, -5])
+async def test_mcp_generate_cv_rejects_target_pages_below_one(bad_target):
+    """MCP mirrors the REST Field(ge=1) validation (Task 1.1 review Important)."""
+    from mcp.shared.exceptions import McpError
+
+    from applire.mcp.server import generate_cv
+
+    job_id = str(uuid.uuid4())
+    mock_generate = AsyncMock()
+
+    with (
+        patch("applire.mcp.server.get_db"),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.cv_svc.generate_cv", mock_generate),
+    ):
+        with pytest.raises(McpError, match="target_pages must be >= 1"):
+            await generate_cv(job_id=job_id, target_pages=bad_target)
+
+    mock_generate.assert_not_awaited()
