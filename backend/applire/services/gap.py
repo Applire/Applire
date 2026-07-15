@@ -27,8 +27,10 @@ Both call the same internal _run_analysis() function.
 
 import hashlib
 import json
+import logging
 import math
 import uuid
+from typing import Any
 
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
@@ -47,6 +49,40 @@ from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import build_keyword_ledger, keyword_only_honest_gaps
 from applire.services.match_score import compute_match_score_from_ledger
+
+logger = logging.getLogger(__name__)
+
+
+def _unwrap_clusters(raw: Any) -> list:
+    """Normalise the clustering LLM payload to a list of cluster dicts (#166).
+
+    Every real provider forces JSON-*object* mode (mistral/requesty/openrouter/
+    openai response_format, anthropic `{`-prefill), so a compliant model can NEVER
+    return a bare top-level array — the shape the prompt used to demand. Accept
+    every shape a provider realistically emits, mirroring the reconcile engine's
+    tolerant unwrap (services/profile/reconcile/engine.py):
+      - dict with a list-valued "clusters" key (the envelope the prompt now asks for);
+      - a dict that itself validates as a single GapClusterSchema (observed: a bare
+        single-cluster object from Requesty 2026-07-15);
+      - dict with exactly one list-valued key under any other name;
+      - a bare list (lenient providers / the legacy shape);
+      - anything else → [] (the caller then warns on empty-out/non-empty-in).
+    """
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        clusters = raw.get("clusters")
+        if isinstance(clusters, list):
+            return clusters
+        try:
+            GapClusterSchema.model_validate(raw)
+            return [raw]
+        except Exception:
+            pass
+        list_values = [v for v in raw.values() if isinstance(v, list)]
+        if len(list_values) == 1:
+            return list_values[0]
+    return []
 
 
 def _norm_gap(s: str) -> str:
@@ -192,7 +228,7 @@ async def cluster_gaps(
         if _norm_gap(concept) not in seen_c:
             category_c.append(concept)
             seen_c.add(_norm_gap(concept))
-    raw_clusters: list = await provider.aparse_json(
+    raw = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(gap_analysis.category_b or []),
             category_c=category_c,
@@ -204,12 +240,26 @@ async def cluster_gaps(
         temperature=0.1,
         max_tokens=GAP_CLUSTERING_MAX_TOKENS,
     )
+    raw_clusters = _unwrap_clusters(raw)
     validated = []
-    for item in (raw_clusters if isinstance(raw_clusters, list) else []):
+    for item in raw_clusters:
         try:
             validated.append(GapClusterSchema.model_validate(item).model_dump())
         except Exception:
-            pass
+            logger.debug("cluster_gaps: dropped malformed cluster %r", item)
+    # Empty clusters out of non-empty gaps in is almost always a parse failure
+    # (JSON-mode envelope not unwrapped, truncation, …) — NOT a genuine "no gaps"
+    # outcome. Downstream a false-empty here made the interview tell candidates with
+    # critical gaps that they were a "strong match" (#166). Surface it loudly.
+    if not validated and (category_c or list(gap_analysis.category_b or [])):
+        logger.warning(
+            "cluster_gaps: produced 0 clusters from non-empty gaps "
+            "(category_c=%d, category_b=%d) — likely a clustering parse failure; "
+            "raw payload type=%s",
+            len(category_c),
+            len(list(gap_analysis.category_b or [])),
+            type(raw).__name__,
+        )
     gap_analysis.gap_clusters = validated
     # Persist only when the record is already in the session (the standalone
     # re-cluster path). _run_analysis now clusters BEFORE adding the record so

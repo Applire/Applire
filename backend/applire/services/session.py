@@ -806,7 +806,23 @@ async def _create_targeted_session(
         db.add(record)
         await db.commit()
         await db.refresh(record)
-        no_gaps_msg = "No critical gaps identified — your profile is a strong match!"
+        # #166: "strong match" is only honest when there really are NO critical
+        # gaps. When category_c is non-empty but nothing is askable, clustering
+        # silently failed (JSON-object-mode parse loss) — telling the candidate
+        # they're a strong match is a dangerous lie. Emit an honest fallback.
+        if gap_analysis.category_c:
+            logger.warning(
+                "targeted session %s: category_c non-empty (%d) but no askable "
+                "clusters/gates — clustering likely failed; emitting honest fallback",
+                record.id,
+                len(gap_analysis.category_c),
+            )
+            no_gaps_msg = (
+                "The gap interview is currently unavailable — "
+                "you can proceed to CV generation."
+            )
+        else:
+            no_gaps_msg = "No critical gaps identified — your profile is a strong match!"
         return SessionCreateResponse(
             session_id=record.id,
             mode="targeted",

@@ -131,3 +131,153 @@ def test_gap_detector_c_before_b():
     ids, cats, by_id = gap_detector(ga)
     assert ids[0] == "cluster-c"
     assert ids[1] == "cluster-b"
+
+
+# ---------------------------------------------------------------------------
+# #166: clustering payload must survive JSON-object mode (every real provider
+# forces a top-level object; a compliant model can NEVER emit a bare array).
+# Before the fix, gap.py demanded a bare list and silently produced [] for the
+# object envelope, which downstream turned into a false "strong match".
+# ---------------------------------------------------------------------------
+
+import json as _json
+from pathlib import Path as _Path
+
+_VALID_CLUSTER = {
+    "id": "cluster-agentic",
+    "label": "Agentic AI Systems",
+    "category": "C",
+    "gaps": ["LLMs", "Agentic Systems"],
+    "jd_skills": ["LLM-based Agent Design"],
+    "jd_context": "The role requires designing autonomous AI agents.",
+}
+_VALID_CLUSTER_B = {
+    "id": "cluster-python",
+    "label": "Python Fundamentals",
+    "category": "B",
+    "gaps": ["Python basics"],
+    "jd_skills": [],
+    "jd_context": "Python is used throughout the stack.",
+}
+
+
+def test_unwrap_clusters_object_envelope():
+    """`{"clusters": [...]}` — the shape the fixed prompt now demands."""
+    from applire.services.gap import _unwrap_clusters
+    out = _unwrap_clusters({"clusters": [_VALID_CLUSTER, _VALID_CLUSTER_B]})
+    assert out == [_VALID_CLUSTER, _VALID_CLUSTER_B]
+
+
+def test_unwrap_clusters_single_list_valued_key():
+    """A model that names the envelope key differently still unwraps."""
+    from applire.services.gap import _unwrap_clusters
+    out = _unwrap_clusters({"result": [_VALID_CLUSTER]})
+    assert out == [_VALID_CLUSTER]
+
+
+def test_unwrap_clusters_bare_list_tolerated():
+    """Lenient providers / legacy mock: a bare top-level array still works."""
+    from applire.services.gap import _unwrap_clusters
+    out = _unwrap_clusters([_VALID_CLUSTER])
+    assert out == [_VALID_CLUSTER]
+
+
+def test_unwrap_clusters_single_cluster_object_wrapped():
+    """A bare single cluster object (a real Requesty shape) wraps to a 1-list."""
+    from applire.services.gap import _unwrap_clusters
+    out = _unwrap_clusters(dict(_VALID_CLUSTER))
+    assert out == [_VALID_CLUSTER]
+
+
+def test_unwrap_clusters_unknown_shape_empty():
+    from applire.services.gap import _unwrap_clusters
+    assert _unwrap_clusters({"unexpected": {"nested": 1}}) == []
+    assert _unwrap_clusters(None) == []
+    assert _unwrap_clusters("nope") == []
+
+
+import uuid as _uuid
+from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
+
+
+def _cluster_gaps_provider(return_value):
+    provider = _MagicMock()
+    provider.aparse_json = _AsyncMock(return_value=return_value)
+    return provider
+
+
+def _cluster_gaps_ga(category_c=None, category_b=None):
+    from applire.models.gap import GapAnalysis
+    ga = _MagicMock(spec=GapAnalysis)
+    ga.category_b = category_b if category_b is not None else []
+    ga.category_c = category_c if category_c is not None else ["LLMs", "Agentic Systems"]
+    ga.keyword_ledger = None
+    return ga
+
+
+def _cluster_gaps_job():
+    from applire.models.job import JobAnalysis
+    job = _MagicMock(spec=JobAnalysis)
+    job.required_skills = ["LLM-based Agent Design"]
+    job.nice_to_have_skills = []
+    return job
+
+
+async def _run_cluster_gaps(raw_return, category_c=None, category_b=None):
+    from applire.services.gap import cluster_gaps
+    ga = _cluster_gaps_ga(category_c=category_c, category_b=category_b)
+    job = _cluster_gaps_job()
+    provider = _cluster_gaps_provider(raw_return)
+    db = _MagicMock()
+    db.commit = _AsyncMock()
+    db.__contains__ = _MagicMock(return_value=True)
+    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+        await cluster_gaps(ga, job, provider, db)
+    return ga
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_object_envelope_populates_clusters():
+    """The regression: an object envelope must NOT collapse to []."""
+    ga = await _run_cluster_gaps({"clusters": [_VALID_CLUSTER, _VALID_CLUSTER_B]})
+    assert [c["id"] for c in ga.gap_clusters] == ["cluster-agentic", "cluster-python"]
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_malformed_item_dropped_others_survive(caplog):
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="applire.services.gap"):
+        ga = await _run_cluster_gaps({"clusters": [_VALID_CLUSTER, {"garbage": True}]})
+    assert [c["id"] for c in ga.gap_clusters] == ["cluster-agentic"]
+    assert any("dropped" in r.message.lower() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_zero_clusters_warns_when_input_nonempty(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="applire.services.gap"):
+        ga = await _run_cluster_gaps({"clusters": []}, category_c=["LLMs"])
+    assert ga.gap_clusters == []
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_real_requesty_responses(caplog):
+    """Verbatim REAL Requesty payloads captured 2026-07-15 (LLM interaction log):
+      - 13:21:20Z  a single bare cluster object
+      - 14:10:25Z  a {"clusters": [...5 valid clusters...]} envelope
+    Source: scratchpad/clustering-fixtures.json → tests/unit/fixtures/clustering_real_responses.json.
+    Both MUST populate gap_clusters; before the #166 fix both collapsed to []."""
+    fixtures = _json.loads(
+        (_Path(__file__).parent / "fixtures" / "clustering_real_responses.json").read_text()
+    )
+    bare_single = next(f for f in fixtures if f["ts"].startswith("2026-07-15T13:21:20"))
+    envelope = next(f for f in fixtures if f["ts"].startswith("2026-07-15T14:10:25"))
+
+    ga1 = await _run_cluster_gaps(bare_single["response"])
+    assert len(ga1.gap_clusters) == 1
+    assert ga1.gap_clusters[0]["id"] == "cluster-cloud-devops"
+
+    ga2 = await _run_cluster_gaps(envelope["response"])
+    assert len(ga2.gap_clusters) == 8
+    assert ga2.gap_clusters[0]["id"] == "cluster-javascript-ecosystem"

@@ -386,7 +386,11 @@ class MockLLMProvider(LLMProvider):
             return dict(_PROFILE_PARSE_RESPONSE)
 
         if "expert career analyst" in system_lower:
-            return list(_CLUSTERING_RESPONSE)
+            # #166: return the DICT envelope every real provider produces under
+            # forced JSON-object mode. The mock previously returned a bare list —
+            # a shape NO real provider can emit — so CI stayed green while every
+            # production clustering call collapsed to [] (false "strong match").
+            return {"clusters": list(_CLUSTERING_RESPONSE)}
 
         if "three-category gap analysis" in system_lower:
             return dict(_GAP_ANALYSIS_RESPONSE)
