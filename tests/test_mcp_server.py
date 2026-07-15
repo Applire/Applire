@@ -27,6 +27,11 @@ _DOCKER_ENV = {
     ),
 }
 
+# Kept as a strict-equality guard (see test_mcp_tools_list_returns_all_tools) —
+# every new tool must be added here deliberately. This drifted silently for a
+# while (18 registered vs. 9 listed) because this file is a CI orphan; it's
+# now wired into the integration-and-e2e-tests job (see .github/workflows/test.yml)
+# and mirrored by a hermetic cross-check in tests/unit/test_mcp_tools.py.
 _EXPECTED_TOOLS = {
     "analyze_jd",
     "get_profile",
@@ -35,7 +40,22 @@ _EXPECTED_TOOLS = {
     "run_interview",
     "send_message",
     "generate_cv",
-    # Added in sprint 7 (Task 21.14)
+    "get_cv_status",
+    "get_cv_ats_report",
+    # Cover letters (#170)
+    "generate_cover_letter",
+    "get_cover_letter_status",
+    "get_cover_letter_ats_report",
+    # Flow orchestrator (US109)
+    "start_flow",
+    "advance_flow",
+    "get_flow_state",
+    # Profile ingestion / roles
+    "import_cv",
+    "add_role",
+    # Applications (sprint 7, Task 21.14, and later)
+    "create_application",
+    "update_application",
     "list_applications",
     "get_application",
 }
@@ -47,6 +67,7 @@ _EXPECTED_STATIC_RESOURCE_URIS = {
 _EXPECTED_TEMPLATE_URIS = {
     "job://{job_id}",
     "cv://{cv_id}",
+    "flow://{flow_id}",
 }
 
 # ---------------------------------------------------------------------------

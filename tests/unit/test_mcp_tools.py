@@ -1479,3 +1479,60 @@ def test_warn_if_base_url_unset_silent_when_env_var_set(monkeypatch, caplog):
         warn_if_base_url_unset()
 
     assert not any("APPLIRE_BASE_URL" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Registered tool/resource set vs. tests/test_mcp_server.py's docker-tier
+# expectation — a hermetic cross-check (no Docker) so a drift is caught in
+# the fast unit tier, not only when someone remembers to run the stdio tests.
+# ---------------------------------------------------------------------------
+
+
+def _load_test_mcp_server_module():
+    """Load tests/test_mcp_server.py by path — it lives outside any package
+    (tests/ has no __init__.py) so it can't be imported by name from here."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "test_mcp_server.py"
+    spec = importlib.util.spec_from_file_location("test_mcp_server", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.asyncio
+async def test_expected_tools_matches_live_registration():
+    """tests/test_mcp_server.py:_EXPECTED_TOOLS must equal the tools actually
+    registered on the FastMCP instance. That file's strict-equality assertion
+    only runs against the Docker stack; this mirrors the same check
+    hermetically so CI's unit tier catches drift immediately (#167/#170:
+    _EXPECTED_TOOLS listed only 9 tools while 18, now 21, were registered)."""
+    from applire.mcp.server import mcp
+
+    module = _load_test_mcp_server_module()
+    tools = await mcp.list_tools()
+    names = {t.name for t in tools}
+
+    assert names == module._EXPECTED_TOOLS, (
+        f"Live tool set != tests/test_mcp_server.py._EXPECTED_TOOLS.\n"
+        f"Only live: {names - module._EXPECTED_TOOLS}\n"
+        f"Only expected: {module._EXPECTED_TOOLS - names}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expected_resource_templates_matches_live_registration():
+    """Same cross-check for resource templates — flow://{flow_id} was
+    previously missing from _EXPECTED_TEMPLATE_URIS."""
+    from applire.mcp.server import mcp
+
+    module = _load_test_mcp_server_module()
+    templates = await mcp.list_resource_templates()
+    uris = {t.uriTemplate for t in templates}
+
+    assert uris == module._EXPECTED_TEMPLATE_URIS, (
+        f"Live template URIs != tests/test_mcp_server.py._EXPECTED_TEMPLATE_URIS.\n"
+        f"Only live: {uris - module._EXPECTED_TEMPLATE_URIS}\n"
+        f"Only expected: {module._EXPECTED_TEMPLATE_URIS - uris}"
+    )
