@@ -388,6 +388,12 @@ GET /api/cv/{cv_id}/pdf
 python -m applire.mcp
 ```
 
+Setze `APPLIRE_BASE_URL` auf die von außen erreichbare `scheme://host:port`-Adresse
+deines Reverse Proxys für jedes Deployment außer lokalem, ungeproxtem Dev-Betrieb —
+`generate_cv`/`get_cv_status`/`generate_cover_letter` bauen damit `html_url`/`pdf_url`
+auf. Standard ist `http://localhost:8001`, was hinter nginx/Caddy falsch ist; der
+Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.example`.
+
 #### MCP-Tools
 
 **Einspeisung & Profil**

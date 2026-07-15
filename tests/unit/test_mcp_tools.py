@@ -1279,3 +1279,34 @@ async def test_update_application_not_found():
                 application_id=str(uuid.uuid4()), user_status="applied"
             )
     assert exc.value.error.code == -32001
+
+
+# ---------------------------------------------------------------------------
+# APPLIRE_BASE_URL startup warning (#168)
+# ---------------------------------------------------------------------------
+
+
+def test_warn_if_base_url_unset_logs_when_env_var_absent(monkeypatch, caplog):
+    """Pydantic-settings can't tell 'default' from 'explicitly set to the
+    default', so the check must read os.environ directly. Simulate the
+    undocumented-deployment case: the var is absent, only the config default
+    applies."""
+    from applire.mcp.server import warn_if_base_url_unset
+
+    monkeypatch.delenv("APPLIRE_BASE_URL", raising=False)
+    with caplog.at_level("WARNING", logger="applire.mcp.server"):
+        warn_if_base_url_unset()
+
+    assert any("APPLIRE_BASE_URL" in r.message for r in caplog.records)
+
+
+def test_warn_if_base_url_unset_silent_when_env_var_set(monkeypatch, caplog):
+    """No warning once the deployer has explicitly set APPLIRE_BASE_URL —
+    even if they happened to set it to the same value as the default."""
+    from applire.mcp.server import warn_if_base_url_unset
+
+    monkeypatch.setenv("APPLIRE_BASE_URL", "http://localhost:8001")
+    with caplog.at_level("WARNING", logger="applire.mcp.server"):
+        warn_if_base_url_unset()
+
+    assert not any("APPLIRE_BASE_URL" in r.message for r in caplog.records)

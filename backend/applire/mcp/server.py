@@ -52,6 +52,8 @@ Resources:
 import base64
 import binascii
 import json
+import logging
+import os
 import uuid
 from datetime import date, datetime, timedelta
 
@@ -89,12 +91,38 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
+logger = logging.getLogger(__name__)
+
 mcp = FastMCP("Applire")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def warn_if_base_url_unset() -> None:
+    """Warn at server startup when APPLIRE_BASE_URL was never set (#168).
+
+    Every MCP tool that returns an artifact link (generate_cv, get_cv_status,
+    generate_cover_letter, ...) builds html_url/pdf_url from
+    ``settings.applire_base_url``, which defaults to
+    ``http://localhost:8001``. Behind a reverse proxy (nginx, Caddy, ...) that
+    default silently points agents at an unreachable URL instead of the
+    externally-reachable one.
+
+    pydantic-settings can't distinguish "the deployer set it to the default
+    value" from "the deployer never set it" — so this checks os.environ
+    directly rather than settings.applire_base_url.
+    """
+    if "APPLIRE_BASE_URL" not in os.environ:
+        logger.warning(
+            "APPLIRE_BASE_URL is not set — MCP artifact URLs (html_url/pdf_url) "
+            "will default to %s, which will be wrong for any non-default "
+            "deployment. Set APPLIRE_BASE_URL to the externally-reachable "
+            "scheme://host:port of your reverse proxy (see .env.example).",
+            settings.applire_base_url,
+        )
 
 
 def _parse_uuid(value: str, param: str) -> uuid.UUID:
