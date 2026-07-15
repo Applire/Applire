@@ -41,6 +41,7 @@ import logging
 import re
 import unicodedata
 import uuid
+from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -60,7 +61,7 @@ from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
-from applire.norms import resolve_target_pages
+from applire.norms import DEFAULT_REGION, resolve_target_pages
 from applire.prompts.cv_tailoring import (
     CV_TAILORING_REFINEMENT_PROMPT,
     SYSTEM_PROMPT,
@@ -1098,7 +1099,12 @@ async def _render_cv_background(
             # the one commit. An audit failure is non-fatal: it leaves ats_report NULL but
             # still commits status='ready'.
             record.status = CVGenerationStatus.ready.value
-            await _update_ats_report(record, db)   # ADR-039 — commits status + report together
+            # E042/US238 (ADR-051 §4): arm the bounded measure-and-condense loop with the
+            # resolved target + feedforward budget already computed above. The loop counts
+            # the rendered pages and deterministically condenses on overrun, rebuilds the
+            # snapshot from the final data, then audits — all in the one ready-commit.
+            condense_ctx = CondenseContext(budgets=budget, target=resolved_target_pages)
+            await _update_ats_report(record, db, condense_ctx)   # ADR-039 — commits status + report together
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -1175,22 +1181,116 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
     return (gap.keyword_ledger or []) if gap else None
 
 
-async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
-    """ADR-039: render → extract → audit → persist.
+@dataclass
+class CondenseContext:
+    """Everything the post-render measure-and-condense loop needs (E042/US238,
+    ADR-051 §4). Built ONLY by ``_render_cv_background`` — it has the resolved target
+    and the feedforward budget in hand. Its presence is what arms condensation;
+    ``_update_ats_report_by_id`` (the section-editor re-audit) passes ``None`` so that
+    path stays audit-only (amendment §1)."""
 
-    Engine errors leave ats_report NULL, never raise — an audit failure must
-    NEVER fail or alter generation status.
+    budgets: "BudgetResult"
+    target: int
 
-    Deliberately wipes any previous report on error: ADR-039 forbids a persisted
-    report describing a document state it was not computed from (no stale reports).
-    A NULL report is always preferable to a report computed from old content.
+
+async def _resolve_audit_target(record: GeneratedCV, db: AsyncSession) -> int:
+    """Resolve the target page count for the audit band when no CondenseContext is
+    supplied (legacy NULL-``target_pages`` rows and the section-editor re-audit path):
+    the row's persisted ``target_pages`` if present, else the user setting resolved the
+    same way ``generate_cv`` does (ADR-051 §1)."""
+    if record.target_pages is not None:
+        return record.target_pages
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+
+    result = await db.execute(
+        select(UserSettings.target_cv_pages).where(UserSettings.user_id == _CE_STUB_USER_ID)
+    )
+    return resolve_target_pages(None, result.scalar_one_or_none())
+
+
+async def _update_ats_report(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext | None = None,
+) -> None:
+    """ADR-039 + E042/US238: render → (bounded measure-and-condense) → audit → persist.
+
+    With a ``condense_ctx`` (only the generation path supplies one) this runs the
+    bounded loop: render, count pages, and if the document overruns ``target`` apply
+    the deterministic ``condense_to_budget`` pass (max 2 iterations), re-rendering
+    between passes and rebuilding ``content_snapshot`` from the final condensed data so
+    the section editor never serves pre-condense bullets (amendment §2). Without a ctx
+    — or when ``section_overrides`` already exist (a PATCH landed mid-generation,
+    amendment §1) — it is audit-only, exactly today's behaviour. No LLM calls (§7).
+
+    The page-length audit is target-aware and, when the loop exhausts its budget and
+    the document still exceeds the region max, is told so for honest wording.
+
+    Engine errors leave ats_report NULL, never raise — an audit failure must NEVER
+    fail or alter generation status. Deliberately wipes any previous report on error:
+    ADR-039 forbids a persisted report describing a state it was not computed from.
     """
     try:
-        from applire.services.ats_audit import audit_cv
-        from applire.services.cv_section_editor import apply_overrides_to_tailored
+        from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
+        from applire.services.cv_budget import condense_to_budget
+        from applire.services.cv_section_editor import (
+            apply_overrides_to_tailored,
+            build_content_snapshot,
+        )
 
-        html = await get_cv_html(record.id, db)
-        pdf = await _html_to_pdf(html)
+        # Bail rule (amendment §1): never condense over an override. A section PATCH can
+        # land mid-generation; the audit render applies overrides the loop must not fight.
+        do_condense = condense_ctx is not None and not record.section_overrides
+        if condense_ctx is not None:
+            target = condense_ctx.target
+            region = condense_ctx.budgets.region
+        else:
+            target = await _resolve_audit_target(record, db)
+            region = DEFAULT_REGION
+
+        condensation_exhausted = False
+        snapshot_dirty = False
+
+        if do_condense:
+            # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
+            text = ""
+            count = 0
+            for iteration in (1, 2):
+                html = await get_cv_html(record.id, db)
+                pdf = await _html_to_pdf(html)
+                text, count = extract_text_and_pages(pdf)
+                if count <= target:
+                    break
+                condensed, changed = condense_to_budget(
+                    record.tailored_data, condense_ctx.budgets, iteration
+                )
+                if not changed:
+                    # Nothing left to cut — the overrun is structural (education/skills).
+                    condensation_exhausted = True
+                    break
+                record.tailored_data = condensed
+                snapshot_dirty = True
+            else:
+                # Both iterations applied without meeting the target — measure the final
+                # render and report the honest state.
+                html = await get_cv_html(record.id, db)
+                pdf = await _html_to_pdf(html)
+                text, count = extract_text_and_pages(pdf)
+                condensation_exhausted = count > target
+
+            # Snapshot rebuild (amendment §2): serve the condensed bullets from the
+            # section editor, else the first section save writes pre-condense text back
+            # as an override (silent un-condense).
+            if snapshot_dirty:
+                record.content_snapshot = build_content_snapshot(
+                    TailoredCVData.model_validate(record.tailored_data)
+                )
+        else:
+            html = await get_cv_html(record.id, db)
+            pdf = await _html_to_pdf(html)
+            text, count = extract_text_and_pages(pdf)
+
         job = await db.get(JobAnalysis, record.job_analysis_id)
         tailored = TailoredCVData.model_validate(record.tailored_data)
         tailored = apply_overrides_to_tailored(
@@ -1199,8 +1299,15 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
         # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
         ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
-        record.ats_report = audit_cv(
-            pdf, tailored, list(job.keywords or []) if job else [], ledger
+        record.ats_report = _audit_cv_text(
+            text,
+            tailored,
+            list(job.keywords or []) if job else [],
+            ledger,
+            page_count=count,
+            target=target,
+            region=region,
+            condensation_exhausted=condensation_exhausted,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -1209,7 +1316,10 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
 
 
 async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
-    """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time)."""
+    """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time).
+
+    The section-editor's post-edit re-audit path: passes NO CondenseContext, so it is
+    strictly audit-only and never condenses (ADR-051 amendment §1)."""
     async with AsyncSessionLocal() as db:
         record = await db.get(GeneratedCV, cv_id)
         if record is not None:

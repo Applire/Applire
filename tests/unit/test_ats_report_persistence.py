@@ -260,7 +260,8 @@ async def test_background_job_persists_ats_report(db_with_cv):
          patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
-         patch("applire.services.ats_audit.audit_cv", return_value=known_report):
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit._audit_cv_text", return_value=known_report):
         mock_session_local.return_value.__aenter__.return_value = session
         from applire.services.cv import _render_cv_background
         await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
@@ -301,7 +302,7 @@ async def test_cv_audit_receives_keyword_ledger(db_with_cv):
 
     captured: dict = {}
 
-    def fake_audit(pdf, tailored, keywords, ledger=None):
+    def fake_audit(text, tailored, keywords, ledger=None, **kwargs):
         captured["keywords"] = keywords
         captured["ledger"] = ledger
         return _make_ats_report("cv")
@@ -319,12 +320,13 @@ async def test_cv_audit_receives_keyword_ledger(db_with_cv):
          patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
-         patch("applire.services.ats_audit.audit_cv", side_effect=fake_audit):
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit._audit_cv_text", side_effect=fake_audit):
         mock_session_local.return_value.__aenter__.return_value = session
         from applire.services.cv import _render_cv_background
         await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
 
-    assert captured.get("ledger") == ledger, "audit_cv did not receive the Keyword Ledger"
+    assert captured.get("ledger") == ledger, "the audit did not receive the Keyword Ledger"
 
 
 @pytest.mark.asyncio
@@ -403,7 +405,8 @@ async def test_audit_engine_error_leaves_report_null_and_status_ready(db_with_cv
          patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
-         patch("applire.services.ats_audit.audit_cv", side_effect=RuntimeError("boom")):
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit._audit_cv_text", side_effect=RuntimeError("boom")):
         mock_session_local.return_value.__aenter__.return_value = session
         from applire.services.cv import _render_cv_background
         await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
@@ -438,7 +441,8 @@ async def test_section_patch_recomputes_report(db_with_cv):
 
     bg = BackgroundTasks()
 
-    with patch("applire.services.ats_audit.audit_cv", return_value=distinguishable_report), \
+    with patch("applire.services.ats_audit._audit_cv_text", return_value=distinguishable_report), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
         await patch_cv_section(cv_id, "introduction", "Neues Profil", False, session, bg)
@@ -448,7 +452,8 @@ async def test_section_patch_recomputes_report(db_with_cv):
 
     # Execute it — it opens its own AsyncSessionLocal session; patch that to use our test DB
     with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
-         patch("applire.services.ats_audit.audit_cv", return_value=distinguishable_report), \
+         patch("applire.services.ats_audit._audit_cv_text", return_value=distinguishable_report), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
          patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-patched")):
         mock_session_local.return_value.__aenter__.return_value = session
