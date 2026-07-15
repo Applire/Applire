@@ -119,6 +119,13 @@ class BudgetResult:
     tiers: dict[TierName, BulletTier]
     target_pages: int
     region: str
+    # Flat, de-duplicated list of every CLAIMABLE surface form (surface_forms union
+    # {concept}) across the ledger — the relevance "hit data" that RIDES on the budget
+    # so Task 1.3's post-render condense can decide per-bullet hits WITHOUT re-loading
+    # the ledger (keeps :func:`condense_to_budget` pure and its signature ledger-free).
+    # Empty when the relevance signal is void (no claimable ledger); condense then
+    # treats every bullet as a no-hit bullet, which is the correct fallback ordering.
+    claimable_forms: tuple[str, ...] = ()
 
 
 def _tier_table(target_pages: int, region: str) -> dict[TierName, BulletTier]:
@@ -216,6 +223,23 @@ def _entry_text_norm(entry: dict[str, Any]) -> str:
     return _norm("\n".join(parts))
 
 
+def _flatten_claimable_forms(claimable_ledger: list[dict[str, Any]]) -> tuple[str, ...]:
+    """De-duplicated, order-preserving flat list of every claimable surface form
+    (surface_forms union {concept}). Stored on :class:`BudgetResult` so the condense
+    pass can recompute per-bullet hits with the SAME predicate (Task 1.3, pure)."""
+    seen: set[str] = set()
+    flat: list[str] = []
+    for led in claimable_ledger:
+        forms = list(led.get("surface_forms") or [])
+        if led.get("concept"):
+            forms.append(led["concept"])
+        for f in forms:
+            if isinstance(f, str) and f not in seen:
+                seen.add(f)
+                flat.append(f)
+    return tuple(flat)
+
+
 def _hit_count(entry_text_norm: str, claimable_ledger: list[dict[str, Any]]) -> int:
     """Count of claimable ledger entries whose surface_forms union {concept} are
     present in ``entry_text_norm`` via the shared ATS presence predicate."""
@@ -288,6 +312,7 @@ def compute_bullet_budgets(
     tiers = _tier_table(target_pages, region)
 
     claimable = [e for e in (keyword_ledger or []) if e.get("claimable")]
+    claimable_forms = _flatten_claimable_forms(claimable)
     latest_start_id = _latest_start_id(work_entries)
 
     hit_counts: dict[str, int] = {}
@@ -320,7 +345,13 @@ def compute_bullet_budgets(
             role=str(entry.get("role") or ""),
         )
 
-    return BudgetResult(roles=roles, tiers=tiers, target_pages=target_pages, region=region)
+    return BudgetResult(
+        roles=roles,
+        tiers=tiers,
+        target_pages=target_pages,
+        region=region,
+        claimable_forms=claimable_forms,
+    )
 
 
 def render_budget_table(budget: BudgetResult) -> str:
@@ -350,3 +381,132 @@ def role_budget_line(budget: BudgetResult, work_entry_id: str) -> str:
         f"MAX BULLETS FOR THIS ENTRY: {rb.max_bullets} (tier: {rb.tier}) — a ceiling, not a "
         "quota; prioritise the most JD-relevant achievements and condense the rest."
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3 (US238, ADR-051 §4 + amendment §6): the deterministic condense pass.
+# Pure — no DB, no LLM, no I/O, never mutates its input. Omission-only per the
+# ADR-040 truthfulness boundary: it may DELETE whole bullets (and drop a project
+# that loses all of its bullets), demoting a role toward a one-liner, but it must
+# NEVER add, rewrite, merge, or reorder surviving text.
+# ---------------------------------------------------------------------------
+
+
+def _bullet_has_hit(text: str, claimable_forms: tuple[str, ...]) -> bool:
+    """Does this bullet contain any claimable keyword? Uses THE shared presence
+    predicate (``ats_audit.surface_present``) so the condense pass and the ATS/budget
+    layers can never disagree on what counts as a relevance hit."""
+    if not claimable_forms:
+        return False
+    from applire.services.ats_audit import _norm, surface_present
+
+    text_norm = _norm(text)
+    if not text_norm:
+        return False
+    return any(surface_present(f, text_norm) for f in claimable_forms)
+
+
+def condense_to_budget(
+    tailored_data: dict[str, Any],
+    budgets: BudgetResult,
+    iteration: int,
+) -> tuple[dict[str, Any], bool]:
+    """Trim each role's bullets down to its budget ceiling (ADR-051 §4).
+
+    Returns a NEW ``(condensed_copy, changed)`` — ``changed`` is True iff at least
+    one bullet (or a now-empty project) was removed. Deterministic: identical inputs
+    always yield an identical output.
+
+    Cut order, applied per role until its total bullet count (role bullets + nested
+    project bullets) meets the ceiling:
+
+    1. bullets with NO claimable-keyword hit go first (``budgets.claimable_forms``
+       via the shared presence predicate),
+    2. then, among equal hit-status, nested PROJECT bullets before ROLE bullets,
+    3. within an equal (hit-status, project/role) group the later-listed bullet is
+       cut first, so the earliest (typically strongest) bullets survive.
+
+    "Oldest roles collapse toward one-liners" is not a separate step — it falls out
+    of the tier ceilings (bottom tier == 1, and 0 at iteration 2).
+
+    Iteration semantics (amendment §6): iteration 1 enforces the computed ceilings;
+    iteration 2 lowers EVERY ceiling by one more (floored at 0) and re-applies.
+
+    Roles are NEVER removed — ``work_history`` length is invariant (the DACH gap
+    rule). A project that loses every one of its bullets is dropped (omission).
+    """
+    import copy
+
+    data = copy.deepcopy(tailored_data)
+    work = data.get("work_history")
+    if not isinstance(work, list):
+        return data, False
+
+    forms = budgets.claimable_forms
+    changed = False
+
+    for entry in work:
+        if not isinstance(entry, dict):
+            continue
+        rb = budgets.roles.get(str(entry.get("id") or ""))
+        if rb is None:
+            # No budget for this role (id mismatch / legacy) — leave it untouched.
+            continue
+        ceiling = max(0, rb.max_bullets - (iteration - 1))
+
+        role_bullets = entry.get("bullets")
+        role_bullets = role_bullets if isinstance(role_bullets, list) else []
+        projects = entry.get("projects")
+        projects = projects if isinstance(projects, list) else []
+
+        # Flatten every string bullet under this role, tagging origin + hit status.
+        items: list[dict[str, Any]] = []
+        for b in role_bullets:
+            if isinstance(b, str):
+                items.append({"is_role": True, "proj_idx": None, "text": b,
+                              "has_hit": _bullet_has_hit(b, forms)})
+        for pi, proj in enumerate(projects):
+            if not isinstance(proj, dict):
+                continue
+            for b in (proj.get("bullets") or []):
+                if isinstance(b, str):
+                    items.append({"is_role": False, "proj_idx": pi, "text": b,
+                                  "has_hit": _bullet_has_hit(b, forms)})
+        for order, it in enumerate(items):
+            it["order"] = order
+
+        if len(items) <= ceiling:
+            continue
+
+        # Remove the most-expendable first: no-hit before hit; within that, project
+        # before role; within that, later-listed before earlier (keep the earliest).
+        removal_order = sorted(
+            items, key=lambda it: (it["has_hit"], it["is_role"], -it["order"])
+        )
+        removed = {id(it) for it in removal_order[: len(items) - ceiling]}
+
+        entry["bullets"] = [it["text"] for it in items if it["is_role"] and id(it) not in removed]
+
+        kept_by_proj: dict[int, list[str]] = {}
+        for it in items:
+            if it["is_role"] or id(it) in removed:
+                continue
+            kept_by_proj.setdefault(it["proj_idx"], []).append(it["text"])
+
+        surviving_projects: list[Any] = []
+        for pi, proj in enumerate(projects):
+            if not isinstance(proj, dict):
+                surviving_projects.append(proj)
+                continue
+            had_bullets = any(isinstance(b, str) for b in (proj.get("bullets") or []))
+            kept = kept_by_proj.get(pi, [])
+            if had_bullets and not kept:
+                # Every bullet of this project was cut — drop the now-empty project.
+                continue
+            proj["bullets"] = kept
+            surviving_projects.append(proj)
+        entry["projects"] = surviving_projects
+
+        changed = True
+
+    return data, changed
