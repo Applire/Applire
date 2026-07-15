@@ -475,9 +475,37 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
         else:
             standalone.append(entry)
 
+    _suppress_duplicate_project_bullets(work_history)
+
     data["work_history"] = work_history
     data["projects"] = (data.get("projects") or []) + standalone
     return TailoredCVData.model_validate(data)
+
+
+def _suppress_duplicate_project_bullets(work_history: list[dict]) -> None:
+    """#169: the LLM often emits the same sentence twice — once as a role bullet and
+    once inside the project nested under that role (the segmented per-entry writer
+    emits ``bullets`` and ``projects`` in one JSON, so overlap is structural). Drop
+    each nested-project bullet whose normalized form equals any of the PARENT role's
+    own bullets. Deterministic; reuses ``ats_audit._norm`` (NFKC + dash→space +
+    casefold) so "Code-Review" ≡ "code review". The project entry is kept even when
+    all its bullets are suppressed (US187: the heading still carries the project).
+    Mutates ``work_history`` in place; standalone projects are never touched.
+    """
+    from applire.services.ats_audit import _norm
+
+    for w in work_history:
+        role_norms = {
+            _norm(b) for b in (w.get("bullets") or []) if isinstance(b, str) and b.strip()
+        }
+        if not role_norms:
+            continue
+        for proj in w.get("projects") or []:
+            proj["bullets"] = [
+                b
+                for b in (proj.get("bullets") or [])
+                if not (isinstance(b, str) and _norm(b) in role_norms)
+            ]
 
 
 def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
@@ -515,6 +543,33 @@ def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
     return tailored.model_copy(
         update={"work_history": _sort_work_by_date(list(tailored.work_history))}
     )
+
+
+def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
+    """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
+    when the master profile is still dirty (the reconciler merges going forward, but
+    existing profiles carry twins like 'Team Leadership' + 'Team Leadership and
+    Mentorship'). Uses the SAME shared predicate as the reconciler and the audit.
+
+    Keeps the first-seen occurrence's POSITION (stable order) but upgrades its name
+    to the more-specific variant when a later near-dupe strictly contains it. Pure;
+    input unmutated. Must run AFTER the ADR-038 language pass, which rewords tags.
+    """
+    from applire.services.ats_audit import skill_tokens, skills_near_dupe
+
+    original = list(tailored.skills or [])
+    kept: list[str] = []
+    for s in original:
+        dup_idx = next(
+            (i for i, k in enumerate(kept) if skills_near_dupe(k, s)), None
+        )
+        if dup_idx is None:
+            kept.append(s)
+        elif skill_tokens(s) > skill_tokens(kept[dup_idx]):
+            kept[dup_idx] = s  # upgrade in place to the more-specific name
+    if kept == original:
+        return tailored
+    return tailored.model_copy(update={"skills": kept})
 
 
 _TEMPLATE_FILES: dict[str, str] = {
@@ -963,6 +1018,11 @@ async def _render_cv_background(
             # here — the one site where tailored_data + content_snapshot are
             # established — instead of trusting the LLM's echo of the input order.
             tailored = _enforce_work_order(tailored)
+
+            # #172: collapse near-duplicate skill tags (the shared ats_audit
+            # predicate) so the CV is clean even when the master profile still
+            # carries twins. After the language pass, which rewords the tags.
+            tailored = _dedup_skills(tailored)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.

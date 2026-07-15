@@ -15,8 +15,225 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import pytest
+
 from applire.schemas.cv import TailoredCVData
 from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+
+
+# ---------------------------------------------------------------------------
+# #172 — the shared near-duplicate skill predicate. ONE instrument used by the
+# reconciler (import merge), the render-side CV dedup, and the ATS audit.
+# ---------------------------------------------------------------------------
+
+# Real UAT pairs (2026-07-15 edge run) that rendered as separate skills but mean
+# the same thing (or a strict refinement) — must be near-dupes.
+_UAT_NEAR_DUPE_PAIRS = [
+    ("Team Leadership", "Team Leadership and Mentorship"),
+    ("Project Management", "Cross Functional Project Management"),
+    ("GxP Compliance", "Regulatory Compliance and Validation Methodologies (GxP, CSV)"),
+    ("Stakeholder Management", "Stakeholder Management & C-Level Consulting"),
+]
+
+# Bare single-token containment — one side is a SINGLE token strictly inside the
+# other, larger token set. Under the strict predicate (#172, 2026-07-15 UAT) this
+# is NOT an auto-merge: 'React' ⊂ 'React Native' are distinct skills, and merging
+# would silently swallow one (persisted corruption) or rename Docker into a
+# compound. The reconciler routes these to a user confirmation instead — never a
+# silent merge — so `skills_near_dupe` must return False for them.
+_SINGLE_TOKEN_CONTAINMENT_PAIRS = [
+    ("React", "React Native"),
+    ("AWS", "AWS Lambda"),
+    ("Spring", "Spring Boot"),
+    ("Vue", "Vue Router"),
+    ("Excel", "Excel VBA"),
+    ("Docker", "Docker & Kubernetes"),
+    ("Docker", "Cloud Infrastructure & Deployment (Docker Compose)"),
+]
+
+# Pairs that share a token or look similar but are genuinely distinct skills —
+# must NOT merge.
+_MUST_NOT_MERGE_PAIRS = [
+    ("Java", "JavaScript"),
+    ("Python", "TypeScript"),
+    ("Team Leadership", "Project Leadership"),
+    ("React", "Vue"),
+]
+
+
+@pytest.mark.parametrize("a,b", _UAT_NEAR_DUPE_PAIRS)
+def test_skills_near_dupe_true_for_uat_pairs(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is True
+    assert skills_near_dupe(b, a) is True  # symmetric
+
+
+@pytest.mark.parametrize("a,b", _MUST_NOT_MERGE_PAIRS)
+def test_skills_near_dupe_false_for_distinct_pairs(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is False
+    assert skills_near_dupe(b, a) is False
+
+
+@pytest.mark.parametrize("a,b", _SINGLE_TOKEN_CONTAINMENT_PAIRS)
+def test_skills_near_dupe_false_for_single_token_containment(a, b):
+    """Bare single-token containment is NOT an auto-merge near-dupe (#172 strict):
+    'React' ⊂ 'React Native' must stay distinct so the merge never silently drops
+    a genuine skill."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is False
+    assert skills_near_dupe(b, a) is False
+
+
+def test_skills_near_dupe_jaccard_boundary():
+    """Non-containment high-overlap: 6 of 8 tokens shared → Jaccard 0.75 → dupe;
+    dropping the overlap below the threshold → not a dupe."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    a = "alpha beta gamma delta epsilon zeta eta"      # 7 tokens
+    b = "alpha beta gamma delta epsilon zeta theta"    # 7 tokens, 6 shared → 6/8
+    assert skills_near_dupe(a, b) is True
+    c = "alpha beta gamma delta epsilon phi"           # 6 tokens
+    d = "alpha beta gamma delta epsilon rho sigma"     # shares 5, 5/8 = 0.625
+    assert skills_near_dupe(c, d) is False
+
+
+def test_skill_tokens_folds_variants_and_strips_punct():
+    from applire.services.ats_audit import skill_tokens
+
+    assert skill_tokens("Code-Review") == skill_tokens("code reviews")
+    # Conjunctions/ampersands are dropped; parenthesised tokens are unwrapped.
+    assert "gxp" in skill_tokens("Methodologies (GxP, CSV)")
+    assert "csv" in skill_tokens("Methodologies (GxP, CSV)")
+    assert "&" not in skill_tokens("Docker & Kubernetes")
+
+
+def test_skill_tokens_stems_only_purely_alpha_tokens():
+    """The plural fold must skip tokens with internal punctuation, so 'node.js'
+    stays intact instead of losing its trailing 's' ('node.j') (#172 minor)."""
+    from applire.services.ats_audit import skill_tokens
+
+    assert skill_tokens("node.js") == frozenset({"node.js"})
+    assert "node.j" not in skill_tokens("node.js")
+    # Purely-alphabetic plurals still fold as before.
+    assert skill_tokens("reviews") == skill_tokens("review")
+
+
+# ---------------------------------------------------------------------------
+# #171a / #169 / #172 — three new deterministic CV checks: page-length,
+# duplicate-bullets, skills-near-dupe.
+# ---------------------------------------------------------------------------
+
+
+def _check_by_id(report, cid):
+    return next((c for c in report.checks if c.id == cid), None)
+
+
+def test_page_length_check_absent_without_page_count():
+    """Callers that don't supply a page count get no page-length check (back-compat
+    with every text-only test)."""
+    report = _audit_cv_text(_full_text(), _CV, keywords=[])
+    assert _check_by_id(report, "page-length") is None
+
+
+def test_page_length_two_pages_pass_no_advisory():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+
+
+def test_page_length_three_pages_pass_with_advisory():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass"
+    assert c.details and "3 pages" in c.details and "2" in c.details
+
+
+def test_page_length_over_three_pages_fails():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=6)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "6" in c.details and "2" in c.details
+
+
+_CV_DUP_BULLET = TailoredCVData.model_validate({
+    "contact": {"name": "Anna Bauer"},
+    "work_history": [
+        {
+            "company": "Acme GmbH", "role": "Engineer", "start_date": "2020",
+            "bullets": ["Led the platform migration", "Mentored the team"],
+            "projects": [
+                {"name": "Atlas", "bullets": ["Led the platform migration", "Shipped v2"]},
+            ],
+        },
+    ],
+    "skills": [],
+})
+
+
+def test_duplicate_bullets_check_flags_role_vs_project_collision():
+    report = _audit_cv_text("Anna Bauer", _CV_DUP_BULLET, keywords=[])
+    c = _check_by_id(report, "duplicate-bullets")
+    assert c is not None and c.status == "fail"
+    assert "Led the platform migration" in (c.details or "")
+
+
+def test_duplicate_bullets_check_passes_when_project_bullets_distinct():
+    cv = _CV_DUP_BULLET.model_copy(deep=True)
+    cv.work_history[0].projects[0].bullets = ["Shipped v2"]
+    report = _audit_cv_text("Anna Bauer", cv, keywords=[])
+    c = _check_by_id(report, "duplicate-bullets")
+    assert c is not None and c.status == "pass"
+
+
+def test_skills_near_dupe_check_flags_uat_pair():
+    cv = _CV.model_copy(update={
+        "skills": ["Team Leadership", "Team Leadership and Mentorship", "Python"]
+    })
+    report = _audit_cv_text(_full_text(), cv, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "fail"
+    assert "Team Leadership" in (c.details or "")
+
+
+def test_skills_near_dupe_check_passes_on_clean_skills():
+    report = _audit_cv_text(_full_text(), _CV, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "pass"
+
+
+def test_skills_near_dupe_check_passes_on_single_token_containment():
+    """React + React Native are distinct skills; the audit must not flag a legit CV
+    that legitimately lists both (#172 strict predicate)."""
+    cv = _CV.model_copy(update={"skills": ["React", "React Native", "Python"]})
+    report = _audit_cv_text(_full_text(), cv, keywords=[])
+    c = _check_by_id(report, "skills-near-dupe")
+    assert c is not None and c.status == "pass"
+
+
+def test_audit_cv_threads_page_count_from_pdf():
+    """audit_cv must read the real PDF page count and run the page-length check."""
+    from io import BytesIO
+    from pypdf import PdfReader, PdfWriter
+    from applire.services.ats_audit import audit_cv
+
+    def _blank_pdf(n: int) -> bytes:
+        writer = PdfWriter()
+        for _ in range(n):
+            writer.add_blank_page(width=595, height=842)  # A4 points
+        buf = BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    report = audit_cv(_blank_pdf(5), _CV, keywords=[])
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail" and "5" in (c.details or "")
+
+    report_ok = audit_cv(_blank_pdf(2), _CV, keywords=[])
+    assert _check_by_id(report_ok, "page-length").status == "pass"
 
 _CV = TailoredCVData.model_validate({
     "contact": {"name": "Anna Bauer", "email": "anna@example.com", "phone": "+49 151 1234567", "location": "Berlin"},
