@@ -32,6 +32,10 @@
 #                  CV JSON; the reviewer quotes profile content when needed).
 
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from applire.services.cv_budget import BudgetResult
 
 SYSTEM_PROMPT = """\
 You are an expert DACH career consultant specialising in writing tailored German CVs (Lebenslauf).
@@ -72,6 +76,12 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    - Never assign a more senior role/title than the profile states.
    Strong action verbs (Rule 1) means vivid, not inflated — re-emphasise relevance without
    overstating the candidate's actual depth.
+9. When a ROLE BULLET BUDGETS block is present in the user message (E042/US237,
+   ADR-051 §3), treat each listed role's "max" as a per-role bullet-count ceiling, not a
+   quota to fill: prioritise the most JD-relevant achievements within that ceiling, and
+   condense older/less relevant roles toward a single line as their budget instructs. The
+   whole document targets the stated page count — the budgets exist to get you there
+   without a separate trim pass.
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations:
 
@@ -116,6 +126,7 @@ def build_user_prompt(
     critical_gaps: list[str],
     output_language: str = "de",
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> str:
     language_name = "GERMAN" if output_language == "de" else "ENGLISH"
     # ADR-048 §8 / US200: the Keyword Ledger splits the JD's expectations into claimable
@@ -125,6 +136,13 @@ def build_user_prompt(
 
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     ledger_section = f"{ledger_block}\n\n" if ledger_block else ""
+    # E042/US237, ADR-051 §3: per-role bullet-count ceilings computed deterministically
+    # BEFORE generation, so the model aims at the target page count directly rather than
+    # relying on a post-hoc trim. Empty/None budget → adds nothing (back-compat).
+    from applire.services.cv_budget import render_budget_table
+
+    budget_block = render_budget_table(budget) if budget is not None else ""
+    budget_section = f"{budget_block}\n\n" if budget_block else ""
     return (
         "Tailor the candidate's profile for the job below.\n\n"
         f"OUTPUT LANGUAGE: {language_name} — write the summary, all work_history bullets, and "
@@ -133,6 +151,7 @@ def build_user_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
+        f"{budget_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         f"CRITICAL GAPS (acknowledge in summary if applicable):\n"

@@ -28,6 +28,10 @@ writer", "cv education writer", "cv projects writer"). Do not rename without upd
 """
 
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from applire.services.cv_budget import BudgetResult
 
 
 def _language_name(output_language: str) -> str:
@@ -67,6 +71,10 @@ tailoring directive that later section writers will all follow — so the finish
 with one consistent voice. Decide the summary angle, which skills to foreground, and a
 one-line emphasis theme per work entry. Do NOT write the CV itself here.
 
+When a ROLE BULLET BUDGETS block is present (E042/US237, ADR-051 §3), let each role's
+bullet-count ceiling inform its emphasis theme — a role budgeted for a single line gets a
+theme that reads as one condensed highlight, not a multi-point outline.
+
 {_CORE_RULES}
 
 Respond ONLY with a JSON object — no markdown:
@@ -79,13 +87,22 @@ Respond ONLY with a JSON object — no markdown:
 
 
 def build_outline_prompt(
-    job_analysis: dict, profile: dict, output_language: str, keyword_ledger: list[dict] | None = None
+    job_analysis: dict,
+    profile: dict,
+    output_language: str,
+    keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> str:
+    from applire.services.cv_budget import render_budget_table
+
+    budget_block = render_budget_table(budget) if budget is not None else ""
+    budget_section = f"{budget_block}\n\n" if budget_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
+        f"{budget_section}"
         "Return the tailoring directive JSON."
     )
 
@@ -99,6 +116,11 @@ You are a DACH cv work experience writer. Rewrite the bullets for ONE work-histo
 maximise relevance to the job, following the shared tailoring directive. You return ONLY the
 tailored bullets and any nested projects — never the company, role, or dates (those are
 carried verbatim from the profile by the system).
+
+When a MAX BULLETS FOR THIS ENTRY constraint is present (E042/US237, ADR-051 §3), treat it as
+a hard ceiling on the number of bullets you return, not a quota to fill: select the most
+JD-relevant achievements first, and condense a low-budget entry toward a single strong line
+rather than padding it out.
 
 {_CORE_RULES}
 
@@ -116,12 +138,18 @@ def build_work_section_prompt(
     keyword_gaps: list[str],
     output_language: str,
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> str:
+    from applire.services.cv_budget import role_budget_line
+
     theme = (directive.get("per_role_themes") or {}).get(entry.get("id"), "")
+    budget_line = role_budget_line(budget, entry.get("id", "")) if budget is not None else ""
+    budget_section = f"{budget_line}\n" if budget_line else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"EMPHASIS THEME FOR THIS ENTRY: {theme or '(use the summary angle)'}\n"
-        f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n\n"
+        f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n"
+        f"{budget_section}\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"THIS WORK ENTRY:\n{json.dumps(entry, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
