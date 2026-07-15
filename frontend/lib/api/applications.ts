@@ -75,6 +75,24 @@ export async function patchSubmittedCv(
   return (await res.json()) as ApplicationPatchResult;
 }
 
+/**
+ * PATCH /api/applications/{id} — pin (or with null: unpin) the submitted cover
+ * letter (E041/US232, symmetric with `patchSubmittedCv`). An explicit null is
+ * the backend's clear semantics, so unpin must send `{"submitted_cover_letter_id": null}`.
+ */
+export async function patchSubmittedCoverLetter(
+  applicationId: string,
+  coverLetterId: string | null,
+): Promise<ApplicationPatchResult> {
+  const res = await fetch(`${API_BASE}/api/applications/${applicationId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ submitted_cover_letter_id: coverLetterId }),
+  });
+  if (!res.ok) throw new Error(`application patch ${res.status}`);
+  return (await res.json()) as ApplicationPatchResult;
+}
+
 /** GET /api/applications/{id} — used by natural-moment prompts to check current state. */
 export async function getApplication(
   applicationId: string,

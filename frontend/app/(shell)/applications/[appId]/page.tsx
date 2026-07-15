@@ -35,6 +35,7 @@ import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/use
 import { patchApplicationStatus } from "@/lib/api/applications";
 import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
+import { DossierDocumentsZone } from "@/components/applications/DossierDocumentsZone";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -52,7 +53,7 @@ const WORKFLOW_STATUS_CONFIG: Record<string, { labelKey: WorkflowStatusLabelKey;
 // Non-user-facing Material Symbols identifier — JS const to avoid the JSX literal rule
 const SOURCE_LINK_ICON = "open_in_new";
 
-interface ApplicationDetail {
+export interface ApplicationDetail {
   id: string;
   job_analysis_id: string;
   role_title: string | null;
@@ -275,6 +276,21 @@ export default function ApplicationDetailPage() {
       setActionError(t("staleCvRetailorFailed"));
     } finally {
       setHeaderRetailoring(false);
+    }
+  };
+
+  // Re-sync `application` after a pin/unpin PATCH in the documents zone
+  // (E041/US232) — the zone holds no local pin state; it always renders off
+  // this prop, so a refetch is the only way its highlight/chip updates.
+  const refetchApplication = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/applications/${appId}`);
+      if (res.ok) {
+        const updated: ApplicationDetail = await res.json();
+        setApplication(updated);
+      }
+    } catch {
+      // Nudge, not a gate — the zone's own action already reported success/failure.
     }
   };
 
@@ -591,12 +607,16 @@ export default function ApplicationDetailPage() {
           </header>
 
           {/* ── Cockpit body: documents + journey (main) · tracking (sidebar) ──
-              Zone stubs replaced by Tasks 3.1 / 3.2 / 3.3. The documents zone
-              (3.1) will receive `application`, `coverLetter` and `onError`;
-              the tracking sidebar (3.3) restores deadline/notes/source edit. */}
+              Task 3.1 wires the documents zone (this section); 3.2/3.3 remain
+              stubs. The tracking sidebar (3.3) restores deadline/notes/source edit. */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              <section data-testid="dossier-documents-zone" />
+              <DossierDocumentsZone
+                application={application}
+                coverLetter={coverLetter}
+                onError={setActionError}
+                onPinChange={() => void refetchApplication()}
+              />
               <section data-testid="dossier-journey-zone" />
             </div>
             <aside className="lg:col-span-1">
