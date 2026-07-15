@@ -264,6 +264,26 @@ describe("DossierDocumentsZone (US232 — full version recall)", () => {
     await waitFor(() => expect(onPinChange).toHaveBeenCalled());
   });
 
+  it("a failed Mark-as-sent PATCH reports the pin-failure message and leaves the row unpinned", async () => {
+    mockPatchCv.mockRejectedValue(new Error("application patch 500"));
+    const { onError, onPinChange } = await renderZone({
+      application: baseApplication(),
+      cvItems: [THREE_CVS[1]],
+    });
+
+    const row = await screen.findByTestId("dossier-doc-row");
+    fireEvent.click(within(row).getByTestId("dossier-doc-mark-sent"));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("This could not be saved. Please try again.")
+    );
+    // A failed pin must not fake a "sent" state (US219 never-guess) …
+    expect(within(row).queryByTestId("dossier-doc-pinned")).not.toBeInTheDocument();
+    // … the action stays available, and the page is never asked to refetch.
+    expect(within(row).getByTestId("dossier-doc-mark-sent")).toBeInTheDocument();
+    expect(onPinChange).not.toHaveBeenCalled();
+  });
+
   it("calls onError when the CV list fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     const onError = vi.fn();

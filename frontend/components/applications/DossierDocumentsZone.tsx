@@ -40,14 +40,18 @@ interface CvListItem {
   error_code?: string | null;
 }
 
-const TEMPLATE_LABELS: Record<string, string> = {
-  classic_german: "Classic German",
-  modern_swiss: "Modern Swiss",
-  executive: "Executive",
-  tech_developer: "Tech Developer",
-  creative_sidebar: "Creative Sidebar",
-  academic: "Academic",
-  compact_pro: "Compact Pro",
+// Template id → next-intl key in the `cv` namespace — the same mapping
+// TemplateSelector.tsx uses, so labels stay localized (de/en) and consistent.
+// (DocumentsTable.tsx's hardcoded-English Record is pre-existing debt, not
+// the precedent.)
+const TEMPLATE_NAME_KEYS: Record<string, string> = {
+  classic_german: "templateClassic",
+  modern_swiss: "templateModern",
+  executive: "templateExecutive",
+  tech_developer: "templateTech",
+  creative_sidebar: "templateCreative",
+  academic: "templateAcademic",
+  compact_pro: "templateCompact",
 };
 
 interface DossierDocumentsZoneProps {
@@ -188,7 +192,9 @@ export function DossierDocumentsZone({
             const dateLabel = cv.created_at
               ? t("versionFrom", { date: new Date(cv.created_at).toLocaleDateString() })
               : "";
-            const templateLabel = cv.template ? TEMPLATE_LABELS[cv.template] ?? cv.template : "";
+            const templateKey = cv.template ? TEMPLATE_NAME_KEYS[cv.template] : undefined;
+            // Unknown/legacy template ids fall back to the raw id string.
+            const templateLabel = templateKey ? tCv(templateKey) : cv.template ?? "";
             const readyLabel = [dateLabel, templateLabel].filter(Boolean).join(" · ");
             const pdfUrl = cv.pdf_url ?? `${API_BASE}/api/cv/${cv.cv_id}/pdf`;
 
