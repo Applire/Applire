@@ -47,11 +47,18 @@ services:
     # The dev override publishes 5433 for local tooling.
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Relaxed steady-state interval keeps healthcheck churn low: every probe forks a
+    # `docker exec`/`runc init` that briefly pegs a core, so a 5s cadence across the
+    # stack shows up as constant CPU spikes. start_interval keeps cold-start detection
+    # fast (probes every 2s during start_period) so `backend` isn't held back waiting
+    # for postgres. Requires Docker Engine 25+ (start_interval).
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U applire"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 30s
+      start_interval: 2s
 
   backend:
     image: ghcr.io/applire/applire-backend:latest
@@ -74,13 +81,16 @@ services:
       postgres:
         condition: service_healthy
     # start_period covers the alembic migrations that run at boot; curl is not
-    # guaranteed in the image, so the probe uses the Python stdlib.
+    # guaranteed in the image, so the probe uses the Python stdlib. start_interval
+    # probes every 3s during that window so frontend/nginx start promptly once
+    # migrations finish; the 30s steady-state interval keeps post-boot churn low.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
       start_period: 60s
+      start_interval: 3s
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
