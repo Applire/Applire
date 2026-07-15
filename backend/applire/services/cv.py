@@ -1328,7 +1328,6 @@ async def _update_ats_report(
             region = DEFAULT_REGION
 
         condensation_exhausted = False
-        snapshot_dirty = False
 
         if do_condense:
             # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
@@ -1348,7 +1347,16 @@ async def _update_ats_report(
                     condensation_exhausted = True
                     break
                 record.tailored_data = condensed
-                snapshot_dirty = True
+                # Snapshot rebuild (amendment §2): rebuild IMMEDIATELY, in the same
+                # breath as the tailored_data mutation — not after the loop settles.
+                # Whole-branch review Finding 3: if the next iteration's re-render
+                # raises (caught by the except below), the commit there must never
+                # see condensed tailored_data paired with a stale pre-condense
+                # snapshot (the section editor would re-serve pre-condense bullets,
+                # the silent un-condense trap, reopened via this error path).
+                record.content_snapshot = build_content_snapshot(
+                    TailoredCVData.model_validate(record.tailored_data)
+                )
             else:
                 # Both iterations applied without meeting the target — measure the final
                 # render and report the honest state.
@@ -1356,14 +1364,6 @@ async def _update_ats_report(
                 pdf = await _html_to_pdf(html)
                 text, count = extract_text_and_pages(pdf)
                 condensation_exhausted = count > target
-
-            # Snapshot rebuild (amendment §2): serve the condensed bullets from the
-            # section editor, else the first section save writes pre-condense text back
-            # as an override (silent un-condense).
-            if snapshot_dirty:
-                record.content_snapshot = build_content_snapshot(
-                    TailoredCVData.model_validate(record.tailored_data)
-                )
         else:
             html = await get_cv_html(record.id, db)
             pdf = await _html_to_pdf(html)

@@ -154,6 +154,41 @@ async def test_overrun_condenses_then_meets_target(db):
 
 
 @pytest.mark.asyncio
+async def test_snapshot_matches_condensed_data_when_mid_loop_rerender_raises(db):
+    """Whole-branch review Finding 3: content_snapshot was only rebuilt AFTER the loop
+    settled successfully. If the post-condense re-render (top of iteration 2) raises,
+    the outer except commits record.tailored_data (already mutated to the condensed
+    version in iteration 1) alongside the STALE pre-condense content_snapshot — the
+    section editor would then re-serve pre-condense bullets, reopening the exact
+    un-condense hole the rebuild exists to close, but only on this error path.
+
+    The fix must rebuild content_snapshot immediately after each condense assignment
+    (not after the loop), so a mid-loop failure can never commit a snapshot/data pair
+    that diverges.
+    """
+    cv = await _seed_cv(db, n_bullets=5, target_pages=2)
+    from applire.services.cv import _update_ats_report, CondenseContext
+
+    # First render succeeds (4 pages, over target → condense once). The re-render at
+    # the top of iteration 2 raises instead of returning html.
+    html_mock = AsyncMock(side_effect=["<html></html>", RuntimeError("render boom")])
+    extract = MagicMock(side_effect=[("text", 4)])
+    with patch("applire.services.cv.get_cv_html", new=html_mock), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", new=extract):
+        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+
+    # Engine-error rule (ADR-039) still holds: ats_report is left NULL, never raises.
+    assert cv.ats_report is None
+    # iteration 1's condense DID land (ceiling 2 → 2 bullets), same as
+    # test_max_two_iterations_then_exhausted's first pass.
+    assert len(cv.tailored_data["work_history"][0]["bullets"]) == 2
+    # The committed snapshot must reflect THAT condensed data, not the pre-condense 5.
+    positions = cv.content_snapshot["positions"]
+    assert len(positions[0]["bullets"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_snapshot_rebuilt_after_condense(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
     from applire.services.cv import _update_ats_report, CondenseContext
