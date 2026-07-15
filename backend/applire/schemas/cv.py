@@ -67,6 +67,8 @@ class CVStatusResponse(BaseModel):
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     expires_at: datetime
+    template: Optional[str] = None      # E041/US232: version identity in the dossier documents zone
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

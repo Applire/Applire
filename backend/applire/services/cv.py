@@ -702,6 +702,8 @@ async def list_cvs_for_job(
                 r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
             ),
             expires_at=r.expires_at,
+            template=r.template,
+            created_at=r.created_at,
         )
         for r in records
     ]
