@@ -15,74 +15,97 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-// #164 root cause: loading did `data.deadline.slice(0,16)` (took the UTC wall
-// clock digits verbatim into a local <input type="datetime-local">) while
-// saving did `new Date(value).toISOString()` (interprets the typed digits as
-// LOCAL time). Each round trip sheared the UTC offset off — 09:30 became
-// 07:30 became 05:30 in CEST. These converters make BOTH directions go
-// through the Date object's local getters/constructor, so the round trip is
-// symmetric in any runtime timezone.
-//
-// TZ note: vitest workers only honor `process.env.TZ` if it is set BEFORE
-// the Date/Intl internals initialize (module load order, not per-test), and
-// there is no existing project precedent for TZ-pinning vitest runs (grepped
-// vitest.config.ts / other lib tests — none). Rather than fork test files
-// per TZ, `expectedLocalString` below independently derives the expected
-// local wall-clock string from `Date.prototype.getTimezoneOffset()` (offset
-// math on UTC getters, NOT reusing the implementation's local getters) so
-// every assertion is correct under whatever TZ the runtime actually has —
-// CI's UTC, a dev box's Europe/Berlin, anything.
+// TZ pinning: this file runs under Europe/Berlin regardless of the runner's
+// timezone, so the #164 regression guard observes a NON-ZERO UTC offset even
+// on UTC CI (where an offset-derived oracle would degenerate to a no-op —
+// slice(0,16) and the correct conversion are indistinguishable at offset 0).
+// Node ≥13 re-reads an assigned `process.env.TZ` on the next Date operation
+// (the env setter resets the cached ICU timezone), and this project's vitest
+// honors it — the "TZ pinning sanity" test below FAILS loudly with the real
+// observed offset if that mechanism ever stops working, so the pin can never
+// silently degrade back into a no-op. Restored in afterAll to avoid leaking
+// Berlin time into other test files sharing this worker process.
+const ORIGINAL_TZ = process.env.TZ;
+process.env.TZ = "Europe/Berlin";
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { isoUtcToLocalInput, localInputToIsoUtc } from "../deadline-datetime";
 
-/** Independent oracle: shift the UTC instant by the runtime's own offset for
- * THAT instant (DST-aware) and read it back with UTC getters — deliberately
- * not the implementation's own (local-getter) code path. */
-function expectedLocalString(iso: string): string {
-  const utcMs = new Date(iso).getTime();
-  const offsetMin = new Date(utcMs).getTimezoneOffset(); // UTC minus local, in minutes
-  const shifted = new Date(utcMs - offsetMin * 60000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`;
-}
+afterAll(() => {
+  if (ORIGINAL_TZ === undefined) {
+    delete process.env.TZ;
+  } else {
+    process.env.TZ = ORIGINAL_TZ;
+  }
+});
+
+// #164 root cause: loading did `data.deadline.slice(0,16)` (UTC wall-clock
+// digits verbatim into a local datetime-local input) while saving did
+// `new Date(value).toISOString()` (interprets the digits as LOCAL time) —
+// each round trip sheared the UTC offset off (09:30 → 07:30 → 05:30 in
+// CEST). The converters make both directions go through the Date object's
+// local getters/constructor, so the round trip is symmetric.
+
+describe("TZ pinning sanity (proof the regression guard observes a non-zero offset)", () => {
+  it("this file runs under Europe/Berlin: CEST in summer, CET in winter", () => {
+    expect(new Date("2026-08-15T07:30:00Z").getTimezoneOffset()).toBe(-120); // CEST = UTC+2
+    expect(new Date("2026-01-15T07:30:00Z").getTimezoneOffset()).toBe(-60); // CET = UTC+1
+  });
+});
 
 describe("isoUtcToLocalInput", () => {
-  it("matches the offset-derived expectation for a summer instant (DST-sensitive)", () => {
-    const iso = "2026-08-15T07:30:00Z";
-    expect(isoUtcToLocalInput(iso)).toBe(expectedLocalString(iso));
+  it("converts a summer UTC instant to CEST wall clock (the #164 case)", () => {
+    expect(isoUtcToLocalInput("2026-08-15T07:30:00Z")).toBe("2026-08-15T09:30");
   });
 
-  it("matches the offset-derived expectation for a winter instant", () => {
-    const iso = "2026-01-15T07:30:00Z";
-    expect(isoUtcToLocalInput(iso)).toBe(expectedLocalString(iso));
+  it("converts a winter UTC instant to CET wall clock (DST-sensitive)", () => {
+    expect(isoUtcToLocalInput("2026-01-15T07:30:00Z")).toBe("2026-01-15T08:30");
   });
 
-  it("returns an empty string for an unparseable input", () => {
+  it("crosses a date boundary when the offset pushes past midnight", () => {
+    expect(isoUtcToLocalInput("2026-08-14T22:30:00Z")).toBe("2026-08-15T00:30");
+  });
+
+  it("returns an empty string for empty/unparseable input", () => {
     expect(isoUtcToLocalInput("")).toBe("");
     expect(isoUtcToLocalInput("not-a-date")).toBe("");
   });
 });
 
 describe("localInputToIsoUtc", () => {
-  it("interprets the datetime-local value as local time and returns a UTC ISO string", () => {
-    const local = "2026-08-15T09:30";
-    const result = localInputToIsoUtc(local);
-    expect(result).toBe(new Date(local).toISOString());
+  it("interprets a summer datetime-local value as CEST and returns the UTC instant", () => {
+    expect(localInputToIsoUtc("2026-08-15T09:30")).toBe("2026-08-15T07:30:00.000Z");
+  });
+
+  it("interprets a winter datetime-local value as CET and returns the UTC instant", () => {
+    expect(localInputToIsoUtc("2026-01-15T08:30")).toBe("2026-01-15T07:30:00.000Z");
+  });
+
+  it("returns an empty string for empty/unparseable input instead of throwing", () => {
+    expect(localInputToIsoUtc("")).toBe("");
+    expect(localInputToIsoUtc("not-a-date")).toBe("");
   });
 });
 
 describe("round trip (the #164 regression guard)", () => {
   it("isoUtcToLocalInput -> localInputToIsoUtc preserves the instant, to the minute", () => {
+    // Note the inherent limit of ANY datetime-local round trip: during the
+    // fall-back hour (2026-10-25 02:00–03:00 Berlin wall clock occurs twice)
+    // the input value carries no offset, so the second occurrence (01:30Z,
+    // CET) is unavoidably re-parsed as the first (00:30Z, CEST). That's a
+    // property of the input type, not a converter defect — the invariant is
+    // asserted for all UNambiguous wall times, including instants adjacent
+    // to both DST boundaries.
     const instants = [
       "2026-08-15T07:30:00.000Z",
       "2026-01-15T07:30:00.000Z",
-      "2026-03-29T00:30:00.000Z", // around a DST boundary
-      "2026-10-25T00:30:00.000Z",
+      "2026-03-29T00:30:00.000Z", // 01:30 CET, just before the spring-forward jump (01:00Z)
+      "2026-03-29T01:30:00.000Z", // 03:30 CEST, just after it
+      "2026-10-25T00:30:00.000Z", // 02:30 CEST — first occurrence of the doubled hour
+      "2026-10-25T02:30:00.000Z", // 03:30 CET — past the fall-back, unambiguous again
     ];
     for (const iso of instants) {
-      const local = isoUtcToLocalInput(iso);
-      const roundTripped = localInputToIsoUtc(local);
+      const roundTripped = localInputToIsoUtc(isoUtcToLocalInput(iso));
       // datetime-local has no seconds, so compare to the minute.
       expect(new Date(roundTripped).getTime()).toBe(
         Math.floor(new Date(iso).getTime() / 60000) * 60000
@@ -95,7 +118,7 @@ describe("round trip (the #164 regression guard)", () => {
     // the server -> converted back for the input. Must still read 09:30.
     const typed = "2026-08-15T09:30";
     const savedUtc = localInputToIsoUtc(typed);
-    const reloaded = isoUtcToLocalInput(savedUtc);
-    expect(reloaded).toBe(typed);
+    expect(savedUtc).toBe("2026-08-15T07:30:00.000Z");
+    expect(isoUtcToLocalInput(savedUtc)).toBe(typed);
   });
 });

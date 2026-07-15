@@ -34,12 +34,15 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
-import { patchApplicationStatus, type ApplicationPatchResponse } from "@/lib/api/applications";
+import { patchApplicationStatus } from "@/lib/api/applications";
 import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
 import { DossierDocumentsZone } from "@/components/applications/DossierDocumentsZone";
 import { DossierJourneyZone } from "@/components/applications/DossierJourneyZone";
-import { DossierTrackingSidebar } from "@/components/applications/DossierTrackingSidebar";
+import {
+  DossierTrackingSidebar,
+  type TrackingSavedPatch,
+} from "@/components/applications/DossierTrackingSidebar";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -283,22 +286,13 @@ export default function ApplicationDetailPage() {
     }
   };
 
-  // Apply a tracking-sidebar field save (E041/US234) directly from the PATCH
-  // response — lighter than a full refetch since each save touches at most
-  // one field (deadline/source_url/notes) and the response already carries
-  // the new value + updated_at.
-  const handleTrackingSaved = (patch: ApplicationPatchResponse) => {
-    setApplication((app) =>
-      app
-        ? {
-            ...app,
-            deadline: patch.deadline,
-            source_url: patch.source_url,
-            notes: patch.notes,
-            updated_at: patch.updated_at,
-          }
-        : app
-    );
+  // Apply a tracking-sidebar field save (E041/US234) directly from the
+  // field-scoped patch — lighter than a full refetch since each save touches
+  // at most one field (deadline/source_url/notes). The sidebar sends ONLY
+  // the key it saved (+ updated_at), so an out-of-order response for one
+  // field can never transiently overwrite another field's newer value.
+  const handleTrackingSaved = (patch: TrackingSavedPatch) => {
+    setApplication((app) => (app ? { ...app, ...patch } : app));
   };
 
   // Re-sync `application` after a pin/unpin PATCH in the documents zone

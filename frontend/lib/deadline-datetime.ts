@@ -43,7 +43,13 @@ export function isoUtcToLocalInput(iso: string): string {
  * `isoUtcToLocalInput`: `new Date(v)` parses a bare "YYYY-MM-DDTHH:mm" string
  * as LOCAL time (no offset in the string), so `.toISOString()` converts it
  * to the correct UTC instant.
+ * Returns "" for an empty/unparseable input (mirroring `isoUtcToLocalInput`)
+ * instead of letting `.toISOString()` throw a RangeError; callers that need
+ * the backend's clear semantics map "" to an explicit `null` themselves.
  */
 export function localInputToIsoUtc(v: string): string {
-  return new Date(v).toISOString();
+  if (!v) return "";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString();
 }

@@ -17,28 +17,120 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { isoUtcToLocalInput, localInputToIsoUtc } from "@/lib/deadline-datetime";
-import { patchApplication, type ApplicationPatchResponse } from "@/lib/api/applications";
+import { patchApplication } from "@/lib/api/applications";
 import type { ApplicationDetail } from "@/app/(shell)/applications/[appId]/page";
+
+/**
+ * Only the key(s) a tracking-sidebar save actually wrote, plus the fresh
+ * updated_at. The page spreads exactly this onto its `application` state —
+ * never the whole PATCH response — so an out-of-order response for field A
+ * can never transiently overwrite a newer value of field B.
+ */
+export type TrackingSavedPatch = Partial<
+  Pick<ApplicationDetail, "deadline" | "source_url" | "notes">
+> & { updated_at: string };
 
 interface DossierTrackingSidebarProps {
   application: ApplicationDetail;
-  /** Called with the PATCH response after a successful save — the page
-   * applies it to its `application` state (no full refetch needed; each
-   * save touches at most one field). */
-  onSaved: (patch: ApplicationPatchResponse) => void;
+  /** Called with ONLY the saved field + updated_at after a successful save. */
+  onSaved: (patch: TrackingSavedPatch) => void;
   onError: (message: string) => void;
 }
 
 type FieldStatus = "idle" | "saving" | "saved" | "error";
 
 const NOTES_DEBOUNCE_MS = 800;
+
+interface UseFieldAutosaveOptions {
+  initial: string;
+  /** Normalize before the dirty-check and the save (e.g. trim). */
+  normalize?: (v: string) => string;
+  /** PATCH the candidate value; resolve to the field-scoped saved patch. */
+  save: (candidate: string) => Promise<TrackingSavedPatch>;
+  onSaved: (patch: TrackingSavedPatch) => void;
+  onError: () => void;
+  /** When set, the save fires debounced after the last change (notes);
+   * otherwise the caller triggers it via `flush()` on blur. */
+  debounceMs?: number;
+}
+
+/**
+ * Per-field autosave state machine, shared by all three sidebar fields.
+ *
+ * Edit-generation guard: `genRef` is bumped on every keystroke, and a save
+ * captures the generation at fire time. When the request settles, anything
+ * that would stomp a NEWER edit is gated on the generation still matching:
+ * a FAILED save only reverts the input if the user hasn't typed since it
+ * fired (their newer text survives; the inline error still shows), and a
+ * successful save only re-normalizes/flips to "saved" on a match (otherwise
+ * the field is dirty again → back to "idle"; the next blur/debounce fires
+ * the follow-up save). The baseline always advances on success — the server
+ * did persist the candidate — so the follow-up dirty-check stays correct.
+ */
+function useFieldAutosave({
+  initial,
+  normalize,
+  save,
+  onSaved,
+  onError,
+  debounceMs,
+}: UseFieldAutosaveOptions) {
+  const [value, setValue] = useState(initial);
+  const [baseline, setBaseline] = useState(initial);
+  const [status, setStatus] = useState<FieldStatus>("idle");
+  const genRef = useRef(0);
+
+  const handleChange = (v: string) => {
+    genRef.current += 1;
+    setValue(v);
+    // Keep "saving" visible while a request is in flight — only a SETTLED
+    // saved/error state is cleared by resumed typing.
+    setStatus((s) => (s === "saving" ? s : "idle"));
+  };
+
+  const flush = async () => {
+    const candidate = normalize ? normalize(value) : value;
+    if (candidate === baseline) return;
+    const gen = genRef.current;
+    const revertTo = baseline;
+    setStatus("saving");
+    try {
+      const patch = await save(candidate);
+      setBaseline(candidate);
+      if (genRef.current === gen) {
+        setValue(candidate); // apply normalization (e.g. trimmed URL)
+        setStatus("saved");
+      } else {
+        setStatus("idle"); // re-edited mid-flight — dirty again, no indicator
+      }
+      onSaved(patch);
+    } catch {
+      if (genRef.current === gen) setValue(revertTo);
+      setStatus("error");
+      onError();
+    }
+  };
+
+  // Debounced autosave (notes): fire ~debounceMs after the last change.
+  // `baseline` is a dependency on purpose — a success that advances the
+  // baseline re-arms the effect, so text typed mid-flight gets its own save.
+  useEffect(() => {
+    if (debounceMs === undefined) return;
+    if ((normalize ? normalize(value) : value) === baseline) return;
+    const handle = setTimeout(() => void flush(), debounceMs);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, baseline]);
+
+  return { value, status, handleChange, flush };
+}
 
 /**
  * Tracking sidebar (E041/US234, closes #164) — deadline/source link/notes,
@@ -60,83 +152,40 @@ const NOTES_DEBOUNCE_MS = 800;
  */
 export function DossierTrackingSidebar({ application, onSaved, onError }: DossierTrackingSidebarProps) {
   const t = useTranslations("applications");
+  const reportError = () => onError(t("saveFailed"));
 
-  const [deadlineValue, setDeadlineValue] = useState(() => isoUtcToLocalInput(application.deadline ?? ""));
-  const [deadlineBaseline, setDeadlineBaseline] = useState(deadlineValue);
-  const [deadlineStatus, setDeadlineStatus] = useState<FieldStatus>("idle");
-  const [deadlineError, setDeadlineError] = useState("");
+  const deadline = useFieldAutosave({
+    initial: isoUtcToLocalInput(application.deadline ?? ""),
+    save: async (candidate) => {
+      const iso = localInputToIsoUtc(candidate); // "" for empty/invalid input
+      const r = await patchApplication(application.id, { deadline: iso || null });
+      return { deadline: r.deadline, updated_at: r.updated_at };
+    },
+    onSaved,
+    onError: reportError,
+  });
 
-  const [sourceValue, setSourceValue] = useState(application.source_url ?? "");
-  const [sourceBaseline, setSourceBaseline] = useState(sourceValue);
-  const [sourceStatus, setSourceStatus] = useState<FieldStatus>("idle");
-  const [sourceError, setSourceError] = useState("");
+  const source = useFieldAutosave({
+    initial: application.source_url ?? "",
+    normalize: (v) => v.trim(),
+    save: async (candidate) => {
+      const r = await patchApplication(application.id, { source_url: candidate || null });
+      return { source_url: r.source_url, updated_at: r.updated_at };
+    },
+    onSaved,
+    onError: reportError,
+  });
 
-  const [notesValue, setNotesValue] = useState(application.notes ?? "");
-  const [notesBaseline, setNotesBaseline] = useState(notesValue);
-  const [notesStatus, setNotesStatus] = useState<FieldStatus>("idle");
-  const [notesError, setNotesError] = useState("");
-
-  async function handleDeadlineBlur() {
-    if (deadlineValue === deadlineBaseline) return;
-    const payloadValue = deadlineValue ? localInputToIsoUtc(deadlineValue) : null;
-    setDeadlineStatus("saving");
-    setDeadlineError("");
-    try {
-      const result = await patchApplication(application.id, { deadline: payloadValue });
-      setDeadlineBaseline(deadlineValue);
-      setDeadlineStatus("saved");
-      onSaved(result);
-    } catch {
-      setDeadlineValue(deadlineBaseline);
-      setDeadlineStatus("error");
-      setDeadlineError(t("saveFailed"));
-      onError(t("saveFailed"));
-    }
-  }
-
-  async function handleSourceBlur() {
-    const trimmed = sourceValue.trim();
-    if (trimmed === sourceBaseline) return;
-    setSourceStatus("saving");
-    setSourceError("");
-    try {
-      const result = await patchApplication(application.id, { source_url: trimmed || null });
-      setSourceValue(trimmed);
-      setSourceBaseline(trimmed);
-      setSourceStatus("saved");
-      onSaved(result);
-    } catch {
-      setSourceValue(sourceBaseline);
-      setSourceStatus("error");
-      setSourceError(t("saveFailed"));
-      onError(t("saveFailed"));
-    }
-  }
-
-  // Notes autosave debounced ~800ms after the last keystroke — too low-value
-  // to save on blur only (a long note is easy to lose on an accidental tab
-  // switch), too frequent to save on every keystroke.
-  useEffect(() => {
-    if (notesValue === notesBaseline) return;
-    const handle = setTimeout(() => {
-      setNotesStatus("saving");
-      setNotesError("");
-      patchApplication(application.id, { notes: notesValue || null })
-        .then((result) => {
-          setNotesBaseline(notesValue);
-          setNotesStatus("saved");
-          onSaved(result);
-        })
-        .catch(() => {
-          setNotesValue(notesBaseline);
-          setNotesStatus("error");
-          setNotesError(t("saveFailed"));
-          onError(t("saveFailed"));
-        });
-    }, NOTES_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesValue]);
+  const notes = useFieldAutosave({
+    initial: application.notes ?? "",
+    save: async (candidate) => {
+      const r = await patchApplication(application.id, { notes: candidate || null });
+      return { notes: r.notes, updated_at: r.updated_at };
+    },
+    onSaved,
+    onError: reportError,
+    debounceMs: NOTES_DEBOUNCE_MS,
+  });
 
   const footerParts = [
     t("trackingCreatedLine", { date: new Date(application.created_at).toLocaleDateString() }),
@@ -157,43 +206,27 @@ export function DossierTrackingSidebar({ application, onSaved, onError }: Dossie
           <label className="block text-sm font-medium text-on-surface-variant mb-1">{t("deadline")}</label>
           <Input
             type="datetime-local"
-            value={deadlineValue}
-            onChange={(e) => {
-              setDeadlineValue(e.target.value);
-              if (deadlineStatus !== "idle") setDeadlineStatus("idle");
-            }}
-            onBlur={() => void handleDeadlineBlur()}
+            value={deadline.value}
+            onChange={(e) => deadline.handleChange(e.target.value)}
+            onBlur={() => void deadline.flush()}
             data-testid="dossier-tracking-deadline"
-            error={deadlineStatus === "error"}
+            error={deadline.status === "error"}
           />
-          <FieldFeedback
-            t={t}
-            status={deadlineStatus}
-            errorMessage={deadlineError}
-            testIdPrefix="dossier-tracking-deadline"
-          />
+          <FieldFeedback t={t} status={deadline.status} testIdPrefix="dossier-tracking-deadline" />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-on-surface-variant mb-1">{t("sourceLink")}</label>
           <Input
             type="url"
-            value={sourceValue}
-            onChange={(e) => {
-              setSourceValue(e.target.value);
-              if (sourceStatus !== "idle") setSourceStatus("idle");
-            }}
-            onBlur={() => void handleSourceBlur()}
+            value={source.value}
+            onChange={(e) => source.handleChange(e.target.value)}
+            onBlur={() => void source.flush()}
             placeholder={t("sourceLinkPlaceholder")}
             data-testid="dossier-tracking-source"
-            error={sourceStatus === "error"}
+            error={source.status === "error"}
           />
-          <FieldFeedback
-            t={t}
-            status={sourceStatus}
-            errorMessage={sourceError}
-            testIdPrefix="dossier-tracking-source"
-          />
+          <FieldFeedback t={t} status={source.status} testIdPrefix="dossier-tracking-source" />
         </div>
 
         <div>
@@ -201,17 +234,14 @@ export function DossierTrackingSidebar({ application, onSaved, onError }: Dossie
           <textarea
             className={cn(
               "w-full rounded-lg border bg-white px-4 py-2 text-sm min-h-[100px] focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20",
-              notesStatus === "error" ? "border-critical" : "border-outline-variant"
+              notes.status === "error" ? "border-critical" : "border-outline-variant"
             )}
-            value={notesValue}
-            onChange={(e) => {
-              setNotesValue(e.target.value);
-              if (notesStatus !== "idle") setNotesStatus("idle");
-            }}
+            value={notes.value}
+            onChange={(e) => notes.handleChange(e.target.value)}
             placeholder={t("notesPlaceholder")}
             data-testid="dossier-tracking-notes"
           />
-          <FieldFeedback t={t} status={notesStatus} errorMessage={notesError} testIdPrefix="dossier-tracking-notes" />
+          <FieldFeedback t={t} status={notes.status} testIdPrefix="dossier-tracking-notes" />
         </div>
       </div>
 
@@ -229,16 +259,18 @@ export function DossierTrackingSidebar({ application, onSaved, onError }: Dossie
 function FieldFeedback({
   t,
   status,
-  errorMessage,
   testIdPrefix,
 }: {
   t: ReturnType<typeof useTranslations>;
   status: FieldStatus;
-  errorMessage: string;
   testIdPrefix: string;
 }) {
   if (status === "saving") {
-    return <p className="text-xs text-on-surface-variant mt-1">{t("saving")}</p>;
+    return (
+      <p data-testid={`${testIdPrefix}-saving`} className="text-xs text-on-surface-variant mt-1">
+        {t("saving")}
+      </p>
+    );
   }
   if (status === "saved") {
     return (
@@ -254,7 +286,7 @@ function FieldFeedback({
   if (status === "error") {
     return (
       <p data-testid={`${testIdPrefix}-error`} role="alert" className="text-xs text-critical mt-1">
-        {errorMessage}
+        {t("saveFailed")}
       </p>
     );
   }
