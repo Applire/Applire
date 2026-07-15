@@ -125,12 +125,16 @@ export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus 
             >
               {t("openCvAction")}
             </Link>
+            {/* Same destination as the documents zone's draft link
+                (/flow/{id}/cover-letter) — reuses ITS label ("View draft"),
+                not the header's "Cover letter" button, which opens the PDF
+                directly. Same text + different behavior would be confusing. */}
             <Link
               href={`/flow/${flowSessionId}/cover-letter`}
               data-testid="dossier-journey-cl-link"
               className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-outline-variant text-on-surface hover:bg-surface-container"
             >
-              {t("coverLetterAction")}
+              {t("coverLetterDraftLink")}
             </Link>
           </>
         ) : (
