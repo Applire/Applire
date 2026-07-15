@@ -475,9 +475,37 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
         else:
             standalone.append(entry)
 
+    _suppress_duplicate_project_bullets(work_history)
+
     data["work_history"] = work_history
     data["projects"] = (data.get("projects") or []) + standalone
     return TailoredCVData.model_validate(data)
+
+
+def _suppress_duplicate_project_bullets(work_history: list[dict]) -> None:
+    """#169: the LLM often emits the same sentence twice — once as a role bullet and
+    once inside the project nested under that role (the segmented per-entry writer
+    emits ``bullets`` and ``projects`` in one JSON, so overlap is structural). Drop
+    each nested-project bullet whose normalized form equals any of the PARENT role's
+    own bullets. Deterministic; reuses ``ats_audit._norm`` (NFKC + dash→space +
+    casefold) so "Code-Review" ≡ "code review". The project entry is kept even when
+    all its bullets are suppressed (US187: the heading still carries the project).
+    Mutates ``work_history`` in place; standalone projects are never touched.
+    """
+    from applire.services.ats_audit import _norm
+
+    for w in work_history:
+        role_norms = {
+            _norm(b) for b in (w.get("bullets") or []) if isinstance(b, str) and b.strip()
+        }
+        if not role_norms:
+            continue
+        for proj in w.get("projects") or []:
+            proj["bullets"] = [
+                b
+                for b in (proj.get("bullets") or [])
+                if not (isinstance(b, str) and _norm(b) in role_norms)
+            ]
 
 
 def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
