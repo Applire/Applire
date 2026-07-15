@@ -17,19 +17,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+// E041/US231 — application cockpit. This page is the zone composition:
+// banners (US218/US221/US222, byte-identical) → header (identity, chips,
+// actions, collapsible JD summary) → documents/journey zone stubs (Tasks
+// 3.1/3.2) → tracking sidebar stub (Task 3.3). The former stacked CRUD cards
+// (Company & Role, Status Management, Details, Flow Progress, bottom Save)
+// are gone; deadline/notes/source become editable again when 3.3 lands.
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { AppTopbar } from "@/components/shell/AppTopbar";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
 import { patchApplicationStatus } from "@/lib/api/applications";
-import { SubmittedDocumentsCard } from "@/components/applications/SubmittedDocumentsCard";
+import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
@@ -71,6 +75,32 @@ interface ApplicationDetail {
   expires_at?: string | null;
 }
 
+/**
+ * Shape of GET /api/cover-letter/by-job/{job_id} (CoverLetterStatusResponse).
+ * The page owns the ONE fetch; Task 3.1's documents zone consumes this via a
+ * `coverLetter` prop of exactly this type.
+ */
+export interface CoverLetterSummary {
+  cover_letter_id: string;
+  status: string;
+  html_url?: string | null;
+  pdf_url?: string | null;
+  error_message?: string | null;
+  expires_at: string;
+  letter_data?: Record<string, unknown> | null;
+}
+
+/** Subset of GET /api/job/{job_id} (JobAnalysisResponse) rendered in the header JD summary. */
+interface JobAnalysisSummary {
+  role_title: string;
+  seniority_level: string;
+  required_skills: string[];
+  nice_to_have_skills: string[];
+  keywords: string[];
+  language_requirement: string;
+  company_name?: string | null;
+}
+
 export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -79,16 +109,21 @@ export default function ApplicationDetailPage() {
   const appId = params.appId as string;
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  // Inline header-action feedback (re-tailor / start). Replaces the page-top
+  // success/error banners — each zone owns its own inline feedback now.
+  const [actionError, setActionError] = useState("");
 
-  // Editable fields
+  // Optimistic pipeline status for the header chip (revert on PATCH failure).
   const [userStatus, setUserStatus] = useState("");
-  const [notes, setNotes] = useState("");
-  const [deadline, setDeadline] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
+
+  // Cover letter for this job (ONE fetch, lifted to the page). null = none / 404.
+  const [coverLetter, setCoverLetter] = useState<CoverLetterSummary | null>(null);
+  // Collapsible JD summary source. null until fetched.
+  const [jobAnalysis, setJobAnalysis] = useState<JobAnalysisSummary | null>(null);
+  // Newest ready CV's template — the header Re-tailor payload (1.1 exposes it).
+  const [newestReadyTemplate, setNewestReadyTemplate] = useState<string | null>(null);
 
   // Stale-status refresh prompt (E039/US218, JF-E-P2.1) — session-local dismiss.
   const [staleDismissed, setStaleDismissed] = useState(false);
@@ -96,73 +131,74 @@ export default function ApplicationDetailPage() {
   // Stale-CV re-tailor nudge (E039/US221, Branch H) — dismissal is PERSISTED
   // server-side (stale_cv_dismissed_at), unlike the session-local one above.
   const [retailoring, setRetailoring] = useState(false);
+  // Header Re-tailor (US231) — distinct in-flight flag from the banner nudge.
+  const [headerRetailoring, setHeaderRetailoring] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadApplication() {
       try {
         const res = await fetch(`${API_BASE}/api/applications/${appId}`);
-        if (res.ok) {
-          const data: ApplicationDetail = await res.json();
-          setApplication(data);
-          setUserStatus(data.user_status);
-          setNotes(data.notes || "");
-          setDeadline(data.deadline ? data.deadline.slice(0, 16) : "");
-          setSourceUrl(data.source_url || "");
-        } else {
-          setError(t("notFound"));
+        if (!res.ok) {
+          if (!cancelled) setError(t("notFound"));
+          return;
         }
+        const data: ApplicationDetail = await res.json();
+        if (cancelled) return;
+        setApplication(data);
+        setUserStatus(data.user_status);
+
+        // Cover letter — the page owns ONE by-job lookup. 404 = none exists.
+        void fetch(`${API_BASE}/api/cover-letter/by-job/${data.job_analysis_id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((cl: CoverLetterSummary | null) => {
+            if (!cancelled) setCoverLetter(cl);
+          })
+          .catch(() => {});
+
+        // Job analysis for the collapsible JD summary (read-only, no LLM).
+        void fetch(`${API_BASE}/api/job/${data.job_analysis_id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((job: JobAnalysisSummary | null) => {
+            if (!cancelled) setJobAnalysis(job);
+          })
+          .catch(() => {});
+
+        // Newest ready CV's template — the header Re-tailor payload.
+        void fetch(`${API_BASE}/api/cv?job_id=${data.job_analysis_id}`)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((list: Array<{ status: string; template?: string | null }>) => {
+            const newestReady = Array.isArray(list)
+              ? list.find((cv) => cv.status === "ready")
+              : undefined;
+            if (!cancelled) setNewestReadyTemplate(newestReady?.template ?? null);
+          })
+          .catch(() => {});
       } catch (err) {
         console.error("Failed to load application:", err);
-        setError(t("loadFailed"));
+        if (!cancelled) setError(t("loadFailed"));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    loadApplication();
+    void loadApplication();
+    return () => {
+      cancelled = true;
+    };
   }, [appId]);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    setSuccess("");
+  // Header chip — optimistic PATCH; success re-syncs the banners (they key on
+  // application.user_status / updated_at), failure reverts the chip.
+  const handleStatusChange = async (next: string) => {
+    const previous = userStatus;
+    setUserStatus(next);
     try {
-      const payload: Record<string, unknown> = {};
-      if (userStatus) payload.user_status = userStatus;
-      if (notes !== application?.notes) payload.notes = notes || null;
-      if (deadline) {
-        payload.deadline = new Date(deadline).toISOString();
-      } else if (application?.deadline) {
-        payload.deadline = null;
-      }
-      if (sourceUrl.trim() !== (application?.source_url ?? "")) {
-        payload.source_url = sourceUrl.trim() || null;
-      }
-
-      if (Object.keys(payload).length === 0) {
-        setSuccess(t("noChanges"));
-        setSaving(false);
-        return;
-      }
-
-      const res = await fetch(`${API_BASE}/api/applications/${appId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        const updated: ApplicationDetail = await res.json();
-        setApplication(updated);
-        setSuccess(t("saveSuccess"));
-      } else {
-        const err = await res.json();
-        setError(err.detail || t("saveFailed"));
-      }
-    } catch (err) {
-      console.error("Save failed:", err);
-      setError(t("saveFailed"));
-    } finally {
-      setSaving(false);
+      const updated = await patchApplicationStatus(appId, next);
+      setApplication((app) =>
+        app ? { ...app, user_status: next, updated_at: updated.updated_at } : app
+      );
+    } catch {
+      setUserStatus(previous);
     }
   };
 
@@ -190,7 +226,7 @@ export default function ApplicationDetailPage() {
   const handleRetailor = async () => {
     if (!application?.stale_cv || !application.flow_session_id) return;
     setRetailoring(true);
-    setError("");
+    setActionError("");
     try {
       const res = await fetch(`${API_BASE}/api/cv/generate`, {
         method: "POST",
@@ -201,7 +237,7 @@ export default function ApplicationDetailPage() {
         }),
       });
       if (!res.ok) {
-        setError(t("staleCvRetailorFailed"));
+        setActionError(t("staleCvRetailorFailed"));
         return;
       }
       const gained = encodeGained(application.stale_cv.gained);
@@ -209,9 +245,36 @@ export default function ApplicationDetailPage() {
         `/flow/${application.flow_session_id}/cv${gained ? `?retailored=${encodeURIComponent(gained)}` : "?retailored=1"}`
       );
     } catch {
-      setError(t("staleCvRetailorFailed"));
+      setActionError(t("staleCvRetailorFailed"));
     } finally {
       setRetailoring(false);
+    }
+  };
+
+  // Header Re-tailor (US231): same pipeline as the stale-CV nudge, but the
+  // template comes from the newest ready CV (1.1) and there is no stale_cv
+  // precondition — a completed application can always be re-tailored.
+  const handleHeaderRetailor = async () => {
+    if (!application?.flow_session_id) return;
+    setHeaderRetailoring(true);
+    setActionError("");
+    try {
+      const body: Record<string, unknown> = { job_id: application.job_analysis_id };
+      if (newestReadyTemplate) body.template = newestReadyTemplate;
+      const res = await fetch(`${API_BASE}/api/cv/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setActionError(t("staleCvRetailorFailed"));
+        return;
+      }
+      router.push(`/flow/${application.flow_session_id}/cv`);
+    } catch {
+      setActionError(t("staleCvRetailorFailed"));
+    } finally {
+      setHeaderRetailoring(false);
     }
   };
 
@@ -240,6 +303,39 @@ export default function ApplicationDetailPage() {
   const handleViewCV = () => {
     if (application?.flow_session_id) {
       router.push(`/flow/${application.flow_session_id}/cv`);
+    }
+  };
+
+  const handleCoverLetter = () => {
+    if (coverLetter) {
+      window.open(
+        `${API_BASE}/api/cover-letter/${coverLetter.cover_letter_id}/pdf`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    }
+  };
+
+  // Start tailoring for a tracking-only application (no flow yet):
+  // POST /api/applications/{id}/start, then enter via the /flow/{id} INDEX —
+  // the layout guard redirects to the backend's actual current_step;
+  // hard-coding a step route desyncs the flow state machine.
+  const handleStartTailoring = async () => {
+    setActionError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/applications/${appId}/start`, { method: "POST" });
+      if (!res.ok) {
+        setActionError(t("startTailoringFailed"));
+        return;
+      }
+      const d = await res.json();
+      if (d.flow_session_id) {
+        router.push(`/flow/${d.flow_session_id}`);
+      } else {
+        setActionError(t("startTailoringFailed"));
+      }
+    } catch {
+      setActionError(t("startTailoringFailed"));
     }
   };
 
@@ -276,6 +372,11 @@ export default function ApplicationDetailPage() {
     (o) => o.value === application.user_status
   );
 
+  const initial = (application.company_name ?? application.role_title ?? "?")[0].toUpperCase();
+  const hasFlow = !!application.flow_session_id;
+  const isCompleted = application.workflow_status === "completed";
+  const isMidFlow = !!application.flow_current_step && application.flow_current_step !== "complete";
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
       <AppTopbar
@@ -287,7 +388,7 @@ export default function ApplicationDetailPage() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6">
           {/* Cancelled banner (US222, Branch I): the deletion is announced,
               never silent — removal date + Restore until the purge. */}
           {application.user_status === "cancelled" && (
@@ -364,217 +465,146 @@ export default function ApplicationDetailPage() {
             />
           )}
 
-          {/* Success/Error Messages */}
-          {success && (
-            <div className="p-4 rounded-lg bg-success/10 border border-success/20">
-              <p className="text-sm text-success">{success}</p>
-            </div>
-          )}
-          {error && (
-            <div className="p-4 rounded-lg bg-critical/10 border border-critical/20">
-              <p className="text-sm text-critical">{error}</p>
-            </div>
-          )}
-
-          <div className="max-w-4xl mx-auto flex items-center gap-2 mb-4">
-            <Badge className={workflowConfig.className}>{tDash(workflowConfig.labelKey)}</Badge>
-            <Badge className={USER_STATUS_OPTIONS.find(s => s.value === userStatus)?.className ?? "bg-gray-400 text-white"}>
-              {(() => {
-                const opt = USER_STATUS_OPTIONS.find(s => s.value === userStatus);
-                return opt ? tDash(opt.labelKey) : userStatus;
-              })()}
-            </Badge>
-          </div>
-
-          {/* Company Info */}
-          <Card className="p-6">
-            <h2 className="font-heading text-xl font-bold text-neutral-dark mb-4">
-              {t("companyAndRole")}
-            </h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t("company")}</label>
-                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                <p className="text-base text-neutral-dark mt-1">{application.company_name || "—"}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">{t("role")}</label>
-                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                <p className="text-base text-neutral-dark mt-1">{application.role_title || "—"}</p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Submitted documents — Branch G recall (E039/US219): "what exactly
-              do THEY have?". Keyed on the pin so a PATCH elsewhere on this page
-              (e.g. via save) doesn't leave a stale card. */}
-          <SubmittedDocumentsCard
-            key={application.submitted_cv_id ?? "unpinned"}
-            applicationId={application.id}
-            jobAnalysisId={application.job_analysis_id}
-            submittedCvId={application.submitted_cv_id}
-            submittedCvCreatedAt={application.submitted_cv_created_at}
-            submittedCoverLetterId={application.submitted_cover_letter_id}
-          />
-
-          {/* Status Management */}
-          <Card className="p-6">
-            <h2 className="font-heading text-xl font-bold text-neutral-dark mb-4">
-              {t("statusManagement")}
-            </h2>
-            <div className="space-y-4">
-              {/* User Status Dropdown */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("applicationStatus")}
-                </label>
-                <select
-                  value={userStatus}
-                  onChange={(e) => setUserStatus(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
+          {/* ── Header zone (US231): identity · chips · actions · JD summary ── */}
+          <header className="rounded-2xl bg-white border border-outline-variant p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-4 min-w-0">
+                <div
+                  className="w-12 h-12 shrink-0 rounded-xl bg-primary-container text-primary flex items-center justify-center text-lg font-extrabold"
+                  aria-hidden="true"
                 >
-                  {USER_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {tDash(option.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Deadline */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("deadline")}
-                </label>
-                <Input
-                  type="datetime-local"
-                  value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
-                  className="max-w-xs"
-                />
-                {daysUntilDeadline !== null && (
-                  <p className={cn(
-                    "text-xs mt-1",
-                    daysUntilDeadline > 0 ? "text-gray-500" : "text-critical"
-                  )}>
-                    {daysUntilDeadline > 0
-                      ? t("deadlineDaysRemaining", { count: daysUntilDeadline })
-                      : t("deadlineHasPassed")}
-                  </p>
-                )}
-              </div>
-
-              {/* Source link (E039/US216 — where the posting was found) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("sourceLink")}
-                </label>
-                <div className="flex items-center gap-2 max-w-xl">
-                  <Input
-                    type="url"
-                    value={sourceUrl}
-                    onChange={(e) => setSourceUrl(e.target.value)}
-                    placeholder={t("sourceLinkPlaceholder")}
-                    className="flex-1"
-                  />
-                  {application.source_url && (
-                    <a
-                      href={application.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={tDash("sourceLinkLabel")}
-                      title={tDash("sourceLinkLabel")}
-                      className="shrink-0 text-primary hover:text-teal-dim flex items-center"
-                    >
-                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
-                        {SOURCE_LINK_ICON}
-                      </span>
-                    </a>
-                  )}
+                  {initial}
+                </div>
+                <div className="min-w-0">
+                  <h1
+                    className="font-heading text-2xl font-bold text-neutral-dark truncate"
+                    data-testid="dossier-header-title"
+                  >
+                    {application.role_title || t("unknownRole")}
+                  </h1>
+                  <div className="mt-1 flex items-center gap-2 flex-wrap text-sm text-on-surface-variant">
+                    {application.company_name && (
+                      <span className="truncate">{application.company_name}</span>
+                    )}
+                    {application.source_url && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-outline-variant" aria-hidden="true" />
+                        <a
+                          href={application.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={tDash("sourceLinkLabel")}
+                          title={tDash("sourceLinkLabel")}
+                          className="text-primary hover:text-teal-dim inline-flex items-center"
+                        >
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>
+                            {SOURCE_LINK_ICON}
+                          </span>
+                        </a>
+                      </>
+                    )}
+                    {daysUntilDeadline !== null && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-outline-variant" aria-hidden="true" />
+                        <span className={cn(daysUntilDeadline > 0 ? "text-on-surface-variant" : "text-critical font-medium")}>
+                          {daysUntilDeadline > 0
+                            ? t("deadlineDaysRemaining", { count: daysUntilDeadline })
+                            : t("deadlineHasPassed")}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("notes")}
-                </label>
-                <textarea
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm min-h-[100px] focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder={t("notesPlaceholder")}
-                />
-              </div>
-
-              {/* Save Button */}
-              <div className="flex justify-end">
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? t("saving") : t("saveChanges")}
-                </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge className={workflowConfig.className}>{tDash(workflowConfig.labelKey)}</Badge>
+                <UserStatusChipSelect value={userStatus} onChange={(next) => void handleStatusChange(next)} />
               </div>
             </div>
-          </Card>
 
-          {/* Flow Progress */}
-          {application.flow_session_id && (
-            <Card className="p-6">
-              <h2 className="font-heading text-xl font-bold text-neutral-dark mb-4">
-                {t("flowProgress")}
-              </h2>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">{t("currentStep")}</span>
-                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                  <span className="text-sm font-medium text-neutral-dark">{application.flow_current_step || "—"}</span>
-                </div>
-                <div className="flex gap-2">
-                  {application.flow_current_step && application.flow_current_step !== "complete" && (
-                    <Button variant="secondary" onClick={handleResume}>
-                      {t("resumeFlow")}
-                    </Button>
-                  )}
-                  {application.workflow_status === "completed" && (
-                    <Button variant="outline" onClick={handleViewCV}>
-                      {t("viewCV")}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Metadata */}
-          <Card className="p-6">
-            <h2 className="font-heading text-xl font-bold text-neutral-dark mb-4">
-              {t("details")}
-            </h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <label className="text-gray-500">{t("created")}</label>
-                <p className="text-neutral-dark mt-1">
-                  {new Date(application.created_at).toLocaleDateString()}
-                </p>
-              </div>
-              <div>
-                <label className="text-gray-500">{t("lastUpdated")}</label>
-                <p className="text-neutral-dark mt-1">
-                  {new Date(application.updated_at).toLocaleDateString()}
-                </p>
-              </div>
-              {application.applied_at && (
-                <div>
-                  <label className="text-gray-500">{t("appliedAt")}</label>
-                  <p className="text-neutral-dark mt-1">
-                    {new Date(application.applied_at).toLocaleDateString()}
-                  </p>
-                </div>
+            {/* Actions row */}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {isCompleted && (
+                <Button onClick={handleViewCV}>{t("openCvAction")}</Button>
+              )}
+              {isMidFlow && (
+                <Button onClick={handleResume}>{t("resumeAction")}</Button>
+              )}
+              {!hasFlow && (
+                <Button onClick={() => void handleStartTailoring()}>{t("startTailoringAction")}</Button>
+              )}
+              {coverLetter && (
+                <Button variant="outline" onClick={handleCoverLetter}>{t("coverLetterAction")}</Button>
+              )}
+              {isCompleted && hasFlow && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleHeaderRetailor()}
+                  disabled={headerRetailoring}
+                >
+                  {t("retailorAction")}
+                </Button>
               )}
             </div>
-          </Card>
+
+            {actionError && (
+              <p className="mt-3 text-sm text-critical" role="alert">{actionError}</p>
+            )}
+
+            {/* Collapsible JD summary — collapsed by default */}
+            {jobAnalysis && (
+              <details className="mt-4 border-t border-outline-variant pt-3">
+                <summary className="cursor-pointer text-sm font-medium text-primary select-none">
+                  {t("jdSummaryToggle")}
+                </summary>
+                <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <div>
+                    <dt className="text-on-surface-variant">{t("jdSeniority")}</dt>
+                    <dd className="text-neutral-dark mt-0.5">{jobAnalysis.seniority_level}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-on-surface-variant">{t("jdLanguage")}</dt>
+                    <dd className="text-neutral-dark mt-0.5">{jobAnalysis.language_requirement}</dd>
+                  </div>
+                  {jobAnalysis.required_skills.length > 0 && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-on-surface-variant">{t("jdRequiredSkills")}</dt>
+                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.required_skills.join(", ")}</dd>
+                    </div>
+                  )}
+                  {jobAnalysis.nice_to_have_skills.length > 0 && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-on-surface-variant">{t("jdNiceToHave")}</dt>
+                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.nice_to_have_skills.join(", ")}</dd>
+                    </div>
+                  )}
+                  {jobAnalysis.keywords.length > 0 && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-on-surface-variant">{t("jdKeywords")}</dt>
+                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.keywords.join(", ")}</dd>
+                    </div>
+                  )}
+                </dl>
+              </details>
+            )}
+          </header>
+
+          {/* ── Cockpit body: documents + journey (main) · tracking (sidebar) ──
+              Zone stubs replaced by Tasks 3.1 / 3.2 / 3.3. The documents zone
+              (3.1) will receive `application`, `coverLetter` and `onError`;
+              the tracking sidebar (3.3) restores deadline/notes/source edit. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <section data-testid="dossier-documents-zone" />
+              <section data-testid="dossier-journey-zone" />
+            </div>
+            <aside className="lg:col-span-1">
+              <section data-testid="dossier-tracking-sidebar" />
+            </aside>
+          </div>
         </div>
       </main>
-
     </div>
   );
 }
