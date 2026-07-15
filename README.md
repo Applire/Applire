@@ -403,6 +403,13 @@ GET /api/cv/{cv_id}/pdf
 python -m applire.mcp
 ```
 
+Set `APPLIRE_BASE_URL` to the externally-reachable `scheme://host:port` of your
+reverse proxy for any deployment other than local/unproxied dev — it's what
+`generate_cv`/`get_cv_status`/`generate_cover_letter` use to build `html_url`/
+`pdf_url`. It defaults to `http://localhost:8001`, which is wrong behind
+nginx/Caddy; the server logs a startup warning when it's unset. See
+`.env.example`.
+
 #### MCP Tools
 
 **Ingestion & profile**
@@ -412,7 +419,7 @@ python -m applire.mcp
 | `import_cv(file_base64?, filename?, text?)` | Seed or extend the Master Profile from a CV. Primary: base64-encoded PDF (≤10 MB); fallback: pre-extracted text. Returns an extraction summary (never the raw profile) |
 | `analyze_jd(text?, url?)` | Analyze a job description. Provide exactly one of `text` (JD body) or `url` (scraped server-side) |
 | `get_profile()` | Return the current Master Profile |
-| `update_profile(section, data)` | Patch one section (`work_history`, `skills`, `education`, `languages`, `contact`) |
+| `update_profile(section, data)` | Patch one section (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`) |
 | `add_role(title, company, start_date, location?, industry?, close_role_ids?)` | Add a new ongoing role (post-hire update); `close_role_ids` closes prior open roles |
 
 **Flow & tailoring**

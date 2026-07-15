@@ -32,6 +32,10 @@ Tools:
   send_message      — advance an active interview session
   generate_cv       — generate a tailored CV
   get_cv_status     — poll CV generation status and retrieve download URLs
+  get_cv_ats_report — get the persisted ATS audit report for a generated CV
+  generate_cover_letter       — generate a cover letter for a job (#170)
+  get_cover_letter_status     — poll cover letter generation status (#170)
+  get_cover_letter_ats_report — ATS audit report for a generated cover letter (#170)
   start_flow        — create or resume a flow session (US109)
   advance_flow      — advance a flow to the next step (US109)
   get_flow_state    — get current flow session state (US109)
@@ -52,6 +56,8 @@ Resources:
 import base64
 import binascii
 import json
+import logging
+import os
 import uuid
 from datetime import date, datetime, timedelta
 
@@ -72,6 +78,7 @@ from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
 )
+from applire.schemas.cover_letter import CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
 from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
@@ -79,6 +86,7 @@ from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
 from applire.services.scraper import ScraperError, scrape_job_url
 from applire.services import application as app_svc
+from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
@@ -89,12 +97,38 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
+logger = logging.getLogger(__name__)
+
 mcp = FastMCP("Applire")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def warn_if_base_url_unset() -> None:
+    """Warn at server startup when APPLIRE_BASE_URL was never set (#168).
+
+    Every MCP tool that returns an artifact link (generate_cv, get_cv_status,
+    generate_cover_letter, ...) builds html_url/pdf_url from
+    ``settings.applire_base_url``, which defaults to
+    ``http://localhost:8001``. Behind a reverse proxy (nginx, Caddy, ...) that
+    default silently points agents at an unreachable URL instead of the
+    externally-reachable one.
+
+    pydantic-settings can't distinguish "the deployer set it to the default
+    value" from "the deployer never set it" — so this checks os.environ
+    directly rather than settings.applire_base_url.
+    """
+    if "APPLIRE_BASE_URL" not in os.environ:
+        logger.warning(
+            "APPLIRE_BASE_URL is not set — MCP artifact URLs (html_url/pdf_url) "
+            "will default to %s, which will be wrong for any non-default "
+            "deployment. Set APPLIRE_BASE_URL to the externally-reachable "
+            "scheme://host:port of your reverse proxy (see .env.example).",
+            settings.applire_base_url,
+        )
 
 
 def _parse_uuid(value: str, param: str) -> uuid.UUID:
@@ -238,10 +272,12 @@ async def get_profile() -> dict:
 @mcp.tool(
     description=(
         "Update a section of the MasterProfile. "
-        "section must be one of: work_history, skills, education, languages, contact."
+        f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
+        "data is a dict for object-shaped sections (e.g. personal_info) or a list "
+        "for list-shaped sections (e.g. skills, work_experience)."
     )
 )
-async def update_profile(section: str, data: dict) -> dict:
+async def update_profile(section: str, data: dict | list) -> dict:
     async with get_db() as db:
         try:
             result = await profile_svc.patch_profile_section(section, data, db)
@@ -366,6 +402,70 @@ async def get_cv_ats_report(cv_id: str) -> dict:
     async with get_db() as db:
         try:
             result = await cv_svc.get_cv_ats_report(cid, db)
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Generate a cover letter for the given job. Requires an existing flow "
+        "session for the job (call start_flow first) — raises not_found if none "
+        "exists. Returns cover_letter_id, status, html_url, and pdf_url. "
+        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). Editing a "
+        "generated cover letter's sections is UI-only — there is no MCP tool for it."
+    )
+)
+async def generate_cover_letter(job_id: str) -> dict:
+    jid = _parse_uuid(job_id, "job_id")
+    provider = get_provider()
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.generate_cover_letter(
+                CoverLetterGenerateRequest(job_id=jid),
+                db,
+                provider,
+                base_url=settings.applire_base_url,
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Poll the status of a cover letter generation. "
+        "Returns {cover_letter_id, status, html_url?, pdf_url?, expires_at?}. "
+        "status: 'pending' | 'generating' | 'ready' | 'failed'."
+    )
+)
+async def get_cover_letter_status(cover_letter_id: str) -> dict:
+    cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.get_cover_letter_status(
+                cid, db, settings.applire_base_url
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Get the persisted ATS audit report for a generated cover letter (ADR-039). "
+        "Returns {document_id, status, report}; report is null while generation/audit "
+        "is pending or unavailable. report = {checks: [{id, status, details?}], "
+        "keywords: {present, missing}} — named checks, no aggregate score."
+    )
+)
+async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
+    cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    async with get_db() as db:
+        try:
+            result = await cover_letter_svc.get_cover_letter_ats_report(cid, db)
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")

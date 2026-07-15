@@ -39,8 +39,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    from applire.mcp.server import mcp
+    from applire.mcp.server import mcp, warn_if_base_url_unset
 
+    warn_if_base_url_unset()
     mcp.run(transport="stdio")
 
 

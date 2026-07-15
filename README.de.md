@@ -388,6 +388,12 @@ GET /api/cv/{cv_id}/pdf
 python -m applire.mcp
 ```
 
+Setze `APPLIRE_BASE_URL` auf die von außen erreichbare `scheme://host:port`-Adresse
+deines Reverse Proxys für jedes Deployment außer lokalem, ungeproxtem Dev-Betrieb —
+`generate_cv`/`get_cv_status`/`generate_cover_letter` bauen damit `html_url`/`pdf_url`
+auf. Standard ist `http://localhost:8001`, was hinter nginx/Caddy falsch ist; der
+Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.example`.
+
 #### MCP-Tools
 
 **Einspeisung & Profil**
@@ -397,7 +403,7 @@ python -m applire.mcp
 | `import_cv(file_base64?, filename?, text?)` | Master-Profil aus einem Lebenslauf anlegen oder erweitern. Primär: base64-codiertes PDF (≤10 MB); Fallback: vorab extrahierter Text. Liefert eine Extraktions-Zusammenfassung (nie das Rohprofil) |
 | `analyze_jd(text?, url?)` | Eine Stellenbeschreibung analysieren. Gib genau eines an: `text` (JD-Inhalt) oder `url` (serverseitig ausgelesen) |
 | `get_profile()` | Das aktuelle Master-Profil zurückgeben |
-| `update_profile(section, data)` | Einen Abschnitt patchen (`work_history`, `skills`, `education`, `languages`, `contact`) |
+| `update_profile(section, data)` | Einen Abschnitt patchen (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`) |
 | `add_role(title, company, start_date, location?, industry?, close_role_ids?)` | Eine neue laufende Rolle hinzufügen (Post-Hire-Update); `close_role_ids` schließt vorherige offene Rollen |
 
 **Flow & Tailoring**
