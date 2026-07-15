@@ -353,6 +353,63 @@ def test_letter_audit():
 
 
 # ---------------------------------------------------------------------------
+# E042/US240 (ADR-051 §6): cover-letter page-length DETECTION check — same check
+# id ("page-length") as the CV band, but no target/condense (deferred this
+# flavour): 1 page passes, 2+ fails naming the region's letter norm.
+# ---------------------------------------------------------------------------
+
+_LETTER = {
+    "header": {"name": "Anna Bauer", "email": "anna@example.com", "phone": None, "address": "Berlin"},
+    "recipient": {"company": "Cloudwerk GmbH", "name": "Herr Schmidt", "title": None, "address": None, "date": None},
+    "body": {"paragraphs": ["Sehr geehrter Herr Schmidt,"]},
+    "signature": {"name": "Anna Bauer"},
+}
+
+
+def test_letter_page_length_check_absent_without_page_count():
+    """Callers that don't supply a page count get no page-length check (mirrors
+    the CV-side back-compat behaviour)."""
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[])
+    assert _check_by_id(report, "page-length") is None
+
+
+def test_letter_page_length_one_page_passes_no_details():
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[], page_count=1)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+
+
+def test_letter_page_length_two_pages_fails_naming_the_norm():
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[], page_count=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "2 pages" in c.details and "DACH" in c.details and "1 page" in c.details
+
+
+def test_audit_cover_letter_threads_page_count_from_pdf():
+    """audit_cover_letter must read the real PDF page count (via
+    extract_text_and_pages) and run the page-length check."""
+    from io import BytesIO
+    from pypdf import PdfWriter
+    from applire.services.ats_audit import audit_cover_letter
+
+    def _blank_pdf(n: int) -> bytes:
+        writer = PdfWriter()
+        for _ in range(n):
+            writer.add_blank_page(width=595, height=842)  # A4 points
+        buf = BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    report = audit_cover_letter(_blank_pdf(2), _LETTER, keywords=[])
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail" and "2" in (c.details or "")
+
+    report_ok = audit_cover_letter(_blank_pdf(1), _LETTER, keywords=[])
+    assert _check_by_id(report_ok, "page-length").status == "pass"
+
+
+# ---------------------------------------------------------------------------
 # Fix 1: empty-field guards
 # ---------------------------------------------------------------------------
 
