@@ -19,10 +19,11 @@
 
 // E041/US231 — application cockpit. This page is the zone composition:
 // banners (US218/US221/US222, byte-identical) → header (identity, chips,
-// actions, collapsible JD summary) → documents/journey zone stubs (Tasks
-// 3.1/3.2) → tracking sidebar stub (Task 3.3). The former stacked CRUD cards
-// (Company & Role, Status Management, Details, Flow Progress, bottom Save)
-// are gone; deadline/notes/source become editable again when 3.3 lands.
+// actions, collapsible JD summary) → documents zone (Task 3.1) → journey
+// zone (Task 3.2, gated on an active flow session) → tracking sidebar stub
+// (Task 3.3). The former stacked CRUD cards (Company & Role, Status
+// Management, Details, Flow Progress, bottom Save) are gone; deadline/notes/
+// source become editable again when 3.3 lands.
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -36,6 +37,7 @@ import { patchApplicationStatus } from "@/lib/api/applications";
 import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
 import { DossierDocumentsZone } from "@/components/applications/DossierDocumentsZone";
+import { DossierJourneyZone } from "@/components/applications/DossierJourneyZone";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -617,7 +619,13 @@ export default function ApplicationDetailPage() {
                 onError={setActionError}
                 onPinChange={() => void refetchApplication()}
               />
-              <section data-testid="dossier-journey-zone" />
+              {application.flow_session_id && application.flow_current_step && (
+                <DossierJourneyZone
+                  flowSessionId={application.flow_session_id}
+                  currentStep={application.flow_current_step}
+                  workflowStatus={application.workflow_status}
+                />
+              )}
             </div>
             <aside className="lg:col-span-1">
               <section data-testid="dossier-tracking-sidebar" />

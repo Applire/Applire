@@ -702,6 +702,7 @@
     "markSubmittedAction": "Mark as submitted",
     "submittedRemove": "Remove mark",
     "documentsZoneTitle": "Documents",
+    "journeyZoneTitle": "Progress",
     "docGeneratingLabel": "Generating…",
     "sentChipLabel": "Sent",
     "markSentAction": "Mark as sent",
