@@ -20,10 +20,11 @@
 // E041/US231 — application cockpit. This page is the zone composition:
 // banners (US218/US221/US222, byte-identical) → header (identity, chips,
 // actions, collapsible JD summary) → documents zone (Task 3.1) → journey
-// zone (Task 3.2, gated on an active flow session) → tracking sidebar stub
-// (Task 3.3). The former stacked CRUD cards (Company & Role, Status
-// Management, Details, Flow Progress, bottom Save) are gone; deadline/notes/
-// source become editable again when 3.3 lands.
+// zone (Task 3.2, gated on an active flow session) → tracking sidebar
+// (Task 3.3, US234, closes #164). The former stacked CRUD cards (Company &
+// Role, Status Management, Details, Flow Progress, bottom Save) are gone —
+// deadline/notes/source are editable again via the sidebar's per-field
+// autosave, not a page-level save button.
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -33,11 +34,12 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { USER_STATUS_OPTIONS, isStaleStatus, staleNextStatuses } from "@/lib/user-status";
-import { patchApplicationStatus } from "@/lib/api/applications";
+import { patchApplicationStatus, type ApplicationPatchResponse } from "@/lib/api/applications";
 import { UserStatusChipSelect } from "@/components/applications/UserStatusChipSelect";
 import { StaleCvBanner } from "@/components/applications/StaleCvBanner";
 import { DossierDocumentsZone } from "@/components/applications/DossierDocumentsZone";
 import { DossierJourneyZone } from "@/components/applications/DossierJourneyZone";
+import { DossierTrackingSidebar } from "@/components/applications/DossierTrackingSidebar";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -279,6 +281,24 @@ export default function ApplicationDetailPage() {
     } finally {
       setHeaderRetailoring(false);
     }
+  };
+
+  // Apply a tracking-sidebar field save (E041/US234) directly from the PATCH
+  // response — lighter than a full refetch since each save touches at most
+  // one field (deadline/source_url/notes) and the response already carries
+  // the new value + updated_at.
+  const handleTrackingSaved = (patch: ApplicationPatchResponse) => {
+    setApplication((app) =>
+      app
+        ? {
+            ...app,
+            deadline: patch.deadline,
+            source_url: patch.source_url,
+            notes: patch.notes,
+            updated_at: patch.updated_at,
+          }
+        : app
+    );
   };
 
   // Re-sync `application` after a pin/unpin PATCH in the documents zone
@@ -628,7 +648,11 @@ export default function ApplicationDetailPage() {
               )}
             </div>
             <aside className="lg:col-span-1">
-              <section data-testid="dossier-tracking-sidebar" />
+              <DossierTrackingSidebar
+                application={application}
+                onSaved={handleTrackingSaved}
+                onError={setActionError}
+              />
             </aside>
           </div>
         </div>

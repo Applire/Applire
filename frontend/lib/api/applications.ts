@@ -93,6 +93,40 @@ export async function patchSubmittedCoverLetter(
   return (await res.json()) as ApplicationPatchResult;
 }
 
+/** Subset of ApplicationResponse the tracking sidebar (E041/US234) needs back
+ * from a PATCH to update its local baseline without a full refetch. */
+export interface ApplicationPatchResponse {
+  id: string;
+  notes: string | null;
+  deadline: string | null;
+  source_url: string | null;
+  updated_at: string;
+  user_status: string;
+  applied_at: string | null;
+  submitted_cv_id?: string | null;
+  submitted_cv_created_at?: string | null;
+}
+
+/**
+ * PATCH /api/applications/{id} — general per-field patch (E041/US234). The
+ * caller builds `payload` with ONLY the fields that actually changed; an
+ * explicit `null` clears a clearable field (deadline/notes/source_url),
+ * matching the backend's model_fields_set semantics (E039/US217) — never
+ * omit a field the caller means to clear.
+ */
+export async function patchApplication(
+  applicationId: string,
+  payload: Record<string, unknown>,
+): Promise<ApplicationPatchResponse> {
+  const res = await fetch(`${API_BASE}/api/applications/${applicationId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`application patch ${res.status}`);
+  return (await res.json()) as ApplicationPatchResponse;
+}
+
 /** GET /api/applications/{id} — used by natural-moment prompts to check current state. */
 export async function getApplication(
   applicationId: string,
