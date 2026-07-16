@@ -68,6 +68,10 @@ class StaleCVInfo(BaseModel):
     latest_cv_template: str
     profile_enriched_at: datetime
     gained: list[StaleCVGained]
+    # E042/US236 (ADR-051 amendment §4): the pinned/newest ready CV's
+    # persisted target page count, so a one-click re-tailor can forward the
+    # same target. None on legacy/pre-E042 rows.
+    target_pages: int | None = None
 
 
 class CreateApplicationRequest(BaseModel):

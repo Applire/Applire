@@ -24,6 +24,8 @@ export interface AppSettings {
   default_accent_hex: string | null;
   ui_language: "de" | "en";
   hide_predownload_notice: boolean;
+  // E042/US239 (ADR-051 §1): the user's default CV page target. null = region standard.
+  target_cv_pages: number | null;
 }
 
 /** GET /api/settings — the current user's preferences. */
@@ -42,5 +44,17 @@ export async function setHidePredownloadNotice(hide: boolean): Promise<void> {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ hide_predownload_notice: hide }),
+  });
+}
+
+/**
+ * Persist the user's default CV page target (E042/US239, ADR-051 §1).
+ * `null` clears the override, falling back to the region standard.
+ */
+export async function setTargetCvPages(pages: number | null): Promise<void> {
+  await fetch(`${API_BASE}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_cv_pages: pages }),
   });
 }

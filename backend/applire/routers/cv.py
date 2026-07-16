@@ -70,7 +70,15 @@ async def post_generate(
     Poll GET /api/cv/{cv_id}/status until status='ready'."""
     base_url = str(request.base_url).rstrip("/")
     try:
-        return await generate_cv(body.job_id, db, provider, background_tasks, body.template, base_url)
+        return await generate_cv(
+            body.job_id,
+            db,
+            provider,
+            background_tasks,
+            body.template,
+            base_url,
+            target_pages=body.target_pages,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:

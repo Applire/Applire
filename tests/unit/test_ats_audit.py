@@ -139,24 +139,54 @@ def test_page_length_check_absent_without_page_count():
     assert _check_by_id(report, "page-length") is None
 
 
-def test_page_length_two_pages_pass_no_advisory():
+# E042/US238 (ADR-051 §5 + amendment §3): target-aware band. Default target = region
+# standard (DACH = 2), so the #171a 2/3 behaviour is preserved when no target is given.
+
+
+def test_page_length_at_standard_target_pass_no_advisory():
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass" and c.details is None
 
 
-def test_page_length_three_pages_pass_with_advisory():
+def test_page_length_three_pages_pass_with_senior_advisory():
+    # target defaults to standard (2); 3 pages is within the DACH max → senior advisory.
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass"
-    assert c.details and "3 pages" in c.details and "2" in c.details
+    assert c.details and "3 pages" in c.details and "senior" in c.details and "2" in c.details
 
 
-def test_page_length_over_three_pages_fails():
+def test_page_length_over_max_fails():
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=6)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "fail"
-    assert c.details and "6" in c.details and "2" in c.details
+    assert c.details and "6" in c.details and "2" in c.details and "condensed" not in c.details
+
+
+def test_page_length_chosen_target_above_standard_pass_with_deviation_advisory():
+    # User chose target=3 (senior). 3 pages meets it → pass WITH deviation advisory.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3, target=3)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass"
+    assert c.details and "chosen target of 3" in c.details and "2" in c.details
+
+
+def test_page_length_under_chosen_target_no_advisory_when_target_is_standard():
+    # target explicitly the standard; one page is under it → plain pass, no advisory.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=1, target=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+
+
+def test_page_length_fail_exhausted_wording():
+    # condensation ran to exhaustion and still over max → honest "condensed" wording.
+    report = _audit_cv_text(
+        _full_text(), _CV, keywords=[], page_count=5, target=2, condensation_exhausted=True
+    )
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "condensed to the maximum" in c.details and "5" in c.details
 
 
 _CV_DUP_BULLET = TailoredCVData.model_validate({
@@ -320,6 +350,63 @@ def test_letter_audit():
     report = _audit_letter_text(text, letter, keywords=["Cloud"])
     assert report.document == "cover_letter"
     assert report.failed == 0
+
+
+# ---------------------------------------------------------------------------
+# E042/US240 (ADR-051 §6): cover-letter page-length DETECTION check — same check
+# id ("page-length") as the CV band, but no target/condense (deferred this
+# flavour): 1 page passes, 2+ fails naming the region's letter norm.
+# ---------------------------------------------------------------------------
+
+_LETTER = {
+    "header": {"name": "Anna Bauer", "email": "anna@example.com", "phone": None, "address": "Berlin"},
+    "recipient": {"company": "Cloudwerk GmbH", "name": "Herr Schmidt", "title": None, "address": None, "date": None},
+    "body": {"paragraphs": ["Sehr geehrter Herr Schmidt,"]},
+    "signature": {"name": "Anna Bauer"},
+}
+
+
+def test_letter_page_length_check_absent_without_page_count():
+    """Callers that don't supply a page count get no page-length check (mirrors
+    the CV-side back-compat behaviour)."""
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[])
+    assert _check_by_id(report, "page-length") is None
+
+
+def test_letter_page_length_one_page_passes_no_details():
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[], page_count=1)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+
+
+def test_letter_page_length_two_pages_fails_naming_the_norm():
+    report = _audit_letter_text("Anna Bauer", _LETTER, keywords=[], page_count=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "2 pages" in c.details and "DACH" in c.details and "1 page" in c.details
+
+
+def test_audit_cover_letter_threads_page_count_from_pdf():
+    """audit_cover_letter must read the real PDF page count (via
+    extract_text_and_pages) and run the page-length check."""
+    from io import BytesIO
+    from pypdf import PdfWriter
+    from applire.services.ats_audit import audit_cover_letter
+
+    def _blank_pdf(n: int) -> bytes:
+        writer = PdfWriter()
+        for _ in range(n):
+            writer.add_blank_page(width=595, height=842)  # A4 points
+        buf = BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    report = audit_cover_letter(_blank_pdf(2), _LETTER, keywords=[])
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail" and "2" in (c.details or "")
+
+    report_ok = audit_cover_letter(_blank_pdf(1), _LETTER, keywords=[])
+    assert _check_by_id(report_ok, "page-length").status == "pass"
 
 
 # ---------------------------------------------------------------------------

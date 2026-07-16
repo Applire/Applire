@@ -50,6 +50,20 @@ const CV_LIST = [
   { cv_id: "cv-1", status: "ready", template: "classic_german", created_at: "2026-07-10T09:00:00Z" },
 ];
 
+// Whole-branch review Finding 2: stale_cv is only populated when the profile
+// changed after the newest CV — the header Re-tailor button also works on
+// non-stale applications, where a fixed target_pages must still be forwarded
+// (previously silently dropped, falling back to the region default).
+const CV_LIST_WITH_TARGET_PAGES = [
+  {
+    cv_id: "cv-1",
+    status: "ready",
+    template: "classic_german",
+    created_at: "2026-07-10T09:00:00Z",
+    target_pages: 3,
+  },
+];
+
 interface AppOverrides {
   workflow_status?: string;
   user_status?: string;
@@ -83,7 +97,11 @@ function baseApplication(o: AppOverrides = {}) {
   };
 }
 
-function mockFetch(opts: { app: ReturnType<typeof baseApplication>; hasCoverLetter?: boolean }) {
+function mockFetch(opts: {
+  app: ReturnType<typeof baseApplication>;
+  hasCoverLetter?: boolean;
+  cvList?: unknown[];
+}) {
   global.fetch = vi.fn((input: string, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/api/cover-letter/by-job/")) {
@@ -107,7 +125,10 @@ function mockFetch(opts: { app: ReturnType<typeof baseApplication>; hasCoverLett
       return Promise.resolve({ ok: true, status: 200, json: async () => JOB });
     }
     if (url.includes("/api/cv?job_id=")) {
-      return Promise.resolve({ ok: true, status: 200, json: async () => CV_LIST });
+      return Promise.resolve({ ok: true, status: 200, json: async () => opts.cvList ?? CV_LIST });
+    }
+    if (url.includes("/api/cv/generate")) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ cv_id: "cv-new" }) });
     }
     if (url.includes("/api/applications/") && url.includes("/start")) {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ flow_session_id: "flow-new" }) });
@@ -119,7 +140,11 @@ function mockFetch(opts: { app: ReturnType<typeof baseApplication>; hasCoverLett
   }) as unknown as typeof fetch;
 }
 
-async function renderPage(opts: { app: ReturnType<typeof baseApplication>; hasCoverLetter?: boolean }) {
+async function renderPage(opts: {
+  app: ReturnType<typeof baseApplication>;
+  hasCoverLetter?: boolean;
+  cvList?: unknown[];
+}) {
   mockFetch(opts);
   render(withIntl(<ApplicationDetailPage />));
   // Header identity confirms the load finished (scoped to the cockpit header —
@@ -209,5 +234,22 @@ describe("ApplicationDetailPage — cockpit header zone (US231)", () => {
     expect(screen.getByTestId("dossier-documents-zone")).toBeInTheDocument();
     expect(screen.getByTestId("dossier-journey-zone")).toBeInTheDocument();
     expect(screen.getByTestId("dossier-tracking-sidebar")).toBeInTheDocument();
+  });
+
+  it("header Re-tailor forwards the newest ready CV's target_pages when stale_cv is null (Finding 2)", async () => {
+    await renderPage({
+      app: baseApplication(), // stale_cv: null — non-stale application
+      cvList: CV_LIST_WITH_TARGET_PAGES,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Re-tailor" }));
+
+    await waitFor(() => {
+      const generateCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+        String(url).includes("/api/cv/generate")
+      );
+      expect(generateCall).toBeTruthy();
+      const body = JSON.parse((generateCall as [string, RequestInit])[1]!.body as string);
+      expect(body.target_pages).toBe(3);
+    });
   });
 });

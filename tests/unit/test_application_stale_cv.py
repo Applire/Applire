@@ -268,6 +268,43 @@ async def test_retailor_clears_hint_and_keeps_pin(db):
 
 
 @pytest.mark.asyncio
+async def test_stale_cv_carries_pinned_cvs_target_pages(db):
+    """E042/US236 (ADR-051 amendment §4): the read model exposes the newest
+    ready CV's persisted target_pages so the frontend re-tailor call can
+    forward it (Task 1.4, not this task)."""
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    cv = _make_cv(
+        app.job_analysis_id, created_at=_NOW - timedelta(days=10), target_pages=3
+    )
+    db.add(cv)
+    await db.commit()
+
+    result = await get_application(app.id, _STUB_USER_ID, db)
+    assert result.stale_cv is not None
+    assert result.stale_cv.target_pages == 3
+
+
+@pytest.mark.asyncio
+async def test_stale_cv_target_pages_is_none_for_legacy_cv(db):
+    """A legacy/pre-E042 CV row has NULL target_pages — the read model must
+    surface None rather than erroring."""
+    db.add(_make_profile([
+        _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
+    ]))
+    app = await _make_application(db)
+    cv = _make_cv(app.job_analysis_id, created_at=_NOW - timedelta(days=10))
+    db.add(cv)
+    await db.commit()
+
+    result = await get_application(app.id, _STUB_USER_ID, db)
+    assert result.stale_cv is not None
+    assert result.stale_cv.target_pages is None
+
+
+@pytest.mark.asyncio
 async def test_terminal_status_no_hint(db):
     """Rejected/hired applications get no re-tailor nudge — nothing to send."""
     db.add(_make_profile([

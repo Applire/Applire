@@ -567,6 +567,7 @@ class TestCVServiceReviewIntegration:
 
         mock_cv = MagicMock()
         mock_cv.status = "pending"
+        mock_cv.target_pages = 2  # E042/US237: real int — compute_bullet_budgets does arithmetic on it
         mock_job = MagicMock()
         mock_job.role_title = "Dev"
         mock_job.required_skills = []
@@ -647,6 +648,7 @@ class TestCVServiceReviewIntegration:
 
         cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         mock_cv = MagicMock(); mock_cv.status = "pending"
+        mock_cv.target_pages = 2  # E042/US237: real int — compute_bullet_budgets does arithmetic on it
         mock_job = MagicMock()
         mock_job.role_title = "Dev"; mock_job.required_skills = []; mock_job.nice_to_have_skills = []
         mock_job.keywords = []; mock_job.seniority_level = ""; mock_job.company_culture_signals = []

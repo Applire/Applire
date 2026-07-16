@@ -41,11 +41,13 @@ import logging
 import re
 import unicodedata
 import uuid
+from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from applire.services.cv_budget import BudgetResult
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
@@ -59,6 +61,7 @@ from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
+from applire.norms import DEFAULT_REGION, resolve_target_pages
 from applire.prompts.cv_tailoring import (
     CV_TAILORING_REFINEMENT_PROMPT,
     SYSTEM_PROMPT,
@@ -188,6 +191,7 @@ async def generate_cv_segmented(
     output_language: str,
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -198,6 +202,12 @@ async def generate_cv_segmented(
     — section writers only produce tailored prose. Work order stays reverse-chronological
     (single-call rule-2 parity); the outline's role_order is advisory. The assembled dict is
     handed to the same coherence + language review as the single-call path by the caller.
+
+    ``budget`` (E042/US237, ADR-051 §3) — the deterministic per-role bullet-count ceiling
+    table, threaded into the outline call and each per-role work-section call so the model
+    aims at the target page count directly. Not to be confused with the per-call TOKEN
+    budget (``SEGMENT_MAX_TOKENS``) below — deliberately named ``token_budget`` to avoid
+    the collision.
     """
     from applire.prompts.cv_segmented import (
         EDUCATION_SECTION_SYSTEM_PROMPT,
@@ -214,7 +224,7 @@ async def generate_cv_segmented(
         build_work_section_prompt,
     )
 
-    budget = SEGMENT_MAX_TOKENS
+    token_budget = SEGMENT_MAX_TOKENS
 
     # Reverse-chronological order is the orchestrator's policy (rule-2 parity), independent
     # of whatever the outline suggests — keeps the segmented path consistent with single-call.
@@ -227,21 +237,21 @@ async def generate_cv_segmented(
         w["id"] = w.get("id") or f"w{i}"
 
     directive = await provider.aparse_json(
-        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger),
+        build_outline_prompt(job_analysis, profile, output_language, keyword_ledger, budget),
         system=OUTLINE_SYSTEM_PROMPT,
         temperature=0.3,
-        max_tokens=budget,
+        max_tokens=token_budget,
     )
 
     work_entries: list[dict] = []
     for w in work_src:
         section = await provider.aparse_json(
             build_work_section_prompt(
-                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger
+                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger, budget
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=budget,
+            max_tokens=token_budget,
         )
         work_entries.append({
             "id": w["id"],
@@ -255,21 +265,21 @@ async def generate_cv_segmented(
 
     summary_res = await provider.aparse_json(
         build_summary_prompt(directive, job_analysis, profile, critical_gaps, output_language),
-        system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     skills_res = await provider.aparse_json(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger
         ),
-        system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     edu_res = await provider.aparse_json(
         build_education_prompt(profile, output_language),
-        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     projects_res = await provider.aparse_json(
         build_projects_prompt(directive, job_analysis, profile, output_language),
-        system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=budget,
+        system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
 
     sections = {
@@ -306,6 +316,7 @@ async def _tailor_cv_with_fallback(
     output_language: str,
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
+    budget: "BudgetResult | None" = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
@@ -314,12 +325,13 @@ async def _tailor_cv_with_fallback(
     is fed to the same coherence + language review as before by the caller.
 
     ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
-    claimable-vs-forbidden keyword split."""
+    claimable-vs-forbidden keyword split. ``budget`` (E042/US237, ADR-051 §3) is the
+    deterministic per-role bullet-count ceiling table, threaded into whichever path runs."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
-            keyword_ledger=keyword_ledger,
+            keyword_ledger=keyword_ledger, budget=budget,
         )
     try:
         return await provider.aparse_json(
@@ -327,6 +339,7 @@ async def _tailor_cv_with_fallback(
                 job_analysis, profile, keyword_gaps, critical_gaps,
                 output_language=output_language,
                 keyword_ledger=keyword_ledger,
+                budget=budget,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -340,7 +353,7 @@ async def _tailor_cv_with_fallback(
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
-            keyword_ledger=keyword_ledger,
+            keyword_ledger=keyword_ledger, budget=budget,
         )
 
 
@@ -545,6 +558,73 @@ def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
     )
 
 
+def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """Deterministically back-fill the profile ``WorkEntry.id`` onto tailored work
+    entries whose ``id`` is empty (E042/US238 fix round).
+
+    The single-call fast path's LLM schema omits ``id`` (and the ADR-038 language
+    pass re-emits the JSON, so even carried ids can be dropped) — but the condense
+    loop's budget lookup is keyed by profile ``WorkEntry.id``. Without this pass the
+    DEFAULT generation path would never match a role, silently skip condensation,
+    and report "condensed to the maximum" without having condensed anything.
+
+    Identity rule, mirroring ``_nest_projects``: match by case-folded, stripped
+    company+role; each profile id is assigned at most once. Entries left ambiguous
+    (duplicate company+role pairs, e.g. a re-hire) or unmatched fall back to
+    POSITIONAL pairing — sound because tailoring rule 6 guarantees the output entry
+    count equals the profile's, and both lists are enforced reverse-chronological
+    (``_sort_work_by_date`` upstream, ``_enforce_work_order`` on the tailored side —
+    call this AFTER it). When the counts differ, unmatched entries keep an empty id
+    (no budget applied) rather than risk a wrong role's budget. Pure; no LLM; the
+    input is left unmutated.
+    """
+    source = profile_json.get("work_experience") or []
+    if not source or not tailored.work_history:
+        return tailored
+    if all(w.id for w in tailored.work_history):
+        return tailored  # segmented path (or already back-filled) — nothing to do
+
+    def _key(company: object, role: object) -> tuple[str, str]:
+        return (
+            (company if isinstance(company, str) else "").strip().lower(),
+            (role if isinstance(role, str) else "").strip().lower(),
+        )
+
+    ids_by_key: dict[tuple[str, str], list[str]] = {}
+    for s in source:
+        sid = str(s.get("id") or "")
+        if sid:
+            ids_by_key.setdefault(_key(s.get("company"), s.get("role")), []).append(sid)
+
+    data = tailored.model_dump()
+    work: list[dict] = data.get("work_history") or []
+    used: set[str] = {w["id"] for w in work if w.get("id")}
+
+    unmatched: list[int] = []
+    for i, w in enumerate(work):
+        if w.get("id"):
+            continue
+        candidates = [
+            sid for sid in ids_by_key.get(_key(w.get("company"), w.get("role")), [])
+            if sid not in used
+        ]
+        if len(candidates) == 1:
+            w["id"] = candidates[0]
+            used.add(candidates[0])
+        else:
+            unmatched.append(i)
+
+    # Positional fallback (documented above): only when the counts line up 1:1.
+    if unmatched and len(work) == len(source):
+        for i in unmatched:
+            sid = str(source[i].get("id") or "")
+            if sid and sid not in used:
+                work[i]["id"] = sid
+                used.add(sid)
+
+    return TailoredCVData.model_validate(data)
+
+
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
@@ -628,6 +708,7 @@ async def generate_cv(
     background_tasks: BackgroundTasks | None = None,
     template: CVTemplate = "classic_german",
     base_url: str = "http://localhost:8001",
+    target_pages: int | None = None,
 ) -> CVGenerateResponse:
     """Create a GeneratedCV record and render it.
 
@@ -635,6 +716,11 @@ async def generate_cv(
     sent. The MCP/agent channel has no request lifecycle, so it omits it
     (``background_tasks=None``) and we render inline before returning — the agent
     polls ``get_cv_status`` and sees a terminal status on the first read.
+
+    ``target_pages`` (E042/US236, ADR-051 §1) is the optional per-generation
+    override. Precedence — resolved once here and persisted on the row —
+    is override > the user's ``UserSettings.target_cv_pages`` > the DACH
+    region standard (``resolve_target_pages``).
     """
     # Validate job exists
     job = await db.get(JobAnalysis, job_id)
@@ -652,6 +738,17 @@ async def generate_cv(
     if profile is None:
         raise LookupError("No profile found — import a CV first")
 
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+
+    settings_result = await db.execute(
+        select(UserSettings.target_cv_pages).where(
+            UserSettings.user_id == _CE_STUB_USER_ID
+        )
+    )
+    user_setting = settings_result.scalar_one_or_none()
+    resolved_target_pages = resolve_target_pages(target_pages, user_setting)
+
     # Create pending record
     record = GeneratedCV(
         job_analysis_id=job_id,
@@ -659,6 +756,7 @@ async def generate_cv(
         tailored_data={},  # populated by background task
         template=template,
         status=CVGenerationStatus.pending.value,
+        target_pages=resolved_target_pages,
     )
     db.add(record)
     await db.commit()
@@ -723,6 +821,7 @@ async def get_cv_status(
             record.error_code or ("generation_failed" if status == CVGenerationStatus.failed else None)
         ),
         expires_at=record.expires_at,
+        target_pages=record.target_pages,
     )
 
 
@@ -759,6 +858,7 @@ async def list_cvs_for_job(
             expires_at=r.expires_at,
             template=r.template,
             created_at=r.created_at,
+            target_pages=r.target_pages,
         )
         for r in records
     ]
@@ -947,6 +1047,25 @@ async def _render_cv_background(
                     e.model_dump() for e in _sort_work_by_date(we)
                 ]
 
+            # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
+            # BEFORE generation, from the profile + Keyword Ledger + this row's resolved
+            # target_pages (Task 1.1 persists it non-NULL for every new row; the fallback
+            # here only guards a pre-E042 legacy record). Threaded into both LLM paths
+            # below so the model aims at the target page count directly.
+            from applire.services.cv_budget import attach_projects, compute_bullet_budgets
+
+            resolved_target_pages = (
+                record.target_pages
+                if record.target_pages is not None
+                else resolve_target_pages(None, None)
+            )
+            budget_work_entries = attach_projects(
+                profile_json.get("work_experience") or [], profile_json.get("projects") or []
+            )
+            budget = compute_bullet_budgets(
+                budget_work_entries, keyword_ledger, resolved_target_pages
+            )
+
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
@@ -958,6 +1077,7 @@ async def _render_cv_background(
                 output_language=resolve_jd_language(job),
                 provider=provider,
                 keyword_ledger=keyword_ledger,
+                budget=budget,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -1019,6 +1139,15 @@ async def _render_cv_background(
             # established — instead of trusting the LLM's echo of the input order.
             tailored = _enforce_work_order(tailored)
 
+            # E042/US238 fix round: back-fill profile WorkEntry.ids onto the tailored
+            # entries. The single-call path's schema omits `id` (and the language pass
+            # can drop carried ids), but the condense loop's budget lookup is keyed by
+            # them. MUST run after _enforce_work_order — the positional fallback for
+            # ambiguous company+role pairs relies on both lists sharing the enforced
+            # reverse-chronological order. Uses the SORTED profile_json (still bound
+            # here; the photo step below rebinds the name to the raw profile dict).
+            tailored = _backfill_work_ids(tailored, profile_json)
+
             # #172: collapse near-duplicate skill tags (the shared ats_audit
             # predicate) so the CV is clean even when the master profile still
             # carries twins. After the language pass, which rewords the tags.
@@ -1048,7 +1177,12 @@ async def _render_cv_background(
             # the one commit. An audit failure is non-fatal: it leaves ats_report NULL but
             # still commits status='ready'.
             record.status = CVGenerationStatus.ready.value
-            await _update_ats_report(record, db)   # ADR-039 — commits status + report together
+            # E042/US238 (ADR-051 §4): arm the bounded measure-and-condense loop with the
+            # resolved target + feedforward budget already computed above. The loop counts
+            # the rendered pages and deterministically condenses on overrun, rebuilds the
+            # snapshot from the final data, then audits — all in the one ready-commit.
+            condense_ctx = CondenseContext(budgets=budget, target=resolved_target_pages)
+            await _update_ats_report(record, db, condense_ctx)   # ADR-039 — commits status + report together
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -1125,22 +1259,116 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
     return (gap.keyword_ledger or []) if gap else None
 
 
-async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
-    """ADR-039: render → extract → audit → persist.
+@dataclass
+class CondenseContext:
+    """Everything the post-render measure-and-condense loop needs (E042/US238,
+    ADR-051 §4). Built ONLY by ``_render_cv_background`` — it has the resolved target
+    and the feedforward budget in hand. Its presence is what arms condensation;
+    ``_update_ats_report_by_id`` (the section-editor re-audit) passes ``None`` so that
+    path stays audit-only (amendment §1)."""
 
-    Engine errors leave ats_report NULL, never raise — an audit failure must
-    NEVER fail or alter generation status.
+    budgets: "BudgetResult"
+    target: int
 
-    Deliberately wipes any previous report on error: ADR-039 forbids a persisted
-    report describing a document state it was not computed from (no stale reports).
-    A NULL report is always preferable to a report computed from old content.
+
+async def _resolve_audit_target(record: GeneratedCV, db: AsyncSession) -> int:
+    """Resolve the target page count for the audit band when no CondenseContext is
+    supplied (legacy NULL-``target_pages`` rows and the section-editor re-audit path):
+    the row's persisted ``target_pages`` if present, else the user setting resolved the
+    same way ``generate_cv`` does (ADR-051 §1)."""
+    if record.target_pages is not None:
+        return record.target_pages
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+
+    result = await db.execute(
+        select(UserSettings.target_cv_pages).where(UserSettings.user_id == _CE_STUB_USER_ID)
+    )
+    return resolve_target_pages(None, result.scalar_one_or_none())
+
+
+async def _update_ats_report(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext | None = None,
+) -> None:
+    """ADR-039 + E042/US238: render → (bounded measure-and-condense) → audit → persist.
+
+    With a ``condense_ctx`` (only the generation path supplies one) this runs the
+    bounded loop: render, count pages, and if the document overruns ``target`` apply
+    the deterministic ``condense_to_budget`` pass (max 2 iterations), re-rendering
+    between passes and rebuilding ``content_snapshot`` from the final condensed data so
+    the section editor never serves pre-condense bullets (amendment §2). Without a ctx
+    — or when ``section_overrides`` already exist (a PATCH landed mid-generation,
+    amendment §1) — it is audit-only, exactly today's behaviour. No LLM calls (§7).
+
+    The page-length audit is target-aware and, when the loop exhausts its budget and
+    the document still exceeds the region max, is told so for honest wording.
+
+    Engine errors leave ats_report NULL, never raise — an audit failure must NEVER
+    fail or alter generation status. Deliberately wipes any previous report on error:
+    ADR-039 forbids a persisted report describing a state it was not computed from.
     """
     try:
-        from applire.services.ats_audit import audit_cv
-        from applire.services.cv_section_editor import apply_overrides_to_tailored
+        from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
+        from applire.services.cv_budget import condense_to_budget
+        from applire.services.cv_section_editor import (
+            apply_overrides_to_tailored,
+            build_content_snapshot,
+        )
 
-        html = await get_cv_html(record.id, db)
-        pdf = await _html_to_pdf(html)
+        # Bail rule (amendment §1): never condense over an override. A section PATCH can
+        # land mid-generation; the audit render applies overrides the loop must not fight.
+        do_condense = condense_ctx is not None and not record.section_overrides
+        if condense_ctx is not None:
+            target = condense_ctx.target
+            region = condense_ctx.budgets.region
+        else:
+            target = await _resolve_audit_target(record, db)
+            region = DEFAULT_REGION
+
+        condensation_exhausted = False
+
+        if do_condense:
+            # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
+            text = ""
+            count = 0
+            for iteration in (1, 2):
+                html = await get_cv_html(record.id, db)
+                pdf = await _html_to_pdf(html)
+                text, count = extract_text_and_pages(pdf)
+                if count <= target:
+                    break
+                condensed, changed = condense_to_budget(
+                    record.tailored_data, condense_ctx.budgets, iteration
+                )
+                if not changed:
+                    # Nothing left to cut — the overrun is structural (education/skills).
+                    condensation_exhausted = True
+                    break
+                record.tailored_data = condensed
+                # Snapshot rebuild (amendment §2): rebuild IMMEDIATELY, in the same
+                # breath as the tailored_data mutation — not after the loop settles.
+                # Whole-branch review Finding 3: if the next iteration's re-render
+                # raises (caught by the except below), the commit there must never
+                # see condensed tailored_data paired with a stale pre-condense
+                # snapshot (the section editor would re-serve pre-condense bullets,
+                # the silent un-condense trap, reopened via this error path).
+                record.content_snapshot = build_content_snapshot(
+                    TailoredCVData.model_validate(record.tailored_data)
+                )
+            else:
+                # Both iterations applied without meeting the target — measure the final
+                # render and report the honest state.
+                html = await get_cv_html(record.id, db)
+                pdf = await _html_to_pdf(html)
+                text, count = extract_text_and_pages(pdf)
+                condensation_exhausted = count > target
+        else:
+            html = await get_cv_html(record.id, db)
+            pdf = await _html_to_pdf(html)
+            text, count = extract_text_and_pages(pdf)
+
         job = await db.get(JobAnalysis, record.job_analysis_id)
         tailored = TailoredCVData.model_validate(record.tailored_data)
         tailored = apply_overrides_to_tailored(
@@ -1149,8 +1377,15 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
         # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
         ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
-        record.ats_report = audit_cv(
-            pdf, tailored, list(job.keywords or []) if job else [], ledger
+        record.ats_report = _audit_cv_text(
+            text,
+            tailored,
+            list(job.keywords or []) if job else [],
+            ledger,
+            page_count=count,
+            target=target,
+            region=region,
+            condensation_exhausted=condensation_exhausted,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -1159,7 +1394,10 @@ async def _update_ats_report(record: GeneratedCV, db: AsyncSession) -> None:
 
 
 async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
-    """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time)."""
+    """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time).
+
+    The section-editor's post-edit re-audit path: passes NO CondenseContext, so it is
+    strictly audit-only and never condenses (ADR-051 amendment §1)."""
     async with AsyncSessionLocal() as db:
         record = await db.get(GeneratedCV, cv_id)
         if record is not None:

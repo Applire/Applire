@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
@@ -38,6 +38,10 @@ CVTemplate = Literal[
 class CVGenerateRequest(BaseModel):
     job_id: uuid.UUID
     template: CVTemplate = "classic_german"
+    # E042/US236 (ADR-051 §1): optional per-generation page-count override.
+    # None = fall back to the user's UserSettings.target_cv_pages, then the
+    # region standard (resolve_target_pages()).
+    target_pages: int | None = Field(default=None, ge=1)
 
 
 class CVProfileDiffResponse(BaseModel):
@@ -69,6 +73,11 @@ class CVStatusResponse(BaseModel):
     expires_at: datetime
     template: Optional[str] = None      # E041/US232: version identity in the dossier documents zone
     created_at: Optional[datetime] = None
+    # E042/US236 (ADR-051 §1, whole-branch review Finding 2): the target page
+    # count this CV was rendered at (None = region standard / no override).
+    # Lets the header re-tailor button forward the newest READY CV's target
+    # even on non-stale applications, where stale_cv is absent.
+    target_pages: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

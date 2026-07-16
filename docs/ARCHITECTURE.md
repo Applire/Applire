@@ -493,6 +493,16 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+### ADR-051 — Region-Keyed Length Norms & Length-Budgeted CV Tailoring
+
+**Decision:** Document length norms are **data, not constants**: a region-keyed registry (`applire/norms.py`) holds each hiring region's norms — currently a single DACH row (CV: 2 pages standard, 3 max for senior profiles; cover letter: 1 page). No component hard-codes a page number; prompts, budgets, and audit checks all read the registry, so supporting a new market later means adding a row, not touching the pipeline. The page target for a generation resolves as: per-request `target_pages` (REST `POST /api/cv/generate` and the MCP `generate_cv` tool) > the user's `target_cv_pages` setting > the region standard — and is persisted on the `generated_cvs` row. Users may deliberately exceed the norm; the system obeys and the ATS `page-length` check reports the deviation as an advisory, never a failure.
+
+Enforcement is two-stage and fully deterministic. **Feedforward:** before any LLM call, a pure budget computer (`applire/services/cv_budget.py`) assigns each work entry a bullet ceiling from recency × JD relevance (relevance = claimable Keyword-Ledger hits via the shared ATS presence predicate; when a cross-language JD/profile pair yields zero hits everywhere, tiers fall back to recency alone). The budgets ride into both generation paths (single-call and segmented outline-then-expand, ADR-047). **Feedback:** the end-of-generation audit render already yields the exact PDF page count; on overrun a bounded condense pass (max 2 iterations, no LLM) drops whole bullets in a fixed priority order — bullets without a claimable-keyword hit first, nested project bullets before role bullets, oldest roles collapsing toward one-liners — then re-renders and re-audits. Roles are never removed (a DACH CV must not show employment gaps), and condensation is omission-only: nothing is ever added or rewritten (ADR-040 boundary). The condense loop runs only during generation; user section-edits are never condensed, and the content snapshot is rebuilt from the final condensed data so the section editor can't resurrect trimmed bullets.
+
+**Why:** A 6-page CV is discarded unread by many DACH reviewers — length is a domain rule for this product, not a taste preference. Detecting the overrun without a lever (the audit check alone) would just tell users about a problem the product caused; budget-then-condense makes the norm hold by construction while a deliberate user override stays in control. Cover letters currently get detection only (a 1-page check).
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:

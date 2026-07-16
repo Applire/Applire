@@ -35,6 +35,10 @@ export interface StaleCVInfo {
   latest_cv_template: string;
   profile_enriched_at: string;
   gained: StaleCVGained[];
+  // E042/US239 (ADR-051 amendment §4): the pinned/newest ready CV's persisted
+  // page target, so one-click re-tailor can forward the same target. null on
+  // legacy/pre-E042 rows.
+  target_pages: number | null;
 }
 
 /** Enrichment-trail section → `profile` namespace label key. */

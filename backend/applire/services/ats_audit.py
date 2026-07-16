@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pypdf import PdfReader
 
+from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
 from applire.schemas.cv import TailoredCVData
 
@@ -287,6 +288,9 @@ def _audit_cv_text(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
+    target: int | None = None,
+    region: str = DEFAULT_REGION,
+    condensation_exhausted: bool = False,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -371,21 +375,45 @@ def _audit_cv_text(
                "bullets duplicated between a role and its nested project: "
                + "; ".join(f"'{b}'" for b in collisions))
 
-    # #171a: DACH page-length policy. ATSCheck has no "warn" status, so 3 pages
-    # passes but carries an advisory detail; > 3 fails. Skipped when no count given
-    # (text-only callers/tests).
+    # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
+    # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to
+    # the region max passes (carrying an advisory detail when it deviates from the
+    # region standard or the chosen target); only over the max fails. Skipped when no
+    # count is given (text-only callers/tests). All norm numbers come from REGION_NORMS
+    # — never hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend
+    # i18n keys on it).
     if page_count is not None:
-        if page_count <= 2:
-            checks.append(ATSCheck(id="page-length", status="pass", details=None))
-        elif page_count == 3:
+        norm = REGION_NORMS[region]
+        standard = norm.cv_standard_pages
+        maximum = norm.cv_max_pages
+        tgt = target if target is not None else standard
+        if page_count <= tgt:
+            if tgt > standard:
+                checks.append(ATSCheck(
+                    id="page-length", status="pass",
+                    details=f"{page_count} pages — meets your chosen target of {tgt}; "
+                            f"the {region} norm is {standard} pages",
+                ))
+            else:
+                checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        elif page_count <= maximum:
             checks.append(ATSCheck(
                 id="page-length", status="pass",
-                details="3 pages — acceptable for senior profiles; the DACH norm is 2 pages",
+                details=f"{page_count} pages — acceptable for senior profiles; "
+                        f"the {region} norm is {standard} pages",
+            ))
+        elif condensation_exhausted:
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — condensed to the maximum; length driven by "
+                        f"education/skills volume; exceeds the {region} norm of {standard} "
+                        f"pages (max {maximum})",
             ))
         else:
             checks.append(ATSCheck(
                 id="page-length", status="fail",
-                details=f"{page_count} pages — exceeds the DACH norm of 2 pages (max 3)",
+                details=f"{page_count} pages — exceeds the {region} norm of {standard} "
+                        f"pages (max {maximum})",
             ))
 
     return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
@@ -396,14 +424,30 @@ def audit_cv(
     tailored: TailoredCVData,
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    target: int | None = None,
+    region: str = DEFAULT_REGION,
+    condensation_exhausted: bool = False,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
+    NOTE (E042/US238): production no longer calls this — the CV pipeline's condense
+    loop needs the page count itself, so ``services/cv._update_ats_report`` extracts
+    once via :func:`extract_text_and_pages` and audits via :func:`_audit_cv_text`
+    directly. This PDF-level convenience wrapper is kept as the entry point for the
+    ADR-039 render-roundtrip harness (``tests/ats/test_roundtrip.py``) and unit tests;
+    keep its behaviour in lockstep with the production pair above.
+
     ``ledger`` (the Keyword Ledger, ADR-048/US203) annotates each MISSING keyword as
     *missing-claimable* (supported by the profile per the ledger) vs *missing-honest-gap*.
+
+    ``target``/``region``/``condensation_exhausted`` (E042/US238, ADR-051 §5) drive the
+    target-aware page-length band; ``target`` defaults to the region standard.
     """
     text, page_count = extract_text_and_pages(pdf_bytes)
-    return _audit_cv_text(text, tailored, keywords, ledger, page_count=page_count)
+    return _audit_cv_text(
+        text, tailored, keywords, ledger, page_count=page_count,
+        target=target, region=region, condensation_exhausted=condensation_exhausted,
+    )
 
 
 def _audit_letter_text(
@@ -411,6 +455,7 @@ def _audit_letter_text(
     letter_data: dict[str, Any],
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    page_count: int | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -433,6 +478,21 @@ def _audit_letter_text(
             continue  # empty/whitespace paragraph — nothing to verify (mirrors the CV-side empty-field guard)
         _check(checks, f"body-{i}", _find(probe, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
 
+    # E042/US240 (ADR-051 §6): DETECTION-ONLY page-length check against the region's
+    # 1-page letter norm — deliberately no target resolution, no user setting, no
+    # condense loop for letters this flavour (unlike the CV band in _audit_cv_text).
+    # Same check id ("page-length") as the CV check — the frontend ATSChecksPanel and
+    # the checks.page-length i18n key are shared by both document types. Skipped when
+    # no count is given (text-only callers/tests), mirroring the CV behaviour. The
+    # norm number always comes from REGION_NORMS — never hard-coded (ADR-051 §1).
+    if page_count is not None:
+        region = DEFAULT_REGION
+        letter_pages = REGION_NORMS[region].letter_pages
+        _check(
+            checks, "page-length", page_count <= letter_pages,
+            f"{page_count} pages — a {region} cover letter is {letter_pages} page",
+        )
+
     return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger))
 
 
@@ -446,5 +506,10 @@ def audit_cover_letter(
 
     ``ledger`` (ADR-048/US203) splits each MISSING keyword into *missing-claimable* vs
     *missing-honest-gap*.
+
+    E042/US240: reads the real page count via :func:`extract_text_and_pages` (one
+    PdfReader pass, #171a-style) and threads it into :func:`_audit_letter_text` for
+    the detection-only page-length check.
     """
-    return _audit_letter_text(extract_text(pdf_bytes), letter_data, keywords, ledger)
+    text, page_count = extract_text_and_pages(pdf_bytes)
+    return _audit_letter_text(text, letter_data, keywords, ledger, page_count=page_count)

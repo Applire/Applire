@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useLocale } from "@/lib/providers/locale-provider";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
+import { getSettings, setTargetCvPages } from "@/lib/api/settings";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -74,6 +76,56 @@ function DefaultColorPicker() {
       >
         {saved ? t("saved") : tCommon("save")}
       </button>
+    </div>
+  );
+}
+
+// E042/US239 (ADR-051 §1): the persisted default CV page target — mirrors
+// the flow CV step's per-generation selector, plus a "region standard"
+// (null) choice that clears the override.
+function DefaultCVLengthPicker() {
+  const t = useTranslations("settings");
+  const [value, setValue] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setValue(s.target_cv_pages);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleChange = async (next: number | null) => {
+    setValue(next);
+    try {
+      await setTargetCvPages(next);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // Best-effort — the selector still reflects the chosen value locally.
+    }
+  };
+
+  if (loading) return <div className="h-8 w-40 bg-surface-container rounded animate-pulse" />;
+
+  return (
+    <div className="flex items-center gap-3">
+      <TargetPagesSelect
+        value={value}
+        onChange={(v) => void handleChange(v)}
+        allowRegionStandard
+        className="flex flex-col items-start gap-1"
+      />
+      {saved && <span className="text-xs text-success">{t("saved")}</span>}
     </div>
   );
 }
@@ -227,6 +279,13 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("defaultCVColor")}</h2>
             <p className="text-sm text-neutral-medium mb-4">{t("defaultCVColorHint")}</p>
             <DefaultColorPicker />
+          </section>
+
+          {/* Default CV Length (E042/US239, ADR-051) */}
+          <section className="rounded-lg border border-neutral-medium p-4">
+            <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("defaultCVLength")}</h2>
+            <p className="text-sm text-neutral-medium mb-4">{t("defaultCVLengthHint")}</p>
+            <DefaultCVLengthPicker />
           </section>
 
           {/* Delete Confirmation */}

@@ -367,7 +367,12 @@
     "markSubmittedRemove": "Remove mark",
     "retailoredNote": "Re-tailored — your profile gained since the previous version: {gained}",
     "retailoredNotePlain": "Re-tailored from your current profile",
-    "retailoredNoteClose": "Close note"
+    "retailoredNoteClose": "Close note",
+    "targetPagesLabel": "CV page target",
+    "targetPagesStandardOption": "2 pages — DACH standard",
+    "targetPagesOption": "{count} pages",
+    "targetPagesRegionStandardOption": "Region standard",
+    "targetPagesBeyondNormHint": "Beyond the DACH norm — best for senior or executive profiles."
   },
   "saveScopePrompt": {
     "saveToProfile": "Save to your Master Profile?",
@@ -468,6 +473,8 @@
     "deleting": "Deleting...",
     "defaultCVColor": "Default CV Color",
     "defaultCVColorHint": "Used when no company color can be detected.",
+    "defaultCVLength": "Default CV Length",
+    "defaultCVLengthHint": "The starting page target for new CVs, unless you pick something else for a single generation.",
     "saved": "Saved ✓",
     "back": "← Back"
   },
@@ -909,7 +916,7 @@
       "body": "Letter paragraph parsed",
       "duplicate-bullets": "No duplicate bullet points",
       "skills-near-dupe": "No near-duplicate skills",
-      "page-length": "Page length within the DACH norm"
+      "page-length": "Page length"
     }
   },
   "admin": {

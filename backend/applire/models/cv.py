@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -70,6 +70,11 @@ class GeneratedCV(Base):
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
+    # E042/US236 (ADR-051 §1): target page count resolved via resolve_target_pages()
+    # at CV-row creation time and persisted here. NULL = legacy/pre-E042 row —
+    # consumers resolve NULL through resolve_target_pages(None, current_setting)
+    # at use time (Task 1.3).
+    target_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

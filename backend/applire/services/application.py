@@ -581,6 +581,7 @@ async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -
             GeneratedCV.job_analysis_id,
             GeneratedCV.created_at,
             GeneratedCV.template,
+            GeneratedCV.target_pages,
         )
         .where(
             GeneratedCV.job_analysis_id.in_(job_ids),
@@ -617,6 +618,7 @@ async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -
             latest_cv_created_at=cv_created_at,
             latest_cv_template=latest.template,
             profile_enriched_at=enriched_at,
+            target_pages=latest.target_pages,
             gained=[
                 StaleCVGained(section=s, count=c)
                 for s, c in sorted(section_counts.items(), key=lambda kv: (-kv[1], kv[0]))

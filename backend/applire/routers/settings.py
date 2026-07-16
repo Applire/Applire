@@ -21,7 +21,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,12 +41,16 @@ class SettingsResponse(BaseModel):
     default_accent_hex: str | None
     ui_language: str
     hide_predownload_notice: bool
+    # E042/US236 (ADR-051 §1): NULL = "use region standard".
+    target_cv_pages: int | None = None
 
 
 class SettingsPatchRequest(BaseModel):
     default_accent_hex: str | None = None
     ui_language: Literal["de", "en"] | None = None
     hide_predownload_notice: bool | None = None
+    # E042/US236: >= 1, no upper cap (users may deliberately exceed the norm).
+    target_cv_pages: int | None = Field(default=None, ge=1)
 
 
 async def get_settings(db: AsyncSession) -> dict:
@@ -65,6 +69,7 @@ async def get_settings(db: AsyncSession) -> dict:
     # Build response
     ui_language = row.ui_language if row else "en"
     hide_predownload_notice = bool(row.hide_predownload_notice) if row else False
+    target_cv_pages = row.target_cv_pages if row else None
 
     if row is None or row.default_color_profile_id is None:
         return {
@@ -72,6 +77,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "default_accent_hex": None,
             "ui_language": ui_language,
             "hide_predownload_notice": hide_predownload_notice,
+            "target_cv_pages": target_cv_pages,
         }
 
     cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -81,6 +87,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "default_accent_hex": None,
             "ui_language": ui_language,
             "hide_predownload_notice": hide_predownload_notice,
+            "target_cv_pages": target_cv_pages,
         }
 
     return {
@@ -88,6 +95,7 @@ async def get_settings(db: AsyncSession) -> dict:
         "default_accent_hex": cp.seed_primary,
         "ui_language": ui_language,
         "hide_predownload_notice": hide_predownload_notice,
+        "target_cv_pages": target_cv_pages,
     }
 
 
@@ -96,8 +104,17 @@ async def update_settings(
     accent_hex: str | None = None,
     ui_language: str | None = None,
     hide_predownload_notice: bool | None = None,
+    target_cv_pages: int | None = None,
+    clear_target_cv_pages: bool = False,
 ) -> dict:
-    """Service logic — upsert user settings. All fields are optional."""
+    """Service logic — upsert user settings. All fields are optional.
+
+    target_cv_pages=None means "not provided" (leave untouched), matching the
+    other optional fields. To explicitly clear a stored value back to NULL
+    ("use region standard"), pass clear_target_cv_pages=True — the caller
+    (the PATCH route) is responsible for distinguishing an explicit-null
+    request body field from an omitted one via model_fields_set.
+    """
     from applire.models.user_settings import UserSettings
     from applire.models.color_profile import ColorProfile
 
@@ -107,6 +124,11 @@ async def update_settings(
     if ui_language is not None and ui_language not in _VALID_LANGUAGES:
         raise ValueError(
             f"Invalid ui_language: {ui_language!r}. Must be one of {_VALID_LANGUAGES}."
+        )
+
+    if target_cv_pages is not None and target_cv_pages < 1:
+        raise ValueError(
+            f"Invalid target_cv_pages: {target_cv_pages!r}. Must be >= 1."
         )
 
     result = await db.execute(
@@ -130,11 +152,17 @@ async def update_settings(
     if hide_predownload_notice is not None:
         row.hide_predownload_notice = hide_predownload_notice
 
+    if clear_target_cv_pages:
+        row.target_cv_pages = None
+    elif target_cv_pages is not None:
+        row.target_cv_pages = target_cv_pages
+
     await db.commit()
 
     response: dict = {
         "ui_language": row.ui_language or "en",
         "hide_predownload_notice": bool(row.hide_predownload_notice),
+        "target_cv_pages": row.target_cv_pages,
     }
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -162,12 +190,21 @@ async def api_patch_settings(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SettingsResponse:
+    # Distinguish an explicit {"target_cv_pages": null} (clear the stored
+    # value → "use region standard") from an omitted key (leave untouched).
+    # Pydantic only exposes this via model_fields_set — body.target_cv_pages
+    # alone is ambiguous between the two (both are None).
+    clear_target_cv_pages = (
+        "target_cv_pages" in body.model_fields_set and body.target_cv_pages is None
+    )
     try:
         result = await update_settings(
             db,
             accent_hex=body.default_accent_hex,
             ui_language=body.ui_language,
             hide_predownload_notice=body.hide_predownload_notice,
+            target_cv_pages=body.target_cv_pages,
+            clear_target_cv_pages=clear_target_cv_pages,
         )
         return SettingsResponse(**result)
     except ValueError as exc:
