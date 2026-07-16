@@ -18,10 +18,16 @@
 """ADR-046 — deterministic applier acceptance + edge tests."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from applire.schemas.profile import (
+    Certification,
+    EducationEntry,
+    Language,
     MasterProfileData,
+    Publication,
     Skill,
     WorkEntry,
 )
@@ -37,12 +43,35 @@ from applire.services.profile.reconcile.ops import (
     UpsertEducation,
     UpsertLanguage,
     UpsertProject,
+    UpsertPublication,
     UpsertSkill,
     UpsertVolunteer,
     UpsertWork,
 )
 
 SOURCE = "cv_upload"
+
+
+def _profile_with_education(institution: str, degree: str) -> MasterProfileData:
+    return MasterProfileData(education=[EducationEntry(institution=institution, degree=degree)])
+
+
+def _profile_with_certification(name: str) -> MasterProfileData:
+    return MasterProfileData(certifications=[Certification(name=name)])
+
+
+def _profile_with_language(language: str) -> MasterProfileData:
+    return MasterProfileData(languages=[Language(language=language)])
+
+
+def _profile_with_work(company: str, role: str, start_date: str | None) -> MasterProfileData:
+    return MasterProfileData(
+        work_experience=[WorkEntry(company=company, role=role, start_date=start_date)]
+    )
+
+
+def _profile_with_publication(title: str) -> MasterProfileData:
+    return MasterProfileData(publications=[Publication(title=title)])
 
 
 # ── Acceptance fixtures ───────────────────────────────────────────────────────
@@ -498,6 +527,131 @@ def test_upsert_education_dedup():
     assert len(result.profile.education) == 1
 
 
+def test_upsert_education_near_dupe_merges_and_fills_dates():
+    """#177: 'Diplom ×3' — spelling variants of one institution must not stack."""
+    profile = _profile_with_education("Julius-Maximilians-Universität Würzburg", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom Informatik",
+                           start_date="1998-10", end_date="2004-03")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.education) == 1
+    assert result.profile.education[0].start_date == "1998-10"   # empty field filled
+    assert not result.pending_confirmations
+    # #177 review (finding 1): a merge that actually filled fields must leave an
+    # audit trail — exactly one merged FieldChange, not silence.
+    merged = [c for c in result.changes if c.action == "merged"]
+    assert len(merged) == 1
+    assert merged[0].section == "education"
+
+
+def test_upsert_education_ambiguous_asks_instead_of_appending():
+    profile = _profile_with_education("Universität Würzburg", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.education) == 1                    # not appended
+    assert len(result.pending_confirmations) == 1
+    assert result.pending_confirmations[0].context["section"] == "education"
+
+
+def test_upsert_certification_near_dupe_merges():
+    profile = _profile_with_certification("AWS Certified Solutions Architect")
+    ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate",
+                               issuing_organization="AWS")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert result.profile.certifications[0].issuing_organization == "AWS"
+    # #177 review (finding 1): merge-with-fill leaves exactly one merged change.
+    merged = [c for c in result.changes if c.action == "merged"]
+    assert len(merged) == 1
+    assert merged[0].section == "certifications"
+
+
+def test_upsert_certification_pure_dupe_near_match_no_fill_is_silent():
+    """#177 review (finding 1): a near-dupe MATCH where the incoming op carries
+    nothing new to fill must NOT leave a change record (unlike a real merge)."""
+    profile = _profile_with_certification("AWS Certified Solutions Architect")
+    ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert result.changes == []
+
+
+def test_upsert_language_variant_auto_merges():
+    profile = _profile_with_language("German")
+    ops = [UpsertLanguage(language="German (Native)", level="native")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.languages) == 1
+    assert result.profile.languages[0].level == "native"
+    merged = [c for c in result.changes if c.action == "merged"]
+    assert len(merged) == 1
+    assert merged[0].section == "languages"
+
+
+def test_upsert_publication_appends_and_dedupes():
+    profile = _profile_with_publication("Model-based Testing of Embedded Systems")
+    ops = [UpsertPublication(title="Model-Based Testing of Embedded Systems", venue="ETFA 2019")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.publications) == 1
+    assert result.profile.publications[0].venue == "ETFA 2019"   # empty filled
+    merged = [c for c in result.changes if c.action == "merged"]
+    assert len(merged) == 1
+    assert merged[0].section == "publications"
+
+
+def test_publication_partial_date_coerces():
+    p = Publication(title="T", published_date="2019")
+    assert p.published_date == date(2019, 1, 1)
+
+
+# ── #177 review (finding 4): raw op date strings must be coerced before fill ──
+
+
+def test_upsert_certification_match_fill_coerces_partial_date():
+    """A near-dupe MATCH that fills date_obtained with a partial 'YYYY' string
+    must land as a real `date`, not the raw string surviving until round-trip."""
+    profile = _profile_with_certification("AWS Certified Solutions Architect")
+    ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate",
+                               date_obtained="2019")]
+    result = apply_ops(profile, ops, source="test")
+    entry = result.profile.certifications[0]
+    assert entry.date_obtained == date(2019, 1, 1)
+    assert isinstance(entry.date_obtained, date)
+    _roundtrips(result.profile)
+
+
+def test_upsert_certification_match_fill_unparseable_date_fills_nothing():
+    """An unparseable date string ('Q2 2019') must not corrupt the field — it
+    stays None (nothing filled), and the profile still loads cleanly."""
+    profile = _profile_with_certification("AWS Certified Solutions Architect")
+    ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate",
+                               date_obtained="Q2 2019")]
+    result = apply_ops(profile, ops, source="test")
+    entry = result.profile.certifications[0]
+    assert entry.date_obtained is None
+    assert result.changes == []  # nothing was actually filled
+    _roundtrips(result.profile)
+
+
+def test_upsert_publication_match_fill_coerces_partial_date():
+    profile = _profile_with_publication("Model-based Testing of Embedded Systems")
+    ops = [UpsertPublication(title="Model-Based Testing of Embedded Systems",
+                             published_date="2019")]
+    result = apply_ops(profile, ops, source="test")
+    entry = result.profile.publications[0]
+    assert entry.published_date == date(2019, 1, 1)
+    _roundtrips(result.profile)
+
+
+def test_upsert_publication_match_fill_unparseable_date_fills_nothing():
+    profile = _profile_with_publication("Model-based Testing of Embedded Systems")
+    ops = [UpsertPublication(title="Model-Based Testing of Embedded Systems",
+                             published_date="Q2 2019")]
+    result = apply_ops(profile, ops, source="test")
+    entry = result.profile.publications[0]
+    assert entry.published_date is None
+    assert result.changes == []
+    _roundtrips(result.profile)
+
+
 def test_set_personal_info_fills_empty():
     profile = MasterProfileData()
     ops = [SetPersonalInfo(field="phone", value="+49 123")]
@@ -528,6 +682,106 @@ def test_upsert_work_new_creates_entry():
     assert len(result.profile.work_experience) == 1
     assert result.profile.work_experience[0].company == "NewCo"
     assert any(c.action == "added" and c.section == "work_experience" for c in result.changes)
+
+
+def test_upsert_work_without_target_adopts_same_org_and_start():
+    """LLM missed the target: same company (2-token short/legal form) + same
+    start month = same stint. #177 review (finding 3): the short form must be
+    at least 2 tokens — bare single-token containment is never identity (see
+    test_upsert_work_without_target_single_token_org_never_auto_matches)."""
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", company="Continental Automotive", role="Senior Software Engineer",
+                      start_date="2015-04-15")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1
+    assert "Senior Software Engineer" in result.profile.work_experience[0].role_aliases
+    assert not result.pending_confirmations
+
+
+def test_upsert_work_without_target_single_token_org_never_auto_matches():
+    """#177 review (finding 3), ADR-046 strict ruling: bare single-token org
+    containment ('Ford' ⊂ 'Ford Foundation') is NEVER identity — two distinct
+    employers can share one token. Even with an equal start month, this must
+    ask rather than silently merge."""
+    profile = _profile_with_work(company="Ford Foundation", role="Program Officer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", company="Ford", role="Engineer", start_date="2015-04-15")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1          # nothing merged, nothing appended
+    assert len(result.pending_confirmations) == 1
+
+
+def test_upsert_work_without_target_same_org_no_dates_asks():
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date=None)
+    ops = [UpsertWork(ref="w1", company="Continental", role="Software Engineer")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1          # nothing appended
+    assert len(result.pending_confirmations) == 1
+
+
+def test_upsert_work_different_org_still_appends():
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", company="Bosch", role="Software Engineer", start_date="2019-01-01")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 2
+
+
+# ── #177 review (finding 2): ambiguous engagement must not drop co-batched bullets ──
+
+
+def test_ambiguous_work_upsert_addbullets_on_its_ref_carries_into_confirmation():
+    """The reconciler emits UpsertWork (goes AMBIGUOUS, no target resolved) then
+    AddBullets(target=<same local ref>) in the same batch. ref_map never gets
+    populated for an ambiguous op, so the bullets must not be silently dropped —
+    they land in the pending confirmation's context for the resolution turn."""
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date=None)
+    ops = [
+        UpsertWork(ref="w1", company="Continental", role="Software Engineer"),
+        AddBullets(target="w1", responsibilities=["Led migration"], technologies=["Rust"]),
+    ]
+    result = apply_ops(profile, ops, source="test")
+
+    assert len(result.profile.work_experience) == 1           # nothing appended/merged
+    assert len(result.pending_confirmations) == 1
+    conf = result.pending_confirmations[0]
+    assert conf.context.get("incoming", {}).get("ref") == "w1"
+    assert conf.context.get("pending_bullets") == {
+        "responsibilities": ["Led migration"],
+        "technologies": ["Rust"],
+    }
+
+
+def test_ambiguous_work_upsert_multiple_addbullets_extend_not_overwrite():
+    """Two AddBullets ops in the same batch targeting the same unresolved ref
+    must extend the carried lists, not overwrite one with the other."""
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date=None)
+    ops = [
+        UpsertWork(ref="w1", company="Continental", role="Software Engineer"),
+        AddBullets(target="w1", responsibilities=["Led migration"]),
+        AddBullets(target="w1", responsibilities=["Mentored juniors"], achievements=["Shipped v2"]),
+    ]
+    result = apply_ops(profile, ops, source="test")
+
+    conf = result.pending_confirmations[0]
+    assert conf.context.get("pending_bullets") == {
+        "responsibilities": ["Led migration", "Mentored juniors"],
+        "achievements": ["Shipped v2"],
+    }
+
+
+def test_add_bullets_unknown_ref_with_no_pending_confirmation_still_noops():
+    """Control: an AddBullets targeting a ref with NO matching pending
+    confirmation at all must keep today's silent, defensive skip."""
+    profile = MasterProfileData()
+    ops = [AddBullets(target="does-not-exist", responsibilities=["x"])]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.changes == []
+    assert result.pending_confirmations == []
 
 
 # ── Field-type coercion (data-corruption regression) ──────────────────────────

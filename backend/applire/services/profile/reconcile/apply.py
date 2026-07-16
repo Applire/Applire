@@ -44,11 +44,14 @@ from applire.schemas.profile import (
     Language,
     MasterProfileData,
     ProjectEntry,
+    Publication,
     Skill,
     VolunteerActivity,
     WorkEntry,
+    _coerce_partial_date,
 )
 
+from applire.services.profile.reconcile.dedupe import classify_dupe, classify_engagement_dupe
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     FlagConflict,
@@ -61,6 +64,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertEducation,
     UpsertLanguage,
     UpsertProject,
+    UpsertPublication,
     UpsertSkill,
     UpsertVolunteer,
     UpsertWork,
@@ -254,21 +258,23 @@ def apply_ops(
 
     for op in ops:
         if isinstance(op, UpsertWork):
-            _apply_upsert_work(op, new_profile, ref_map, changes)
+            _apply_upsert_work(op, new_profile, ref_map, changes, pending)
         elif isinstance(op, UpsertProject):
-            _apply_upsert_project(op, new_profile, ref_map, resolve, changes)
+            _apply_upsert_project(op, new_profile, ref_map, resolve, changes, pending)
         elif isinstance(op, UpsertVolunteer):
-            _apply_upsert_volunteer(op, new_profile, ref_map, changes)
+            _apply_upsert_volunteer(op, new_profile, ref_map, changes, pending)
         elif isinstance(op, AddBullets):
-            _apply_add_bullets(op, resolve, changes)
+            _apply_add_bullets(op, resolve, changes, pending)
         elif isinstance(op, UpsertSkill):
             _apply_upsert_skill(op, new_profile, resolve, changes, pending)
         elif isinstance(op, UpsertCertification):
-            _apply_upsert_certification(op, new_profile, changes)
+            _apply_upsert_certification(op, new_profile, changes, pending)
         elif isinstance(op, UpsertLanguage):
-            _apply_upsert_language(op, new_profile, changes)
+            _apply_upsert_language(op, new_profile, changes, pending)
         elif isinstance(op, UpsertEducation):
-            _apply_upsert_education(op, new_profile, changes)
+            _apply_upsert_education(op, new_profile, changes, pending)
+        elif isinstance(op, UpsertPublication):
+            _apply_upsert_publication(op, new_profile, changes, pending)
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve, changes)
         elif isinstance(op, SetPersonalInfo):
@@ -312,13 +318,23 @@ def _ensure_loadable(
 # ── Per-op handlers ───────────────────────────────────────────────────────────
 
 
-def _fill_empties(entity: Any, fields: dict[str, Any]) -> None:
-    """Fill only currently-empty scalar fields; never overwrite non-empty ones."""
+def _fill_empties(entity: Any, fields: dict[str, Any]) -> bool:
+    """Fill only currently-empty scalar fields; never overwrite non-empty ones.
+
+    Returns ``True`` iff at least one field was actually set — a real, additive
+    change. Callers use this to gate an audit-trail ``FieldChange`` for MATCH
+    branches that otherwise merge invisibly (#177 review): a pure-duplicate
+    upsert with nothing left to fill stays silent, but a merge that filled a
+    date/org/DOI is recorded like every other merge in the trail.
+    """
+    changed = False
     for name, value in fields.items():
         if value is None:
             continue
         if _is_empty(getattr(entity, name, None)):
             setattr(entity, name, value)
+            changed = True
+    return changed
 
 
 def _added(section: str, field: str, value: Any) -> FieldChange:
@@ -356,7 +372,7 @@ def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
     )
 
 
-def _apply_upsert_work(op, profile, ref_map, changes):
+def _apply_upsert_work(op, profile, ref_map, changes, pending):
     target = None
     if op.target is not None:
         target = next(
@@ -366,6 +382,32 @@ def _apply_upsert_work(op, profile, ref_map, changes):
         candidate = ref_map[op.target]
         if isinstance(candidate, WorkEntry):
             target = candidate
+
+    if target is None:
+        # #177: deterministic near-dup guard. The LLM owns identity (ADR-046) and
+        # said "new entry" — but an existing engagement at a near-dupe org with the
+        # same start month is the same stint (adopt it); a near-dupe org+role with
+        # absent/differing dates is ambiguous (ask, never guess). An ambiguous op's
+        # ref stays unmapped, so dependent add_bullets skip defensively — the
+        # confirmation context carries the payload for the resolution turn.
+        verdict = classify_engagement_dupe(
+            org=op.company, role=op.role, start_date=op.start_date,
+            existing=profile.work_experience, org_getter=lambda w: w.company,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{w.role} at {w.company}" for w in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.company}' looks close to an existing "
+                    f"position ({'; '.join(related)}). Is it the same position?"
+                ),
+                options=["Same position — merge them", "Different — keep both"],
+                context={"section": "work_experience",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = WorkEntry(
@@ -411,7 +453,7 @@ def _apply_upsert_work(op, profile, ref_map, changes):
     )
 
 
-def _apply_upsert_project(op, profile, ref_map, resolve, changes):
+def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
     parent_id = None
     parent = resolve(op.parent)
     if parent is not None:
@@ -424,6 +466,29 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes):
             candidate = ref_map[op.target]
             if isinstance(candidate, ProjectEntry):
                 target = candidate
+
+    if target is None:
+        # #177: near-dup guard (see _apply_upsert_work). "Website" ⊂ "Website
+        # Relaunch" is not identity for open-ended project names, so containment
+        # is never auto-merged here.
+        verdict = classify_engagement_dupe(
+            org=op.name, role=op.role, start_date=op.start_date,
+            existing=profile.projects, org_getter=lambda p: p.name,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{p.role} at {p.name}" for p in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.name}' looks close to an existing "
+                    f"project ({'; '.join(related)}). Is it the same project?"
+                ),
+                options=["Same project — merge them", "Different — keep both"],
+                context={"section": "projects",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = ProjectEntry(
@@ -456,7 +521,7 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes):
     changes.append(_merged("projects", "name", None, op.name))
 
 
-def _apply_upsert_volunteer(op, profile, ref_map, changes):
+def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
     target = None
     if op.target is not None:
         target = next(
@@ -466,6 +531,27 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes):
             candidate = ref_map[op.target]
             if isinstance(candidate, VolunteerActivity):
                 target = candidate
+
+    if target is None:
+        # #177: near-dup guard (see _apply_upsert_work).
+        verdict = classify_engagement_dupe(
+            org=op.organization, role=op.role, start_date=op.start_date,
+            existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{v.role} at {v.organization}" for v in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.organization}' looks close to an existing "
+                    f"volunteer activity ({'; '.join(related)}). Is it the same activity?"
+                ),
+                options=["Same activity — merge them", "Different — keep both"],
+                context={"section": "volunteer_activities",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = VolunteerActivity(
@@ -498,10 +584,30 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes):
     )
 
 
-def _apply_add_bullets(op, resolve, changes):
+def _apply_add_bullets(op, resolve, changes, pending):
     entity = resolve(op.target)
     if entity is None:
-        return  # defensive: unknown ref → skip
+        # #177 review: an AMBIGUOUS upsert in this same batch never populates
+        # ref_map (see _apply_upsert_work/_project/_volunteer), so a co-batched
+        # AddBullets targeting that op's local ref resolves to None here. The
+        # confirmation's context carries the op's own `ref` under "incoming" —
+        # if one matches, carry the bullets into the confirmation so the
+        # resolution turn can apply them instead of losing them silently.
+        # Merge (extend), never overwrite: multiple AddBullets ops in one batch
+        # may target the same still-unresolved ref.
+        for conf in pending:
+            if conf.context.get("incoming", {}).get("ref") == op.target:
+                carried = conf.context.setdefault("pending_bullets", {})
+                for field, incoming in (
+                    ("responsibilities", op.responsibilities),
+                    ("achievements", op.achievements),
+                    ("technologies", op.technologies),
+                ):
+                    if incoming:
+                        carried.setdefault(field, [])
+                        carried[field].extend(incoming)
+                return
+        return  # no matching confirmation either — defensive: unknown ref, skip
     section = _section_for(entity)
     for field, incoming in (
         ("responsibilities", op.responsibilities),
@@ -613,44 +719,138 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
     changes.append(_added("skills", "name", op.name))
 
 
-def _apply_upsert_certification(op, profile, changes):
-    if any(_norm(c.name) == _norm(op.name) for c in profile.certifications):
-        return
-    profile.certifications.append(
-        Certification(
-            name=op.name,
-            issuing_organization=op.issuing_organization,
-            date_obtained=op.date_obtained,
-            expiry_date=op.expiry_date,
-            credential_id=op.credential_id,
-            credential_url=op.credential_url,
-        )
+def _apply_upsert_certification(op, profile, changes, pending):
+    verdict = classify_dupe(
+        {"name": op.name}, profile.certifications, {"name": lambda c: c.name}
     )
+    if verdict.match is not None:
+        # #177 review: coerce raw op strings onto date-typed fields BEFORE the
+        # fill-only setattr — setattr bypasses Pydantic validation, so an
+        # unparseable string would otherwise survive until _ensure_loadable's
+        # round-trip silently drops it to None.
+        changed = _fill_empties(verdict.match, {
+            "issuing_organization": op.issuing_organization,
+            "date_obtained": _coerce_partial_date(op.date_obtained),
+            "expiry_date": _coerce_partial_date(op.expiry_date),
+            "credential_id": op.credential_id,
+            "credential_url": op.credential_url,
+        })
+        if changed:
+            changes.append(_merged("certifications", "name", None, verdict.match.name))
+        return
+    if verdict.ambiguous:
+        related = [c.name for c in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.name}' shares a word with certifications already on your "
+                f"profile ({', '.join(related)}) but may be distinct. Add it "
+                f"separately, or is it the same certification?"
+            ),
+            options=[f"Add '{op.name}' as a separate certification",
+                     "Same certification — merge"],
+            context={"section": "certifications", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": related},
+        ))
+        return
+    profile.certifications.append(Certification(
+        name=op.name,
+        issuing_organization=op.issuing_organization,
+        date_obtained=op.date_obtained,
+        expiry_date=op.expiry_date,
+        credential_id=op.credential_id,
+        credential_url=op.credential_url,
+    ))
     changes.append(_added("certifications", "name", op.name))
 
 
-def _apply_upsert_language(op, profile, changes):
-    if any(_norm(lang.language) == _norm(op.language) for lang in profile.languages):
+def _apply_upsert_language(op, profile, changes, pending):
+    # Languages are a closed domain — 'German' ⊂ 'German (Native)' IS the same
+    # language, so containment auto-merges instead of asking (#177).
+    verdict = classify_dupe(
+        {"language": op.language}, profile.languages,
+        {"language": lambda l: l.language}, containment_is_same=True,
+    )
+    if verdict.match is not None:
+        changed = _fill_empties(verdict.match, {"level": op.level})
+        if changed:
+            changes.append(_merged("languages", "language", None, verdict.match.language))
         return
     profile.languages.append(Language(language=op.language, level=op.level))
     changes.append(_added("languages", "language", op.language))
 
 
-def _apply_upsert_education(op, profile, changes):
-    key = (_norm(op.institution), _norm(op.degree))
-    if any((_norm(e.institution), _norm(e.degree)) == key for e in profile.education):
-        return
-    profile.education.append(
-        EducationEntry(
-            institution=op.institution,
-            degree=op.degree,
-            field=op.field or "",
-            start_date=op.start_date,
-            end_date=op.end_date,
-            grade=op.grade,
-        )
+def _apply_upsert_education(op, profile, changes, pending):
+    verdict = classify_dupe(
+        {"institution": op.institution, "degree": op.degree},
+        profile.education,
+        {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
+    if verdict.match is not None:
+        changed = _fill_empties(verdict.match, {
+            "field": op.field,
+            "start_date": op.start_date,
+            "end_date": op.end_date,
+            "grade": op.grade,
+        })
+        if changed:
+            changes.append(_merged("education", "institution", None, verdict.match.institution))
+        return
+    if verdict.ambiguous:
+        existing = [f"{e.degree} — {e.institution}" for e in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.degree} — {op.institution}' looks close to an education "
+                f"entry already on your profile ({'; '.join(existing)}). Is it "
+                f"the same qualification?"
+            ),
+            options=["Same entry — merge them", "Different — keep both"],
+            context={"section": "education", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": existing},
+        ))
+        return
+    profile.education.append(EducationEntry(
+        institution=op.institution,
+        degree=op.degree,
+        field=op.field or "",
+        start_date=op.start_date,
+        end_date=op.end_date,
+        grade=op.grade,
+    ))
     changes.append(_added("education", "institution", op.institution))
+
+
+def _apply_upsert_publication(op, profile, changes, pending):
+    # #177: publications had NO reconciler op at all — they rode the import slice
+    # group but were silently un-mergeable. Same three-band policy as education.
+    verdict = classify_dupe(
+        {"title": op.title}, profile.publications, {"title": lambda p: p.title}
+    )
+    if verdict.match is not None:
+        changed = _fill_empties(verdict.match, {
+            "venue": op.venue, "published_date": _coerce_partial_date(op.published_date),
+            "doi": op.doi, "url": op.url, "patent_number": op.patent_number,
+        })
+        if changed:
+            changes.append(_merged("publications", "title", None, verdict.match.title))
+        return
+    if verdict.ambiguous:
+        related = [p.title for p in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.title}' shares its wording with a publication already on "
+                f"your profile ({'; '.join(related)}). Is it the same publication?"
+            ),
+            options=["Same publication — merge", "Different — keep both"],
+            context={"section": "publications", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": related},
+        ))
+        return
+    profile.publications.append(Publication(
+        title=op.title, type=op.type, venue=op.venue,
+        published_date=op.published_date, doi=op.doi, url=op.url,
+        patent_number=op.patent_number, co_authors=op.co_authors,
+    ))
+    changes.append(_added("publications", "title", op.title))
 
 
 def _apply_set_field(op, resolve, changes):
