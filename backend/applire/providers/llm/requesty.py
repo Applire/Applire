@@ -188,7 +188,13 @@ class RequestyProvider(LLMProvider):
             )
         except openai.BadRequestError as exc:
             if extra_body and "reasoning_effort" in extra_body:
-                self._reasoning_rejected = True
+                # Latch the rejection only when the 400 is actually about reasoning —
+                # an unrelated 400 (context-length, bad response_format) that merely
+                # co-occurs with reasoning_effort must not permanently disable
+                # reasoning control for this instance. The one-shot stripped retry
+                # below still runs either way (harmless if the real cause persists).
+                if "reasoning" in str(exc).lower():
+                    self._reasoning_rejected = True
                 logger.warning(
                     "model=%s rejected reasoning_effort=%s; retrying without it, "
                     "max_tokens>=%d (%s)",

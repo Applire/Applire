@@ -259,6 +259,31 @@ async def test_reasoning_rejection_is_cached_and_not_re_sent(monkeypatch):
     assert attempts[0]["max_tokens"] >= 4096       # budget still floored on the cached path
 
 
+@pytest.mark.asyncio
+async def test_unrelated_400_does_not_latch_reasoning_rejection(monkeypatch):
+    """#181 (F1): a 400 raised for a reason OTHER than reasoning_effort must not
+    permanently disable reasoning control — only a reasoning-specific rejection latches."""
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m")
+
+    async def context_length_400(**kwargs):
+        raise openai.BadRequestError(
+            message="This model's maximum context length is 8192 tokens",
+            response=_fake_response(400), body=None,
+        )
+
+    p._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=context_length_400))
+    )
+    with pytest.raises(openai.BadRequestError):
+        await p.acomplete("q", disable_thinking=True, max_tokens=512)
+    assert p._reasoning_rejected is False          # unrelated 400 must NOT latch
+
+
 # ===========================================================================
 # Anthropic — native Messages API, BYO-API-key (US150)
 # ===========================================================================
