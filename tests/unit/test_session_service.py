@@ -14,6 +14,7 @@ Run:
     pytest tests/unit/test_session_service_coverage.py -v
 """
 
+import copy
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -994,7 +995,16 @@ class TestSendMessage:
         # Reconcile succeeds and produces a real profile write (the reconciler's
         # upsert), but the NEXT question generation call truncates — the whole
         # turn (reconcile write + transcript write) must roll back together.
-        turn = _addressed_turn(profile.profile_json)
+        # NOTE: the canned turn must carry a genuine diff from profile_before —
+        # a turn that echoes profile.profile_json unchanged makes
+        # `profile_record.profile_json = turn.profile_dict` a no-op self-assignment,
+        # so the final equality assertion would pass whether or not the rollback
+        # actually worked (#179 review finding 1).
+        mutated_profile = copy.deepcopy(profile.profile_json)
+        mutated_profile["skills"] = mutated_profile.get("skills", []) + [
+            {"name": "Atomicity Probe Skill", "category": "technical", "proficiency": "advanced"}
+        ]
+        turn = _addressed_turn(mutated_profile)
 
         with (
             patch("applire.services.session.reconcile_interview_turn",
