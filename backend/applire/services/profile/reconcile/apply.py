@@ -49,6 +49,7 @@ from applire.schemas.profile import (
     WorkEntry,
 )
 
+from applire.services.profile.reconcile.dedupe import classify_dupe
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     FlagConflict,
@@ -264,11 +265,11 @@ def apply_ops(
         elif isinstance(op, UpsertSkill):
             _apply_upsert_skill(op, new_profile, resolve, changes, pending)
         elif isinstance(op, UpsertCertification):
-            _apply_upsert_certification(op, new_profile, changes)
+            _apply_upsert_certification(op, new_profile, changes, pending)
         elif isinstance(op, UpsertLanguage):
-            _apply_upsert_language(op, new_profile, changes)
+            _apply_upsert_language(op, new_profile, changes, pending)
         elif isinstance(op, UpsertEducation):
-            _apply_upsert_education(op, new_profile, changes)
+            _apply_upsert_education(op, new_profile, changes, pending)
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve, changes)
         elif isinstance(op, SetPersonalInfo):
@@ -613,43 +614,93 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
     changes.append(_added("skills", "name", op.name))
 
 
-def _apply_upsert_certification(op, profile, changes):
-    if any(_norm(c.name) == _norm(op.name) for c in profile.certifications):
-        return
-    profile.certifications.append(
-        Certification(
-            name=op.name,
-            issuing_organization=op.issuing_organization,
-            date_obtained=op.date_obtained,
-            expiry_date=op.expiry_date,
-            credential_id=op.credential_id,
-            credential_url=op.credential_url,
-        )
+def _apply_upsert_certification(op, profile, changes, pending):
+    verdict = classify_dupe(
+        {"name": op.name}, profile.certifications, {"name": lambda c: c.name}
     )
+    if verdict.match is not None:
+        _fill_empties(verdict.match, {
+            "issuing_organization": op.issuing_organization,
+            "date_obtained": op.date_obtained,
+            "expiry_date": op.expiry_date,
+            "credential_id": op.credential_id,
+            "credential_url": op.credential_url,
+        })
+        return
+    if verdict.ambiguous:
+        related = [c.name for c in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.name}' shares a word with certifications already on your "
+                f"profile ({', '.join(related)}) but may be distinct. Add it "
+                f"separately, or is it the same certification?"
+            ),
+            options=[f"Add '{op.name}' as a separate certification",
+                     "Same certification — merge"],
+            context={"section": "certifications", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": related},
+        ))
+        return
+    profile.certifications.append(Certification(
+        name=op.name,
+        issuing_organization=op.issuing_organization,
+        date_obtained=op.date_obtained,
+        expiry_date=op.expiry_date,
+        credential_id=op.credential_id,
+        credential_url=op.credential_url,
+    ))
     changes.append(_added("certifications", "name", op.name))
 
 
-def _apply_upsert_language(op, profile, changes):
-    if any(_norm(lang.language) == _norm(op.language) for lang in profile.languages):
+def _apply_upsert_language(op, profile, changes, pending):
+    # Languages are a closed domain — 'German' ⊂ 'German (Native)' IS the same
+    # language, so containment auto-merges instead of asking (#177).
+    verdict = classify_dupe(
+        {"language": op.language}, profile.languages,
+        {"language": lambda l: l.language}, containment_is_same=True,
+    )
+    if verdict.match is not None:
+        _fill_empties(verdict.match, {"level": op.level})
         return
     profile.languages.append(Language(language=op.language, level=op.level))
     changes.append(_added("languages", "language", op.language))
 
 
-def _apply_upsert_education(op, profile, changes):
-    key = (_norm(op.institution), _norm(op.degree))
-    if any((_norm(e.institution), _norm(e.degree)) == key for e in profile.education):
-        return
-    profile.education.append(
-        EducationEntry(
-            institution=op.institution,
-            degree=op.degree,
-            field=op.field or "",
-            start_date=op.start_date,
-            end_date=op.end_date,
-            grade=op.grade,
-        )
+def _apply_upsert_education(op, profile, changes, pending):
+    verdict = classify_dupe(
+        {"institution": op.institution, "degree": op.degree},
+        profile.education,
+        {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
+    if verdict.match is not None:
+        _fill_empties(verdict.match, {
+            "field": op.field,
+            "start_date": op.start_date,
+            "end_date": op.end_date,
+            "grade": op.grade,
+        })
+        return
+    if verdict.ambiguous:
+        existing = [f"{e.degree} — {e.institution}" for e in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.degree} — {op.institution}' looks close to an education "
+                f"entry already on your profile ({'; '.join(existing)}). Is it "
+                f"the same qualification?"
+            ),
+            options=["Same entry — merge them", "Different — keep both"],
+            context={"section": "education", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": existing},
+        ))
+        return
+    profile.education.append(EducationEntry(
+        institution=op.institution,
+        degree=op.degree,
+        field=op.field or "",
+        start_date=op.start_date,
+        end_date=op.end_date,
+        grade=op.grade,
+    ))
     changes.append(_added("education", "institution", op.institution))
 
 

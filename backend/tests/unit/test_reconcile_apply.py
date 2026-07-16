@@ -21,6 +21,9 @@ from __future__ import annotations
 import pytest
 
 from applire.schemas.profile import (
+    Certification,
+    EducationEntry,
+    Language,
     MasterProfileData,
     Skill,
     WorkEntry,
@@ -43,6 +46,18 @@ from applire.services.profile.reconcile.ops import (
 )
 
 SOURCE = "cv_upload"
+
+
+def _profile_with_education(institution: str, degree: str) -> MasterProfileData:
+    return MasterProfileData(education=[EducationEntry(institution=institution, degree=degree)])
+
+
+def _profile_with_certification(name: str) -> MasterProfileData:
+    return MasterProfileData(certifications=[Certification(name=name)])
+
+
+def _profile_with_language(language: str) -> MasterProfileData:
+    return MasterProfileData(languages=[Language(language=language)])
 
 
 # ── Acceptance fixtures ───────────────────────────────────────────────────────
@@ -496,6 +511,43 @@ def test_upsert_education_dedup():
     ]
     result = apply_ops(profile, ops, SOURCE)
     assert len(result.profile.education) == 1
+
+
+def test_upsert_education_near_dupe_merges_and_fills_dates():
+    """#177: 'Diplom ×3' — spelling variants of one institution must not stack."""
+    profile = _profile_with_education("Julius-Maximilians-Universität Würzburg", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom Informatik",
+                           start_date="1998-10", end_date="2004-03")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.education) == 1
+    assert result.profile.education[0].start_date == "1998-10"   # empty field filled
+    assert not result.pending_confirmations
+
+
+def test_upsert_education_ambiguous_asks_instead_of_appending():
+    profile = _profile_with_education("Universität Würzburg", "Diplom Informatik")
+    ops = [UpsertEducation(institution="Universität Würzburg", degree="Diplom")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.education) == 1                    # not appended
+    assert len(result.pending_confirmations) == 1
+    assert result.pending_confirmations[0].context["section"] == "education"
+
+
+def test_upsert_certification_near_dupe_merges():
+    profile = _profile_with_certification("AWS Certified Solutions Architect")
+    ops = [UpsertCertification(name="AWS Certified Solutions Architect – Associate",
+                               issuing_organization="AWS")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert result.profile.certifications[0].issuing_organization == "AWS"
+
+
+def test_upsert_language_variant_auto_merges():
+    profile = _profile_with_language("German")
+    ops = [UpsertLanguage(language="German (Native)", level="native")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.languages) == 1
+    assert result.profile.languages[0].level == "native"
 
 
 def test_set_personal_info_fills_empty():
