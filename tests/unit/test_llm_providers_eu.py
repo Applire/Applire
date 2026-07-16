@@ -222,6 +222,43 @@ async def test_rejected_reasoning_effort_retries_without_it_and_floors_budget(mo
     assert client.calls[0]["max_tokens"] >= 4096               # budget floored
 
 
+@pytest.mark.asyncio
+async def test_reasoning_rejection_is_cached_and_not_re_sent(monkeypatch):
+    """#181: after one 400 on reasoning_effort, later calls strip it upfront rather
+    than repeating the wasted reject-then-retry round-trip."""
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m")
+
+    attempts = []
+
+    async def always_reject_reasoning(**kwargs):
+        attempts.append(kwargs)
+        if (kwargs.get("extra_body") or {}).get("reasoning_effort"):
+            raise openai.BadRequestError(
+                message="reasoning_effort is not supported",
+                response=_fake_response(400), body=None,
+            )
+        return _ok_response()
+
+    p._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=always_reject_reasoning))
+    )
+
+    await p.acomplete("q", disable_thinking=True, max_tokens=512)
+    assert len(attempts) == 2                      # rejected once, then stripped retry
+    assert p._reasoning_rejected is True
+
+    attempts.clear()
+    await p.acomplete("q", disable_thinking=True, max_tokens=512)
+    assert len(attempts) == 1                      # cached: stripped upfront, no reject
+    assert attempts[0].get("extra_body") is None
+    assert attempts[0]["max_tokens"] >= 4096       # budget still floored on the cached path
+
+
 # ===========================================================================
 # Anthropic — native Messages API, BYO-API-key (US150)
 # ===========================================================================

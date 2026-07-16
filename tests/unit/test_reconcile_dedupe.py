@@ -89,3 +89,30 @@ def test_engagement_two_token_org_containment_with_equal_month_matches():
         existing=[entry], org_getter=lambda w: w.company,
     )
     assert v.match is entry
+
+
+# ── #181 review (item 3): strong-org + unconfirmed dates + role signal ──
+
+
+def test_engagement_strong_org_no_dates_no_role_is_ambiguous_not_appended():
+    """#181: org SAME, no start months to confirm, and NO role evidence — the old
+    rule appended silently. Strict ADR-046 asks instead."""
+    entry = WorkEntry(company="Continental Automotive GmbH", role="Software Engineer")
+    v = classify_engagement_dupe(
+        org="Continental Automotive", role=None, start_date=None,
+        existing=[entry], org_getter=lambda w: w.company,
+    )
+    assert v.match is None
+    assert v.ambiguous == [entry]
+
+
+def test_engagement_strong_org_no_dates_distinct_role_still_appends():
+    """A clearly different role at the same employer with no confirming dates is a
+    genuine second position — append (empty verdict), don't nag."""
+    entry = WorkEntry(company="Continental Automotive GmbH", role="Software Engineer")
+    v = classify_engagement_dupe(
+        org="Continental Automotive", role="Chief Financial Officer", start_date=None,
+        existing=[entry], org_getter=lambda w: w.company,
+    )
+    assert v.match is None
+    assert not v.ambiguous

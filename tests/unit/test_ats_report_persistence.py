@@ -821,6 +821,70 @@ async def test_letter_condense_llm_failure_keeps_original_letter_ready(db_with_c
     )
 
 
+@pytest.mark.asyncio
+async def test_letter_condense_commit_failure_rolls_back_to_original_not_half_state(
+    db_with_cover_letter,
+):
+    """#181 (review item 4): if the condense pass's own db.commit() fails AFTER
+    cl.letter_data was reassigned to the condensed value, the fail-open handler must
+    roll back and restore the original — otherwise the function's final commit would
+    persist the half-condensed state. Status must still reach 'ready'."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    letter_raw = _stub_letter_data()
+    condensed_raw = _stub_letter_data()
+    condensed_raw["body"]["paragraphs"] = ["Condensed body that must NOT be persisted."]
+
+    mock_provider = AsyncMock()
+    # 1st call = initial generation (succeeds); 2nd = condense generation (succeeds).
+    mock_provider.aparse_json.side_effect = [letter_raw, condensed_raw]
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    mock_render_pdf = AsyncMock(return_value=b"%PDF-original")
+    known_report = _make_ats_report("cover_letter")
+
+    # Fail ONLY the condense commit (the 3rd db.commit in the flow: generating →
+    # initial letter_data → condense → final ready). The others delegate to the
+    # real session so setup and the final ready-flip persist normally.
+    real_commit = session.commit
+    commit_calls = {"n": 0}
+
+    async def flaky_commit():
+        commit_calls["n"] += 1
+        if commit_calls["n"] == 3:
+            raise RuntimeError("condense commit boom")
+        return await real_commit()
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report), \
+         patch.object(session, "commit", flaky_commit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    session.expire_all()
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready", (
+        f"a condense-commit failure must still flip the letter to ready, got {cl.status!r}"
+    )
+    assert cl.letter_data["body"]["paragraphs"] == letter_raw["body"]["paragraphs"], (
+        "the condensed half-state must be rolled back — the ORIGINAL letter_data must "
+        f"be persisted, got {cl.letter_data['body']['paragraphs']!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test CL-3: patch_cover_letter_section enqueues ATS re-audit via BackgroundTasks
 # ---------------------------------------------------------------------------

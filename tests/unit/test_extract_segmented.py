@@ -86,6 +86,45 @@ async def test_segmented_extraction_assembles_full_profile():
 
 
 @pytest.mark.asyncio
+async def test_segmented_extraction_carries_certifications_and_publications():
+    """#182 regression: a CV with certifications + publications must survive the
+    segmented (ADR-047) import path. The core slice owns both sections and the
+    assembler keeps every core key (dict(core)), so they must reach the assembled
+    profile — the adversarial-pass finding's stated cause (prompt/plumbing drops
+    them) does not hold; this locks the previously-untested non-empty path."""
+    provider = AsyncMock()
+
+    async def _route(prompt, *, system, temperature=0.1, max_tokens=4096, disable_thinking=None):
+        s = system.lower()
+        if "outliner" in s:
+            return {"work_experience": []}
+        if "core profile extractor" in s:
+            return {
+                "personal_info": {"name": "Dr. Rita Vogel"},
+                "certifications": [
+                    {"name": "AWS Certified Solutions Architect",
+                     "issuing_organization": "Amazon Web Services",
+                     "date_obtained": "2021-05-01"},
+                ],
+                "publications": [
+                    {"title": "Scaling EU-resident LLM inference", "type": "publication",
+                     "venue": "ACL 2023", "co_authors": ["A. Klein"]},
+                ],
+            }
+        raise AssertionError(f"unexpected system prompt: {system!r}")
+
+    provider.aparse_json.side_effect = _route
+    data = await extract_profile_segmented("RAW", provider)
+
+    assert [c["name"] for c in data["certifications"]] == ["AWS Certified Solutions Architect"]
+    assert [p["title"] for p in data["publications"]] == ["Scaling EU-resident LLM inference"]
+    from applire.schemas.profile import MasterProfileData
+    validated = MasterProfileData.model_validate(data)
+    assert validated.certifications[0].issuing_organization == "Amazon Web Services"
+    assert validated.publications[0].venue == "ACL 2023"
+
+
+@pytest.mark.asyncio
 async def test_segmented_extraction_calls_detail_once_per_role():
     provider = _make_provider()
     await extract_profile_segmented("RAW", provider)
