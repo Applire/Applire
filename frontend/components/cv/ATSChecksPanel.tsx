@@ -23,7 +23,15 @@ import { useTranslations } from "next-intl";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ATSCheck = { id: string; status: "pass" | "fail"; details?: string | null };
+type ATSCheck = {
+  id: string;
+  status: "pass" | "fail";
+  details?: string | null;
+  // E042 follow-up (ADR-038): machine-readable twin of `details` for bands the
+  // frontend localises; `details` stays the EN fallback for legacy reports.
+  details_key?: string | null;
+  details_params?: Record<string, string | number> | null;
+};
 export type ATSReport = {
   checks: ATSCheck[];
   keywords: {
@@ -42,6 +50,17 @@ export type ATSReport = {
 
 // Strip trailing numeric index (e.g. "work-1" → "work", "education-2" → "education", "body-3" → "body")
 const baseId = (id: string) => id.replace(/-\d+$/, "");
+
+// E042 follow-up (ADR-038): detail keys with a translation under ats.checkDetails.
+// Only whitelisted keys go through t() — an unknown key from a newer backend falls
+// back to the EN `details` string instead of rendering a raw key path.
+const LOCALIZED_DETAIL_KEYS = new Set([
+  "page-length-target",
+  "page-length-senior",
+  "page-length-exhausted",
+  "page-length-exceeds",
+  "page-length-letter",
+]);
 
 type CheckGroup = { base: string; checks: ATSCheck[] };
 
@@ -125,6 +144,11 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   }
 
   const labelKey = (id: string) => `checks.${baseId(id)}`;
+  // Localised detail when the backend sent a known key; EN `details` otherwise.
+  const detailText = (c: ATSCheck) =>
+    c.details_key && LOCALIZED_DETAIL_KEYS.has(c.details_key)
+      ? t(`checkDetails.${c.details_key}`, c.details_params ?? {})
+      : c.details;
   const failed = report.checks.filter((c) => c.status === "fail");
   // E042/US239 (ADR-051): a PASSING check can carry a non-null `details` string
   // (e.g. page-length passing "beyond the norm by choice"/"acceptable for senior
@@ -250,7 +274,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                     <span className="text-on-surface-variant">
                       {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
                       {" — "}
-                      {c.details}
+                      {detailText(c)}
                     </span>
                   ) : null}
                 </span>
@@ -268,7 +292,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                   <span className="text-on-surface-variant">
                     {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
                     {" — "}
-                    {c.details}
+                    {detailText(c)}
                   </span>
                 </span>
               </li>
@@ -338,7 +362,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                       {failing.map((c) =>
                         c.details ? (
                           <span key={c.id} className="block text-xs text-on-surface-variant">
-                            {c.details}
+                            {detailText(c)}
                           </span>
                         ) : null,
                       )}
@@ -350,7 +374,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                           data-testid={`ats-drawer-advisory-${c.id}`}
                           className="block text-xs text-primary"
                         >
-                          {c.details}
+                          {detailText(c)}
                         </span>
                       ))}
                     </span>

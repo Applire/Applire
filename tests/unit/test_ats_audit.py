@@ -155,6 +155,8 @@ def test_page_length_three_pages_pass_with_senior_advisory():
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass"
     assert c.details and "3 pages" in c.details and "senior" in c.details and "2" in c.details
+    assert c.details_key == "page-length-senior"
+    assert c.details_params == {"pages": 3, "region": "DACH", "standard": 2}
 
 
 def test_page_length_over_max_fails():
@@ -162,14 +164,28 @@ def test_page_length_over_max_fails():
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "fail"
     assert c.details and "6" in c.details and "2" in c.details and "condensed" not in c.details
+    assert c.details_key == "page-length-exceeds"
+    assert c.details_params == {"pages": 6, "region": "DACH", "standard": 2, "max": 3}
 
 
 def test_page_length_chosen_target_above_standard_pass_with_deviation_advisory():
-    # User chose target=3 (senior). 3 pages meets it → pass WITH deviation advisory.
+    # User chose target=3 (senior). 3 pages USES the allowance (3 > standard 2) and
+    # meets it → pass WITH deviation advisory.
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3, target=3)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass"
     assert c.details and "chosen target of 3" in c.details and "2" in c.details
+    assert c.details_key == "page-length-target"
+    assert c.details_params == {"pages": 3, "target": 3, "region": "DACH", "standard": 2}
+
+
+def test_page_length_within_norm_under_higher_chosen_target_no_advisory():
+    # E042 follow-up: user chose target=3 but the document already fits the DACH
+    # standard (2) — no deviation happened, so no advisory noise. Plain pass.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2, target=3)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+    assert c.details_key is None and c.details_params is None
 
 
 def test_page_length_under_chosen_target_no_advisory_when_target_is_standard():
@@ -187,6 +203,8 @@ def test_page_length_fail_exhausted_wording():
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "fail"
     assert c.details and "condensed to the maximum" in c.details and "5" in c.details
+    assert c.details_key == "page-length-exhausted"
+    assert c.details_params == {"pages": 5, "region": "DACH", "standard": 2, "max": 3}
 
 
 _CV_DUP_BULLET = TailoredCVData.model_validate({
@@ -384,6 +402,8 @@ def test_letter_page_length_two_pages_fails_naming_the_norm():
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "fail"
     assert c.details and "2 pages" in c.details and "DACH" in c.details and "1 page" in c.details
+    assert c.details_key == "page-length-letter"
+    assert c.details_params == {"pages": 2, "region": "DACH", "letterPages": 1}
 
 
 def test_audit_cover_letter_threads_page_count_from_pdf():

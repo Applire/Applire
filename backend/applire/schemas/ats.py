@@ -25,6 +25,12 @@ class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
     status: Literal["pass", "fail"]
     details: Optional[str] = None  # human-readable EN diagnostic; frontend translates labels by id
+    # E042 follow-up (ADR-038 chrome discipline): machine-readable variant of `details`
+    # for user-facing bands the frontend localises (currently the page-length band).
+    # `details` stays populated as the EN fallback — persisted legacy reports and the
+    # agent channel read it. Both None for pure EN diagnostics.
+    details_key: Optional[str] = None
+    details_params: Optional[dict[str, int | str]] = None
 
 
 class ATSKeywordCoverage(BaseModel):

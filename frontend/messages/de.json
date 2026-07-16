@@ -917,6 +917,13 @@
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge"
+    },
+    "checkDetails": {
+      "page-length-target": "{pages} Seiten — entspricht Ihrem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
+      "page-length-senior": "{pages} Seiten — für Senior-Profile akzeptabel; die {region}-Norm sind {standard} Seiten",
+      "page-length-exhausted": "{pages} Seiten — maximal gekürzt; die Länge ergibt sich aus dem Umfang von Ausbildung und Fähigkeiten; überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
+      "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
+      "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}"
     }
   },
   "admin": {

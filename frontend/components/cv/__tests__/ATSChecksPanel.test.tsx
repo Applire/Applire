@@ -65,6 +65,8 @@ const REPORT_WITH_UNSUPPORTED: ATSReport = {
 // string (advisory states — "meets your chosen target" / "acceptable for senior
 // profiles"). The trap: the panel only rendered `details` for FAILING checks —
 // this report exercises the advisory-pass path, mirroring the real backend shape.
+// E042 follow-up (ADR-038): the backend now also sends details_key/details_params
+// so the panel can localise the advisory; `details` stays the EN fallback.
 const REPORT_WITH_ADVISORY: ATSReport = {
   checks: [
     { id: "contact-name", status: "pass" },
@@ -72,12 +74,27 @@ const REPORT_WITH_ADVISORY: ATSReport = {
       id: "page-length",
       status: "pass",
       details: "3 pages — meets your chosen target of 3; the DACH norm is 2 pages",
+      details_key: "page-length-target",
+      details_params: { pages: 3, target: 3, region: "DACH", standard: 2 },
     },
   ],
   keywords: {
     present: ["TypeScript"],
     missing: [],
   },
+};
+
+// A legacy persisted report (pre-details_key JSONB) — the panel must fall back to
+// the raw EN `details` string instead of rendering nothing or a raw key path.
+const REPORT_LEGACY_ADVISORY: ATSReport = {
+  checks: [
+    {
+      id: "page-length",
+      status: "pass",
+      details: "3 pages — acceptable for senior profiles; the DACH norm is 2 pages",
+    },
+  ],
+  keywords: { present: [], missing: [] },
 };
 
 const REPORT_ALL_PASS: ATSReport = {
@@ -267,5 +284,23 @@ describe("ATSChecksPanel", () => {
     // The group itself still reads as passing (no failing entries)
     const group = screen.getByTestId("ats-drawer-check-page-length");
     expect(group.textContent).not.toContain("✗");
+  });
+
+  // E042 follow-up (ADR-038): a details_key must render the LOCALISED string in
+  // German chrome — the raw backend-English `details` was the bug.
+  it("localises a keyed advisory detail in the de locale", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />, "de"));
+    const advisoryRow = screen.getByTestId("ats-advisory-page-length");
+    expect(advisoryRow.textContent).toContain(
+      "3 Seiten — entspricht Ihrem gewählten Ziel von 3; die DACH-Norm sind 2 Seiten",
+    );
+    expect(advisoryRow.textContent).not.toContain("meets your chosen target");
+  });
+
+  // Back-compat: a legacy report without details_key still shows its EN details.
+  it("falls back to the raw details string when no details_key is present", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_LEGACY_ADVISORY} />, "de"));
+    const advisoryRow = screen.getByTestId("ats-advisory-page-length");
+    expect(advisoryRow.textContent).toContain("acceptable for senior profiles");
   });
 });
