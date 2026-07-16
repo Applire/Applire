@@ -144,10 +144,13 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   }
 
   const labelKey = (id: string) => `checks.${baseId(id)}`;
-  // Localised detail when the backend sent a known key; EN `details` otherwise.
+  // Localised detail when the backend sent a known key WITH its params; EN `details`
+  // otherwise. The params check matters: next-intl doesn't throw on a missing ICU
+  // variable — it renders the raw key path — so a keyed check without params
+  // (partially-migrated persisted report) must take the fallback, not t().
   const detailText = (c: ATSCheck) =>
-    c.details_key && LOCALIZED_DETAIL_KEYS.has(c.details_key)
-      ? t(`checkDetails.${c.details_key}`, c.details_params ?? {})
+    c.details_key && c.details_params && LOCALIZED_DETAIL_KEYS.has(c.details_key)
+      ? t(`checkDetails.${c.details_key}`, c.details_params)
       : c.details;
   const failed = report.checks.filter((c) => c.status === "fail");
   // E042/US239 (ADR-051): a PASSING check can carry a non-null `details` string
