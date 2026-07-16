@@ -282,7 +282,8 @@ async def question_generator_with_profile(
         build_question_prompt(cluster, profile, state["messages"], gap_category=gap_category),
         system=with_language(QUESTION_SYSTEM_PROMPT, lang),
         temperature=0.4,
-        disable_thinking=True,  # chrome generation (F-B)
+        max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+        disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
     )
     question = str(data.get("question", "")).strip()
     raw_choices = data.get("choices")

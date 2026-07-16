@@ -1235,6 +1235,10 @@ async def send_message(
         state["messages"].append({"role": "assistant", "content": next_question})
         record.state = state
         record.updated_at = datetime.now(timezone.utc)
+        # ONE commit per turn (#179): the reconciler's profile write (~line 1164)
+        # and this transcript write share the turn's transaction. Never commit
+        # between them — an early commit would persist the profile while a failed
+        # question call rolls the transcript back (a real partial commit).
         await db.commit()
 
         return SessionMessageResponse(

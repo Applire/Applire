@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     requesty_api_key: str = ""
     requesty_model: str = "mistralai/mistral-large-latest"  # set an EU-region model for full residency
     requesty_base_url: str = ""            # empty = use https://router.eu.requesty.ai/v1 (EU residency)
+    requesty_disable_thinking: bool = False  # emits reasoning_effort:"none"; per-call disable_thinking overrides (#179)
+    requesty_reasoning_effort: str = ""      # "" = model default; "low"|"medium"|"high"|"max" bound reasoning when it stays on
     # Anthropic — native Messages API; BYO-API-key only (Claude subscriptions are not usable)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"

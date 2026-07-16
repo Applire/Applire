@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
 from applire.db.session import get_db
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
@@ -173,6 +173,13 @@ async def post_message(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMTruncatedError as exc:
+        # #179: the turn is atomic (single commit after question generation), so a
+        # truncated question rolled the whole turn back — honest + retryable.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{exc} The turn was not saved — resend the same message to retry.",
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

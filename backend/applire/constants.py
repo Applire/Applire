@@ -62,10 +62,14 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
 )
 
 # Token ceiling for a single interview question ("chrome" generation). A question
-# is one short sentence, so this is a ceiling, not a target. Raised from 256 to give
-# thinking models headroom for the answer; paired with disable_thinking on these
-# calls so reasoning tokens don't eat the budget (ADR-009 amendment, F-B).
-INTERVIEW_QUESTION_MAX_TOKENS: int = 512
+# is one short sentence, so this is a ceiling, not a target — max_tokens is billed
+# on actual usage, so headroom is free. Raised 512 → 4096 (#179): disable_thinking
+# is best-effort (Requesty ignored it pre-#179; some models mandate reasoning), and
+# on a reasoning model the hidden chain-of-thought shares this budget — at 512 the
+# question truncated (finish=length → LLMTruncatedError → the whole turn failed).
+# 4096 matches the providers' reasoning-fallback floor; the truncation retry can
+# still double it (stays far below TRUNCATION_RETRY_CEILING).
+INTERVIEW_QUESTION_MAX_TOKENS: int = 4096
 
 # Token ceiling for CV/LinkedIn → master-profile extraction (and its review/refine
 # retries). The output is a full structured profile, and on thinking models the
