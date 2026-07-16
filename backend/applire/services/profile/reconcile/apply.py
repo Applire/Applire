@@ -44,6 +44,7 @@ from applire.schemas.profile import (
     Language,
     MasterProfileData,
     ProjectEntry,
+    Publication,
     Skill,
     VolunteerActivity,
     WorkEntry,
@@ -62,6 +63,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertEducation,
     UpsertLanguage,
     UpsertProject,
+    UpsertPublication,
     UpsertSkill,
     UpsertVolunteer,
     UpsertWork,
@@ -270,6 +272,8 @@ def apply_ops(
             _apply_upsert_language(op, new_profile, changes, pending)
         elif isinstance(op, UpsertEducation):
             _apply_upsert_education(op, new_profile, changes, pending)
+        elif isinstance(op, UpsertPublication):
+            _apply_upsert_publication(op, new_profile, changes, pending)
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve, changes)
         elif isinstance(op, SetPersonalInfo):
@@ -773,6 +777,38 @@ def _apply_upsert_education(op, profile, changes, pending):
         grade=op.grade,
     ))
     changes.append(_added("education", "institution", op.institution))
+
+
+def _apply_upsert_publication(op, profile, changes, pending):
+    # #177: publications had NO reconciler op at all — they rode the import slice
+    # group but were silently un-mergeable. Same three-band policy as education.
+    verdict = classify_dupe(
+        {"title": op.title}, profile.publications, {"title": lambda p: p.title}
+    )
+    if verdict.match is not None:
+        _fill_empties(verdict.match, {
+            "venue": op.venue, "published_date": op.published_date,
+            "doi": op.doi, "url": op.url, "patent_number": op.patent_number,
+        })
+        return
+    if verdict.ambiguous:
+        related = [p.title for p in verdict.ambiguous]
+        pending.append(RequestConfirmation(
+            question=(
+                f"'{op.title}' shares its wording with a publication already on "
+                f"your profile ({'; '.join(related)}). Is it the same publication?"
+            ),
+            options=["Same publication — merge", "Different — keep both"],
+            context={"section": "publications", "incoming": op.model_dump(exclude={"op"}),
+                     "existing": related},
+        ))
+        return
+    profile.publications.append(Publication(
+        title=op.title, type=op.type, venue=op.venue,
+        published_date=op.published_date, doi=op.doi, url=op.url,
+        patent_number=op.patent_number, co_authors=op.co_authors,
+    ))
+    changes.append(_added("publications", "title", op.title))
 
 
 def _apply_set_field(op, resolve, changes):

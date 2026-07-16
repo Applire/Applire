@@ -125,6 +125,18 @@ class UpsertEducation(BaseModel):
     grade: str | None = None
 
 
+class UpsertPublication(BaseModel):
+    op: Literal["upsert_publication"] = "upsert_publication"
+    title: str
+    type: Literal["publication", "patent"] = "publication"
+    venue: str | None = None
+    published_date: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    patent_number: str | None = None
+    co_authors: list[str] = Field(default_factory=list)
+
+
 # ── Field / scalar ops ────────────────────────────────────────────────────────
 
 
@@ -177,6 +189,7 @@ ReconcileOp = Annotated[
         UpsertCertification,
         UpsertLanguage,
         UpsertEducation,
+        UpsertPublication,
         SetField,
         SetPersonalInfo,
         SetSummary,

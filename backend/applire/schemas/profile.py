@@ -162,6 +162,34 @@ class EducationEntry(BaseModel):
     relevant_coursework: list[str] = Field(default_factory=list)
 
 
+def _coerce_partial_date(v: Any) -> Any:
+    """Expand a partial date string to a full ``date`` (issue #70).
+
+    Real CVs / LinkedIn list dates as 'YYYY' or 'YYYY-MM'; the strict date
+    parser rejects them and aborts the whole import. Coerce rather than
+    raise — fall back to None only if genuinely unparseable. Shared by
+    ``Certification`` and ``Publication`` (#177).
+    """
+    if v is None or isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        for suffix in ("", "-01", "-01-01"):
+            try:
+                return datetime.strptime(s + suffix, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+        for fmt in ("%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        return None
+    return v
+
+
 class Certification(BaseModel):
     name: str
     issuing_organization: str | None = None
@@ -172,31 +200,8 @@ class Certification(BaseModel):
 
     @field_validator("date_obtained", "expiry_date", mode="before")
     @classmethod
-    def _coerce_partial_date(cls, v: Any) -> Any:
-        """Expand partial cert dates to a full date (issue #70).
-
-        Real CVs / LinkedIn list certs as 'YYYY' or 'YYYY-MM'; the strict date
-        parser rejects them and aborts the whole import. Coerce rather than
-        raise — fall back to None only if genuinely unparseable.
-        """
-        if v is None or isinstance(v, date):
-            return v
-        if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return None
-            for suffix in ("", "-01", "-01-01"):
-                try:
-                    return datetime.strptime(s + suffix, "%Y-%m-%d").date()
-                except ValueError:
-                    continue
-            for fmt in ("%d.%m.%Y", "%d/%m/%Y"):
-                try:
-                    return datetime.strptime(s, fmt).date()
-                except ValueError:
-                    continue
-            return None
-        return v
+    def _coerce_cert_dates(cls, v: Any) -> Any:
+        return _coerce_partial_date(v)
 
 
 _PROFICIENCY_ALIASES: dict[str, str] = {
@@ -296,6 +301,11 @@ class Publication(BaseModel):
     doi: str | None = None
     url: str | None = None
     patent_number: str | None = None
+
+    @field_validator("published_date", mode="before")
+    @classmethod
+    def _coerce_partial_pub_date(cls, v: Any) -> Any:
+        return _coerce_partial_date(v)
 
 
 class VolunteerActivity(ExperienceBase):

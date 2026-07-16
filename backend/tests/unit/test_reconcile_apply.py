@@ -18,6 +18,8 @@
 """ADR-046 — deterministic applier acceptance + edge tests."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from applire.schemas.profile import (
@@ -25,6 +27,7 @@ from applire.schemas.profile import (
     EducationEntry,
     Language,
     MasterProfileData,
+    Publication,
     Skill,
     WorkEntry,
 )
@@ -40,6 +43,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertEducation,
     UpsertLanguage,
     UpsertProject,
+    UpsertPublication,
     UpsertSkill,
     UpsertVolunteer,
     UpsertWork,
@@ -64,6 +68,10 @@ def _profile_with_work(company: str, role: str, start_date: str | None) -> Maste
     return MasterProfileData(
         work_experience=[WorkEntry(company=company, role=role, start_date=start_date)]
     )
+
+
+def _profile_with_publication(title: str) -> MasterProfileData:
+    return MasterProfileData(publications=[Publication(title=title)])
 
 
 # ── Acceptance fixtures ───────────────────────────────────────────────────────
@@ -554,6 +562,19 @@ def test_upsert_language_variant_auto_merges():
     result = apply_ops(profile, ops, source="test")
     assert len(result.profile.languages) == 1
     assert result.profile.languages[0].level == "native"
+
+
+def test_upsert_publication_appends_and_dedupes():
+    profile = _profile_with_publication("Model-based Testing of Embedded Systems")
+    ops = [UpsertPublication(title="Model-Based Testing of Embedded Systems", venue="ETFA 2019")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.publications) == 1
+    assert result.profile.publications[0].venue == "ETFA 2019"   # empty filled
+
+
+def test_publication_partial_date_coerces():
+    p = Publication(title="T", published_date="2019")
+    assert p.published_date == date(2019, 1, 1)
 
 
 def test_set_personal_info_fills_empty():

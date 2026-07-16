@@ -93,6 +93,14 @@ def test_unknown_op_rejected():
         adapter.validate_python({"op": "delete_everything", "target": "w1"})
 
 
+def test_upsert_publication_op_parses():
+    from applire.services.profile.reconcile.ops import UpsertPublication
+
+    op = UpsertPublication(title="Model-based Testing of Embedded Systems", venue="ETFA",
+                           published_date="2019", type="publication")
+    assert op.op == "upsert_publication"
+
+
 def test_upsert_work_carries_is_current_marker():
     # #155 — the op vocabulary can record "current position" without an end_date.
     from applire.services.profile.reconcile.ops import ReconcileOp, UpsertWork
