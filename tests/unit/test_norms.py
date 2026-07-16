@@ -42,6 +42,12 @@ def test_region_norms_has_dach_row():
     assert dach.letter_pages == 1
 
 
+def test_region_norm_carries_letter_word_budget():
+    """#177 / ADR-051 §6 amended: the letter gets a feedforward body-word budget
+    that reliably fits letter_pages — the CV's guarantee shape, applied to letters."""
+    assert REGION_NORMS["DACH"].letter_body_word_budget == 300
+
+
 def test_default_region_is_dach():
     assert DEFAULT_REGION == "DACH"
 

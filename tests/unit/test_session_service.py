@@ -14,6 +14,7 @@ Run:
     pytest tests/unit/test_session_service_coverage.py -v
 """
 
+import copy
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -968,6 +969,60 @@ class TestSendMessage:
         assert prompt.context["existing"] == "Founder & Lead Developer"
 
     @pytest.mark.asyncio
+    async def test_truncated_next_question_rolls_back_whole_turn(self, sqlite_session):
+        """#179 atomicity pin: profile AND transcript both roll back — the reconciler
+        must never out-live a failed turn (one commit per turn)."""
+        from applire.exceptions import LLMTruncatedError
+        from applire.models.profile import MasterProfile
+        from applire.models.session import InterviewSession
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        session_id = session_record.id
+        profile_id = profile.id
+        profile_before = (await sqlite_session.get(MasterProfile, profile_id)).profile_json
+        msgs_before = len((await sqlite_session.get(InterviewSession, session_id)).state["messages"])
+
+        # Reconcile succeeds and produces a real profile write (the reconciler's
+        # upsert), but the NEXT question generation call truncates — the whole
+        # turn (reconcile write + transcript write) must roll back together.
+        # NOTE: the canned turn must carry a genuine diff from profile_before —
+        # a turn that echoes profile.profile_json unchanged makes
+        # `profile_record.profile_json = turn.profile_dict` a no-op self-assignment,
+        # so the final equality assertion would pass whether or not the rollback
+        # actually worked (#179 review finding 1).
+        mutated_profile = copy.deepcopy(profile.profile_json)
+        mutated_profile["skills"] = mutated_profile.get("skills", []) + [
+            {"name": "Atomicity Probe Skill", "category": "technical", "proficiency": "advanced"}
+        ]
+        turn = _addressed_turn(mutated_profile)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(side_effect=LLMTruncatedError("model=m finish=length"))),
+        ):
+            with pytest.raises(LLMTruncatedError):
+                await send_message(
+                    session_id, "I led a team of five engineers",
+                    sqlite_session, _mock_provider(),
+                )
+        await sqlite_session.rollback()  # what get_db's context exit does in production
+
+        assert len((await sqlite_session.get(InterviewSession, session_id)).state["messages"]) == msgs_before
+        assert (await sqlite_session.get(MasterProfile, profile_id)).profile_json == profile_before
+
+    @pytest.mark.asyncio
     async def test_confirmation_answer_advances_without_re_asking(self, sqlite_session):
         """After a confirmation is shown, the next answer resolves it and the loop
         moves on — it does not loop on the same gap (US185)."""
@@ -1443,6 +1498,27 @@ class TestSessionRouter:
                 )
 
         assert resp.status_code == 503
+
+    def test_post_message_502_on_truncated_error(self):
+        """#179: a truncated question maps to a retryable 502, not a raw 500 — the
+        turn is atomic (single commit), so it was never saved."""
+        from fastapi.testclient import TestClient
+        from applire.exceptions import LLMTruncatedError
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        with patch("applire.routers.session.send_message",
+                   new=AsyncMock(side_effect=LLMTruncatedError("model=m finish=length"))):
+            with TestClient(app) as client:
+                resp = client.post(
+                    f"/api/session/{_uuid.uuid4()}/message",
+                    json={"message": "test message"},
+                )
+
+        assert resp.status_code == 502
+        assert "resend" in resp.json()["detail"]
 
     def test_analyze_session_gaps_404_on_lookup_error(self):
         from fastapi.testclient import TestClient

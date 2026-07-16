@@ -87,7 +87,8 @@ Rules:
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
 - Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.
-- Keep total letter body under 400 words.
+- Keep the letter body within the WORD BUDGET given in the user message — that line also
+  states the region's page norm (ADR-051 §1: no page/word number is ever hard-coded here).
 - Use the tone specified: formal=sehr geehrte/r, professional=warm but polished, conversational=direct.
 """
 
@@ -99,6 +100,8 @@ def build_cover_letter_prompt(
     detected_language: str,
     keyword_ledger: list[dict[str, Any]] | None = None,
     role_title: str | None = None,
+    word_budget: int | None = None,
+    letter_pages: int | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -115,6 +118,13 @@ def build_cover_letter_prompt(
         applying to and the LLM sourced a title from the candidate's own CV/summary
         instead (e.g. the candidate's CURRENT title), producing a letter that targets
         the wrong position. Optional so legacy/degraded callers do not break.
+    word_budget: feedforward body-word budget from REGION_NORMS (#177, ADR-051 §6
+        amended) — the CV's guarantee shape, extended to letters. Optional so
+        legacy/degraded callers do not break.
+    letter_pages: the region's page norm (REGION_NORMS[region].letter_pages) —
+        interpolated into the WORD BUDGET line so SYSTEM_PROMPT never has to
+        hard-code "one page" (ADR-051 §1 review finding). Optional so legacy/
+        degraded callers do not break; only used when word_budget is also given.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -158,6 +168,28 @@ def build_cover_letter_prompt(
         f"Key skills: {skills_snippet}",
         "Recent experience:",
         work_snippet.strip(),
+    ]
+
+    # #177 / ADR-051 §6 amended: feedforward body-word budget from REGION_NORMS —
+    # the CV's guarantee shape, extended to letters. Placed before the JD block so
+    # it reads as a constraint on the CANDIDATE PROFILE material, not the JD.
+    # letter_pages is interpolated here (never hard-coded) so SYSTEM_PROMPT can
+    # point at this line instead of stating a literal page count (ADR-051 §1).
+    if word_budget:
+        if letter_pages:
+            page_word = "page" if letter_pages == 1 else "pages"
+            budget_line = (
+                f"WORD BUDGET: at most {word_budget} words of body text — "
+                f"the letter must fit the region's {letter_pages}-{page_word} norm."
+            )
+        else:
+            budget_line = (
+                f"WORD BUDGET: at most {word_budget} words of body text — "
+                "the letter must fit the region's page norm."
+            )
+        lines += ["", budget_line]
+
+    lines += [
         "",
         "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
         jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
@@ -206,3 +238,31 @@ def build_cover_letter_prompt(
     ]
 
     return "\n".join(lines)
+
+
+def build_condense_prompt(
+    letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
+) -> str:
+    """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
+    same facts, fewer words. Omission-only in spirit — nothing new is claimed.
+
+    Letters have no deterministic bullet-cut model the way CVs do (ADR-051 §4), so
+    this is a scoped LLM rewrite — an ADR-approved deviation, bounded to exactly one
+    pass by the caller (never a loop).
+
+    letter_pages: the region's page norm (REGION_NORMS[region].letter_pages) — ADR-051
+        §1 forbids hard-coding a page number in the prompt text; the caller always
+        passes the norm value (currently 1 for DACH, but never literal here).
+    """
+    page_word = "page" if letter_pages == 1 else "pages"
+    return "\n".join([
+        f"The following cover letter rendered to {page_count} pages; "
+        f"it must fit on {letter_pages} {page_word}.",
+        f"Rewrite it to AT MOST {word_budget} words of body text.",
+        "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        "Shorten by cutting redundancy and secondary detail — NEVER add new facts,",
+        "achievements, or claims that are not in the original letter.",
+        "",
+        "=== CURRENT LETTER (JSON) ===",
+        json.dumps(letter_data, ensure_ascii=False, indent=2),
+    ])

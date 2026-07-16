@@ -91,6 +91,10 @@ Operations:
 - upsert_education — Fields: institution, degree, field, start_date, end_date,
   grade.
 
+- upsert_publication — a publication or patent. Fields: title, type
+  ("publication" or "patent"), venue, published_date, doi, url, patent_number,
+  co_authors. title is required.
+
 - set_field — fill a single empty scalar field on an entity. Fields: target (an
   existing id OR a local ref), field (the field name), value. Use ONLY to fill a
   gap (a currently-empty field); NEVER to overwrite a non-empty value.

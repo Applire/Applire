@@ -65,6 +65,7 @@ from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
 
 from applire.config import settings
+from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
 from applire.models.application import UserStatus
@@ -274,8 +275,10 @@ async def get_profile() -> dict:
     description=(
         "Update a section of the MasterProfile. "
         f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
-        "data is a dict for object-shaped sections (e.g. personal_info) or a list "
-        "for list-shaped sections (e.g. skills, work_experience)."
+        "Object-shaped sections (personal_info, professional_summary) are PATCHED: "
+        "supplied keys are merged, an explicit null clears a field, omitted keys "
+        "keep their value. List-shaped sections (e.g. skills, work_experience) are "
+        "REPLACED WHOLESALE with the supplied list — always send the complete list."
     )
 )
 async def update_profile(section: str, data: dict | list) -> dict:
@@ -346,6 +349,10 @@ async def send_message(session_id: str, message: str) -> dict:
             raise not_found(str(exc))
         except ValueError as exc:
             raise invalid_input(str(exc))
+        except LLMTruncatedError as exc:
+            raise internal(
+                f"{exc} The turn was rolled back — resend the same message to retry."
+            )
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")

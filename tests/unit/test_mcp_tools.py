@@ -485,6 +485,34 @@ async def test_send_message_already_complete_raises():
     assert exc_info.value.error.code == -32602
 
 
+@pytest.mark.asyncio
+async def test_send_message_truncated_raises_internal_with_resend_hint():
+    """#179: LLMTruncatedError must map to a retryable internal error — not a
+    generic 500 — with a message that tells the agent the turn was rolled
+    back and it should resend the same message (mirrors
+    test_send_message_already_complete_raises for the ValueError channel)."""
+    from applire.exceptions import LLMTruncatedError
+    from applire.mcp.server import send_message
+
+    session_id = str(uuid.uuid4())
+    cm, _ = _mock_db()
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.session_svc.send_message",
+            AsyncMock(side_effect=LLMTruncatedError("model=m finish=length")),
+        ),
+    ):
+        with pytest.raises(McpError) as exc_info:
+            await send_message(session_id=session_id, message="hello")
+
+    assert exc_info.value.error.code == -32603
+    assert "resend" in exc_info.value.error.message.lower()
+    assert "rolled back" in exc_info.value.error.message.lower()
+
+
 # ---------------------------------------------------------------------------
 # generate_cv
 # ---------------------------------------------------------------------------
