@@ -613,6 +613,7 @@ async def _render_cover_letter_background(
                     # stay the honest backstop — rather than propagate to the outer
                     # handler and mark the whole letter 'failed', discarding a good
                     # letter over a failed optimization.
+                    original_letter_data = letter_data
                     try:
                         condensed = await provider.aparse_json(
                             build_condense_prompt(
@@ -657,6 +658,25 @@ async def _render_cover_letter_background(
                             "Condense pass failed for CL %s — keeping the original letter: %s",
                             cl_id, condense_err,
                         )
+                        # #181 (review item 4): if the failure was the condense
+                        # db.commit() itself, cl.letter_data is already the condensed
+                        # value in-memory and the session needs a rollback before it
+                        # can be reused — otherwise the function's final commit would
+                        # persist the half-condensed state (or raise on a dirty
+                        # session). Roll back to discard the failed transaction, then
+                        # refresh cl so it holds the last-committed (original) value as
+                        # clean, LOADED state — a bare rollback leaves cl expired, and
+                        # the expired-attribute reload during the final flush trips a
+                        # MissingGreenlet (rollback expires the ORM).
+                        try:
+                            await db.rollback()
+                            await db.refresh(cl)
+                        except Exception as restore_err:  # pragma: no cover - defensive
+                            logger.warning(
+                                "Condense rollback/restore failed for CL %s: %s",
+                                cl_id, restore_err,
+                            )
+                        letter_data = original_letter_data
 
             # ADR-039 — persist the ATS audit (commits while status is still 'generating').
             # An audit failure is non-fatal: it leaves ats_report NULL and we still flip ready.

@@ -112,6 +112,13 @@ def classify_engagement_dupe(
     can share one token. It always routes to AMBIGUOUS (ask), regardless of
     dates; only a 2+-token containment or a full near-dupe counts as SAME and
     can go on to the date-based MATCH check below.
+
+    ADR-046 (amended 2026-07-16, #181 review): once the org is a strong match
+    (SAME) but the start months don't confirm one stint, the only way to APPEND
+    silently is a clearly DISTINCT role — that's a genuine second position at the
+    same employer. Any weaker role signal (near/exact role, or NO role evidence at
+    all) is ambiguous → ask. The old rule appended silently when role was absent,
+    which could hide a duplicate whenever the reconciler omitted the role.
     """
     verdict = DupeVerdict()
     for entry in existing:
@@ -127,6 +134,8 @@ def classify_engagement_dupe(
             return verdict
         role_rel = _field_relation(role, getattr(entry, "role", None),
                                    containment_is_same=False)
-        if role_rel in (_SAME, _AMBIG):
+        # Strong org, unconfirmed dates: append only when the roles clearly differ
+        # (_DISTINCT). Otherwise — including no role evidence (role_rel is None) — ask.
+        if role_rel != _DISTINCT:
             verdict.ambiguous.append(entry)
     return verdict

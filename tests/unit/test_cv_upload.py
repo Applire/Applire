@@ -409,6 +409,64 @@ async def test_upload_cv_first_import(sqlite_session, tmp_path):
     assert response.status == "COMPLETE"
 
 
+@pytest.mark.asyncio
+async def test_upload_cv_first_import_preserves_certifications_and_publications(
+    sqlite_session, tmp_path
+):
+    """#182 regression: a CV that lists certifications and publications imports them
+    into the stored profile_json end-to-end (extraction → review → validate → store).
+
+    Both extraction prompts request the sections, MasterProfileData carries them, and
+    the first-import path dumps the validated profile directly — so nothing drops
+    them. The adversarial-pass finding's stated cause ("prompt never asks / only the
+    interview can create them") does not hold on this path; the real gap was test
+    coverage, because MockLLMProvider emits neither section. This locks that gap."""
+    from applire.services.profile import upload_cv, _get_latest
+    from applire.storage.local import LocalStorageProvider
+
+    mock_provider = AsyncMock()
+    mock_provider.__class__.__name__ = "MockProvider"
+    profile_data = {
+        "personal_info": {"name": "Dr. Rita Vogel", "email": "rita@example.de"},
+        "work_experience": [
+            {"company": "SAP SE", "role": "Research Engineer", "start_date": "2019-01",
+             "responsibilities": ["Built ML pipelines"], "technologies": ["Python"]},
+        ],
+        "certifications": [
+            {"name": "AWS Certified Solutions Architect",
+             "issuing_organization": "Amazon Web Services", "date_obtained": "2021-05-01"},
+        ],
+        "publications": [
+            {"title": "Scaling EU-resident LLM inference", "type": "publication",
+             "venue": "ACL 2023", "co_authors": ["A. Klein"]},
+        ],
+    }
+    mock_provider.aparse_json.return_value = profile_data
+    mock_ocr = AsyncMock()
+
+    with patch("applire.services.cv_parser.extract_text", new=AsyncMock(return_value="Dr. Rita Vogel\nResearch Engineer")), \
+         patch("applire.services.profile.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+         patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)):
+        storage = LocalStorageProvider(str(tmp_path))
+        await upload_cv(
+            file_bytes=b"fake-pdf",
+            filename="cv.pdf",
+            content_type="application/pdf",
+            db=sqlite_session,
+            provider=mock_provider,
+            storage=storage,
+            ocr_extractor=mock_ocr,
+        )
+
+    record = await _get_latest(sqlite_session)
+    certs = record.profile_json["certifications"]
+    pubs = record.profile_json["publications"]
+    assert [c["name"] for c in certs] == ["AWS Certified Solutions Architect"]
+    assert certs[0]["issuing_organization"] == "Amazon Web Services"
+    assert [p["title"] for p in pubs] == ["Scaling EU-resident LLM inference"]
+    assert pubs[0]["venue"] == "ACL 2023"
+
+
 # ---------------------------------------------------------------------------
 # 8. upload_cv() — second import triggers merge
 # ---------------------------------------------------------------------------

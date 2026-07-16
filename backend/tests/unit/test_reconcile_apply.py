@@ -729,6 +729,22 @@ def test_upsert_work_different_org_still_appends():
     assert len(result.profile.work_experience) == 2
 
 
+def test_upsert_work_unresolved_target_still_runs_near_dup_guard():
+    """#181 pin (item 2): op.target is SET but resolves to nothing — a stale or
+    hallucinated id that matches no existing entry and no ref_map ref. `target`
+    stays None, so the deterministic near-dup guard still fires rather than blindly
+    appending a duplicate. Here the same-org/same-month signal adopts the stint.
+    This behavior is deliberate, not only the op.target-is-None case."""
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", target="ghost-id-not-in-this-profile",
+                      company="Continental Automotive", role="Senior Software Engineer",
+                      start_date="2015-04-15")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1          # adopted, not duplicated
+    assert "Senior Software Engineer" in result.profile.work_experience[0].role_aliases
+
+
 # ── #177 review (finding 2): ambiguous engagement must not drop co-batched bullets ──
 
 

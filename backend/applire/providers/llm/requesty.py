@@ -101,6 +101,11 @@ class RequestyProvider(LLMProvider):
             reasoning_effort if reasoning_effort is not None
             else settings.requesty_reasoning_effort
         ) or ""
+        # #181: once the configured model has 400'd on reasoning_effort we know it
+        # never will, so cache the rejection and stop re-sending it. Without this the
+        # reject-then-retry round-trip repeats on every truncation-doubled attempt and
+        # on every subsequent call — a wasted API round-trip each time on that path.
+        self._reasoning_rejected = False
 
     async def acomplete(
         self,
@@ -171,12 +176,25 @@ class RequestyProvider(LLMProvider):
         return None
 
     async def _create(self, *, max_tokens: int, extra_body: dict | None, **kwargs):
+        # #181: skip the doomed reasoning_effort request once this model has rejected
+        # it — strip it upfront and floor the budget, so neither a truncation retry nor
+        # a later call repeats the wasted reject-then-retry round-trip.
+        if self._reasoning_rejected and extra_body and "reasoning_effort" in extra_body:
+            extra_body = {k: v for k, v in extra_body.items() if k != "reasoning_effort"} or None
+            max_tokens = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
         try:
             return await self._client.chat.completions.create(
                 max_tokens=max_tokens, extra_body=extra_body, **kwargs
             )
         except openai.BadRequestError as exc:
             if extra_body and "reasoning_effort" in extra_body:
+                # Latch the rejection only when the 400 is actually about reasoning —
+                # an unrelated 400 (context-length, bad response_format) that merely
+                # co-occurs with reasoning_effort must not permanently disable
+                # reasoning control for this instance. The one-shot stripped retry
+                # below still runs either way (harmless if the real cause persists).
+                if "reasoning" in str(exc).lower():
+                    self._reasoning_rejected = True
                 logger.warning(
                     "model=%s rejected reasoning_effort=%s; retrying without it, "
                     "max_tokens>=%d (%s)",
