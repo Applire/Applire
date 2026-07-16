@@ -20,8 +20,11 @@
 Anthropic (native Messages API). All tests mock the SDK clients — no real API calls.
 """
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import openai
 import pytest
 
 
@@ -120,6 +123,103 @@ async def test_requesty_rate_limit_maps_to_llm_error(monkeypatch):
     provider._client.chat.completions.create = AsyncMock(side_effect=err)
     with pytest.raises(LLMRateLimitError):
         await provider.acomplete("x")
+
+
+# ---------------------------------------------------------------------------
+# Requesty — reasoning controls: top-level reasoning_effort + 400-fallback (#179)
+# ---------------------------------------------------------------------------
+
+
+class _CaptureClient:
+    def __init__(self, response):
+        self.calls = []
+        self._response = response
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    async def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        if isinstance(self._response, Exception):
+            raise self._response
+        return self._response
+
+
+def _ok_response(text="hi"):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=text))],
+        usage=None,
+    )
+
+
+def _fake_response(status_code: int) -> httpx.Response:
+    request = httpx.Request("POST", "https://router.eu.requesty.ai/v1/chat/completions")
+    return httpx.Response(status_code, request=request)
+
+
+@pytest.mark.asyncio
+async def test_disable_thinking_sends_reasoning_effort_none(monkeypatch):
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m")
+    p._client = _CaptureClient(_ok_response())
+    await p.acomplete("q", disable_thinking=True)
+    assert p._client.calls[0]["extra_body"] == {"reasoning_effort": "none"}
+
+
+@pytest.mark.asyncio
+async def test_configured_effort_sent_when_thinking_enabled(monkeypatch):
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m", reasoning_effort="low")
+    p._client = _CaptureClient(_ok_response())
+    await p.acomplete("q")
+    assert p._client.calls[0]["extra_body"] == {"reasoning_effort": "low"}
+
+
+@pytest.mark.asyncio
+async def test_no_extra_body_by_default(monkeypatch):
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m")
+    p._client = _CaptureClient(_ok_response())
+    await p.acomplete("q")
+    assert p._client.calls[0].get("extra_body") is None
+
+
+@pytest.mark.asyncio
+async def test_rejected_reasoning_effort_retries_without_it_and_floors_budget(monkeypatch):
+    """A model/router that 400s on reasoning_effort must still work (mirrors OpenRouter)."""
+    import applire.config as cfg
+    monkeypatch.setattr(cfg.settings, "requesty_reasoning_effort", "", raising=False)
+    monkeypatch.setattr(cfg.settings, "requesty_disable_thinking", False, raising=False)
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+        p = RequestyProvider(api_key="k", model="m")
+    client = _CaptureClient(_ok_response())
+    first = {"n": 0}
+    real_create = client._create
+
+    async def flaky(**kwargs):
+        if first["n"] == 0:
+            first["n"] += 1
+            raise openai.BadRequestError(
+                message="reasoning_effort is not supported", response=_fake_response(400), body=None
+            )
+        return await real_create(**kwargs)
+
+    client.chat.completions.create = flaky
+    p._client = client
+    await p.acomplete("q", disable_thinking=True, max_tokens=512)
+    assert client.calls[0].get("extra_body") is None          # retry dropped the field
+    assert client.calls[0]["max_tokens"] >= 4096               # budget floored
 
 
 # ===========================================================================
