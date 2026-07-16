@@ -245,6 +245,42 @@ def test_build_cover_letter_prompt_role_title_optional():
     assert isinstance(prompt, str)
 
 
+def test_cover_letter_prompt_carries_word_budget_line():
+    """#177 / ADR-051 §6 amended: the feedforward word budget (from REGION_NORMS)
+    reaches the LLM as an explicit instruction, before the JD block."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={},
+        detected_language="de", word_budget=300,
+    )
+    assert "300" in prompt and "WORD BUDGET" in prompt
+
+
+def test_cover_letter_prompt_omits_word_budget_line_when_not_given():
+    """word_budget is optional — legacy/degraded callers must not break."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="de",
+    )
+    assert "WORD BUDGET" not in prompt
+
+
+def test_build_condense_prompt_carries_budget_page_count_and_json():
+    """build_condense_prompt (#177): one bounded condense-regenerate — same JSON
+    shape, same facts, fewer words. Must not invite new claims."""
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter_data = {"body": {"paragraphs": ["Hello there."]}}
+    prompt = build_condense_prompt(letter_data, word_budget=300, page_count=2)
+    assert "300" in prompt
+    assert "2 pages" in prompt
+    assert "1 page" in prompt
+    assert "Hello there." in prompt
+    assert "NEVER add new facts" in prompt
+
+
 def test_build_cover_letter_prompt_returns_system_and_user():
     from applire.prompts.cover_letter import build_cover_letter_prompt, SYSTEM_PROMPT
     prompt = build_cover_letter_prompt(

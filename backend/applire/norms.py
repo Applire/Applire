@@ -34,10 +34,15 @@ class RegionNorm:
     cv_standard_pages: int
     cv_max_pages: int
     letter_pages: int
+    # Feedforward body-word budget that reliably fits letter_pages in the letter
+    # template (ADR-051 §6 amended, #177: enforcement, not just detection, for
+    # letters — the CV's guarantee shape, extended to cover letters).
+    letter_body_word_budget: int
 
 
 REGION_NORMS: dict[str, RegionNorm] = {
-    "DACH": RegionNorm(cv_standard_pages=2, cv_max_pages=3, letter_pages=1),
+    "DACH": RegionNorm(cv_standard_pages=2, cv_max_pages=3, letter_pages=1,
+                        letter_body_word_budget=300),
 }
 
 DEFAULT_REGION = "DACH"

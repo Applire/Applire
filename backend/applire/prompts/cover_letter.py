@@ -87,7 +87,7 @@ Rules:
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
 - Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.
-- Keep total letter body under 400 words.
+- Keep the letter body within the WORD BUDGET given in the user message — the letter must fit the region's one-page norm.
 - Use the tone specified: formal=sehr geehrte/r, professional=warm but polished, conversational=direct.
 """
 
@@ -99,6 +99,7 @@ def build_cover_letter_prompt(
     detected_language: str,
     keyword_ledger: list[dict[str, Any]] | None = None,
     role_title: str | None = None,
+    word_budget: int | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -115,6 +116,9 @@ def build_cover_letter_prompt(
         applying to and the LLM sourced a title from the candidate's own CV/summary
         instead (e.g. the candidate's CURRENT title), producing a letter that targets
         the wrong position. Optional so legacy/degraded callers do not break.
+    word_budget: feedforward body-word budget from REGION_NORMS (#177, ADR-051 §6
+        amended) — the CV's guarantee shape, extended to letters. Optional so
+        legacy/degraded callers do not break.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -158,6 +162,15 @@ def build_cover_letter_prompt(
         f"Key skills: {skills_snippet}",
         "Recent experience:",
         work_snippet.strip(),
+    ]
+
+    # #177 / ADR-051 §6 amended: feedforward body-word budget from REGION_NORMS —
+    # the CV's guarantee shape, extended to letters. Placed before the JD block so
+    # it reads as a constraint on the CANDIDATE PROFILE material, not the JD.
+    if word_budget:
+        lines += ["", f"WORD BUDGET: at most {word_budget} words of body text — the letter must fit on one page."]
+
+    lines += [
         "",
         "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
         jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
@@ -206,3 +219,23 @@ def build_cover_letter_prompt(
     ]
 
     return "\n".join(lines)
+
+
+def build_condense_prompt(letter_data: dict[str, Any], word_budget: int, page_count: int) -> str:
+    """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
+    same facts, fewer words. Omission-only in spirit — nothing new is claimed.
+
+    Letters have no deterministic bullet-cut model the way CVs do (ADR-051 §4), so
+    this is a scoped LLM rewrite — an ADR-approved deviation, bounded to exactly one
+    pass by the caller (never a loop).
+    """
+    return "\n".join([
+        f"The following cover letter rendered to {page_count} pages; it must fit on 1 page.",
+        f"Rewrite it to AT MOST {word_budget} words of body text.",
+        "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        "Shorten by cutting redundancy and secondary detail — NEVER add new facts,",
+        "achievements, or claims that are not in the original letter.",
+        "",
+        "=== CURRENT LETTER (JSON) ===",
+        json.dumps(letter_data, ensure_ascii=False, indent=2),
+    ])

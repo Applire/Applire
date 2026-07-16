@@ -1076,3 +1076,115 @@ async def test_router_cl_ats_report_404_unknown(cl_ats_client):
     client, _ = cl_ats_client
     resp = await client.get(f"/api/cover-letter/{uuid.uuid4()}/ats-report")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# #177 / ADR-051 §6 amended — letter measure-and-condense guarantee
+#
+# Letters get the CV's guarantee shape: measure the real render, ONE bounded
+# condense-regenerate routed back through the grounding review, audit as the
+# honest backstop. Unlike the CV there is no deterministic bullet-cut model
+# for prose, so the condense pass is a scoped LLM rewrite (ADR-approved
+# deviation) — bounded to exactly one iteration, never a loop.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_letter_overrun_triggers_one_condense_regenerate(db_with_cover_letter):
+    """2-page smoke render -> exactly one condense pass -> re-render; overrides/date
+    re-applied on the condensed result."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    initial_raw = _stub_letter_data()
+    condensed_raw = _stub_letter_data()
+    known_report = _make_ats_report("cover_letter")
+
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json = AsyncMock(side_effect=[initial_raw, condensed_raw])
+
+    review_calls: list = []
+
+    async def fake_review(**kwargs):
+        review_calls.append(kwargs.get("chain_id"))
+        return kwargs["draft"]
+
+    mock_render_pdf = AsyncMock(side_effect=[b"%PDF-2page", b"%PDF-1page"])
+    mock_extract = MagicMock(side_effect=[("text", 2), ("text", 1)])
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
+         patch("applire.services.ats_audit.extract_text_and_pages", mock_extract), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    assert mock_render_pdf.call_count == 2, (
+        f"expected 2 renders (smoke + condense re-render), got {mock_render_pdf.call_count}"
+    )
+    assert review_calls.count("cover_letter_condense") == 1, (
+        f"expected exactly one condense-chain grounding review, got {review_calls}"
+    )
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready"
+    assert cl.letter_data["recipient"]["date"], "date must be re-injected post-condense"
+
+
+@pytest.mark.asyncio
+async def test_letter_overrun_with_section_overrides_skips_condense(db_with_cover_letter):
+    """A CL with user section overrides must never be auto-condensed — the user's
+    own edits win (ADR-051 seam); the audit still reports honestly."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    cl.section_overrides = {"body": "User-edited closing paragraph."}
+    await session.commit()
+
+    initial_raw = _stub_letter_data()
+    known_report = _make_ats_report("cover_letter")
+
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json = AsyncMock(return_value=initial_raw)
+
+    review_calls: list = []
+
+    async def fake_review(**kwargs):
+        review_calls.append(kwargs.get("chain_id"))
+        return kwargs["draft"]
+
+    mock_render_pdf = AsyncMock(return_value=b"%PDF-2page")
+    mock_extract = MagicMock(return_value=("text", 2))
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
+         patch("applire.services.ats_audit.extract_text_and_pages", mock_extract), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    assert mock_render_pdf.call_count == 1, (
+        f"expected exactly 1 render (no condense re-render), got {mock_render_pdf.call_count}"
+    )
+    assert review_calls.count("cover_letter_condense") == 0, (
+        f"expected zero condense-chain reviews, got {review_calls}"
+    )
+    assert mock_provider.aparse_json.call_count == 1, "the LLM must not be called again for condense"
+    mock_extract.assert_not_called()
+
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready"
