@@ -65,6 +65,7 @@ from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
 
 from applire.config import settings
+from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
 from applire.models.application import UserStatus
@@ -346,6 +347,10 @@ async def send_message(session_id: str, message: str) -> dict:
             raise not_found(str(exc))
         except ValueError as exc:
             raise invalid_input(str(exc))
+        except LLMTruncatedError as exc:
+            raise internal(
+                f"{exc} The turn was rolled back — resend the same message to retry."
+            )
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")
