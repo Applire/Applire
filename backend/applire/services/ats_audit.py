@@ -378,21 +378,28 @@ def _audit_cv_text(
     # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
     # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to
     # the region max passes (carrying an advisory detail when it deviates from the
-    # region standard or the chosen target); only over the max fails. Skipped when no
-    # count is given (text-only callers/tests). All norm numbers come from REGION_NORMS
-    # — never hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend
-    # i18n keys on it).
+    # region standard); only over the max fails. Skipped when no count is given
+    # (text-only callers/tests). All norm numbers come from REGION_NORMS — never
+    # hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend i18n keys
+    # on it); details carry a details_key + details_params pair so the frontend can
+    # localise them (ADR-038), with the EN `details` string as the fallback.
     if page_count is not None:
         norm = REGION_NORMS[region]
         standard = norm.cv_standard_pages
         maximum = norm.cv_max_pages
         tgt = target if target is not None else standard
         if page_count <= tgt:
-            if tgt > standard:
+            if page_count > standard:
+                # The chosen target was actually USED to go beyond the norm — advise.
+                # A document that already fits the standard gets no advisory, even
+                # under a higher chosen target (E042 follow-up: no deviation, no noise).
                 checks.append(ATSCheck(
                     id="page-length", status="pass",
                     details=f"{page_count} pages — meets your chosen target of {tgt}; "
                             f"the {region} norm is {standard} pages",
+                    details_key="page-length-target",
+                    details_params={"pages": page_count, "target": tgt,
+                                    "region": region, "standard": standard},
                 ))
             else:
                 checks.append(ATSCheck(id="page-length", status="pass", details=None))
@@ -401,6 +408,8 @@ def _audit_cv_text(
                 id="page-length", status="pass",
                 details=f"{page_count} pages — acceptable for senior profiles; "
                         f"the {region} norm is {standard} pages",
+                details_key="page-length-senior",
+                details_params={"pages": page_count, "region": region, "standard": standard},
             ))
         elif condensation_exhausted:
             checks.append(ATSCheck(
@@ -408,12 +417,18 @@ def _audit_cv_text(
                 details=f"{page_count} pages — condensed to the maximum; length driven by "
                         f"education/skills volume; exceeds the {region} norm of {standard} "
                         f"pages (max {maximum})",
+                details_key="page-length-exhausted",
+                details_params={"pages": page_count, "region": region,
+                                "standard": standard, "max": maximum},
             ))
         else:
             checks.append(ATSCheck(
                 id="page-length", status="fail",
                 details=f"{page_count} pages — exceeds the {region} norm of {standard} "
                         f"pages (max {maximum})",
+                details_key="page-length-exceeds",
+                details_params={"pages": page_count, "region": region,
+                                "standard": standard, "max": maximum},
             ))
 
     return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
@@ -488,10 +503,16 @@ def _audit_letter_text(
     if page_count is not None:
         region = DEFAULT_REGION
         letter_pages = REGION_NORMS[region].letter_pages
-        _check(
-            checks, "page-length", page_count <= letter_pages,
-            f"{page_count} pages — a {region} cover letter is {letter_pages} page",
-        )
+        if page_count <= letter_pages:
+            checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        else:
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — a {region} cover letter is {letter_pages} page",
+                details_key="page-length-letter",
+                details_params={"pages": page_count, "region": region,
+                                "letterPages": letter_pages},
+            ))
 
     return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger))
 

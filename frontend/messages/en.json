@@ -917,6 +917,13 @@
       "duplicate-bullets": "No duplicate bullet points",
       "skills-near-dupe": "No near-duplicate skills",
       "page-length": "Page length"
+    },
+    "checkDetails": {
+      "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
+      "page-length-senior": "{pages} pages — acceptable for senior profiles; the {region} norm is {standard} pages",
+      "page-length-exhausted": "{pages} pages — condensed to the maximum; length driven by education/skills volume; exceeds the {region} norm of {standard} pages (max {max})",
+      "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
+      "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}"
     }
   },
   "admin": {
