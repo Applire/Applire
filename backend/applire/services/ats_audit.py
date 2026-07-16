@@ -388,21 +388,22 @@ def _audit_cv_text(
         standard = norm.cv_standard_pages
         maximum = norm.cv_max_pages
         tgt = target if target is not None else standard
-        if page_count <= tgt:
-            if page_count > standard:
-                # The chosen target was actually USED to go beyond the norm — advise.
-                # A document that already fits the standard gets no advisory, even
-                # under a higher chosen target (E042 follow-up: no deviation, no noise).
-                checks.append(ATSCheck(
-                    id="page-length", status="pass",
-                    details=f"{page_count} pages — meets your chosen target of {tgt}; "
-                            f"the {region} norm is {standard} pages",
-                    details_key="page-length-target",
-                    details_params={"pages": page_count, "target": tgt,
-                                    "region": region, "standard": standard},
-                ))
-            else:
-                checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        if page_count <= standard:
+            # Within the regional norm — always a plain pass, whatever the target.
+            # Guards both directions: a higher chosen target that wasn't needed
+            # (no deviation, no noise) AND a sub-standard target (MCP-reachable)
+            # that must not trigger the senior wording on a norm-conforming doc.
+            checks.append(ATSCheck(id="page-length", status="pass", details=None))
+        elif page_count <= tgt:
+            # The chosen target was actually USED to go beyond the norm — advise.
+            checks.append(ATSCheck(
+                id="page-length", status="pass",
+                details=f"{page_count} pages — meets your chosen target of {tgt}; "
+                        f"the {region} norm is {standard} pages",
+                details_key="page-length-target",
+                details_params={"pages": page_count, "target": tgt,
+                                "region": region, "standard": standard},
+            ))
         elif page_count <= maximum:
             checks.append(ATSCheck(
                 id="page-length", status="pass",

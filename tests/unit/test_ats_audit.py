@@ -179,6 +179,24 @@ def test_page_length_chosen_target_above_standard_pass_with_deviation_advisory()
     assert c.details_params == {"pages": 3, "target": 3, "region": "DACH", "standard": 2}
 
 
+def test_page_length_at_standard_with_substandard_target_plain_pass():
+    # Adversarial find (2026-07-16): target=1 (below the standard — MCP-reachable only)
+    # with a 2-page result must NOT claim "acceptable for senior profiles": 2 pages IS
+    # the DACH standard. Within-norm documents never carry an advisory.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2, target=1)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+    assert c.details_key is None and c.details_params is None
+
+
+def test_page_length_over_substandard_target_still_senior_advisory():
+    # target=1 missed and pages beyond the standard → the senior advisory is honest.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3, target=1)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass"
+    assert c.details_key == "page-length-senior"
+
+
 def test_page_length_within_norm_under_higher_chosen_target_no_advisory():
     # E042 follow-up: user chose target=3 but the document already fits the DACH
     # standard (2) — no deviation happened, so no advisory noise. Plain pass.

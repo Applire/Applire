@@ -303,4 +303,25 @@ describe("ATSChecksPanel", () => {
     const advisoryRow = screen.getByTestId("ats-advisory-page-length");
     expect(advisoryRow.textContent).toContain("acceptable for senior profiles");
   });
+
+  // Adversarial find (2026-07-16): a KNOWN key with null/absent details_params must
+  // fall back to the EN details — not render the raw key path with an IntlError.
+  it("falls back to raw details when details_params is null for a known key", () => {
+    const report: ATSReport = {
+      checks: [
+        {
+          id: "page-length",
+          status: "pass",
+          details: "3 pages — meets your chosen target of 3; the DACH norm is 2 pages",
+          details_key: "page-length-target",
+          details_params: null,
+        },
+      ],
+      keywords: { present: [], missing: [] },
+    };
+    render(withIntl(<ATSChecksPanel report={report} />, "de"));
+    const advisoryRow = screen.getByTestId("ats-advisory-page-length");
+    expect(advisoryRow.textContent).toContain("meets your chosen target of 3");
+    expect(advisoryRow.textContent).not.toContain("checkDetails");
+  });
 });
