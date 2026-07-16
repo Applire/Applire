@@ -247,14 +247,30 @@ def test_build_cover_letter_prompt_role_title_optional():
 
 def test_cover_letter_prompt_carries_word_budget_line():
     """#177 / ADR-051 §6 amended: the feedforward word budget (from REGION_NORMS)
-    reaches the LLM as an explicit instruction, before the JD block."""
+    reaches the LLM as an explicit instruction, before the JD block. Review
+    Finding 3 / ADR-051 §1: the page norm is interpolated from letter_pages,
+    never a hard-coded literal in the prompt text."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={},
+        detected_language="de", word_budget=300, letter_pages=1,
+    )
+    assert "300" in prompt and "WORD BUDGET" in prompt
+    assert "1-page" in prompt
+
+
+def test_cover_letter_prompt_word_budget_line_omits_page_norm_when_letter_pages_not_given():
+    """letter_pages is optional (legacy/degraded callers) — the WORD BUDGET line
+    still renders, just without a page-count claim."""
     from applire.prompts.cover_letter import build_cover_letter_prompt
 
     prompt = build_cover_letter_prompt(
         cv_data={}, jd_text="x", pre_gen_inputs={},
         detected_language="de", word_budget=300,
     )
-    assert "300" in prompt and "WORD BUDGET" in prompt
+    assert "WORD BUDGET" in prompt
+    assert "region's page norm" in prompt
 
 
 def test_cover_letter_prompt_omits_word_budget_line_when_not_given():
@@ -269,16 +285,29 @@ def test_cover_letter_prompt_omits_word_budget_line_when_not_given():
 
 def test_build_condense_prompt_carries_budget_page_count_and_json():
     """build_condense_prompt (#177): one bounded condense-regenerate — same JSON
-    shape, same facts, fewer words. Must not invite new claims."""
+    shape, same facts, fewer words. Must not invite new claims. Review Finding 3
+    / ADR-051 §1: letter_pages is a required, caller-supplied norm value — never
+    a hard-coded literal in the prompt text."""
     from applire.prompts.cover_letter import build_condense_prompt
 
     letter_data = {"body": {"paragraphs": ["Hello there."]}}
-    prompt = build_condense_prompt(letter_data, word_budget=300, page_count=2)
+    prompt = build_condense_prompt(letter_data, word_budget=300, page_count=2, letter_pages=1)
     assert "300" in prompt
     assert "2 pages" in prompt
     assert "1 page" in prompt
     assert "Hello there." in prompt
     assert "NEVER add new facts" in prompt
+
+
+def test_build_condense_prompt_pluralizes_multi_page_norm():
+    """A region whose letter_pages norm is >1 must not read '1 page(s)' — the
+    pluralization must follow the interpolated value, not a hard-coded literal."""
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter_data = {"body": {"paragraphs": ["Hello there."]}}
+    prompt = build_condense_prompt(letter_data, word_budget=600, page_count=3, letter_pages=2)
+    assert "2 pages" in prompt
+    assert "1 page" not in prompt
 
 
 def test_build_cover_letter_prompt_returns_system_and_user():
