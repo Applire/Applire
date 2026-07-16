@@ -49,7 +49,7 @@ from applire.schemas.profile import (
     WorkEntry,
 )
 
-from applire.services.profile.reconcile.dedupe import classify_dupe
+from applire.services.profile.reconcile.dedupe import classify_dupe, classify_engagement_dupe
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     FlagConflict,
@@ -255,11 +255,11 @@ def apply_ops(
 
     for op in ops:
         if isinstance(op, UpsertWork):
-            _apply_upsert_work(op, new_profile, ref_map, changes)
+            _apply_upsert_work(op, new_profile, ref_map, changes, pending)
         elif isinstance(op, UpsertProject):
-            _apply_upsert_project(op, new_profile, ref_map, resolve, changes)
+            _apply_upsert_project(op, new_profile, ref_map, resolve, changes, pending)
         elif isinstance(op, UpsertVolunteer):
-            _apply_upsert_volunteer(op, new_profile, ref_map, changes)
+            _apply_upsert_volunteer(op, new_profile, ref_map, changes, pending)
         elif isinstance(op, AddBullets):
             _apply_add_bullets(op, resolve, changes)
         elif isinstance(op, UpsertSkill):
@@ -357,7 +357,7 @@ def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
     )
 
 
-def _apply_upsert_work(op, profile, ref_map, changes):
+def _apply_upsert_work(op, profile, ref_map, changes, pending):
     target = None
     if op.target is not None:
         target = next(
@@ -367,6 +367,32 @@ def _apply_upsert_work(op, profile, ref_map, changes):
         candidate = ref_map[op.target]
         if isinstance(candidate, WorkEntry):
             target = candidate
+
+    if target is None:
+        # #177: deterministic near-dup guard. The LLM owns identity (ADR-046) and
+        # said "new entry" — but an existing engagement at a near-dupe org with the
+        # same start month is the same stint (adopt it); a near-dupe org+role with
+        # absent/differing dates is ambiguous (ask, never guess). An ambiguous op's
+        # ref stays unmapped, so dependent add_bullets skip defensively — the
+        # confirmation context carries the payload for the resolution turn.
+        verdict = classify_engagement_dupe(
+            org=op.company, role=op.role, start_date=op.start_date,
+            existing=profile.work_experience, org_getter=lambda w: w.company,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{w.role} at {w.company}" for w in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.company}' looks close to an existing "
+                    f"position ({'; '.join(related)}). Is it the same position?"
+                ),
+                options=["Same position — merge them", "Different — keep both"],
+                context={"section": "work_experience",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = WorkEntry(
@@ -412,7 +438,7 @@ def _apply_upsert_work(op, profile, ref_map, changes):
     )
 
 
-def _apply_upsert_project(op, profile, ref_map, resolve, changes):
+def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
     parent_id = None
     parent = resolve(op.parent)
     if parent is not None:
@@ -425,6 +451,30 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes):
             candidate = ref_map[op.target]
             if isinstance(candidate, ProjectEntry):
                 target = candidate
+
+    if target is None:
+        # #177: near-dup guard (see _apply_upsert_work). "Website" ⊂ "Website
+        # Relaunch" is not identity for open-ended project names, so containment
+        # is never auto-merged here.
+        verdict = classify_engagement_dupe(
+            org=op.name, role=op.role, start_date=op.start_date,
+            existing=profile.projects, org_getter=lambda p: p.name,
+            org_containment_is_same=False,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{p.role} at {p.name}" for p in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.name}' looks close to an existing "
+                    f"project ({'; '.join(related)}). Is it the same project?"
+                ),
+                options=["Same project — merge them", "Different — keep both"],
+                context={"section": "projects",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = ProjectEntry(
@@ -457,7 +507,7 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes):
     changes.append(_merged("projects", "name", None, op.name))
 
 
-def _apply_upsert_volunteer(op, profile, ref_map, changes):
+def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
     target = None
     if op.target is not None:
         target = next(
@@ -467,6 +517,27 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes):
             candidate = ref_map[op.target]
             if isinstance(candidate, VolunteerActivity):
                 target = candidate
+
+    if target is None:
+        # #177: near-dup guard (see _apply_upsert_work).
+        verdict = classify_engagement_dupe(
+            org=op.organization, role=op.role, start_date=op.start_date,
+            existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+        )
+        if verdict.match is not None:
+            target = verdict.match
+        elif verdict.ambiguous:
+            related = [f"{v.role} at {v.organization}" for v in verdict.ambiguous]
+            pending.append(RequestConfirmation(
+                question=(
+                    f"'{op.role} at {op.organization}' looks close to an existing "
+                    f"volunteer activity ({'; '.join(related)}). Is it the same activity?"
+                ),
+                options=["Same activity — merge them", "Different — keep both"],
+                context={"section": "volunteer_activities",
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+            ))
+            return
 
     if target is None:
         entry = VolunteerActivity(

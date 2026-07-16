@@ -60,6 +60,12 @@ def _profile_with_language(language: str) -> MasterProfileData:
     return MasterProfileData(languages=[Language(language=language)])
 
 
+def _profile_with_work(company: str, role: str, start_date: str | None) -> MasterProfileData:
+    return MasterProfileData(
+        work_experience=[WorkEntry(company=company, role=role, start_date=start_date)]
+    )
+
+
 # ── Acceptance fixtures ───────────────────────────────────────────────────────
 
 
@@ -580,6 +586,34 @@ def test_upsert_work_new_creates_entry():
     assert len(result.profile.work_experience) == 1
     assert result.profile.work_experience[0].company == "NewCo"
     assert any(c.action == "added" and c.section == "work_experience" for c in result.changes)
+
+
+def test_upsert_work_without_target_adopts_same_org_and_start():
+    """LLM missed the target: same company (short form) + same start month = same stint."""
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", company="Continental", role="Senior Software Engineer",
+                      start_date="2015-04-15")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1
+    assert "Senior Software Engineer" in result.profile.work_experience[0].role_aliases
+
+
+def test_upsert_work_without_target_same_org_no_dates_asks():
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date=None)
+    ops = [UpsertWork(ref="w1", company="Continental", role="Software Engineer")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 1          # nothing appended
+    assert len(result.pending_confirmations) == 1
+
+
+def test_upsert_work_different_org_still_appends():
+    profile = _profile_with_work(company="Continental Automotive GmbH", role="Software Engineer",
+                                 start_date="2015-04-01")
+    ops = [UpsertWork(ref="w1", company="Bosch", role="Software Engineer", start_date="2019-01-01")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.work_experience) == 2
 
 
 # ── Field-type coercion (data-corruption regression) ──────────────────────────
