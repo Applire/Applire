@@ -140,6 +140,12 @@ _VALID_SECTIONS = {
     "volunteer_activities",
 }
 
+# #178: object-shaped sections take merge-patch semantics (RFC-7386 style) — a
+# partial dict must never wipe unsupplied fields; Pydantic re-validation would
+# re-default every omitted key ("" / null) and the JSONB write makes that
+# permanent (no snapshot on this path).
+_OBJECT_SECTIONS = {"personal_info", "professional_summary"}
+
 
 def extract_pdf_text(file_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(file_bytes))
@@ -431,7 +437,20 @@ async def patch_profile_section(
         except (json.JSONDecodeError, ValueError):
             pass
     updated_dict = profile_data.model_dump(mode="json")
-    updated_dict[section] = value
+    if section in _OBJECT_SECTIONS:
+        if not isinstance(value, dict):
+            raise ValueError(
+                f"Section '{section}' expects an object; supplied keys are merged "
+                f"(an explicit null clears a field)."
+            )
+        # Merge-patch (#178): supplied keys win — an explicit null clears a
+        # field, an omitted key keeps its current value.
+        merged = dict(updated_dict.get(section) or {})
+        merged.update(value)
+        updated_dict[section] = merged
+        value = merged  # the enrichment trail records the effective section state
+    else:
+        updated_dict[section] = value
     validated = MasterProfileData.model_validate(updated_dict)
 
     # Re-run enrichment when skills or work_experience are patched (keeps years fresh)

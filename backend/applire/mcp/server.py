@@ -274,8 +274,10 @@ async def get_profile() -> dict:
     description=(
         "Update a section of the MasterProfile. "
         f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
-        "data is a dict for object-shaped sections (e.g. personal_info) or a list "
-        "for list-shaped sections (e.g. skills, work_experience)."
+        "Object-shaped sections (personal_info, professional_summary) are PATCHED: "
+        "supplied keys are merged, an explicit null clears a field, omitted keys "
+        "keep their value. List-shaped sections (e.g. skills, work_experience) are "
+        "REPLACED WHOLESALE with the supplied list — always send the complete list."
     )
 )
 async def update_profile(section: str, data: dict | list) -> dict:

@@ -91,6 +91,28 @@ def _minimal_profile_json() -> dict:
     }
 
 
+def _full_profile_json() -> dict:
+    """A profile with fully-populated object sections (#178 merge-patch repro)."""
+    return {
+        "personal_info": {
+            "name": "Anna Bauer",
+            "email": "anna.bauer@example.com",
+            "phone": "+49 30 1234567",
+        },
+        "professional_summary": {
+            "de": "Erfahrene Softwareentwicklerin mit Fokus auf Backend-Systeme.",
+            "en": None,
+        },
+        "work_experience": [],
+        "skills": [],
+        "education": [],
+        "languages": [{"language": "German", "level": "C2"}],
+        "certifications": [],
+        "publications": [],
+        "volunteer_activities": [],
+    }
+
+
 def _minimal_llm_profile_data() -> dict:
     return {
         "personal_info": {"name": "Alice Tester"},
@@ -626,6 +648,79 @@ class TestNewProfileServiceDB:
 
         history = await get_enrichment_history(sqlite_session)
         assert len(history) >= 1
+
+    # ─── #178: merge-patch semantics for object-shaped sections ───────────────
+
+    @pytest.mark.asyncio
+    async def test_patch_personal_info_partial_keeps_unsupplied_fields(self, sqlite_session):
+        """#178: a partial object patch must not wipe name/email/phone (agent-channel repro)."""
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_full_profile_json())
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await patch_profile_section(
+            "personal_info", {"address": "Musterweg 1, Berlin", "nationality": "German"}, sqlite_session
+        )
+        pi = result.profile.personal_info
+        assert pi.name == "Anna Bauer"          # unchanged
+        assert pi.email is not None             # unchanged
+        assert pi.address == "Musterweg 1, Berlin"
+        assert pi.nationality == "German"
+
+    @pytest.mark.asyncio
+    async def test_patch_personal_info_explicit_null_clears_field(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_full_profile_json())
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await patch_profile_section("personal_info", {"phone": None}, sqlite_session)
+        assert result.profile.personal_info.phone is None
+        assert result.profile.personal_info.name == "Anna Bauer"
+
+    @pytest.mark.asyncio
+    async def test_patch_professional_summary_partial_keeps_other_language(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_full_profile_json())
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await patch_profile_section("professional_summary", {"en": "New summary."}, sqlite_session)
+        assert result.profile.professional_summary.de  # German summary survives
+        assert result.profile.professional_summary.en == "New summary."
+
+    @pytest.mark.asyncio
+    async def test_patch_object_section_rejects_non_dict(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_full_profile_json())
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        with pytest.raises(ValueError):
+            await patch_profile_section("personal_info", ["not", "a", "dict"], sqlite_session)
+
+    @pytest.mark.asyncio
+    async def test_patch_list_section_still_replaces(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_full_profile_json())
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await patch_profile_section(
+            "languages", [{"language": "French", "level": "B1"}], sqlite_session
+        )
+        assert [l.language for l in result.profile.languages] == ["French"]
 
     @pytest.mark.asyncio
     async def test_resolve_conflict_raises_when_no_profile(self, sqlite_session):
