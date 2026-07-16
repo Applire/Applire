@@ -99,7 +99,6 @@ def classify_engagement_dupe(
     start_date: str | None,
     existing: list[Any],
     org_getter: Callable[[Any], str | None],
-    org_containment_is_same: bool = True,
 ) -> DupeVerdict:
     """New-entry guard for ExperienceBase engagements (work/project/volunteer).
 
@@ -107,11 +106,19 @@ def classify_engagement_dupe(
     said "new entry" (no target). MATCH needs a strong signal: org near-dupe AND
     equal start month on both sides. Org near-dupe with a matching/contained
     role but absent or differing dates is AMBIGUOUS → confirmation.
+
+    ADR-046 (amended 2026-07-16, #177 review): bare single-token org containment
+    ('Ford' ⊂ 'Ford Foundation') is NEVER identity here — two distinct employers
+    can share one token. It always routes to AMBIGUOUS (ask), regardless of
+    dates; only a 2+-token containment or a full near-dupe counts as SAME and
+    can go on to the date-based MATCH check below.
     """
     verdict = DupeVerdict()
     for entry in existing:
-        org_rel = _field_relation(org, org_getter(entry),
-                                  containment_is_same=org_containment_is_same)
+        org_rel = _field_relation(org, org_getter(entry), containment_is_same=False)
+        if org_rel == _AMBIG:
+            verdict.ambiguous.append(entry)
+            continue
         if org_rel != _SAME:
             continue
         entry_start = getattr(entry, "start_date", None)

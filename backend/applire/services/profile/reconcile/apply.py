@@ -48,6 +48,7 @@ from applire.schemas.profile import (
     Skill,
     VolunteerActivity,
     WorkEntry,
+    _coerce_partial_date,
 )
 
 from applire.services.profile.reconcile.dedupe import classify_dupe, classify_engagement_dupe
@@ -263,7 +264,7 @@ def apply_ops(
         elif isinstance(op, UpsertVolunteer):
             _apply_upsert_volunteer(op, new_profile, ref_map, changes, pending)
         elif isinstance(op, AddBullets):
-            _apply_add_bullets(op, resolve, changes)
+            _apply_add_bullets(op, resolve, changes, pending)
         elif isinstance(op, UpsertSkill):
             _apply_upsert_skill(op, new_profile, resolve, changes, pending)
         elif isinstance(op, UpsertCertification):
@@ -317,13 +318,23 @@ def _ensure_loadable(
 # ── Per-op handlers ───────────────────────────────────────────────────────────
 
 
-def _fill_empties(entity: Any, fields: dict[str, Any]) -> None:
-    """Fill only currently-empty scalar fields; never overwrite non-empty ones."""
+def _fill_empties(entity: Any, fields: dict[str, Any]) -> bool:
+    """Fill only currently-empty scalar fields; never overwrite non-empty ones.
+
+    Returns ``True`` iff at least one field was actually set — a real, additive
+    change. Callers use this to gate an audit-trail ``FieldChange`` for MATCH
+    branches that otherwise merge invisibly (#177 review): a pure-duplicate
+    upsert with nothing left to fill stays silent, but a merge that filled a
+    date/org/DOI is recorded like every other merge in the trail.
+    """
+    changed = False
     for name, value in fields.items():
         if value is None:
             continue
         if _is_empty(getattr(entity, name, None)):
             setattr(entity, name, value)
+            changed = True
+    return changed
 
 
 def _added(section: str, field: str, value: Any) -> FieldChange:
@@ -463,7 +474,6 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
         verdict = classify_engagement_dupe(
             org=op.name, role=op.role, start_date=op.start_date,
             existing=profile.projects, org_getter=lambda p: p.name,
-            org_containment_is_same=False,
         )
         if verdict.match is not None:
             target = verdict.match
@@ -574,10 +584,30 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
     )
 
 
-def _apply_add_bullets(op, resolve, changes):
+def _apply_add_bullets(op, resolve, changes, pending):
     entity = resolve(op.target)
     if entity is None:
-        return  # defensive: unknown ref → skip
+        # #177 review: an AMBIGUOUS upsert in this same batch never populates
+        # ref_map (see _apply_upsert_work/_project/_volunteer), so a co-batched
+        # AddBullets targeting that op's local ref resolves to None here. The
+        # confirmation's context carries the op's own `ref` under "incoming" —
+        # if one matches, carry the bullets into the confirmation so the
+        # resolution turn can apply them instead of losing them silently.
+        # Merge (extend), never overwrite: multiple AddBullets ops in one batch
+        # may target the same still-unresolved ref.
+        for conf in pending:
+            if conf.context.get("incoming", {}).get("ref") == op.target:
+                carried = conf.context.setdefault("pending_bullets", {})
+                for field, incoming in (
+                    ("responsibilities", op.responsibilities),
+                    ("achievements", op.achievements),
+                    ("technologies", op.technologies),
+                ):
+                    if incoming:
+                        carried.setdefault(field, [])
+                        carried[field].extend(incoming)
+                return
+        return  # no matching confirmation either — defensive: unknown ref, skip
     section = _section_for(entity)
     for field, incoming in (
         ("responsibilities", op.responsibilities),
@@ -694,13 +724,19 @@ def _apply_upsert_certification(op, profile, changes, pending):
         {"name": op.name}, profile.certifications, {"name": lambda c: c.name}
     )
     if verdict.match is not None:
-        _fill_empties(verdict.match, {
+        # #177 review: coerce raw op strings onto date-typed fields BEFORE the
+        # fill-only setattr — setattr bypasses Pydantic validation, so an
+        # unparseable string would otherwise survive until _ensure_loadable's
+        # round-trip silently drops it to None.
+        changed = _fill_empties(verdict.match, {
             "issuing_organization": op.issuing_organization,
-            "date_obtained": op.date_obtained,
-            "expiry_date": op.expiry_date,
+            "date_obtained": _coerce_partial_date(op.date_obtained),
+            "expiry_date": _coerce_partial_date(op.expiry_date),
             "credential_id": op.credential_id,
             "credential_url": op.credential_url,
         })
+        if changed:
+            changes.append(_merged("certifications", "name", None, verdict.match.name))
         return
     if verdict.ambiguous:
         related = [c.name for c in verdict.ambiguous]
@@ -735,7 +771,9 @@ def _apply_upsert_language(op, profile, changes, pending):
         {"language": lambda l: l.language}, containment_is_same=True,
     )
     if verdict.match is not None:
-        _fill_empties(verdict.match, {"level": op.level})
+        changed = _fill_empties(verdict.match, {"level": op.level})
+        if changed:
+            changes.append(_merged("languages", "language", None, verdict.match.language))
         return
     profile.languages.append(Language(language=op.language, level=op.level))
     changes.append(_added("languages", "language", op.language))
@@ -748,12 +786,14 @@ def _apply_upsert_education(op, profile, changes, pending):
         {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
     )
     if verdict.match is not None:
-        _fill_empties(verdict.match, {
+        changed = _fill_empties(verdict.match, {
             "field": op.field,
             "start_date": op.start_date,
             "end_date": op.end_date,
             "grade": op.grade,
         })
+        if changed:
+            changes.append(_merged("education", "institution", None, verdict.match.institution))
         return
     if verdict.ambiguous:
         existing = [f"{e.degree} — {e.institution}" for e in verdict.ambiguous]
@@ -786,10 +826,12 @@ def _apply_upsert_publication(op, profile, changes, pending):
         {"title": op.title}, profile.publications, {"title": lambda p: p.title}
     )
     if verdict.match is not None:
-        _fill_empties(verdict.match, {
-            "venue": op.venue, "published_date": op.published_date,
+        changed = _fill_empties(verdict.match, {
+            "venue": op.venue, "published_date": _coerce_partial_date(op.published_date),
             "doi": op.doi, "url": op.url, "patent_number": op.patent_number,
         })
+        if changed:
+            changes.append(_merged("publications", "title", None, verdict.match.title))
         return
     if verdict.ambiguous:
         related = [p.title for p in verdict.ambiguous]

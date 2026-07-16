@@ -18,8 +18,8 @@
 """#177 — predicate tests for the section-agnostic near-dupe classifier."""
 from __future__ import annotations
 
-from applire.schemas.profile import EducationEntry, Language
-from applire.services.profile.reconcile.dedupe import classify_dupe
+from applire.schemas.profile import EducationEntry, Language, WorkEntry
+from applire.services.profile.reconcile.dedupe import classify_dupe, classify_engagement_dupe
 
 
 def test_education_near_dupe_matches_long_institution_form():
@@ -61,3 +61,31 @@ def test_empty_fields_are_neutral_not_matching():
     v = classify_dupe({"institution": "", "degree": "Diplom"}, [entry],
                       {"institution": lambda e: e.institution, "degree": lambda e: e.degree})
     assert v.match is None           # no evidence ≠ same entry
+
+
+# ── #177 review (finding 3): classify_engagement_dupe org-containment ruling ──
+
+
+def test_engagement_single_token_org_containment_is_ambiguous_not_match():
+    """ADR-046 strict ruling: bare single-token org containment ('Ford' ⊂ 'Ford
+    Foundation') is NEVER identity, even with an equal start month — two
+    distinct employers can share a token. Ask, never guess."""
+    entry = WorkEntry(company="Ford Foundation", role="Program Officer", start_date="2015-04-01")
+    v = classify_engagement_dupe(
+        org="Ford", role="Engineer", start_date="2015-04-15",
+        existing=[entry], org_getter=lambda w: w.company,
+    )
+    assert v.match is None
+    assert v.ambiguous == [entry]
+
+
+def test_engagement_two_token_org_containment_with_equal_month_matches():
+    """A 2+-token containment (legal-form/short-form pair) still counts as
+    identity — the strict rule targets bare SINGLE-token containment only."""
+    entry = WorkEntry(company="Continental Automotive GmbH", role="Software Engineer",
+                      start_date="2015-04-01")
+    v = classify_engagement_dupe(
+        org="Continental Automotive", role="Senior Software Engineer", start_date="2015-04-15",
+        existing=[entry], org_getter=lambda w: w.company,
+    )
+    assert v.match is entry
