@@ -49,7 +49,11 @@ from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.constants import CV_GENERATION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
-from applire.prompts.cover_letter import SYSTEM_PROMPT, build_cover_letter_prompt
+from applire.prompts.cover_letter import (
+    SYSTEM_PROMPT,
+    build_condense_prompt,
+    build_cover_letter_prompt,
+)
 from applire.prompts.review_cover_letter import (
     COVER_LETTER_REFINEMENT_PROMPT,
     REVIEW_SYSTEM_PROMPT,
@@ -485,6 +489,12 @@ async def _render_cover_letter_background(
             keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
 
             # Call LLM
+            # #177 / ADR-051 §6 amended: feedforward body-word budget from the region
+            # norm registry — the CV's guarantee shape, extended to letters. NO
+            # component may hard-code a word/page number (ADR-051 §1); this is the
+            # sole read of REGION_NORMS for the generation + condense path below.
+            from applire.norms import DEFAULT_REGION, REGION_NORMS
+            norm = REGION_NORMS[DEFAULT_REGION]
             provider = get_provider()
             user_prompt = build_cover_letter_prompt(
                 cv_data=cv_data,
@@ -493,6 +503,8 @@ async def _render_cover_letter_background(
                 detected_language=detected_language,
                 keyword_ledger=keyword_ledger,
                 role_title=job.role_title,
+                word_budget=norm.letter_body_word_budget,
+                letter_pages=norm.letter_pages,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -573,6 +585,78 @@ async def _render_cover_letter_background(
             except Exception as pdf_err:
                 logger.warning("PDF render failed for CL %s: %s", cl_id, pdf_err)
                 # HTML preview still works; PDF download will fail gracefully
+
+            # #177 / ADR-051 §6 (amended 2026-07-16): the letter gets the CV's guarantee
+            # shape — measure the real render, ONE bounded condense-regenerate, audit as
+            # the honest backstop. Letters have no bullet model, so the condense is an
+            # LLM rewrite routed back through the grounding review (ADR-040) — a
+            # deliberate, scoped deviation from the CV's deterministic cuts (ADR-approved
+            # amendment). Skipped when the user has section overrides (their edits win;
+            # the audit still reports). The page-count measurement is deliberately
+            # fail-open — the same philosophy as the audit itself (services/cv.py
+            # ``_update_ats_report``): a measurement error must never fail generation or
+            # keep status away from 'ready'.
+            if pdf_bytes is not None and not (cl.section_overrides or {}):
+                page_count: int | None = None
+                try:
+                    from applire.services.ats_audit import extract_text_and_pages
+                    _, page_count = extract_text_and_pages(pdf_bytes)
+                except Exception as measure_err:
+                    logger.warning(
+                        "Letter page-count measurement failed for CL %s: %s", cl_id, measure_err
+                    )
+                if page_count is not None and page_count > norm.letter_pages:
+                    # Review Finding 2: the condense generation+review is a bounded,
+                    # best-effort optimization pass over an ALREADY-VALID rendered
+                    # letter. A transient LLM error here must fail OPEN — keep the
+                    # original letter_data/pdf_bytes untouched and let the ATS audit
+                    # stay the honest backstop — rather than propagate to the outer
+                    # handler and mark the whole letter 'failed', discarding a good
+                    # letter over a failed optimization.
+                    try:
+                        condensed = await provider.aparse_json(
+                            build_condense_prompt(
+                                letter_data, norm.letter_body_word_budget, page_count,
+                                letter_pages=norm.letter_pages,
+                            ),
+                            system=SYSTEM_PROMPT,
+                            max_tokens=CV_GENERATION_MAX_TOKENS,
+                        )
+                        condensed = await review_and_refine(
+                            source=grounding_source,
+                            draft=condensed,
+                            generator_prompt_fn=build_retry_prompt,
+                            generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                            reviewer_prompt_fn=coverage_reviewer_prompt_fn(
+                                build_review_prompt, keyword_ledger
+                            ),
+                            reviewer_system=REVIEW_SYSTEM_PROMPT,
+                            provider=provider,
+                            max_retries=LLM_REVIEW_MAX_RETRIES,
+                            chain_id="cover_letter_condense",
+                        )
+                        condensed = _apply_recipient_overrides(condensed, pre_gen)
+                        condensed = _inject_letter_date(condensed, detected_language)
+                        letter_data = condensed
+                        cl.letter_data = letter_data
+                        await db.commit()
+                        try:
+                            pdf_bytes = await render_pdf(cl_id, allow_unready=True)
+                        except Exception as pdf_err:
+                            logger.warning("Condense re-render failed for CL %s: %s", cl_id, pdf_err)
+                            # Finding 1 / ADR-039: the re-render failed, so pdf_bytes
+                            # must NOT keep the STALE pre-condense PDF — that PDF
+                            # describes content that no longer matches letter_data
+                            # (already overwritten above). A NULL report (or the
+                            # fresh internal re-render _update_ats_report_letter
+                            # falls back to when pdf=None) beats an audit persisted
+                            # against stale content.
+                            pdf_bytes = None
+                    except Exception as condense_err:
+                        logger.warning(
+                            "Condense pass failed for CL %s — keeping the original letter: %s",
+                            cl_id, condense_err,
+                        )
 
             # ADR-039 — persist the ATS audit (commits while status is still 'generating').
             # An audit failure is non-fatal: it leaves ats_report NULL and we still flip ready.
