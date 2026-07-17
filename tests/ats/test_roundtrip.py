@@ -487,3 +487,71 @@ async def test_letter_template_roundtrip(template, fixture, lang):
     report = audit_cover_letter(pdf, fixture, KEYWORDS)
     failures = [(c.id, c.details) for c in report.checks if c.status == "fail"]
     assert not failures, f"{template}: {failures}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
+async def test_letter_en_signoff_and_sender_name_survive_pdf_roundtrip(template):
+    """#189 / ADR-038 — the reported bug: an EN letter closed with the German
+    sign-off "Mit freundlichen Grüßen," and had NO sender name after it. As the
+    LLM/mock emits it, the letter carries the German closing and a blank name; after
+    the deterministic post-steps (_normalize_signature_closing +
+    _backfill_sender_name, sourcing the name from the profile's 'personal_info'
+    fallback schema) the REAL rendered PDF must contain the English chrome closing,
+    NOT the German one, and the sender name. Enforced on every shipped letter
+    template via the real Playwright round-trip (per the tests/ats render rule)."""
+    from applire.services.cover_letter import (
+        _backfill_sender_name,
+        _normalize_signature_closing,
+    )
+
+    class _Profile:
+        profile_json = {"personal_info": {"name": "Catherine O'Brien"}}
+
+    # Exactly what the LLM/mock returns for an EN letter today: German sign-off,
+    # empty sender name (the fallback path fed the prompt a blank name).
+    letter_data = {
+        "header": {
+            "name": "",
+            "address": "Bahnhofstrasse 21, 8001 Zürich",
+            "phone": "+44 20 7946 0958",
+            "email": "catherine.obrien@example.com",
+            "photo_url": None,
+        },
+        "recipient": {
+            "name": "Mr. Daniel Weber",
+            "title": "Head of Engineering",
+            "company": "Müller & Söhne AG",
+            "address": "Technoparkstrasse 1, 8005 Zürich",
+            "date": "11 June 2026",
+        },
+        "body": {
+            "paragraphs": [
+                "I am writing to express my strong interest in the Lead Platform "
+                "Engineer role and believe my background would make an immediate impact.",
+                "Over the past decade I have led migrations onto managed Kubernetes "
+                "platforms and championed infrastructure-as-code practices.",
+            ]
+        },
+        "signature": {"closing": "Mit freundlichen Grüßen", "name": ""},
+    }
+    letter_data = _normalize_signature_closing(letter_data, "en")
+    letter_data = _backfill_sender_name(letter_data, cv_data={}, profile=_Profile())
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+        letter=letter_data,
+        color=_default_color_context(),
+        lang="en",
+        labels=cover_letter_labels("en"),
+        subject="Application: Lead Platform Engineer",
+    )
+    pdf = await _html_to_pdf(html)
+    text = _norm_probe(extract_text(pdf))
+
+    assert _norm_probe("Kind regards") in text, f"{template}: EN sign-off missing in PDF"
+    assert _norm_probe("Mit freundlichen Grüßen") not in text, (
+        f"{template}: German sign-off leaked into EN letter PDF"
+    )
+    assert _norm_probe("Catherine O'Brien") in text, (
+        f"{template}: backfilled sender name missing after the sign-off in PDF"
+    )
