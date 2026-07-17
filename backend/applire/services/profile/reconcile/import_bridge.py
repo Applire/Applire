@@ -29,9 +29,23 @@ from pydantic import BaseModel
 
 from applire.exceptions import LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import Conflict, MasterProfileData, PendingConfirmation
+from applire.schemas.profile import (
+    Certification,
+    Conflict,
+    FieldChange,
+    MasterProfileData,
+    PendingConfirmation,
+    _coerce_partial_date,
+)
 from applire.services.profile.merge import MergeResult
-from applire.services.profile.reconcile.apply import ApplyResult, apply_ops
+from applire.services.profile.reconcile.apply import (
+    ApplyResult,
+    _added,
+    _fill_empties,
+    _merged,
+    apply_ops,
+)
+from applire.services.profile.reconcile.dedupe import classify_dupe
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import RequestConfirmation
 from applire.services.profile.reconciliation import compute_merge_reconciliation
@@ -136,6 +150,51 @@ async def _reconcile_import_batched(
     return accumulated, ambiguities
 
 
+def _union_certifications(
+    merged: MasterProfileData,
+    incoming: MasterProfileData,
+    changes: list[FieldChange],
+) -> None:
+    """#190 — deterministically UNION ``incoming.certifications`` into ``merged``.
+
+    Certifications are FACTUAL data (like contact info): the binding F7 decision
+    (``tests/unit/test_cv_certifications.py``) copies them verbatim through
+    deterministic code, never a routed-through-an-LLM JSON schema. The extractor /
+    reconciler LLM tends to misroute cert names that also look like frameworks/
+    standards (ITIL, CPSA/iSAQB, "Expert for Computersystemvalidation") into
+    ``skills``, silently dropping them from ``certifications``. This pass is the
+    durable guarantee against that loss: whatever op batch the LLM emitted, every
+    incoming certification is present on the merged profile afterwards.
+
+    It reuses the section-agnostic near-dupe guard (``classify_dupe`` on name) so
+    it never double-adds a cert the reconciler already upserted (exact / near-dupe
+    name → MATCH → fill only empty scalar fields, never overwrite). Anything the
+    guard does not confidently call the same cert — DISTINCT, or merely
+    AMBIGUOUS (a shared single token) — is appended rather than dropped: preserving
+    a possible near-duplicate is the correct trade against silent data loss for a
+    factual, user-verifiable field. ``merged`` is the apply_ops deep copy, so
+    mutating it here is safe; incoming certs are deep-copied in so the two
+    profiles never share objects.
+    """
+    for cert in incoming.certifications:
+        verdict = classify_dupe(
+            {"name": cert.name}, merged.certifications, {"name": lambda c: c.name}
+        )
+        if verdict.match is not None:
+            changed = _fill_empties(verdict.match, {
+                "issuing_organization": cert.issuing_organization,
+                "date_obtained": _coerce_partial_date(cert.date_obtained),
+                "expiry_date": _coerce_partial_date(cert.expiry_date),
+                "credential_id": cert.credential_id,
+                "credential_url": cert.credential_url,
+            })
+            if changed:
+                changes.append(_merged("certifications", "name", None, verdict.match.name))
+            continue
+        merged.certifications.append(cert.model_copy(deep=True))
+        changes.append(_added("certifications", "name", cert.name))
+
+
 async def reconcile_import(
     existing: MasterProfileData,
     incoming: MasterProfileData,
@@ -172,6 +231,10 @@ async def reconcile_import(
         applied, ambiguities = await _reconcile_import_batched(
             existing, incoming, source, provider, lang
         )
+    # #190 — deterministic certification passthrough (defense in depth). Runs on
+    # BOTH the fast path and the segmented fallback (both funnel through `applied`),
+    # AFTER apply_ops, so no incoming cert is lost to an LLM misroute into skills.
+    _union_certifications(applied.profile, incoming, applied.changes)
     # E037 PQ #4 — ambiguities ride the confirmation channel (question + options
     # intact); they are NO LONGER coerced into the 2-value Conflict shape, which
     # garbled the dialog. Real two-value disputes still come through `conflicts`.

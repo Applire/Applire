@@ -175,6 +175,17 @@ Operations:
    not address the question contributes nothing about the question's topic. If
    the new information only denies, output {"ops": [], "ambiguities": [],
    "denials": [...]}.
+
+10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
+    INFORMATION (a `certifications` entry, or an item the source lists under a
+    Certifications / Zertifikate / Licenses heading) MUST be emitted as its own
+    `upsert_certification` op (name required; issuing_organization / dates when
+    stated). This holds even when the certificate names a framework, standard or
+    methodology (ITIL Foundation, ISO 9001 Lead Auditor, CPSA / iSAQB, Certified
+    Scrum Master, GxP / CSV "Expert for Computersystemvalidation"): a certificate
+    is factual credential data — NEVER fold it into an `upsert_skill` and never
+    drop it. You may ALSO record the underlying competency as a skill, but the
+    `upsert_certification` op is mandatory.
 """
 
 

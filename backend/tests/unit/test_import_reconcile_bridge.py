@@ -16,7 +16,7 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import pytest
-from applire.schemas.profile import MasterProfileData, WorkEntry
+from applire.schemas.profile import Certification, MasterProfileData, WorkEntry
 from applire.services.profile.merge import MergeResult
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 
@@ -24,6 +24,81 @@ from applire.services.profile.reconcile.import_bridge import reconcile_import
 class _Stub:
     def __init__(self, payload): self.payload = payload
     async def aparse_json(self, prompt, **kw): return self.payload
+
+
+# #190 — certifications must survive CV import end-to-end. They were dropped
+# because the extractor/reconciler LLM misroutes cert names (ITIL, CPSA, CSV)
+# into `skills`; the durable guarantee is a DETERMINISTIC passthrough in
+# reconcile_import that unions incoming.certifications into the merged profile
+# regardless of what op batch the LLM emits.
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_from_upsert_op_land_in_profile():
+    """Baseline: when the reconciler DOES emit upsert_certification, the cert lands."""
+    incoming = MasterProfileData(certifications=[Certification(name="ITIL Foundation")])
+    stub = _Stub({"ops": [
+        {"op": "upsert_certification", "name": "ITIL Foundation",
+         "issuing_organization": "AXELOS"},
+    ], "ambiguities": []})
+    result = await reconcile_import(MasterProfileData(), incoming, "cv_upload", stub)
+    assert [c.name for c in result.merged_profile.certifications] == ["ITIL Foundation"]
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_survive_empty_ops_first_import():
+    """Fix C — the deterministic union guarantees certs even when the LLM emits an
+    EMPTY op batch (proving the guarantee is code-side, not the LLM op). First
+    import (no existing profile)."""
+    incoming = MasterProfileData(certifications=[
+        Certification(name="ITIL Foundation", issuing_organization="AXELOS"),
+        Certification(name="CPSA Foundation Level", issuing_organization="iSAQB"),
+        Certification(name="Expert for Computersystemvalidation"),
+    ])
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(MasterProfileData(), incoming, "cv_upload", stub)
+    names = [c.name for c in result.merged_profile.certifications]
+    assert names == [
+        "ITIL Foundation",
+        "CPSA Foundation Level",
+        "Expert for Computersystemvalidation",
+    ]
+    # issuer preserved verbatim
+    assert result.merged_profile.certifications[0].issuing_organization == "AXELOS"
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_survive_skills_only_ops_into_existing():
+    """Fix C — a skills-only op batch (the exact misroute in #190) must NOT drop
+    incoming certifications. Reconcile-into-existing path."""
+    existing = MasterProfileData(
+        work_experience=[WorkEntry(company="Acme", role="Engineer")]
+    )
+    incoming = MasterProfileData(certifications=[Certification(name="ITIL Foundation")])
+    stub = _Stub({"ops": [
+        {"op": "upsert_skill", "name": "ITIL", "category": "domain",
+         "proficiency": "advanced", "evidence": []},
+    ], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "cv_upload", stub)
+    assert "ITIL Foundation" in [c.name for c in result.merged_profile.certifications]
+    # existing work preserved
+    assert len(result.merged_profile.work_experience) == 1
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_no_double_add_when_already_present():
+    """Fix C — the near-dupe guard means an incoming cert already on the profile
+    (whether from the existing profile or a co-emitted upsert op) is not appended
+    twice; empty fields are filled instead."""
+    existing = MasterProfileData(certifications=[Certification(name="ITIL Foundation")])
+    incoming = MasterProfileData(certifications=[
+        Certification(name="ITIL Foundation", issuing_organization="AXELOS"),
+    ])
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "cv_upload", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 1                         # no duplicate
+    assert certs[0].issuing_organization == "AXELOS"  # empty issuer filled from incoming
 
 
 @pytest.mark.asyncio
