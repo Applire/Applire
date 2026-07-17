@@ -244,6 +244,18 @@ _RECONCILE_AMBIGUITY_RESPONSE: dict[str, Any] = {
     ],
 }
 
+# #187 — a skill whose only relation to an existing skill is bare single-token
+# containment ('Docker Compose' ⊃ 'Docker'). The reconciler is STATELESS, so it
+# re-emits this identical op even on the confirmation-resolution turn — which is
+# exactly what makes the interview confirmation loop reproducible under the mock.
+_RECONCILE_DOCKER_COMPOSE_RESPONSE: dict[str, Any] = {
+    "ops": [
+        {"op": "upsert_skill", "name": "Docker Compose", "category": "technical",
+         "proficiency": "intermediate", "evidence": []},
+    ],
+    "ambiguities": [],
+}
+
 _RESPONSE_PARSER_RESPONSE: dict[str, Any] = {
     # skills_to_add must include at least one of the skills named in _RICH_ANSWER
     # (iter4 test_profile_updated_after_answer checks for "salesforce", "veeva vault", "crm").
@@ -377,6 +389,11 @@ class MockLLMProvider(LLMProvider):
             # so the human-in-the-loop path is exercised under the mock.
             if "owner at applire" in prompt.lower():
                 return copy.deepcopy(_RECONCILE_AMBIGUITY_RESPONSE)
+            # #187 — a bare single-token containment ('Docker Compose' vs an
+            # existing 'Docker') re-emits the same skill op on EVERY turn, so the
+            # interview confirmation-resolution loop is reproducible under the mock.
+            if "docker compose" in prompt.lower():
+                return copy.deepcopy(_RECONCILE_DOCKER_COMPOSE_RESPONSE)
             return copy.deepcopy(_RECONCILE_RESPONSE)
 
         if "hr analyst" in system_lower:
