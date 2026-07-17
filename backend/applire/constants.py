@@ -162,6 +162,14 @@ MERGE_CONFIDENCE_REVIEW_THRESHOLD: float = float(
     os.environ.get("MERGE_CONFIDENCE_REVIEW_THRESHOLD", "0.75")
 )
 
+# CV skills section — JD-aware selection cap (#192). The tailored CV must present a
+# prioritised, JD-relevant SUBSET of the master profile's skills, not dump the whole
+# thing (~70 tags). services.cv._tailor_skills_to_jd ranks the candidate's skills by
+# relevance to the JobAnalysis (required > nice-to-have > keyword) and keeps at most
+# this many — JD-required skills that exist in the profile are always kept even past
+# the cap, and no-relevance tags are dropped first when over it. Env-overridable.
+CV_MAX_SKILLS: int = int(os.environ.get("CV_MAX_SKILLS", "24"))
+
 # Master Profile pre-merge snapshots (US168 / E033 / ADR-042). Bounded per profile;
 # the most-recent N survive, older ones are pruned. Env-overridable.
 SNAPSHOT_MAX_PER_PROFILE: int = int(

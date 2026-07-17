@@ -97,6 +97,7 @@ from applire.services.profile.merge import _sort_work_by_date
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
     CV_LANGUAGE_REVIEW_MAX_RETRIES,
+    CV_MAX_SKILLS,
     LLM_REVIEW_MAX_RETRIES,
     SEGMENT_MAX_TOKENS,
 )
@@ -652,6 +653,136 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     return tailored.model_copy(update={"skills": kept})
 
 
+def _jd_skill_terms(
+    job_dict: dict, keyword_ledger: list[dict] | None
+) -> tuple[list[str], list[str], list[str]]:
+    """Collect the JD's skill expectations bucketed by priority tier (#192).
+
+    Draws from BOTH the JobAnalysis fields (``required_skills`` / ``nice_to_have_skills``
+    / ``keywords``) and the Keyword Ledger (ADR-048): each ledger entry's ``concept`` +
+    ``surface_forms`` are filed by its highest-priority ``sources`` tag. Returns
+    ``(required, nice_to_have, keyword)`` term lists — the ranking signal for skill
+    selection, never a source of new skill *names* (those only ever come from the profile).
+    """
+    def _strs(seq: object) -> list[str]:
+        return [s for s in (seq or []) if isinstance(s, str) and s.strip()]
+
+    required = _strs(job_dict.get("required_skills"))
+    nice = _strs(job_dict.get("nice_to_have_skills"))
+    keyword = _strs(job_dict.get("keywords"))
+    for entry in keyword_ledger or []:
+        forms = _strs([entry.get("concept")]) + _strs(entry.get("surface_forms"))
+        sources = entry.get("sources") or []
+        if "required" in sources:
+            required += forms
+        elif "nice_to_have" in sources:
+            nice += forms
+        else:
+            keyword += forms
+    return required, nice, keyword
+
+
+def _tailor_skills_to_jd(
+    tailored: TailoredCVData,
+    profile_json: dict,
+    job_dict: dict,
+    keyword_ledger: list[dict] | None,
+    *,
+    cap: int = CV_MAX_SKILLS,
+) -> TailoredCVData:
+    """#192: present a prioritised, JD-relevant SUBSET of the candidate's skills.
+
+    The LLM path tends to echo nearly the whole master profile (~70 tags) into the
+    skills section: it keeps clearly-irrelevant tags (regulated-pharma skills on a SaaS
+    CTO CV) AND sometimes drops JD-required skills the candidate actually has. This
+    deterministic pass fixes both, downstream of the LLM, so it holds for every provider:
+
+    * **Rank** every candidate tag by relevance — required (tier 0) > nice-to-have (1) >
+      keyword (2) > no JD relevance (3) — matched on the shared normalised token sets
+      (:func:`skill_tokens`), so 'React' matches JD 'React' but pharma 'CAPA management'
+      matches nothing on an AI-SaaS JD.
+    * **Guarantee** required ∩ profile: a JD-required skill present in the master profile
+      but dropped by the writer is re-added from the profile's own spelling (never
+      invented), and tier-0 tags are kept even past the cap.
+    * **Cap** the count at ``cap``; no-relevance tags (tier 3) are dropped FIRST when over
+      it, so the pharma tags fall away while React/Node.js/Leadership stay.
+
+    Truthful by construction: the candidate pool is the writer's tags PLUS profile skills
+    only — nothing outside the master profile can enter. Pure; input unmutated.
+    """
+    from applire.services.ats_audit import (
+        _NEAR_DUPE_JACCARD,
+        skill_tokens,
+        skills_near_dupe,
+    )
+
+    tailored_skills = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
+    profile_skills = [
+        s for s in (profile_json.get("skills") or []) if isinstance(s, str) and s.strip()
+    ]
+
+    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
+    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
+    nice_toks = [t for t in (skill_tokens(x) for x in nice) if t]
+    kw_toks = [t for t in (skill_tokens(x) for x in keyword) if t]
+
+    def _relevant(st: frozenset[str], tt: frozenset[str]) -> bool:
+        # A skill maps to a JD term on equality/containment (JD 'React' ⊆ 'React Native')
+        # or strong token overlap — NOT a single shared common token ('MES systems' vs
+        # 'System Architecture' share only 'system', Jaccard 0.33 < 0.75 → no match).
+        if not st or not tt:
+            return False
+        if st <= tt or tt <= st:
+            return True
+        return len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD
+
+    def _matches(skill_toks: frozenset[str], term_toks: list[frozenset[str]]) -> bool:
+        return any(_relevant(skill_toks, t) for t in term_toks)
+
+    def _tier(skill: str) -> int:
+        st = skill_tokens(skill)
+        if not st:
+            return 3
+        if _matches(st, req_toks):
+            return 0
+        if _matches(st, nice_toks):
+            return 1
+        if _matches(st, kw_toks):
+            return 2
+        return 3
+
+    # Candidate pool = the writer's tags, PLUS any master-profile skill that maps to a
+    # JD-required term but the writer dropped (defect #2). Profile spelling is used verbatim
+    # — no fabrication. Order: writer's tags first (they carry the ADR-038 language pass),
+    # re-added required skills appended.
+    pool = list(tailored_skills)
+    for p in profile_skills:
+        if _tier(p) == 0 and not any(skills_near_dupe(p, x) for x in pool):
+            pool.append(p)
+
+    # Collapse near-dupes (the newly re-added profile skills may twin a writer tag), keeping
+    # the more-specific name — same shared predicate as _dedup_skills.
+    deduped: list[str] = []
+    for s in pool:
+        dup = next((i for i, k in enumerate(deduped) if skills_near_dupe(k, s)), None)
+        if dup is None:
+            deduped.append(s)
+        elif skill_tokens(s) > skill_tokens(deduped[dup]):
+            deduped[dup] = s
+
+    # Stable sort by tier (required lead the section); keep all tier-0 even past the cap,
+    # then fill remaining slots up to `cap` in tier order — tier-3 (no relevance) drops first.
+    ranked = sorted(enumerate(deduped), key=lambda it: (_tier(it[1]), it[0]))
+    selected: list[str] = []
+    for _, s in ranked:
+        if _tier(s) == 0 or len(selected) < cap:
+            selected.append(s)
+
+    if selected == tailored_skills:
+        return tailored
+    return tailored.model_copy(update={"skills": selected})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -1152,6 +1283,16 @@ async def _render_cv_background(
             # predicate) so the CV is clean even when the master profile still
             # carries twins. After the language pass, which rewords the tags.
             tailored = _dedup_skills(tailored)
+
+            # #192: present a prioritised, JD-relevant SUBSET of the candidate's skills
+            # instead of the whole master profile. Deterministic, downstream of the LLM +
+            # language pass (so it ranks the final target-language tags): guarantees the
+            # JD-required skills the candidate actually has, drops no-relevance tags over
+            # the cap, and never invents a skill. Uses the SORTED profile_json (still bound
+            # here — the photo step below rebinds `profile_json` to the raw profile dict).
+            tailored = _tailor_skills_to_jd(
+                tailored, profile_json, job_dict, keyword_ledger
+            )
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.
