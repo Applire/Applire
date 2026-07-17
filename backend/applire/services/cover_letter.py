@@ -379,6 +379,59 @@ def _inject_letter_date(letter_data: dict, language: str, today: date | None = N
     return letter_data
 
 
+def _normalize_signature_closing(letter_data: dict, language: str) -> dict:
+    """Overwrite ``signature.closing`` with the language-routed chrome label (#189).
+
+    The sign-off is CHROME, not LLM content, so per ADR-038 it must follow the
+    document's output language deterministically — the same discipline every other
+    cover-letter label already uses (subject_prefix/subject_at/email/…). The LLM was
+    primed to German by the schema example ("Mit freundlichen Grüßen") and the mock
+    hardcodes it, so an English letter closed with the German sign-off. This is a twin
+    of :func:`_inject_letter_date`: it overlays a deterministic value after generation
+    so the chrome is correct regardless of what the model emitted.
+    """
+    from applire.templates.labels import cover_letter_labels
+
+    closing = cover_letter_labels(language)["closing"]
+    signature = letter_data.get("signature")
+    if isinstance(signature, dict):
+        signature["closing"] = closing
+    elif signature is None:
+        letter_data["signature"] = {"closing": closing}
+    # A non-dict, non-None signature is a legacy/unexpected shape — leave it untouched
+    # rather than clobber it (fail-open; production always uses the nested dict schema).
+    return letter_data
+
+
+def _backfill_sender_name(letter_data: dict, cv_data: dict, profile) -> dict:
+    """Fill an empty ``signature.name`` / ``header.name`` from the candidate's real
+    name (#189).
+
+    ``signature.name`` (and ``header.name``) are LLM-owned with no deterministic
+    guarantee, so when the fallback cv_data path fed the prompt a blank name (the
+    profile_json schema uses ``personal_info``, not ``contact``) the letter shipped
+    with no sender name after the sign-off. Source the name robustly from BOTH schemas
+    and backfill only when the field is missing (an LLM-provided name still wins).
+    """
+    profile_json = (getattr(profile, "profile_json", None) or {}) if profile is not None else {}
+    name = (
+        (cv_data.get("contact") or {}).get("name")
+        or (profile_json.get("personal_info") or {}).get("name")
+        or (profile_json.get("contact") or {}).get("name")
+    )
+    if name:
+        for key in ("signature", "header"):
+            section = letter_data.get(key)
+            if isinstance(section, dict):
+                if not section.get("name"):
+                    section["name"] = name
+            elif section is None:
+                letter_data[key] = {"name": name}
+            # A non-dict, non-None value is a legacy/unexpected shape — leave it
+            # untouched (fail-open; production always uses the nested dict schema).
+    return letter_data
+
+
 def _apply_recipient_overrides(letter_data: dict, pre_gen_inputs: dict) -> dict:
     """Overlay the user's own dialog input onto letter_data.recipient — F3 (blind PQ
     blocker): the LLM's JSON solely owns letter_data, so a user who typed a recipient
@@ -566,6 +619,14 @@ async def _render_cover_letter_background(
             # through generation + review, then is stamped here from the system clock.
             letter_data = _inject_letter_date(letter_data, detected_language)
 
+            # #189: the sign-off is chrome — overwrite it with the language-routed label
+            # so an EN letter never closes with the German "Mit freundlichen Grüßen"
+            # (ADR-038). And backfill the sender name from the candidate's real name when
+            # the LLM left signature.name/header.name empty (the fallback profile_json
+            # path fed a blank name), so the letter is never unsigned.
+            letter_data = _normalize_signature_closing(letter_data, detected_language)
+            letter_data = _backfill_sender_name(letter_data, cv_data, profile)
+
             # Store the letter body, but keep status 'generating' for now. E037 PQ #2
             # (ATS "not available" race): the ATS audit must be persisted BEFORE status
             # flips to 'ready', because the frontend fetches the report once with no retry
@@ -638,6 +699,10 @@ async def _render_cover_letter_background(
                         )
                         condensed = _apply_recipient_overrides(condensed, pre_gen)
                         condensed = _inject_letter_date(condensed, detected_language)
+                        # #189: the condense pass is a fresh LLM rewrite, so re-apply the
+                        # deterministic chrome sign-off + sender-name backfill to it too.
+                        condensed = _normalize_signature_closing(condensed, detected_language)
+                        condensed = _backfill_sender_name(condensed, cv_data, profile)
                         letter_data = condensed
                         cl.letter_data = letter_data
                         await db.commit()
