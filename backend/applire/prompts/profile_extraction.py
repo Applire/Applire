@@ -41,6 +41,14 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    Do not add responsibilities or achievements that are not present in the source.
 4. Before writing work_history, count the distinct positions in the source. Your output must contain
    exactly that many entries — no more, no fewer.
+5. CERTIFICATIONS TAKE PRECEDENCE: any item listed under a "Certifications", "Zertifikate",
+   "Zertifizierungen", "Licenses" or "Qualifikationen" heading (common in LinkedIn exports) is a
+   certification — populate the "certifications" section with it (at minimum its "name", plus
+   "issuing_organization" when stated). This holds even when the item names a framework, standard or
+   methodology (ITIL Foundation, ISO 9001 Lead Auditor, CPSA / iSAQB, Certified Scrum Master, GxP / CSV
+   "Expert for Computersystemvalidation"): a named certificate is FACTUAL credential data and MUST land
+   in "certifications", never be demoted to a "skills" entry or dropped. You MAY additionally record the
+   underlying competency as a skill, but the certification entry itself is mandatory.
 
 Schema:
 {
@@ -68,6 +76,16 @@ Schema:
     {
       "language": "string — e.g. 'German', 'English'",
       "level": "string — e.g. 'Native', 'C1', 'B2', 'Fluent'"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Certification name",
+      "issuing_organization": "Issuing body or null",
+      "date_obtained": "ISO date YYYY-MM-DD or null",
+      "expiry_date": "ISO date YYYY-MM-DD or null",
+      "credential_id": "Credential ID or null",
+      "credential_url": "Verification URL or null"
     }
   ],
   "contact": {
