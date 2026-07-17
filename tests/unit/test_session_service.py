@@ -1914,3 +1914,256 @@ async def test_complete_session_survives_flow_advance_failure(sqlite_session):
         await _complete_session(record, state, sqlite_session, reason="user_ended")
 
     assert record.status == "complete"
+
+
+# ===========================================================================
+# Part 9: #188 — an addressed interview turn upgrades the persisted keyword
+# ledger IN PLACE, so a confirmed strength stops reading as an honest gap.
+# ===========================================================================
+
+_CICD_CLUSTER_ID = "cluster-ci-cd"
+_CICD_ANSWER = "I built the CI/CD pipelines at Acme end-to-end with GitHub Actions."
+
+
+def _make_gap_with_ledger(job_id, profile_id, *, cluster_concepts=("CI/CD",)):
+    """A persisted GapAnalysis whose ledger holds an honest-gap 'CI/CD' entry (plus a
+    claimable 'Python' entry) and one cluster owning `cluster_concepts`."""
+    from applire.models.gap import GapAnalysis
+
+    cluster = {
+        "id": _CICD_CLUSTER_ID,
+        "label": "CI/CD",
+        "category": "C",
+        "gaps": list(cluster_concepts),
+        "jd_skills": [],
+        "jd_context": "",
+    }
+    ledger = [
+        {"concept": "Python", "surface_forms": ["Python"], "sources": ["required"],
+         "fit_weight": 1.0, "status": "direct", "evidence": "5y", "claimable": True},
+        {"concept": "CI/CD", "surface_forms": ["CI/CD"], "sources": ["required"],
+         "fit_weight": 1.0, "status": "gap", "evidence": "", "claimable": False},
+    ]
+    return GapAnalysis(
+        job_analysis_id=job_id,
+        profile_id=profile_id,
+        match_score=0.6,
+        critical_gaps=[_CICD_CLUSTER_ID],
+        minor_gaps=[],
+        strengths=["Python"],
+        keyword_gaps=[],
+        category_a=[],
+        category_b=[],
+        category_c=["CI/CD"],
+        keyword_ledger=ledger,
+        gap_clusters=[cluster],
+    )
+
+
+def _cicd_session(job_id, profile_id, gap_id, *, cluster_concepts=("CI/CD",)):
+    """An active targeted session sitting on the CI/CD cluster, carrying the
+    gap_analysis_id so the #188 seam can load the exact persisted ledger row."""
+    from applire.models.session import InterviewSession
+
+    cluster = {
+        "id": _CICD_CLUSTER_ID,
+        "label": "CI/CD",
+        "gaps": list(cluster_concepts),
+        "jd_skills": [],
+        "jd_context": "",
+    }
+    state = {
+        "mode": "targeted",
+        "job_id": str(job_id),
+        "gap_analysis_id": str(gap_id) if gap_id else None,
+        "profile_id": str(profile_id),
+        "critical_gaps": [_CICD_CLUSTER_ID],
+        "gap_categories": {_CICD_CLUSTER_ID: "C"},
+        "gap_clusters_by_id": {_CICD_CLUSTER_ID: cluster},
+        "addressed_gaps": [],
+        "current_gap_index": 0,
+        "current_question": "Tell me about your CI/CD experience.",
+        "current_choices": None,
+        "messages": [{"role": "assistant", "content": "Tell me about your CI/CD experience."}],
+        "questions_asked": 1,
+        "hard_ceiling": 12,
+        "questions_per_gap": {},
+        "skipped_gaps": [],
+        "full_gaps": [],
+    }
+    return InterviewSession(
+        job_analysis_id=job_id,
+        gap_analysis_id=gap_id,
+        profile_id=profile_id,
+        mode="targeted",
+        status="active",
+        state=state,
+        hard_ceiling=12,
+        questions_asked=1,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+
+async def _reload_ledger(db, gap_id):
+    from sqlalchemy import select
+    from applire.models.gap import GapAnalysis
+
+    result = await db.execute(select(GapAnalysis).where(GapAnalysis.id == gap_id))
+    return result.scalar_one().keyword_ledger
+
+
+async def _count_gap_rows(db):
+    from sqlalchemy import func, select
+    from applire.models.gap import GapAnalysis
+
+    result = await db.execute(select(func.count()).select_from(GapAnalysis))
+    return result.scalar_one()
+
+
+class TestAddressedGapUpgradesLedger:
+    @pytest.mark.asyncio
+    async def test_addressed_turn_upgrades_honest_gap_in_place(self, sqlite_session):
+        """#188: a strength CONFIRMED in the interview must flip its honest-gap
+        ledger entry to claimable (with evidence) on the SAME persisted row — no new
+        GapAnalysis row — so the CV and cover letter stop hedging it as a growth area."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        rows_before = await _count_gap_rows(sqlite_session)
+
+        turn = _addressed_turn(profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(session_record.id, _CICD_ANSWER, sqlite_session, _mock_provider())
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is True
+        assert cicd["status"] in ("direct", "partial")
+        assert cicd["evidence"]  # non-empty — grounds the surfacing
+        assert cicd["evidence"] == _CICD_ANSWER
+        # The already-claimable Python entry is untouched.
+        python = next(e for e in ledger if e["concept"] == "Python")
+        assert python["claimable"] is True and python["evidence"] == "5y"
+        # NO new GapAnalysis row was inserted — the upgrade is in place.
+        assert await _count_gap_rows(sqlite_session) == rows_before == 1
+
+    @pytest.mark.asyncio
+    async def test_no_gap_analysis_id_is_a_noop(self, sqlite_session):
+        """Guided / Mode-B sessions carry no gap_analysis_id → never fabricate a ledger
+        change (and never crash)."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        # State has gap_analysis_id = None even though a row exists in the DB.
+        session_record = _cicd_session(job.id, profile.id, None)
+        session_record.gap_analysis_id = None
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _addressed_turn(profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(session_record.id, _CICD_ANSWER, sqlite_session, _mock_provider())
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False and cicd["status"] == "gap"
+
+    @pytest.mark.asyncio
+    async def test_unmatched_cluster_concepts_leave_ledger_unchanged(self, sqlite_session):
+        """A cluster whose concepts don't normalize-match any ledger entry (LLM reworded
+        / translated) must NOT create or upgrade any entry."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job.id, profile.id, cluster_concepts=("Quantum Computing",))
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(
+            job.id, profile.id, gap.id, cluster_concepts=("Quantum Computing",)
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _addressed_turn(profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(session_record.id, "Some answer.", sqlite_session, _mock_provider())
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False and cicd["status"] == "gap"
+
+    @pytest.mark.asyncio
+    async def test_unaddressed_turn_leaves_ledger_unchanged(self, sqlite_session):
+        """A turn that produced no profile change is not `addressed` → the ledger is
+        left exactly as built (no premature promotion of an un-substantiated gap)."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _unaddressed_turn(profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "follow up?", "choices": None})),
+        ):
+            await send_message(session_record.id, "I've done a little.", sqlite_session, _mock_provider())
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False and cicd["status"] == "gap"

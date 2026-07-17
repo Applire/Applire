@@ -156,6 +156,13 @@ Rules:
   intermediate, ≤40%→basic); word scales: beginner→basic, professional working→intermediate,
   proficient/fluent/senior→advanced, native/expert→expert. Equal scale positions → equal level.
 - """ + _TECH_VS_PRACTICES + """
+- CERTIFICATIONS TAKE PRECEDENCE: any item under a "Certifications"/"Zertifikate"/
+  "Zertifizierungen"/"Licenses" heading is a certification — put it in "certifications" (name +
+  issuing_organization when stated), EVEN when it names a framework/standard/methodology (ITIL
+  Foundation, ISO 9001 Lead Auditor, CPSA/iSAQB, Certified Scrum Master, GxP/CSV "Expert for
+  Computersystemvalidation"). The TECHNOLOGIES-vs-PRACTICES rule governs ONLY an experience's
+  technologies list, never a dedicated certifications listing; never demote a certificate to a
+  bare skill or drop it.
 - PROJECTS: items from a "Projects" section go here, NOT folded into work. Set
   associated_experience to the company/org name for project-within-a-job, else null. If a
   project's dates are absent from the source, set them null — NEVER infer.

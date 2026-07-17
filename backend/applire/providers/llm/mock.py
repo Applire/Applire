@@ -113,6 +113,19 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
         {"language": "German", "level": "Native"},
         {"language": "English", "level": "C1"},
     ],
+    # #190 — a certification whose name also reads as a framework/standard (ITIL),
+    # so the mock exercises the cert-import path end-to-end; without this key the
+    # whole suite was blind to certification loss on import.
+    "certifications": [
+        {
+            "name": "ITIL Foundation",
+            "issuing_organization": "AXELOS",
+            "date_obtained": "2020-05-01",
+            "expiry_date": None,
+            "credential_id": None,
+            "credential_url": None,
+        }
+    ],
     "projects": [
         {
             "name": "CI/CD Migration",
@@ -218,6 +231,10 @@ _RECONCILE_RESPONSE: dict[str, Any] = {
     "ops": [
         {"op": "upsert_skill", "name": "Python", "category": "technical",
          "proficiency": "advanced", "evidence": []},
+        # #190 — a certification in the new information is emitted as its own
+        # upsert_certification op, never folded into upsert_skill (reconcile rule 10).
+        {"op": "upsert_certification", "name": "ITIL Foundation",
+         "issuing_organization": "AXELOS", "date_obtained": "2020-05-01"},
     ],
     "ambiguities": [],
 }
@@ -242,6 +259,18 @@ _RECONCILE_AMBIGUITY_RESPONSE: dict[str, Any] = {
             },
         }
     ],
+}
+
+# #187 — a skill whose only relation to an existing skill is bare single-token
+# containment ('Docker Compose' ⊃ 'Docker'). The reconciler is STATELESS, so it
+# re-emits this identical op even on the confirmation-resolution turn — which is
+# exactly what makes the interview confirmation loop reproducible under the mock.
+_RECONCILE_DOCKER_COMPOSE_RESPONSE: dict[str, Any] = {
+    "ops": [
+        {"op": "upsert_skill", "name": "Docker Compose", "category": "technical",
+         "proficiency": "intermediate", "evidence": []},
+    ],
+    "ambiguities": [],
 }
 
 _RESPONSE_PARSER_RESPONSE: dict[str, Any] = {
@@ -377,6 +406,11 @@ class MockLLMProvider(LLMProvider):
             # so the human-in-the-loop path is exercised under the mock.
             if "owner at applire" in prompt.lower():
                 return copy.deepcopy(_RECONCILE_AMBIGUITY_RESPONSE)
+            # #187 — a bare single-token containment ('Docker Compose' vs an
+            # existing 'Docker') re-emits the same skill op on EVERY turn, so the
+            # interview confirmation-resolution loop is reproducible under the mock.
+            if "docker compose" in prompt.lower():
+                return copy.deepcopy(_RECONCILE_DOCKER_COMPOSE_RESPONSE)
             return copy.deepcopy(_RECONCILE_RESPONSE)
 
         if "hr analyst" in system_lower:

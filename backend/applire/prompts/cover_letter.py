@@ -47,7 +47,7 @@ The JSON must match this schema exactly:
     "paragraphs": ["opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
   },
   "signature": {
-    "closing": "Mit freundlichen Grüßen",
+    "closing": "null — the system overwrites the sign-off with a language-routed label after generation; always output null",
     "name": "string"
   }
 }
@@ -133,7 +133,11 @@ def build_cover_letter_prompt(
     recipient_name = pre_gen_inputs.get("recipient_name", "")
     recipient_company = pre_gen_inputs.get("recipient_company", "")
 
-    contact = cv_data.get("contact", {})
+    # #189: the fallback cv_data path is profile.profile_json, whose schema uses
+    # `personal_info` (not `contact`) — so name/email/phone were read blank and the
+    # letter's header.name + signature.name came out empty. Read either schema
+    # (mirrors services/cv.py:_contact_from_profile).
+    contact = cv_data.get("contact") or cv_data.get("personal_info") or {}
     summary = cv_data.get("summary", "")
     skills = cv_data.get("skills", [])
     work_history = cv_data.get("work_history", [])

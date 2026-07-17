@@ -1419,3 +1419,169 @@ async def test_cover_letter_pdf_filename_falls_back_when_parts_missing(db):
     )
     filename = await get_cover_letter_pdf_filename(cl_id, db)
     assert filename == f"anschreiben-{str(cl_id)[:8]}.pdf"
+
+
+# ---------------------------------------------------------------------------
+# #189 — sign-off language + sender-name backfill (ADR-038 chrome consistency)
+#
+# An English letter closed with the German "Mit freundlichen Grüßen," (the LLM
+# was primed to German by the schema example + the mock hardcodes it) and had NO
+# sender name after it (signature.name was LLM-owned and came out empty on the
+# fallback profile_json path). Both are now fixed deterministically, ADR-038
+# aligned: the sign-off is chrome routed by output language, and the sender name
+# is backfilled from the candidate's real name across BOTH profile schemas.
+# ---------------------------------------------------------------------------
+
+import copy as _copy
+
+
+def test_cover_letter_labels_carry_language_routed_closing():
+    """(A) — the sign-off is chrome, so it lives in the label map keyed by output
+    language, not in the LLM's JSON (which bypassed ADR-038 label routing)."""
+    from applire.templates.labels import cover_letter_labels
+
+    assert cover_letter_labels("en")["closing"] == "Kind regards"
+    assert cover_letter_labels("de")["closing"] == "Mit freundlichen Grüßen"
+
+
+def test_normalize_signature_closing_overwrites_german_priming_for_en():
+    """(A) — an EN letter must close with the English chrome label, deterministically,
+    overwriting whatever the LLM (or the German-primed mock) emitted."""
+    from applire.services.cover_letter import _normalize_signature_closing
+
+    letter_data = {"signature": {"closing": "Mit freundlichen Grüßen", "name": "Anna Bauer"}}
+    result = _normalize_signature_closing(letter_data, "en")
+    assert result["signature"]["closing"] == "Kind regards"
+
+
+def test_normalize_signature_closing_keeps_german_for_de():
+    """(A) — a DE letter's sign-off is the German chrome label, even if the LLM drifted
+    to English."""
+    from applire.services.cover_letter import _normalize_signature_closing
+
+    letter_data = {"signature": {"closing": "Kind regards", "name": "Anna Bauer"}}
+    result = _normalize_signature_closing(letter_data, "de")
+    assert result["signature"]["closing"] == "Mit freundlichen Grüßen"
+
+
+def test_normalize_signature_closing_creates_signature_when_missing():
+    """(A) — a missing signature key must not crash; the routed closing is created."""
+    from applire.services.cover_letter import _normalize_signature_closing
+
+    result = _normalize_signature_closing({}, "en")
+    assert result["signature"]["closing"] == "Kind regards"
+
+
+def test_normalize_signature_closing_on_mock_llm_output_en():
+    """(A) — the mock provider hardcodes the German closing (providers/llm/mock.py),
+    faithfully reproducing the bug for an EN letter. Running the mock's own
+    cover-letter response through the EN normalize step must yield the English label,
+    hermetically."""
+    from applire.providers.llm.mock import _COVER_LETTER_RESPONSE
+    from applire.services.cover_letter import _normalize_signature_closing
+
+    letter_data = _copy.deepcopy(_COVER_LETTER_RESPONSE)
+    assert letter_data["signature"]["closing"] == "Mit freundlichen Grüßen"  # bug reproduced
+    result = _normalize_signature_closing(letter_data, "en")
+    assert result["signature"]["closing"] == "Kind regards"
+    assert result["signature"]["name"]  # sender name present
+
+
+def test_backfill_sender_name_from_personal_info_fallback_schema():
+    """(B) — when signature.name/header.name come out empty (the fallback cv_data path
+    is profile.profile_json, whose schema uses 'personal_info', not 'contact', so the
+    prompt fed the LLM a blank name), the sender name is deterministically backfilled
+    from the profile's personal_info block."""
+    from applire.services.cover_letter import _backfill_sender_name
+
+    class _P:
+        profile_json = {"personal_info": {"name": "Priya Sharma"}}
+
+    letter_data = {"header": {"name": ""}, "signature": {"closing": "Kind regards", "name": ""}}
+    result = _backfill_sender_name(letter_data, cv_data={}, profile=_P())
+    assert result["signature"]["name"] == "Priya Sharma"
+    assert result["header"]["name"] == "Priya Sharma"
+
+
+def test_backfill_sender_name_from_contact_schema():
+    """(B) — the tailored-CV path uses the 'contact' schema; the name is sourced there."""
+    from applire.services.cover_letter import _backfill_sender_name
+
+    letter_data = {"signature": {"name": ""}}
+    result = _backfill_sender_name(
+        letter_data, cv_data={"contact": {"name": "Marcus Bauer"}}, profile=None
+    )
+    assert result["signature"]["name"] == "Marcus Bauer"
+
+
+def test_backfill_sender_name_preserves_existing_llm_name():
+    """(B) — backfill only fills a MISSING name; a name the LLM already produced wins."""
+    from applire.services.cover_letter import _backfill_sender_name
+
+    letter_data = {"signature": {"name": "Real Name"}}
+    result = _backfill_sender_name(
+        letter_data, cv_data={"contact": {"name": "Other"}}, profile=None
+    )
+    assert result["signature"]["name"] == "Real Name"
+
+
+def test_build_cover_letter_prompt_reads_personal_info_name_fallback():
+    """(B) upstream — the fallback cv_data path is profile.profile_json ('personal_info'
+    schema). build_cover_letter_prompt must read the name from either schema so it stops
+    feeding the LLM a blank name (mirrors services/cv.py:_contact_from_profile)."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={"personal_info": {"name": "Priya Sharma"}, "summary": "Engineer"},
+        jd_text="We are hiring.",
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+    )
+    assert "Priya Sharma" in prompt
+
+
+def test_cover_letter_schema_example_not_primed_to_german():
+    """(A) — the SYSTEM_PROMPT schema example previously hardcoded 'Mit freundlichen
+    Grüßen', priming EVERY letter (incl. EN) to German. The example must be
+    language-neutral so the model is not mis-primed."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    assert "Mit freundlichen Grüßen" not in SYSTEM_PROMPT
+
+
+def test_letter_html_render_en_signoff_and_backfilled_name():
+    """(A)+(B) chrome render (hermetic, no PDF) — after the deterministic post-steps an
+    EN letter renders the English closing and a non-empty sender-name div, even when the
+    LLM emitted the German closing and a blank name."""
+    from applire.services.cover_letter import (
+        _jinja_env,
+        _backfill_sender_name,
+        _default_color_context,
+        _normalize_signature_closing,
+        _TEMPLATE_FILES,
+    )
+    from applire.templates.labels import cover_letter_labels
+
+    class _P:
+        profile_json = {"personal_info": {"name": "Catherine O'Brien"}}
+
+    letter_data = {
+        "header": {"name": "", "address": "Bahnhofstrasse 21, 8001 Zürich", "phone": None, "email": "c@example.com"},
+        "recipient": {"name": "Mr. Weber", "title": None, "company": "Müller & Söhne AG", "address": None, "date": "11 June 2026"},
+        "body": {"paragraphs": ["I am writing to express my strong interest."]},
+        "signature": {"closing": "Mit freundlichen Grüßen", "name": ""},
+    }
+    letter_data = _normalize_signature_closing(letter_data, "en")
+    letter_data = _backfill_sender_name(letter_data, cv_data={}, profile=_P())
+
+    html = _jinja_env.get_template(_TEMPLATE_FILES["classic_german"]).render(
+        letter=letter_data,
+        color=_default_color_context(),
+        lang="en",
+        labels=cover_letter_labels("en"),
+        subject="Application: Lead Platform Engineer",
+    )
+    assert "Kind regards" in html
+    assert "Mit freundlichen Grüßen" not in html
+    # sender-name div must be non-empty (the bug rendered an empty <div>)
+    assert "Catherine O&#39;Brien" in html or "Catherine O'Brien" in html

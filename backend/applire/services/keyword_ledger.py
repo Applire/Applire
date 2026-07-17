@@ -516,6 +516,64 @@ def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | 
     return fn
 
 
+def upgrade_ledger_for_concepts(
+    keyword_ledger: list[dict[str, Any]] | None,
+    concepts: list[str],
+    evidence: str,
+    *,
+    status: str = "direct",
+) -> tuple[list[dict[str, Any]], bool]:
+    """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
+
+    A gap interview turn ADDRESSED a gap whose cluster owns ``concepts`` (the exact
+    ledger concept strings — ``GapClusterSchema.gaps``). Flip each matching
+    NON-claimable entry to claimable with the given ``status`` and the answer text
+    as ``evidence``, so the CV and cover-letter generators (which both read this one
+    persisted ``GapAnalysis.keyword_ledger`` row) surface it as a supported strength
+    instead of hedging it as a growth area ("I am eager to grow into …").
+
+    Matching reuses the same normalised substring logic ``build_keyword_ledger``
+    uses (``_norm`` / ``_matches``) — a cluster concept may map to MULTIPLE entries.
+
+    Conservative (this touches truthfulness):
+      * only NON-claimable entries whose concept normalize-matches a cluster concept
+        are touched — every other entry is copied through untouched;
+      * NEVER creates a new entry from an unmatched concept (a reworded/translated
+        cluster simply no-ops);
+      * the honest-gap ``evidence`` (stripped to "" by the builder) is replaced with
+        the answer text so the generator has something to ground the surfacing on.
+
+    Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
+    the JSONB write. Pure; tolerant of ``None``/empty.
+    """
+    if not keyword_ledger or not concepts:
+        return list(keyword_ledger or []), False
+    concept_norms = [_norm(c) for c in concepts if _norm(c)]
+    if not concept_norms:
+        return list(keyword_ledger), False
+
+    upgrade_status = status if status in {"direct", "partial"} else "direct"
+    ev = (evidence or "").strip()
+
+    new_ledger: list[dict[str, Any]] = []
+    changed = False
+    for entry in keyword_ledger:
+        e = dict(entry)
+        concept_norm = _norm(e.get("concept", ""))
+        if (
+            not e.get("claimable")
+            and concept_norm
+            and any(_matches(concept_norm, cn) for cn in concept_norms)
+        ):
+            e["claimable"] = True
+            e["status"] = upgrade_status
+            if ev:
+                e["evidence"] = ev
+            changed = True
+        new_ledger.append(e)
+    return new_ledger, changed
+
+
 def build_keyword_ledger(
     classifications: list[dict[str, Any]],
     required_skills: list[str],
