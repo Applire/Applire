@@ -183,3 +183,64 @@ class TestLedgerPromptSplitHelper:
 
         assert split_ledger_for_prompt([]) == ([], [])
         assert split_ledger_for_prompt(None) == ([], [])
+
+
+class TestUpgradeLedgerForConcepts:
+    """#188 — an interview-confirmed honest gap is upgraded IN PLACE so the split the
+    generators consume moves it from `forbidden` to `claimable` with evidence."""
+
+    def test_confirmed_gap_moves_from_forbidden_to_claimable(self):
+        from applire.services.keyword_ledger import (
+            split_ledger_for_prompt,
+            upgrade_ledger_for_concepts,
+        )
+
+        # Baseline: Rust is an honest gap → it lands in `forbidden`, never claimable.
+        _, forbidden_before = split_ledger_for_prompt(LEDGER)
+        assert "Rust" in forbidden_before
+
+        upgraded, changed = upgrade_ledger_for_concepts(
+            LEDGER, ["Rust"], "Shipped a production Rust CLI at Acme."
+        )
+        assert changed is True
+
+        claimable, forbidden = split_ledger_for_prompt(upgraded)
+        claim_concepts = {c["concept"] for c in claimable}
+        assert "Rust" in claim_concepts
+        assert "Rust" not in forbidden
+        rust = next(c for c in claimable if c["concept"] == "Rust")
+        assert rust["status"] in ("direct", "partial")
+        assert rust["evidence"] == "Shipped a production Rust CLI at Acme."
+
+    def test_no_match_is_a_noop(self):
+        from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+        upgraded, changed = upgrade_ledger_for_concepts(
+            LEDGER, ["Haskell"], "Some evidence."
+        )
+        assert changed is False
+        assert {c["concept"] for c in upgraded if c["claimable"]} == {"Python", "Kubernetes"}
+
+    def test_never_creates_a_new_entry(self):
+        from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+        upgraded, _ = upgrade_ledger_for_concepts(LEDGER, ["Haskell"], "x")
+        assert len(upgraded) == len(LEDGER)
+        assert all(c["concept"] != "Haskell" for c in upgraded)
+
+    def test_already_claimable_entry_is_untouched(self):
+        from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+        # Python is already claimable with its own evidence — upgrading its concept
+        # must not overwrite that evidence or change the entry.
+        upgraded, changed = upgrade_ledger_for_concepts(LEDGER, ["Python"], "new ev")
+        assert changed is False
+        python = next(c for c in upgraded if c["concept"] == "Python")
+        assert python["evidence"] == "5 years building FastAPI services at Acme GmbH"
+
+    def test_tolerates_none_and_empty(self):
+        from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+        assert upgrade_ledger_for_concepts(None, ["Rust"], "x") == ([], False)
+        assert upgrade_ledger_for_concepts([], ["Rust"], "x") == ([], False)
+        assert upgrade_ledger_for_concepts(LEDGER, [], "x")[1] is False

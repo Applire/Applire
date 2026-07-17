@@ -629,6 +629,53 @@ def test_denied_gap_keyword_aliased_by_claimable_entry_is_honest_gap():
     assert "Azure" in report.keywords.missing_honest_gap
 
 
+def test_post_interview_upgrade_reclassifies_gap_as_claimable():
+    """#188: after an interview confirms 'CI/CD', its ledger entry is upgraded to
+    claimable. The ATS audit must then treat a prose-only 'CI/CD' as a SURFACING
+    miss (missing_claimable — "you support this, surface it"), NOT an honest gap,
+    and a literally-present 'CI/CD' must not be flagged present_unsupported."""
+    from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+    ledger = [
+        {"concept": "CI/CD", "surface_forms": ["CI/CD"], "sources": ["required"],
+         "fit_weight": 1.0, "status": "gap", "evidence": "", "claimable": False},
+    ]
+    upgraded, changed = upgrade_ledger_for_concepts(
+        ledger, ["CI/CD"], "Built CI/CD pipelines end-to-end with GitHub Actions."
+    )
+    assert changed is True
+
+    # (a) prose-only mention (no literal 'CI/CD') → missing, and now CLAIMABLE.
+    prose_text = "Anna Bauer automated the build and deployment pipeline"
+    report = _audit_cv_text(prose_text, _CV, keywords=["CI/CD"], ledger=upgraded)
+    assert report.keywords.missing == ["CI/CD"]
+    assert report.keywords.missing_claimable == ["CI/CD"]
+    assert report.keywords.missing_honest_gap == []
+
+    # (b) literal present → counted present, and NOT present_unsupported (it is now
+    # a supported claim per the upgraded ledger).
+    present_text = "Anna Bauer owns the CI/CD pipelines end to end"
+    report2 = _audit_cv_text(present_text, _CV, keywords=["CI/CD"], ledger=upgraded)
+    assert report2.keywords.present == ["CI/CD"]
+    assert report2.keywords.present_unsupported == []
+
+
+def test_pre_upgrade_gap_is_honest_gap_not_claimable():
+    """Guard the contrast: BEFORE the upgrade the same prose-only 'CI/CD' is an
+    honest gap (not something to surface) — the upgrade is what flips it."""
+    ledger = [
+        {"concept": "CI/CD", "surface_forms": ["CI/CD"], "sources": ["required"],
+         "fit_weight": 1.0, "status": "gap", "evidence": "", "claimable": False},
+    ]
+    report = _audit_cv_text(
+        "Anna Bauer automated the build and deployment pipeline",
+        _CV, keywords=["CI/CD"], ledger=ledger,
+    )
+    assert report.keywords.missing == ["CI/CD"]
+    assert report.keywords.missing_claimable == []
+    assert report.keywords.missing_honest_gap == ["CI/CD"]
+
+
 def test_missing_keyword_unknown_to_ledger_is_honest_gap():
     """A missing keyword with no claimable ledger entry defaults to honest-gap —
     never silently claimable (mirrors the ledger's gap-default rule)."""

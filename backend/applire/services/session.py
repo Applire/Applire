@@ -68,6 +68,7 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
+from applire.services.keyword_ledger import upgrade_ledger_for_concepts
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
@@ -1222,6 +1223,61 @@ async def _create_micro_session(
 # ---------------------------------------------------------------------------
 
 
+async def _upgrade_ledger_for_addressed_gap(
+    state: InterviewState,
+    current_gap: str,
+    answer: str,
+    db: AsyncSession,
+) -> None:
+    """When an interview turn ADDRESSED a gap, upgrade the matching keyword_ledger
+    entries on the persisted GapAnalysis row IN PLACE (#188) — no LLM re-run.
+
+    The ledger is built ONCE during gap analysis and persisted on
+    ``GapAnalysis.keyword_ledger``; BOTH the CV and cover-letter generators read
+    that same row. A strength the candidate has now CONFIRMED in the interview
+    otherwise stays classed as an honest gap, so the cover letter hedges it as a
+    growth area — contradicting the CV. Flipping the matched entry to claimable
+    (with the answer text as evidence) fixes both documents from the one row.
+
+    This is the single backend seam that covers ALL interview channels — the full
+    ``/interview`` flow, the inline micro-session, and the MCP ``run_interview`` —
+    since every one of them funnels through ``send_message``.
+
+    Conservative (truthfulness): only the CURRENT cluster's concepts are eligible,
+    and only honest-gap entries that normalize-match them are touched. NO-OP (never
+    fabricate) when the session has no ledger (guided / Mode B — ``gap_analysis_id``
+    is None), the cluster has no concepts, the row has no ledger, or nothing matches.
+    """
+    gap_analysis_id = state.get("gap_analysis_id")
+    if not gap_analysis_id:
+        return  # guided / Mode B sessions have no ledger — never fabricate one
+
+    cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap)
+    if not cluster:
+        return
+    concepts = [c for c in (cluster.get("gaps") or []) if c]
+    if not concepts:
+        return
+
+    result = await db.execute(
+        select(GapAnalysis).where(GapAnalysis.id == uuid.UUID(str(gap_analysis_id)))
+    )
+    gap = result.scalar_one_or_none()
+    if gap is None or not gap.keyword_ledger:
+        return
+
+    new_ledger, changed = upgrade_ledger_for_concepts(
+        gap.keyword_ledger, concepts, answer
+    )
+    if changed:
+        # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a
+        # MutableList — mutating a dict inside the list in place would not be
+        # flagged dirty. Reassign the WHOLE attribute (a freshly built list) so
+        # SQLAlchemy persists it. Entry values are JSON-native (str/bool/float/
+        # list), so no model_dump(mode="json") coercion is needed here.
+        gap.keyword_ledger = new_ledger
+
+
 async def send_message(
     session_id: uuid.UUID,
     message: str,
@@ -1347,6 +1403,17 @@ async def send_message(
     # is_termination_signal, so an answer that changes nothing -> follow up once.
     addressed = turn.addressed
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+
+    # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
+    # the matching keyword_ledger entry on the persisted GapAnalysis row IN PLACE,
+    # so a confirmed strength stops reading as an honest gap in the CV and cover
+    # letter (both read that one row). `addressed` is exactly `bool(applied.changes)`
+    # (interview_bridge), so this fires only when the reconciler actually touched a
+    # field — never on a no-op turn. A no-op for guided/Mode-B (no ledger) and for
+    # clusters whose concepts don't normalize-match any ledger entry. Runs before
+    # the advance/complete branch so the same turn's single commit persists it. ---
+    if addressed:
+        await _upgrade_ledger_for_addressed_gap(state, current_gap, message, db)
 
     if addressed or resolving_confirmation or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
         # Advance to next gap
