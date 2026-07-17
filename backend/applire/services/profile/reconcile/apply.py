@@ -620,7 +620,7 @@ def _apply_add_bullets(op, resolve, changes, pending):
             changes.append(_merged(section, field, None, incoming))
 
 
-def _apply_upsert_skill(op, profile, resolve, changes, pending):
+def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirmed=None):
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
     # 'Team Leadership' instead of littering the profile with morphological twins.
@@ -640,6 +640,40 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending):
         # else: leave unresolved handles out (defensive)
 
     near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+
+    # #187 — the user has RESOLVED a deferred dedupe confirmation for this skill.
+    # Apply their choice directly and never re-emit the confirmation: the guards
+    # below are stateless, so re-running them would surface the identical question
+    # again and loop forever. ``"merge"`` folds the incoming into the matched
+    # existing skill; ``"distinct"`` appends it as its own separate skill.
+    if user_confirmed in ("merge", "distinct"):
+        merge_targets = near or [
+            s for s in profile.skills
+            if skills_single_token_containment(s.name, op.name)
+        ]
+        if user_confirmed == "merge" and merge_targets:
+            existing = merge_targets[0]
+            _append_dedup(existing.experience_refs, evidence_ids)
+            if op.proficiency:
+                new_rank = _PROFICIENCY_ORDER.get(op.proficiency.lower())
+                cur_rank = _PROFICIENCY_ORDER.get(existing.proficiency, 1)
+                if new_rank is not None and new_rank > cur_rank:
+                    existing.proficiency = op.proficiency.lower()
+            # Keep the more-specific/longer name only when the incoming strictly
+            # contains the existing tokens (mirrors the near==1 auto-merge below).
+            if skill_tokens(op.name) > skill_tokens(existing.name):
+                existing.name = op.name
+            changes.append(_merged("skills", "name", None, existing.name))
+            return
+        # "distinct", or "merge" with nothing to merge into: append a new skill.
+        skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+        if op.category:
+            skill_kwargs["category"] = op.category
+        if op.proficiency:
+            skill_kwargs["proficiency"] = op.proficiency
+        profile.skills.append(Skill(**skill_kwargs))
+        changes.append(_added("skills", "name", op.name))
+        return
 
     # An incoming skill that near-dupes MULTIPLE existing skills spans more than one
     # distinct atom. Silently merging would collapse distinct skills or swallow an

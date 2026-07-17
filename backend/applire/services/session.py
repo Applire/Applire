@@ -360,6 +360,131 @@ async def _handle_confirmation_answer(
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
+def _skill_confirmation_decision(chosen: str) -> str:
+    """Map the user's picked option to a skill-dedupe resolution (#187).
+
+    Robust to the two skill-confirmation shapes (single-token containment and
+    multi-atom overlap) by matching the answer text, not an option index:
+    ``"distinct"`` keeps the incoming as its own skill, ``"merge"`` folds it into
+    the existing one, ``"keep"`` discards the incoming (keep the existing skills).
+    An unrecognised non-empty answer defaults to ``"distinct"`` — never silently
+    drop the user's skill."""
+    c = (chosen or "").strip().lower()
+    if "separate" in c:
+        return "distinct"
+    if "keep" in c and "existing" in c:
+        return "keep"
+    if "merge" in c:
+        return "merge"
+    return "distinct"
+
+
+def _apply_interview_confirmation(
+    profile_json: dict, options: list[str], context: dict, chosen: str
+) -> dict | None:
+    """Apply a resolved interview-turn skill confirmation to the profile (#187).
+
+    Returns the updated profile JSONB dict, or ``None`` when there is nothing to
+    apply deterministically (a non-skill confirmation, or "keep the existing
+    skills"). The caller advances the interview either way, which is what closes
+    the loop. Skill dedupe is the reported vector: the ADR-046 applier is reused
+    with a ``user_confirmed`` flag that BYPASSES the stateless containment guard.
+    """
+    incoming = context.get("incoming_skill")
+    if not incoming:
+        # Not a skill confirmation (entity near-dupe etc.) — advancing is enough
+        # to break the loop; entity-merge resolution is out of #187's scope.
+        return None
+
+    decision = _skill_confirmation_decision(chosen)
+    if decision == "keep":
+        return None  # discard the incoming — the existing skills stand unchanged
+
+    from applire.services.profile.reconcile.apply import _apply_upsert_skill
+    from applire.services.profile.reconcile.ops import UpsertSkill
+
+    profile = MasterProfileData.model_validate(profile_json)
+    op = UpsertSkill(
+        name=incoming,
+        category=context.get("category"),
+        proficiency=context.get("proficiency"),
+        evidence=list(context.get("evidence_refs") or []),
+    )
+
+    def resolve(handle):
+        for entry in (
+            *profile.work_experience,
+            *profile.projects,
+            *profile.volunteer_activities,
+        ):
+            if getattr(entry, "id", None) == handle:
+                return entry
+        return None
+
+    changes: list = []
+    pending: list = []
+    _apply_upsert_skill(
+        op, profile, resolve, changes, pending, user_confirmed=decision
+    )
+    return profile.model_dump(mode="json")
+
+
+async def _handle_interview_confirmation_answer(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_idx: int,
+    pending_conf: dict,
+    message: str,
+    lang: str,
+) -> SessionMessageResponse:
+    """Resolve a reconciler-emitted interview-turn confirmation (#187).
+
+    Deterministic (no LLM re-run): the user's choice is applied via the carried
+    context, then the interview advances. An empty answer re-asks the same
+    question + options (never guess)."""
+    options = pending_conf.get("options") or []
+    context = pending_conf.get("context") or {}
+    chosen = (message or "").strip()
+
+    if not chosen:
+        question = pending_conf.get("question", "")
+        state["current_question"] = question
+        state["current_choices"] = options
+        state["messages"].append({"role": "assistant", "content": question})
+        record.state = state
+        record.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        gaps_remaining = _count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        )
+        return SessionMessageResponse(
+            complete=False, question=question, gaps_remaining=gaps_remaining,
+            choices=options,
+        )
+
+    profile_record = await _load_profile(state["profile_id"], db)
+    applied = _apply_interview_confirmation(
+        profile_record.profile_json, options, context, chosen
+    )
+    if applied is not None:
+        profile_record.profile_json = applied
+        profile_record.updated_at = datetime.now(timezone.utc)
+
+    # Consume the pending confirmation AND the one-shot flag — the loop is closed.
+    state.pop("pending_interview_confirmation", None)
+    state.pop("resolving_confirmation", None)
+
+    current_gap = state["critical_gaps"][current_idx]
+    if current_gap not in state.get("addressed_gaps", []):
+        state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+    state["questions_asked"] = state.get("questions_asked", 0) + 1
+    record.questions_asked = state["questions_asked"]
+
+    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+
+
 async def _resolve_conflict_safely(
     db: AsyncSession, conflict_id: str, resolution: str
 ) -> None:
@@ -444,11 +569,22 @@ async def _ask_confirmation(
     the gap going unmet), so the current gap is marked addressed and a one-shot
     ``resolving_confirmation`` flag makes the *next* turn advance rather than
     re-ask. The engine resolves the entity identity from the user's answer — the
-    system asks, it never guesses (mirrors the US163/US165 confirm principle)."""
+    system asks, it never guesses (mirrors the US163/US165 confirm principle).
+
+    #187 — the confirmation op (question, options, context) is persisted in state
+    so the NEXT turn resolves it DETERMINISTICALLY (no LLM re-run), mirroring the
+    import-time ``_handle_confirmation_answer`` mechanism. Without this the
+    stateless reconciler re-emits the identical confirmation every turn and the
+    interview loops forever."""
     confirmation = turn.pending_confirmations[0]
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
     state["resolving_confirmation"] = True
+    state["pending_interview_confirmation"] = {
+        "question": confirmation.question,
+        "options": list(confirmation.options),
+        "context": dict(confirmation.context),
+    }
     state["current_question"] = confirmation.question
     state["current_choices"] = list(confirmation.options)
     state["messages"].append({"role": "assistant", "content": confirmation.question})
@@ -1144,6 +1280,17 @@ async def send_message(
             record, state, db, provider, current_idx, confirmation_entry, message
         )
 
+    # --- #187: a reconciler-emitted interview-turn confirmation (skill dedupe,
+    # entity near-dupe) surfaced on a PREVIOUS turn is resolved deterministically
+    # here — NEVER re-run through the reconciler, whose stateless guard would
+    # re-emit the identical confirmation and loop forever. Mirrors the
+    # deterministic import-time confirmation path above. ---
+    pending_conf = state.get("pending_interview_confirmation")
+    if pending_conf is not None:
+        return await _handle_interview_confirmation_answer(
+            record, state, db, provider, current_idx, pending_conf, message, lang
+        )
+
     skipped_set = set(state.get("skipped_gaps", []))
     addressed_set = set(state.get("addressed_gaps", []))
     clusters_by_id = state.get("gap_clusters_by_id") or {}
@@ -1179,10 +1326,19 @@ async def send_message(
             record, state, db, "max_questions_reached", profile_record
         )
 
+    # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
+    # The primary resolution path is the deterministic handler above; this flag is
+    # the ordering backstop that guarantees a re-emitted identical confirmation can
+    # never re-loop (the flag was previously popped AFTER the re-ask, so the
+    # advance logic was unreachable whenever the reconciler re-emitted a
+    # confirmation — the loop).
+    resolving_confirmation = state.pop("resolving_confirmation", False)
+
     # --- US185: an unresolved ambiguity becomes a targeted confirmation question.
     # The reconciler never guesses entity identity (synonym role, project-vs-
-    # position, DE<->EN employer); it asks. Surface that before advancing. ---
-    if turn.pending_confirmations:
+    # position, DE<->EN employer); it asks. Surface that before advancing —
+    # unless this turn is itself resolving a prior confirmation (#187). ---
+    if turn.pending_confirmations and not resolving_confirmation:
         return await _ask_confirmation(record, state, db, turn, current_gap, current_idx)
 
     # --- Advance decision ---
@@ -1190,9 +1346,6 @@ async def send_message(
     # addressed the gap. "declined" is already handled upstream by
     # is_termination_signal, so an answer that changes nothing -> follow up once.
     addressed = turn.addressed
-    # One-shot: the previous turn surfaced a confirmation and pre-marked the gap
-    # addressed; this answer resolved it, so advance instead of re-asking.
-    resolving_confirmation = state.pop("resolving_confirmation", False)
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
     if addressed or resolving_confirmation or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
