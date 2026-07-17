@@ -159,6 +159,16 @@ Rules:
   methodology is a genuine competency, route it to skills with category "domain" (or "soft" for a
   pure way-of-working), or omit it. This applies to the technologies list in work_experience,
   projects AND volunteer_activities.
+- CERTIFICATIONS TAKE PRECEDENCE: any item listed under a "Certifications", "Zertifikate",
+  "Zertifizierungen", "Licenses" or "Qualifikationen" heading is a certification — populate the
+  "certifications" section with it (at minimum its "name", plus "issuing_organization" when stated).
+  This holds even when the item names a framework, standard or methodology (ITIL Foundation,
+  ISO 9001 Lead Auditor, CPSA / iSAQB, Certified Scrum Master, GxP / CSV "Expert for
+  Computersystemvalidation"): a named certificate is FACTUAL credential data and MUST land in
+  "certifications", never be demoted to a skill or dropped. The TECHNOLOGIES-vs-PRACTICES routing
+  above governs ONLY an experience's "technologies" list — it never applies to a dedicated
+  certifications listing. You MAY additionally record the underlying competency as a "domain" skill,
+  but the certification entry itself is mandatory.
 - PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
   advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
   fraction of its maximum, so equal scale positions always yield the same proficiency level:

@@ -113,6 +113,19 @@ _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
         {"language": "German", "level": "Native"},
         {"language": "English", "level": "C1"},
     ],
+    # #190 — a certification whose name also reads as a framework/standard (ITIL),
+    # so the mock exercises the cert-import path end-to-end; without this key the
+    # whole suite was blind to certification loss on import.
+    "certifications": [
+        {
+            "name": "ITIL Foundation",
+            "issuing_organization": "AXELOS",
+            "date_obtained": "2020-05-01",
+            "expiry_date": None,
+            "credential_id": None,
+            "credential_url": None,
+        }
+    ],
     "projects": [
         {
             "name": "CI/CD Migration",
@@ -218,6 +231,10 @@ _RECONCILE_RESPONSE: dict[str, Any] = {
     "ops": [
         {"op": "upsert_skill", "name": "Python", "category": "technical",
          "proficiency": "advanced", "evidence": []},
+        # #190 — a certification in the new information is emitted as its own
+        # upsert_certification op, never folded into upsert_skill (reconcile rule 10).
+        {"op": "upsert_certification", "name": "ITIL Foundation",
+         "issuing_organization": "AXELOS", "date_obtained": "2020-05-01"},
     ],
     "ambiguities": [],
 }
