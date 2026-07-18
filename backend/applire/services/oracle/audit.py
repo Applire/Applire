@@ -192,7 +192,15 @@ async def verify_claim(
                 evidence=_evidence_refs(evidence_units),
                 detail="All figures trace to vault evidence.",
             )
-            return await _entailment(claim.text, evidence_units, provider, budget, fallback)
+            # Adversarial review 2026-07-18 MINOR-1: the figure-carrying units
+            # alone (often bare date spans) starve the entailment of the role/
+            # org evidence that actually decides the claim — merge in the
+            # grounding top units so a true claim isn't over-flagged.
+            context_units = list(evidence_units)
+            for u in ground_text_claim(claim.text, idx).top_units:
+                if u not in context_units:
+                    context_units.append(u)
+            return await _entailment(claim.text, context_units, provider, budget, fallback)
         return ClaimVerdict(
             verdict="grounded",
             checker="numbers",
@@ -209,6 +217,26 @@ async def verify_claim(
             detail="No checkable content (soft or formulaic statement).",
         )
     if grounding.best_coverage >= GROUNDED_MIN_COVERAGE and grounding.best_unit is not None:
+        # Adversarial review 2026-07-18 MAJOR-1: the stance red flag applies
+        # HERE too — a claim rendered as achieved whose grounding evidence is
+        # purely aspirational is inflated even when the writer dropped the
+        # numeral (US245 has no figure restriction). Without this, the report
+        # actively endorsed the inflation with the aspirational unit as backing.
+        if classify_stance(claim.text) == "achieved":
+            top_stances = [classify_stance(u.text) for u in grounding.top_units]
+            aspirational = [
+                u for u, s in zip(grounding.top_units, top_stances) if s == "aspirational"
+            ]
+            if aspirational and not any(s == "achieved" for s in top_stances):
+                return ClaimVerdict(
+                    verdict="inflated",
+                    checker="stance",
+                    evidence=_evidence_refs(aspirational),
+                    detail=(
+                        "Rendered as an achieved outcome, but the vault evidence "
+                        "grounding this claim is aspirational (a target, not a result)."
+                    ),
+                )
         return ClaimVerdict(
             verdict="grounded",
             checker="grounding",

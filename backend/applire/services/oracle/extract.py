@@ -14,7 +14,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from applire.constants import ORACLE_PROSE_FALLBACK_CHARS, ORACLE_SEGMENT_MAX_TOKENS
+from applire.constants import (
+    ORACLE_MAX_SEGMENT_CALLS,
+    ORACLE_PROSE_FALLBACK_CHARS,
+    ORACLE_SEGMENT_MAX_TOKENS,
+)
 from applire.schemas.oracle import Claim
 
 # Dotted abbreviations that must not terminate a sentence (DE + EN). Matching
@@ -144,10 +148,14 @@ async def extract_claims_from_text(text: str, provider: Any | None = None) -> li
 
     Deterministic line/bullet/sentence segmentation; the LLM fallback fires
     ONLY for a block longer than ``ORACLE_PROSE_FALLBACK_CHARS`` in which the
-    deterministic splitter found no sentence boundary at all.
+    deterministic splitter found no sentence boundary at all — and at most
+    ``ORACLE_MAX_SEGMENT_CALLS`` times per document (adversarial review
+    2026-07-18 MAJOR-2: per-line fan-out on the agent-exposed tool). Once the
+    budget is spent, a qualifying block degrades to a single claim.
     """
     claims: list[Claim] = []
     idx = 0
+    segment_calls_left = ORACLE_MAX_SEGMENT_CALLS
 
     def _add(claim_text: str, kind: str) -> None:
         nonlocal idx
@@ -165,9 +173,11 @@ async def extract_claims_from_text(text: str, provider: Any | None = None) -> li
             continue
         sentences = split_sentences(line)
         if len(sentences) <= 1 and len(line) > ORACLE_PROSE_FALLBACK_CHARS:
-            segments = (
-                await _segment_prose_llm(line, provider) if provider is not None else [line]
-            )
+            if provider is not None and segment_calls_left > 0:
+                segment_calls_left -= 1
+                segments = await _segment_prose_llm(line, provider)
+            else:
+                segments = [line]
             for s in segments:
                 _add(s, "sentence")
         else:

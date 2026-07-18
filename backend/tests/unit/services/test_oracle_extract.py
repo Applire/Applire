@@ -171,6 +171,25 @@ async def test_extract_from_text_llm_fallback_is_bounded(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_segmentation_calls_are_budget_capped(monkeypatch):
+    """Adversarial review 2026-07-18 MAJOR-2: the fallback is bounded in CALL
+    COUNT per document, not only in per-call output — beyond the budget a
+    qualifying block degrades to one claim instead of another LLM call."""
+    from applire.services.oracle import extract as mod
+
+    monkeypatch.setattr(mod, "ORACLE_PROSE_FALLBACK_CHARS", 50)
+    monkeypatch.setattr(mod, "ORACLE_MAX_SEGMENT_CALLS", 2)
+    long_line = "led everything and delivered many results without punctuation " * 4
+    text = "\n".join([long_line, long_line, long_line])
+    spy = _SpyProvider({"claims": ["part one", "part two"]})
+    claims = await extract_claims_from_text(text, provider=spy)
+    assert len(spy.calls) == 2  # hard cap
+    # two segmented lines (2 claims each) + the third line as one whole claim
+    assert len(claims) == 5
+    assert claims[-1].text.startswith("led everything")
+
+
+@pytest.mark.asyncio
 async def test_extract_from_text_without_provider_degrades_to_single_claim(monkeypatch):
     from applire.services.oracle import extract as mod
 

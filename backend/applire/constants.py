@@ -203,6 +203,11 @@ ORPHAN_FILE_GRACE_HOURS: int = int(os.environ.get("ORPHAN_FILE_GRACE_HOURS", "1"
 ORACLE_PROSE_FALLBACK_CHARS: int = int(os.environ.get("ORACLE_PROSE_FALLBACK_CHARS", "600"))
 # Output cap for a single Oracle segmentation call (ADR-047 bounded-by-contract).
 ORACLE_SEGMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_SEGMENT_MAX_TOKENS", "800"))
+# Hard cap on segmentation-fallback calls per audited document (adversarial
+# review 2026-07-18 MAJOR-2: the per-call output cap alone let a pasted
+# 200-line boundary-free document fan out into ~200 real LLM calls on the
+# agent-exposed tool). Exhausted -> the block is treated as one claim.
+ORACLE_MAX_SEGMENT_CALLS: int = int(os.environ.get("ORACLE_MAX_SEGMENT_CALLS", "5"))
 # Output cap for a single narrow entailment verdict call.
 ORACLE_ENTAILMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_ENTAILMENT_MAX_TOKENS", "200"))
 # Hard cap on entailment calls per audited document (ADR-052: "narrow and

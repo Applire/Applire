@@ -60,6 +60,57 @@ async def test_achieved_evidence_keeps_achieved_claim_grounded():
     assert verdict.checker == "numbers"
 
 
+# ── adversarial review 2026-07-18 MAJOR-1: figure-free inflation ─────────────
+
+@pytest.mark.asyncio
+async def test_figure_free_achieved_claim_on_aspirational_evidence_is_inflated():
+    """The writer dropped the numeral — the stance red flag must still fire on
+    the grounding path (US245 has no figure restriction), instead of endorsing
+    the inflation with the aspirational unit as evidence."""
+    verdict = await verify_claim(
+        Claim(
+            text="Delivered the compliance workflow and its reduction in manual effort.",
+            location="summary[0]",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict == "inflated"
+    assert verdict.checker == "stance"
+    refs = {e.ref for e in verdict.evidence if e.kind == "profile_path"}
+    assert "work_experience[0].achievements[0]" in refs
+
+
+@pytest.mark.asyncio
+async def test_figure_free_achieved_claim_on_achieved_evidence_stays_grounded():
+    """Control: achieved vault evidence keeps an achieved figure-free claim green."""
+    verdict = await verify_claim(
+        Claim(
+            text="Delivered the CI automation and cut deployment time.",
+            location="summary[0]",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict == "grounded"
+
+
+# ── adversarial review 2026-07-18 MINOR-1: entailment evidence context ───────
+
+@pytest.mark.asyncio
+async def test_entailment_context_includes_grounding_units_not_just_figure_units():
+    """A year-matched claim must hand the entailment the role/org evidence that
+    decides it, not only the bare date-span unit that carried the figure."""
+    provider = _EagerProvider("grounded")
+    verdict = await verify_claim(
+        Claim(text="Head of IT at Acme GmbH since 2019", location="summary[0]"),
+        PROFILE,
+        provider,
+    )
+    assert verdict.checker == "entailment"
+    assert len(provider.calls) == 1
+    prompt = provider.calls[0].casefold()
+    assert "head of it" in prompt  # grounding unit, not a figure carrier
+
+
 # ── number provenance red flag ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
