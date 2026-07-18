@@ -63,7 +63,7 @@ Das Ergebnis ist ein DACH-tauglicher Lebenslauf, zugeschnitten auf die Zielrolle
 
 ## 💡 Was ist Applire?
 
-**Applire** ist das quelloffene, agent-fähige Bewerbungstool für Europa. Es macht aus deiner gesamten Berufslaufbahn wahrheitstreue, perfekt zugeschnittene Bewerbungsunterlagen — DACH-Konventionen eingebaut, weitere Länder als community-getragene Länderpakete geplant.
+**Applire** ist das quelloffene, agent-fähige Bewerbungstool für Europa. Es macht aus deiner gesamten Berufslaufbahn wahrheitstreue, perfekt zugeschnittene Bewerbungsunterlagen — DACH-Konventionen eingebaut, weitere Länder als von der Community beisteuerbare Länderpakete geplant.
 
 Gebaut für **alle Jobsuchenden** — von Quereinsteiger:innen, die Jahre an Lebenslauf-Versionen zusammenführen, bis zu internationalen Fachkräften, die sich an deutsche Bewerbungsgepflogenheiten anpassen. Läuft auf deiner eigenen Hardware; dein KI-Agent kann es steuern — und ohne Agenten übernimmt der eingebaute Assistent.
 
@@ -71,7 +71,7 @@ Anders als generische Lebenslauf-Baukästen:
 - 🧠 **Lernt von dir**: Baut ein dauerhaftes Master-Profil auf, das mit jedem hochgeladenen Lebenslauf klüger wird — jede Angabe bleibt auf ihre Quelle zurückführbar
 - 💬 **Befragt dich intelligent**: Stellt gezielte Fragen, um Lücken zwischen deiner Erfahrung und den Stellenanforderungen zu schließen
 - ✨ **Schneidet präzise zu**: Erzeugt kulturell passende Lebensläufe, optimiert für DACH-Recruiter und ATS-Systeme
-- ✅ **Hält dich wahrheitstreu**: Jedes Stichwort der Stellenanzeige wird als abgedeckt, belegbar oder ehrliche Lücke eingestuft — das System behauptet nie, was dein Profil nicht trägt (ein vollständiger Wahrheits-Report pro Dokument steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap))
+- ✅ **Hält dich wahrheitstreu**: Jedes Stichwort der Stellenanzeige wird als belegt, belegbar oder ehrliche Lücke eingestuft — das System behauptet nie, was dein Profil nicht trägt (ein vollständiger Wahrheits-Report pro Dokument steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap))
 - 🤖 **Agent-fähig**: Dein KI-Assistent kann die gesamte Schleife über das Model Context Protocol (MCP) steuern
 - 🔒 **Datenschutz by Design**: DSGVO-konform, selbst hostbar, volle Datenhoheit
 
@@ -84,7 +84,7 @@ Anders als generische Lebenslauf-Baukästen:
 
 ## 👥 Für wen ist Applire?
 
-Applire ist um zwei alltägliche Probleme von Jobsuchenden herum gebaut — plus einen dritten, agent-first Weg, sie zu lösen.
+Applire ist um zwei alltägliche Probleme von Jobsuchenden herum gebaut — plus einen dritten, agent-fähigen Weg, sie zu lösen.
 
 ### 📚 „Ich habe fünf Versionen meines Lebenslaufs und Angst vor Copy-Paste-Fehlern"
 Die meisten Fachkräfte pflegen mehrere Lebensläufe — manche auf Englisch, manche in der Muttersprache — und jede neue Bewerbung bedeutet, Fragmente hin- und herzukopieren, das Layout neu zu bauen und zu hoffen, dass nichts Wichtiges verloren geht. Applire speichert **jede Tatsache über deine Karriere an einem Ort**, holt genau die Teile heraus, die zu einer konkreten Stelle passen, und befragt dich, um die verbleibenden Lücken bestmöglich zu schließen — sodass jeder Lebenslauf vollständig, konsistent und zugeschnitten ist, ohne manuelles Hin- und Herschieben.
@@ -156,13 +156,13 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 
 Applire ist das erste Lebenslauf-Tool, das **KI-Agenten als vollwertige Nutzer** behandelt — nach einem einfachen Prinzip: **Bring your own intelligence.** Dein Agent ist der Stratege und, wenn er stark ist, auch der Autor; Applire liefert, was ein Agent sich strukturell nicht selbst geben kann:
 
-- **Zustand, den er nicht korrumpieren kann** — das Master-Profil ist ein abgeglichener Tresor mit Entscheidungsprotokoll, keine driftende Notizdatei
+- **Zustand, der nicht stillschweigend driftet** — das Master-Profil ist ein abgeglichener Tresor, in dem jede Änderung samt Quelle protokolliert wird — keine verlustanfällige Notizdatei
 - **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks heute; ein vollständiger Dokument-gegen-Profil-Wahrheits-Audit (`audit_document`) steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap)
-- **Regeln, die er nur halb erinnert** — DACH-Bewerbungsnormen als getestete, versionierte Daten statt vager Modell-Erinnerung
-- **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Veraltungs-Status und Follow-ups über die gesamte Suche hinweg
+- **Regeln, an die er sich nur halb erinnert** — DACH-Bewerbungsnormen als getestete, nachprüfbare Daten statt vager Modell-Erinnerung
+- **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Aktualitätsstatus und Follow-ups über die gesamte Suche hinweg
 - **Wachsendes Gedächtnis** — Fakten aus Interviews landen mit Belegen im Profil und nützen jeder künftigen Bewerbung
 
-Je schwächer das Modell deines Agenten, desto mehr der eingebauten Pipeline kannst du nutzen — die Generierungs-Tools bleiben vollständig verfügbar:
+Je schwächer das Modell deines Agenten, desto mehr von der eingebauten Pipeline kannst du nutzen — die Generierungs-Tools bleiben vollständig verfügbar:
 
 ### Model Context Protocol (MCP)
 - **Nahtlose Integration**: First-Class-Unterstützung für Claude Desktop, ChatGPT, Cursor und eigene KI-Agenten

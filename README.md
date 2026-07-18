@@ -59,7 +59,7 @@ Unlike generic CV builders, Applire:
 - 🧠 **Learns from you**: Builds a persistent Master Profile that gets smarter with every CV you upload — every claim traceable to where it came from
 - 💬 **Interviews you intelligently**: Asks targeted questions to fill gaps between your experience and job requirements
 - ✨ **Tailors with precision**: Generates culturally appropriate CVs optimized for DACH recruiters and ATS systems
-- ✅ **Keeps you truthful**: Every job-ad keyword is classified as covered, claimable, or an honest gap — the system never claims what your profile can't back (a full per-document truthfulness report is next on the [roadmap](#%EF%B8%8F-roadmap))
+- ✅ **Keeps you truthful**: Every job-ad keyword is classified as backed, claimable, or an honest gap — the system never claims what your profile can't back (a full per-document truthfulness report is next on the [roadmap](#%EF%B8%8F-roadmap))
 - 🤖 **Agent-ready**: Your AI assistant can run the whole loop via the Model Context Protocol (MCP)
 - 🔒 **Privacy by design**: GDPR-compliant, self-hosted, full data sovereignty
 
@@ -72,7 +72,7 @@ Unlike generic CV builders, Applire:
 
 ## 👥 Who is Applire for?
 
-Applire is built around two everyday problems job seekers actually have — plus a third, agent-first way to solve them.
+Applire is built around two everyday problems job seekers actually have — plus a third, agent-ready way to solve them.
 
 ### 📚 "I have five versions of my CV and I'm afraid of copy-paste mistakes"
 Most professionals keep several CVs — some in English, some in their native language — and every new application means copy-pasting fragments between them, rebuilding the layout, and hoping nothing important slipped through. Applire stores **every fact about your career in one place**, retrieves exactly the parts that fit a specific job, and interviews you to close the remaining gaps as well as possible — so each CV is complete, consistent, and tailored without the manual shuffle.
@@ -144,9 +144,9 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 
 Applire is the first CV tool built for **AI agents as first-class users** — under a simple doctrine: **bring your own intelligence**. Your agent is the strategist and, if it's strong, the writer; Applire supplies what an agent structurally cannot give itself:
 
-- **State it can't corrupt** — the Master Profile is a reconciled vault with a decision trail, not a drifting notes file
+- **State that can't silently drift** — the Master Profile is a reconciled vault where every change is recorded with its source, not a lossy notes file
 - **Checks it can't fake** — deterministic keyword-coverage and ATS checks today; a full document-vs-profile truthfulness audit (`audit_document`) is next on the [roadmap](#%EF%B8%8F-roadmap)
-- **Rules it only half-remembers** — DACH application norms enforced as tested, versioned data, not vague model recall
+- **Rules it only half-remembers** — DACH application norms enforced as tested, reviewable data, not vague model recall
 - **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
 - **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application
 

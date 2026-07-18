@@ -237,7 +237,7 @@ Understanding these helps you make the right product decisions:
 | **Felix** | Detail-oriented user who reads every line | Section-level editing, live preview, AI assist on demand |
 | **Kaile** | AI agent calling Applire via MCP/API | Structured tools, deterministic flow, session recovery via `flow_id` |
 
-The Jason (recruiter/headhunter) and Dr. Weber (Pharma specialist) personas are Cloud Edition concerns — do not surface them in Community features or documentation.
+The Jason (recruiter/headhunter) persona is a Cloud/B2B concern — do not surface it in Community features or documentation. (The former "Dr. Weber" pharma segment was removed entirely in 2026-06 — do not reintroduce industry-specific positioning.)
 
 ---
 
