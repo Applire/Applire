@@ -112,6 +112,50 @@ def test_no_fabrication_only_profile_skills():
         assert skill in allowed, f"{skill!r} was fabricated"
 
 
+def _obj_profile(names: list[str]) -> dict:
+    """Master-profile skills as the DB actually stores them: objects, not bare strings
+    (the production shape #192's first fix missed — it filtered for `str` and saw none)."""
+    return {
+        "skills": [
+            {
+                "name": n,
+                "source": "llm_estimated",
+                "category": "technical",
+                "proficiency": "intermediate",
+                "years_experience": None,
+                "experience_refs": [],
+            }
+            for n in names
+        ]
+    }
+
+
+def test_object_shaped_profile_skills_still_guarantee_required():
+    """#192 follow-up: with skills stored as objects ({"name": ...}) — the real DB shape —
+    the required∩profile guarantee must STILL re-add JD-required skills the writer dropped.
+    Regression for the edge finding where React/Node.js/JavaScript vanished from a live CV
+    because the guarantee only inspected string-typed profile skills."""
+    profile = _obj_profile(_TECH_TAGS + _PHARMA_TAGS)
+    writer_output = _tailored(list(_PHARMA_TAGS))  # writer kept pharma, dropped the tech skills
+
+    result = _tailor_skills_to_jd(writer_output, profile, _JOB, keyword_ledger=[])
+
+    for required in ("React", "Node.js", "JavaScript", "TypeScript", "Team Leadership"):
+        assert required in result.skills, f"{required!r} missing (object-shaped profile)"
+
+
+def test_object_shaped_profile_never_fabricates():
+    """Object-shaped selection may still only draw from the profile's own skill names."""
+    profile = _obj_profile(_TECH_TAGS + _PHARMA_TAGS)
+    writer_output = _tailored(_TECH_TAGS + _PHARMA_TAGS)
+
+    result = _tailor_skills_to_jd(writer_output, profile, _JOB, keyword_ledger=[])
+
+    allowed = set(_TECH_TAGS + _PHARMA_TAGS)
+    for skill in result.skills:
+        assert skill in allowed, f"{skill!r} was fabricated"
+
+
 def test_keyword_ledger_drives_relevance_when_job_fields_absent():
     """The Keyword Ledger (ADR-048) alone is enough to guarantee a required skill."""
     ledger = [

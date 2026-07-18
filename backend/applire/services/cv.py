@@ -717,9 +717,16 @@ def _tailor_skills_to_jd(
     )
 
     tailored_skills = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
-    profile_skills = [
-        s for s in (profile_json.get("skills") or []) if isinstance(s, str) and s.strip()
-    ]
+    # Master-profile skills are stored as objects ({"name": ..., "category": ...}), not bare
+    # strings — the #192 guarantee below silently saw NONE of them when it filtered for `str`,
+    # so JD-required skills the writer dropped (React/Node.js/JavaScript) were never re-added.
+    # Extract the display name (dict → .name, or a plain string for legacy/mock data), keeping
+    # the profile's own spelling verbatim — never fabricated. Mirrors gap_inference/choice_grounding.
+    profile_skills: list[str] = []
+    for s in profile_json.get("skills") or []:
+        name = s.get("name") if isinstance(s, dict) else s
+        if isinstance(name, str) and name.strip():
+            profile_skills.append(name.strip())
 
     required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
     req_toks = [t for t in (skill_tokens(x) for x in required) if t]
