@@ -15,6 +15,7 @@ returns a typed, receipt-carrying report. Verdict taxonomy v1 (ADR-052 §3):
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -101,3 +102,13 @@ class TruthfulnessReport(BaseModel):
         for r in results:
             counts[r.verdict.verdict] += 1
         return cls(document_kind=document_kind, claims=results, counts=counts)
+
+
+class TruthfulnessReportResponse(BaseModel):
+    """US246 API envelope — mirror of ``ATSReportResponse`` (ADR-039 pattern):
+    ``report`` is null until generation + self-audit complete (or when the
+    audit failed / the row predates Tiramisu)."""
+
+    document_id: uuid.UUID
+    status: str
+    report: TruthfulnessReport | None = None

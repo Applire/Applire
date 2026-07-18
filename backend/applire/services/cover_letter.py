@@ -829,6 +829,23 @@ async def _update_ats_report_letter(
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
         cl.ats_report = None
+    # E043/US246 (ADR-052 §4): truthfulness self-audit rides the same commit as
+    # the artifact + ATS report (letter twin of services/cv.py). Deterministic-
+    # only, non-fatal, never gates delivery.
+    try:
+        from applire.services.oracle.selfaudit import build_self_audit_report
+
+        profile_row = await db.get(MasterProfile, cl.profile_id)
+        audited = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+        cl.truthfulness_report = await build_self_audit_report(
+            profile_row.profile_json if profile_row else {},
+            letter_data=audited,
+        )
+    except Exception:
+        logger.exception(
+            "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id
+        )
+        cl.truthfulness_report = None
     await db.commit()
 
 
@@ -869,3 +886,36 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
             )
             report = None
     return ATSReportResponse(document_id=cl.id, status=cl.status, report=report)
+
+
+async def get_cover_letter_truthfulness_report(
+    cl_id: uuid.UUID, db: AsyncSession
+) -> "TruthfulnessReportResponse":
+    """Return the persisted truthfulness report for a cover letter (ADR-052/US246).
+
+    Raises LookupError if the cover letter is not found (→ 404 in the router).
+    A malformed stored report degrades to report=null, never a 500.
+    """
+    from applire.schemas.oracle import TruthfulnessReport, TruthfulnessReportResponse
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    report = None
+    if cl.truthfulness_report:
+        try:
+            report = TruthfulnessReport.model_validate(cl.truthfulness_report)
+        except Exception:
+            logger.warning(
+                "Stored truthfulness report for cover letter %s is malformed — "
+                "returning report=null",
+                cl.id,
+            )
+            report = None
+    return TruthfulnessReportResponse(document_id=cl.id, status=cl.status, report=report)

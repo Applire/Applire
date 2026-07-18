@@ -34,12 +34,14 @@ from applire.schemas.cover_letter import (
     SectionOverridePatch,
     SectionOverridePatchResponse,
 )
+from applire.schemas.oracle import TruthfulnessReportResponse
 from applire.services.cover_letter import (
     generate_cover_letter,
     get_cover_letter_ats_report,
     get_cover_letter_by_job,
     get_cover_letter_html,
     get_cover_letter_status,
+    get_cover_letter_truthfulness_report,
     patch_cover_letter_section,
 )
 
@@ -110,6 +112,20 @@ async def get_cl_ats_report(
     """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
     try:
         return await get_cover_letter_ats_report(cl_id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{cl_id}/truthfulness-report", response_model=TruthfulnessReportResponse)
+async def get_cl_truthfulness_report(
+    cl_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> TruthfulnessReportResponse:
+    """ADR-052 / US246: persisted truthfulness self-audit. `report` is null until
+    generation + self-audit complete (or for pre-Tiramisu rows)."""
+    try:
+        return await get_cover_letter_truthfulness_report(cl_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

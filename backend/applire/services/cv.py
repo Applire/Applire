@@ -1538,6 +1538,31 @@ async def _update_ats_report(
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
         record.ats_report = None
+    # E043/US246 (ADR-052 §4): truthfulness self-audit of the FINAL data (post-
+    # condense, overrides applied) rides the same single commit — "ready implies
+    # report available" holds for the truthfulness panel exactly like the ATS one.
+    # Deterministic-only and non-fatal by construction (build_self_audit_report
+    # never raises); the section-editor re-audit path refreshes it too, so a
+    # persisted report never describes content it was not computed from.
+    try:
+        from applire.services.cv_section_editor import apply_overrides_to_tailored
+        from applire.services.oracle.selfaudit import build_self_audit_report
+
+        profile = await db.get(MasterProfile, record.profile_id)
+        audited = apply_overrides_to_tailored(
+            TailoredCVData.model_validate(record.tailored_data),
+            record.content_snapshot,
+            record.section_overrides,
+        )
+        record.truthfulness_report = await build_self_audit_report(
+            profile.profile_json if profile else {},
+            tailored_data=audited.model_dump(mode="json"),
+        )
+    except Exception:
+        logger.exception(
+            "Truthfulness self-audit failed for CV %s — report left NULL", record.id
+        )
+        record.truthfulness_report = None
     await db.commit()
 
 
@@ -1572,3 +1597,30 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
             )
             report = None
     return ATSReportResponse(document_id=record.id, status=record.status, report=report)
+
+
+async def get_cv_truthfulness_report(
+    cv_id: uuid.UUID, db: AsyncSession
+) -> "TruthfulnessReportResponse":
+    """Return the persisted truthfulness report for a CV (ADR-052 / US246).
+
+    Raises LookupError if the CV is not found (→ 404 in the router). A
+    malformed stored report degrades to report=null, never a 500 (the E037
+    PQ #2 hardening pattern).
+    """
+    from applire.schemas.oracle import TruthfulnessReport, TruthfulnessReportResponse
+
+    record = await _load_cv(cv_id, db)
+    report = None
+    if record.truthfulness_report:
+        try:
+            report = TruthfulnessReport.model_validate(record.truthfulness_report)
+        except Exception:
+            logger.warning(
+                "Stored truthfulness report for CV %s is malformed — returning report=null",
+                record.id,
+            )
+            report = None
+    return TruthfulnessReportResponse(
+        document_id=record.id, status=record.status, report=report
+    )
