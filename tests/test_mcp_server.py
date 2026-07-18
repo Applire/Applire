@@ -48,6 +48,8 @@ _EXPECTED_TOOLS = {
     "get_cover_letter_ats_report",
     # Truthfulness Oracle (E043/US248, ADR-052/ADR-054)
     "audit_document",
+    # BYOI agent-door rendering (E044/US251, ADR-054)
+    "render_document",
     # Flow orchestrator (US109)
     "start_flow",
     "advance_flow",
@@ -64,6 +66,9 @@ _EXPECTED_TOOLS = {
 
 _EXPECTED_STATIC_RESOURCE_URIS = {
     "profile://current",
+    # E044/US251 (ADR-054): the public versioned document-content contracts.
+    "schema://cv",
+    "schema://cover-letter",
 }
 
 _EXPECTED_TEMPLATE_URIS = {
