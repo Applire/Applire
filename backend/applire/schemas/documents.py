@@ -33,6 +33,8 @@ class DocumentItem(BaseModel):
     status: CVGenerationStatus
     created_at: datetime
     expires_at: datetime
+    # E044/US252 (ADR-054): 'pipeline' | 'agent' — drives the origin badge.
+    origin: str = "pipeline"
 
     model_config = {"from_attributes": True}
 

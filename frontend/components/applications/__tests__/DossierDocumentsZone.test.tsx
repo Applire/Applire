@@ -118,6 +118,22 @@ async function renderZone(opts: {
   return { onError, onPinChange };
 }
 
+describe("DossierDocumentsZone (US252 — agent origin badge)", () => {
+  // E044/ADR-054: agent-rendered documents are never presented as
+  // Applire-authored; pipeline/legacy rows carry no badge.
+  it("shows the agent badge only on origin='agent' CV rows", async () => {
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [
+        { cv_id: "cv-agent", status: "ready", template: "classic_german", created_at: "2026-07-11T09:00:00Z", origin: "agent" },
+        { cv_id: "cv-pipe", status: "ready", template: "classic_german", created_at: "2026-07-10T09:00:00Z", origin: "pipeline" },
+        { cv_id: "cv-legacy", status: "ready", template: "classic_german", created_at: "2026-07-09T09:00:00Z" },
+      ],
+    });
+    expect(screen.getAllByTestId("dossier-origin-agent")).toHaveLength(1);
+  });
+});
+
 describe("DossierDocumentsZone (US232 — full version recall)", () => {
   it("renders the zone root testid", async () => {
     await renderZone({ application: baseApplication(), cvItems: [] });

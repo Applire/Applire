@@ -1000,7 +1000,8 @@
     "noDocuments": "No documents yet. Start a new application.",
     "generatedOn": "Generated {date}",
     "page": "Page {page} of {total}",
-    "showing": "{from}–{to} of {total} documents"
+    "showing": "{from}–{to} of {total} documents",
+    "agentAuthored": "Agent-authored"
   },
   "predownload": {
     "title": "Before you download",

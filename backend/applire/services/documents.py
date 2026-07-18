@@ -73,6 +73,7 @@ async def list_documents(
             status=cv.status,
             created_at=cv.created_at,
             expires_at=cv.expires_at,
+            origin=cv.origin,
         )
         for cv, app in rows
     ]

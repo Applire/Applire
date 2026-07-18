@@ -32,6 +32,8 @@ export interface DocumentItem {
   status: "ready" | "generating" | "expired" | "pending" | "failed";
   created_at: string;
   expires_at: string;
+  /** E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents carry a badge. */
+  origin?: string;
 }
 
 type StatusFilter = "all" | "ready" | "generating" | "expiring";
@@ -202,6 +204,16 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                       <span className="text-[11px] font-semibold px-2 py-1 rounded-md bg-surface-container text-gray-600">
                         {TEMPLATE_LABELS[item.template] ?? item.template}
                       </span>
+                      {item.origin === "agent" && (
+                        <span
+                          data-testid="documents-origin-agent"
+                          className="ml-1.5 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md bg-primary/10 text-primary"
+                        >
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>smart_toy</span>
+                          {t("agentAuthored")}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3.5">
                       {isReady && (

@@ -960,6 +960,7 @@ async def get_cv_status(
         ),
         expires_at=record.expires_at,
         target_pages=record.target_pages,
+        origin=record.origin,
     )
 
 
@@ -997,6 +998,7 @@ async def list_cvs_for_job(
             template=r.template,
             created_at=r.created_at,
             target_pages=r.target_pages,
+            origin=r.origin,
         )
         for r in records
     ]

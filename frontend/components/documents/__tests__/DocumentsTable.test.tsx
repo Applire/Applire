@@ -86,6 +86,20 @@ describe("DocumentsTable", () => {
     expect(screen.getByText("Director of QA")).toBeInTheDocument();
   });
 
+  // E044/US252 (ADR-054): agent-rendered documents are never presented as
+  // Applire-authored — origin='agent' rows carry a badge, pipeline rows don't.
+  it("shows the agent-authored badge only for origin='agent' rows", () => {
+    renderTable({
+      items: [
+        { ...ITEMS[0], origin: "agent" },
+        { ...ITEMS[1], origin: "pipeline" },
+        ITEMS[2], // origin absent (legacy payload) — no badge
+      ],
+    });
+    expect(screen.getAllByTestId("documents-origin-agent")).toHaveLength(1);
+    expect(screen.getByTestId("documents-origin-agent")).toHaveTextContent("agentAuthored");
+  });
+
   it("text search filters rows by company", () => {
     renderTable();
     fireEvent.change(screen.getByPlaceholderText("searchPlaceholder"), {

@@ -226,6 +226,7 @@ async def get_cover_letter_status(
         error_message=cl.error_message,
         expires_at=cl.expires_at,
         letter_data=letter_data,
+        origin=cl.origin,
     )
 
 

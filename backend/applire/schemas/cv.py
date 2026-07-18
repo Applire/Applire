@@ -82,6 +82,9 @@ class CVStatusResponse(BaseModel):
     # Lets the header re-tailor button forward the newest READY CV's target
     # even on non-stale applications, where stale_cv is absent.
     target_pages: Optional[int] = None
+    # E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents are
+    # never presented as Applire-authored (origin badge in the UI).
+    origin: str = "pipeline"
 
     model_config = {"from_attributes": True}
 

@@ -122,6 +122,8 @@ class CoverLetterStatusResponse(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     letter_data: Optional[dict] = None  # populated only when status == ready
+    # E044/US252 (ADR-054): 'pipeline' | 'agent' — drives the origin badge.
+    origin: str = "pipeline"
 
     model_config = {"from_attributes": True}
 
