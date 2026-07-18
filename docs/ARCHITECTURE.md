@@ -506,6 +506,22 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 ---
 
+### ADR-052 — Truthfulness Oracle (accepted 2026-07-18, **implementation upcoming**)
+
+**Decision:** A core verification service (`applire/services/oracle/`, not yet in the tree) will audit any generated document against the Master Profile with a failure mode *uncorrelated* with the LLM writer: claim extraction, then **deterministic checks first** — number/date provenance, grounding against profile evidence, and target-vs-achieved stance (did "targets a 70% reduction" become "reduced by 70%"?) — with narrow, bounded LLM entailment calls only where determinism cannot decide, and never allowed to overrule a deterministic red flag. Verdicts are typed (`grounded` / `inflated` / `unbacked` / `unverifiable`; role attribution follows in v2) and carry pointers to profile evidence. Surfaces: a pre-delivery truthfulness report persisted with every generated CV/letter (UI panel), and an `audit_document` MCP tool that also accepts documents Applire did **not** write.
+
+**Why:** An LLM reviewing LLM output fails in a correlated way — the same weights that inflated a claim will approve it. Blind adversarial testing (2026-07-18) showed exactly this class surviving the existing review pass. Deterministic code checking against a provenance-carrying profile has a structurally different failure mode. Stated limit: the Oracle verifies document ↔ profile consistency; it cannot prove the profile itself.
+
+---
+
+### ADR-054 — "Bring Your Own Intelligence": À-la-Carte MCP Surface (accepted 2026-07-18, **implementation upcoming**)
+
+**Decision:** On the agent channel, Applire never competes with the calling agent. Strategy, prose, and interviewing belong to the caller when its model is strong; Applire offers what an agent structurally lacks, each as a standalone tool that requires no prior `generate_*` call: `audit_document` (ADR-052), `render_document` (agent-authored structured content in, norms-checked and templated PDF out, report attached), and `submit_claims` (agent-elicited facts entering the profile reconciliation with provenance). The built-in `generate_cv` / `generate_cover_letter` remain fully supported as the convenience path — the weaker the caller's model, the more of the pipeline it should use. The human-door (browser) experience is unaffected.
+
+**Why:** Capable agents already out-write built-in single-pass generation; forcing them through it subtracts value. Enabling them — while keeping verification, state, norms, and rendering on Applire's side — makes the tool *more* valuable as agent models improve, not less.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
@@ -600,6 +616,8 @@ A cluster of Community rendering decisions a contributor will encounter in the C
 ## 5. Community vs. Cloud Boundary
 
 This repository is the Community Edition. The table below documents what is and is not in scope.
+
+> **Cloud status (ADR-053, 2026-07-18):** the Cloud Edition buildout is **paused** — no launch dates. The boundary below still governs the code: the auth abstraction and edition gating stay intact and tested, so nothing in Community may hard-code single-edition assumptions. "Cloud ✅" rows describe the design intent for when the pause lifts, not a shipped product.
 
 | Feature | Community | Cloud |
 |---|---|---|
