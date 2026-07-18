@@ -6,7 +6,7 @@ This file is the starting point for any AI agent (Claude Code, OpenCode, Cursor,
 
 ## What is Applire?
 
-Applire is an **open-source, AGPL-3.0, DACH-first CV tailoring platform** built as an open-core product. The community edition (this repo) is a fully functional self-hosted application. A managed Cloud Edition (proprietary, separate repo) is in development.
+Applire is **the open-source, agent-ready job application tool for Europe** (AGPL-3.0, DACH-native first), built as an open-core product. The community edition (this repo) is a fully functional self-hosted application. A managed Cloud Edition (proprietary, separate repo) exists as a design; its buildout is currently paused (see `docs/ARCHITECTURE.md` §5).
 
 **Core loop:** User provides a job description + one or more CVs → AI conducts a targeted interview to fill gaps → platform generates a culturally adapted, ATS-optimised PDF.
 

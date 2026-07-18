@@ -4,7 +4,7 @@
 
 # Applire
 
-**Open-Source Career Intelligence Platform for the DACH Market**
+**The open-source, agent-ready job application tool for Europe — DACH-native first**
 
 *Transform hours of CV tailoring into seconds. Upload your CVs, paste a job description, and let AI guide you through an intelligent interview to create perfectly matched application documents.*
 
@@ -51,15 +51,16 @@ Generate a DACH-ready Lebenslauf in seven templates (Classic German, Modern Swis
 
 ## 💡 What is Applire?
 
-**Applire** is an open-source AI platform that combines deep career intelligence with DACH-specific cultural expertise to automate high-quality CV tailoring.
+**Applire** is the open-source, agent-ready job application tool for Europe. It turns your entire career history into truthful, perfectly tailored application documents — DACH conventions built in, further countries planned as community-contributable packs.
 
-Built for **all job seekers in the DACH market** — from career changers consolidating years of CV versions to international professionals adapting to German application conventions.
+Built for **all job seekers** — from career changers consolidating years of CV versions to international professionals adapting to German application conventions. Runs on your own hardware; your AI agent can drive it — and if you don't have one, the built-in assistant has you covered.
 
 Unlike generic CV builders, Applire:
-- 🧠 **Learns from you**: Builds a persistent Master Profile that gets smarter with every CV you upload
+- 🧠 **Learns from you**: Builds a persistent Master Profile that gets smarter with every CV you upload — every claim traceable to where it came from
 - 💬 **Interviews you intelligently**: Asks targeted questions to fill gaps between your experience and job requirements
 - ✨ **Tailors with precision**: Generates culturally appropriate CVs optimized for DACH recruiters and ATS systems
-- 🤖 **Agent-first design**: Accessible to AI assistants via the Model Context Protocol (MCP)
+- ✅ **Keeps you truthful**: Every job-ad keyword is classified as covered, claimable, or an honest gap — the system never claims what your profile can't back (a full per-document truthfulness report is next on the [roadmap](#%EF%B8%8F-roadmap))
+- 🤖 **Agent-ready**: Your AI assistant can run the whole loop via the Model Context Protocol (MCP)
 - 🔒 **Privacy by design**: GDPR-compliant, self-hosted, full data sovereignty
 
 **In 3 simple steps:**
@@ -80,7 +81,7 @@ Most professionals keep several CVs — some in English, some in their native la
 You have your existing CV — say, an Indian one — but how do you turn it into something a German, Austrian, or Swiss recruiter expects? Applire converts your profile into a CV fine-tuned for DACH conventions (Lebenslauf structure, expected sections, cultural signals), so you compete on equal footing.
 
 ### 🤖 "Let my AI agent handle it"
-Applire is **agent-first**. Connect your AI agent — Claude, ChatGPT, or any MCP-capable assistant — and have it run the whole loop for you interactively over the Model Context Protocol: import your CVs, analyse the job ad, fill gaps, and generate the finished CV. No UI required.
+Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MCP-capable assistant — and have it run the whole loop for you interactively over the Model Context Protocol: import your CVs, analyse the job ad, fill gaps, and generate the finished CV. No UI required. And if your agent writes better than our built-in generator, good — Applire's job is to *enable* it: your agent stays the strategist, Applire provides the career vault, the gap evidence, the DACH norms, and the rendering.
 
 ---
 
@@ -141,7 +142,15 @@ Applire is **agent-first**. Connect your AI agent — Claude, ChatGPT, or any MC
 
 ## 🤖 Built for the AI Agent Era
 
-Applire is the first career platform optimized for **AI agents as customers**:
+Applire is the first CV tool built for **AI agents as first-class users** — under a simple doctrine: **bring your own intelligence**. Your agent is the strategist and, if it's strong, the writer; Applire supplies what an agent structurally cannot give itself:
+
+- **State it can't corrupt** — the Master Profile is a reconciled vault with a decision trail, not a drifting notes file
+- **Checks it can't fake** — deterministic keyword-coverage and ATS checks today; a full document-vs-profile truthfulness audit (`audit_document`) is next on the [roadmap](#%EF%B8%8F-roadmap)
+- **Rules it only half-remembers** — DACH application norms enforced as tested, versioned data, not vague model recall
+- **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
+- **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application
+
+The weaker your agent's model, the more of Applire's built-in pipeline you can lean on — the generation tools remain available end-to-end.
 
 ### Model Context Protocol (MCP)
 - **Seamless Integration**: First-class support for Claude Desktop, ChatGPT, Cursor, and custom AI agents
@@ -564,18 +573,17 @@ Applire/
 Applire ships in dessert-named releases, each tracked as a public [milestone](https://github.com/Applire/Applire/milestones) — follow along on the [blog](https://applire.de/en/blog/):
 
 - [ ] **Spaghettieis** (July 2026) — Parallel applications become first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
-- [ ] **Stracciatella** (August 2026) — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
-- [ ] **Strawberry** (September 2026) — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls (default color schemes, template availability, token tracking)
-- [ ] **Sorbet** (October 2026) — A free hosted demo in the browser: ephemeral profiles with strict TTLs, bring your own API key, nothing stored — plus Master Profile export as JSON ("take your profile with you"). The [waitlist](https://applire.de) hears first when it goes live
-- [ ] **Mango** (November 2026) — Beyond DACH: data-driven country packs (templates, structure, and conventions per target country) the community can contribute to, with France as the pilot
-- [ ] **Waldmeister** (December 2026) — Applire Cloud SaaS go-live: billing, production OIDC, GDPR export and erasure
+- [ ] **Tiramisu** (August 2026) — **Truthfulness Oracle v1**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself
+- [ ] **Stracciatella** — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
+- [ ] **Strawberry** — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls
+
+Beyond that, without dates: further agent-door tools under the bring-your-own-intelligence doctrine (`render_document` — your agent's content through our norms-checked renderer; `submit_claims` — agent interviews landing in the profile with receipts), and **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 
 ### 🔭 Future Vision
 
 - [ ] **Mock Interview Preparation**: AI-powered practice sessions with role-specific questions
 - [ ] **Career Path Advisory**: Skill gap analysis and training recommendations
 - [ ] **Job Search & Recommendation**: Curated job suggestions based on Master Profile
-- [ ] **Mobile-Friendly UI**: A responsive experience for phones and tablets
 - [ ] **MCP Marketplace Listings**: Distribution via agent marketplaces
 
 ---
@@ -667,7 +675,7 @@ For organizations that cannot comply with AGPL requirements (e.g., proprietary S
 
 **Built with ❤️ for job seekers in the DACH market**
 
-*Open-source career intelligence. Privacy-first. Agent-ready.*
+*Open source. Privacy-first. Agent-ready. Truthful by design.*
 
 [⭐ Star us on GitHub](https://github.com/Applire/Applire)
 

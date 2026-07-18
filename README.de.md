@@ -4,7 +4,7 @@
 
 # Applire
 
-**Open-Source-Plattform für Karriere-Intelligenz im DACH-Markt**
+**Das quelloffene, agent-fähige Bewerbungstool für Europa — DACH-nativ zuerst**
 
 *Aus stundenlangem Lebenslauf-Anpassen werden Sekunden. Lade deine Lebensläufe hoch, füge eine Stellenbeschreibung ein und lass dich von der KI durch ein intelligentes Interview führen — für perfekt zugeschnittene Bewerbungsunterlagen.*
 
@@ -63,15 +63,16 @@ Das Ergebnis ist ein DACH-tauglicher Lebenslauf, zugeschnitten auf die Zielrolle
 
 ## 💡 Was ist Applire?
 
-**Applire** ist eine quelloffene KI-Plattform, die tiefe Karriere-Intelligenz mit DACH-spezifischer kultureller Expertise verbindet, um hochwertiges Lebenslauf-Tailoring zu automatisieren.
+**Applire** ist das quelloffene, agent-fähige Bewerbungstool für Europa. Es macht aus deiner gesamten Berufslaufbahn wahrheitstreue, perfekt zugeschnittene Bewerbungsunterlagen — DACH-Konventionen eingebaut, weitere Länder als community-getragene Länderpakete geplant.
 
-Gebaut für **alle Jobsuchenden im DACH-Markt** — von Quereinsteiger:innen, die Jahre an Lebenslauf-Versionen zusammenführen, bis zu internationalen Fachkräften, die sich an deutsche Bewerbungsgepflogenheiten anpassen.
+Gebaut für **alle Jobsuchenden** — von Quereinsteiger:innen, die Jahre an Lebenslauf-Versionen zusammenführen, bis zu internationalen Fachkräften, die sich an deutsche Bewerbungsgepflogenheiten anpassen. Läuft auf deiner eigenen Hardware; dein KI-Agent kann es steuern — und ohne Agenten übernimmt der eingebaute Assistent.
 
 Anders als generische Lebenslauf-Baukästen:
-- 🧠 **Lernt von dir**: Baut ein dauerhaftes Master-Profil auf, das mit jedem hochgeladenen Lebenslauf klüger wird
+- 🧠 **Lernt von dir**: Baut ein dauerhaftes Master-Profil auf, das mit jedem hochgeladenen Lebenslauf klüger wird — jede Angabe bleibt auf ihre Quelle zurückführbar
 - 💬 **Befragt dich intelligent**: Stellt gezielte Fragen, um Lücken zwischen deiner Erfahrung und den Stellenanforderungen zu schließen
 - ✨ **Schneidet präzise zu**: Erzeugt kulturell passende Lebensläufe, optimiert für DACH-Recruiter und ATS-Systeme
-- 🤖 **Agent-first**: Über das Model Context Protocol (MCP) auch für KI-Assistenten zugänglich
+- ✅ **Hält dich wahrheitstreu**: Jedes Stichwort der Stellenanzeige wird als abgedeckt, belegbar oder ehrliche Lücke eingestuft — das System behauptet nie, was dein Profil nicht trägt (ein vollständiger Wahrheits-Report pro Dokument steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap))
+- 🤖 **Agent-fähig**: Dein KI-Assistent kann die gesamte Schleife über das Model Context Protocol (MCP) steuern
 - 🔒 **Datenschutz by Design**: DSGVO-konform, selbst hostbar, volle Datenhoheit
 
 **In 3 einfachen Schritten:**
@@ -92,7 +93,7 @@ Die meisten Fachkräfte pflegen mehrere Lebensläufe — manche auf Englisch, ma
 Du hast deinen bestehenden Lebenslauf — sagen wir, einen indischen — aber wie wird daraus etwas, das ein:e deutsche:r, österreichische:r oder Schweizer Recruiter:in erwartet? Applire überführt dein Profil in einen Lebenslauf, der auf DACH-Konventionen feinjustiert ist (Lebenslauf-Struktur, erwartete Abschnitte, kulturelle Signale), sodass du auf Augenhöhe konkurrierst.
 
 ### 🤖 „Lass meinen KI-Agenten das erledigen"
-Applire ist **agent-first**. Verbinde deinen KI-Agenten — Claude, ChatGPT oder jeden MCP-fähigen Assistenten — und lass ihn die gesamte Schleife interaktiv über das Model Context Protocol abwickeln: Lebensläufe importieren, Stellenanzeige analysieren, Lücken schließen und den fertigen Lebenslauf erzeugen. Ganz ohne Oberfläche.
+Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT oder jeden MCP-fähigen Assistenten — und lass ihn die gesamte Schleife interaktiv über das Model Context Protocol abwickeln: Lebensläufe importieren, Stellenanzeige analysieren, Lücken schließen und den fertigen Lebenslauf erzeugen. Ganz ohne Oberfläche. Und wenn dein Agent besser schreibt als unser eingebauter Generator: umso besser — Applire ist dafür gebaut, ihn zu *befähigen*. Dein Agent bleibt der Stratege; Applire liefert den Karriere-Tresor, die Lücken-Evidenz, die DACH-Normen und das Rendering.
 
 ---
 
@@ -153,7 +154,15 @@ Applire ist **agent-first**. Verbinde deinen KI-Agenten — Claude, ChatGPT oder
 
 ## 🤖 Gebaut für das Zeitalter der KI-Agenten
 
-Applire ist die erste Karriereplattform, die für **KI-Agenten als Kunden** optimiert ist:
+Applire ist das erste Lebenslauf-Tool, das **KI-Agenten als vollwertige Nutzer** behandelt — nach einem einfachen Prinzip: **Bring your own intelligence.** Dein Agent ist der Stratege und, wenn er stark ist, auch der Autor; Applire liefert, was ein Agent sich strukturell nicht selbst geben kann:
+
+- **Zustand, den er nicht korrumpieren kann** — das Master-Profil ist ein abgeglichener Tresor mit Entscheidungsprotokoll, keine driftende Notizdatei
+- **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks heute; ein vollständiger Dokument-gegen-Profil-Wahrheits-Audit (`audit_document`) steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap)
+- **Regeln, die er nur halb erinnert** — DACH-Bewerbungsnormen als getestete, versionierte Daten statt vager Modell-Erinnerung
+- **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Veraltungs-Status und Follow-ups über die gesamte Suche hinweg
+- **Wachsendes Gedächtnis** — Fakten aus Interviews landen mit Belegen im Profil und nützen jeder künftigen Bewerbung
+
+Je schwächer das Modell deines Agenten, desto mehr der eingebauten Pipeline kannst du nutzen — die Generierungs-Tools bleiben vollständig verfügbar:
 
 ### Model Context Protocol (MCP)
 - **Nahtlose Integration**: First-Class-Unterstützung für Claude Desktop, ChatGPT, Cursor und eigene KI-Agenten
@@ -548,18 +557,17 @@ Applire/
 Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milestone](https://github.com/Applire/Applire/milestones) — zum Mitlesen gibt es den [Blog](https://applire.de/blog/):
 
 - [ ] **Spaghettieis** (Juli 2026) — Parallele Bewerbungen werden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
-- [ ] **Stracciatella** (August 2026) — Präzisionsarbeit an der Oberfläche: Überarbeitung der Master-Profil-Ansicht, erweiterte Vorlagen-Bibliothek, feineres Finetuning von Lebenslauf und Anschreiben, klarere Prüfung vor dem Download
-- [ ] **Strawberry** (September 2026) — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen (Standard-Farbschemata, Vorlagen-Verfügbarkeit, Token-Tracking)
-- [ ] **Sorbet** (Oktober 2026) — Eine kostenlose Demo im Browser: flüchtige Profile mit strikten Aufbewahrungsfristen, eigener API-Schlüssel, nichts wird gespeichert — plus Master-Profil-Export als JSON („nimm dein Profil mit"). Die [Warteliste](https://applire.de) erfährt es zuerst
-- [ ] **Mango** (November 2026) — Über DACH hinaus: datengetriebene Länderpakete (Vorlagen, Struktur und Konventionen je Zielland), zu denen die Community beitragen kann — Pilot ist Frankreich
-- [ ] **Waldmeister** (Dezember 2026) — SaaS-Start der Applire Cloud: Abrechnung, Produktions-OIDC, DSGVO-Export und -Löschung
+- [ ] **Tiramisu** (August 2026) — **Wahrheits-Orakel v1**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat
+- [ ] **Stracciatella** — Präzisionsarbeit an der Oberfläche: Überarbeitung der Master-Profil-Ansicht, erweiterte Vorlagen-Bibliothek, feineres Finetuning von Lebenslauf und Anschreiben, klarere Prüfung vor dem Download
+- [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen
+
+Darüber hinaus, ohne Termine: weitere Agent-Tools nach dem Bring-your-own-intelligence-Prinzip (`render_document` — die Inhalte deines Agenten durch unseren normgeprüften Renderer; `submit_claims` — Agent-Interviews landen mit Belegen im Profil) und **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 
 ### 🔭 Zukunftsvision
 
 - [ ] **Vorbereitung auf Probe-Interviews**: KI-gestützte Übungssitzungen mit rollenspezifischen Fragen
 - [ ] **Karrierepfad-Beratung**: Skill-Gap-Analyse und Weiterbildungsempfehlungen
 - [ ] **Jobsuche & Empfehlungen**: Kuratierte Job-Vorschläge auf Basis des Master-Profils
-- [ ] **Mobil-freundliche Oberfläche**: Responsives Erlebnis für Smartphone und Tablet
 - [ ] **MCP-Marketplace-Listings**: Distribution über Agent-Marketplaces
 
 ---
@@ -651,7 +659,7 @@ Für Organisationen, die die AGPL-Anforderungen nicht erfüllen können (z. B. p
 
 **Mit ❤️ für Jobsuchende im DACH-Markt gebaut**
 
-*Quelloffene Karriere-Intelligenz. Datenschutz zuerst. Agent-ready.*
+*Open Source. Datenschutz zuerst. Agent-fähig. Wahrheitstreu by Design.*
 
 [⭐ Gib uns einen Stern auf GitHub](https://github.com/Applire/Applire)
 
