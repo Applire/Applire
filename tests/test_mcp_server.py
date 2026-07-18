@@ -46,6 +46,8 @@ _EXPECTED_TOOLS = {
     "generate_cover_letter",
     "get_cover_letter_status",
     "get_cover_letter_ats_report",
+    # Truthfulness Oracle (E043/US248, ADR-052/ADR-054)
+    "audit_document",
     # Flow orchestrator (US109)
     "start_flow",
     "advance_flow",

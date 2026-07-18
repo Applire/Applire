@@ -145,7 +145,7 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 Applire is the first CV tool built for **AI agents as first-class users** — under a simple doctrine: **bring your own intelligence**. Your agent is the strategist and, if it's strong, the writer; Applire supplies what an agent structurally cannot give itself:
 
 - **State that can't silently drift** — the Master Profile is a reconciled vault where every change is recorded with its source, not a lossy notes file
-- **Checks it can't fake** — deterministic keyword-coverage and ATS checks today; a full document-vs-profile truthfulness audit (`audit_document`) is next on the [roadmap](#%EF%B8%8F-roadmap)
+- **Checks it can't fake** — deterministic keyword-coverage and ATS checks, plus `audit_document`: a per-claim document-vs-profile truthfulness audit (grounded / inflated / unbacked / unverifiable, with profile evidence) that also accepts documents your agent wrote itself. Limit stated openly: it verifies document ↔ profile consistency; it cannot prove the profile itself
 - **Rules it only half-remembers** — DACH application norms enforced as tested, reviewable data, not vague model recall
 - **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
 - **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application
