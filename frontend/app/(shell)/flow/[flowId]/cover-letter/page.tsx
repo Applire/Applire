@@ -32,6 +32,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 
@@ -83,6 +84,8 @@ export default function CoverLetterPage({
   const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
+  // E043/US247: truthfulness self-audit report, fetched alongside the ATS report.
+  const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const init = useCallback(async () => {
@@ -177,7 +180,20 @@ export default function CoverLetterPage({
         // Non-fatal — panel shows unavailable state
       }
     }
+    async function fetchTruthReport() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/cover-letter/${clState!.coverLetterId}/truthfulness-report`,
+        );
+        if (!res.ok) return;
+        const data: { report: TruthfulnessReport } = await res.json();
+        setTruthReport(data.report ?? null);
+      } catch {
+        // Non-fatal — panel shows unavailable state
+      }
+    }
     void fetchAtsReport();
+    void fetchTruthReport();
   }, [phase, clState?.coverLetterId]);
 
   function startPolling(clId: string) {
@@ -364,7 +380,12 @@ export default function CoverLetterPage({
         onDownloadPdf={requestDownload}
         downloadDisabled={downloading || phase !== "ready"}
         preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}
-        atsPanel={<ATSChecksPanel report={atsReport} />}
+        atsPanel={
+          <div className="space-y-2">
+            <ATSChecksPanel report={atsReport} />
+            <TruthfulnessPanel report={truthReport} />
+          </div>
+        }
         sidebar={
           <RefinementSidebar
             matchScore={clState?.matchScore ?? null}
