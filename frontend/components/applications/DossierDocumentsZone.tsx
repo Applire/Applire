@@ -232,18 +232,20 @@ export function DossierDocumentsZone({
                   )}
                   <div className="min-w-0">
                     {isReady && (
-                      <p className="text-sm font-medium text-on-surface truncate">
-                        {readyLabel}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* Badge is a non-truncating SIBLING of the label — inside the
+                            truncate <p> it gets clipped away entirely (pixel check, E044). */}
+                        <p className="text-sm font-medium text-on-surface truncate">{readyLabel}</p>
                         {cv.origin === "agent" && (
                           <span
                             data-testid="dossier-origin-agent"
-                            className="ml-2 inline-flex items-center gap-1 align-middle text-[11px] font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary"
+                            className="inline-flex items-center gap-1 shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary"
                           >
                             <Bot className="w-3 h-3 shrink-0" aria-hidden="true" />
                             {tDocs("agentAuthored")}
                           </span>
                         )}
-                      </p>
+                      </div>
                     )}
                     {isGenerating && (
                       <p className="text-sm text-on-surface-variant">{t("docGeneratingLabel")}</p>
