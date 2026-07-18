@@ -69,8 +69,10 @@ from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
 from applire.models.application import UserStatus
+from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
+from applire.models.profile import MasterProfile
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
@@ -92,6 +94,7 @@ from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
+from applire.services import oracle as oracle_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
 from applire.services.flow import orchestrator as flow_svc
@@ -424,6 +427,84 @@ async def get_cv_ats_report(cv_id: str) -> dict:
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")
+
+
+async def _audit_stored_document(record, kind: str, db) -> dict:
+    """Persisted-or-fresh truthfulness report for a generated CV/letter row."""
+    if record.truthfulness_report:
+        return {"document_id": str(record.id), **record.truthfulness_report}
+    profile = await db.get(MasterProfile, record.profile_id)
+    profile_json = (profile.profile_json if profile else {}) or {}
+    try:
+        if kind == "cv":
+            report = await oracle_svc.audit_document(
+                "cv", profile_json, tailored_data=record.tailored_data or {},
+                provider=get_provider(),
+            )
+        else:
+            report = await oracle_svc.audit_document(
+                "cover_letter", profile_json, letter_data=record.letter_data or {},
+                provider=get_provider(),
+            )
+    except Exception as exc:
+        raise internal(str(exc))
+    record.truthfulness_report = report.model_dump(mode="json")
+    await db.commit()
+    return {"document_id": str(record.id), **record.truthfulness_report}
+
+
+@mcp.tool(
+    description=(
+        "TRUTHFULNESS ORACLE (ADR-052/ADR-054): audit a document against the master "
+        "profile (the vault) and get a per-claim truthfulness report. À la carte — "
+        "works with NO prior generate_* call; audit documents Applire did not write. "
+        "Pass EXACTLY ONE of: document_id (a generated CV or cover-letter id — "
+        "returns the persisted pre-delivery report, computing and persisting it if "
+        "absent) OR document_text (raw text of ANY application document, e.g. a CV "
+        "your agent authored itself). Verdicts per claim: grounded (with vault "
+        "evidence refs: profile paths + enrichment receipt ids) | inflated (an "
+        "aspirational target rendered as an achieved result) | unbacked (a figure or "
+        "skill with no vault evidence) | unverifiable (soft claim). Deterministic "
+        "checks always win; narrow entailment fills only undecided claims. STATED "
+        "LIMIT: the report verifies document-vault consistency only — it cannot "
+        "prove the vault itself (profile claims are self-attested)."
+    )
+)
+async def audit_document(
+    document_id: str | None = None, document_text: str | None = None
+) -> dict:
+    if (document_id is None) == (document_text is None):
+        raise invalid_input("Pass exactly one of document_id or document_text")
+    async with get_db() as db:
+        if document_text is not None:
+            if not document_text.strip():
+                raise invalid_input("document_text is empty")
+            result = await db.execute(
+                select(MasterProfile)
+                .where(MasterProfile.deleted_at.is_(None))
+                .order_by(MasterProfile.created_at.desc())
+                .limit(1)
+            )
+            profile = result.scalar_one_or_none()
+            if profile is None:
+                raise not_found("No profile found — import a CV first")
+            try:
+                report = await oracle_svc.audit_document(
+                    "external", profile.profile_json or {},
+                    text=document_text, provider=get_provider(),
+                )
+            except Exception as exc:
+                raise internal(str(exc))
+            return report.model_dump(mode="json")
+
+        did = _parse_uuid(document_id, "document_id")
+        cv = await db.get(GeneratedCV, did)
+        if cv is not None and cv.deleted_at is None:
+            return await _audit_stored_document(cv, "cv", db)
+        cl = await db.get(GeneratedCoverLetter, did)
+        if cl is not None and cl.deleted_at is None:
+            return await _audit_stored_document(cl, "cover_letter", db)
+        raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
 @mcp.tool(
