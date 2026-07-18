@@ -24,6 +24,10 @@ from pydantic import BaseModel, Field, field_validator
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
 
+# E044 (ADR-054): version tag of the public tailored-CV content contract served
+# via the MCP resource schema://cv. Bump on any breaking field change.
+CV_SCHEMA_VERSION = "cv/1"
+
 CVTemplate = Literal[
     "classic_german",
     "modern_swiss",

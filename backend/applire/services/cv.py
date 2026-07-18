@@ -1624,3 +1624,96 @@ async def get_cv_truthfulness_report(
     return TruthfulnessReportResponse(
         document_id=record.id, status=record.status, report=report
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent door: render_document (E044/US250, ADR-054)
+# ---------------------------------------------------------------------------
+
+
+async def render_agent_cv(
+    content: dict,
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    template: CVTemplate = "classic_german",
+    target_pages: int | None = None,
+) -> GeneratedCV:
+    """Render agent-authored CV content through Applire's templates (ADR-054).
+
+    The caller is the author: content is persisted VERBATIM — no condense loop,
+    no deterministic mutators, no language pass (ADR-054 §4). The only change
+    Applire makes is the photo strip: ``contact.photo_url`` is never taken from
+    the caller (``storage.read`` has no traversal guard — an arbitrary path
+    would be read off disk and embedded into the PDF); when ``show_photo`` is
+    true the profile's own ``personal_info.photo_url`` is backfilled instead.
+
+    Page-target norms (ADR-051) are applied as ADVISORY only: the resolved
+    target (per-call > user setting > region norm) feeds the page-length check
+    in the ATS report; an overrun is reported, never fixed.
+
+    Raises LookupError (unknown job / no profile) and ValueError /
+    pydantic.ValidationError (content rejected — field paths included) for the
+    MCP layer to map. Returns the committed, ready record with both reports
+    persisted in the same commit ("ready implies reports available").
+    """
+    from applire.schemas.strict import find_unknown_fields
+
+    job = await db.get(JobAnalysis, job_id)
+    if job is None:
+        raise LookupError(f"Job analysis {job_id} not found")
+
+    profile_result = await db.execute(
+        select(MasterProfile)
+        .where(MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc())
+        .limit(1)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if profile is None:
+        raise LookupError("No profile found — import a CV first")
+
+    unknown = find_unknown_fields(TailoredCVData, content)
+    if unknown:
+        raise ValueError(
+            "Unknown fields for schema cv/1 (see resource schema://cv): "
+            + ", ".join(sorted(unknown))
+        )
+    tailored = TailoredCVData.model_validate(content)
+
+    # Photo strip (security): only the profile's own stored photo is trusted.
+    profile_json = profile.profile_json or {}
+    trusted_photo = (profile_json.get("personal_info") or {}).get("photo_url")
+    tailored = tailored.model_copy(update={
+        "contact": tailored.contact.model_copy(update={
+            "photo_url": trusted_photo if tailored.show_photo else None
+        })
+    })
+
+    from applire.models.user_settings import UserSettings
+    from applire.services.color_detection import _CE_STUB_USER_ID
+    from applire.services.cv_section_editor import build_content_snapshot
+
+    settings_result = await db.execute(
+        select(UserSettings.target_cv_pages).where(
+            UserSettings.user_id == _CE_STUB_USER_ID
+        )
+    )
+    user_setting = settings_result.scalar_one_or_none()
+
+    record = GeneratedCV(
+        job_analysis_id=job_id,
+        profile_id=profile.id,
+        tailored_data=tailored.model_dump(mode="json"),
+        template=template,
+        status=CVGenerationStatus.ready.value,
+        origin="agent",
+        target_pages=resolve_target_pages(target_pages, user_setting),
+        content_snapshot=build_content_snapshot(tailored),
+    )
+    db.add(record)
+    await db.flush()
+    # Audit-only tail (no condense_ctx → never mutates content): renders,
+    # measures, audits, self-audits, and commits status + both reports together.
+    await _update_ats_report(record, db, None)
+    await db.refresh(record)
+    return record

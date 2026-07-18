@@ -79,6 +79,11 @@ class GeneratedCV(Base):
     # consumers resolve NULL through resolve_target_pages(None, current_setting)
     # at use time (Task 1.3).
     target_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # E044/US250 (ADR-054): 'pipeline' = built-in LLM writer, 'agent' = content
+    # authored by the caller via render_document — never presented as Applire-authored.
+    origin: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pipeline", server_default="pipeline"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
