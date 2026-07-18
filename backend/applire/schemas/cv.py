@@ -24,6 +24,10 @@ from pydantic import BaseModel, Field, field_validator
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
 
+# E044 (ADR-054): version tag of the public tailored-CV content contract served
+# via the MCP resource schema://cv. Bump on any breaking field change.
+CV_SCHEMA_VERSION = "cv/1"
+
 CVTemplate = Literal[
     "classic_german",
     "modern_swiss",
@@ -78,6 +82,9 @@ class CVStatusResponse(BaseModel):
     # Lets the header re-tailor button forward the newest READY CV's target
     # even on non-stale applications, where stale_cv is absent.
     target_pages: Optional[int] = None
+    # E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents are
+    # never presented as Applire-authored (origin badge in the UI).
+    origin: str = "pipeline"
 
     model_config = {"from_attributes": True}
 

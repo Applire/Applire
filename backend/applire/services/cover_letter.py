@@ -226,6 +226,7 @@ async def get_cover_letter_status(
         error_message=cl.error_message,
         expires_at=cl.expires_at,
         letter_data=letter_data,
+        origin=cl.origin,
     )
 
 
@@ -919,3 +920,93 @@ async def get_cover_letter_truthfulness_report(
             )
             report = None
     return TruthfulnessReportResponse(document_id=cl.id, status=cl.status, report=report)
+
+
+# ---------------------------------------------------------------------------
+# Agent door: render_document (E044/US250, ADR-054)
+# ---------------------------------------------------------------------------
+
+
+async def render_agent_letter(
+    content: dict,
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    template: str = "classic_german",
+) -> GeneratedCoverLetter:
+    """Render agent-authored cover-letter content (ADR-054) — letter twin of
+    ``services.cv.render_agent_cv``.
+
+    The caller is the author: content is persisted VERBATIM except for
+    (a) the photo strip (``header.photo_url`` is never honored — no letter
+    template renders it and ``storage.read`` has no traversal guard), and
+    (b) the chrome rule (US249): caller-supplied ``recipient.date`` /
+    ``signature.closing`` are kept verbatim; only when absent does Applire
+    inject the norm-conformant defaults — a deliberate deviation from the
+    pipeline, which OVERWRITES both (ADR-054 §4: never rewrite agent content).
+
+    Sequencing mirrors the generation path (E037 PQ #2): the row is committed
+    while still 'generating' (``render_pdf`` opens its OWN session — an
+    in-memory-only row is invisible there), pre-rendered with
+    ``allow_unready=True``, audited (reports commit while 'generating'), and
+    only then flipped 'ready' — so 'ready' is never observable without reports.
+    """
+    from applire.schemas.cover_letter import LetterData
+
+    job = await db.get(JobAnalysis, job_id)
+    if job is None:
+        raise LookupError(f"Job analysis {job_id} not found")
+
+    profile_result = await db.execute(
+        select(MasterProfile)
+        .where(MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc())
+        .limit(1)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if profile is None:
+        raise LookupError("No profile found — import a CV first")
+
+    # extra="forbid" throughout LetterData: unknown fields raise ValidationError
+    # with field paths for the MCP layer to surface (US251).
+    letter = LetterData.model_validate(content)
+    letter_data = letter.model_dump(mode="json")
+
+    # Photo strip (security) — see render_agent_cv.
+    letter_data["header"]["photo_url"] = None
+
+    # Chrome rule: inject only when the caller left it empty.
+    language = resolve_jd_language(job)
+    if not letter_data["recipient"].get("date"):
+        letter_data = _inject_letter_date(letter_data, language)
+    if not letter_data["signature"].get("closing"):
+        letter_data = _normalize_signature_closing(letter_data, language)
+
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job_id,
+        profile_id=profile.id,
+        letter_data=letter_data,
+        pre_gen_inputs={},
+        template=template,
+        status=CoverLetterStatus.generating.value,
+        origin="agent",
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    pdf_bytes: bytes | None = None
+    try:
+        from applire.services.cover_letter_pdf import render_pdf
+
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+    except Exception as pdf_err:
+        # Fail-open like the pipeline: HTML preview still works; the audit
+        # below degrades to a NULL ATS report (truthfulness needs no PDF).
+        logger.warning("PDF render failed for agent letter %s: %s", cl.id, pdf_err)
+
+    await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
+
+    cl.status = CoverLetterStatus.ready.value
+    await db.commit()
+    await db.refresh(cl)
+    return cl

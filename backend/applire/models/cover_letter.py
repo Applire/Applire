@@ -68,6 +68,11 @@ class GeneratedCoverLetter(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=CoverLetterStatus.pending.value
     )
+    # E044/US250 (ADR-054): 'pipeline' = built-in LLM writer, 'agent' = content
+    # authored by the caller via render_document — never presented as Applire-authored.
+    origin: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pipeline", server_default="pipeline"
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

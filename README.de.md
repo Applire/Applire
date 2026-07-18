@@ -158,6 +158,7 @@ Applire ist das erste Lebenslauf-Tool, das **KI-Agenten als vollwertige Nutzer**
 
 - **Zustand, der nicht stillschweigend driftet** — das Master-Profil ist ein abgeglichener Tresor, in dem jede Änderung samt Quelle protokolliert wird — keine verlustanfällige Notizdatei
 - **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks, plus `audit_document`: ein Wahrheits-Audit jedes Dokuments gegen dein Profil, Aussage für Aussage (belegt / überhöht / nicht belegt / nicht prüfbar, mit Profil-Belegen) — auch für Dokumente, die dein Agent selbst geschrieben hat. Die Grenze steht offen dabei: Geprüft wird die Übereinstimmung von Dokument und Profil; das Profil selbst kann der Audit nicht beweisen
+- **Ein Renderer, gegen den er nicht ankämpfen muss** — `render_document`: die strukturierten Inhalte deines Agenten (öffentliche, versionierte Schemas als MCP-Ressourcen) durch Applires Vorlagen und DACH-Norm-Checks — heraus kommen PDF plus ATS- und Wahrheits-Report, und Applire schreibt deine Inhalte niemals um
 - **Regeln, an die er sich nur halb erinnert** — DACH-Bewerbungsnormen als getestete, nachprüfbare Daten statt vager Modell-Erinnerung
 - **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Aktualitätsstatus und Follow-ups über die gesamte Suche hinweg
 - **Wachsendes Gedächtnis** — Fakten aus Interviews landen mit Belegen im Profil und nützen jeder künftigen Bewerbung
@@ -557,11 +558,11 @@ Applire/
 Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milestone](https://github.com/Applire/Applire/milestones) — zum Mitlesen gibt es den [Blog](https://applire.de/blog/):
 
 - [ ] **Spaghettieis** (Juli 2026) — Parallele Bewerbungen werden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
-- [ ] **Tiramisu** (August 2026) — **Wahrheits-Orakel v1**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat
+- [ ] **Tiramisu** (August 2026) — **Wahrheits-Orakel v1**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat. Dazu **`render_document`**: die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer — PDF und Reports heraus, niemals umgeschrieben
 - [ ] **Stracciatella** — Präzisionsarbeit an der Oberfläche: Überarbeitung der Master-Profil-Ansicht, erweiterte Vorlagen-Bibliothek, feineres Finetuning von Lebenslauf und Anschreiben, klarere Prüfung vor dem Download
 - [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen
 
-Darüber hinaus, ohne Termine: weitere Agent-Tools nach dem Bring-your-own-intelligence-Prinzip (`render_document` — die Inhalte deines Agenten durch unseren normgeprüften Renderer; `submit_claims` — Agent-Interviews landen mit Belegen im Profil) und **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
+Darüber hinaus, ohne Termine: weitere Agent-Tools nach dem Bring-your-own-intelligence-Prinzip (`submit_claims` — Agent-Interviews landen mit Belegen im Profil) und **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 
 ### 🔭 Zukunftsvision
 

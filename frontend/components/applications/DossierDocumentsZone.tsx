@@ -20,7 +20,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { CheckCircle2, FileText, Loader2, AlertTriangle, Send, X } from "lucide-react";
+import { Bot, CheckCircle2, FileText, Loader2, AlertTriangle, Send, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { patchSubmittedCv, patchSubmittedCoverLetter } from "@/lib/api/applications";
@@ -38,6 +38,8 @@ interface CvListItem {
   created_at?: string | null;
   pdf_url?: string | null;
   error_code?: string | null;
+  /** E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents carry a badge. */
+  origin?: string | null;
 }
 
 // Template id → next-intl key in the `cv` namespace — the same mapping
@@ -81,6 +83,7 @@ export function DossierDocumentsZone({
 }: DossierDocumentsZoneProps) {
   const t = useTranslations("applications");
   const tCv = useTranslations("cv");
+  const tDocs = useTranslations("documents");
 
   const [cvs, setCvs] = useState<CvListItem[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -229,7 +232,20 @@ export function DossierDocumentsZone({
                   )}
                   <div className="min-w-0">
                     {isReady && (
-                      <p className="text-sm font-medium text-on-surface truncate">{readyLabel}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* Badge is a non-truncating SIBLING of the label — inside the
+                            truncate <p> it gets clipped away entirely (pixel check, E044). */}
+                        <p className="text-sm font-medium text-on-surface truncate">{readyLabel}</p>
+                        {cv.origin === "agent" && (
+                          <span
+                            data-testid="dossier-origin-agent"
+                            className="inline-flex items-center gap-1 shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary"
+                          >
+                            <Bot className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            {tDocs("agentAuthored")}
+                          </span>
+                        )}
+                      </div>
                     )}
                     {isGenerating && (
                       <p className="text-sm text-on-surface-variant">{t("docGeneratingLabel")}</p>

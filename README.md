@@ -146,6 +146,7 @@ Applire is the first CV tool built for **AI agents as first-class users** — un
 
 - **State that can't silently drift** — the Master Profile is a reconciled vault where every change is recorded with its source, not a lossy notes file
 - **Checks it can't fake** — deterministic keyword-coverage and ATS checks, plus `audit_document`: a per-claim document-vs-profile truthfulness audit (grounded / inflated / unbacked / unverifiable, with profile evidence) that also accepts documents your agent wrote itself. Limit stated openly: it verifies document ↔ profile consistency; it cannot prove the profile itself
+- **A renderer it doesn't have to fight** — `render_document`: your agent's structured content (public versioned schemas, served as MCP resources) through Applire's templates and DACH norms checks — PDF plus ATS and truthfulness reports out, and Applire never rewrites your content
 - **Rules it only half-remembers** — DACH application norms enforced as tested, reviewable data, not vague model recall
 - **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
 - **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application
@@ -573,11 +574,11 @@ Applire/
 Applire ships in dessert-named releases, each tracked as a public [milestone](https://github.com/Applire/Applire/milestones) — follow along on the [blog](https://applire.de/en/blog/):
 
 - [ ] **Spaghettieis** (July 2026) — Parallel applications become first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
-- [ ] **Tiramisu** (August 2026) — **Truthfulness Oracle v1**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself
+- [ ] **Tiramisu** (August 2026) — **Truthfulness Oracle v1**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself. Plus **`render_document`**: your agent's own content through Applire's norms-checked renderer — PDF and reports out, never rewritten
 - [ ] **Stracciatella** — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
 - [ ] **Strawberry** — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls
 
-Beyond that, without dates: further agent-door tools under the bring-your-own-intelligence doctrine (`render_document` — your agent's content through our norms-checked renderer; `submit_claims` — agent interviews landing in the profile with receipts), and **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
+Beyond that, without dates: further agent-door tools under the bring-your-own-intelligence doctrine (`submit_claims` — agent interviews landing in the profile with receipts), and **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 
 ### 🔭 Future Vision
 

@@ -1000,7 +1000,8 @@
     "noDocuments": "Noch keine Dokumente. Starte eine neue Bewerbung.",
     "generatedOn": "Erstellt am {date}",
     "page": "Seite {page} von {total}",
-    "showing": "{from}–{to} von {total} Dokumenten"
+    "showing": "{from}–{to} von {total} Dokumenten",
+    "agentAuthored": "Agent-erstellt"
   },
   "predownload": {
     "title": "Vor dem Download",

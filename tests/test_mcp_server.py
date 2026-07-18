@@ -48,6 +48,8 @@ _EXPECTED_TOOLS = {
     "get_cover_letter_ats_report",
     # Truthfulness Oracle (E043/US248, ADR-052/ADR-054)
     "audit_document",
+    # BYOI agent-door rendering (E044/US251, ADR-054)
+    "render_document",
     # Flow orchestrator (US109)
     "start_flow",
     "advance_flow",
@@ -64,6 +66,9 @@ _EXPECTED_TOOLS = {
 
 _EXPECTED_STATIC_RESOURCE_URIS = {
     "profile://current",
+    # E044/US251 (ADR-054): the public versioned document-content contracts.
+    "schema://cv",
+    "schema://cover-letter",
 }
 
 _EXPECTED_TEMPLATE_URIS = {
@@ -106,12 +111,25 @@ _RESOURCE_TEMPLATES_LIST = _msg(4, "resources/templates/list")
 # ---------------------------------------------------------------------------
 
 
-def _run_mcp(stdin: str, env_overrides: dict | None = None, timeout: float = 20.0) -> tuple[int, list[dict]]:
+def _run_mcp(stdin: str, env_overrides: dict | None = None, timeout: float = 60.0) -> tuple[int, list[dict]]:
     """
     Run ``python -m applire.mcp`` inside the backend container.
 
     Returns (returncode, list of parsed JSON-RPC response objects from stdout).
+
+    HARNESS RACE (root-caused 2026-07-18, PR #202): ``proc.communicate(input=…)``
+    writes all stdin and immediately closes it. Stdin EOF makes the anyio stdio
+    server tear down, CANCELLING any request still in flight — stderr shows
+    "Processing request of type …" while the response never reaches stdout.
+    That produced intermittent "no response" failures (always on the
+    slower list requests), misread as infra flakiness for two days. Real MCP
+    clients hold the pipe open; this harness now does the same — send the
+    requests, keep stdin OPEN, read stdout until every id we sent has a
+    response (or the deadline), and only then close stdin so the server exits.
     """
+    import threading
+    import time as _time
+
     extra: list[str] = []
     if env_overrides:
         for k, v in env_overrides.items():
@@ -131,21 +149,62 @@ def _run_mcp(stdin: str, env_overrides: dict | None = None, timeout: float = 20.
         stderr=subprocess.PIPE,
         text=True,
     )
+
+    expected_ids = set()
+    for line in stdin.splitlines():
+        try:
+            msg_id = json.loads(line).get("id")
+        except json.JSONDecodeError:
+            continue
+        if msg_id is not None:
+            expected_ids.add(msg_id)
+
+    responses: list[dict] = []
+    lock = threading.Lock()
+
+    def _reader() -> None:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            with lock:
+                responses.append(parsed)
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+
     try:
-        stdout, _ = proc.communicate(input=stdin, timeout=timeout)
+        proc.stdin.write(stdin)
+        proc.stdin.flush()
+    except BrokenPipeError:
+        pass  # e.g. the server refused to start; returncode tells the story
+
+    deadline = _time.time() + timeout
+    while _time.time() < deadline:
+        with lock:
+            got = {r.get("id") for r in responses}
+        if expected_ids <= got:
+            break
+        _time.sleep(0.05)
+
+    # All responses in (or deadline hit) — NOW signal EOF so the server exits.
+    try:
+        proc.stdin.close()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
-        stdout, _ = proc.communicate()
+        proc.wait()
+    reader.join(timeout=5)
 
-    responses = []
-    for line in stdout.splitlines():
-        line = line.strip()
-        if line:
-            try:
-                responses.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-    return proc.returncode, responses
+    with lock:
+        return proc.returncode, list(responses)
 
 
 def _find(responses: list[dict], id_: int) -> dict | None:

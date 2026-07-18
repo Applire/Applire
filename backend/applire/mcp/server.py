@@ -509,6 +509,103 @@ async def audit_document(
 
 @mcp.tool(
     description=(
+        "RENDER (ADR-054): turn YOUR agent-authored structured content into a "
+        "norms-checked, templated PDF — Applire renders, checks, and reports; it "
+        "NEVER rewrites your content (you stay the author). À la carte — works "
+        "with NO prior generate_* or start_flow call; only analyze_jd is needed "
+        "for the job_id. This is the preferred path when your own model writes "
+        "well; generate_cv/generate_cover_letter are the convenience path for "
+        "callers without a strong model. content must match the public versioned "
+        "contract — read resource schema://cv or schema://cover-letter first; "
+        "unknown or mistyped fields are rejected with their field paths. "
+        "Applied by Applire: template + label language (from the JD), region "
+        "norms as ADVISORY page-length checks (never a silent condense), letter "
+        "date/sign-off injected ONLY when you omit them, and photo_url is always "
+        "taken from the stored profile, never from content. Returns document_id, "
+        "pdf_url/html_url, schema_version, and the ATS + truthfulness reports "
+        "(deterministic self-audit; call audit_document afterwards for the "
+        "entailment-backed pass). NOTE: the document appears in the user's UI "
+        "(dossier + My Documents) only after create_application(job_id) — "
+        "otherwise it is reachable by URL only until its TTL expires."
+    )
+)
+async def render_document(
+    document_kind: str,
+    content: dict,
+    job_id: str,
+    template: str | None = None,
+    target_pages: int | None = None,
+) -> dict:
+    from typing import get_args
+
+    from pydantic import ValidationError
+
+    from applire.schemas.cv import CV_SCHEMA_VERSION, CVTemplate
+    from applire.schemas.cover_letter import LETTER_SCHEMA_VERSION
+
+    if document_kind not in ("cv", "cover_letter"):
+        raise invalid_input("document_kind must be 'cv' or 'cover_letter'")
+    jid = _parse_uuid(job_id, "job_id")
+    if not isinstance(content, dict) or not content:
+        raise invalid_input(
+            f"content must be a non-empty object matching resource schema://"
+            f"{'cv' if document_kind == 'cv' else 'cover-letter'}"
+        )
+    tmpl = template or "classic_german"
+    valid_templates = get_args(CVTemplate)
+    if tmpl not in valid_templates:
+        raise invalid_input(
+            f"Unknown template {tmpl!r}. Valid templates: {', '.join(valid_templates)}"
+        )
+    if target_pages is not None:
+        if document_kind == "cover_letter":
+            raise invalid_input("target_pages only applies to document_kind='cv'")
+        if target_pages < 1:
+            raise invalid_input("target_pages must be >= 1")
+
+    base = settings.applire_base_url
+    async with get_db() as db:
+        try:
+            if document_kind == "cv":
+                record = await cv_svc.render_agent_cv(
+                    content, jid, db, template=tmpl, target_pages=target_pages
+                )
+                return {
+                    "document_id": str(record.id),
+                    "document_kind": "cv",
+                    "status": record.status,
+                    "schema_version": CV_SCHEMA_VERSION,
+                    "html_url": f"{base}/api/cv/{record.id}/html",
+                    "pdf_url": f"{base}/api/cv/{record.id}/pdf",
+                    "expires_at": record.expires_at.isoformat(),
+                    "ats_report": record.ats_report,
+                    "truthfulness_report": record.truthfulness_report,
+                }
+            cl = await cover_letter_svc.render_agent_letter(
+                content, jid, db, template=tmpl
+            )
+            return {
+                "document_id": str(cl.id),
+                "document_kind": "cover_letter",
+                "status": cl.status,
+                "schema_version": LETTER_SCHEMA_VERSION,
+                "html_url": f"{base}/api/cover-letter/{cl.id}/html",
+                "pdf_url": f"{base}/api/cover-letter/{cl.id}/pdf",
+                "expires_at": cl.expires_at.isoformat(),
+                "ats_report": cl.ats_report,
+                "truthfulness_report": cl.truthfulness_report,
+            }
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except (ValidationError, ValueError) as exc:
+            # Pydantic errors carry agent-actionable field paths in str().
+            raise invalid_input(str(exc))
+        except Exception as exc:
+            raise internal(str(exc))
+
+
+@mcp.tool(
+    description=(
         "Generate a cover letter for the given job. Requires an existing flow "
         "session for the job (call start_flow first) — raises not_found if none "
         "exists. Returns cover_letter_id, status, html_url, and pdf_url. "
@@ -865,6 +962,46 @@ async def resource_profile() -> str:
     if result is None:
         raise not_found("No profile found")
     return json.dumps(result.model_dump(mode="json"))
+
+
+@mcp.resource(
+    "schema://cv",
+    mime_type="application/json",
+    description=(
+        "The public versioned tailored-CV content contract (ADR-054): "
+        "{schema_version, json_schema}. Read this before calling "
+        "render_document(document_kind='cv')."
+    ),
+)
+async def resource_schema_cv() -> str:
+    from applire.schemas.cv import CV_SCHEMA_VERSION, TailoredCVData
+
+    return json.dumps(
+        {
+            "schema_version": CV_SCHEMA_VERSION,
+            "json_schema": TailoredCVData.model_json_schema(),
+        }
+    )
+
+
+@mcp.resource(
+    "schema://cover-letter",
+    mime_type="application/json",
+    description=(
+        "The public versioned cover-letter content contract (ADR-054): "
+        "{schema_version, json_schema}. Read this before calling "
+        "render_document(document_kind='cover_letter')."
+    ),
+)
+async def resource_schema_cover_letter() -> str:
+    from applire.schemas.cover_letter import LETTER_SCHEMA_VERSION, LetterData
+
+    return json.dumps(
+        {
+            "schema_version": LETTER_SCHEMA_VERSION,
+            "json_schema": LetterData.model_json_schema(),
+        }
+    )
 
 
 @mcp.resource(
