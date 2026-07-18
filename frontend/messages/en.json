@@ -926,6 +926,22 @@
       "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}"
     }
   },
+  "truthfulness": {
+    "title": "Truthfulness check",
+    "unavailable": "Truthfulness report not available for this document.",
+    "allClear": "{count, plural, one {# claim checked — everything backed by your profile} other {# claims checked — everything backed by your profile}}",
+    "needsReview": "{count, plural, one {# claim needs your review} other {# claims need your review}}",
+    "unverifiableNote": "{count, plural, one {# soft claim can't be checked against your profile} other {# soft claims can't be checked against your profile}}",
+    "detailsButton": "Details",
+    "evidenceLabel": "Evidence from your profile:",
+    "statedLimit": "This report verifies consistency between the document and your profile. It cannot prove the profile itself — profile claims are self-attested; documented interview provenance mitigates but does not eliminate this.",
+    "verdicts": {
+      "grounded": "Backed",
+      "inflated": "Inflated",
+      "unbacked": "Unbacked",
+      "unverifiable": "Unverifiable"
+    }
+  },
   "admin": {
     "appearanceTitle": "Appearance",
     "schemeEditor": {

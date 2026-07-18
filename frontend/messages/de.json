@@ -926,6 +926,22 @@
       "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}"
     }
   },
+  "truthfulness": {
+    "title": "Wahrheitsprüfung",
+    "unavailable": "Wahrheitsbericht für dieses Dokument nicht verfügbar.",
+    "allClear": "{count, plural, one {# Aussage geprüft — alles durch Ihr Profil gedeckt} other {# Aussagen geprüft — alles durch Ihr Profil gedeckt}}",
+    "needsReview": "{count, plural, one {# Aussage braucht Ihre Prüfung} other {# Aussagen brauchen Ihre Prüfung}}",
+    "unverifiableNote": "{count, plural, one {# weiche Aussage kann nicht gegen Ihr Profil geprüft werden} other {# weiche Aussagen können nicht gegen Ihr Profil geprüft werden}}",
+    "detailsButton": "Details",
+    "evidenceLabel": "Beleg aus Ihrem Profil:",
+    "statedLimit": "Dieser Bericht prüft die Übereinstimmung zwischen Dokument und Ihrem Profil. Er kann das Profil selbst nicht beweisen — Profilangaben sind Selbstauskünfte; die dokumentierte Herkunft aus Interviews mildert das, hebt es aber nicht auf.",
+    "verdicts": {
+      "grounded": "Belegt",
+      "inflated": "Überhöht",
+      "unbacked": "Nicht belegt",
+      "unverifiable": "Nicht prüfbar"
+    }
+  },
   "admin": {
     "appearanceTitle": "Erscheinungsbild",
     "schemeEditor": {

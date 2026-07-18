@@ -40,6 +40,7 @@ import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
@@ -103,6 +104,8 @@ export default function CVPage({
   const [retailoredGained, setRetailoredGained] = useState<StaleCVGained[] | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
+  // E043/US247: truthfulness self-audit report, fetched alongside the ATS report.
+  const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // E042/US239 (ADR-051 §1): per-generation page-target override, sent as
   // `target_pages` in the generate POST body. Defaults to the user's
   // `target_cv_pages` setting when set, else the DACH standard (2).
@@ -229,7 +232,18 @@ export default function CVPage({
         // Non-fatal — panel shows unavailable state
       }
     }
+    async function fetchTruthReport() {
+      try {
+        const res = await fetch(`${API_BASE}/api/cv/${cvId}/truthfulness-report`);
+        if (!res.ok) return;
+        const data: { report: TruthfulnessReport } = await res.json();
+        setTruthReport(data.report ?? null);
+      } catch {
+        // Non-fatal — panel shows unavailable state
+      }
+    }
     void fetchAtsReport();
+    void fetchTruthReport();
   }, [cvId, phase, atsRefresh]);
 
   async function handleGenerate(tpl: CVTemplate) {
@@ -431,7 +445,12 @@ export default function CVPage({
           activeDoc="cv"
           onDownloadPdf={() => void requestDownload()}
           preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
-          atsPanel={<ATSChecksPanel report={atsReport} />}
+          atsPanel={
+            <div className="space-y-2">
+              <ATSChecksPanel report={atsReport} />
+              <TruthfulnessPanel report={truthReport} />
+            </div>
+          }
           sidebar={
             <RefinementSidebar
               matchScore={
@@ -448,7 +467,12 @@ export default function CVPage({
           commandBar={
             <MobileCommandBar
               atsReport={atsReport}
-              atsPanel={<ATSChecksPanel report={atsReport} />}
+              atsPanel={
+                <div className="space-y-2">
+                  <ATSChecksPanel report={atsReport} />
+                  <TruthfulnessPanel report={truthReport} />
+                </div>
+              }
               fineTuneSurface={
                 <ContentTab
                   cvId={cvId}

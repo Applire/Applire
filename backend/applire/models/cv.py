@@ -67,6 +67,10 @@ class GeneratedCV(Base):
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
     ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-052 (E043/US246): persisted truthfulness self-audit; NULL = not audited
+    # (oracle error or pre-Tiramisu row). Written in the same commit as the
+    # artifact/report so re-generation replaces it atomically. Never gates delivery.
+    truthfulness_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

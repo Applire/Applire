@@ -157,7 +157,7 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 Applire ist das erste Lebenslauf-Tool, das **KI-Agenten als vollwertige Nutzer** behandelt — nach einem einfachen Prinzip: **Bring your own intelligence.** Dein Agent ist der Stratege und, wenn er stark ist, auch der Autor; Applire liefert, was ein Agent sich strukturell nicht selbst geben kann:
 
 - **Zustand, der nicht stillschweigend driftet** — das Master-Profil ist ein abgeglichener Tresor, in dem jede Änderung samt Quelle protokolliert wird — keine verlustanfällige Notizdatei
-- **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks heute; ein vollständiger Dokument-gegen-Profil-Wahrheits-Audit (`audit_document`) steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap)
+- **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks, plus `audit_document`: ein Wahrheits-Audit jedes Dokuments gegen dein Profil, Aussage für Aussage (belegt / überhöht / nicht belegt / nicht prüfbar, mit Profil-Belegen) — auch für Dokumente, die dein Agent selbst geschrieben hat. Die Grenze steht offen dabei: Geprüft wird die Übereinstimmung von Dokument und Profil; das Profil selbst kann der Audit nicht beweisen
 - **Regeln, an die er sich nur halb erinnert** — DACH-Bewerbungsnormen als getestete, nachprüfbare Daten statt vager Modell-Erinnerung
 - **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Aktualitätsstatus und Follow-ups über die gesamte Suche hinweg
 - **Wachsendes Gedächtnis** — Fakten aus Interviews landen mit Belegen im Profil und nützen jeder künftigen Bewerbung
