@@ -69,6 +69,7 @@ _EXPECTED_STATIC_RESOURCE_URIS = {
     # E044/US251 (ADR-054): the public versioned document-content contracts.
     "schema://cv",
     "schema://cover-letter",
+    "schema://claims",
 }
 
 _EXPECTED_TEMPLATE_URIS = {

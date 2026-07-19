@@ -1005,6 +1005,26 @@ async def resource_schema_cover_letter() -> str:
 
 
 @mcp.resource(
+    "schema://claims",
+    mime_type="application/json",
+    description=(
+        "The public versioned agent-testimony contract (ADR-054, E045): "
+        "{schema_version, json_schema}. Read this before calling "
+        "submit_claims."
+    ),
+)
+async def resource_schema_claims() -> str:
+    from applire.schemas.claims import CLAIMS_SCHEMA_VERSION, ClaimsSubmission
+
+    return json.dumps(
+        {
+            "schema_version": CLAIMS_SCHEMA_VERSION,
+            "json_schema": ClaimsSubmission.model_json_schema(),
+        }
+    )
+
+
+@mcp.resource(
     "job://{job_id}",
     mime_type="application/json",
     description="JobAnalysis JSON for the given job_id.",
