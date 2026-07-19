@@ -34,6 +34,7 @@ a token is present.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from applire.services.ats_audit import _norm, surface_present
@@ -43,6 +44,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertCertification,
     UpsertLanguage,
     UpsertSkill,
+    UpsertStory,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,42 @@ def _grounding_corpus(new_info: Any, source: str) -> str | None:
     return None
 
 
+_FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _figures(text: str) -> set[str]:
+    """Digit groups with decimal separator normalised ("1,5" == "1.5")."""
+    return {m.replace(",", ".") for m in _FIGURE_RE.findall(text)}
+
+
+def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> bool:
+    """US261 (ADR-055 gap): stories bypass token grounding — prose paraphrase
+    is the notary's job — but figures and denials cannot be paraphrased into
+    existence. `outcome`/`benchmark` figures become citable Oracle number
+    provenance (ADR-052), so an ungrounded figure drops the WHOLE op (stripping
+    it would silently editorialize the model's story; the caller can restate)."""
+    prose = " ".join(
+        p for p in (op.title, op.challenge, op.mechanism, op.outcome, op.benchmark) if p
+    )
+    if denials and _text_claims_denied(prose, denials):
+        logger.warning(
+            "reconcile stance: dropped story %r restating a denied token "
+            "(US261/#127)", op.title,
+        )
+        return False
+    if corpus is not None:
+        provenance_figures = _figures(f"{op.outcome} {op.benchmark or ''}")
+        ungrounded = provenance_figures - _figures(corpus)
+        if ungrounded:
+            logger.warning(
+                "reconcile stance: dropped story %r — outcome/benchmark "
+                "figure(s) %s absent from the turn (Oracle number provenance, "
+                "US261/ADR-052)", op.title, sorted(ungrounded),
+            )
+            return False
+    return True
+
+
 def enforce_stance(
     ops: list[ReconcileOp],
     *,
@@ -100,7 +138,9 @@ def enforce_stance(
     interview turns, claims tokens absent from the turn entirely.
 
     Scope: token-like claims (skill / technology / language / certification
-    names) plus free-text bullets that restate a denied token. Entity upserts
+    names) plus free-text bullets that restate a denied token, plus signature
+    stories (denials over the prose; outcome/benchmark figure grounding —
+    US261, closing the ADR-055 entity-upsert gap). Other entity upserts
     (work/project/volunteer) stay out of scope — they legitimately echo profile
     knowledge (target merges, alternate titles, rule 7).
     """
@@ -131,6 +171,9 @@ def enforce_stance(
                 continue
         elif isinstance(op, UpsertCertification):
             if not keep_token(op.name, "certification"):
+                continue
+        elif isinstance(op, UpsertStory):
+            if not _story_keeps(op, denials, corpus):
                 continue
         elif isinstance(op, AddBullets):
             technologies = [t for t in op.technologies if keep_token(t, "technology")]
