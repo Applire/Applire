@@ -954,6 +954,7 @@
     "verdicts": {
       "grounded": "Belegt",
       "inflated": "Überhöht",
+      "misattributed": "Falsch zugeordnet",
       "unbacked": "Nicht belegt",
       "unverifiable": "Nicht prüfbar"
     }

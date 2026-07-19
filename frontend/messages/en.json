@@ -954,6 +954,7 @@
     "verdicts": {
       "grounded": "Backed",
       "inflated": "Inflated",
+      "misattributed": "Misattributed",
       "unbacked": "Unbacked",
       "unverifiable": "Unverifiable"
     }

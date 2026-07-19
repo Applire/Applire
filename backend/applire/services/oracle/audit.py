@@ -72,6 +72,40 @@ class _EntailmentBudget:
         return True
 
 
+def _foreign_owner_unit(
+    source_id: str | None, units: list[EvidenceUnit]
+) -> EvidenceUnit | None:
+    """Role-attribution check (#196, ADR-052 §6) — deterministic.
+
+    Returns the unit proving misattribution when EVERY backing unit belongs to
+    a different experience than the one the claim is rendered under. Any
+    same-experience or role-agnostic (unowned) backing unit clears the claim —
+    the matcher only flags what is *exclusively* another position's evidence.
+    Claims without a rendered-position anchor (legacy data, summaries, letters)
+    are never flagged.
+    """
+    if not source_id or not units:
+        return None
+    owned = [u for u in units if u.owner_id]
+    if len(owned) < len(units):  # role-agnostic evidence also backs the claim
+        return None
+    if any(u.owner_id == source_id for u in owned):
+        return None
+    return owned[0]
+
+
+def _misattributed_verdict(unit: EvidenceUnit) -> ClaimVerdict:
+    return ClaimVerdict(
+        verdict="misattributed",
+        checker="attribution",
+        evidence=_evidence_refs([unit]),
+        detail=(
+            f"Backed only by evidence from a different position ({unit.path}) — "
+            "the claim is rendered under a role it does not belong to."
+        ),
+    )
+
+
 _ENTAILMENT_PROMPT = (
     "You are a strict verification function for job-application claims.\n"
     "Compare the DOCUMENT CLAIM against the PROFILE EVIDENCE and return "
@@ -184,6 +218,12 @@ async def verify_claim(
                         "for these figures is aspirational (a target, not a result)."
                     ),
                 )
+        # ── 2b. role attribution (deterministic red flag, #196) ─────────────
+        # Fires before entailment: figure evidence living exclusively in a
+        # different position than the claim's rendered one is misattribution.
+        foreign = _foreign_owner_unit(claim.source_experience_id, evidence_units)
+        if foreign is not None:
+            return _misattributed_verdict(foreign)
         # US245: entailment ONLY when both sides lack stance markers.
         if claim_stance is None and not any(unit_stances):
             fallback = ClaimVerdict(
@@ -237,6 +277,18 @@ async def verify_claim(
                         "grounding this claim is aspirational (a target, not a result)."
                     ),
                 )
+        # ── role attribution on the grounding path (#196) ───────────────────
+        # Every unit that independently clears the coverage floor counts as
+        # backing; only when ALL of them belong to a foreign position is the
+        # claim misattributed (same-role or role-agnostic backing clears it).
+        qualifying = [
+            u
+            for u, cov in zip(grounding.top_units, grounding.top_coverages)
+            if cov >= GROUNDED_MIN_COVERAGE
+        ]
+        foreign = _foreign_owner_unit(claim.source_experience_id, qualifying)
+        if foreign is not None:
+            return _misattributed_verdict(foreign)
         return ClaimVerdict(
             verdict="grounded",
             checker="grounding",

@@ -25,6 +25,11 @@ class EvidenceUnit:
     text_norm: str
     figures: list[Figure] = field(default_factory=list)
     receipt_ids: list[str] = field(default_factory=list)
+    # The id of the experience entry (work/project/volunteer) this unit belongs
+    # to — anchors the v2 role-attribution matcher (#196). None for
+    # role-agnostic evidence (summary, skills, education, stories, …), which
+    # may ground a claim under any position.
+    owner_id: str | None = None
 
 
 @dataclass
@@ -74,7 +79,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     p = _coerce_profile(profile)
     units: list[EvidenceUnit] = []
 
-    def _add(path: str, text: Any) -> None:
+    def _add(path: str, text: Any, owner_id: str | None = None) -> None:
         if not isinstance(text, str):
             return
         stripped = text.strip()
@@ -86,6 +91,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
                 text=stripped,
                 text_norm=_norm(stripped),
                 figures=extract_figures(stripped),
+                owner_id=owner_id,
             )
         )
 
@@ -94,28 +100,29 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     _add("professional_summary.en", getattr(summary, "en", None))
 
     def _add_experience(prefix: str, entry: Any) -> None:
-        _add(f"{prefix}.role", getattr(entry, "role", None))
+        owner = getattr(entry, "id", None) or None
+        _add(f"{prefix}.role", getattr(entry, "role", None), owner)
         org = entry.org_label()
         if org:
-            _add(f"{prefix}.org", org)
+            _add(f"{prefix}.org", org, owner)
         for j, r in enumerate(getattr(entry, "responsibilities", []) or []):
-            _add(f"{prefix}.responsibilities[{j}]", r)
+            _add(f"{prefix}.responsibilities[{j}]", r, owner)
         for j, a in enumerate(getattr(entry, "achievements", []) or []):
-            _add(f"{prefix}.achievements[{j}]", a)
+            _add(f"{prefix}.achievements[{j}]", a, owner)
         for j, t in enumerate(getattr(entry, "technologies", []) or []):
-            _add(f"{prefix}.technologies[{j}]", t)
+            _add(f"{prefix}.technologies[{j}]", t, owner)
         span = " – ".join(
             s for s in (getattr(entry, "start_date", None), getattr(entry, "end_date", None)) if s
         )
         if span:
-            _add(f"{prefix}.dates", span)
+            _add(f"{prefix}.dates", span, owner)
 
     for i, w in enumerate(p.work_experience):
         _add_experience(f"work_experience[{i}]", w)
-        _add(f"work_experience[{i}].budget_managed", w.budget_managed)
+        _add(f"work_experience[{i}].budget_managed", w.budget_managed, w.id or None)
     for i, pr in enumerate(p.projects):
         _add_experience(f"projects[{i}]", pr)
-        _add(f"projects[{i}].description", pr.description)
+        _add(f"projects[{i}].description", pr.description, pr.id or None)
     for i, v in enumerate(p.volunteer_activities):
         _add_experience(f"volunteer_activities[{i}]", v)
 

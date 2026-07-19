@@ -63,13 +63,20 @@ def _sentence_claims(text: str, prefix: str) -> list[Claim]:
     ]
 
 
-def _bullet_claims(bullets: Any, prefix: str) -> list[Claim]:
+def _bullet_claims(bullets: Any, prefix: str, source_id: str | None = None) -> list[Claim]:
     claims: list[Claim] = []
     if not isinstance(bullets, list):
         return claims
     for i, b in enumerate(bullets):
         if isinstance(b, str) and len(b.strip()) >= _MIN_CLAIM_CHARS:
-            claims.append(Claim(text=b.strip(), location=f"{prefix}[{i}]", kind="bullet"))
+            claims.append(
+                Claim(
+                    text=b.strip(),
+                    location=f"{prefix}[{i}]",
+                    kind="bullet",
+                    source_experience_id=source_id,
+                )
+            )
     return claims
 
 
@@ -89,11 +96,19 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
     for wi, entry in enumerate(data.get("work_history") or []):
         if not isinstance(entry, dict):
             continue
-        claims += _bullet_claims(entry.get("bullets"), f"work_history[{wi}].bullets")
+        # TailoredWorkEntry.id = the source WorkEntry.id (US187) — the rendered
+        # position, anchoring the v2 role-attribution check (#196). Empty for
+        # legacy/mock data → None, and the matcher stays silent.
+        source_id = entry.get("id") or None
+        if not isinstance(source_id, str):
+            source_id = None
+        claims += _bullet_claims(entry.get("bullets"), f"work_history[{wi}].bullets", source_id)
         for pi, proj in enumerate(entry.get("projects") or []):
             if isinstance(proj, dict):
                 claims += _bullet_claims(
-                    proj.get("bullets"), f"work_history[{wi}].projects[{pi}].bullets"
+                    proj.get("bullets"),
+                    f"work_history[{wi}].projects[{pi}].bullets",
+                    source_id,
                 )
 
     for pi, proj in enumerate(data.get("projects") or []):

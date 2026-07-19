@@ -9,11 +9,11 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 // E043/US247 (ADR-052 §4): per-claim truthfulness report panel — sibling of
-// ATSChecksPanel in the document workspace. Red flags (inflated / unbacked)
-// stay loud on the compact card; unverifiable soft claims are a single muted
-// note, never a wall of warnings.
+// ATSChecksPanel in the document workspace. Red flags (inflated /
+// misattributed / unbacked) stay loud on the compact card; unverifiable soft
+// claims are a single muted note, never a wall of warnings.
 
-type Verdict = "grounded" | "inflated" | "unbacked" | "unverifiable";
+type Verdict = "grounded" | "inflated" | "misattributed" | "unbacked" | "unverifiable";
 
 type TruthfulnessEvidence = {
   kind: "profile_path" | "enrichment_record";
@@ -39,11 +39,12 @@ export type TruthfulnessReport = {
   stated_limit: string;
 } | null;
 
-const FLAG_VERDICTS: Verdict[] = ["inflated", "unbacked"];
+const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
 
 const VERDICT_CHIP_CLASS: Record<Verdict, string> = {
   grounded: "bg-success-container text-success",
   inflated: "bg-critical-container text-critical",
+  misattributed: "bg-critical-container text-critical",
   unbacked: "bg-warning-container text-warning",
   unverifiable: "border border-outline-variant text-on-surface-variant",
 };
