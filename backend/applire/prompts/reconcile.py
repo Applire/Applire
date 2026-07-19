@@ -203,8 +203,12 @@ Operations:
     do not emit the op (record the stated facts through the other ops
     instead). Never duplicate a story already on the profile (same event =
     same story, even if worded differently — the existing `signature_stories`
-    are in the profile dump). Copy figures into `outcome` verbatim; the
-    rule-4 truthfulness bar applies to every field.
+    are in the profile dump). EXCEPTION: when the new information ADDS a
+    missing detail to an existing story (its `benchmark` is null and a
+    benchmark is now stated, or a new experience link), re-emit `upsert_story`
+    with the EXISTING story's exact title and the new detail — the applier
+    only fills gaps and never overwrites prose. Copy figures into `outcome`
+    verbatim; the rule-4 truthfulness bar applies to every field.
 """
 
 
