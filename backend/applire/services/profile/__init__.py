@@ -234,6 +234,22 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
     )
 
 
+def _agent_parked_items(
+    existing_data: MasterProfileData,
+) -> tuple[list, list]:
+    """E045 (adversarial M2): items `submit_claims` parked for the Health hub
+    must survive import rounds — both import doors replace the pending metadata
+    lists wholesale each round, which would silently destroy them on every CV
+    upload. Returns (conflicts, confirmations) with source `agent_interview`."""
+    meta = existing_data.metadata
+    if meta is None:
+        return [], []
+    return (
+        [c for c in meta.pending_conflicts if c.source == "agent_interview"],
+        [c for c in meta.pending_confirmations if c.source == "agent_interview"],
+    )
+
+
 async def import_from_pdf(
     file_bytes: bytes,
     db: AsyncSession,
@@ -340,6 +356,8 @@ async def _import_from_text(
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=created_via)
 
+        agent_conflicts, agent_confirmations = _agent_parked_items(existing_data)
+
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
                 completeness_score=merged.calculate_completeness(),
@@ -347,17 +365,20 @@ async def _import_from_text(
                 created_at=existing.created_at,
                 last_updated=now,
                 enrichment_history=[enrichment],
-                pending_conflicts=merge_result.conflicts,
-                pending_confirmations=merge_result.pending_confirmations,
+                pending_conflicts=agent_conflicts + merge_result.conflicts,
+                pending_confirmations=agent_confirmations
+                + merge_result.pending_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
             # Replace pending conflicts with latest round (user resolves via endpoint)
-            merged.metadata.pending_conflicts = merge_result.conflicts
+            merged.metadata.pending_conflicts = agent_conflicts + merge_result.conflicts
             # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = merge_result.pending_confirmations
+            merged.metadata.pending_confirmations = (
+                agent_confirmations + merge_result.pending_confirmations
+            )
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(
@@ -937,6 +958,8 @@ async def _apply_merge(
         # the stored record, and the response all agree (US168 / ADR-042).
         enrichment.id = str(enrichment_id)
 
+        agent_conflicts, agent_confirmations = _agent_parked_items(existing_data)
+
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
                 completeness_score=merged.calculate_completeness(),
@@ -944,16 +967,19 @@ async def _apply_merge(
                 created_at=existing.created_at,
                 last_updated=now,
                 enrichment_history=[enrichment],
-                pending_conflicts=merge_result.conflicts,
-                pending_confirmations=merge_result.pending_confirmations,
+                pending_conflicts=agent_conflicts + merge_result.conflicts,
+                pending_confirmations=agent_confirmations
+                + merge_result.pending_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
-            merged.metadata.pending_conflicts = merge_result.conflicts
+            merged.metadata.pending_conflicts = agent_conflicts + merge_result.conflicts
             # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = merge_result.pending_confirmations
+            merged.metadata.pending_confirmations = (
+                agent_confirmations + merge_result.pending_confirmations
+            )
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(

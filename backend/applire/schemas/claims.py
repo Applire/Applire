@@ -24,7 +24,11 @@ as MCP resource ``schema://claims``.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+from applire.schemas.profile import Conflict, FieldChange, PendingConfirmation
 
 CLAIMS_SCHEMA_VERSION = "claims/1"
 
@@ -71,3 +75,29 @@ class ClaimsSubmission(BaseModel):
     model_config = {"extra": "forbid"}
 
     claims: list[ClaimItem] = Field(min_length=1, max_length=20)
+
+
+# ── Result envelope (returned by submit_claims; not part of the input
+#    contract published at schema://claims) ───────────────────────────────────
+
+
+class ClaimResult(BaseModel):
+    """Per-claim outcome. The three lists are PARALLEL — one claim can yield
+    changes AND a confirmation AND a conflict (ApplyResult semantics); `status`
+    is derived with precedence error > needs_confirmation > conflict > applied
+    > no_change."""
+
+    index: int
+    status: Literal["error", "needs_confirmation", "conflict", "applied", "no_change"]
+    changes: list[FieldChange] = Field(default_factory=list)
+    confirmations: list[PendingConfirmation] = Field(default_factory=list)
+    conflicts: list[Conflict] = Field(default_factory=list)
+    detail: str | None = None
+
+
+class SubmissionResult(BaseModel):
+    submission_id: str
+    schema_version: str = CLAIMS_SCHEMA_VERSION
+    results: list[ClaimResult]
+    ledger_upgraded: list[str] = Field(default_factory=list)
+    pending_review_count: int = 0
