@@ -108,7 +108,7 @@ The engine's boundary rules:
 |---|---|---|
 | `uploads` | 7 days | Hard delete |
 | `interview_sessions` | 30 days | Hard delete |
-| `generated_cvs` / `generated_cover_letters` | 90 days (human) / 24 hours (agent) | Hard delete at `expires_at` |
+| `generated_cvs` / `generated_cover_letters` | 90 days (`GENERATED_DOCUMENTS_TTL_DAYS`, uniform — origin-blind, same for human- and agent-created documents) | Hard delete at `expires_at` |
 | `applications` | 730 days inactivity (timer resets on every update) | Soft delete (`deleted_at`) |
 | `applications` (cancelled by the user) | `CANCELLED_APPLICATION_TTL_DAYS` (default 7; `0` = disabled) | Soft delete, then its generated documents (incl. submitted pins) are hard-deleted |
 | `master_profiles` / `users` | 730 days inactivity | Soft delete (`deleted_at`) |
@@ -353,7 +353,7 @@ Re-rendering on section save uses Jinja2 only (fast, no Playwright). Playwright 
 
 **Decision:** Cover letters are a fully separate pipeline — their own `generated_cover_letters` table, service, router, and Jinja2 templates — **not** a discriminator column on `generated_cvs`. Each of the CV templates has a matching cover letter template (shared header style, typography, color profile) for a coherent application package.
 
-Cover letters are **post-CV add-ons**: triggered from the CV page after the CV is ready, one per `job_analysis_id`. The flow state machine is not extended. Pre-generation inputs surface DACH conventions (Gehaltswunsch, Eintrittstermin, tone). They inherit the same 90-day/24-hour retention as generated CVs (ADR-005).
+Cover letters are **post-CV add-ons**: triggered from the CV page after the CV is ready, one per `job_analysis_id`. The flow state machine is not extended. Pre-generation inputs surface DACH conventions (Gehaltswunsch, Eintrittstermin, tone). They inherit the same 90-day retention as generated CVs (ADR-005).
 
 ---
 
@@ -534,6 +534,14 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 ---
 
+### ADR-056 — Layered Agent Guidance & Honesty Contract (accepted 2026-07-19)
+
+**Decision:** There is exactly **one** canonical agent-usage guide, shipped as package data (`backend/applire/mcp/AGENT_GUIDE.md`) and served through progressive disclosure rather than always-on prose: a `get_guide` MCP tool returns it on demand, the same content is exposed as the `guide://usage` resource and an MCP prompt, and the server's `instructions` field carries only a short pointer ("call `get_guide` before your first application run"). The guide states Applire's **honesty contract in two halves**: what is *enforced by Applire* (the `submit_claims` stance and figure guards — only the candidate's own statement can ground a skill/certification/figure; the pre-delivery Truthfulness Oracle audit on every generated document; render-never-rewrites on `render_document`) and what is *expected of the calling agent* (ground every document claim in the candidate's own data, never fabricate, surface honest gaps to the human instead of papering over them). Standing convention for the tool surface: a tool's schema description carries its contract plus **at most one load-bearing safety line**; all workflow guidance prose lives in the guide. A CI drift guard fails the build when any registered tool name is missing from the guide. `get_guide` sits alongside the surface as a meta/guidance tool — the à-la-carte application surface remains the 24 tools of ADR-054 (complete) + `get_guide` (ADR-056, meta).
+
+**Why:** The 24 tool schemas already cost roughly 4.4k tokens of always-on context in every connected MCP client — growing each description with guidance prose taxes every call to pay for the first one. And of the possible delivery channels (server instructions, resources, prompts), a **tool call is the only channel every MCP client universally supports**, so the guide is served through one, with the other channels as mirrors for clients that do support them.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
@@ -629,7 +637,7 @@ A cluster of Community rendering decisions a contributor will encounter in the C
 | `gap_analyses` | Gap detection results | No TTL (linked to job) |
 | `interview_sessions` | Interview state (JSONB) | 30-day hard delete |
 | `flow_sessions` | Journey routing record | No TTL (no PII) |
-| `generated_cvs` | PDF + snapshot + overrides | 90d (human) / 24h (agent) |
+| `generated_cvs` | PDF + snapshot + overrides | 90d (uniform, origin-blind) |
 | `uploads` | Raw uploaded files | 7-day hard delete |
 
 ---
