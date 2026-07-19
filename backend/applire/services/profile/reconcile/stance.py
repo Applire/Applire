@@ -66,16 +66,27 @@ def _text_claims_denied(text: str, denials: list[str]) -> bool:
 
 
 def _grounding_corpus(new_info: Any, source: str) -> str | None:
-    """Normalised gap+question+answer text for interview turns; None otherwise.
+    """Normalised grounding text for interview turns; None otherwise.
 
     Grounding is an interview-turn instrument only (#127 scope decision): a CV
     import reconciles a whole staged extraction, where token presence is
     trivially satisfied and paraphrase is legitimate.
+
+    Built-in interview: gap+question+answer — those fields are Applire-authored,
+    so the question may legitimately ground a token the answer only affirms.
+    Agent interview (E045 submit_claims): the ANSWER (the claimant's statement)
+    only — all fields are claimant-authored, and an agent could otherwise
+    smuggle a token through its own question (#127 class, adversarial B3).
     """
-    if source != "interview" or not isinstance(new_info, dict):
+    if not isinstance(new_info, dict):
         return None
-    parts = [str(v) for v in new_info.values() if isinstance(v, str)]
-    return _norm(" ".join(parts))
+    if source == "interview":
+        parts = [str(v) for v in new_info.values() if isinstance(v, str)]
+        return _norm(" ".join(parts))
+    if source == "agent_interview":
+        answer = new_info.get("answer")
+        return _norm(answer) if isinstance(answer, str) else _norm("")
+    return None
 
 
 def enforce_stance(

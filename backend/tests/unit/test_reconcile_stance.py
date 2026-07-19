@@ -216,6 +216,57 @@ def test_entity_ops_are_not_grounding_checked() -> None:
     assert len(out) == 1
 
 
+# ── Agent-interview grounding (E045): corpus is the statement ONLY ───────────
+#
+# In the built-in interview, gap+question are Applire-authored, so they may
+# legitimately ground a token ("Yes, six years" affirms the question's Python).
+# In submit_claims ALL fields are claimant-authored — an agent could smuggle
+# "Kubernetes" through its own question and pass surface-grounding without the
+# candidate ever affirming it (#127's fabrication class, adversarial B3).
+
+_AGENT_TURN = {
+    "gap": "Kubernetes",
+    "question": "Do you have Kubernetes experience?",
+    "answer": "Yes — I ran our container platform for three years.",
+}
+
+
+def test_agent_interview_token_absent_from_statement_dropped() -> None:
+    ops = [UpsertSkill(name="Terraform", category="technical")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
+    )
+    assert out == []
+
+
+def test_agent_interview_question_smuggle_dropped() -> None:
+    # "Kubernetes" appears only in the agent-authored question/gap — on the
+    # built-in interview this would ground; on the agent door it must NOT.
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
+    )
+    assert out == []
+    # Sanity: the identical turn grounds on the built-in interview.
+    assert len(enforce_stance(ops, denials=[], new_info=_AGENT_TURN, source="interview")) == 1
+
+
+def test_agent_interview_token_in_statement_kept() -> None:
+    turn = dict(_AGENT_TURN, answer="Yes, I administered Kubernetes clusters.")
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
+def test_agent_interview_denials_still_enforced() -> None:
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    turn = dict(_AGENT_TURN, answer="I have used Kubernetes only in tutorials, no real experience.")
+    out = enforce_stance(
+        ops, denials=["Kubernetes"], new_info=turn, source="agent_interview"
+    )
+    assert out == []
+
+
 # ── Engine wiring: denials parsed defensively, guard applied in reconcile() ──
 
 
