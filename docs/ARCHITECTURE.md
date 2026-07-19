@@ -123,7 +123,7 @@ The engine's boundary rules:
 
 **Two distinct concerns, gated differently (Community vs. Cloud):**
 - **Right to erasure** (`DELETE /api/profile`, exposed in the UI) is always available in every edition. It is a baseline data-subject right and does not depend on the background worker running.
-- **The automated daily worker** lives in Core but applies edition-specific defaults. In a single-user self-host you manage your *own* data (candidate-side only, see ADR-015), so transient-data cleanup (`uploads` 7d, `interview_sessions` 30d) stays on by default as hygiene, but **automated deletion of your own generated artifacts (`generated_cvs`, `generated_cover_letters`) defaults to disabled** (`GENERATED_DOCUMENTS_TTL_DAYS=0` ⇒ no auto-expiry) so you keep your own CVs. A self-hoster who operates the instance *for others* should re-enable strict TTLs.
+- **The automated daily worker** lives in Core: transient-data cleanup (`uploads` 7d, `interview_sessions` 30d) plus generated-document expiry (`generated_cvs` / `generated_cover_letters`, `GENERATED_DOCUMENTS_TTL_DAYS`, default 90 days — `expires_at` is stamped at creation, so lowering the value only affects newly created documents). Pinning a document as the submitted version (`update_application`) keeps it while the application is active. Self-hosters can raise the TTL for their jurisdiction; there is no "disable" value — `0` would mean immediate expiry, not no expiry.
 
 All TTL values are configurable via environment variables in `applire/constants.py` — self-hosters can adjust them for jurisdiction-specific requirements.
 
