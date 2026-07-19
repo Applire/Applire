@@ -204,12 +204,11 @@ async def test_non_member_gap_rejects_whole_call_naming_value(seeded):
     assert provider.calls == 0  # no LLM spend on a rejected call
 
 
-def test_tool_description_carries_doctrine_and_limits():
+@pytest.mark.asyncio
+async def test_tool_description_carries_doctrine_and_limits():
     from applire.mcp.server import mcp as server_mcp
 
-    import asyncio
-
-    tools = asyncio.get_event_loop().run_until_complete(server_mcp.list_tools())
+    tools = await server_mcp.list_tools()
     tool = next(t for t in tools if t.name == "submit_claims")
     desc = tool.description
     assert "schema://claims" in desc
