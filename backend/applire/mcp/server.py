@@ -41,6 +41,7 @@ Tools:
   get_flow_state    — get current flow session state (US109)
   import_cv         — seed or extend the Master Profile from a PDF or CV text
   add_role          — add a new work-experience role to the Master Profile
+  get_guide         — the agent-usage guide + honesty contract (ADR-056)
   create_application — create a new job application record
   update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins, stale-CV dismiss)
   list_applications  — list all job applications for the current user
@@ -51,15 +52,24 @@ Resources:
   job://{job_id}          — JobAnalysis JSON
   cv://{cv_id}            — GeneratedCV metadata JSON
   flow://{flow_id}        — FlowStateResponse JSON
+  schema://cv             — public tailored-CV content contract (ADR-054)
+  schema://cover-letter   — public cover-letter content contract (ADR-054)
+  schema://claims         — public agent-testimony contract (ADR-054, E045)
+  guide://usage           — the agent-usage guide + honesty contract (ADR-056)
+
+Prompts:
+  how-to-use-applire      — the guide as a prompt (human slash-command discovery)
 """
 
 import base64
 import binascii
+import functools
 import json
 import logging
 import os
 import uuid
 from datetime import date, datetime, timedelta
+from importlib import resources as importlib_resources
 
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
@@ -102,9 +112,50 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
+# Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
+GUIDE_VERSION = "2026-07-19"
+
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("Applire")
+
+@functools.lru_cache(maxsize=1)
+def _load_guide() -> str:
+    """The canonical agent-usage guide + honesty contract (ADR-056).
+
+    Package data, not a repo-relative path — must survive a wheel install.
+    """
+    return (
+        importlib_resources.files("applire.mcp")
+        .joinpath("AGENT_GUIDE.md")
+        .read_text(encoding="utf-8")
+    )
+
+
+# ~120 tokens by design: this string rides the initialize handshake into
+# clients that inject server instructions, so even a guide-skipping agent
+# sees the honesty core (ADR-056 §1d).
+_INSTRUCTIONS = (
+    "Applire is the candidate's job-application tool: it keeps their master "
+    "profile (the vault), verifies documents against it, and renders "
+    "norms-checked CVs and cover letters. Call get_guide before your first "
+    "application run — it carries the tool flow and Applire's honesty "
+    "contract. Core rule: ground every claim in the candidate's own data; "
+    "never fabricate. Surface genuine gaps to the human instead of papering "
+    "over them."
+)
+
+mcp = FastMCP("Applire", instructions=_INSTRUCTIONS)
+
+
+@mcp.tool(
+    description=(
+        "Return the Applire agent-usage guide + honesty contract (markdown). "
+        "Call this before your first application run; re-fetch on reconnect. "
+        "Returns {guide, version}."
+    )
+)
+async def get_guide() -> dict:
+    return {"guide": _load_guide(), "version": GUIDE_VERSION}
 
 
 # ---------------------------------------------------------------------------
@@ -1051,6 +1102,18 @@ async def resource_schema_cover_letter() -> str:
 
 
 @mcp.resource(
+    "guide://usage",
+    mime_type="text/markdown",
+    description=(
+        "The Applire agent-usage guide + honesty contract (ADR-056). "
+        "Same content as the get_guide tool."
+    ),
+)
+async def resource_guide_usage() -> str:
+    return _load_guide()
+
+
+@mcp.resource(
     "schema://claims",
     mime_type="application/json",
     description=(
@@ -1123,3 +1186,19 @@ async def resource_cv(cv_id: str) -> str:
     if record is None:
         raise not_found(f"Generated CV {cv_id} not found")
     return json.dumps(GeneratedCVResponse.model_validate(record).model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------------------
+# Prompts (ADR-056)
+# ---------------------------------------------------------------------------
+
+
+@mcp.prompt(
+    name="how-to-use-applire",
+    description=(
+        "How to drive Applire well over MCP — tool flow, path choice, and "
+        "the honesty contract (same content as the get_guide tool)."
+    ),
+)
+async def prompt_how_to_use_applire() -> str:
+    return _load_guide()

@@ -52,6 +52,9 @@ _EXPECTED_TOOLS = {
     "render_document",
     # BYOI agent-door claims (E045/US255, ADR-054 — surface complete, 24 tools)
     "submit_claims",
+    # Agent-usage guide + honesty contract (E047/US262, ADR-056 — meta tool,
+    # not part of the ADR-054 application surface)
+    "get_guide",
     # Flow orchestrator (US109)
     "start_flow",
     "advance_flow",
@@ -72,6 +75,9 @@ _EXPECTED_STATIC_RESOURCE_URIS = {
     "schema://cv",
     "schema://cover-letter",
     "schema://claims",
+    # E047/US262 (ADR-056): the agent-usage guide. NOTE: the assertion over this
+    # set is a SUBSET check — adding the URI here is what gives the guard teeth.
+    "guide://usage",
 }
 
 _EXPECTED_TEMPLATE_URIS = {
