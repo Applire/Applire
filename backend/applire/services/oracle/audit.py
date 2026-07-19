@@ -35,6 +35,7 @@ from applire.services.oracle.matchers import (
     VaultIndex,
     build_vault_index,
     extract_figures,
+    find_foreign_owner,
     ground_skill_claim,
     ground_text_claim,
     match_figures,
@@ -72,29 +73,17 @@ class _EntailmentBudget:
         return True
 
 
-def _foreign_owner_unit(
+def _attribution_red_flag(
     source_id: str | None, units: list[EvidenceUnit]
-) -> EvidenceUnit | None:
-    """Role-attribution check (#196, ADR-052 §6) — deterministic.
+) -> ClaimVerdict | None:
+    """The shared misattribution red flag (#196, ADR-052 §6) — deterministic.
 
-    Returns the unit proving misattribution when EVERY backing unit belongs to
-    a different experience than the one the claim is rendered under. Any
-    same-experience or role-agnostic (unowned) backing unit clears the claim —
-    the matcher only flags what is *exclusively* another position's evidence.
-    Claims without a rendered-position anchor (legacy data, summaries, letters)
-    are never flagged.
+    Wraps :func:`find_foreign_owner` (the matcher holds the exclusively-foreign
+    rule) into a verdict; ``None`` when attribution is fine.
     """
-    if not source_id or not units:
+    unit = find_foreign_owner(source_id, units)
+    if unit is None:
         return None
-    owned = [u for u in units if u.owner_id]
-    if len(owned) < len(units):  # role-agnostic evidence also backs the claim
-        return None
-    if any(u.owner_id == source_id for u in owned):
-        return None
-    return owned[0]
-
-
-def _misattributed_verdict(unit: EvidenceUnit) -> ClaimVerdict:
     return ClaimVerdict(
         verdict="misattributed",
         checker="attribution",
@@ -127,6 +116,7 @@ async def _entailment(
     provider: Any,
     budget: _EntailmentBudget,
     fallback: ClaimVerdict,
+    source_id: str | None = None,
 ) -> ClaimVerdict:
     """Narrow, bounded entailment call — used ONLY on deterministically
     undecided claims (never after a red flag; see module docstring)."""
@@ -144,6 +134,15 @@ async def _entailment(
     verdict = result.get("verdict") if isinstance(result, dict) else None
     if verdict not in _VALID_ENTAILMENT_VERDICTS:
         return fallback
+    if verdict == "grounded":
+        # #196 adversarial review: "grounded" on exclusively-foreign evidence
+        # is still misattribution — the paraphrase evasion (light rewording
+        # drops coverage below the deterministic floor, entailment then
+        # endorses the wrong position's evidence). Determinism outranks the
+        # LLM here exactly as it does for red flags.
+        flag = _attribution_red_flag(source_id, evidence_units)
+        if flag is not None:
+            return flag
     return ClaimVerdict(
         verdict=verdict,  # type: ignore[arg-type]
         checker="entailment",
@@ -170,6 +169,11 @@ async def verify_claim(
         claim = Claim(text=claim, location="claim[0]")
     idx = index or build_vault_index(profile)
     budget = budget or _EntailmentBudget()
+    # #196: a stamped id the vault does not know (backfill heuristics, stale
+    # data) disables the attribution matcher — fail open, never flag on it.
+    source_id = claim.source_experience_id
+    if source_id is not None and source_id not in idx.experience_ids:
+        source_id = None
 
     # ── skills: shared-predicate grounding, deterministic either way ────────
     if claim.kind == "skill":
@@ -219,11 +223,17 @@ async def verify_claim(
                     ),
                 )
         # ── 2b. role attribution (deterministic red flag, #196) ─────────────
-        # Fires before entailment: figure evidence living exclusively in a
-        # different position than the claim's rendered one is misattribution.
-        foreign = _foreign_owner_unit(claim.source_experience_id, evidence_units)
-        if foreign is not None:
-            return _misattributed_verdict(foreign)
+        # Per FIGURE, before entailment: a figure whose vault occurrences all
+        # belong to a different position is misattribution — checked per
+        # figure so an ambient same-role year can never launder a foreign
+        # achievement figure. Years are exempt entirely (tenure-ambient: date
+        # spans and "since 20XX" phrasing overlap across positions).
+        for fig, fig_units in fig_match.matched:
+            if fig.kind == "year":
+                continue
+            flag = _attribution_red_flag(source_id, fig_units)
+            if flag is not None:
+                return flag
         # US245: entailment ONLY when both sides lack stance markers.
         if claim_stance is None and not any(unit_stances):
             fallback = ClaimVerdict(
@@ -240,7 +250,9 @@ async def verify_claim(
             for u in ground_text_claim(claim.text, idx).top_units:
                 if u not in context_units:
                     context_units.append(u)
-            return await _entailment(claim.text, context_units, provider, budget, fallback)
+            return await _entailment(
+                claim.text, context_units, provider, budget, fallback, source_id
+            )
         return ClaimVerdict(
             verdict="grounded",
             checker="numbers",
@@ -278,17 +290,13 @@ async def verify_claim(
                     ),
                 )
         # ── role attribution on the grounding path (#196) ───────────────────
-        # Every unit that independently clears the coverage floor counts as
-        # backing; only when ALL of them belong to a foreign position is the
+        # The backing set is EVERY unit clearing the coverage floor
+        # (grounding.qualifying_units — deliberately not the top-3 entailment
+        # window); only when all of them belong to a foreign position is the
         # claim misattributed (same-role or role-agnostic backing clears it).
-        qualifying = [
-            u
-            for u, cov in zip(grounding.top_units, grounding.top_coverages)
-            if cov >= GROUNDED_MIN_COVERAGE
-        ]
-        foreign = _foreign_owner_unit(claim.source_experience_id, qualifying)
-        if foreign is not None:
-            return _misattributed_verdict(foreign)
+        flag = _attribution_red_flag(source_id, grounding.qualifying_units)
+        if flag is not None:
+            return flag
         return ClaimVerdict(
             verdict="grounded",
             checker="grounding",
@@ -299,7 +307,9 @@ async def verify_claim(
         checker="grounding",
         detail="No sufficiently close vault evidence for a deterministic verdict.",
     )
-    return await _entailment(claim.text, grounding.top_units, provider, budget, fallback)
+    return await _entailment(
+        claim.text, grounding.top_units, provider, budget, fallback, source_id
+    )
 
 
 async def audit_document(

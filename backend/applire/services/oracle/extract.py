@@ -63,7 +63,9 @@ def _sentence_claims(text: str, prefix: str) -> list[Claim]:
     ]
 
 
-def _bullet_claims(bullets: Any, prefix: str, source_id: str | None = None) -> list[Claim]:
+def _bullet_claims(
+    bullets: Any, prefix: str, source_id: str | None = None
+) -> list[Claim]:
     claims: list[Claim] = []
     if not isinstance(bullets, list):
         return claims
@@ -102,7 +104,9 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
         source_id = entry.get("id") or None
         if not isinstance(source_id, str):
             source_id = None
-        claims += _bullet_claims(entry.get("bullets"), f"work_history[{wi}].bullets", source_id)
+        claims += _bullet_claims(
+            entry.get("bullets"), f"work_history[{wi}].bullets", source_id
+        )
         for pi, proj in enumerate(entry.get("projects") or []):
             if isinstance(proj, dict):
                 claims += _bullet_claims(

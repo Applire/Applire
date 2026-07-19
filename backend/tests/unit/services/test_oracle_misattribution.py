@@ -50,7 +50,24 @@ PROFILE = {
             "name": "Side Tool",
             "role": "Maintainer",
             "achievements": ["Shipped the reporting side tool."],
-        }
+        },
+        # Associated with the current position by id — US187 nests its bullets
+        # under w-new, so its evidence must clear claims rendered there.
+        {
+            "id": "p2",
+            "name": "Observability Rollout",
+            "role": "Lead",
+            "associated_experience": "w-new",
+            "achievements": ["Rolled out distributed tracing for the checkout services."],
+        },
+        # Associated by company NAME (the CV-extraction path spelling).
+        {
+            "id": "p3",
+            "name": "Audit Tooling",
+            "role": "Lead",
+            "associated_experience": "Acme GmbH",
+            "achievements": ["Automated the audit evidence collection tooling."],
+        },
     ],
     "skills": [{"name": "Python"}],
 }
@@ -98,17 +115,25 @@ def test_extract_stamps_source_experience_id():
 
 # ── vault units know their owning experience ─────────────────────────────────
 
-def test_vault_units_carry_owner_id():
+def test_vault_units_carry_owner_ids():
     index = build_vault_index(PROFILE)
-    owners = {u.path: u.owner_id for u in index.units}
+    owners = {u.path: u.owner_ids for u in index.units}
 
-    assert owners["work_experience[0].achievements[0]"] == "w-old"
-    assert owners["work_experience[0].role"] == "w-old"
-    assert owners["work_experience[1].achievements[0]"] == "w-new"
-    assert owners["projects[0].achievements[0]"] == "p1"
+    assert owners["work_experience[0].achievements[0]"] == frozenset({"w-old"})
+    assert owners["work_experience[0].role"] == frozenset({"w-old"})
+    assert owners["work_experience[1].achievements[0]"] == frozenset({"w-new"})
+    # A standalone project owns only itself.
+    assert owners["projects[0].achievements[0]"] == frozenset({"p1"})
+    # An associated project ALSO belongs to its parent position — US187 nests
+    # its bullets under the work entry, so the parent id must clear them.
+    assert owners["projects[1].achievements[0]"] == frozenset({"p2", "w-new"})
+    # Association by company name resolves like _nest_projects does.
+    assert owners["projects[2].achievements[0]"] == frozenset({"p3", "w-old"})
     # Role-agnostic evidence carries no owner — it can ground any position.
-    assert owners["professional_summary.en"] is None
-    assert owners["skills[0]"] is None
+    assert owners["professional_summary.en"] == frozenset()
+    assert owners["skills[0]"] == frozenset()
+    # All known experience ids, for source-id validation (fail open on garbage).
+    assert {"w-old", "w-new", "p1", "p2", "p3"} <= set(index.experience_ids)
 
 
 # ── the verdict ──────────────────────────────────────────────────────────────
@@ -230,3 +255,131 @@ def test_empty_report_carries_all_five_count_keys():
     report = TruthfulnessReport.from_results("cv", [])
     assert report.counts["misattributed"] == 0
     assert len(report.counts) == 5
+
+
+# ── adversarial review 2026-07-19 — the four confirmed defects ───────────────
+
+@pytest.mark.asyncio
+async def test_nested_project_bullet_under_parent_role_stays_grounded():
+    """US187 nests an associated project's achievements under its parent work
+    entry, stamped with the WORK id — project-owned evidence must clear it."""
+    verdict = await verify_claim(
+        Claim(
+            text="Rolled out distributed tracing for the checkout services.",
+            location="work_history[1].projects[0].bullets[0]",
+            kind="bullet",
+            source_experience_id="w-new",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict == "grounded"
+
+
+@pytest.mark.asyncio
+async def test_same_role_backing_outside_top3_clears_the_claim():
+    """The qualifying set is every unit clearing the floor, NOT the top-3
+    entailment window — a same-role unit ranked 4th by tie-break must clear."""
+    profile = {
+        "personal_info": {"name": "Anna Bauer"},
+        "work_experience": [
+            {
+                "id": "w-old",
+                "company": "Acme GmbH",
+                "role": "QA Lead",
+                # Three identical foreign units out-rank (by vault order) ...
+                "responsibilities": ["Managed the enterprise resource planning migration."],
+                "achievements": [
+                    "Managed the enterprise resource planning migration.",
+                    "Managed the enterprise resource planning migration.",
+                ],
+            },
+            {
+                "id": "w-new",
+                "company": "Beta AG",
+                "role": "Head of IT",
+                # ... the identical same-role unit sitting at rank 4.
+                "achievements": ["Managed the enterprise resource planning migration."],
+            },
+        ],
+    }
+    verdict = await verify_claim(
+        Claim(
+            text="Managed the enterprise resource planning migration.",
+            location="work_history[1].bullets[0]",
+            kind="bullet",
+            source_experience_id="w-new",
+        ),
+        profile,
+    )
+    assert verdict.verdict == "grounded"
+
+
+@pytest.mark.asyncio
+async def test_same_role_year_cannot_launder_a_foreign_figure():
+    """Per-figure attribution: an ambient year matched by the rendered role's
+    own date span must not clear a load-bearing figure that traces only to
+    another position."""
+    verdict = await verify_claim(
+        Claim(
+            text="Migration of 200 users completed in 2024.",
+            location="work_history[1].bullets[0]",
+            kind="bullet",
+            source_experience_id="w-new",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict == "misattributed"
+    assert verdict.checker == "attribution"
+
+
+@pytest.mark.asyncio
+async def test_foreign_year_alone_does_not_flag():
+    """Years are tenure-ambient (date spans, 'since 2021' phrasing) — a year
+    figure whose only vault occurrence is another position's dates must not
+    produce a misattribution red flag by itself."""
+    verdict = await verify_claim(
+        Claim(
+            text="Supporting compliance systems at the company since 2021.",
+            location="work_history[1].bullets[0]",
+            kind="bullet",
+            source_experience_id="w-new",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict != "misattributed"
+
+
+@pytest.mark.asyncio
+async def test_entailment_grounded_on_exclusively_foreign_evidence_is_downgraded():
+    """A paraphrased cross-role claim below the coverage floor reaches
+    entailment; a 'grounded' answer backed exclusively by a foreign position's
+    evidence is still misattribution — determinism outranks the LLM."""
+    provider = _EagerProvider()
+    verdict = await verify_claim(
+        Claim(
+            text="Led the FDA audit preparation effort for the Hamburg location.",
+            location="work_history[1].bullets[0]",
+            kind="bullet",
+            source_experience_id="w-new",
+        ),
+        PROFILE,
+        provider,
+    )
+    assert verdict.verdict == "misattributed"
+    assert verdict.checker == "attribution"
+
+
+@pytest.mark.asyncio
+async def test_unknown_source_id_fails_open():
+    """A stamped id the vault does not know (backfill heuristics, stale data)
+    must disable the matcher, never flag."""
+    verdict = await verify_claim(
+        Claim(
+            text="Led the FDA audit preparation programme for the Hamburg site.",
+            location="work_history[0].bullets[0]",
+            kind="bullet",
+            source_experience_id="not-a-known-id",
+        ),
+        PROFILE,
+    )
+    assert verdict.verdict == "grounded"

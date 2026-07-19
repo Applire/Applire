@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
@@ -107,13 +107,9 @@ class TruthfulnessReport(BaseModel):
     def from_results(
         cls, document_kind: DocumentKind, results: list[ClaimResult]
     ) -> "TruthfulnessReport":
-        counts = {
-            "grounded": 0,
-            "inflated": 0,
-            "misattributed": 0,
-            "unbacked": 0,
-            "unverifiable": 0,
-        }
+        # Derived from the Verdict vocabulary so adding a verdict can never
+        # desync the counts keys (KeyError at audit time otherwise).
+        counts = {v: 0 for v in get_args(Verdict)}
         for r in results:
             counts[r.verdict.verdict] += 1
         return cls(document_kind=document_kind, claims=results, counts=counts)
