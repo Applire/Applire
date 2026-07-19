@@ -93,6 +93,8 @@ interface ProfileResponse {
     skills?: ProfileSection["skills"];
     languages?: ProfileSection["languages"];
     certifications?: ProfileSection["certifications"];
+    // ADR-055 (E046) — read-only in the UI; written via the reconciler/API.
+    signature_stories?: Array<Record<string, unknown>>;
   };
   completeness: number;
   merge_conflicts: Array<{
@@ -112,7 +114,8 @@ type SectionKey =
   | "education"
   | "skills"
   | "languages"
-  | "certifications";
+  | "certifications"
+  | "signature_stories";
 
 type SectionLabelKey =
   | "sectionPersonalInfo"
@@ -121,7 +124,8 @@ type SectionLabelKey =
   | "sectionEducation"
   | "sectionSkills"
   | "sectionLanguages"
-  | "sectionCertifications";
+  | "sectionCertifications"
+  | "sectionSignatureStories";
 
 const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
   personal_info: "sectionPersonalInfo",
@@ -131,7 +135,14 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
   skills: "sectionSkills",
   languages: "sectionLanguages",
   certifications: "sectionCertifications",
+  signature_stories: "sectionSignatureStories",
 };
+
+// ADR-055 — stories are reconciler/API-written; the raw-JSON section editor is
+// suppressed for them (read-only v1), and the section hides entirely when empty
+// instead of rendering a "not provided" shell.
+const READ_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
+const HIDE_WHEN_EMPTY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 
 // F9.2 — a summary is "missing" only when NO language has one. A profile with an
 // English summary but no German one is NOT incomplete; the missing-language nuance
@@ -414,13 +425,20 @@ export default function ProfilePage() {
             const isEditing = editingSection === section;
             const value = profile?.profile[section];
 
+            if (
+              HIDE_WHEN_EMPTY_SECTIONS.has(section) &&
+              (!Array.isArray(value) || value.length === 0)
+            ) {
+              return null;
+            }
+
             return (
               <Card key={section} id={`section-${section}`} className="p-4 scroll-mt-24">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-heading text-base font-semibold text-neutral-dark">
                     {t(SECTION_LABEL_KEYS[section])}
                   </h3>
-                  {!isEditing && (
+                  {!isEditing && !READ_ONLY_SECTIONS.has(section) && (
                     <Button
                       variant="outline"
                       size="sm"
