@@ -295,6 +295,48 @@ async def update_profile(section: str, data: dict | list) -> dict:
     return result.model_dump(mode="json")
 
 
+@mcp.tool(
+    description=(
+        "SUBMIT CLAIMS (ADR-054): you ran your own interview with the candidate "
+        "— submit the elicited facts as free-text testimony and Applire "
+        "reconciles them into the master profile with agent-interview "
+        "provenance and receipts. Agent = interviewer, Applire = notary: you "
+        "never author profile operations; each claim's `statement` (the "
+        "candidate's own words) is structured by Applire's reconciler, and "
+        "skills/certifications/figures absent from the statement are dropped. "
+        "Claims are recorded, not verified — the vault stays self-attested "
+        "(ADR-052). À la carte: only a profile is required; set `gap` (an "
+        "EXACT concept string copied from analyze_gaps output, requires "
+        "job_id) to upgrade the matching keyword-ledger entry when the claim "
+        "produces changes. Read resource schema://claims for the contract "
+        "(max 20 claims/call). Ambiguous or conflicting claims are NOT "
+        "applied: they are parked for the candidate to resolve in the profile "
+        "Health hub and reported per claim; you may re-submit a clarified "
+        "claim instead."
+    )
+)
+async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
+    from pydantic import ValidationError
+
+    from applire.schemas.claims import ClaimsSubmission
+    from applire.services.profile.reconcile.agent_bridge import submit_agent_claims
+
+    try:
+        submission = ClaimsSubmission.model_validate({"claims": claims})
+    except ValidationError as exc:
+        raise invalid_input(str(exc))
+    jid = _parse_uuid(job_id, "job_id") if job_id is not None else None
+    provider = get_provider()
+    async with get_db() as db:
+        try:
+            result = await submit_agent_claims(submission, jid, db, provider)
+        except ValueError as exc:
+            raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
 @mcp.tool(description="Analyse gaps between the current profile and the specified job.")
 async def analyze_gaps(job_id: str) -> dict:
     jid = _parse_uuid(job_id, "job_id")

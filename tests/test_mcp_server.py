@@ -50,6 +50,8 @@ _EXPECTED_TOOLS = {
     "audit_document",
     # BYOI agent-door rendering (E044/US251, ADR-054)
     "render_document",
+    # BYOI agent-door claims (E045/US255, ADR-054 — surface complete, 24 tools)
+    "submit_claims",
     # Flow orchestrator (US109)
     "start_flow",
     "advance_flow",
