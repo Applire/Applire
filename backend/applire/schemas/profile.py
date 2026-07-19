@@ -395,7 +395,7 @@ class EnrichmentRecord(BaseModel):
     # this record represents, and undo can detect whether it is still the head.
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime
-    source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "manual_edit", "manual_role_add"]
+    source: Literal["cv_upload", "cv_paste", "linkedin_import", "xing_import", "interview", "agent_interview", "manual_edit", "manual_role_add"]
     source_session_id: str | None = None
     changes: list[FieldChange] = Field(default_factory=list)
     confidence: float | None = None  # for LLM-extracted data

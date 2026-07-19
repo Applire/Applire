@@ -103,6 +103,15 @@ describe("hasMergeReview", () => {
     ).toBe(false);
   });
 
+  it("excludes agent_interview-source changes — agent claims are testimony, not import merges (US256)", () => {
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "agent_interview", timestamp: "t", changes: [change("merged")] }] })),
+    ).toBe(false);
+    expect(
+      hasMergeReview(trail({ enrichmentHistory: [{ source: "agent_interview", timestamp: "t", changes: [change("updated")] }] })),
+    ).toBe(false);
+  });
+
   it("returns false for a manual_edit 'updated' change with no import-source merge (#67)", () => {
     expect(
       hasMergeReview(trail({ enrichmentHistory: [{ source: "manual_edit", timestamp: "t", changes: [change("updated")] }] })),

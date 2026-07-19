@@ -174,21 +174,38 @@ def test_apply_does_not_mutate_input_profile():
     assert p.signature_stories == []
 
 
-def test_stance_leaves_story_ops_untouched_but_still_strips_skills():
-    """Documented posture: entity upserts are outside token-grounding scope
-    (parity with upsert_work); denials still strip token-like skill ops."""
+def test_stance_guards_stories_but_never_token_grounds_their_prose():
+    """US261 superseded the E046 posture ("entity upserts are outside stance
+    scope"): stories are now guarded — denials over the prose plus figure
+    grounding on outcome/benchmark (both corpus-bearing sources, PO ruling
+    2026-07-19). Prose itself stays paraphrasable; a story whose figures ARE
+    in the turn passes while a denied skill op still dies."""
     from applire.services.profile.reconcile.ops import UpsertSkill
 
     story_op = UpsertStory(**STORY)
     skill_op = UpsertSkill(name="Kubernetes")
+    turn = {
+        "answer": (
+            "I have never used Kubernetes. The cutover succeeded with 30% "
+            "less downtime; the prior year's attempt was rolled back after "
+            "14 hours."
+        )
+    }
     kept = enforce_stance(
-        [story_op, skill_op],
-        denials=["Kubernetes"],
-        new_info={"answer": "I have never used Kubernetes."},
-        source="interview",
+        [story_op, skill_op], denials=["Kubernetes"], new_info=turn, source="interview"
     )
     assert story_op in kept
     assert skill_op not in kept
+    # An ungrounded outcome figure now drops the story (ADR-055 gap closed).
+    assert (
+        enforce_stance(
+            [story_op],
+            denials=[],
+            new_info={"answer": "I have never used Kubernetes."},
+            source="interview",
+        )
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------

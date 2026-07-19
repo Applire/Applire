@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
@@ -37,6 +38,7 @@ import {
 } from "@/components/profile/ProfileSectionCard";
 import { useLocale } from "@/lib/providers/locale-provider";
 import { countWorkEntryGaps, type WorkEntryGapFields } from "@/lib/profile-gaps";
+import { enrichmentSourceKey } from "@/lib/enrichment-sources";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -532,8 +534,29 @@ export default function ProfilePage() {
                     key={idx}
                     className="text-sm p-3 bg-gray-50 rounded border border-gray-200"
                   >
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span className="font-medium text-teal">{record.source}</span>
+                    <div className="flex justify-between items-center gap-2 text-xs text-gray-500 mb-1">
+                      {/* US256: every source renders via profile.sources.*; the
+                          agent_interview provenance gets a distinct chip (E044
+                          agent-authored badge parity). Chip is a non-truncating
+                          shrink-0 element, never nested in a truncate node. */}
+                      {record.source === "agent_interview" ? (
+                        <span
+                          data-testid="enrichment-source-agent"
+                          className="inline-flex items-center gap-1 shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary"
+                        >
+                          <Bot className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          {t("sources.agent_interview")}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-teal">
+                          {(() => {
+                            const key = enrichmentSourceKey(record.source);
+                            // Unknown future source values fall back to the raw
+                            // string rather than crashing on a missing key.
+                            return key ? t(key) : record.source;
+                          })()}
+                        </span>
+                      )}
                       <span>{new Date(record.timestamp).toLocaleDateString()}</span>
                     </div>
                     {record.changes.map((change, cIdx) => {

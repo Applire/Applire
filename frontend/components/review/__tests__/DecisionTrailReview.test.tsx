@@ -71,6 +71,26 @@ describe("DecisionTrailReview", () => {
     expect(screen.getByTestId("what-changed-skip")).toBeInTheDocument();  // skippable (ADR-040 §4)
   });
 
+  it("interview mode includes agent_interview changes; merge mode excludes them (US256)", async () => {
+    getProfileChanges.mockResolvedValue({
+      enrichmentHistory: [
+        { source: "agent_interview", timestamp: "t1", changes: [{ section: "skills", field: "skills", action: "added", newValue: "AGENT_ROW", rationale: "from the agent claim" }] },
+        { source: "cv_upload", timestamp: "t2", changes: [{ section: "work_experience", field: "work_experience", action: "merged", newValue: "MERGE_ROW", rationale: "merged at upload" }] },
+      ],
+      pendingConflicts: [],
+    });
+    const { unmount } = render(<DecisionTrailReview mode="interview" />);
+    await waitFor(() => expect(screen.getByTestId("what-changed-review")).toHaveAttribute("data-mode", "interview"));
+    expect(screen.getByText("from the agent claim")).toBeInTheDocument();
+    expect(screen.queryByText("merged at upload")).toBeNull();
+    unmount();
+
+    render(<DecisionTrailReview mode="merge" />);
+    await waitFor(() => expect(screen.getByTestId("what-changed-review")).toHaveAttribute("data-mode", "merge"));
+    expect(screen.getByText("merged at upload")).toBeInTheDocument();
+    expect(screen.queryByText("from the agent claim")).toBeNull();
+  });
+
   it("forwards onFix (Branch G)", async () => {
     const onFix = vi.fn();
     render(<DecisionTrailReview mode="interview" onFix={onFix} />);

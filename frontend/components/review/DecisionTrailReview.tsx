@@ -47,7 +47,10 @@ export function DecisionTrailReview({ mode, onConfirm, onDismiss, onFix }: Decis
       .then((trail) => {
         if (cancelled) return;
         const records = trail.enrichmentHistory ?? [];
-        const fromInterview = (src: string) => src === "interview";
+        // agent_interview = vault changes submitted by an external agent via the
+        // submit_claims MCP tool (US256) — testimony, so it belongs to the
+        // interview surface, not the import-merge one.
+        const fromInterview = (src: string) => src === "interview" || src === "agent_interview";
         const selected = records
           .filter((r) => {
             if (mode === "interview") return fromInterview(r.source);

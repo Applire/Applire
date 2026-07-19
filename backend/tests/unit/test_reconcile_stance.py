@@ -216,6 +216,174 @@ def test_entity_ops_are_not_grounding_checked() -> None:
     assert len(out) == 1
 
 
+# ── Agent-interview grounding (E045): corpus is the statement ONLY ───────────
+#
+# In the built-in interview, gap+question are Applire-authored, so they may
+# legitimately ground a token ("Yes, six years" affirms the question's Python).
+# In submit_claims ALL fields are claimant-authored — an agent could smuggle
+# "Kubernetes" through its own question and pass surface-grounding without the
+# candidate ever affirming it (#127's fabrication class, adversarial B3).
+
+_AGENT_TURN = {
+    "gap": "Kubernetes",
+    "question": "Do you have Kubernetes experience?",
+    "answer": "Yes — I ran our container platform for three years.",
+}
+
+
+def test_agent_interview_token_absent_from_statement_dropped() -> None:
+    ops = [UpsertSkill(name="Terraform", category="technical")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
+    )
+    assert out == []
+
+
+def test_agent_interview_question_smuggle_dropped() -> None:
+    # "Kubernetes" appears only in the agent-authored question/gap — on the
+    # built-in interview this would ground; on the agent door it must NOT.
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
+    )
+    assert out == []
+    # Sanity: the identical turn grounds on the built-in interview.
+    assert len(enforce_stance(ops, denials=[], new_info=_AGENT_TURN, source="interview")) == 1
+
+
+def test_agent_interview_token_in_statement_kept() -> None:
+    turn = dict(_AGENT_TURN, answer="Yes, I administered Kubernetes clusters.")
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
+def test_agent_interview_denials_still_enforced() -> None:
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    turn = dict(_AGENT_TURN, answer="I have used Kubernetes only in tutorials, no real experience.")
+    out = enforce_stance(
+        ops, denials=["Kubernetes"], new_info=turn, source="agent_interview"
+    )
+    assert out == []
+
+
+# ── Story upserts (E045 / US261, ADR-055 gap): denials + figure grounding ────
+#
+# Story `outcome`/`benchmark` figures become citable Oracle number provenance
+# (ADR-052) — a fabricated benchmark would launder itself into `grounded`
+# verdicts. PO ruling 2026-07-19: the guard applies to BOTH corpus-bearing
+# sources (interview and agent_interview). Prose is never token-grounded
+# (paraphrase is the notary's job); only figures and denials are enforced.
+
+_STORY_TURN = {
+    "gap": "Platform reliability",
+    "question": "Tell me about a time you improved reliability.",
+    "answer": (
+        "At Acme our deploys kept failing — roughly every fifth one. I "
+        "introduced canary releases and automated rollbacks. Failed deploys "
+        "went from 20% to 2% within six months, measured across 40 services."
+    ),
+}
+
+
+def _story(**over: Any):
+    from applire.services.profile.reconcile.ops import UpsertStory
+
+    base = dict(
+        title="Canary releases at Acme",
+        challenge="Deploys kept failing, roughly every fifth one",
+        mechanism="Introduced canary releases and automated rollbacks",
+        outcome="Failed deploys went from 20% to 2% within six months",
+        benchmark="Measured across 40 services",
+        evidence=["w1"],
+    )
+    base.update(over)
+    return UpsertStory(**base)
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview"])
+def test_grounded_story_passes(source: str) -> None:
+    out = enforce_stance([_story()], denials=[], new_info=_STORY_TURN, source=source)
+    assert len(out) == 1
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview"])
+def test_fabricated_outcome_figure_drops_story(source: str) -> None:
+    # "99.9%" appears nowhere in the turn — the whole op dies (no silent
+    # figure-stripping: a benchmark-less mutation of the model's story would
+    # be editorializing; the claim reports no_change and the caller restates).
+    ops = [_story(outcome="Achieved 99.9% deploy success")]
+    out = enforce_stance(ops, denials=[], new_info=_STORY_TURN, source=source)
+    assert out == []
+
+
+def test_fabricated_benchmark_figure_drops_story() -> None:
+    ops = [_story(benchmark="Top 5 of 300 teams company-wide")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
+    )
+    assert out == []
+
+
+def test_story_prose_is_not_token_grounded() -> None:
+    # Paraphrase is legitimate: none of these exact words appear in the turn,
+    # no figures involved -> passes.
+    ops = [
+        _story(
+            title="Deployment stabilisation",
+            challenge="Release process was unreliable",
+            mechanism="Progressive delivery with automatic reversion",
+            outcome="Release failures dropped substantially",
+            benchmark=None,
+        )
+    ]
+    out = enforce_stance(
+        ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
+    )
+    assert len(out) == 1
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview", "cv_upload"])
+def test_denied_token_in_story_prose_drops_story(source: str) -> None:
+    ops = [_story(mechanism="Introduced canary releases on Kubernetes")]
+    out = enforce_stance(
+        ops, denials=["Kubernetes"], new_info=_STORY_TURN, source=source
+    )
+    assert out == []
+
+
+def test_figure_check_inert_without_corpus_denials_still_active() -> None:
+    # cv_upload has no grounding corpus: figures pass (import-scope decision,
+    # #127 parity), but denials still kill the op.
+    ops = [_story(outcome="Improved uptime to 99.99%")]
+    out = enforce_stance(ops, denials=[], new_info={"cv": "…"}, source="cv_upload")
+    assert len(out) == 1
+
+
+def test_figures_in_challenge_and_mechanism_not_checked() -> None:
+    # Only outcome/benchmark feed Oracle number provenance; scene-setting
+    # figures in challenge/mechanism stay paraphrasable.
+    ops = [
+        _story(
+            challenge="Around 100 engineers were blocked weekly",
+            mechanism="Rolled out in 3 phases",
+            outcome="Failed deploys went from 20% to 2%",
+            benchmark=None,
+        )
+    ]
+    out = enforce_stance(
+        ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
+    )
+    assert len(out) == 1
+
+
+def test_decimal_separator_normalised() -> None:
+    turn = dict(_STORY_TURN, answer="We cut latency from 1,5 seconds to 300 ms.")
+    ops = [_story(outcome="Cut latency from 1.5s to 300ms", benchmark=None)]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
 # ── Engine wiring: denials parsed defensively, guard applied in reconcile() ──
 
 

@@ -6,6 +6,17 @@ from datetime import datetime, timezone
 from applire.schemas.profile import EnrichmentRecord
 
 
+def test_source_accepts_agent_interview():
+    """E045: submit_claims receipts carry agent-interview provenance (ADR-054;
+    the ADR spells it `agent-interview`, the Literal-safe identifier is
+    `agent_interview` — mapping recorded in the ADR-054 amendment)."""
+    rec = EnrichmentRecord(
+        timestamp=datetime.now(timezone.utc),
+        source="agent_interview",
+    )
+    assert rec.source == "agent_interview"
+
+
 def test_source_accepts_manual_role_add():
     rec = EnrichmentRecord(
         timestamp=datetime.now(timezone.utc),
