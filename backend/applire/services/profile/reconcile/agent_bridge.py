@@ -206,7 +206,17 @@ async def submit_agent_claims(
                     # Plain _JSON column — reassign the WHOLE attribute so
                     # SQLAlchemy flags it dirty (session.py:1278 parity).
                     gap_row.keyword_ledger = new_ledger
-                    ledger_upgraded.append(claim.gap)
+                    # Echo the CANONICAL ledger concept, not the caller's
+                    # casing (membership is normalized equality).
+                    canonical = next(
+                        (
+                            e.get("concept", "")
+                            for e in new_ledger
+                            if _norm(e.get("concept", "")) == _norm(claim.gap)
+                        ),
+                        claim.gap,
+                    )
+                    ledger_upgraded.append(canonical)
 
         result = ClaimResult(
             index=index,

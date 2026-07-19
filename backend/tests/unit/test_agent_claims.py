@@ -254,6 +254,25 @@ async def test_ledger_upgrade_gated_on_applied_changes(async_db):
 
 
 @pytest.mark.asyncio
+async def test_ledger_upgraded_reports_canonical_concept_casing(async_db):
+    """Adversarial observation 1: gap membership is normalized equality, so
+    gap="kubernetes" is valid — but the envelope must echo the CANONICAL ledger
+    concept ("Kubernetes"), not the caller's casing."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes"])
+    provider = _QueueProvider([_skill_payload("Kubernetes")])
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[ClaimItem(statement="I administered Kubernetes clusters.", gap="kubernetes")]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+    assert result.ledger_upgraded == ["Kubernetes"]
+
+
+@pytest.mark.asyncio
 async def test_truncation_fails_only_that_claim(async_db):
     await _seed_profile(async_db)
     provider = _QueueProvider([LLMTruncatedError("budget"), _skill_payload("Databricks")])
