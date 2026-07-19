@@ -584,6 +584,16 @@
     "notProvided": "Nicht angegeben",
     "invalidJson": "Ungültiges JSON-Format. Bitte überprüfen Sie Ihre Eingabe.",
     "enrichmentHistory": "Anreicherungshistorie",
+    "sources": {
+      "cv_upload": "Lebenslauf-Upload",
+      "cv_paste": "Eingefügter Lebenslauf",
+      "linkedin_import": "LinkedIn-Import",
+      "xing_import": "XING-Import",
+      "interview": "Interview",
+      "manual_edit": "Manuelle Bearbeitung",
+      "manual_role_add": "Manuell hinzugefügte Rolle",
+      "agent_interview": "Agent-Interview"
+    },
     "completeness": "Profilvollständigkeit",
     "enrichProfile": "Profil ergänzen",
     "enrichEntry": "Ergänzen",

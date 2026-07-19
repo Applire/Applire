@@ -584,6 +584,16 @@
     "notProvided": "Not provided",
     "invalidJson": "Invalid JSON format. Please check your input.",
     "enrichmentHistory": "Enrichment History",
+    "sources": {
+      "cv_upload": "CV upload",
+      "cv_paste": "Pasted CV",
+      "linkedin_import": "LinkedIn import",
+      "xing_import": "XING import",
+      "interview": "Interview",
+      "manual_edit": "Manual edit",
+      "manual_role_add": "Manually added role",
+      "agent_interview": "Agent interview"
+    },
     "completeness": "Profile Completeness",
     "enrichProfile": "Enrich Profile",
     "enrichEntry": "Enrich",
