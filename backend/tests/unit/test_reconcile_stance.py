@@ -627,6 +627,90 @@ def test_article_number_words_do_not_ground() -> None:
         assert out == []
 
 
+# ── #207 adversarial-pass findings (real-LLM pass, 2026-07-19) ───────────────
+
+
+def test_denial_order_does_not_reopen_sibling_exemption() -> None:
+    # B1: blanking "Tailwind" before "Tailwind CSS" left an orphaned " css"
+    # that read as an independent affirmation. The verdict must not depend on
+    # the order the model lists its denials in.
+    turn = {
+        "answer": "We never used Tailwind CSS, the lead banned utility frameworks.",
+        "question": "Styling experience?",
+    }
+    ops = [UpsertSkill(name="CSS", category="technical")]
+    for denials in (["Tailwind", "Tailwind CSS"], ["Tailwind CSS", "Tailwind"]):
+        out = enforce_stance(
+            ops, denials=denials, new_info=turn, source="agent_interview"
+        )
+        assert out == [], denials
+
+
+def test_run_together_compound_does_not_affirm_sibling() -> None:
+    # B2: "TailwindCSS" written as one word must not count as an independent
+    # "CSS" affirmation when the model denies the spaced compound.
+    turn = {
+        "answer": "We never used TailwindCSS, the lead banned utility frameworks.",
+        "question": "Styling experience?",
+    }
+    ops = [UpsertSkill(name="CSS", category="technical")]
+    out = enforce_stance(
+        ops, denials=["Tailwind CSS"], new_info=turn, source="agent_interview"
+    )
+    assert out == []
+
+
+def test_denied_alias_does_not_kill_substring_sibling() -> None:
+    # O3: denying "JavaScript" must not kill an affirmed "JSON" op just
+    # because the "js" alias is a substring of "json".
+    turn = {"answer": "I build JSON APIs all day.", "question": "Stack?"}
+    ops = [UpsertSkill(name="JSON", category="technical")]
+    out = enforce_stance(
+        ops, denials=["JavaScript"], new_info=turn, source="agent_interview"
+    )
+    assert len(out) == 1
+
+
+def test_homonym_units_do_not_ground_expansions() -> None:
+    # N1: "500 ml" (milliliters) must not ground a fabricated "Machine
+    # Learning"; ditto "ai" (domains, French "ai") for "Artificial
+    # Intelligence" — those alias pairs are excluded as homonym-risky.
+    turn = {
+        "answer": "I calibrated dosing pumps handling 500 ml per cycle.",
+        "question": "Lab automation?",
+    }
+    ops = [UpsertSkill(name="Machine Learning", category="technical")]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert out == []
+
+
+def test_multigroup_thousands_numeral_grounds() -> None:
+    # O1: "a million events" grounds 1000000, and the numeral "1,000,000"
+    # must tokenize as ONE figure, not "1,000" + "000".
+    turn = {
+        "answer": "At peak we process a million events per day.",
+        "question": "Scale?",
+    }
+    ops = [
+        _helpdesk_story(
+            outcome="Handled 1,000,000 events per day", benchmark=None
+        )
+    ]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
+def test_composed_spelled_thousands_ground() -> None:
+    # O2: "twenty-five thousand" composes to 25000 and grounds "25,000".
+    turn = {
+        "answer": "We grew the platform to about twenty-five thousand users.",
+        "question": "Growth?",
+    }
+    ops = [_helpdesk_story(outcome="Grew the platform to 25,000 users", benchmark=None)]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
 # ── Engine wiring: denials parsed defensively, guard applied in reconcile() ──
 
 

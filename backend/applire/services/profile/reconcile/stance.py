@@ -66,11 +66,13 @@ _ALIAS_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"node.js", "nodejs", "node"}),
     frozenset({"amazon web services", "aws"}),
     frozenset({"google cloud platform", "gcp"}),
-    frozenset({"machine learning", "ml"}),
-    frozenset({"artificial intelligence", "ai"}),
     frozenset({"natural language processing", "nlp"}),
     frozenset({"scikit learn", "sklearn"}),
 )
+# Deliberately ABSENT: ml/"machine learning" and ai/"artificial intelligence" —
+# "ml" is also milliliters ("500 ml per cycle") and "ai" appears in domains
+# (.ai); either would let real testimony ground a fabricated skill
+# (adversarial finding N1, 2026-07-19).
 _ALIASES: dict[str, frozenset[str]] = {
     form: group for group in _ALIAS_GROUPS for form in group
 }
@@ -112,22 +114,34 @@ def _independently_affirmed(token: str, denials: list[str], corpus: str) -> bool
     only ever appears as part of a denied compound ("…never used Tailwind
     CSS…") is NOT affirmed, while an independent mention ("…in plain CSS…")
     is. Blanking with spaces can only remove matches, never create them, so
-    the check stays fail-closed.
+    the check stays fail-closed. Adversarial hardening (2026-07-19):
+
+    * Longest denial first — blanking "tailwind" before "tailwind css" left
+      an orphaned " css" that read as an affirmation (finding B1).
+    * Run-together spellings of a compound denial ("tailwindcss") are blanked
+      too, and the affirmation itself is word-boundary matched so a residual
+      substring ("…tailwindcss…", "SCSS") never counts (finding B2).
     """
     stripped = corpus
-    for d in denials:
-        d_norm = _norm(d)
-        for v in _fold_variants(d_norm) if d_norm else []:
+    for d_norm in sorted((_norm(d) for d in denials), key=len, reverse=True):
+        if not d_norm:
+            continue
+        for v in _fold_variants(d_norm):
             stripped = stripped.replace(v, " ")
-    return surface_present(token, stripped)
+            if " " in v:
+                stripped = stripped.replace(v.replace(" ", ""), " ")
+    return any(_word_present(v, stripped) for v in _fold_variants(_norm(token)))
 
 
 def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     """Is the token covered by the model's own denial verdict?
 
-    * Denial (or an alias of it) contained in the token or an alias of the
-      token → denied: 'azure' denies 'Microsoft Azure', 'Kubernetes' denies
-      'K8s'.
+    * Denial contained in the token or an alias of the token → denied:
+      'azure' denies 'Microsoft Azure', 'Kubernetes' denies 'K8s' (via the
+      token's alias form). The DENIAL itself is never alias-expanded — the
+      groups are symmetric, so token-side expansion already covers 'K8s'
+      denying 'Kubernetes', and expanding the denial re-introduced substring
+      sibling kills ('JavaScript' → alias 'js' ⊂ 'json'; finding O3).
     * Token strictly inside the denied compound ('CSS' ⊂ 'Tailwind CSS') →
       denied ONLY if the corpus never affirms the token outside the compound
       (#207: a denial of the compound is not a denial of the part). Without a
@@ -141,11 +155,7 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
         d_norm = _norm(d)
         if not d_norm:
             continue
-        if any(
-            surface_present(df, tf)
-            for df in _alias_forms(d_norm)
-            for tf in token_forms
-        ):
+        if any(surface_present(d, tf) for tf in token_forms):
             return True
         if surface_present(token, d_norm):
             if corpus is None or not _independently_affirmed(token, denials, corpus):
@@ -182,10 +192,11 @@ def _grounding_corpus(new_info: Any, source: str) -> str | None:
     return None
 
 
-_FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)?")
-# "2,000" / "2.000" — a 3-digit separator group reads as a thousands separator
-# (EN comma, DE dot) as well as a decimal; both interpretations are kept.
-_THOUSANDS_RE = re.compile(r"^\d{1,3}[.,]\d{3}$")
+_FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)*")
+# "2,000" / "2.000" / "1,000,000" — 3-digit separator groups read as thousands
+# separators (EN comma, DE dot) as well as a decimal; both interpretations are
+# kept ("1,000,000" must tokenize as ONE figure — finding O1).
+_THOUSANDS_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
 
 
 def _figure_variants(raw: str) -> set[str]:
@@ -242,7 +253,9 @@ _SMALL_WORDS = {**_EN_UNITS, **_EN_TEENS, **_EN_TENS, **_DE_UNITS, **_DE_TEENS, 
 # compound ("einundzwanzig", "einhundert") and allowed there.
 _DE_COMPOUND_UNITS = {"ein": 1, **_DE_UNITS}
 _DE_UNIT_ALT = "|".join(_DE_COMPOUND_UNITS)
-_DE_UND_RE = re.compile(rf"^({_DE_UNIT_ALT})und({'|'.join(_DE_TENS)})$")
+_DE_UND_RE = re.compile(
+    rf"^({_DE_UNIT_ALT})und({'|'.join(_DE_TENS)})(hundert|tausend)?$"
+)
 _DE_SCALE_RE = re.compile(rf"^({_DE_UNIT_ALT})?(hundert|tausend)$")
 
 _WORD_RE = re.compile(r"[a-zäöüß]+")
@@ -262,14 +275,22 @@ def _spelled_figures(corpus_norm: str) -> set[str]:
                 values.add(small * scale)
             unit = _EN_UNITS.get(nxt)
             if tok in _EN_TENS and unit is not None:  # "twenty five"
-                values.add(_EN_TENS[tok] + unit)
+                pair = _EN_TENS[tok] + unit
+                values.add(pair)
+                nxt2 = tokens[i + 2] if i + 2 < len(tokens) else ""
+                pair_scale = _SCALES.get(nxt2)
+                if pair_scale is not None:  # "twenty-five thousand"
+                    values.add(pair * pair_scale)
             continue
         if tok in _SCALES:
             values.add(_SCALES[tok])
             continue
         m = _DE_UND_RE.match(tok)
-        if m:  # "fünfundvierzig"
-            values.add(_DE_COMPOUND_UNITS[m.group(1)] + _DE_TENS[m.group(2)])
+        if m:  # "fünfundvierzig", "fünfundzwanzigtausend"
+            value = _DE_COMPOUND_UNITS[m.group(1)] + _DE_TENS[m.group(2)]
+            if m.group(3):
+                value *= _SCALES[m.group(3)]
+            values.add(value)
             continue
         m = _DE_SCALE_RE.match(tok)
         if m:  # "zweihundert", "zweitausend"
