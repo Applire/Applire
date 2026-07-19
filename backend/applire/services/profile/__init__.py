@@ -138,6 +138,8 @@ _VALID_SECTIONS = {
     "languages",
     "publications",
     "volunteer_activities",
+    # ADR-055 — stories are list-shaped (replace semantics like other lists)
+    "signature_stories",
 }
 
 # #178: object-shaped sections take merge-patch semantics (RFC-7386 style) — a

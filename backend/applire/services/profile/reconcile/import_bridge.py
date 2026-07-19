@@ -62,7 +62,11 @@ logger = logging.getLogger(__name__)
 # deliberately excluded — the single-call path never reconciles it either.
 _BATCH_SECTION_GROUPS: tuple[tuple[str, ...], ...] = (
     ("work_experience", "projects", "volunteer_activities"),
-    ("skills", "certifications", "languages", "education", "publications"),
+    # signature_stories rides the second group: stories reference experiences
+    # (evidence ids), so experiences must already exist — same reason skills
+    # come after the engagement group (ADR-055; latent-drop close E046).
+    ("skills", "certifications", "languages", "education", "publications",
+     "signature_stories"),
     ("personal_info", "professional_summary"),
 )
 

@@ -141,6 +141,16 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     for i, pub in enumerate(p.publications):
         _add(f"publications[{i}]", getattr(pub, "title", None))
 
+    # ADR-055 — signature stories: every prose field is an evidence unit, so a
+    # document claim backed only by a story still verifies as grounded, and
+    # figures stated in `outcome` become citable number provenance.
+    for i, story in enumerate(p.signature_stories):
+        _add(f"signature_stories[{i}].title", story.title)
+        _add(f"signature_stories[{i}].challenge", story.challenge)
+        _add(f"signature_stories[{i}].mechanism", story.mechanism)
+        _add(f"signature_stories[{i}].outcome", story.outcome)
+        _add(f"signature_stories[{i}].benchmark", story.benchmark)
+
     # ADR-046 receipts: attach enrichment record ids whose new-value blob
     # contains the unit's normalized text.
     for rec_id, blob in _receipt_blobs(p):
