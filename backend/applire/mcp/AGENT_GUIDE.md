@@ -62,13 +62,17 @@ the matching `artifact_id` when advancing.
   and label language from the JD, injects the letter date/sign-off only when
   you omit them, and always takes the photo from the stored profile, never
   from your content. The attached truthfulness report is the deterministic
-  self-audit — call `audit_document` afterwards for the entailment-backed
-  pass.
+  self-audit; `audit_document(document_id=...)` returns that persisted
+  report as-is. For a fresh audit that can also use the narrow entailment
+  tier, pass the text via `audit_document(document_text=...)` — raw text
+  carries no position anchors, so misattribution checks are skipped there.
 - `audit_document` — the Oracle on demand, including documents Applire never
   wrote (raw text has no position anchors, so misattribution checks need a
   generated document id).
 
-Every tool works standalone; nothing forces you into the pipeline.
+Every tool in this section works standalone; nothing forces you into the
+pipeline (`generate_cover_letter` is the exception across the surface — it
+needs a flow session, because it is a pipeline tool).
 
 ## Operational gotchas
 
