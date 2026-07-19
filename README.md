@@ -134,7 +134,7 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 - **Automated Retention**: Daily cron job enforces TTLs:
   - Uploaded files: 7 days
   - Interview sessions: 30 days
-  - Generated CVs: 90 days (human) / 24 hours (agent)
+  - Generated CVs and cover letters: 90 days
 - **Right to Erasure** (GDPR Art. 17): One-click full data deletion
 - **Self-Hosted**: Your data never leaves your infrastructure
 
@@ -420,19 +420,30 @@ reverse proxy for any deployment other than local/unproxied dev — it's what
 nginx/Caddy; the server logs a startup warning when it's unset. See
 `.env.example`.
 
+> **First call:** after connecting, have your agent call `get_guide` — it returns
+> the agent-usage guide and Applire's honesty contract (tool flow, à-la-carte
+> paths, grounding rules). The canonical file is
+> [`backend/applire/mcp/AGENT_GUIDE.md`](backend/applire/mcp/AGENT_GUIDE.md).
+
 #### MCP Tools
+
+**Guidance**
+
+| Tool | Description |
+|------|-------------|
+| `get_guide()` | Returns the agent-usage guide + honesty contract — call before your first application run |
 
 **Ingestion & profile**
 
 | Tool | Description |
 |------|-------------|
 | `import_cv(file_base64?, filename?, text?)` | Seed or extend the Master Profile from a CV. Primary: base64-encoded PDF (≤10 MB); fallback: pre-extracted text. Returns an extraction summary (never the raw profile) |
-| `analyze_jd(text?, url?)` | Analyze a job description. Provide exactly one of `text` (JD body) or `url` (scraped server-side) |
+| `analyze_jd(text?, url?)` | Analyze a job description. Provide exactly one of `text` (JD body) or `url` (scraped server-side); reposts of jobs already in the pipeline carry a `duplicate_of` hint |
 | `get_profile()` | Return the current Master Profile |
-| `update_profile(section, data)` | Patch one section (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`) |
+| `update_profile(section, data)` | Patch one section (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`, `signature_stories`) |
 | `add_role(title, company, start_date, location?, industry?, close_role_ids?)` | Add a new ongoing role (post-hire update); `close_role_ids` closes prior open roles |
 
-**Flow & tailoring**
+**Flow & interview**
 
 | Tool | Description |
 |------|-------------|
@@ -442,23 +453,45 @@ nginx/Caddy; the server logs a startup warning when it's unset. See
 | `analyze_gaps(job_id)` | Detect gaps between profile and JD |
 | `run_interview(job_id)` | Start a gap-fill interview; returns `session_id` + first question |
 | `send_message(session_id, message)` | Send a message in an active interview; returns next question or `{complete: true}` |
-| `generate_cv(job_id)` | Initiate async CV generation; returns `cv_id`, `html_url`, `pdf_url` |
+
+**Built-in generation**
+
+| Tool | Description |
+|------|-------------|
+| `generate_cv(job_id, target_pages?)` | Initiate async CV generation; optional `target_pages` pins the page count for this run; returns `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Poll CV generation status (`pending` / `generating` / `ready` / `failed`) |
+| `get_cv_ats_report(cv_id)` | Persisted ATS audit report for a generated CV — named pass/fail checks + present/missing keywords, no aggregate score |
+| `generate_cover_letter(job_id)` | Generate a cover letter (requires an existing flow session for the job); returns `cover_letter_id`, `html_url`, `pdf_url` |
+| `get_cover_letter_status(cover_letter_id)` | Poll cover-letter generation status (`pending` / `generating` / `ready` / `failed`) |
+| `get_cover_letter_ats_report(cover_letter_id)` | Persisted ATS audit report for a generated cover letter |
+
+**Bring your own intelligence (ADR-054) — à la carte, no prior `generate_*` call needed**
+
+| Tool | Description |
+|------|-------------|
+| `submit_claims(claims, job_id?)` | Submit facts your agent elicited from the candidate as free-text testimony; Applire reconciles them into the profile with agent-interview provenance (agent = interviewer, Applire = notary). Contract: `schema://claims` |
+| `audit_document(document_id?, document_text?)` | Truthfulness Oracle: per-claim truthfulness report — for a generated document by id, or raw text of a document your agent wrote itself |
+| `render_document(document_kind, content, job_id, template?, target_pages?)` | Render your agent-authored structured content (contracts: `schema://cv` / `schema://cover-letter`) into a norms-checked, templated PDF with ATS + truthfulness reports — never rewritten |
 
 **Applications**
 
 | Tool | Description |
 |------|-------------|
-| `create_application(job_id, start_workflow?, company_name?, role_title?, deadline?)` | Log an application to the pipeline; `start_workflow=true` atomically creates the flow session |
+| `create_application(job_id, start_workflow?, company_name?, role_title?, deadline?, source_url?)` | Log an application to the pipeline; `start_workflow=true` atomically creates the flow session |
 | `list_applications(status_filter?)` | List the application pipeline (`tracking`, `applied`, `rejected`, `offer`) |
-| `get_application(application_id)` | Get details for a specific application |
+| `get_application(application_id)` | Get details for a specific application (incl. a `stale_cv` re-tailor hint) |
+| `update_application(application_id, ...)` | Update user-managed fields (status, notes, deadline, source URL), pin the submitted CV/letter, or dismiss the stale-CV hint |
 
 #### MCP Resources
 
 - `profile://current` — Current Master Profile (JSON)
 - `job://{job_id}` — Job analysis
+- `cv://{cv_id}` — Generated CV metadata
 - `flow://{flow_id}` — Flow session state
-- `cv://{cv_id}` — Generated CV
+- `schema://cv` — Versioned tailored-CV content contract for `render_document` (`{schema_version, json_schema}`)
+- `schema://cover-letter` — Versioned cover-letter content contract for `render_document`
+- `schema://claims` — Versioned agent-testimony contract for `submit_claims`
+- `guide://usage` — The agent-usage guide + honesty contract (same content as `get_guide`)
 
 ---
 
