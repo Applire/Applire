@@ -146,7 +146,7 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 - **Automatisierte Aufbewahrung**: Ein täglicher Cron-Job setzt TTLs durch:
   - Hochgeladene Dateien: 7 Tage
   - Interview-Sitzungen: 30 Tage
-  - Erzeugte Lebensläufe: 90 Tage (Mensch) / 24 Stunden (Agent)
+  - Erzeugte Lebensläufe und Anschreiben: 90 Tage
 - **Recht auf Löschung** (DSGVO Art. 17): Vollständige Datenlöschung per Klick
 - **Selbst gehostet**: Deine Daten verlassen nie deine Infrastruktur
 
@@ -404,19 +404,31 @@ deines Reverse Proxys für jedes Deployment außer lokalem, ungeproxtem Dev-Betr
 auf. Standard ist `http://localhost:8001`, was hinter nginx/Caddy falsch ist; der
 Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.example`.
 
+> **Erster Aufruf:** Lass deinen Agenten nach dem Verbinden zuerst `get_guide`
+> aufrufen — es liefert den Agent-Nutzungsleitfaden und Applires
+> Ehrlichkeitsvertrag (Tool-Ablauf, À-la-carte-Pfade, Verankerungsregeln). Die
+> kanonische Datei ist
+> [`backend/applire/mcp/AGENT_GUIDE.md`](backend/applire/mcp/AGENT_GUIDE.md).
+
 #### MCP-Tools
+
+**Leitfaden**
+
+| Tool | Beschreibung |
+|------|--------------|
+| `get_guide()` | Liefert den Agent-Nutzungsleitfaden + Ehrlichkeitsvertrag — vor dem ersten Bewerbungslauf aufrufen |
 
 **Einspeisung & Profil**
 
 | Tool | Beschreibung |
 |------|--------------|
 | `import_cv(file_base64?, filename?, text?)` | Master-Profil aus einem Lebenslauf anlegen oder erweitern. Primär: base64-codiertes PDF (≤10 MB); Fallback: vorab extrahierter Text. Liefert eine Extraktions-Zusammenfassung (nie das Rohprofil) |
-| `analyze_jd(text?, url?)` | Eine Stellenbeschreibung analysieren. Gib genau eines an: `text` (JD-Inhalt) oder `url` (serverseitig ausgelesen) |
+| `analyze_jd(text?, url?)` | Eine Stellenbeschreibung analysieren. Gib genau eines an: `text` (JD-Inhalt) oder `url` (serverseitig ausgelesen); Reposts bereits erfasster Stellen tragen einen `duplicate_of`-Hinweis |
 | `get_profile()` | Das aktuelle Master-Profil zurückgeben |
-| `update_profile(section, data)` | Einen Abschnitt patchen (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`) |
+| `update_profile(section, data)` | Einen Abschnitt patchen (`personal_info`, `professional_summary`, `work_experience`, `education`, `certifications`, `skills`, `languages`, `publications`, `volunteer_activities`, `signature_stories`) |
 | `add_role(title, company, start_date, location?, industry?, close_role_ids?)` | Eine neue laufende Rolle hinzufügen (Post-Hire-Update); `close_role_ids` schließt vorherige offene Rollen |
 
-**Flow & Tailoring**
+**Flow & Interview**
 
 | Tool | Beschreibung |
 |------|--------------|
@@ -426,23 +438,45 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 | `analyze_gaps(job_id)` | Lücken zwischen Profil und JD erkennen |
 | `run_interview(job_id)` | Ein Lücken-Interview starten; liefert `session_id` + erste Frage |
 | `send_message(session_id, message)` | Eine Nachricht in einem aktiven Interview senden; liefert die nächste Frage oder `{complete: true}` |
-| `generate_cv(job_id)` | Asynchrone Lebenslauf-Erzeugung anstoßen; liefert `cv_id`, `html_url`, `pdf_url` |
+
+**Eingebaute Generierung**
+
+| Tool | Beschreibung |
+|------|--------------|
+| `generate_cv(job_id, target_pages?)` | Asynchrone Lebenslauf-Erzeugung anstoßen; optionales `target_pages` fixiert die Seitenzahl für diesen Lauf; liefert `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Status der Lebenslauf-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
+| `get_cv_ats_report(cv_id)` | Persistierter ATS-Prüfbericht für einen erzeugten Lebenslauf — benannte Pass/Fail-Checks + vorhandene/fehlende Keywords, kein Gesamtscore |
+| `generate_cover_letter(job_id)` | Ein Anschreiben erzeugen (erfordert eine bestehende Flow-Sitzung für die Stelle); liefert `cover_letter_id`, `html_url`, `pdf_url` |
+| `get_cover_letter_status(cover_letter_id)` | Status der Anschreiben-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
+| `get_cover_letter_ats_report(cover_letter_id)` | Persistierter ATS-Prüfbericht für ein erzeugtes Anschreiben |
+
+**Bring your own intelligence (ADR-054) — à la carte, kein vorheriger `generate_*`-Aufruf nötig**
+
+| Tool | Beschreibung |
+|------|--------------|
+| `submit_claims(claims, job_id?)` | Vom Agenten beim Kandidaten erhobene Fakten als Freitext-Aussagen einreichen; Applire gleicht sie mit Agent-Interview-Provenienz ins Profil ab (Agent = Interviewer, Applire = Notar). Vertrag: `schema://claims` |
+| `audit_document(document_id?, document_text?)` | Wahrheits-Orakel: Wahrheits-Report pro Aussage — für ein erzeugtes Dokument per ID oder für den Rohtext eines Dokuments, das dein Agent selbst geschrieben hat |
+| `render_document(document_kind, content, job_id, template?, target_pages?)` | Vom Agenten verfasste strukturierte Inhalte (Verträge: `schema://cv` / `schema://cover-letter`) in ein normgeprüftes, vorlagenbasiertes PDF rendern, mit ATS- + Wahrheits-Reports — niemals umgeschrieben |
 
 **Bewerbungen**
 
 | Tool | Beschreibung |
 |------|--------------|
-| `create_application(job_id, start_workflow?, company_name?, role_title?, deadline?)` | Eine Bewerbung in der Pipeline erfassen; `start_workflow=true` legt atomar die Flow-Sitzung an |
+| `create_application(job_id, start_workflow?, company_name?, role_title?, deadline?, source_url?)` | Eine Bewerbung in der Pipeline erfassen; `start_workflow=true` legt atomar die Flow-Sitzung an |
 | `list_applications(status_filter?)` | Die Bewerbungs-Pipeline auflisten (`tracking`, `applied`, `rejected`, `offer`) |
-| `get_application(application_id)` | Details zu einer bestimmten Bewerbung abrufen |
+| `get_application(application_id)` | Details zu einer bestimmten Bewerbung abrufen (inkl. `stale_cv`-Hinweis auf ein neues Tailoring) |
+| `update_application(application_id, ...)` | Nutzerverwaltete Felder aktualisieren (Status, Notizen, Frist, Quell-URL), den eingereichten Lebenslauf/das Anschreiben anpinnen oder den Stale-CV-Hinweis stummschalten |
 
 #### MCP-Ressourcen
 
 - `profile://current` — Aktuelles Master-Profil (JSON)
 - `job://{job_id}` — Stellen-Analyse
+- `cv://{cv_id}` — Metadaten eines erzeugten Lebenslaufs
 - `flow://{flow_id}` — Flow-Sitzungsstatus
-- `cv://{cv_id}` — Erzeugter Lebenslauf
+- `schema://cv` — Versionierter Inhaltsvertrag für maßgeschneiderte Lebensläufe via `render_document` (`{schema_version, json_schema}`)
+- `schema://cover-letter` — Versionierter Anschreiben-Inhaltsvertrag für `render_document`
+- `schema://claims` — Versionierter Agent-Aussagen-Vertrag für `submit_claims`
+- `guide://usage` — Der Agent-Nutzungsleitfaden + Ehrlichkeitsvertrag (gleicher Inhalt wie `get_guide`)
 
 ---
 

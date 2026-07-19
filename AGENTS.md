@@ -14,6 +14,8 @@ Applire is **the open-source, agent-ready job application tool for Europe** (AGP
 
 **Tech stack:** Python 3.12 / FastAPI / PostgreSQL 16 / Next.js 15 / Tailwind / ShadCN. Full architectural details in `docs/ARCHITECTURE.md`.
 
+> **Scope note — two agent audiences.** This file is for agents working *on* the codebase. Agents *driving Applire over MCP* (the end-user channel) get their guidance from `backend/applire/mcp/AGENT_GUIDE.md`, served at runtime via the `get_guide` tool (ADR-056). If you change the MCP surface, keep that guide in sync — CI enforces that every registered tool name appears in it.
+
 ---
 
 ## Before You Touch Code
