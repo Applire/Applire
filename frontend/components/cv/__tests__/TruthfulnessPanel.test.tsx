@@ -61,7 +61,48 @@ const ALL_GREEN_REPORT: TruthfulnessReport = {
   stated_limit: "This report verifies document-vault consistency only.",
 };
 
+const MISATTRIBUTED_REPORT: TruthfulnessReport = {
+  version: "1.1",
+  document_kind: "cv",
+  claims: [
+    {
+      claim: {
+        text: "Led the FDA audit preparation programme.",
+        location: "work_history[0].bullets[0]",
+        kind: "bullet",
+      },
+      verdict: {
+        verdict: "misattributed",
+        checker: "attribution",
+        evidence: [
+          {
+            kind: "profile_path",
+            ref: "work_experience[1].achievements[0]",
+            excerpt: "Led the FDA audit preparation programme for the Hamburg site.",
+          },
+        ],
+        detail:
+          "Backed only by evidence from a different position (work_experience[1].achievements[0]).",
+      },
+    },
+  ],
+  counts: { grounded: 0, inflated: 0, misattributed: 1, unbacked: 0, unverifiable: 0 },
+  stated_limit: "This report verifies document-vault consistency only.",
+};
+
 describe("TruthfulnessPanel", () => {
+  it("misattributed claims are loud red flags on the compact card (Oracle v2, #196)", () => {
+    render(withIntl(<TruthfulnessPanel report={MISATTRIBUTED_REPORT} />));
+    // counts as "needs review", not all-clear
+    expect(screen.getByTestId("truthfulness-status").textContent).toContain("1 claim");
+    expect(
+      screen.getByTestId("truthfulness-flag-work_history[0].bullets[0]"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("truthfulness-chip-misattributed").textContent).toBe(
+      "Misattributed",
+    );
+  });
+
   it("renders the unavailable state for a null report", () => {
     render(withIntl(<TruthfulnessPanel report={null} />));
     expect(screen.getByTestId("truthfulness-unavailable")).toBeInTheDocument();

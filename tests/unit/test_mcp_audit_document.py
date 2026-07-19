@@ -6,8 +6,11 @@
 The tool must work with NO prior generate_* call (external text mode) and
 return/persist the report for stored documents. The seeded trap document
 reproduces the 2026-07-18 bug class #1 (target→achieved inflation — flagged);
-bug class #2 (cross-role misattribution) is deliberately v2 scope: the enum
-has no `misattributed` verdict yet, asserted below as the documented v1 limit.
+bug class #2 (cross-role misattribution, shipped 2026-07-19 / #196) is
+structurally out of reach on THIS door: raw `document_text` carries no
+rendered-position ids, so the attribution matcher stays silent by design
+(asserted below as the documented raw-text limit; the stored-document path is
+covered in backend/tests/unit/services/test_oracle_misattribution.py).
 """
 import sys
 import uuid
@@ -176,9 +179,10 @@ async def test_external_text_no_prior_generate_call(seeded):
     assert inflated["checker"] == "stance"
     # the honest bullet stays green
     assert by_text["Led a team of 12 engineers"]["verdict"] == "grounded"
-    # bug class #2 (misattribution): v1 has NO misattributed verdict — the claim
-    # is backed by vault text (wrong role) and must NOT crash; documenting the
-    # v2 expectation: this becomes `misattributed` in Oracle v2 (issue #196).
+    # bug class #2 (misattribution, #196): the verdict EXISTS since 2026-07-19
+    # but cannot fire on raw text — extract_claims_from_text has no rendered-
+    # position ids to stamp, so the matcher is silent on this door (documented
+    # in the tool description). Stored generated documents ARE covered.
     fda = by_text["Prepared the FDA audit readiness programme"]
     assert fda["verdict"] in ("grounded", "unverifiable")
 

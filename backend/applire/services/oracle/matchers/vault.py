@@ -25,6 +25,13 @@ class EvidenceUnit:
     text_norm: str
     figures: list[Figure] = field(default_factory=list)
     receipt_ids: list[str] = field(default_factory=list)
+    # Ids of the experience entries this unit belongs to — anchors the v2
+    # role-attribution matcher (#196). A work/volunteer unit owns one id; an
+    # ASSOCIATED project's units also carry the resolved parent work id,
+    # because US187 nests its bullets under that position in the rendered CV.
+    # Empty for role-agnostic evidence (summary, skills, education, stories,
+    # …), which may ground a claim under any position.
+    owner_ids: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -34,6 +41,10 @@ class VaultIndex:
     skill_names: list[str]
     # (kind, canonical value) -> units carrying that figure
     figure_map: dict[tuple[str, str], list[EvidenceUnit]]
+    # Every experience id the vault knows — a claim's stamped source id must be
+    # a member or the attribution matcher stays silent (fail open on ids from
+    # backfill heuristics / stale data, #196 adversarial review).
+    experience_ids: frozenset[str] = frozenset()
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -74,7 +85,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     p = _coerce_profile(profile)
     units: list[EvidenceUnit] = []
 
-    def _add(path: str, text: Any) -> None:
+    def _add(path: str, text: Any, owners: frozenset[str] = frozenset()) -> None:
         if not isinstance(text, str):
             return
         stripped = text.strip()
@@ -86,6 +97,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
                 text=stripped,
                 text_norm=_norm(stripped),
                 figures=extract_figures(stripped),
+                owner_ids=owners,
             )
         )
 
@@ -93,31 +105,68 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     _add("professional_summary.de", getattr(summary, "de", None))
     _add("professional_summary.en", getattr(summary, "en", None))
 
-    def _add_experience(prefix: str, entry: Any) -> None:
-        _add(f"{prefix}.role", getattr(entry, "role", None))
+    def _safe_id(value: Any) -> str | None:
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    # `associated_experience` is a WorkEntry id on the reconcile path but a
+    # company NAME on the CV-extraction path — resolve it exactly like the
+    # US187 nesting step (services/cv._nest_projects) so an associated
+    # project's evidence clears the position its bullets are rendered under.
+    work_id_by_company: dict[str, str] = {}
+    work_ids: set[str] = set()
+    for w in p.work_experience:
+        wid = _safe_id(w.id)
+        if wid is None:
+            continue
+        work_ids.add(wid)
+        company = (w.company or "").strip().lower()
+        if company:
+            work_id_by_company.setdefault(company, wid)
+
+    def _project_owners(pr: Any) -> frozenset[str]:
+        owners = {o for o in (_safe_id(pr.id),) if o}
+        ref = _safe_id(getattr(pr, "associated_experience", None))
+        if ref is not None:
+            parent = ref if ref in work_ids else work_id_by_company.get(ref.lower())
+            if parent is not None:
+                owners.add(parent)
+        return frozenset(owners)
+
+    def _add_experience(prefix: str, entry: Any, owners: frozenset[str]) -> None:
+        _add(f"{prefix}.role", getattr(entry, "role", None), owners)
         org = entry.org_label()
         if org:
-            _add(f"{prefix}.org", org)
+            _add(f"{prefix}.org", org, owners)
         for j, r in enumerate(getattr(entry, "responsibilities", []) or []):
-            _add(f"{prefix}.responsibilities[{j}]", r)
+            _add(f"{prefix}.responsibilities[{j}]", r, owners)
         for j, a in enumerate(getattr(entry, "achievements", []) or []):
-            _add(f"{prefix}.achievements[{j}]", a)
+            _add(f"{prefix}.achievements[{j}]", a, owners)
         for j, t in enumerate(getattr(entry, "technologies", []) or []):
-            _add(f"{prefix}.technologies[{j}]", t)
+            _add(f"{prefix}.technologies[{j}]", t, owners)
         span = " – ".join(
             s for s in (getattr(entry, "start_date", None), getattr(entry, "end_date", None)) if s
         )
         if span:
-            _add(f"{prefix}.dates", span)
+            _add(f"{prefix}.dates", span, owners)
+
+    experience_ids: set[str] = set()
+
+    def _owners_of(entry: Any) -> frozenset[str]:
+        owners = frozenset(o for o in (_safe_id(entry.id),) if o)
+        experience_ids.update(owners)
+        return owners
 
     for i, w in enumerate(p.work_experience):
-        _add_experience(f"work_experience[{i}]", w)
-        _add(f"work_experience[{i}].budget_managed", w.budget_managed)
+        owners = _owners_of(w)
+        _add_experience(f"work_experience[{i}]", w, owners)
+        _add(f"work_experience[{i}].budget_managed", w.budget_managed, owners)
     for i, pr in enumerate(p.projects):
-        _add_experience(f"projects[{i}]", pr)
-        _add(f"projects[{i}].description", pr.description)
+        owners = _project_owners(pr)
+        experience_ids.update(owners)
+        _add_experience(f"projects[{i}]", pr, owners)
+        _add(f"projects[{i}].description", pr.description, owners)
     for i, v in enumerate(p.volunteer_activities):
-        _add_experience(f"volunteer_activities[{i}]", v)
+        _add_experience(f"volunteer_activities[{i}]", v, _owners_of(v))
 
     skill_names: list[str] = []
     for i, s in enumerate(p.skills):
@@ -168,4 +217,5 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         all_text_norm=_norm(" ".join(u.text for u in units)),
         skill_names=skill_names,
         figure_map=figure_map,
+        experience_ids=frozenset(experience_ids),
     )

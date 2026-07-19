@@ -52,6 +52,11 @@ class GroundingResult:
     content_tokens: int
     # Best-scoring units in descending hit order (entailment context).
     top_units: list[EvidenceUnit] = field(default_factory=list)
+    # EVERY unit that independently clears GROUNDED_MIN_COVERAGE — the backing
+    # set for the attribution matcher (#196). Deliberately NOT capped at the
+    # top-3 entailment window: a same-role unit ranked 4th by tie-break must
+    # still clear the claim (2026-07-19 adversarial review).
+    qualifying_units: list[EvidenceUnit] = field(default_factory=list)
 
 
 def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
@@ -70,7 +75,12 @@ def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
     best_unit = top[0] if top else None
     best_hits = -scored[0][0] if scored else 0
     n = len(tokens)
-    return GroundingResult(best_hits / n, best_unit, overall_hits / n, n, top)
+    qualifying = [
+        u for neg_hits, _, u in scored if -neg_hits / n >= GROUNDED_MIN_COVERAGE
+    ]
+    return GroundingResult(
+        best_hits / n, best_unit, overall_hits / n, n, top, qualifying
+    )
 
 
 def ground_skill_claim(name: str, index: VaultIndex) -> EvidenceUnit | None:

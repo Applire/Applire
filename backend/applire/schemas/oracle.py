@@ -5,19 +5,20 @@
 The Oracle verifies a document against the master profile (the vault) and
 returns a typed, receipt-carrying report. Verdict taxonomy v1 (ADR-052 §3):
 
-- ``grounded``     — the claim traces to vault evidence (refs attached)
-- ``inflated``     — target-vs-achieved stance mismatch (aspirational evidence
-                     rendered as an achieved outcome)
-- ``unbacked``     — no vault evidence for the claim (or a figure in it)
-- ``unverifiable`` — subjective/soft claim the vault cannot speak to
-
-``misattributed`` (role attribution) is deliberately v2 (ADR-052 §6).
+- ``grounded``      — the claim traces to vault evidence (refs attached)
+- ``inflated``      — target-vs-achieved stance mismatch (aspirational evidence
+                      rendered as an achieved outcome)
+- ``misattributed`` — role-attribution mismatch (v2, ADR-052 §6 / #196): the
+                      claim's only backing evidence belongs to a different
+                      position than the one it is rendered under
+- ``unbacked``      — no vault evidence for the claim (or a figure in it)
+- ``unverifiable``  — subjective/soft claim the vault cannot speak to
 """
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
@@ -29,14 +30,17 @@ ORACLE_STATED_LIMIT = (
 )
 
 # The current report schema version (bump on breaking shape changes; the
-# marker data files carry their own version field).
-ORACLE_REPORT_VERSION = "1.0"
+# marker data files carry their own version field). 1.1 = the additive
+# ``misattributed`` verdict + fifth counts key (Oracle v2 role attribution).
+ORACLE_REPORT_VERSION = "1.1"
 
-Verdict = Literal["grounded", "inflated", "unbacked", "unverifiable"]
+Verdict = Literal["grounded", "inflated", "misattributed", "unbacked", "unverifiable"]
 
 # Checker ids, carried on every verdict so a report line is attributable to
 # the code (or the narrow entailment call) that produced it.
-CheckerId = Literal["numbers", "grounding", "stance", "entailment", "extraction"]
+CheckerId = Literal[
+    "numbers", "grounding", "stance", "attribution", "entailment", "extraction"
+]
 
 Stance = Literal["aspirational", "achieved"]
 
@@ -65,6 +69,11 @@ class Claim(BaseModel):
     # "work_history[1].bullets[2]", "body.paragraphs[0][1]", "text[4]".
     location: str
     kind: Literal["sentence", "bullet", "skill"] = "sentence"
+    # The source WorkEntry.id of the position this claim is rendered under
+    # (carried on TailoredWorkEntry.id since US187). None for role-agnostic
+    # surfaces (summary, skills, letters) and legacy/id-less tailored data —
+    # the attribution matcher then stays silent (fails open to v1 behaviour).
+    source_experience_id: str | None = None
 
 
 class ClaimVerdict(BaseModel):
@@ -85,7 +94,7 @@ class TruthfulnessReport(BaseModel):
     version: str = ORACLE_REPORT_VERSION
     document_kind: DocumentKind
     claims: list[ClaimResult] = Field(default_factory=list)
-    # Verdict -> count, always carrying all four keys.
+    # Verdict -> count, always carrying all five keys.
     counts: dict[str, int] = Field(default_factory=dict)
     # ADR-052 §5 — never omitted, never blocks delivery in v1 (ADR-040
     # attestation remains the delivery gate).
@@ -98,7 +107,9 @@ class TruthfulnessReport(BaseModel):
     def from_results(
         cls, document_kind: DocumentKind, results: list[ClaimResult]
     ) -> "TruthfulnessReport":
-        counts = {"grounded": 0, "inflated": 0, "unbacked": 0, "unverifiable": 0}
+        # Derived from the Verdict vocabulary so adding a verdict can never
+        # desync the counts keys (KeyError at audit time otherwise).
+        counts = {v: 0 for v in get_args(Verdict)}
         for r in results:
             counts[r.verdict.verdict] += 1
         return cls(document_kind=document_kind, claims=results, counts=counts)
