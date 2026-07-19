@@ -58,7 +58,12 @@ the matching `artifact_id` when advancing.
   `analyze_gaps` output.
 - `render_document` — your authored content into a norms-checked, templated
   PDF. Read `schema://cv` or `schema://cover-letter` first; unknown fields
-  are rejected with paths. You stay the author.
+  are rejected with paths. You stay the author: Applire applies the template
+  and label language from the JD, injects the letter date/sign-off only when
+  you omit them, and always takes the photo from the stored profile, never
+  from your content. The attached truthfulness report is the deterministic
+  self-audit — call `audit_document` afterwards for the entailment-backed
+  pass.
 - `audit_document` — the Oracle on demand, including documents Applire never
   wrote (raw text has no position anchors, so misattribution checks need a
   generated document id).

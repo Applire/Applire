@@ -224,10 +224,9 @@ async def _current_user_id(db) -> uuid.UUID:
 
 @mcp.tool(
     description=(
-        "Seed or extend the Master Profile from a CV. Primary: file_base64 = a "
-        "base64-encoded PDF (<=10 MB). Call once per CV to merge multiple documents. "
-        "Fallback: text = already-extracted CV text. Returns an extraction summary "
-        "(never the raw profile). Oversize files: use REST POST /api/profile/upload."
+        "Seed or extend the Master Profile from a CV. Provide file_base64 "
+        "(base64 PDF, <=10 MB) or text (extracted CV text). Call once per CV "
+        "to merge several. Returns a summary, never the raw profile."
     )
 )
 async def import_cv(
@@ -270,11 +269,10 @@ async def import_cv(
 @mcp.tool(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
-        "Provide exactly one of: text (the JD body) or url (scraped server-side). "
-        "If the JD matches a job already in the user's application pipeline "
-        "(repost recognition), the response carries a duplicate_of hint with the "
-        "existing application_id — offer to open that application instead of "
-        "creating a new one; never block on it."
+        "Provide exactly one of: text (the JD body) or url (scraped "
+        "server-side). A duplicate_of hint carries an existing "
+        "application_id when the JD matches the user's pipeline — offer to "
+        "open it instead of duplicating; never block on it."
     )
 )
 async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
@@ -348,22 +346,14 @@ async def update_profile(section: str, data: dict | list) -> dict:
 
 @mcp.tool(
     description=(
-        "SUBMIT CLAIMS (ADR-054): you ran your own interview with the candidate "
-        "— submit the elicited facts as free-text testimony and Applire "
-        "reconciles them into the master profile with agent-interview "
-        "provenance and receipts. Agent = interviewer, Applire = notary: you "
-        "never author profile operations; each claim's `statement` (the "
-        "candidate's own words) is structured by Applire's reconciler, and "
-        "skills/certifications/figures absent from the statement are dropped. "
-        "Claims are recorded, not verified — the vault stays self-attested "
-        "(ADR-052). À la carte: only a profile is required; set `gap` (an "
-        "EXACT concept string copied from analyze_gaps output, requires "
-        "job_id) to upgrade the matching keyword-ledger entry when the claim "
-        "produces changes. Read resource schema://claims for the contract "
-        "(max 20 claims/call). Ambiguous or conflicting claims are NOT "
-        "applied: they are parked for the candidate to resolve in the profile "
-        "Health hub and reported per claim; you may re-submit a clarified "
-        "claim instead."
+        "Submit facts you elicited from the candidate as free-text testimony "
+        "(their own words); Applire reconciles them into the profile with "
+        "receipts. Claims are recorded, not verified — the vault stays "
+        "self-attested. Read resource schema://claims first (max 20 claims/"
+        "call). Optional `gap` must be an EXACT concept string from "
+        "analyze_gaps output (requires job_id). Ambiguous or conflicting "
+        "claims are parked for the candidate in the profile Health hub, "
+        "reported per claim."
     )
 )
 async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
@@ -506,10 +496,9 @@ async def get_cv_status(cv_id: str) -> dict:
 
 @mcp.tool(
     description=(
-        "Get the persisted ATS audit report for a generated CV (ADR-039). "
-        "Returns {document_id, status, report}; report is null while generation/audit "
-        "is pending or unavailable. report = {checks: [{id, status, details?}], "
-        "keywords: {present, missing}} — named checks, no aggregate score."
+        "Get the persisted ATS audit report for a generated CV. Returns "
+        "{document_id, status, report}; report is null while pending — named "
+        "checks + keyword presence, no aggregate score."
     )
 )
 async def get_cv_ats_report(cv_id: str) -> dict:
@@ -548,23 +537,13 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
 
 @mcp.tool(
     description=(
-        "TRUTHFULNESS ORACLE (ADR-052/ADR-054): audit a document against the master "
-        "profile (the vault) and get a per-claim truthfulness report. À la carte — "
-        "works with NO prior generate_* call; audit documents Applire did not write. "
-        "Pass EXACTLY ONE of: document_id (a generated CV or cover-letter id — "
-        "returns the persisted pre-delivery report, computing and persisting it if "
-        "absent) OR document_text (raw text of ANY application document, e.g. a CV "
-        "your agent authored itself). Verdicts per claim: grounded (with vault "
-        "evidence refs: profile paths + enrichment receipt ids) | inflated (an "
-        "aspirational target rendered as an achieved result) | misattributed (the "
-        "claim's only backing evidence belongs to a DIFFERENT position than the one "
-        "it is rendered under; needs rendered-position anchors, so it fires for "
-        "generated documents — raw document_text has no position ids to check) "
-        "| unbacked (a figure or "
-        "skill with no vault evidence) | unverifiable (soft claim). Deterministic "
-        "checks always win; narrow entailment fills only undecided claims. STATED "
-        "LIMIT: the report verifies document-vault consistency only — it cannot "
-        "prove the vault itself (profile claims are self-attested)."
+        "Audit a document against the master profile (the vault): per-claim "
+        "verdicts grounded | inflated | misattributed | unbacked | "
+        "unverifiable, with vault evidence refs. Pass EXACTLY ONE of "
+        "document_id (a generated CV/cover-letter — persisted report) or "
+        "document_text (raw text of ANY document; no position anchors, so "
+        "misattribution checks are skipped). STATED LIMIT: verifies "
+        "document-vault consistency only — the vault itself is self-attested."
     )
 )
 async def audit_document(
@@ -606,24 +585,14 @@ async def audit_document(
 
 @mcp.tool(
     description=(
-        "RENDER (ADR-054): turn YOUR agent-authored structured content into a "
-        "norms-checked, templated PDF — Applire renders, checks, and reports; it "
-        "NEVER rewrites your content (you stay the author). À la carte — works "
-        "with NO prior generate_* or start_flow call; only analyze_jd is needed "
-        "for the job_id. This is the preferred path when your own model writes "
-        "well; generate_cv/generate_cover_letter are the convenience path for "
-        "callers without a strong model. content must match the public versioned "
-        "contract — read resource schema://cv or schema://cover-letter first; "
-        "unknown or mistyped fields are rejected with their field paths. "
-        "Applied by Applire: template + label language (from the JD), region "
-        "norms as ADVISORY page-length checks (never a silent condense), letter "
-        "date/sign-off injected ONLY when you omit them, and photo_url is always "
-        "taken from the stored profile, never from content. Returns document_id, "
-        "pdf_url/html_url, schema_version, and the ATS + truthfulness reports "
-        "(deterministic self-audit; call audit_document afterwards for the "
-        "entailment-backed pass). NOTE: the document appears in the user's UI "
-        "(dossier + My Documents) only after create_application(job_id) — "
-        "otherwise it is reachable by URL only until its TTL expires."
+        "Render YOUR agent-authored structured content into a norms-checked, "
+        "templated PDF — Applire renders, checks, and reports; it NEVER "
+        "rewrites your content. Read resource schema://cv or "
+        "schema://cover-letter first; unknown or mistyped fields are rejected "
+        "with their field paths. Only analyze_jd is needed for the job_id. "
+        "Returns document_id, pdf_url/html_url, schema_version, and the ATS + "
+        "truthfulness reports. NOTE: visible in the user's UI only after "
+        "create_application(job_id)."
     )
 )
 async def render_document(
@@ -704,10 +673,9 @@ async def render_document(
 @mcp.tool(
     description=(
         "Generate a cover letter for the given job. Requires an existing flow "
-        "session for the job (call start_flow first) — raises not_found if none "
-        "exists. Returns cover_letter_id, status, html_url, and pdf_url. "
-        "The URLs point to the FastAPI backend (APPLIRE_BASE_URL). Editing a "
-        "generated cover letter's sections is UI-only — there is no MCP tool for it."
+        "session (call start_flow first). Returns cover_letter_id, status, "
+        "html_url, and pdf_url. Editing a generated letter's sections is "
+        "UI-only."
     )
 )
 async def generate_cover_letter(job_id: str) -> dict:
@@ -749,10 +717,9 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
 
 @mcp.tool(
     description=(
-        "Get the persisted ATS audit report for a generated cover letter (ADR-039). "
-        "Returns {document_id, status, report}; report is null while generation/audit "
-        "is pending or unavailable. report = {checks: [{id, status, details?}], "
-        "keywords: {present, missing}} — named checks, no aggregate score."
+        "Get the persisted ATS audit report for a generated cover letter. "
+        "Returns {document_id, status, report}; report is null while pending "
+        "— named checks + keyword presence, no aggregate score."
     )
 )
 async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
@@ -868,9 +835,8 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
 @mcp.tool(
     description=(
         "Get details for a specific application by ID. A non-null stale_cv "
-        "field means the Master Profile grew after the newest CV was tailored "
-        "(stale_cv.gained lists what changed per section) — offer to re-tailor "
-        "via generate_cv for the same job, or mute the hint with "
+        "field means the profile grew after the newest CV was tailored — "
+        "offer to re-tailor via generate_cv, or mute with "
         "update_application(dismiss_stale_cv=true). Never regenerate without "
         "asking; a pinned submitted version is never replaced."
     )
@@ -890,11 +856,9 @@ async def get_application(application_id: str) -> dict:
 
 @mcp.tool(
     description=(
-        "Log an application to the user's pipeline. job_id is the JobAnalysis id; "
-        "company_name/role_title default from the job when omitted. "
-        "source_url records where the posting was found (defaults from the job "
-        "when it was analyzed from a URL). "
-        "start_workflow=true atomically creates the flow session."
+        "Log an application to the user's pipeline. job_id is the JobAnalysis "
+        "id; company_name/role_title/source_url default from the job when "
+        "omitted. start_workflow=true atomically creates the flow session."
     )
 )
 async def create_application(
@@ -935,16 +899,13 @@ async def create_application(
 
 @mcp.tool(
     description=(
-        "Update user-managed fields on an application (MCP mirror of "
-        "PATCH /api/applications/{id}). Omitted fields are left unchanged. "
-        f"user_status must be one of: {_USER_STATUS_VALUES}. "
-        "deadline is ISO 8601. source_url records where the posting was found. "
-        "submitted_cv_id / submitted_cover_letter_id pin the exact generated "
-        "document that was sent to the employer (must belong to this "
-        "application's job); pinned documents are kept while the application "
-        "is active. dismiss_stale_cv=true mutes an application's stale-CV "
-        "re-tailor hint (the stale_cv field on get/list responses) until the "
-        "profile grows again."
+        "Update user-managed fields on an application; omitted fields stay "
+        f"unchanged. user_status must be one of: {_USER_STATUS_VALUES}. "
+        "deadline is ISO 8601. submitted_cv_id / submitted_cover_letter_id "
+        "pin the exact document sent to the employer (must belong to this "
+        "application's job; pins are kept while active). "
+        "dismiss_stale_cv=true mutes the stale-CV hint until the profile "
+        "grows again."
     )
 )
 async def update_application(
