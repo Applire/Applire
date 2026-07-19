@@ -77,7 +77,8 @@ export type SectionKey =
   | "education"
   | "skills"
   | "languages"
-  | "certifications";
+  | "certifications"
+  | "signature_stories";
 
 interface WorkEntryShape {
   role?: string | null;
@@ -122,6 +123,17 @@ interface CertificationShape {
   issuer?: string | null;
   date_obtained?: string | null;
   year?: string | null;
+}
+
+interface SignatureStoryShape {
+  id?: string;
+  title?: string | null;
+  challenge?: string | null;
+  mechanism?: string | null;
+  outcome?: string | null;
+  benchmark?: string | null;
+  experience_refs?: string[];
+  source?: string | null;
 }
 
 interface PersonalInfoShape {
@@ -336,6 +348,46 @@ export function ProfileSectionBody({
           );
         })}
       </div>
+    );
+  }
+
+  if (section === "signature_stories") {
+    // ADR-055 (E046) — read-only narrative cards; internal ids/source hidden
+    // (F8 rule). The page hides the whole section when empty; this empty state
+    // only covers a direct render with no usable entries.
+    const stories = Array.isArray(value) ? (value as SignatureStoryShape[]) : [];
+    const titled = stories.filter((s) => nonEmpty(s.title));
+    if (titled.length === 0) return empty;
+    const fieldRows = (s: SignatureStoryShape): Array<[string, string]> =>
+      (
+        [
+          [t("storyChallenge"), s.challenge],
+          [t("storyMechanism"), s.mechanism],
+          [t("storyOutcome"), s.outcome],
+          [t("storyBenchmark"), s.benchmark],
+        ] as Array<[string, string | null | undefined]>
+      ).filter((row): row is [string, string] => nonEmpty(row[1]));
+    return (
+      <ul className="space-y-4">
+        {titled.map((s, i) => (
+          <li key={s.id ?? i} className="rounded-lg bg-surface-container p-3">
+            <p className="font-medium text-neutral-dark text-sm mb-1.5">{s.title}</p>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+              {fieldRows(s).map(([label, text]) => (
+                <div key={label} className="contents">
+                  <dt className="text-gray-500">{label}</dt>
+                  <dd className="text-gray-700">{text}</dd>
+                </div>
+              ))}
+            </dl>
+            {(s.experience_refs?.length ?? 0) > 0 && (
+              <p className="mt-1.5 text-xs text-gray-500">
+                {t("storyLinkedExperiences", { count: s.experience_refs!.length })}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     );
   }
 

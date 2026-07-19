@@ -160,6 +160,60 @@ describe("ProfileSectionCard — structured rendering (F8)", () => {
   });
 });
 
+describe("ProfileSectionCard — signature stories (E046, ADR-055)", () => {
+  const stories = [
+    {
+      id: "story-uuid-1111-2222-3333",
+      title: "SAP cutover rescue",
+      challenge: "Migration was six weeks from a failed go-live.",
+      mechanism: "Rebuilt the interface layer around an event queue.",
+      outcome: "Cutover succeeded with 30% less downtime.",
+      benchmark: "Prior attempt was rolled back after 14 hours.",
+      experience_refs: ["w-1", "w-2"],
+      source: "interview",
+    },
+  ];
+
+  it("renders title, the four labelled fields, and the linked-experience count — internals hidden", () => {
+    render(
+      withIntl(
+        <ProfileSectionBody
+          section="signature_stories"
+          value={stories}
+          uiLanguage="en"
+        />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("SAP cutover rescue")).toBeInTheDocument();
+    expect(screen.getByText("Challenge")).toBeInTheDocument();
+    expect(screen.getByText(/failed go-live/)).toBeInTheDocument();
+    expect(screen.getByText("Outcome")).toBeInTheDocument();
+    expect(screen.getByText(/30% less downtime/)).toBeInTheDocument();
+    expect(screen.getByText("Benchmark")).toBeInTheDocument();
+    expect(screen.getByText("2 linked experiences")).toBeInTheDocument();
+    // F8 rule: internal plumbing never renders.
+    expect(screen.queryByText(/story-uuid/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/w-1/)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/"source":/);
+  });
+
+  it("omits the benchmark row when absent and the refs line when empty", () => {
+    render(
+      withIntl(
+        <ProfileSectionBody
+          section="signature_stories"
+          value={[{ ...stories[0], benchmark: null, experience_refs: [] }]}
+          uiLanguage="en"
+        />,
+        "en",
+      ),
+    );
+    expect(screen.queryByText("Benchmark")).not.toBeInTheDocument();
+    expect(screen.queryByText(/linked experience/)).not.toBeInTheDocument();
+  });
+});
+
 describe("resolveSummary — language-aware summary check (F9.2)", () => {
   it("prefers the UI language when present", () => {
     const r = resolveSummary({ de: "Deutsch", en: "English" }, "de");

@@ -45,6 +45,7 @@ from applire.schemas.profile import (
     MasterProfileData,
     ProjectEntry,
     Publication,
+    SignatureStory,
     Skill,
     VolunteerActivity,
     WorkEntry,
@@ -66,6 +67,7 @@ from applire.services.profile.reconcile.ops import (
     UpsertProject,
     UpsertPublication,
     UpsertSkill,
+    UpsertStory,
     UpsertVolunteer,
     UpsertWork,
 )
@@ -275,6 +277,8 @@ def apply_ops(
             _apply_upsert_education(op, new_profile, changes, pending)
         elif isinstance(op, UpsertPublication):
             _apply_upsert_publication(op, new_profile, changes, pending)
+        elif isinstance(op, UpsertStory):
+            _apply_upsert_story(op, new_profile, resolve, source, changes)
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve, changes)
         elif isinstance(op, SetPersonalInfo):
@@ -885,6 +889,52 @@ def _apply_upsert_publication(op, profile, changes, pending):
         patent_number=op.patent_number, co_authors=op.co_authors,
     ))
     changes.append(_added("publications", "title", op.title))
+
+
+def _apply_upsert_story(op, profile, resolve, source, changes):
+    # ADR-055. Identity = normalized-title EQUALITY only; a near-dupe title
+    # APPENDS instead of asking — deliberately no RequestConfirmation here:
+    # both confirmation-resolution channels are skill-shaped (import
+    # resolve_confirmation records-only, the interview path gates on
+    # incoming_skill), so a story parked behind a question would be silently
+    # dropped. A visible duplicate is recoverable; vanished testimony is not.
+    evidence_ids: list[str] = []
+    for handle in op.evidence:
+        ent = resolve(handle)
+        if ent is not None:
+            ent_id = getattr(ent, "id", None)
+            if ent_id and ent_id not in evidence_ids:
+                evidence_ids.append(ent_id)
+        # else: leave unresolved handles out (defensive, UpsertSkill parity)
+    match = next(
+        (s for s in profile.signature_stories if _norm(s.title) == _norm(op.title)),
+        None,
+    )
+    if match is not None:
+        filled = _fill_empties(match, {"benchmark": op.benchmark})
+        if evidence_ids:
+            before_refs = list(match.experience_refs)
+            for ref in evidence_ids:
+                if ref not in match.experience_refs:
+                    match.experience_refs.append(ref)
+            filled = filled or match.experience_refs != before_refs
+        if filled:
+            # Full story prose in new_value: the Oracle attaches ADR-046
+            # receipts by blob containment over FieldChange.new_value — a
+            # title-only record would leave story units receipt-less.
+            changes.append(_merged(
+                "signature_stories", match.title, None, match.model_dump(mode="json"),
+            ))
+        return
+    story = SignatureStory(
+        title=op.title, challenge=op.challenge, mechanism=op.mechanism,
+        outcome=op.outcome, benchmark=op.benchmark,
+        experience_refs=evidence_ids, source=source,
+    )
+    profile.signature_stories.append(story)
+    changes.append(_added(
+        "signature_stories", story.title, story.model_dump(mode="json"),
+    ))
 
 
 def _apply_set_field(op, resolve, changes):

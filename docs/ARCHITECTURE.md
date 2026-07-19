@@ -524,6 +524,14 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 ---
 
+### ADR-055 — Signature Stories: a First-Class Profile Entity (accepted 2026-07-19)
+
+**Decision:** The Master Profile gains `signature_stories` — typed narrative evidence (`title`, `challenge`, `mechanism`, `outcome`, `benchmark?`), anchored to the experience it happened in via `experience_refs` (the same provenance pattern skills use) and carrying no date span of its own. Stories are written **only through the ADR-046 reconciler** (a new `upsert_story` op whose prompt rules require the source material to actually narrate the arc — never synthesized from a bare skill or tag; normalized-title identity, append over ask on near-duplicates), land with full-prose enrichment receipts, and are indexed by the Truthfulness Oracle as evidence units — a figure stated only in a story's `outcome` still grounds a document claim, with a citable receipt. v1 ingestion is interview answers and profile-section edits (`signature_stories` is a patchable section); consumers are `get_profile` on the agent channel, the single-call CV writer, the Oracle, and a read-only profile-page section.
+
+**Why:** Blind testing showed the strongest candidate evidence — the concrete "what was hard, what I did, what it measurably changed" story — was being shredded into bullets and tags at import, so agents bypassed the profile for raw documents. A typed story survives intact, verifies deterministically, and is reusable across every application in a campaign instead of drifting per document.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
@@ -592,6 +600,15 @@ A cluster of Community rendering decisions a contributor will encounter in the C
   "education": [{ "id": "uuid", "degree": "M.Sc.", "institution": "string", "year": 2015 }],
   "certifications": [],
   "languages": [],
+  "signature_stories": [{
+    "id": "uuid",
+    "title": "short label",
+    "challenge": "what was hard / the situation",
+    "mechanism": "what the candidate actually did or built",
+    "outcome": "the measurable result — stated figures verbatim",
+    "benchmark": "what makes the number meaningful (optional)",
+    "experience_refs": ["id of the experience it happened in"]
+  }],
   "metadata": {
     "completeness_score": 0.85,
     "pending_conflicts": [],

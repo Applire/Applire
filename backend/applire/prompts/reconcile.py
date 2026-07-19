@@ -95,6 +95,14 @@ Operations:
   ("publication" or "patent"), venue, published_date, doi, url, patent_number,
   co_authors. title is required.
 
+- upsert_story — a SIGNATURE STORY: a self-contained narrative with the arc
+  challenge -> mechanism -> outcome (-> benchmark). Fields: title (a short
+  label you compose), challenge (what was hard / the situation), mechanism
+  (what the person actually did or built), outcome (the measurable result —
+  keep stated figures VERBATIM), benchmark (what makes the result meaningful,
+  or null), evidence (existing ids or local refs of the experience the story
+  happened in). title, challenge, mechanism and outcome are required.
+
 - set_field — fill a single empty scalar field on an entity. Fields: target (an
   existing id OR a local ref), field (the field name), value. Use ONLY to fill a
   gap (a currently-empty field); NEVER to overwrite a non-empty value.
@@ -186,6 +194,21 @@ Operations:
     is factual credential data — NEVER fold it into an `upsert_skill` and never
     drop it. You may ALSO record the underlying competency as a skill, but the
     `upsert_certification` op is mandatory.
+
+11. SIGNATURE STORIES (ADR-055). Emit `upsert_story` ONLY when the NEW
+    INFORMATION itself narrates a coherent arc: a difficulty or situation
+    (challenge), what the person concretely did (mechanism), AND what it
+    measurably changed (outcome). NEVER assemble a story from a bare skill,
+    tag, or single bullet — if any of the three core elements is not stated,
+    do not emit the op (record the stated facts through the other ops
+    instead). Never duplicate a story already on the profile (same event =
+    same story, even if worded differently — the existing `signature_stories`
+    are in the profile dump). EXCEPTION: when the new information ADDS a
+    missing detail to an existing story (its `benchmark` is null and a
+    benchmark is now stated, or a new experience link), re-emit `upsert_story`
+    with the EXISTING story's exact title and the new detail — the applier
+    only fills gaps and never overwrites prose. Copy figures into `outcome`
+    verbatim; the rule-4 truthfulness bar applies to every field.
 """
 
 

@@ -137,6 +137,23 @@ class UpsertPublication(BaseModel):
     co_authors: list[str] = Field(default_factory=list)
 
 
+class UpsertStory(BaseModel):
+    """ADR-055 — a signature story: challenge → mechanism → outcome → benchmark.
+
+    Prompt rules only allow this when the SOURCE MATERIAL itself narrates the
+    arc (never synthesized from a bare skill/tag). ``evidence`` references the
+    experience the story happened in (existing ids or local refs), mirroring
+    ``UpsertSkill.evidence``."""
+
+    op: Literal["upsert_story"] = "upsert_story"
+    title: str
+    challenge: str
+    mechanism: str
+    outcome: str
+    benchmark: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+
+
 # ── Field / scalar ops ────────────────────────────────────────────────────────
 
 
@@ -190,6 +207,7 @@ ReconcileOp = Annotated[
         UpsertLanguage,
         UpsertEducation,
         UpsertPublication,
+        UpsertStory,
         SetField,
         SetPersonalInfo,
         SetSummary,

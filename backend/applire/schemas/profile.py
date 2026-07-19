@@ -256,6 +256,7 @@ class Skill(BaseModel):
     def coerce_experience_refs(cls, v: object) -> list:
         return v if isinstance(v, list) else []
 
+
     @field_validator("category", mode="before")
     @classmethod
     def normalize_category(cls, v: object) -> object:
@@ -285,6 +286,29 @@ class Skill(BaseModel):
                 return "intermediate"
             return v.lower()
         return v
+
+
+class SignatureStory(BaseModel):
+    """A signature story (ADR-055): the narrative evidence unit the schema used
+    to flatten into bullets and tags — challenge → mechanism → outcome →
+    benchmark. Job-agnostic, reusable across a campaign; anchored to the
+    experience it happened in via ``experience_refs`` (the Skill provenance
+    pattern). Stories carry NO date span of their own — the referenced
+    experience owns time (ADR-044 boundary)."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    challenge: str
+    mechanism: str
+    outcome: str  # the measurable result — figures live here (Oracle provenance)
+    benchmark: str | None = None
+    experience_refs: list[str] = Field(default_factory=list)
+    source: str | None = None  # which interview/edit surfaced this
+
+    @field_validator("experience_refs", mode="before")
+    @classmethod
+    def coerce_experience_refs(cls, v: object) -> list:
+        return v if isinstance(v, list) else []
 
 
 class Language(BaseModel):
@@ -465,6 +489,9 @@ class MasterProfileData(BaseModel):
     publications: list[Publication] = Field(default_factory=list)
     projects: list[ProjectEntry] = Field(default_factory=list)
     volunteer_activities: list[VolunteerActivity] = Field(default_factory=list)
+    # ADR-055 — signature stories: narrative evidence, reconciler-written
+    # (upsert_story), Oracle-indexed. Defaulted list = legacy JSONB loads clean.
+    signature_stories: list[SignatureStory] = Field(default_factory=list)
     metadata: ProfileMetadata | None = None
 
     @property
