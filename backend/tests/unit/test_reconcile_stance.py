@@ -384,6 +384,249 @@ def test_decimal_separator_normalised() -> None:
     assert len(out) == 1
 
 
+# ── #207 over-drop bundle: the guard must not drop TRUTHFUL testimony ────────
+#
+# Three fail-closed matching gaps observed on real model output (all verbatim
+# from the dev-stack LLM log, 2026-07-19): (1) a denial of "Tailwind CSS"
+# also killed a legitimately affirmed sibling "CSS"; (2) the reconciler
+# canonicalized the statement's "Postgres" to "PostgreSQL", which the grounding
+# check then couldn't find in the statement; (3) spelled-out figures ("forty
+# percent") didn't ground rendered numerals ("40%"). No truthfulness breach —
+# but the agent believed it enriched the profile and it didn't.
+
+
+# Verbatim interview turn, 2026-07-19T07:19:36Z (E046 adversarial pass): the
+# model emitted upsert_skill CSS + denials ["Tailwind CSS"] from this answer.
+_TAILWIND_TURN = {
+    "gap": "Frontend and UI/UX",
+    "question": (
+        "Can you share any experience you’ve had with styling or UI/UX "
+        "practices, even if it wasn’t your main focus?"
+    ),
+    "answer": (
+        "To be honest, we never used Tailwind CSS at StartupXYZ - the design "
+        "lead banned utility frameworks. When the marketing site's stylesheet "
+        "grew unmaintainable, I solved it manually: I refactored the legacy "
+        "styles into a small hand-rolled design-token system in plain CSS and "
+        "removed dead rules. The site got noticeably faster and the team could "
+        "finally ship UI changes without fear."
+    ),
+}
+
+
+def test_affirmed_sibling_survives_denied_compound() -> None:
+    # Exact 07:19:36Z op shape: "CSS" is affirmed in its own right ("in plain
+    # CSS") while the compound "Tailwind CSS" is denied — the sibling lives.
+    ops = [
+        UpsertSkill(name="CSS", category="technical", proficiency="intermediate"),
+        AddBullets(target="p1", technologies=["CSS"]),
+    ]
+    out = enforce_stance(
+        ops, denials=["Tailwind CSS"], new_info=_TAILWIND_TURN, source="interview"
+    )
+    assert len(out) == 2
+    assert out[1].technologies == ["CSS"]
+
+
+def test_sibling_without_independent_affirmation_still_denied() -> None:
+    # The token appears ONLY inside the denied compound — that is not an
+    # affirmation, and the guard stays fail-closed.
+    turn = dict(
+        _TAILWIND_TURN,
+        answer=(
+            "To be honest, we never used Tailwind CSS at StartupXYZ - the "
+            "design lead banned utility frameworks."
+        ),
+    )
+    ops = [UpsertSkill(name="CSS", category="technical")]
+    out = enforce_stance(
+        ops, denials=["Tailwind CSS"], new_info=turn, source="interview"
+    )
+    assert out == []
+
+
+def test_sibling_stays_fail_closed_without_corpus() -> None:
+    # cv_upload has no grounding corpus to consult for independent affirmation,
+    # so the strict-substring containment keeps its conservative verdict.
+    ops = [UpsertSkill(name="CSS", category="technical")]
+    out = enforce_stance(
+        ops, denials=["Tailwind CSS"], new_info="…full CV text…", source="cv_upload"
+    )
+    assert out == []
+
+
+def test_exact_denial_outranks_affirmation() -> None:
+    # A denial of the token ITSELF is never overridden by corpus presence —
+    # the model's own denial verdict wins (ADR-040/#127, unchanged).
+    ops = [UpsertSkill(name="CSS", category="technical")]
+    out = enforce_stance(
+        ops, denials=["CSS"], new_info=_TAILWIND_TURN, source="interview"
+    )
+    assert out == []
+
+
+# Verbatim agent_interview turn, 2026-07-19T11:18:30Z (E045 adversarial pass):
+# the reconciler canonicalized the statement's "Postgres" to "PostgreSQL".
+_POSTGRES_TURN = {
+    "answer": (
+        "I have deep Postgres tuning experience - query plans, index design, "
+        "vacuum tuning - from the billing platform work."
+    ),
+    "question": "Which databases do you know best?",
+}
+
+
+def test_canonicalized_claim_grounded_by_statement_surface_form() -> None:
+    # Exact 11:18:30Z op shape: the canonical form is grounded because the
+    # statement carries a known surface alias ("Postgres").
+    ops = [
+        AddBullets(target="e1", technologies=["PostgreSQL"]),
+        UpsertSkill(name="PostgreSQL", category="technical", proficiency="advanced"),
+    ]
+    out = enforce_stance(
+        ops, denials=[], new_info=_POSTGRES_TURN, source="agent_interview"
+    )
+    assert len(out) == 2
+    assert out[0].technologies == ["PostgreSQL"]
+
+
+def test_alias_does_not_ground_unrelated_token() -> None:
+    ops = [UpsertSkill(name="MySQL", category="technical")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_POSTGRES_TURN, source="agent_interview"
+    )
+    assert out == []
+
+
+def test_alias_grounding_is_word_boundary_aware() -> None:
+    # "JSON" must not ground "JavaScript" via the "js" alias; a standalone
+    # "JS" does.
+    json_turn = {"answer": "I build JSON APIs all day.", "question": "Stack?"}
+    js_turn = {"answer": "I write JS daily.", "question": "Stack?"}
+    ops = [UpsertSkill(name="JavaScript", category="technical")]
+    assert (
+        enforce_stance(ops, denials=[], new_info=json_turn, source="agent_interview")
+        == []
+    )
+    assert (
+        len(enforce_stance(ops, denials=[], new_info=js_turn, source="agent_interview"))
+        == 1
+    )
+
+
+def test_denial_reaches_alias_forms() -> None:
+    # The mirror-image hole: denying "Kubernetes" must also kill a "K8s" op —
+    # same-skill-by-another-name works in the fail-closed direction too.
+    turn = {
+        "answer": "I've only toyed with k8s in tutorials, nothing serious.",
+        "question": "Do you run Kubernetes in production?",
+    }
+    ops = [UpsertSkill(name="K8s", category="technical")]
+    out = enforce_stance(
+        ops, denials=["Kubernetes"], new_info=turn, source="agent_interview"
+    )
+    assert out == []
+
+
+# Verbatim interview turn, 2026-07-19T07:20:49Z (E046 adversarial pass): every
+# figure is spelled out — a story op rendering them as numerals must survive.
+_HELPDESK_TURN = {
+    "gap": "Regulated Industry Software",
+    "question": (
+        "Have you ever worked on software projects that needed to meet strict "
+        "compliance or regulatory standards, even if they weren’t in the "
+        "pharmaceutical or GxP space?"
+    ),
+    "answer": (
+        "Not in pharma, but audit-adjacent work, yes. The thing I'm proudest "
+        "of at TechCorp: our helpdesk queue was a mess - around two thousand "
+        "support requests every month were being assigned by hand and often "
+        "ended up with the wrong team. I developed an automatic classifier in "
+        "Python that assigns every incoming request to the correct team. "
+        "Assignment latency fell from about four hours to twenty minutes, and "
+        "wrong-team assignments dropped by forty percent."
+    ),
+}
+
+
+def _helpdesk_story(**over: Any):
+    from applire.services.profile.reconcile.ops import UpsertStory
+
+    base = dict(
+        title="Helpdesk auto-triage at TechCorp",
+        challenge="Support requests were assigned by hand and often misrouted",
+        mechanism="Built an automatic Python classifier for incoming requests",
+        outcome="Cut wrong-team ticket assignments by 40%",
+        benchmark=(
+            "Assignment latency fell from 4 hours to 20 minutes across "
+            "2,000 monthly requests"
+        ),
+        evidence=["w1"],
+    )
+    base.update(over)
+    return UpsertStory(**base)
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview"])
+def test_spelled_out_figures_ground_numerals(source: str) -> None:
+    # "forty percent" grounds "40%", "twenty minutes" grounds "20 minutes",
+    # "two thousand" grounds "2,000" (thousands separator included).
+    out = enforce_stance(
+        [_helpdesk_story()], denials=[], new_info=_HELPDESK_TURN, source=source
+    )
+    assert len(out) == 1
+
+
+def test_spelled_out_german_figures_ground_numerals() -> None:
+    # DACH testimony spells figures the German way: bare tens ("vierzig"),
+    # unit+hundert compounds ("zweihundert"), unit+und+tens ("fünfundzwanzig").
+    turn = {
+        "answer": (
+            "Wir haben die Fehlerquote um vierzig Prozent gesenkt - von rund "
+            "zweihundert Tickets pro Monat auf etwa fünfundzwanzig."
+        ),
+        "question": "What did you improve?",
+    }
+    ops = [
+        _helpdesk_story(
+            outcome="Reduced the error rate by 40%",
+            benchmark="From roughly 200 tickets per month down to 25",
+        )
+    ]
+    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    assert len(out) == 1
+
+
+def test_fabricated_figure_still_drops_story() -> None:
+    # The guard's teeth stay in: "60%" is spelled nowhere in the turn.
+    ops = [_helpdesk_story(outcome="Cut wrong-team ticket assignments by 60%")]
+    out = enforce_stance(
+        ops, denials=[], new_info=_HELPDESK_TURN, source="interview"
+    )
+    assert out == []
+
+
+def test_article_number_words_do_not_ground() -> None:
+    # "ein"/"one" double as articles — parsing them would ground a fabricated
+    # "1" from almost any sentence, so they stay excluded (fail-closed).
+    for answer in (
+        "Ich habe ein Projekt zur Automatisierung geleitet.",
+        "In one of the projects I led, we automated the intake.",
+    ):
+        ops = [
+            _helpdesk_story(
+                outcome="Delivered 1 automation project", benchmark=None
+            )
+        ]
+        out = enforce_stance(
+            ops,
+            denials=[],
+            new_info={"answer": answer, "question": "Projects?"},
+            source="agent_interview",
+        )
+        assert out == []
+
+
 # ── Engine wiring: denials parsed defensively, guard applied in reconcile() ──
 
 

@@ -37,7 +37,7 @@ import logging
 import re
 from typing import Any
 
-from applire.services.ats_audit import _norm, surface_present
+from applire.services.ats_audit import _fold_variants, _norm, surface_present
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     ReconcileOp,
@@ -50,16 +50,107 @@ from applire.services.profile.reconcile.ops import (
 logger = logging.getLogger(__name__)
 
 
-def _is_denied(token: str, denials: list[str]) -> bool:
-    """Containment in either direction: 'azure' denies 'Microsoft Azure' and
-    'Microsoft Azure' denies 'Azure'."""
+# ── #207: same-skill-by-another-name aliases ─────────────────────────────────
+# The reconciler LLM canonicalizes surface forms on its own ("Postgres" →
+# "PostgreSQL"), which defeats a literal membership check against the
+# statement. Curated, deterministic alias groups (normalized forms) bridge the
+# gap in BOTH directions: an alias in the statement grounds the canonical
+# claim, and a denial reaches every alias of the denied concept. Conservative
+# and additive by design — only pairs that are unambiguously the same skill.
+_ALIAS_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"postgresql", "postgres"}),
+    frozenset({"kubernetes", "k8s"}),
+    frozenset({"javascript", "js"}),
+    frozenset({"typescript", "ts"}),
+    frozenset({"mongodb", "mongo"}),
+    frozenset({"node.js", "nodejs", "node"}),
+    frozenset({"amazon web services", "aws"}),
+    frozenset({"google cloud platform", "gcp"}),
+    frozenset({"machine learning", "ml"}),
+    frozenset({"artificial intelligence", "ai"}),
+    frozenset({"natural language processing", "nlp"}),
+    frozenset({"scikit learn", "sklearn"}),
+)
+_ALIASES: dict[str, frozenset[str]] = {
+    form: group for group in _ALIAS_GROUPS for form in group
+}
+
+
+def _alias_forms(norm: str) -> frozenset[str]:
+    """The token's alias group (itself included)."""
+    return _ALIASES.get(norm, frozenset({norm}))
+
+
+def _word_present(form_norm: str, text_norm: str) -> bool:
+    """Word-boundary presence — aliases are often short ("js", "ai"), so the
+    substring generosity of ``surface_present`` would false-match inside other
+    words ("JSON", "maintain")."""
+    return (
+        re.search(
+            rf"(?<![a-z0-9]){re.escape(form_norm)}(?![a-z0-9])", text_norm
+        )
+        is not None
+    )
+
+
+def _grounded(token: str, corpus: str) -> bool:
+    """Token presence via THE shared predicate, widened by the alias groups
+    (word-boundary matched) so a canonicalized op survives when the statement
+    used a known alias (#207)."""
+    if surface_present(token, corpus):
+        return True
+    token_norm = _norm(token)
+    return any(
+        _word_present(a, corpus) for a in _alias_forms(token_norm) if a != token_norm
+    )
+
+
+def _independently_affirmed(token: str, denials: list[str], corpus: str) -> bool:
+    """Does the corpus affirm ``token`` OUTSIDE every denied compound?
+
+    Every denial occurrence is blanked from the corpus first, so a token that
+    only ever appears as part of a denied compound ("…never used Tailwind
+    CSS…") is NOT affirmed, while an independent mention ("…in plain CSS…")
+    is. Blanking with spaces can only remove matches, never create them, so
+    the check stays fail-closed.
+    """
+    stripped = corpus
+    for d in denials:
+        d_norm = _norm(d)
+        for v in _fold_variants(d_norm) if d_norm else []:
+            stripped = stripped.replace(v, " ")
+    return surface_present(token, stripped)
+
+
+def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
+    """Is the token covered by the model's own denial verdict?
+
+    * Denial (or an alias of it) contained in the token or an alias of the
+      token → denied: 'azure' denies 'Microsoft Azure', 'Kubernetes' denies
+      'K8s'.
+    * Token strictly inside the denied compound ('CSS' ⊂ 'Tailwind CSS') →
+      denied ONLY if the corpus never affirms the token outside the compound
+      (#207: a denial of the compound is not a denial of the part). Without a
+      grounding corpus (cv_upload/manual) this stays fail-closed.
+    """
     token_norm = _norm(token)
     if not token_norm:
         return False
-    return any(
-        surface_present(d, token_norm) or surface_present(token, _norm(d))
-        for d in denials
-    )
+    token_forms = _alias_forms(token_norm)
+    for d in denials:
+        d_norm = _norm(d)
+        if not d_norm:
+            continue
+        if any(
+            surface_present(df, tf)
+            for df in _alias_forms(d_norm)
+            for tf in token_forms
+        ):
+            return True
+        if surface_present(token, d_norm):
+            if corpus is None or not _independently_affirmed(token, denials, corpus):
+                return True
+    return False
 
 
 def _text_claims_denied(text: str, denials: list[str]) -> bool:
@@ -92,11 +183,107 @@ def _grounding_corpus(new_info: Any, source: str) -> str | None:
 
 
 _FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)?")
+# "2,000" / "2.000" — a 3-digit separator group reads as a thousands separator
+# (EN comma, DE dot) as well as a decimal; both interpretations are kept.
+_THOUSANDS_RE = re.compile(r"^\d{1,3}[.,]\d{3}$")
 
 
-def _figures(text: str) -> set[str]:
-    """Digit groups with decimal separator normalised ("1,5" == "1.5")."""
-    return {m.replace(",", ".") for m in _FIGURE_RE.findall(text)}
+def _figure_variants(raw: str) -> set[str]:
+    """Canonical readings of one digit group ("1,5" → 1.5; "2,000" → 2.000
+    AND 2000)."""
+    variants = {raw.replace(",", ".")}
+    if _THOUSANDS_RE.match(raw):
+        variants.add(raw.replace(",", "").replace(".", ""))
+    return variants
+
+
+# ── #207: spelled-out figures ("forty percent", "fünfundvierzig") ────────────
+# Real testimony spells figures out; the rendered story op uses numerals. The
+# grounding corpus therefore also yields the numeric value of EN/DE number
+# words. "one"/"ein(e)" double as articles and stay EXCLUDED — parsing them
+# would ground a fabricated "1" from almost any sentence (fail-closed).
+
+_EN_UNITS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9,
+}
+_EN_TEENS = {
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19,
+}
+_EN_TENS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_DE_UNITS = {
+    "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "fuenf": 5, "sechs": 6,
+    "sieben": 7, "acht": 8, "neun": 9,
+}
+_DE_TEENS = {
+    "zehn": 10, "elf": 11, "zwölf": 12, "zwoelf": 12, "dreizehn": 13,
+    "vierzehn": 14, "fünfzehn": 15, "fuenfzehn": 15, "sechzehn": 16,
+    "siebzehn": 17, "achtzehn": 18, "neunzehn": 19,
+}
+_DE_TENS = {
+    "zwanzig": 20, "dreißig": 30, "dreissig": 30, "vierzig": 40,
+    "fünfzig": 50, "fuenfzig": 50, "sechzig": 60, "siebzig": 70,
+    "achtzig": 80, "neunzig": 90,
+}
+_SCALES = {
+    "hundred": 100, "thousand": 1000, "million": 1_000_000,
+    "billion": 1_000_000_000, "hundert": 100, "tausend": 1000,
+    "millionen": 1_000_000, "milliarde": 1_000_000_000,
+    "milliarden": 1_000_000_000,
+}
+_SMALL_WORDS = {**_EN_UNITS, **_EN_TEENS, **_EN_TENS, **_DE_UNITS, **_DE_TEENS, **_DE_TENS}
+# German compounds are single words: "fünfundvierzig" (unit+und+tens),
+# "zweihundert"/"zweitausend" (unit+scale). "ein" is unambiguous INSIDE a
+# compound ("einundzwanzig", "einhundert") and allowed there.
+_DE_COMPOUND_UNITS = {"ein": 1, **_DE_UNITS}
+_DE_UNIT_ALT = "|".join(_DE_COMPOUND_UNITS)
+_DE_UND_RE = re.compile(rf"^({_DE_UNIT_ALT})und({'|'.join(_DE_TENS)})$")
+_DE_SCALE_RE = re.compile(rf"^({_DE_UNIT_ALT})?(hundert|tausend)$")
+
+_WORD_RE = re.compile(r"[a-zäöüß]+")
+
+
+def _spelled_figures(corpus_norm: str) -> set[str]:
+    """Numeric values of spelled-out EN/DE number words in a normalised text."""
+    values: set[int] = set()
+    tokens = _WORD_RE.findall(corpus_norm)
+    for i, tok in enumerate(tokens):
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        small = _SMALL_WORDS.get(tok)
+        if small is not None:
+            values.add(small)
+            scale = _SCALES.get(nxt)
+            if scale is not None:  # "two thousand"
+                values.add(small * scale)
+            unit = _EN_UNITS.get(nxt)
+            if tok in _EN_TENS and unit is not None:  # "twenty five"
+                values.add(_EN_TENS[tok] + unit)
+            continue
+        if tok in _SCALES:
+            values.add(_SCALES[tok])
+            continue
+        m = _DE_UND_RE.match(tok)
+        if m:  # "fünfundvierzig"
+            values.add(_DE_COMPOUND_UNITS[m.group(1)] + _DE_TENS[m.group(2)])
+            continue
+        m = _DE_SCALE_RE.match(tok)
+        if m:  # "zweihundert", "zweitausend"
+            values.add(_DE_COMPOUND_UNITS.get(m.group(1) or "", 1) * _SCALES[m.group(2)])
+    return {str(v) for v in values}
+
+
+def _corpus_figure_set(corpus_norm: str) -> set[str]:
+    """Every figure reading the turn grounds: digit groups (all canonical
+    variants) plus spelled-out number words."""
+    grounded: set[str] = set()
+    for raw in _FIGURE_RE.findall(corpus_norm):
+        grounded |= _figure_variants(raw)
+    return grounded | _spelled_figures(corpus_norm)
 
 
 def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> bool:
@@ -115,8 +302,14 @@ def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> boo
         )
         return False
     if corpus is not None:
-        provenance_figures = _figures(f"{op.outcome} {op.benchmark or ''}")
-        ungrounded = provenance_figures - _figures(corpus)
+        grounded = _corpus_figure_set(corpus)
+        ungrounded = sorted(
+            {
+                raw.replace(",", ".")
+                for raw in _FIGURE_RE.findall(f"{op.outcome} {op.benchmark or ''}")
+                if _figure_variants(raw).isdisjoint(grounded)
+            }
+        )
         if ungrounded:
             logger.warning(
                 "reconcile stance: dropped story %r — outcome/benchmark "
@@ -147,13 +340,13 @@ def enforce_stance(
     corpus = _grounding_corpus(new_info, source)
 
     def keep_token(token: str, kind: str) -> bool:
-        if denials and _is_denied(token, denials):
+        if denials and _is_denied(token, denials, corpus):
             logger.warning(
                 "reconcile stance: dropped DENIED %s %r (the model's own denial "
                 "verdict outranks its ops, ADR-040/#127)", kind, token,
             )
             return False
-        if corpus is not None and not surface_present(token, corpus):
+        if corpus is not None and not _grounded(token, corpus):
             logger.warning(
                 "reconcile stance: dropped ungrounded %s %r — token absent from "
                 "the interview turn (#127)", kind, token,
