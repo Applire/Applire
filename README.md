@@ -149,7 +149,7 @@ Applire is the first CV tool built for **AI agents as first-class users** — un
 - **A renderer it doesn't have to fight** — `render_document`: your agent's structured content (public versioned schemas, served as MCP resources) through Applire's templates and DACH norms checks — PDF plus ATS and truthfulness reports out, and Applire never rewrites your content
 - **Rules it only half-remembers** — DACH application norms enforced as tested, reviewable data, not vague model recall
 - **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
-- **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application
+- **Compounding memory** — facts surfaced in interviews land in the profile with receipts and benefit every future application. If your agent runs the interview itself, `submit_claims` records the elicited facts with agent-interview provenance — your agent asks, Applire notarises: only what the candidate actually said can land, ambiguities go to the profile Health hub instead of being silently applied
 
 The weaker your agent's model, the more of Applire's built-in pipeline you can lean on — the generation tools remain available end-to-end.
 
