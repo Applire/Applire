@@ -270,12 +270,20 @@ async def import_cv(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
-        "server-side). A duplicate_of hint carries an existing "
+        "server-side). Optionally pass role_title and/or company_name to "
+        "override the values inferred from the body — do this whenever the "
+        "board lists them separately (e.g. LinkedIn), so a body heading can't "
+        "leak into the letter subject. A duplicate_of hint carries an existing "
         "application_id when the JD matches the user's pipeline — offer to "
         "open it instead of duplicating; never block on it."
     )
 )
-async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
+async def analyze_jd(
+    text: str | None = None,
+    url: str | None = None,
+    role_title: str | None = None,
+    company_name: str | None = None,
+) -> dict:
     if not text and not url:
         raise invalid_input("Provide either text or url")
     if text and url:
@@ -294,7 +302,14 @@ async def analyze_jd(text: str | None = None, url: str | None = None) -> dict:
             raise invalid_input("text must not be empty")
     async with get_db() as db:
         try:
-            result = await job_svc.analyze_jd(jd_text, db, provider, source_url=source_url)
+            result = await job_svc.analyze_jd(
+                jd_text,
+                db,
+                provider,
+                source_url=source_url,
+                role_title_override=role_title,
+                company_name_override=company_name,
+            )
         except Exception as exc:
             raise internal(str(exc))
         # Branch F (E039/US220): repost hint against the user's own pipeline.

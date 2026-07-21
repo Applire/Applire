@@ -84,7 +84,12 @@ async def analyze_jd(
     provider: LLMProvider,
     source_url: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
 ) -> JobAnalysisResponse:
+    # #222: LinkedIn (and most boards) separate the title/company from the body,
+    # so the caller can pass authoritative values — otherwise the LLM infers a
+    # title from the body and a heading leaks into the letter subject.
     # URL-based deduplication: return existing record for the same URL.
     if source_url:
         result = await db.execute(
@@ -122,6 +127,11 @@ async def analyze_jd(
         embedding = None
 
     role_title = (data.get("role_title") or "").strip()
+    if role_title_override and role_title_override.strip():
+        role_title = role_title_override.strip()
+    company_name = (data.get("company_name") or None)
+    if company_name_override and company_name_override.strip():
+        company_name = company_name_override.strip()
     required = data.get("required_skills") or []
     nice = data.get("nice_to_have_skills") or []
     # US159 / FMEA JF-M-4.5: validity must not hinge solely on the title. A real
@@ -144,7 +154,7 @@ async def analyze_jd(
         raw_text_hash=raw_hash,
         raw_text=text,
         source_url=source_url,
-        company_name=data.get("company_name") or None,
+        company_name=company_name,
         role_title=role_title,
         required_skills=data.get("required_skills", []),
         nice_to_have_skills=data.get("nice_to_have_skills", []),
