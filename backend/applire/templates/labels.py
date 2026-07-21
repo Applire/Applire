@@ -54,8 +54,8 @@ _CV_LABELS: dict[str, dict[str, str]] = {
 }
 
 _COVER_LETTER_LABELS: dict[str, dict[str, str]] = {
-    "de": {"subject_prefix": "Bewerbung", "subject_at": "bei", "email": "E-Mail", "phone": "Telefon", "address": "Adresse", "closing": "Mit freundlichen Grüßen"},
-    "en": {"subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards"},
+    "de": {"subject_prefix": "Bewerbung", "subject_at": "bei", "email": "E-Mail", "phone": "Telefon", "address": "Adresse", "closing": "Mit freundlichen Grüßen", "salutation": "Sehr geehrte Damen und Herren,"},
+    "en": {"subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "salutation": "Dear Sir or Madam,"},
 }
 
 

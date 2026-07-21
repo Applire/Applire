@@ -246,6 +246,45 @@ class TestLetterDate:
         assert "today's date" not in SYSTEM_PROMPT.lower()
 
 
+class TestSalutationChrome:
+    """#224 — a norm-conformant Anrede floor for agent-authored letters."""
+
+    def test_injects_generic_german_salutation_when_absent(self):
+        from applire.services.cover_letter import _inject_salutation
+        letter_data = {"body": {"paragraphs": ["mit großem Interesse habe ich Ihre Anzeige gelesen."]}}
+        result = _inject_salutation(letter_data, "de")
+        assert result["body"]["paragraphs"][0] == "Sehr geehrte Damen und Herren,"
+        # original first paragraph is preserved, now at index 1
+        assert result["body"]["paragraphs"][1].startswith("mit großem Interesse")
+
+    def test_injects_generic_english_salutation_when_absent(self):
+        from applire.services.cover_letter import _inject_salutation
+        letter_data = {"body": {"paragraphs": ["I read your posting with great interest."]}}
+        result = _inject_salutation(letter_data, "en")
+        assert result["body"]["paragraphs"][0] == "Dear Sir or Madam,"
+
+    def test_does_not_double_up_when_author_wrote_a_salutation(self):
+        from applire.services.cover_letter import _inject_salutation
+        # Salutation inline at the start of the first paragraph (the pipeline shape).
+        letter_data = {"body": {"paragraphs": [
+            "Sehr geehrter Herr Dr. Müller, mit großem Interesse habe ich …"
+        ]}}
+        result = _inject_salutation(letter_data, "de")
+        assert len(result["body"]["paragraphs"]) == 1
+        assert result["body"]["paragraphs"][0].startswith("Sehr geehrter Herr Dr. Müller")
+
+    def test_recognises_a_standalone_salutation_paragraph(self):
+        from applire.services.cover_letter import _inject_salutation
+        letter_data = {"body": {"paragraphs": ["Dear Hiring Team,", "I am writing to apply…"]}}
+        result = _inject_salutation(letter_data, "en")
+        assert len(result["body"]["paragraphs"]) == 2
+
+    def test_empty_body_gets_a_salutation(self):
+        from applire.services.cover_letter import _inject_salutation
+        result = _inject_salutation({"body": {"paragraphs": []}}, "de")
+        assert result["body"]["paragraphs"] == ["Sehr geehrte Damen und Herren,"]
+
+
 # ---------------------------------------------------------------------------
 # CV tailoring — explicit deterministic output-language directive
 # ---------------------------------------------------------------------------

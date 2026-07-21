@@ -404,6 +404,55 @@ def _normalize_signature_closing(letter_data: dict, language: str) -> dict:
     return letter_data
 
 
+# Salutation openers we recognise as "already present" (normalised, lowercased).
+# German + English formal/semi-formal forms; startswith so an inline salutation
+# ("Sehr geehrter Herr Müller, mit …") also counts.
+_SALUTATION_OPENERS: tuple[str, ...] = (
+    "sehr geehrte",  # covers geehrte/geehrter/geehrtes Damen und Herren / Herr / Frau
+    "liebe",  # liebe/lieber
+    "hallo",
+    "guten tag",
+    "dear ",
+    "hello",
+    "hi ",
+    "to whom it may concern",
+)
+
+
+def _has_salutation(letter_data: dict) -> bool:
+    body = letter_data.get("body")
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not paragraphs:
+        return False
+    first = (paragraphs[0] or "").strip().lower()
+    return first.startswith(_SALUTATION_OPENERS)
+
+
+def _inject_salutation(letter_data: dict, language: str) -> dict:
+    """Prepend a norm-conformant Anrede when the author omitted one (#224).
+
+    A twin of :func:`_inject_letter_date` / :func:`_normalize_signature_closing`:
+    a missing salutation is a formal defect in both DE and EN business letters
+    (flagged by an HR screener in the 2026-07-21 edge hiring-panel run). We only
+    inject the generic, always-correct floor ("Sehr geehrte Damen und Herren," /
+    "Dear Sir or Madam,") — a capable agent is guided to author the named form
+    itself, and injecting a guessed named/gendered Anrede risks getting it wrong.
+    """
+    from applire.templates.labels import cover_letter_labels
+
+    if _has_salutation(letter_data):
+        return letter_data
+    salutation = cover_letter_labels(language)["salutation"]
+    body = letter_data.setdefault("body", {})
+    if not isinstance(body, dict):
+        return letter_data
+    paragraphs = body.get("paragraphs")
+    if not isinstance(paragraphs, list):
+        paragraphs = []
+    body["paragraphs"] = [salutation, *paragraphs]
+    return letter_data
+
+
 def _backfill_sender_name(letter_data: dict, cv_data: dict, profile) -> dict:
     """Fill an empty ``signature.name`` / ``header.name`` from the candidate's real
     name (#189).
@@ -980,6 +1029,10 @@ async def render_agent_letter(
         letter_data = _inject_letter_date(letter_data, language)
     if not letter_data["signature"].get("closing"):
         letter_data = _normalize_signature_closing(letter_data, language)
+    # #224: a missing Anrede is a formal defect — inject the generic floor when
+    # the author didn't open with a salutation. Scoped to the agent door; the
+    # generation pipeline's LLM reliably writes its own salutation.
+    letter_data = _inject_salutation(letter_data, language)
 
     cl = GeneratedCoverLetter(
         job_analysis_id=job_id,
