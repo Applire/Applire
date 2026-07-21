@@ -261,6 +261,50 @@ class TestTerminationSignal:
         from applire.services.interview.signals import is_termination_signal
         assert is_termination_signal("I have experience with GCP") is False
 
+    # --- #216: robust termination for agent-driven interviews -----------------
+
+    def test_trailing_punctuation_is_stripped(self):
+        from applire.services.interview.signals import is_termination_signal
+        assert is_termination_signal("done.") is True
+        assert is_termination_signal("fertig!") is True
+        assert is_termination_signal("Done…") is True
+
+    def test_natural_language_termination_phrases(self):
+        from applire.services.interview.signals import is_termination_signal
+        for msg in [
+            "I'm done.",
+            "I am done",
+            "That's all",
+            "no more questions",
+            "please wrap up",
+            "das war's dann",
+            "Ich bin fertig",
+            "keine weiteren Fragen",
+        ]:
+            assert is_termination_signal(msg) is True, msg
+
+    def test_leading_framing_before_done_still_terminates(self):
+        from applire.services.interview.signals import is_termination_signal
+        # The exact input that failed the 2026-07-21 edge UAT run (#216).
+        assert is_termination_signal(
+            "I'm done with the interview, please wrap up"
+        ) is True
+        assert is_termination_signal("I am done here, thanks") is True
+
+    def test_negation_never_terminates(self):
+        from applire.services.interview.signals import is_termination_signal
+        assert is_termination_signal("I'm not done yet") is False
+        assert is_termination_signal("Not done — I have more to add") is False
+        assert is_termination_signal("Ich bin noch nicht fertig") is False
+
+    def test_signal_word_inside_a_real_answer_does_not_terminate(self):
+        from applire.services.interview.signals import is_termination_signal
+        # "skip", "end", "done", "that's all" embedded in substantive answers.
+        assert is_termination_signal("We can skip the frontend part of my CV") is False
+        assert is_termination_signal("At the end of my last role I led the migration") is False
+        assert is_termination_signal("That's all the Python I know, but I also use Go") is False
+        assert is_termination_signal("I'm finished migrating the DB but have more to add") is False
+
 
 # ===========================================================================
 # Part 2: session.py — pure helpers (no DB)
