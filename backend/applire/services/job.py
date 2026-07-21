@@ -78,13 +78,47 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+async def _apply_title_overrides(
+    record: JobAnalysis,
+    role_title_override: str | None,
+    company_name_override: str | None,
+    db: AsyncSession,
+) -> JobAnalysis:
+    """Apply caller-supplied title/company overrides to an existing record (#222).
+
+    Used on the dedup/cache-hit paths so a later call carrying the authoritative
+    title the first pass lacked isn't silently dropped. Commits only when a value
+    actually changes.
+    """
+    changed = False
+    if role_title_override and role_title_override.strip():
+        new = role_title_override.strip()
+        if record.role_title != new:
+            record.role_title = new
+            changed = True
+    if company_name_override and company_name_override.strip():
+        new = company_name_override.strip()
+        if record.company_name != new:
+            record.company_name = new
+            changed = True
+    if changed:
+        await db.commit()
+        await db.refresh(record)
+    return record
+
+
 async def analyze_jd(
     text: str,
     db: AsyncSession,
     provider: LLMProvider,
     source_url: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
 ) -> JobAnalysisResponse:
+    # #222: LinkedIn (and most boards) separate the title/company from the body,
+    # so the caller can pass authoritative values — otherwise the LLM infers a
+    # title from the body and a heading leaks into the letter subject.
     # URL-based deduplication: return existing record for the same URL.
     if source_url:
         result = await db.execute(
@@ -92,6 +126,9 @@ async def analyze_jd(
         )
         existing = result.scalar_one_or_none()
         if existing:
+            existing = await _apply_title_overrides(
+                existing, role_title_override, company_name_override, db
+            )
             return JobAnalysisResponse.model_validate(existing)
 
     raw_hash = _hash_text(text)
@@ -101,6 +138,11 @@ async def analyze_jd(
     )
     existing = result.scalar_one_or_none()
     if existing:
+        # #222: a later call may carry the authoritative title the first pass
+        # lacked — apply it to the cached record rather than silently dropping it.
+        existing = await _apply_title_overrides(
+            existing, role_title_override, company_name_override, db
+        )
         return JobAnalysisResponse.model_validate(existing)
 
     data: dict = await provider.aparse_json(
@@ -121,19 +163,28 @@ async def analyze_jd(
     if embedding is not None and all(v == 0.0 for v in embedding):
         embedding = None
 
-    role_title = (data.get("role_title") or "").strip()
+    inferred_role_title = (data.get("role_title") or "").strip()
     required = data.get("required_skills") or []
     nice = data.get("nice_to_have_skills") or []
     # US159 / FMEA JF-M-4.5: validity must not hinge solely on the title. A real
     # JD that merely lacks an explicit title line is still valid when requirements
     # were extracted — the UI asks for the title inline (see the JD echo, US158).
     # Reject only true garbage (no title AND nothing JD-like), so this — our only
-    # garbage detector — keeps surfacing a 422 instead of a 500.
-    if not role_title and not required and not nice:
+    # garbage detector — keeps surfacing a 422 instead of a 500. Run the check on
+    # the INFERRED title, not the override: an authoritative title supplies a
+    # missing title line, it must not rescue non-JD text as a valid JobAnalysis.
+    if not inferred_role_title and not required and not nice:
         raise ValueError(
             "The provided text does not appear to be a job description "
             "(no role title or requirements could be detected)."
         )
+
+    role_title = inferred_role_title
+    if role_title_override and role_title_override.strip():
+        role_title = role_title_override.strip()
+    company_name = (data.get("company_name") or None)
+    if company_name_override and company_name_override.strip():
+        company_name = company_name_override.strip()
 
     berufsbild_code, berufsbild_label = _validate_berufsbild(
         data.get("berufsbild_code"),
@@ -144,7 +195,7 @@ async def analyze_jd(
         raw_text_hash=raw_hash,
         raw_text=text,
         source_url=source_url,
-        company_name=data.get("company_name") or None,
+        company_name=company_name,
         role_title=role_title,
         required_skills=data.get("required_skills", []),
         nice_to_have_skills=data.get("nice_to_have_skills", []),
