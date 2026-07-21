@@ -113,7 +113,7 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-07-19"
+GUIDE_VERSION = "2026-07-21"
 
 logger = logging.getLogger(__name__)
 
@@ -270,12 +270,9 @@ async def import_cv(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
-        "server-side). Optionally pass role_title and/or company_name to "
-        "override the values inferred from the body — do this whenever the "
-        "board lists them separately (e.g. LinkedIn), so a body heading can't "
-        "leak into the letter subject. A duplicate_of hint carries an existing "
-        "application_id when the JD matches the user's pipeline — offer to "
-        "open it instead of duplicating; never block on it."
+        "server-side). Pass role_title/company_name to override the values "
+        "inferred from the body (do this when the board lists them separately, "
+        "e.g. LinkedIn). May return a duplicate_of hint (see guide)."
     )
 )
 async def analyze_jd(
@@ -432,6 +429,7 @@ async def run_interview(job_id: str) -> dict:
     description=(
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when the session is finished. "
+        "Reply 'done' to end the interview. "
         "If 'pending_confirmations' is present, the system is unsure whether a fact "
         "matches an existing profile entry (e.g. two role titles for one job) and is "
         "asking you to confirm — reply by sending one of the listed 'options' as the "
@@ -604,10 +602,9 @@ async def audit_document(
         "templated PDF — Applire renders, checks, and reports; it NEVER "
         "rewrites your content. Read resource schema://cv or "
         "schema://cover-letter first; unknown or mistyped fields are rejected "
-        "with their field paths. Only analyze_jd is needed for the job_id. "
+        "with their field paths. "
         "Returns document_id, pdf_url/html_url, schema_version, and the ATS + "
-        "truthfulness reports. NOTE: visible in the user's UI only after "
-        "create_application(job_id)."
+        "truthfulness reports. UI-visible only after create_application (guide)."
     )
 )
 async def render_document(
