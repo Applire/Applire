@@ -305,6 +305,22 @@ class TestTerminationSignal:
         assert is_termination_signal("That's all the Python I know, but I also use Go") is False
         assert is_termination_signal("I'm finished migrating the DB but have more to add") is False
 
+    def test_done_with_a_topic_does_not_terminate(self):
+        from applire.services.interview.signals import is_termination_signal
+        # A bare "I'm done <topic>" opener must NOT end the session — only an
+        # explicit terminal reference (the interview / wrap up) does.
+        assert is_termination_signal("I'm done with Python but now use Go") is False
+        assert is_termination_signal("We're done with Q1 planning, now for Q2") is False
+        assert is_termination_signal(
+            "I am done with my previous employer's project, moving to the next"
+        ) is False
+
+    def test_explicit_terminal_intent_terminates(self):
+        from applire.services.interview.signals import is_termination_signal
+        assert is_termination_signal("I'm done with the interview, please wrap up") is True
+        assert is_termination_signal("Let's end the interview here") is True
+        assert is_termination_signal("I am done for now") is True
+
 
 # ===========================================================================
 # Part 2: session.py — pure helpers (no DB)

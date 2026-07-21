@@ -284,6 +284,24 @@ class TestSalutationChrome:
         result = _inject_salutation({"body": {"paragraphs": []}}, "de")
         assert result["body"]["paragraphs"] == ["Sehr geehrte Damen und Herren,"]
 
+    def test_no_double_up_across_the_double_injection_scenarios(self):
+        from applire.services.cover_letter import _inject_salutation
+        # All four were reproduced by the adversarial review as double-injections.
+        cases = [
+            # salutation behind an empty leading paragraph
+            ["", "Sehr geehrte Damen und Herren,", "Ich bewerbe mich..."],
+            # salutation behind a Betreff/subject line
+            ["Bewerbung als Senior Backend Engineer", "Sehr geehrte Damen und Herren,", "..."],
+            # "Werter Herr …" — a valid formal German salutation
+            ["Werter Herr Schmidt, ich bewerbe mich hiermit..."],
+            # "Sg." — the Austrian/Swiss abbreviation for "Sehr geehrte"
+            ["Sg. Damen und Herren, ich bewerbe mich..."],
+        ]
+        for paragraphs in cases:
+            result = _inject_salutation({"body": {"paragraphs": list(paragraphs)}}, "de")
+            # An author-written salutation is detected → nothing is prepended.
+            assert result["body"]["paragraphs"] == list(paragraphs), paragraphs
+
 
 # ---------------------------------------------------------------------------
 # CV tailoring — explicit deterministic output-language directive

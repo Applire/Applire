@@ -33,6 +33,7 @@ Mirrors services/cv.py:
 import copy
 import json
 import logging
+import re
 import uuid
 from datetime import date, timezone
 from pathlib import Path
@@ -404,11 +405,14 @@ def _normalize_signature_closing(letter_data: dict, language: str) -> dict:
     return letter_data
 
 
-# Salutation openers we recognise as "already present" (normalised, lowercased).
-# German + English formal/semi-formal forms; startswith so an inline salutation
-# ("Sehr geehrter Herr Müller, mit …") also counts.
+# Salutation openers we recognise as "already present" (matched after lowercasing
+# and folding punctuation to spaces, so "Sg." → "sg " and "Werter Herr," →
+# "werter herr"). German + English formal/semi-formal forms; startswith so an
+# inline salutation ("Sehr geehrter Herr Müller, mit …") also counts.
 _SALUTATION_OPENERS: tuple[str, ...] = (
-    "sehr geehrte",  # covers geehrte/geehrter/geehrtes Damen und Herren / Herr / Frau
+    "sehr geehrte",  # geehrte/geehrter/geehrtes Damen und Herren / Herr / Frau
+    "werte",  # werte/werter (Werter Herr Schmidt, …)
+    "sg ",  # Sg. — the Austrian/Swiss abbreviation of "Sehr geehrte"
     "liebe",  # liebe/lieber
     "hallo",
     "guten tag",
@@ -419,13 +423,24 @@ _SALUTATION_OPENERS: tuple[str, ...] = (
 )
 
 
+def _salutation_norm(text: str) -> str:
+    s = re.sub(r"[^\w\s]", " ", (text or "").strip().lower(), flags=re.UNICODE)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _has_salutation(letter_data: dict) -> bool:
+    """True if any of the first few non-empty paragraphs opens with a salutation.
+
+    Scans more than paragraphs[0] because an author may put a Betreff/subject
+    line first, and tolerates abbreviations/punctuation ("Sg.", "Werte/r …") —
+    otherwise the floor injection would DOUBLE a real, author-written salutation.
+    """
     body = letter_data.get("body")
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
     if not paragraphs:
         return False
-    first = (paragraphs[0] or "").strip().lower()
-    return first.startswith(_SALUTATION_OPENERS)
+    non_empty = [p for p in paragraphs if (p or "").strip()][:2]
+    return any(_salutation_norm(p).startswith(_SALUTATION_OPENERS) for p in non_empty)
 
 
 def _inject_salutation(letter_data: dict, language: str) -> dict:

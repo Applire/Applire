@@ -97,11 +97,24 @@ _NEGATIONS: tuple[str, ...] = (
     "noch nicht",
 )
 
-# Leading-framing opener for the strongly-terminal English "done" family:
-# "I'm done with the interview, please wrap up" → terminate. "finished" is
-# deliberately excluded here (it collides with "I'm finished migrating X, but…")
-# and is covered only as a whole-message phrase above.
-_DONE_OPENER = re.compile(r"^(im|i am|were|we are)\s+(all\s+)?done\b")
+# Unambiguous termination INTENTS — safe to match ANYWHERE in the message,
+# because (unlike bare "done"/"skip"/"end") they don't occur inside substantive
+# experience answers. This is what lets "I'm done with the interview, please
+# wrap up" end the session while "I'm done with Python but now use Go" does NOT:
+# a bare "I'm done <topic>" opener over-fires (it collides with "done with X,
+# but…"), so we require the terminal reference to be explicit.
+_TERMINATION_INTENTS: tuple[str, ...] = (
+    "wrap up",
+    "end the interview",
+    "end this interview",
+    "finish the interview",
+    "stop the interview",
+    "done with the interview",
+    "done with this interview",
+    "done here",
+    "done for now",
+    "done for today",
+)
 
 
 def _normalize(message: str) -> str:
@@ -133,4 +146,4 @@ def is_termination_signal(message: str) -> bool:
         return True
     if norm in TERMINATION_PHRASES:
         return True
-    return bool(_DONE_OPENER.match(norm))
+    return any(intent in norm for intent in _TERMINATION_INTENTS)
