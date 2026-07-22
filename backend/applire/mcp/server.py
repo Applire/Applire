@@ -466,20 +466,48 @@ async def send_message(session_id: str, message: str) -> dict:
     )
 )
 async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
+    from applire.services.interview.signals import is_termination_signal
+
     jid = _parse_uuid(job_id, "job_id")
-    if not answer.strip():
+    gap_id = (gap_id or "").strip()
+    answer = (answer or "").strip()
+    if not gap_id:
+        raise invalid_input("gap_id must not be empty")
+    if not answer:
         raise invalid_input("answer must not be empty")
+    # The answer is TESTIMONY, not a control word: a bare 'skip'/'done'/… would
+    # be read as ending the session (and report a bogus 0.0 completeness). To
+    # skip a gap, simply don't call resolve_gap for it.
+    if is_termination_signal(answer):
+        raise invalid_input(
+            "answer must be the candidate's testimony about this gap, not a "
+            "control word like 'skip'/'done'. To skip a gap, don't resolve it."
+        )
     provider = get_provider()
     async with get_db() as db:
         valid_ids = await session_svc.gap_cluster_ids(jid, db)
-        if not valid_ids:
+        if valid_ids is None:
             raise not_found(
                 "No gap analysis found for this job — call analyze_gaps first."
+            )
+        if not valid_ids:
+            raise invalid_input(
+                "This job's gap analysis has no gap clusters to resolve "
+                "(near-complete match) — proceed to generate/render."
             )
         if gap_id not in valid_ids:
             raise invalid_input(
                 f"Unknown gap_id {gap_id!r}. Valid gap cluster ids: "
                 f"{', '.join(valid_ids)}"
+            )
+        # Don't stomp an in-progress full interview: _create_micro_session
+        # completes any active session wholesale, silently discarding a guided
+        # run's progress. A leftover 'targeted' micro-session is safe to reap.
+        mode = await session_svc.active_session_mode(jid, db)
+        if mode is not None and mode != "targeted":
+            raise invalid_input(
+                "A full interview is in progress for this job — finish it "
+                "(reply 'done') before resolving gaps one at a time."
             )
         from applire.schemas.session import SessionCreateRequest as _SCR
 
@@ -488,7 +516,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
                 _SCR(job_id=jid, mode="targeted", target_gap=gap_id), db, provider
             )
             result = await session_svc.send_message(
-                created.session_id, answer.strip(), db, provider
+                created.session_id, answer, db, provider
             )
         except LookupError as exc:
             raise not_found(str(exc))
@@ -496,22 +524,29 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             raise invalid_input(str(exc))
         except LLMTruncatedError as exc:
             raise internal(
-                f"{exc} The turn was rolled back — resend the same message to retry."
+                f"{exc} The turn was rolled back (nothing saved) — call "
+                "resolve_gap again with the same arguments to retry."
             )
         except Exception as exc:
             raise internal(str(exc))
     # A targeted micro-session always completes on the one answer; surface a
-    # clean status rather than the internal "max_questions_reached" reason.
-    # If the reconciler flagged an ambiguity it will not guess (e.g. which
-    # existing role this attaches to), the answer WAS applied but a refinement
-    # is parked — say so honestly instead of a bare "addressed", and hand the
-    # confirmation to the caller so the human can resolve it.
+    # clean, honest status rather than the internal "max_questions_reached".
+    #   needs_confirmation — the reconciler flagged an ambiguity it won't guess
+    #     (the answer WAS applied, but a refinement is parked for the human);
+    #   addressed — the testimony wrote a change into the vault;
+    #   no_change — a valid answer that added nothing (e.g. an honest "no").
     pending = [c.model_dump(mode="json") for c in (result.pending_confirmations or [])]
     conflicts = [c.model_dump(mode="json") for c in (result.pending_conflicts or [])]
+    if pending or conflicts:
+        status = "needs_confirmation"
+    elif result.changes_applied:
+        status = "addressed"
+    else:
+        status = "no_change"
     out = {
         "gap_id": gap_id,
         "question_asked": created.first_question,
-        "status": "needs_confirmation" if (pending or conflicts) else "addressed",
+        "status": status,
         "profile_completeness": result.completeness_score,
     }
     if pending:

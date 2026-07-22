@@ -785,14 +785,15 @@ async def create_profile_review_session(
 # ---------------------------------------------------------------------------
 
 
-async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str]:
+async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str] | None:
     """Return the gap-cluster ids from the job's latest gap analysis.
 
     Used by the agent channel (`resolve_gap`) to validate a caller-supplied
     ``gap_id`` with exact membership before opening a targeted micro-session —
     the same fail-fast discipline `submit_claims` applies to ledger concepts,
     so an agent gets the valid ids back instead of a silently generic session.
-    Returns ``[]`` when no analysis exists yet.
+    Returns ``None`` when no analysis exists yet (call ``analyze_gaps`` first);
+    ``[]`` when an analysis exists but has no gap clusters (near-complete match).
     """
     result = await db.execute(
         select(GapAnalysis)
@@ -805,8 +806,19 @@ async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str]:
     )
     gap_analysis = result.scalar_one_or_none()
     if gap_analysis is None:
-        return []
+        return None
     return [c.get("id") for c in (gap_analysis.gap_clusters or []) if c.get("id")]
+
+
+async def active_session_mode(job_id: uuid.UUID, db: AsyncSession) -> str | None:
+    """Mode of the job's active interview session, or None if none is active.
+
+    Lets the agent channel (`resolve_gap`) refuse to stomp an in-progress full
+    interview — `_create_micro_session` completes any active session wholesale,
+    which would silently discard a guided run's progress.
+    """
+    active = await _get_active_session(job_id, db)
+    return active.mode if active is not None else None
 
 
 async def create_session(
@@ -1411,6 +1423,7 @@ async def send_message(
             if turn.pending_confirmations
             else None,
             conflict_summaries=conflict_summaries or None,
+            changes_applied=turn.addressed,
         )
 
     # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
@@ -1619,6 +1632,7 @@ async def _complete_session(
     profile_record: MasterProfile | None = None,
     pending_confirmations: list | None = None,
     conflict_summaries: list | None = None,
+    changes_applied: bool | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -1672,6 +1686,7 @@ async def _complete_session(
         # since the confirmation-surfacing branch is skipped by an early return.
         pending_confirmations=pending_confirmations or None,
         pending_conflicts=conflict_summaries or None,
+        changes_applied=changes_applied,
     )
 
 

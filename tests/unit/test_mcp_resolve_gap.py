@@ -142,6 +142,156 @@ async def test_unknown_gap_id_rejected_with_valid_ids(db):
     assert "cluster-aws" in exc.value.error.message
 
 
+def _mock_provider_patches(session):
+    from applire.providers.llm.mock import MockLLMProvider
+
+    return (
+        patch("applire.mcp.server.get_db", return_value=_db_cm(session)),
+        patch("applire.mcp.server.get_provider", return_value=MockLLMProvider()),
+    )
+
+
+@pytest.mark.asyncio
+async def test_real_composition_end_to_end(db):
+    """Unmocked: drives the ACTUAL create_session(targeted)+send_message
+    micro-session with MockLLMProvider — proves the composition completes on
+    one answer (ceiling=1) and returns an honest status + real completeness,
+    not just argument wiring (the reviewer's test-gap)."""
+    from applire.mcp.server import resolve_gap
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    p1, p2 = _mock_provider_patches(db)
+    with p1, p2:
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s",
+            answer="I ran production Kubernetes clusters for three years at Acme.",
+        )
+    assert result["gap_id"] == "cluster-k8s"
+    assert result["question_asked"]  # a real scoped question was generated
+    assert result["status"] in ("addressed", "no_change", "needs_confirmation")
+    assert isinstance(result["profile_completeness"], float)  # NOT a bogus None
+
+    # the micro-session actually completed — no active session left dangling
+    from applire.models.session import InterviewSession
+    from sqlalchemy import select
+    actives = (await db.execute(select(InterviewSession).where(
+        InterviewSession.status == "active"))).scalars().all()
+    assert actives == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["skip", "done", "fertig", "  DONE.  "])
+async def test_termination_word_as_answer_rejected(db, bad):
+    """The answer is testimony, not a control word — a bare 'skip'/'done'
+    would end the session and report a bogus 0.0 completeness (blocker 3a)."""
+    from applire.mcp.server import resolve_gap
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    p1, p2 = _patches(db)
+    with p1, p2:
+        with pytest.raises(McpError) as exc:
+            await resolve_gap(job_id=str(job_id), gap_id="cluster-k8s", answer=bad)
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_empty_clusters_is_invalid_not_not_found(db):
+    """An analysis that exists but has no clusters (near-complete match) must
+    NOT report 'call analyze_gaps first' (should-fix 4)."""
+    from applire.mcp.server import resolve_gap
+
+    job_id = await _seed_job_and_analysis(db, [])  # analysis, zero clusters
+    p1, p2 = _patches(db)
+    with p1, p2:
+        with pytest.raises(McpError) as exc:
+            await resolve_gap(job_id=str(job_id), gap_id="anything", answer="a")
+    assert exc.value.error.code == -32602  # invalid_input, not not_found
+    assert "near-complete" in exc.value.error.message
+
+
+@pytest.mark.asyncio
+async def test_gap_id_whitespace_is_stripped(db):
+    """A copy-pasted id with trailing whitespace validates (should-fix 5)."""
+    from applire.mcp.server import resolve_gap
+    from applire.schemas.session import SessionCreateResponse, SessionMessageResponse
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    created = SessionCreateResponse(
+        session_id=uuid.uuid4(), mode="targeted", first_question="Q?",
+        estimated_questions=1, question="Q?", gaps_total=1, gaps_remaining=1,
+    )
+    completed = SessionMessageResponse(
+        complete=True, reason="max_questions_reached", completeness_score=0.5,
+        changes_applied=True,
+    )
+    p1, p2 = _patches(db)
+    with p1, p2, \
+        patch("applire.services.session.create_session", AsyncMock(return_value=created)), \
+        patch("applire.services.session.send_message", AsyncMock(return_value=completed)):
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="  cluster-k8s\n", answer="testimony",
+        )
+    assert result["gap_id"] == "cluster-k8s"
+    assert result["status"] == "addressed"
+
+
+@pytest.mark.asyncio
+async def test_no_change_when_testimony_adds_nothing(db):
+    """A valid answer that reconciled no change reports 'no_change', not a
+    false 'addressed' (blocker 3b)."""
+    from applire.mcp.server import resolve_gap
+    from applire.schemas.session import SessionCreateResponse, SessionMessageResponse
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    created = SessionCreateResponse(
+        session_id=uuid.uuid4(), mode="targeted", first_question="Q?",
+        estimated_questions=1, question="Q?", gaps_total=1, gaps_remaining=1,
+    )
+    completed = SessionMessageResponse(
+        complete=True, reason="max_questions_reached", completeness_score=0.5,
+        changes_applied=False,
+    )
+    p1, p2 = _patches(db)
+    with p1, p2, \
+        patch("applire.services.session.create_session", AsyncMock(return_value=created)), \
+        patch("applire.services.session.send_message", AsyncMock(return_value=completed)):
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s", answer="No, I've never used it.",
+        )
+    assert result["status"] == "no_change"
+
+
+@pytest.mark.asyncio
+async def test_refuses_when_full_interview_active(db):
+    """resolve_gap must NOT silently kill an in-progress guided interview
+    (blocker 1). Real active session seeded; no create/send mocks."""
+    from applire.mcp.server import resolve_gap
+    from applire.models.session import InterviewSession
+
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    pid = (await db.execute(select(MasterProfile.id))).scalars().first()
+    db.add(InterviewSession(
+        job_analysis_id=job_id, profile_id=pid, mode="guided", status="active",
+        state={"critical_gaps": ["a", "b"], "current_gap_index": 0, "messages": []},
+        questions_asked=1,
+    ))
+    await db.commit()
+    p1, p2 = _patches(db)
+    with p1, p2:
+        with pytest.raises(McpError) as exc:
+            await resolve_gap(job_id=str(job_id), gap_id="cluster-k8s", answer="testimony")
+    assert exc.value.error.code == -32602
+    assert "full interview is in progress" in exc.value.error.message
+    # the guided session is untouched
+    from sqlalchemy import select
+    row = (await db.execute(select(InterviewSession).where(
+        InterviewSession.job_analysis_id == job_id))).scalar_one()
+    assert row.status == "active"
+
+
 @pytest.mark.asyncio
 async def test_happy_path_composes_targeted_session(db):
     """resolve_gap = create targeted micro-session + apply the answer; returns
@@ -160,6 +310,7 @@ async def test_happy_path_composes_targeted_session(db):
     completed = SessionMessageResponse(
         complete=True, reason="max_questions_reached", questions_asked=2,
         gaps_resolved=1, gaps_unresolved=[], completeness_score=0.62,
+        changes_applied=True,
     )
 
     create_mock = AsyncMock(return_value=created)
