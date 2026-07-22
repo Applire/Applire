@@ -186,3 +186,40 @@ async def test_happy_path_composes_targeted_session(db):
     assert result["status"] == "addressed"
     assert result["profile_completeness"] == 0.62
     assert "reason" not in result
+    assert "pending_confirmations" not in result  # clean resolution → no noise
+
+
+@pytest.mark.asyncio
+async def test_parked_ambiguity_surfaces_as_needs_confirmation(db):
+    """A reconciler ambiguity on the one answer must NOT be silently dropped
+    (the micro-session ceiling-return skips the confirmation-surfacing branch);
+    resolve_gap surfaces it as needs_confirmation with the parked prompt."""
+    from applire.mcp.server import resolve_gap
+    from applire.schemas.session import (
+        ConfirmationPrompt, SessionCreateResponse, SessionMessageResponse,
+    )
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    created = SessionCreateResponse(
+        session_id=uuid.uuid4(), mode="targeted",
+        first_question="Do you have Kubernetes experience?",
+        estimated_questions=1, question="...", gaps_total=1, gaps_remaining=1,
+    )
+    completed = SessionMessageResponse(
+        complete=True, reason="max_questions_reached", questions_asked=2,
+        gaps_resolved=1, gaps_unresolved=[], completeness_score=0.5,
+        pending_confirmations=[ConfirmationPrompt(
+            question="Is this the same role as your 'DevOps Lead' at Acme?",
+            options=["Yes, same role", "No, separate"], context={},
+        )],
+    )
+    p1, p2 = _patches(db)
+    with p1, p2, \
+        patch("applire.services.session.create_session", AsyncMock(return_value=created)), \
+        patch("applire.services.session.send_message", AsyncMock(return_value=completed)):
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s", answer="I led K8s at Acme.",
+        )
+
+    assert result["status"] == "needs_confirmation"
+    assert result["pending_confirmations"][0]["question"].startswith("Is this the same role")

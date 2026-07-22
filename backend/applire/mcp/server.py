@@ -502,12 +502,23 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             raise internal(str(exc))
     # A targeted micro-session always completes on the one answer; surface a
     # clean status rather than the internal "max_questions_reached" reason.
-    return {
+    # If the reconciler flagged an ambiguity it will not guess (e.g. which
+    # existing role this attaches to), the answer WAS applied but a refinement
+    # is parked — say so honestly instead of a bare "addressed", and hand the
+    # confirmation to the caller so the human can resolve it.
+    pending = [c.model_dump(mode="json") for c in (result.pending_confirmations or [])]
+    conflicts = [c.model_dump(mode="json") for c in (result.pending_conflicts or [])]
+    out = {
         "gap_id": gap_id,
         "question_asked": created.first_question,
-        "status": "addressed",
+        "status": "needs_confirmation" if (pending or conflicts) else "addressed",
         "profile_completeness": result.completeness_score,
     }
+    if pending:
+        out["pending_confirmations"] = pending
+    if conflicts:
+        out["pending_conflicts"] = conflicts
+    return out
 
 
 @mcp.tool(

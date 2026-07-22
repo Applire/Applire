@@ -1402,8 +1402,15 @@ async def send_message(
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+        # A targeted micro-session (ceiling=1) completes here, BEFORE the US185
+        # confirmation-surfacing branch below — so carry any reconciler ambiguity
+        # into the completion response instead of silently dropping it.
         return await _complete_session(
-            record, state, db, "max_questions_reached", profile_record
+            record, state, db, "max_questions_reached", profile_record,
+            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations)
+            if turn.pending_confirmations
+            else None,
+            conflict_summaries=conflict_summaries or None,
         )
 
     # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
@@ -1610,6 +1617,8 @@ async def _complete_session(
     db: AsyncSession,
     reason: str,
     profile_record: MasterProfile | None = None,
+    pending_confirmations: list | None = None,
+    conflict_summaries: list | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -1657,6 +1666,12 @@ async def _complete_session(
         gaps_resolved=len(addressed),
         gaps_unresolved=unresolved,
         completeness_score=completeness,
+        # A turn that reconciled just before completing (the ceiling-hit path,
+        # e.g. a targeted micro-session) may carry an ambiguity the reconciler
+        # refused to guess — surface it on completion rather than dropping it,
+        # since the confirmation-surfacing branch is skipped by an early return.
+        pending_confirmations=pending_confirmations or None,
+        pending_conflicts=conflict_summaries or None,
     )
 
 
