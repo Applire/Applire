@@ -39,6 +39,8 @@ _EXPECTED_TOOLS = {
     "analyze_gaps",
     "run_interview",
     "send_message",
+    # Agent-door per-gap resolution (ADR-054 amended 2026-07-22)
+    "resolve_gap",
     "generate_cv",
     "get_cv_status",
     "get_cv_ats_report",
