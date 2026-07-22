@@ -785,6 +785,42 @@ async def create_profile_review_session(
 # ---------------------------------------------------------------------------
 
 
+async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str] | None:
+    """Return the gap-cluster ids from the job's latest gap analysis.
+
+    Used by the agent channel (`resolve_gap`) to validate a caller-supplied
+    ``gap_id`` with exact membership before opening a targeted micro-session —
+    the same fail-fast discipline `submit_claims` applies to ledger concepts,
+    so an agent gets the valid ids back instead of a silently generic session.
+    Returns ``None`` when no analysis exists yet (call ``analyze_gaps`` first);
+    ``[]`` when an analysis exists but has no gap clusters (near-complete match).
+    """
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    gap_analysis = result.scalar_one_or_none()
+    if gap_analysis is None:
+        return None
+    return [c.get("id") for c in (gap_analysis.gap_clusters or []) if c.get("id")]
+
+
+async def active_session_mode(job_id: uuid.UUID, db: AsyncSession) -> str | None:
+    """Mode of the job's active interview session, or None if none is active.
+
+    Lets the agent channel (`resolve_gap`) refuse to stomp an in-progress full
+    interview — `_create_micro_session` completes any active session wholesale,
+    which would silently discard a guided run's progress.
+    """
+    active = await _get_active_session(job_id, db)
+    return active.mode if active is not None else None
+
+
 async def create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
@@ -1378,8 +1414,16 @@ async def send_message(
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+        # A targeted micro-session (ceiling=1) completes here, BEFORE the US185
+        # confirmation-surfacing branch below — so carry any reconciler ambiguity
+        # into the completion response instead of silently dropping it.
         return await _complete_session(
-            record, state, db, "max_questions_reached", profile_record
+            record, state, db, "max_questions_reached", profile_record,
+            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations)
+            if turn.pending_confirmations
+            else None,
+            conflict_summaries=conflict_summaries or None,
+            changes_applied=turn.addressed,
         )
 
     # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
@@ -1586,6 +1630,9 @@ async def _complete_session(
     db: AsyncSession,
     reason: str,
     profile_record: MasterProfile | None = None,
+    pending_confirmations: list | None = None,
+    conflict_summaries: list | None = None,
+    changes_applied: bool | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -1633,6 +1680,13 @@ async def _complete_session(
         gaps_resolved=len(addressed),
         gaps_unresolved=unresolved,
         completeness_score=completeness,
+        # A turn that reconciled just before completing (the ceiling-hit path,
+        # e.g. a targeted micro-session) may carry an ambiguity the reconciler
+        # refused to guess — surface it on completion rather than dropping it,
+        # since the confirmation-surfacing branch is skipped by an early return.
+        pending_confirmations=pending_confirmations or None,
+        pending_conflicts=conflict_summaries or None,
+        changes_applied=changes_applied,
     )
 
 

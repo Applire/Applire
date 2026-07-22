@@ -113,7 +113,7 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-07-21"
+GUIDE_VERSION = "2026-07-22"
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +455,105 @@ async def send_message(session_id: str, message: str) -> dict:
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Resolve ONE gap cluster in a single call — the agent-channel form of "
+        "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
+        "gap_clusters, and the candidate's own testimony. Returns {gap_id, "
+        "question_asked, status, profile_completeness}. Stateless (see guide)."
+    )
+)
+async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
+    from applire.services.interview.signals import is_termination_signal
+
+    jid = _parse_uuid(job_id, "job_id")
+    gap_id = (gap_id or "").strip()
+    answer = (answer or "").strip()
+    if not gap_id:
+        raise invalid_input("gap_id must not be empty")
+    if not answer:
+        raise invalid_input("answer must not be empty")
+    # The answer is TESTIMONY, not a control word: a bare 'skip'/'done'/… would
+    # be read as ending the session (and report a bogus 0.0 completeness). To
+    # skip a gap, simply don't call resolve_gap for it.
+    if is_termination_signal(answer):
+        raise invalid_input(
+            "answer must be the candidate's testimony about this gap, not a "
+            "control word like 'skip'/'done'. To skip a gap, don't resolve it."
+        )
+    provider = get_provider()
+    async with get_db() as db:
+        valid_ids = await session_svc.gap_cluster_ids(jid, db)
+        if valid_ids is None:
+            raise not_found(
+                "No gap analysis found for this job — call analyze_gaps first."
+            )
+        if not valid_ids:
+            raise invalid_input(
+                "This job's gap analysis has no gap clusters to resolve "
+                "(near-complete match) — proceed to generate/render."
+            )
+        if gap_id not in valid_ids:
+            raise invalid_input(
+                f"Unknown gap_id {gap_id!r}. Valid gap cluster ids: "
+                f"{', '.join(valid_ids)}"
+            )
+        # Don't stomp an in-progress full interview: _create_micro_session
+        # completes any active session wholesale, silently discarding a guided
+        # run's progress. A leftover 'targeted' micro-session is safe to reap.
+        mode = await session_svc.active_session_mode(jid, db)
+        if mode is not None and mode != "targeted":
+            raise invalid_input(
+                "A full interview is in progress for this job — finish it "
+                "(reply 'done') before resolving gaps one at a time."
+            )
+        from applire.schemas.session import SessionCreateRequest as _SCR
+
+        try:
+            created = await session_svc.create_session(
+                _SCR(job_id=jid, mode="targeted", target_gap=gap_id), db, provider
+            )
+            result = await session_svc.send_message(
+                created.session_id, answer, db, provider
+            )
+        except LookupError as exc:
+            raise not_found(str(exc))
+        except ValueError as exc:
+            raise invalid_input(str(exc))
+        except LLMTruncatedError as exc:
+            raise internal(
+                f"{exc} The turn was rolled back (nothing saved) — call "
+                "resolve_gap again with the same arguments to retry."
+            )
+        except Exception as exc:
+            raise internal(str(exc))
+    # A targeted micro-session always completes on the one answer; surface a
+    # clean, honest status rather than the internal "max_questions_reached".
+    #   needs_confirmation — the reconciler flagged an ambiguity it won't guess
+    #     (the answer WAS applied, but a refinement is parked for the human);
+    #   addressed — the testimony wrote a change into the vault;
+    #   no_change — a valid answer that added nothing (e.g. an honest "no").
+    pending = [c.model_dump(mode="json") for c in (result.pending_confirmations or [])]
+    conflicts = [c.model_dump(mode="json") for c in (result.pending_conflicts or [])]
+    if pending or conflicts:
+        status = "needs_confirmation"
+    elif result.changes_applied:
+        status = "addressed"
+    else:
+        status = "no_change"
+    out = {
+        "gap_id": gap_id,
+        "question_asked": created.first_question,
+        "status": status,
+        "profile_completeness": result.completeness_score,
+    }
+    if pending:
+        out["pending_confirmations"] = pending
+    if conflicts:
+        out["pending_conflicts"] = conflicts
+    return out
 
 
 @mcp.tool(

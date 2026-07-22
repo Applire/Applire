@@ -90,6 +90,10 @@ class SessionMessageResponse(BaseModel):
     gaps_resolved: int | None = None
     gaps_unresolved: list[str] | None = None
     completeness_score: float | None = None
+    # Whether the reconciler actually wrote a change on the final turn (vs a
+    # no-op decline). Set on the ceiling-hit completion (targeted micro-session)
+    # so a single-turn caller (resolve_gap) can tell "applied" from "no change".
+    changes_applied: bool | None = None
     # Populated when ProfileUpdater detects a merge conflict (19.10)
     pending_conflicts: list[ConflictSummary] | None = None
     # Populated when the reconciler flags an ambiguity it will not guess (US185)

@@ -32,7 +32,11 @@ import pytest
 # ADR-056 §4 target ≈ 3.5k tokens for the serialized tool surface. Budget in
 # chars (≈ tokens * 4) with headroom so an added tool doesn't instantly trip
 # it, while still catching a slide back toward the 17.5k-char baseline.
-TOOL_SURFACE_CHAR_BUDGET = 15_000
+# A genuinely new tool has irreducible always-on cost (name + params + schema);
+# the ceiling tracks the tool count. 15,000 (25 tools) → 16,000 when resolve_gap
+# (ADR-054, the 26th tool) landed at a lean ~595 chars. Prose bloat on EXISTING
+# tools must still be reclaimed into the guide, not absorbed by raising this.
+TOOL_SURFACE_CHAR_BUDGET = 16_000
 
 
 def _guide() -> str:
