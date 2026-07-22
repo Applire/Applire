@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-07-21 · re-fetch anytime with `get_guide`*
+*Revision 2026-07-22 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -105,6 +105,17 @@ the matching `artifact_id` when advancing.
   answers as testimony (read `schema://claims` first, max 20 per call). Link
   a claim to a ledger gap only with the EXACT concept string from
   `analyze_gaps` output.
+- `resolve_gap` — resolve ONE gap cluster in a single call, the guided way:
+  pass a `gap_id` from `analyze_gaps`' `gap_clusters` plus the candidate's
+  testimony; Applire generates the scoped question, applies your answer
+  through the reconciler, and marks the gap addressed. Stateless — no
+  `session_id`, no termination signal — so "continue or stop" is just
+  "call it again for the next gap, or don't". Use it for **category-B gaps**
+  (uncaptured strengths worth eliciting) when you want Applire's guided
+  reconciliation per gap instead of the full `run_interview` sweep;
+  `submit_claims` is the lower-level alternative (records testimony to the
+  vault without the per-gap question). Re-run `analyze_gaps` afterwards to see
+  the refreshed match score.
 - `render_document` — your authored content into a norms-checked, templated
   PDF. Read `schema://cv` or `schema://cover-letter` first; unknown fields
   are rejected with paths. You stay the author: Applire applies the template

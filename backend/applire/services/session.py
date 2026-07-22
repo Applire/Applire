@@ -785,6 +785,30 @@ async def create_profile_review_session(
 # ---------------------------------------------------------------------------
 
 
+async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str]:
+    """Return the gap-cluster ids from the job's latest gap analysis.
+
+    Used by the agent channel (`resolve_gap`) to validate a caller-supplied
+    ``gap_id`` with exact membership before opening a targeted micro-session —
+    the same fail-fast discipline `submit_claims` applies to ledger concepts,
+    so an agent gets the valid ids back instead of a silently generic session.
+    Returns ``[]`` when no analysis exists yet.
+    """
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    gap_analysis = result.scalar_one_or_none()
+    if gap_analysis is None:
+        return []
+    return [c.get("id") for c in (gap_analysis.gap_clusters or []) if c.get("id")]
+
+
 async def create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
