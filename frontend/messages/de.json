@@ -918,6 +918,7 @@
     "missingHonestGap": "Nicht durch Ihr Profil belegt — eine ehrliche Lücke ({count}):",
     "structureOk": "ATS-Struktur — alle Prüfungen bestanden",
     "structureIssues": "{count, plural, one {# ATS-Prüfung fehlgeschlagen} other {# ATS-Prüfungen fehlgeschlagen}}",
+    "structureOkKeywordsMissing": "{count, plural, one {Struktur bestanden — # belegtes Keyword fehlt im Dokument} other {Struktur bestanden — # belegte Keywords fehlen im Dokument}}",
     "detailsButton": "Details",
     "groupCount": "({passed} von {total} erkannt)",
     "checks": {

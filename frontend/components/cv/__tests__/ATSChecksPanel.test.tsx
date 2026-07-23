@@ -50,6 +50,22 @@ const REPORT_WITH_BUCKETS: ATSReport = {
   },
 };
 
+// #234 (Tiramisu founder-acceptance F1): every structural check passes, but the
+// Keyword Ledger guard could not surface one supported keyword anywhere in the
+// document — the headline must not read as a plain green all-clear.
+const REPORT_WITH_BUCKETS_ALL_PASS: ATSReport = {
+  checks: [
+    { id: "contact-name", status: "pass" },
+    { id: "skills", status: "pass" },
+  ],
+  keywords: {
+    present: ["TypeScript"],
+    missing: ["React"],
+    missing_claimable: ["React"],
+    missing_honest_gap: [],
+  },
+};
+
 const REPORT_WITH_UNSUPPORTED: ATSReport = {
   checks: [{ id: "contact-name", status: "pass" }],
   keywords: {
@@ -207,6 +223,28 @@ describe("ATSChecksPanel", () => {
   it("does not render ats-keywords-missing when there are no missing keywords", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
     expect(screen.queryByTestId("ats-keywords-missing")).toBeNull();
+  });
+
+  // #234 (Tiramisu founder-acceptance F1): a document that is structurally sound
+  // (every ATSCheck passes) but is still missing supported keywords must NOT ship
+  // under the plain green "all checks passed" headline — that reads as an all-clear
+  // when the guard couldn't surface everything the vault supports.
+  it("shows a distinct non-green headline when checks pass but claimable keywords are missing", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS_ALL_PASS} />));
+    const status = screen.getByTestId("ats-structure-status");
+    // The plain green all-clear text must NOT appear.
+    expect(status.textContent).not.toContain("all checks passed");
+    // A distinct message naming the still-missing count must appear instead.
+    expect(status.textContent).toContain("1");
+    // The headline glyph must not read as a green checkmark.
+    expect(status.querySelector(".text-success")).toBeNull();
+  });
+
+  it("keeps the plain green all-clear when checks pass and nothing claimable is missing", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+    const status = screen.getByTestId("ats-structure-status");
+    expect(status.textContent).toContain("all checks passed");
+    expect(status.querySelector(".text-success")).not.toBeNull();
   });
 
   // US203: claimable vs honest-gap missing keywords render in two distinct buckets

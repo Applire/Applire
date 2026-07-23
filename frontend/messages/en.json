@@ -918,6 +918,7 @@
     "missingHonestGap": "Not supported by your profile — an honest gap ({count}):",
     "structureOk": "ATS structure — all checks passed",
     "structureIssues": "{count, plural, one {# ATS check failed} other {# ATS checks failed}}",
+    "structureOkKeywordsMissing": "{count, plural, one {Structure passed — # supported keyword missing from the document} other {Structure passed — # supported keywords missing from the document}}",
     "detailsButton": "Details",
     "groupCount": "({passed} of {total} parsed)",
     "checks": {
