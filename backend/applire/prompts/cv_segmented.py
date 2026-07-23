@@ -167,19 +167,32 @@ SUMMARY_SECTION_SYSTEM_PROMPT = f"""\
 You are a DACH cv summary writer. Write a concise professional summary (2–3 sentences, third
 person) tailored to the job, taking the angle from the shared directive.
 
+When a KEYWORD LEDGER block is present below, LEAD the summary with the JD's top CLAIMABLE
+concepts (the terms the profile evidence backs) — the summary is the first thing a reviewer
+reads and must truthfully aim at THIS job. Do not let an earlier, no-longer-central specialism
+dominate the summary when the ledger shows stronger, more current support elsewhere (#235 —
+a summary for a role the ledger backs must not read as still positioned for the candidate's
+previous career).
+
 {_CORE_RULES}
 
 Respond ONLY with a JSON object — no markdown: {{"summary": string}}"""
 
 
 def build_summary_prompt(
-    directive: dict, job_analysis: dict, profile: dict, critical_gaps: list[str], output_language: str
+    directive: dict,
+    job_analysis: dict,
+    profile: dict,
+    critical_gaps: list[str],
+    output_language: str,
+    keyword_ledger: list[dict] | None = None,
 ) -> str:
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+        f"{_ledger_section(keyword_ledger)}"
         f"CRITICAL GAPS (acknowledge if applicable):\n{json.dumps(critical_gaps, ensure_ascii=False)}\n\n"
         "Return the summary JSON."
     )
