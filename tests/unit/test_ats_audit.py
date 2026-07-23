@@ -18,7 +18,7 @@
 import pytest
 
 from applire.schemas.cv import TailoredCVData
-from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+from applire.services.ats_audit import _audit_cv_text, _audit_letter_text, _norm, surface_present
 
 
 # ---------------------------------------------------------------------------
@@ -882,3 +882,87 @@ def test_gap_stance_not_widened_by_foreign_entry():
     report = _audit_cv_text(text, _CV, keywords=["Azure"], ledger=ledger)
     assert report.keywords.missing == ["Azure"]
     assert report.keywords.missing_honest_gap == ["Azure"]
+
+
+# ---------------------------------------------------------------------------
+# Friction finding (#234-adjacent) — verb-form false negatives in surface_present.
+# Live-reproduced: "Mentoring" and "Performance optimization" were reported
+# missing_claimable although the CV verbatim said "Mentored 2 junior engineers"
+# and "...improving query performance by 40%". Bounded fix: a conservative
+# same-stem verb-form fold (-ing/-ed/-es/-s, stem length >= 4, both directions)
+# added to surface_present's token-level fallback ONLY. Paraphrase-level
+# matching ("performance optimization" vs "improving ... performance") stays
+# explicitly out of scope.
+# ---------------------------------------------------------------------------
+
+def test_surface_present_folds_ing_to_ed_verb_form():
+    """'Mentoring' (the ledger/keyword form) must be found in text that only
+    says 'Mentored' — the live-reproduced false negative."""
+    text_norm = _norm("Mentored 2 junior engineers on system design")
+    assert surface_present("Mentoring", text_norm) is True
+
+
+def test_surface_present_folds_ed_to_ing_verb_form_reverse_direction():
+    """The fold must work in the other direction too: keyword 'Mentored' found
+    in text that only says 'Mentoring'."""
+    text_norm = _norm("Responsible for mentoring junior engineers")
+    assert surface_present("Mentored", text_norm) is True
+
+
+def test_surface_present_paraphrase_reorder_stays_out_of_scope():
+    """'test automation' (keyword) vs 'automated tests' (document) is a
+    multi-token paraphrase (word-order AND part-of-speech shift on both
+    words) — the SAME category as 'performance optimization' vs 'improving
+    query performance', which the fix explicitly does not attempt. Pinned:
+    this must NOT match."""
+    text_norm = _norm("Built a suite of automated tests for the pipeline")
+    assert surface_present("test automation", text_norm) is False
+
+
+def test_surface_present_stems_under_four_chars_never_fold():
+    """'AI' must never fold — far too short to safely stem, and folding it
+    would substring-match unrelated words. (Text deliberately avoids any
+    'ai' substring so this isolates the NEW fold from the pre-existing
+    plain-substring check.)"""
+    text_norm = _norm("The team runs quarterly audits")
+    assert surface_present("AI", text_norm) is False
+
+
+def test_surface_present_unrelated_words_do_not_false_positive():
+    """'mentor' and 'mention' must NOT match: 'mention' strips no suffix (its
+    -ing/-ed/-es/-s pass doesn't apply) and stays 'mention'; 'mentor' likewise
+    stays 'mentor' -- different stems, no fold."""
+    text_norm = _norm("Anna Bauer did not mention this responsibility")
+    assert surface_present("mentor", text_norm) is False
+
+
+def test_surface_present_trailing_s_fold_unchanged():
+    """Pre-existing US212 trailing-s plural fold must be untouched by the new
+    verb-form fallback."""
+    text_norm = _norm("Anna Bauer ran weekly code reviews for the platform team")
+    assert surface_present("Code review", text_norm) is True
+
+
+def test_missing_claimable_no_longer_false_negatives_on_mentored():
+    """Report-level repro of the live finding: 'Mentoring' must land in
+    ``present``, not ``missing_claimable``, when the CV verbatim says
+    'Mentored'."""
+    text = "Anna Bauer mentored 2 junior engineers and improved query performance by 40 percent"
+    report = _audit_cv_text(text, _CV, keywords=["Mentoring"], ledger=_LEDGER_122)
+    assert report.keywords.present == ["Mentoring"]
+    assert report.keywords.missing_claimable == []
+
+
+def test_dedupe_predicates_stay_strict_after_verb_fold():
+    """Guard against ripple: skill_tokens/skills_near_dupe/_fold_variants (the
+    ADR-046 dedupe instruments) must NOT gain the verb-form fold -- they stay
+    exactly as strict as before. 'Mentor' and 'Mentoring' are genuinely
+    different skill labels and must still NOT auto-merge."""
+    from applire.services.ats_audit import _fold_variants, skills_near_dupe
+
+    assert skills_near_dupe("Mentor", "Mentoring") is False
+    # _fold_variants (phrase-level substring fold) must still be the plain
+    # trailing-s-only fold, UNCHANGED by the new verb-form fallback: no -ing/
+    # -ed entries added, only the pre-existing guarded singular/plural pair.
+    assert _fold_variants("mentoring") == ["mentoring", "mentorings"]
+    assert _fold_variants("reviews") == ["reviews", "review"]

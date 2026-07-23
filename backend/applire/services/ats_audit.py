@@ -85,17 +85,63 @@ def _fold_variants(needle_norm: str) -> list[str]:
     return variants
 
 
+# Friction finding (#234-adjacent): conservative English verb-form fold, added
+# to `surface_present`'s TOKEN-LEVEL FALLBACK only — it must never touch
+# `_fold_variants` (the phrase-level substring fold `surface_present` tries
+# first) nor `skill_tokens`/`skills_near_dupe` (the ADR-046 dedupe instruments,
+# deliberately strictness-hardened). Checked longest-suffix-first so "mentoring"
+# strips to "mentor" via "-ing", not a shorter/wrong suffix.
+_VERB_SUFFIXES = ("ing", "ed", "es", "s")
+
+
+def _verb_stem(token: str) -> str:
+    """Strip one trailing verb-form suffix (-ing/-ed/-es/-s), only when the
+    remaining stem keeps >= ``_FOLD_MIN_STEM`` chars — same guard rail as the
+    plural fold, so short tokens ('AI', 'SaaS') never fold. Longest suffix
+    checked first (order above) so "mentoring" -> "mentor", not a partial
+    "mentorin" from a shorter, wrong match. No suffix applies -> unchanged."""
+    for suf in _VERB_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= _FOLD_MIN_STEM:
+            return token[: -len(suf)]
+    return token
+
+
+def _verb_form_present(form_norm: str, text_norm: str) -> bool:
+    """Token-level verb-form fallback (bounded, conservative, English only):
+    True only when ``form_norm`` is a SINGLE token that shares a stem — after
+    stripping -ing/-ed/-es/-s, both directions, stem length >= 4 — with some
+    single token in ``text_norm``. Multi-token forms are refused outright:
+    reordering/POS-shuffling a phrase ("test automation" vs "automated tests")
+    is paraphrase-level matching, explicitly out of scope (do not attempt it
+    here — see ``surface_present`` docstring).
+    """
+    form_tokens = form_norm.split()
+    if len(form_tokens) != 1:
+        return False
+    needle_stem = _verb_stem(form_tokens[0])
+    return any(_verb_stem(word) == needle_stem for word in text_norm.split())
+
+
 def surface_present(form: str, text_norm: str) -> bool:
     """THE presence predicate (US212): is this surface form in this normalised text?
 
     Single shared instrument for the ATS panel, the gap hints (#117), and the
     generation-time coverage check (US213) — consumers may never disagree on
     presence by construction (ADR-048 amended 2026-07-04, #122).
+
+    Falls back to a conservative same-stem ENGLISH VERB-FORM fold (#234-adjacent
+    friction finding) when the direct phrase-level substring/plural check misses:
+    "Mentoring" (keyword) is present in text that only says "Mentored" (and vice
+    versa). Bounded to single-token forms — this can only ever ADD a match, never
+    remove one, and never attempts multi-token paraphrase matching ("performance
+    optimization" vs "improving ... performance" stays a true miss, by design).
     """
     n = _norm(form)
     if not n:
         return False
-    return any(text_norm.find(v) >= 0 for v in _fold_variants(n))
+    if any(text_norm.find(v) >= 0 for v in _fold_variants(n)):
+        return True
+    return _verb_form_present(n, text_norm)
 
 
 # ── #172: near-duplicate skill detection ─────────────────────────────────────
