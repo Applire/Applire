@@ -1424,6 +1424,7 @@ async def send_message(
             else None,
             conflict_summaries=conflict_summaries or None,
             changes_applied=turn.addressed,
+            denial_recorded=turn.denial_recorded,
         )
 
     # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
@@ -1633,6 +1634,7 @@ async def _complete_session(
     pending_confirmations: list | None = None,
     conflict_summaries: list | None = None,
     changes_applied: bool | None = None,
+    denial_recorded: bool | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -1687,6 +1689,7 @@ async def _complete_session(
         pending_confirmations=pending_confirmations or None,
         pending_conflicts=conflict_summaries or None,
         changes_applied=changes_applied,
+        denial_recorded=denial_recorded,
     )
 
 

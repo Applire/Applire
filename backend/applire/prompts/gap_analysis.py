@@ -107,12 +107,21 @@ _STATEMENTS_LABEL = (
 )
 
 
+_INTERVIEW_SOURCES = ("interview", "agent_interview")
+
+
 def _interview_statements(profile: dict) -> list[dict]:
     """Interview-sourced enrichment records from the profile's audit trail.
 
     Only the ``changes`` payload is surfaced — it is the candidate-stated content
     (values + rationale quoting the answer). Other sources (cv_upload, …) merely
     duplicate profile facts and stay out of the prompt entirely.
+
+    Both interview doors count (#231 fix): the built-in guided interview
+    (``interview``) AND the agent-elicited ``submit_claims`` door
+    (``agent_interview``, E045/ADR-054) — a denial given through the agent
+    channel is just as real testimony as one given through the UI, and the
+    v4 stance rule (module docstring) can only apply to a denial it can see.
     """
     meta = profile.get("metadata") or {}
     if not isinstance(meta, dict):
@@ -123,7 +132,7 @@ def _interview_statements(profile: dict) -> list[dict]:
     return [
         {"changes": record.get("changes") or []}
         for record in history
-        if isinstance(record, dict) and record.get("source") == "interview"
+        if isinstance(record, dict) and record.get("source") in _INTERVIEW_SOURCES
     ]
 
 

@@ -358,6 +358,17 @@ async def _run_analysis(
 
     classifications = data.get("classifications", [])
 
+    # #231 — the candidate's own persisted denials are a deterministic floor
+    # the classifier's adjacency inference can never override (F8: a denied
+    # concept must never resurface as a claimable "supported by your profile"
+    # ledger entry on a later run).
+    profile_meta = (profile.profile_json or {}).get("metadata") or {}
+    denied_concepts = [
+        d.get("concept", "")
+        for d in (profile_meta.get("denied_concepts") or [])
+        if isinstance(d, dict) and d.get("concept")
+    ]
+
     # ADR-048: the single source of truth for every JD expectation. `reason` from
     # the classification serves as the grounding evidence for the ledger entry.
     keyword_ledger = build_keyword_ledger(
@@ -373,6 +384,7 @@ async def _run_analysis(
         list(job.required_skills or []),
         list(job.nice_to_have_skills or []),
         list(job.keywords or []),
+        denied_concepts=denied_concepts,
     )
 
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's

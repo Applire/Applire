@@ -94,6 +94,11 @@ class SessionMessageResponse(BaseModel):
     # no-op decline). Set on the ceiling-hit completion (targeted micro-session)
     # so a single-turn caller (resolve_gap) can tell "applied" from "no change".
     changes_applied: bool | None = None
+    # #231 — the final turn recorded a NEW/refreshed explicit denial (even
+    # when `changes_applied` is False). Lets a single-turn caller
+    # (resolve_gap) distinguish "candidate explicitly said no, recorded to
+    # the vault" from a genuine no-op turn.
+    denial_recorded: bool | None = None
     # Populated when ProfileUpdater detects a merge conflict (19.10)
     pending_conflicts: list[ConflictSummary] | None = None
     # Populated when the reconciler flags an ambiguity it will not guess (US185)

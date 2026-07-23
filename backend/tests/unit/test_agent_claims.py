@@ -463,6 +463,121 @@ async def test_apply_merge_upload_door_also_preserves_agent_parked_items(async_d
 
 
 @pytest.mark.asyncio
+async def test_denial_only_claim_is_recorded_not_dropped(async_db):
+    """#231 (bug + F8) — a denial-only claim ("I did not personally configure
+    the embedding models, the vector store or any reranking") must not vanish
+    as `no_change`: the denial persists to metadata.denied_concepts WITH a
+    transparency receipt, and the honest `denial_recorded` status is reported
+    — never silently dropped."""
+    record = await _seed_profile(async_db)
+    statement = (
+        "I did not personally configure the embedding models, the vector "
+        "store or any reranking."
+    )
+    provider = _QueueProvider(
+        [{"ops": [], "ambiguities": [], "denials": ["embeddings"]}]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(claims=[ClaimItem(statement=statement)]),
+        None,
+        async_db,
+        provider,
+    )
+    assert result.results[0].status == "denial_recorded"
+    assert result.results[0].changes  # the receipt is visible on the result too
+    await async_db.refresh(record)
+    meta = record.profile_json["metadata"]
+    denied = meta["denied_concepts"]
+    assert len(denied) == 1
+    assert denied[0]["concept"] == "embeddings"
+    assert denied[0]["statement"] == statement
+    assert denied[0]["source"] == "agent_interview"
+    history = meta["enrichment_history"]
+    assert history, "a denial-only turn must still leave a receipt (#231a)"
+    assert history[-1]["source"] == "agent_interview"
+    assert any(c["field"] == "denied_concepts" for c in history[-1]["changes"])
+
+
+@pytest.mark.asyncio
+async def test_redenial_updates_in_place_case_insensitively(async_db):
+    """Re-denying the same concept (different casing) refreshes statement/date
+    in place rather than duplicating the vault entry."""
+    record = await _seed_profile(async_db)
+    provider = _QueueProvider(
+        [
+            {"ops": [], "ambiguities": [], "denials": ["Embeddings"]},
+            {"ops": [], "ambiguities": [], "denials": ["embeddings"]},
+        ]
+    )
+    await submit_agent_claims(
+        ClaimsSubmission(claims=[ClaimItem(statement="No embeddings work.")]),
+        None, async_db, provider,
+    )
+    await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[ClaimItem(statement="Confirmed: still no embeddings work.")]
+        ),
+        None, async_db, provider,
+    )
+    await async_db.refresh(record)
+    denied = record.profile_json["metadata"]["denied_concepts"]
+    assert len(denied) == 1, "a re-denial must update in place, never duplicate"
+    assert denied[0]["statement"] == "Confirmed: still no embeddings work."
+
+
+@pytest.mark.asyncio
+async def test_applied_status_wins_over_denial_when_a_claim_yields_both(async_db):
+    """Precedence: error > needs_confirmation > conflict > applied >
+    denial_recorded > no_change. A claim that both applies a real change AND
+    denies something else reports the higher-precedence `applied`."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [{"op": "upsert_skill", "name": "Terraform", "category": "technical"}],
+                "ambiguities": [],
+                "denials": ["Kubernetes"],
+            }
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[ClaimItem(statement="I know Terraform, not Kubernetes.")]
+        ),
+        None,
+        async_db,
+        provider,
+    )
+    assert result.results[0].status == "applied"
+
+
+@pytest.mark.asyncio
+async def test_denial_only_claim_never_upgrades_the_ledger(async_db):
+    """A denial must never flip its ledger entry claimable — only a REAL
+    applied change may (the #188 addressed-gate parity, now denial-aware)."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["LegalTech"])
+    provider = _QueueProvider(
+        [{"ops": [], "ambiguities": [], "denials": ["LegalTech"]}]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="No direct LegalTech experience, that's an honest gap.",
+                    gap="LegalTech",
+                )
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+    assert result.results[0].status == "denial_recorded"
+    assert result.ledger_upgraded == []  # a denial must never flip the gate
+
+
+@pytest.mark.asyncio
 async def test_no_profile_raises_lookup_error(async_db):
     with pytest.raises(LookupError):
         await submit_agent_claims(

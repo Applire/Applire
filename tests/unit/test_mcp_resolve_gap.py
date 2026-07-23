@@ -341,6 +341,34 @@ async def test_happy_path_composes_targeted_session(db):
 
 
 @pytest.mark.asyncio
+async def test_denial_recorded_status_when_testimony_denies_without_other_change(db):
+    """#231 — a denial-only answer must report the honest `denial_recorded`
+    status, distinct from both `addressed` (a real change) and `no_change`
+    (nothing happened at all)."""
+    from applire.mcp.server import resolve_gap
+    from applire.schemas.session import SessionCreateResponse, SessionMessageResponse
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-legaltech"])
+    created = SessionCreateResponse(
+        session_id=uuid.uuid4(), mode="targeted", first_question="Q?",
+        estimated_questions=1, question="Q?", gaps_total=1, gaps_remaining=1,
+    )
+    completed = SessionMessageResponse(
+        complete=True, reason="max_questions_reached", completeness_score=0.5,
+        changes_applied=False, denial_recorded=True,
+    )
+    p1, p2 = _patches(db)
+    with p1, p2, \
+        patch("applire.services.session.create_session", AsyncMock(return_value=created)), \
+        patch("applire.services.session.send_message", AsyncMock(return_value=completed)):
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-legaltech",
+            answer="No direct LegalTech experience, that's an honest gap.",
+        )
+    assert result["status"] == "denial_recorded"
+
+
+@pytest.mark.asyncio
 async def test_parked_ambiguity_surfaces_as_needs_confirmation(db):
     """A reconciler ambiguity on the one answer must NOT be silently dropped
     (the micro-session ceiling-return skips the confirmation-surfacing branch);
