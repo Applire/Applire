@@ -189,12 +189,15 @@ def test_page_length_at_standard_with_substandard_target_plain_pass():
     assert c.details_key is None and c.details_params is None
 
 
-def test_page_length_over_substandard_target_still_senior_advisory():
-    # target=1 missed and pages beyond the standard → the senior advisory is honest.
+def test_page_length_over_explicit_substandard_target_is_honest_miss():
+    # #238 founder-acceptance F4: rewritten from the old
+    # "still_senior_advisory" expectation, which CODIFIED the bug this fixes —
+    # an EXPLICIT target (here target=1) that was missed must never be dressed
+    # up as senior-profile advice, even though 3 pages is within the DACH max.
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3, target=1)
     c = _check_by_id(report, "page-length")
-    assert c is not None and c.status == "pass"
-    assert c.details_key == "page-length-senior"
+    assert c is not None and c.status == "fail"
+    assert c.details_key == "page-length-target-missed"
 
 
 def test_page_length_within_norm_under_higher_chosen_target_no_advisory():
@@ -211,6 +214,53 @@ def test_page_length_under_chosen_target_no_advisory_when_target_is_standard():
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=1, target=2)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass" and c.details is None
+
+
+# #238 (founder-acceptance F4): the founder chose an explicit page target in the
+# template picker ("2 pages — DACH standard") and got 3 pages back dressed as
+# "acceptable for senior profiles" — the miss was reframed as advice. The old
+# band checked condensation_exhausted ONLY once page_count > maximum, so at
+# exactly maximum (3 <= 3) it was dead: a chosen-but-missed target inside the
+# regional max fell straight into the unconditional senior-advisory pass.
+
+
+def test_page_length_target_missed_within_max_is_honest_fail():
+    # The exact founder scenario: explicit target=2 (== the DACH standard, i.e.
+    # the "2 pages — DACH standard" picker option), condense loop exhausted its
+    # budget, delivered 3 (== the DACH max). Must be an honest miss, not advice.
+    report = _audit_cv_text(
+        _full_text(), _CV, keywords=[], page_count=3, target=2, condensation_exhausted=True
+    )
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "3 pages" in c.details and "2" in c.details
+    assert "senior" not in c.details
+    assert c.details_key == "page-length-target-missed"
+    assert c.details_params == {
+        "pages": 3, "target": 2, "region": "DACH", "standard": 2, "max": 3,
+    }
+
+
+def test_page_length_target_missed_within_max_honest_even_when_not_exhausted():
+    # Defensive: the condense loop should always set condensation_exhausted when
+    # it fails to meet the target, but the section-editor re-audit path can call
+    # _audit_cv_text WITHOUT running the loop at all. An explicit target miss must
+    # read as honest regardless of the flag's value.
+    report = _audit_cv_text(
+        _full_text(), _CV, keywords=[], page_count=3, target=2, condensation_exhausted=False
+    )
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details_key == "page-length-target-missed"
+
+
+def test_page_length_target_met_still_plain_pass():
+    # Same explicit target (2) but the document actually meets it — a real pass,
+    # not touched by the honest-miss branch.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2, target=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+    assert c.details_key is None and c.details_params is None
 
 
 def test_page_length_fail_exhausted_wording():

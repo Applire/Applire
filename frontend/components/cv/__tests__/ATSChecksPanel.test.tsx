@@ -362,4 +362,45 @@ describe("ATSChecksPanel", () => {
     expect(advisoryRow.textContent).toContain("meets your chosen target of 3");
     expect(advisoryRow.textContent).not.toContain("checkDetails");
   });
+
+  // #238 (founder-acceptance F4): a chosen page target the condense loop could
+  // not hit ships as a FAILING check (never a pass-with-advisory) — the miss
+  // must read as a genuine problem, not senior-profile advice. It renders
+  // through the existing failed-check path: no new panel state was added.
+  const REPORT_WITH_TARGET_MISSED: ATSReport = {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      {
+        id: "page-length",
+        status: "fail",
+        details:
+          "3 pages — couldn't condense to your 2-page target without cutting relevant content; the DACH max is 3 pages",
+        details_key: "page-length-target-missed",
+        details_params: { pages: 3, target: 2, region: "DACH", standard: 2, max: 3 },
+      },
+    ],
+    keywords: { present: ["TypeScript"], missing: [] },
+  };
+
+  it("renders a missed page-length target as an inline failure, not an advisory", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_TARGET_MISSED} />));
+    const failRow = screen.getByTestId("ats-check-page-length");
+    expect(failRow.textContent).toContain(
+      "couldn't condense to your 2-page target without cutting relevant content",
+    );
+    expect(failRow.textContent).not.toContain("senior");
+    // Never rendered as a pass-with-advisory row.
+    expect(screen.queryByTestId("ats-advisory-page-length")).toBeNull();
+    // The headline reads as a problem, not the all-clear state.
+    expect(screen.getByTestId("ats-structure-status").textContent).not.toContain("✓");
+  });
+
+  it("localises the missed page-length target detail into German", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_TARGET_MISSED} />, "de"));
+    const failRow = screen.getByTestId("ats-check-page-length");
+    expect(failRow.textContent).toContain(
+      "konnte ohne Kürzung relevanter Inhalte nicht auf Ihr Ziel von 2 Seiten gebracht werden",
+    );
+    expect(failRow.textContent).not.toContain("couldn't condense");
+  });
 });

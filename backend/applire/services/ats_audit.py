@@ -383,6 +383,19 @@ def _audit_cv_text(
     # hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend i18n keys
     # on it); details carry a details_key + details_params pair so the frontend can
     # localise them (ADR-038), with the EN `details` string as the fallback.
+    #
+    # #238 (founder-acceptance F4) amendment: the "within max" branch used to pass
+    # unconditionally once page_count <= maximum, regardless of WHY it was over
+    # tgt — so an EXPLICIT target the candidate chose (production always resolves
+    # and passes one; only text-only callers omit it) that the condense loop
+    # could not hit still shipped as unprompted "senior profile" advice, hiding
+    # the miss. `target is not None` distinguishes "a target was actually asked
+    # for" from the back-compat "no target given, defaults to the regional
+    # standard" callers — only the latter keeps the old blanket senior-advisory
+    # wording; the former is now an honest fail, whether or not
+    # `condensation_exhausted` was set (the section-editor re-audit path can miss
+    # the target without ever running the condense loop at all — same honesty
+    # applies defensively).
     if page_count is not None:
         norm = REGION_NORMS[region]
         standard = norm.cv_standard_pages
@@ -404,13 +417,29 @@ def _audit_cv_text(
                 details_params={"pages": page_count, "target": tgt,
                                 "region": region, "standard": standard},
             ))
-        elif page_count <= maximum:
+        elif page_count <= maximum and target is None:
+            # No explicit target was asked for (back-compat: the region standard
+            # was used as a default, not a candidate choice) — the old advisory
+            # wording is still honest here, nothing was promised and missed.
             checks.append(ATSCheck(
                 id="page-length", status="pass",
                 details=f"{page_count} pages — acceptable for senior profiles; "
                         f"the {region} norm is {standard} pages",
                 details_key="page-length-senior",
                 details_params={"pages": page_count, "region": region, "standard": standard},
+            ))
+        elif page_count <= maximum:
+            # #238: an explicit target was chosen and missed, even though the
+            # document still sits within the regional max — must fail honestly,
+            # never dressed up as senior-profile advice (founder-acceptance F4).
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — couldn't condense to your {tgt}-page "
+                        f"target without cutting relevant content; the {region} max "
+                        f"is {maximum} pages",
+                details_key="page-length-target-missed",
+                details_params={"pages": page_count, "target": tgt, "region": region,
+                                "standard": standard, "max": maximum},
             ))
         elif condensation_exhausted:
             checks.append(ATSCheck(

@@ -937,6 +937,7 @@
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
+      "page-length-target-missed": "{pages} pages — couldn't condense to your {target}-page target without cutting relevant content; the {region} max is {max} pages",
       "page-length-senior": "{pages} pages — acceptable for senior profiles; the {region} norm is {standard} pages",
       "page-length-exhausted": "{pages} pages — condensed to the maximum; length driven by education/skills volume; exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
