@@ -82,6 +82,7 @@ from applire.schemas.cv import (
     TailoredCertification,
     TailoredCVData,
     TailoredProjectEntry,
+    TailoredWorkEntry,
 )
 from applire.prompts.review_cv_language import (
     CV_LANGUAGE_REFINEMENT_PROMPT,
@@ -626,6 +627,126 @@ def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> Tailored
                 used.add(sid)
 
     return TailoredCVData.model_validate(data)
+
+
+def _restore_ledger_bullets(
+    tailored: TailoredCVData,
+    profile_json: dict,
+    keyword_ledger: list[dict] | None,
+    budget: "BudgetResult | None",
+) -> TailoredCVData:
+    """#234 (Tiramisu founder-acceptance F1/F2) — deterministic post-draft guard.
+
+    Ground truth: a vault work entry had 9 responsibilities (5 interview-elicited,
+    mapping 1:1 to JD requirements); the tailored CV kept only the 4 generic
+    LinkedIn-baseline bullets the LLM writer preferred. The Keyword Ledger prompt
+    block (ADR-048) only ever surfaces a GENERIC claimable-terms list — nothing
+    guarantees any specific vault bullet survives the writer's own selection, and
+    the bounded coverage-review loop (#122) can only ask the writer to reword a
+    *sentence*, never restore a whole dropped bullet.
+
+    Uses THE shared presence predicate (``ats_audit.surface_present`` via
+    ``keyword_ledger.verified_missing_claimable`` — #122: "the loop that grades is
+    the loop that heals") to find claimable concepts verifiably ABSENT from the
+    whole tailored document, then restores — VERBATIM, never rephrased — any vault
+    responsibility/achievement bullet of the OWNING work entry that carries one of
+    them. Restoration happens within that entry's ``RoleBudget.max_bullets``
+    ceiling (E042/US237, ADR-051 §3): generic no-hit tailored bullets yield first
+    when the ceiling is tight, and every entry's final bullet order is put
+    ledger-hit-first — the same rule a later page-overrun ``condense_to_budget``
+    pass already uses (no-hit + later-listed cut first), so evidence never gets
+    cut before filler.
+
+    A concept is restored at most once (into the first entry — reverse-
+    chronological order — whose vault text carries it), so a second pass over an
+    already-restored document is a no-op. Pure; ``tailored`` is left unmutated.
+    """
+    if not keyword_ledger:
+        return tailored
+
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.keyword_ledger import verified_missing_claimable
+
+    missing = verified_missing_claimable(tailored.model_dump(mode="json"), keyword_ledger)
+    if not missing:
+        return tailored
+
+    # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
+    # this guard MUST run after it so tailored ids are populated.
+    vault_by_id: dict[str, dict] = {}
+    for w in profile_json.get("work_experience") or []:
+        wid = str(w.get("id") or "")
+        if wid:
+            vault_by_id[wid] = w
+
+    def _entry_forms(entry: dict) -> list[str]:
+        forms = list(entry.get("surface_forms") or [])
+        if entry.get("concept"):
+            forms.append(entry["concept"])
+        return forms
+
+    claimable_forms: tuple[str, ...] = budget.claimable_forms if budget is not None else ()
+
+    def _is_hit(text: str) -> bool:
+        if not claimable_forms:
+            return False
+        n = _norm(text)
+        return bool(n) and any(surface_present(f, n) for f in claimable_forms)
+
+    remaining = list(missing)  # concepts still unrestored; consumed as entries claim them
+    changed = False
+    new_work: list[dict] = []
+
+    for w in tailored.work_history:
+        w_dict = w.model_dump(mode="json")
+        eid = str(w_dict.get("id") or "")
+        existing_bullets = [b for b in (w_dict.get("bullets") or []) if isinstance(b, str)]
+        existing_norms = {_norm(b) for b in existing_bullets}
+
+        vault_entry = vault_by_id.get(eid)
+        restored: list[str] = []
+        if vault_entry is not None and remaining:
+            vault_bullets = [
+                b for key in ("responsibilities", "achievements")
+                for b in (vault_entry.get(key) or [])
+                if isinstance(b, str) and b.strip()
+            ]
+            for vb in vault_bullets:
+                vb_norm = _norm(vb)
+                if not vb_norm or vb_norm in existing_norms:
+                    continue
+                hit_idx = next(
+                    (i for i, m in enumerate(remaining)
+                     if any(surface_present(f, vb_norm) for f in _entry_forms(m))),
+                    None,
+                )
+                if hit_idx is None:
+                    continue
+                restored.append(vb)
+                existing_norms.add(vb_norm)
+                remaining.pop(hit_idx)
+
+        if not restored:
+            new_work.append(w_dict)
+            continue
+
+        changed = True
+        hits = [b for b in existing_bullets if _is_hit(b)] + restored
+        no_hits = [b for b in existing_bullets if not _is_hit(b)]
+        ordered = hits + no_hits
+
+        rb = budget.roles.get(eid) if budget is not None else None
+        if rb is not None and len(ordered) > rb.max_bullets:
+            ordered = ordered[: rb.max_bullets]
+
+        w_dict["bullets"] = ordered
+        new_work.append(w_dict)
+
+    if not changed:
+        return tailored
+    return tailored.model_copy(
+        update={"work_history": [TailoredWorkEntry.model_validate(w) for w in new_work]}
+    )
 
 
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
@@ -1289,6 +1410,14 @@ async def _render_cv_background(
             # reverse-chronological order. Uses the SORTED profile_json (still bound
             # here; the photo step below rebinds the name to the raw profile dict).
             tailored = _backfill_work_ids(tailored, profile_json)
+
+            # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
+            # verbatim vault bullet that carries a claimable Keyword Ledger concept the
+            # writer's draft dropped entirely. MUST run after _backfill_work_ids — it is
+            # keyed by the same profile WorkEntry.id the budget uses. Uses the SORTED
+            # profile_json (still bound here; the photo step below rebinds the name to
+            # the raw profile dict).
+            tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
 
             # #172: collapse near-duplicate skill tags (the shared ats_audit
             # predicate) so the CV is clean even when the master profile still
