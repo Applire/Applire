@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.config import settings
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
 from applire.providers import get_provider
@@ -69,7 +70,10 @@ async def post_generate(
 ) -> CVGenerateResponse:
     """Enqueue async CV generation. Returns immediately with status='pending'.
     Poll GET /api/cv/{cv_id}/status until status='ready'."""
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await generate_cv(
             body.job_id,
@@ -94,7 +98,10 @@ async def get_status(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> CVStatusResponse:
     """Poll CV generation progress (17.12). Returns pdf_url/html_url only when ready."""
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await get_cv_status(cv_id, db, base_url)
     except LookupError as exc:
@@ -193,7 +200,10 @@ async def get_cvs_for_job(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> list[CVStatusResponse]:
     """List all CVs for a given job (20.11)."""
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await list_cvs_for_job(job_id, db, base_url)
     except LookupError as exc:
