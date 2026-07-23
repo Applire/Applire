@@ -27,6 +27,9 @@
 #                  and emits an explicit OUTPUT LANGUAGE directive.
 # Changes from v3: Rule 8 added (US169 / FMEA JF-M-6.2) — claim-strength calibration
 #                  (generator-side oversell prevention; the reviewer already detects it).
+# Changes from v4: Rule 4 amended (#235, Tiramisu founder-acceptance F3) — the summary
+#                  must lead with the KEYWORD LEDGER's top claimable concepts instead of
+#                  defaulting to whatever career phase dominates the raw profile text.
 # Added in retry-refinement work: CV_TAILORING_REFINEMENT_PROMPT — refinement-mode
 #                  system prompt used on review-loop retries (patch the previous tailored
 #                  CV JSON; the reviewer quotes profile content when needed).
@@ -52,6 +55,12 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    Keyword gaps may ONLY be incorporated if they are explicitly demonstrated in the candidate's
    work history or skills list. If a keyword gap has no explicit basis in CANDIDATE PROFILE, omit it.
 4. Write a concise professional summary (2–3 sentences, third person) tailored to the role.
+   When a KEYWORD LEDGER block is present below, LEAD the summary with the JD's top CLAIMABLE
+   concepts (the terms the profile evidence backs) — the summary is the first thing a reviewer
+   reads and must truthfully aim at THIS job. Do not let an earlier, no-longer-central
+   specialism dominate the summary when the ledger shows stronger, more current support
+   elsewhere (#235 — a summary for a role the ledger backs must not read as still positioned
+   for the candidate's previous career).
 5. Keep all factual data EXACTLY as provided — company names, roles, dates, degrees, technologies,
    project names, and metrics. Do NOT invent, infer, or embellish ANY fact not present in
    CANDIDATE PROFILE. When in doubt, leave it out.

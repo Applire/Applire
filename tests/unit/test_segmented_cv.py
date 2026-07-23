@@ -115,6 +115,37 @@ async def test_segmented_orchestrator_calls_one_work_section_per_entry():
 
 
 @pytest.mark.asyncio
+async def test_segmented_orchestrator_threads_ledger_into_summary_call():
+    """#235 — the summary section call must receive the SAME keyword_ledger passed to
+    generate_cv_segmented, not build a ledger-blind prompt while the other sections
+    (outline/work/skills) do thread it."""
+    from applire.services.cv import generate_cv_segmented
+
+    ledger = [
+        {"concept": "AI", "surface_forms": ["AI", "Artificial Intelligence"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+         "evidence": "Led the AI platform team for 3 years"},
+    ]
+
+    captured_prompts: list[tuple[str, str]] = []
+
+    class _CapturingSpy(_SegmentSpyProvider):
+        async def aparse_json(self, prompt, *, system=None, **kwargs):
+            captured_prompts.append((system or "", prompt))
+            return await super().aparse_json(prompt, system=system, **kwargs)
+
+    spy = _CapturingSpy()
+    await generate_cv_segmented(
+        _JOB, _PROFILE, [], [], output_language="en", provider=spy, keyword_ledger=ledger,
+    )
+
+    summary_prompts = [p for s, p in captured_prompts if "summary writer" in s.lower()]
+    assert summary_prompts, "expected exactly one summary-section call"
+    assert "AI" in summary_prompts[0]
+    assert "Led the AI platform team for 3 years" in summary_prompts[0]
+
+
+@pytest.mark.asyncio
 async def test_segmented_orchestrator_assembles_valid_cv_with_profile_contact():
     """The orchestrated result validates as TailoredCVData, with contact sourced
     deterministically from the profile (not LLM-generated — ADR-040)."""

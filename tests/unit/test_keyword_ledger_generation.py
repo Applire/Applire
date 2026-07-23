@@ -106,6 +106,77 @@ class TestCvTailoringConsumesLedger:
         assert "OUTPUT LANGUAGE: GERMAN" in prompt
 
 
+class TestCvSegmentedSummaryConsumesLedger:
+    """#235 (Tiramisu founder-acceptance F3) — the segmented path's summary section had
+    its own prompt builder with NO keyword_ledger parameter at all, so a Lead AI Engineer
+    JD's tailored summary could contain zero "AI" even though the vault (post-interview)
+    truthfully supported the JD's top concepts. build_summary_prompt must thread the
+    ledger like its sibling section builders (outline/work/skills)."""
+
+    def _prompt(self, **kwargs):
+        from applire.prompts.cv_segmented import build_summary_prompt
+
+        return build_summary_prompt(
+            directive={"summary_angle": "AI leadership"},
+            job_analysis={"role_title": "Lead AI Engineer"},
+            profile={"name": "Test"},
+            critical_gaps=[],
+            output_language="en",
+            keyword_ledger=kwargs.get("keyword_ledger", LEDGER),
+        )
+
+    def test_claimable_terms_and_evidence_present(self):
+        prompt = self._prompt()
+        assert "Python" in prompt
+        assert "5 years building FastAPI services" in prompt
+        assert "managed K8s cluster" in prompt
+
+    def test_honest_gap_term_is_in_do_not_claim_section_not_as_a_strength(self):
+        prompt = self._prompt()
+        low = prompt.lower()
+        claimable_block, sep, forbidden_block = low.partition("do not claim (honest gaps")
+        assert sep, "expected an explicit do-not-claim (honest gaps) heading"
+        assert "rust" in forbidden_block
+        assert "rust" not in claimable_block
+
+    def test_backward_compatible_without_ledger(self):
+        from applire.prompts.cv_segmented import build_summary_prompt
+
+        prompt = build_summary_prompt(
+            directive={"summary_angle": "x"},
+            job_analysis={},
+            profile={},
+            critical_gaps=[],
+            output_language="de",
+        )
+        assert "OUTPUT LANGUAGE: GERMAN" in prompt
+
+    def test_system_prompt_instructs_leading_with_claimable_concepts(self):
+        from applire.prompts.cv_segmented import SUMMARY_SECTION_SYSTEM_PROMPT
+
+        low = SUMMARY_SECTION_SYSTEM_PROMPT.lower()
+        assert "claimable" in low
+        assert "lead" in low
+
+
+class TestCvSingleCallSummaryRuleLeadsWithLedger:
+    """#235 — the single-call path already threads the ledger block into the prompt,
+    but SYSTEM_PROMPT Rule 4 never told the writer to prioritise it for the summary.
+    Strengthened wording, not a new feature."""
+
+    def test_system_prompt_rule_4_leads_with_claimable_concepts(self):
+        from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+
+        low = SYSTEM_PROMPT.lower()
+        assert "claimable" in low
+        # Rule 4 (summary) must reference leading with ledger concepts, not just Rule 3 (skills).
+        idx_rule4 = low.find("write a concise professional summary")
+        assert idx_rule4 != -1
+        window = low[idx_rule4: idx_rule4 + 500]
+        assert "claimable" in window
+        assert "lead" in window
+
+
 class TestCoverLetterConsumesLedger:
     def _prompt(self):
         from applire.prompts.cover_letter import build_cover_letter_prompt

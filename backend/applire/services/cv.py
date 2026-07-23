@@ -265,7 +265,9 @@ async def generate_cv_segmented(
         })
 
     summary_res = await provider.aparse_json(
-        build_summary_prompt(directive, job_analysis, profile, critical_gaps, output_language),
+        build_summary_prompt(
+            directive, job_analysis, profile, critical_gaps, output_language, keyword_ledger
+        ),
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     skills_res = await provider.aparse_json(
