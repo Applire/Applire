@@ -90,7 +90,50 @@ const MISATTRIBUTED_REPORT: TruthfulnessReport = {
   stated_limit: "This report verifies document-vault consistency only.",
 };
 
+// #237 (F14): a letter-shaped report where unverifiable dominates and NOTHING
+// is flagged must not read as the green "everything backed" headline.
+const UNVERIFIABLE_DOMINATED_REPORT: TruthfulnessReport = {
+  version: "1.1",
+  document_kind: "cover_letter",
+  claims: [
+    {
+      claim: { text: "Cut deployment time by 40%.", location: "body.paragraphs[0][0]", kind: "sentence" },
+      verdict: { verdict: "grounded", checker: "numbers", evidence: [], detail: null },
+    },
+    ...Array.from({ length: 8 }, (_, i) => ({
+      claim: {
+        text: `Soft formulaic claim number ${i}.`,
+        location: `body.paragraphs[${i + 1}][0]`,
+        kind: "sentence" as const,
+      },
+      verdict: {
+        verdict: "unverifiable" as const,
+        checker: "grounding" as const,
+        evidence: [],
+        detail: null,
+      },
+    })),
+  ],
+  counts: { grounded: 1, inflated: 0, misattributed: 0, unbacked: 0, unverifiable: 8 },
+  stated_limit: "This report verifies document-vault consistency only.",
+};
+
 describe("TruthfulnessPanel", () => {
+  it("unverifiable-dominated report (F14): headline is NOT the green all-clear state", () => {
+    render(withIntl(<TruthfulnessPanel report={UNVERIFIABLE_DOMINATED_REPORT} />));
+    const status = screen.getByTestId("truthfulness-status");
+    expect(status.textContent).not.toContain("everything backed");
+    expect(status.className).not.toContain("text-on-surface");
+    expect(status.className).toContain("text-warning");
+  });
+
+  it("grounded-dominated report stays the green all-clear state (unchanged)", () => {
+    render(withIntl(<TruthfulnessPanel report={ALL_GREEN_REPORT} />));
+    const status = screen.getByTestId("truthfulness-status");
+    expect(status.textContent).toContain("everything backed");
+  });
+
+
   it("misattributed claims are loud red flags on the compact card (Oracle v2, #196)", () => {
     render(withIntl(<TruthfulnessPanel report={MISATTRIBUTED_REPORT} />));
     // counts as "needs review", not all-clear
