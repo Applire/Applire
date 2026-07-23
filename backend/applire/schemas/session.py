@@ -57,6 +57,20 @@ class SessionCreateResponse(BaseModel):
     resumed: bool = False  # True only when resuming an in-progress session the
     # user has already answered at least one question in (drives the "welcome
     # back" banner). A freshly created/idempotently-returned session is False.
+    # issue #241 (F9/F10/F16 item 1) — the interview split-screen cluster
+    # tracker was inferring the "active" cluster from gaps_remaining via array
+    # arithmetic, which desyncs from the real critical_gaps/gap_clusters order
+    # (follow-up questions on the same gap, skipped gaps, gate/conflict entries
+    # interleaved ahead of real clusters). These are the actual server-side
+    # anchors: current_gap_id is the critical_gaps entry (== the gap-cluster id
+    # for a real MODE A cluster) the session is currently asking about, if any;
+    # addressed_gap_ids are the entries already resolved. Both are read-only —
+    # they mirror InterviewState fields that already existed, nothing new is
+    # computed. A value that doesn't match a real cluster id (a gate:/conflict:/
+    # confirmation: pseudo-entry, or a MODE B section name) is honestly not a
+    # cluster the frontend tracker knows about; it should not be force-mapped.
+    current_gap_id: str | None = None
+    addressed_gap_ids: list[str] = []
 
 
 class ConflictSummary(BaseModel):
@@ -98,6 +112,12 @@ class SessionMessageResponse(BaseModel):
     pending_conflicts: list[ConflictSummary] | None = None
     # Populated when the reconciler flags an ambiguity it will not guess (US185)
     pending_confirmations: list[ConfirmationPrompt] | None = None
+    # issue #241 item 1 — see SessionCreateResponse for the honesty rationale.
+    # current_gap_id: the critical_gaps entry this turn's question belongs to
+    # (unchanged on a follow-up/re-ask, advanced on a resolved gap). None only
+    # when there is no current gap (should not occur on a non-complete turn).
+    current_gap_id: str | None = None
+    addressed_gap_ids: list[str] | None = None
 
 
 class SessionStateResponse(BaseModel):

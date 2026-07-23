@@ -36,7 +36,7 @@
     "optional": "(Optional — du kannst das später hinzufügen)",
     "analyzeButton": "Analysieren & Profil erstellen",
     "uploadAtLeastOne": "Lade mindestens einen Lebenslauf hoch, um fortzufahren",
-    "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden",
+    "usuallyTakes": "Das dauert normalerweise wenige Minuten — bei umfangreichen Lebensläufen kann es länger dauern",
     "addMoreFiles": "Weitere Dateien hinzufügen für ein vollständigeres Profil",
     "linkedinHint": "Tipp: Ein PDF-Export deines LinkedIn-Profils zählt als Lebenslauf.",
     "noCv": "Keinen Lebenslauf zur Hand?",
@@ -102,7 +102,7 @@
       "detailMergedCVs": "{count} Lebensläufe zu einheitlichem Profil zusammengeführt",
       "errorFlowNotFound": "Ablauf nicht gefunden. Bitte starten Sie erneut.",
       "percentComplete": "{pct} % abgeschlossen",
-      "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden"
+      "usuallyTakes": "Das dauert normalerweise wenige Minuten — bei umfangreichen Lebensläufen kann es länger dauern"
     },
     "cancelApplication": "Bewerbung abbrechen",
     "cancelApplicationInline": "Kein Match? Bewerbung abbrechen",
@@ -1040,6 +1040,11 @@
     "confirmDownload": "Ja, das entspricht meiner Erfahrung",
     "confirmDefault": "Sieht gut aus",
     "attestationNote": "Mit dem Download bestätigst du, dass der Inhalt deine tatsächliche Erfahrung widerspiegelt.",
+    "storyChallenge": "Herausforderung",
+    "storyMechanism": "Vorgehen",
+    "storyOutcome": "Ergebnis",
+    "storyBenchmark": "Vergleichswert",
+    "storyLabel": "{label}: ",
     "action": {
       "added": "hinzugefügt",
       "updated": "geändert",
@@ -1056,6 +1061,7 @@
       "projects": "Projekte",
       "publications": "Veröffentlichungen",
       "volunteer_activities": "Ehrenamtliche Tätigkeiten",
+      "signature_stories": "Erfolgsgeschichte",
       "*": "Profil"
     },
     "rationale": {

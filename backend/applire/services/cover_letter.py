@@ -234,8 +234,15 @@ async def get_cover_letter_status(
 async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
     """Build the Content-Disposition filename for a cover-letter PDF (E039/US219).
 
-    Format: <name>_<company>_<role>_Anschreiben.pdf — same contract as the CV
+    Format: <name>_<company>_<role>_<suffix>.pdf — same contract as the CV
     filename; the suffix keeps the pair from colliding in a Downloads folder.
+
+    issue #241 item 3 — the suffix must follow the letter's actual output
+    language, not be hardcoded to German. The letter itself carries no
+    language field of its own; its content language is the JD's language,
+    resolved via ``resolve_jd_language`` (ADR-038 — the same resolution
+    `generate_cover_letter`/`_inject_letter_date`/etc. already use to write the
+    letter, so the filename can never disagree with the document it names).
     """
     from applire.services.cv import compose_document_filename
 
@@ -246,12 +253,15 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     profile = await db.get(MasterProfile, cl.profile_id)
     name = ((profile.profile_json or {}).get("personal_info") or {}).get("name") if profile else None
     job = await db.get(JobAnalysis, cl.job_analysis_id)
+    language = resolve_jd_language(job) if job is not None else "de"
+    suffix = "Cover-Letter" if language == "en" else "Anschreiben"
+    fallback_stem = "cover-letter" if language == "en" else "anschreiben"
     return compose_document_filename(
         name,
         job.company_name if job else None,
         job.role_title if job else None,
-        suffix="Anschreiben",
-        fallback=f"anschreiben-{str(cl_id)[:8]}",
+        suffix=suffix,
+        fallback=f"{fallback_stem}-{str(cl_id)[:8]}",
     )
 
 

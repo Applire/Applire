@@ -159,4 +159,82 @@ describe("WhatChangedReview", () => {
     expect(row).toHaveTextContent("Engineering Team Lead @ AcmeCo");
     expect(screen.getByTestId("what-changed-oldvalue")).toBeInTheDocument();
   });
+
+  // issue #241 item 2 — a signature_stories change carries the FULL story blob
+  // in newValue (ADR-055 / apply.py, Oracle receipts by blob containment). The
+  // generic displayValue() dump ("id: …, title: …, experience_refs: …") reads
+  // as a raw key-value dump, not a story; this section must render it as a
+  // story card instead, with id/experience_refs hidden.
+  describe("signature story rows (#241 item 2)", () => {
+    const STORY = {
+      id: "story-123",
+      title: "Cut deploy time from 45 to 8 minutes",
+      challenge: "Deploys took 45 minutes and blocked releases.",
+      mechanism: "Parallelized the CI pipeline and cached the Docker layers.",
+      outcome: "Deploy time dropped to 8 minutes; releases went daily.",
+      benchmark: "82% faster",
+      experience_refs: ["exp-1", "exp-2"],
+      source: "interview",
+    };
+
+    it("renders title + challenge/mechanism/outcome instead of a raw key-value dump", () => {
+      render(
+        <WhatChangedReview
+          mode="interview"
+          changes={[
+            { section: "signature_stories", field: STORY.title, action: "added", newValue: STORY },
+          ]}
+        />,
+      );
+      const row = screen.getByTestId("what-changed-story");
+      expect(row).toHaveTextContent(STORY.title);
+      expect(row).toHaveTextContent(STORY.challenge);
+      expect(row).toHaveTextContent(STORY.mechanism);
+      expect(row).toHaveTextContent(STORY.outcome);
+      expect(row).toHaveTextContent(STORY.benchmark);
+    });
+
+    it("hides id and experience_refs — no raw key-value dump leaks through", () => {
+      render(
+        <WhatChangedReview
+          mode="interview"
+          changes={[
+            { section: "signature_stories", field: STORY.title, action: "added", newValue: STORY },
+          ]}
+        />,
+      );
+      const row = screen.getByTestId("what-changed-row");
+      expect(row).not.toHaveTextContent("story-123");
+      expect(row).not.toHaveTextContent("exp-1");
+      expect(row).not.toHaveTextContent("id:");
+      expect(row).not.toHaveTextContent("experience_refs:");
+    });
+
+    it("uses the signature-story section label, not the generic fallback", () => {
+      render(
+        <WhatChangedReview
+          mode="interview"
+          changes={[
+            { section: "signature_stories", field: STORY.title, action: "added", newValue: STORY },
+          ]}
+        />,
+      );
+      expect(screen.getByText("section.signature_stories")).toBeInTheDocument();
+    });
+
+    it("falls back to the generic row for a non-story-shaped signature_stories change", () => {
+      // Defensive: an unexpected shape (e.g. a bare string) must not crash or
+      // silently drop the value — it degrades to the existing generic render.
+      render(
+        <WhatChangedReview
+          mode="interview"
+          changes={[
+            { section: "signature_stories", field: "x", action: "added", newValue: "not a story object" },
+          ]}
+        />,
+      );
+      expect(screen.queryByTestId("what-changed-story")).toBeNull();
+      expect(screen.getByText("not a story object")).toBeInTheDocument();
+    });
+  });
 });

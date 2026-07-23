@@ -74,6 +74,34 @@ function confirmKey(mode: ReviewMode): string {
 
 const stringify = displayValue;
 
+/**
+ * A Signature Story (ADR-055) is stored as the FULL blob in FieldChange.new_value
+ * — never flattened — because the Oracle attaches receipts by blob containment
+ * (apply.py `_apply_upsert_signature_story`). The generic `displayValue()` dump
+ * (`id: …, title: …, challenge: …`) is honest about the data but unreadable as
+ * a review row; this narrows to the shape and renders it as a story instead
+ * (issue #241 item 2). `id` / `experience_refs` are internal plumbing, not part
+ * of the narrative a candidate reviews, so they stay hidden here.
+ */
+interface SignatureStoryValue {
+  title: string;
+  challenge: string;
+  mechanism: string;
+  outcome: string;
+  benchmark?: string | null;
+}
+
+function isSignatureStoryValue(value: unknown): value is SignatureStoryValue {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.title === "string" &&
+    typeof v.challenge === "string" &&
+    typeof v.mechanism === "string" &&
+    typeof v.outcome === "string"
+  );
+}
+
 export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }: WhatChangedReviewProps) {
   const t = useTranslations("review");
 
@@ -94,7 +122,12 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {changes.map((change, i) => (
+          {changes.map((change, i) => {
+            const story =
+              change.section === "signature_stories" && isSignatureStoryValue(change.newValue)
+                ? change.newValue
+                : null;
+            return (
             <li
               key={`${change.section}-${change.field}-${i}`}
               data-testid="what-changed-row"
@@ -107,21 +140,45 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                   </Badge>
                   <Badge variant="outline">{t(`action.${change.action}`)}</Badge>
                 </div>
-                {change.newValue != null && (
-                  <p className="mt-1 flex items-center gap-2 text-sm">
-                    {change.oldValue != null && stringify(change.oldValue) !== "" && (
-                      <>
-                        <span
-                          data-testid="what-changed-oldvalue"
-                          className="truncate text-muted-foreground line-through"
-                        >
-                          {stringify(change.oldValue)}
-                        </span>
-                        <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      </>
+                {story ? (
+                  <div data-testid="what-changed-story" className="mt-1 space-y-1">
+                    <p className="truncate text-sm font-medium text-foreground">{story.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{t("storyLabel", { label: t("storyChallenge") })}</span>
+                      {story.challenge}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{t("storyLabel", { label: t("storyMechanism") })}</span>
+                      {story.mechanism}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{t("storyLabel", { label: t("storyOutcome") })}</span>
+                      {story.outcome}
+                    </p>
+                    {story.benchmark && (
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">{t("storyLabel", { label: t("storyBenchmark") })}</span>
+                        {story.benchmark}
+                      </p>
                     )}
-                    <span className="truncate font-medium text-foreground">{stringify(change.newValue)}</span>
-                  </p>
+                  </div>
+                ) : (
+                  change.newValue != null && (
+                    <p className="mt-1 flex items-center gap-2 text-sm">
+                      {change.oldValue != null && stringify(change.oldValue) !== "" && (
+                        <>
+                          <span
+                            data-testid="what-changed-oldvalue"
+                            className="truncate text-muted-foreground line-through"
+                          >
+                            {stringify(change.oldValue)}
+                          </span>
+                          <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        </>
+                      )}
+                      <span className="truncate font-medium text-foreground">{stringify(change.newValue)}</span>
+                    </p>
+                  )
                 )}
                 {(change.rationaleKey || change.rationale) && (
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -143,7 +200,8 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
                 </Button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

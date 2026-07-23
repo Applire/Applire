@@ -537,6 +537,12 @@ class TestCreateSession:
         assert result.resumed is False
         assert result.gaps_total == 2
         assert "Tell me about GCP" in result.question
+        # issue #241 item 1 — the created session's first current_gap_id IS the
+        # real gap-cluster id (matches gap_analysis.gap_clusters[0]["id"]), so
+        # the frontend tracker can highlight the actual current cluster from
+        # session creation onward, not just index 0 by assumption.
+        assert result.current_gap_id == "cluster-gcp-certification"
+        assert result.addressed_gap_ids == []
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_no_profile_raises(self, sqlite_session):
@@ -1162,6 +1168,78 @@ class TestSendMessage:
         assert result.complete is False
         # Still on the same (first) gap → both gaps remain.
         assert result.gaps_remaining == 2
+
+    @pytest.mark.asyncio
+    async def test_advance_response_carries_new_current_gap_id(self, sqlite_session):
+        """issue #241 item 1 — the turn response exposes the honest server-side
+        anchor for the frontend cluster tracker: current_gap_id advances to the
+        NEW gap and addressed_gap_ids gains the just-resolved one. The frontend
+        must never have to infer this via gaps_remaining array arithmetic."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _addressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I have 3 years of GCP experience.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Advanced off "GCP certification" onto "FastAPI experience".
+        assert result.current_gap_id == "FastAPI experience"
+        assert result.addressed_gap_ids == ["GCP certification"]
+
+    @pytest.mark.asyncio
+    async def test_follow_up_response_keeps_same_current_gap_id(self, sqlite_session):
+        """The honesty half of #241 item 1: a follow-up (re-ask on the SAME gap,
+        e.g. the "Q4 re-asked a already-✓ cluster" wobble) must NOT report the
+        gap as addressed and must NOT change current_gap_id — the frontend
+        tracker must not mark a cluster resolved on a turn that didn't resolve
+        it."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Have you taken any GCP architect exams?", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I've done some GCP work.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.current_gap_id == "GCP certification"
+        assert result.addressed_gap_ids == []
         assert "GCP architect" in result.question
 
     @pytest.mark.asyncio
