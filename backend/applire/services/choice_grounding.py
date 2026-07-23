@@ -45,6 +45,20 @@ detection). Chips naming no employer are unaffected — today's whole-profile
 cluster-term check still applies.
 
 Truthfulness-critical: sits directly beside the honesty pipeline (ADR-040).
+
+Honesty-frame clause scoping (adversarial pass 2026-07-23): ``_is_honesty_frame``
+matches markers against the WHOLE chip, so a single "haven't" anywhere used to
+exempt the entire chip from every check above — including the #236
+employer-scoped guard. Live trace: "I haven't used Tailwind CSS directly, but
+I've worked with React and Next.js ... at StartupXYZ" — Next.js/React are real,
+but only at TechCorp GmbH, never StartupXYZ; the fabricated, misattributed
+AFFIRMATIVE clause rode along with the legitimate Tailwind denial.
+``filter_ungrounded_choices`` now splits an honesty frame at its denial→
+affirmation pivot (``_split_honesty_frame``) and runs the SAME checks — cluster/
+JD-term evidence, and the #236 employer-scoped guard when it names a known
+employer — on the affirmative remainder only. The denial clause itself stays
+fully exempt (naming the denied term is the point). A pure denial with no
+pivot keeps today's full-chip exemption.
 """
 
 import re
@@ -130,6 +144,65 @@ def _is_honesty_frame(choice: str) -> bool:
     # the ASCII-only match over-dropped truthful frames).
     folded = choice.casefold().replace("’", "'").replace("ʼ", "'")
     return any(marker in folded for marker in _HONESTY_MARKERS)
+
+
+# ── honesty-frame clause scoping — denial→affirmation pivot ─────────────────
+# Deterministic pivot phrases (EN + DE) that separate a denial clause from an
+# affirmative remainder in the "I haven't worked with X directly, but ..."
+# shape every real honesty-frame chip in this test suite uses. Matched
+# case-insensitively against a length-preserving fold (quotes only — NOT
+# casefold(), which can change string length for e.g. German "ß" and would
+# desync the position map back onto the original text).
+_PIVOT_MARKERS: tuple[str, ...] = (
+    ", but ", "; but ", ". but ",
+    ", though ", ", however ",
+    " — but ",
+    # German
+    ", aber ", ". aber ",
+)
+
+
+def _fold_for_split(text: str) -> str:
+    """Length-preserving lower+quote-fold used only to locate marker/pivot
+    byte offsets that must map 1:1 back onto the original string."""
+    return _fold_quotes(text).lower()
+
+
+def _split_honesty_frame(text: str) -> tuple[str, str | None]:
+    """Split an honesty-frame chip at its denial→affirmation pivot.
+
+    Returns ``(text, None)`` for a pure denial with no pivot after its
+    honesty marker — today's full-chip exemption is unchanged. Otherwise
+    returns ``(denial, affirmative)`` split at the LAST pivot phrase that
+    occurs after the FIRST honesty marker in the chip. The denial half is
+    never checked (naming the denied term is the point); the affirmative
+    half goes through the normal grounding pipeline as its own chip.
+    """
+    folded = _fold_for_split(text)
+
+    marker_pos = -1
+    for marker in _HONESTY_MARKERS:
+        pos = folded.find(marker)
+        if pos != -1 and (marker_pos == -1 or pos < marker_pos):
+            marker_pos = pos
+    if marker_pos == -1:
+        return text, None  # caller only invokes this when _is_honesty_frame matched
+
+    pivot_start, pivot_end = -1, -1
+    for pivot in _PIVOT_MARKERS:
+        search_from = marker_pos
+        while True:
+            idx = folded.find(pivot, search_from)
+            if idx == -1:
+                break
+            if idx > pivot_start:
+                pivot_start, pivot_end = idx, idx + len(pivot)
+            search_from = idx + 1
+
+    if pivot_start == -1:
+        return text, None  # pure denial — no affirmative clause to check
+
+    return text[:pivot_start], text[pivot_end:]
 
 
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
@@ -280,8 +353,22 @@ def _passes_employer_scoped_guard(
     terms: list[str],
     matched_entries: list[dict],
     profile: dict,
+    *,
+    require_asserted_for_content_check: bool = False,
 ) -> bool:
-    """Rule A.1 (tech×employer) + A.2 (fabricated-context coverage), #236."""
+    """Rule A.1 (tech×employer) + A.2 (fabricated-context coverage), #236.
+
+    ``require_asserted_for_content_check`` (honesty-frame affirmative clauses
+    only, adversarial pass 2026-07-23): skip A.2 when the clause asserts NO
+    cluster/JD term at all. A.2 exists to catch invented narrative WRAPPED
+    AROUND an already-verified tech claim; without at least one asserted term
+    it has no verified peg to scope itself against, and firing it anyway would
+    over-drop vague-but-harmless affirmations (the #207 over-drop lesson) —
+    e.g. an honesty frame's affirmative half that merely gestures back at the
+    denied term with a pronoun ("... but I've run it in production at
+    Applire") rather than restating it. The full-chip (non-honesty-frame) path
+    keeps A.2 unconditional, matching the original #236 fixtures.
+    """
     scoped_evidence = _employer_scoped_evidence(matched_entries, profile)
 
     # A.1 — cluster/JD terms the chip asserts must be evidenced under THIS
@@ -289,6 +376,9 @@ def _passes_employer_scoped_guard(
     asserted = [t for t in terms if surface_present(t, choice_norm)]
     if not all(surface_present(t, scoped_evidence) for t in asserted):
         return False
+
+    if require_asserted_for_content_check and not asserted:
+        return True
 
     # A.2 — the chip's remaining free text must reach a defensible coverage
     # threshold against the employer's own bullets (catches invented context
@@ -310,16 +400,22 @@ def filter_ungrounded_choices(
 ) -> list[str] | None:
     """Drop chips that assert experience the profile doesn't evidence.
 
-    Keep a chip when it is an honesty frame, or when every cluster/JD term it
-    mentions is evidenced in the profile. Returns ``None`` when nothing
-    survives (the UI then shows the plain answer box — no scaffold beats a
-    fabricated one).
+    Keep a chip when every cluster/JD term it mentions is evidenced in the
+    profile. Returns ``None`` when nothing survives (the UI then shows the
+    plain answer box — no scaffold beats a fabricated one).
 
     #236: when a chip names a known employer, the check is scoped to THAT
     employer's own evidence (tech×employer attribution) and its remaining
     free text must clear a content-coverage bar against that employer's own
     bullets (fabricated-context detection) — see ``_passes_employer_scoped_guard``.
     Chips naming no employer keep the original whole-profile cluster-term check.
+
+    Honesty-frame clause scoping (adversarial pass 2026-07-23): a chip that
+    denies direct experience ("I haven't worked with X directly, but ...") is
+    split at its denial→affirmation pivot (``_split_honesty_frame``) and the
+    checks above run on the AFFIRMATIVE remainder only. The denial clause
+    itself is always exempt — naming the denied term is the point. A pure
+    denial with no pivot keeps full-chip exemption, unchanged.
     """
     if not choices:
         return None
@@ -334,7 +430,22 @@ def filter_ungrounded_choices(
         if not text:
             continue
         if _is_honesty_frame(text):
-            kept.append(text)
+            _denial, affirmative = _split_honesty_frame(text)
+            if affirmative is None:
+                kept.append(text)  # pure denial, no pivot — full exemption
+                continue
+            aff_norm = _norm(_fold_quotes(affirmative))
+            matched_entries = _match_employers(aff_norm, work_experience)
+            if matched_entries:
+                if _passes_employer_scoped_guard(
+                    aff_norm, terms, matched_entries, profile,
+                    require_asserted_for_content_check=True,
+                ):
+                    kept.append(text)
+                continue
+            asserted = [t for t in terms if surface_present(t, aff_norm)]
+            if all(surface_present(t, evidence) for t in asserted):
+                kept.append(text)
             continue
         choice_norm = _norm(_fold_quotes(text))
         matched_entries = _match_employers(choice_norm, work_experience)

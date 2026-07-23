@@ -254,6 +254,106 @@ class TestEmployerScopedAttributionGuard:
         assert filter_ungrounded_choices([chip], AI_CLUSTER, BIONTECH_PROFILE, "B") == [chip]
 
 
+# ── honesty-frame clause scoping (adversarial pass, 2026-07-23) ──────────────
+# Live-reproduced bypass: "I haven't used Tailwind CSS directly, but I've
+# worked with React and Next.js to create responsive applications at
+# StartupXYZ" — Next.js/React exist ONLY at TechCorp GmbH in the vault, never
+# at StartupXYZ. The whole-chip honesty exemption let the fabricated,
+# employer-misattributed AFFIRMATIVE clause ride along with the legitimate
+# Tailwind denial, bypassing the #236 employer-scoped guard entirely.
+FRONTEND_CLUSTER = {
+    "id": "cluster-frontend",
+    "label": "Frontend framework experience",
+    "gaps": ["Next.js"],
+    "jd_skills": ["Next.js", "React"],
+    "jd_context": "Own our customer-facing web app (React, Next.js).",
+}
+
+TECHCORP_WORK_ENTRY = {
+    "id": "techcorp-1",
+    "company": "TechCorp GmbH",
+    "role": "Frontend Engineer",
+    "responsibilities": [
+        "Built responsive customer-facing applications using React and Next.js."
+    ],
+    "achievements": [],
+    "technologies": ["React", "Next.js", "TypeScript"],
+}
+
+STARTUPXYZ_WORK_ENTRY = {
+    "id": "startupxyz-1",
+    "company": "StartupXYZ",
+    "role": "Backend Engineer",
+    "responsibilities": ["Built REST APIs with Node.js and PostgreSQL."],
+    "achievements": [],
+    "technologies": ["Node.js", "PostgreSQL", "Docker"],
+}
+
+FRONTEND_PROFILE = {
+    "skills": [],
+    "work_experience": [TECHCORP_WORK_ENTRY, STARTUPXYZ_WORK_ENTRY],
+}
+
+
+class TestHonestyFrameClauseScoping:
+    def test_verbatim_startupxyz_chip_is_dropped(self):
+        # The live-reproduced bug: Next.js/React misattributed to StartupXYZ.
+        chip = (
+            "I haven't used Tailwind CSS directly, but I've worked with React "
+            "and Next.js to create responsive applications at StartupXYZ"
+        )
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
+
+    def test_same_chip_with_employer_corrected_is_kept(self):
+        # Identical claim, correct employer — the affirmative clause is truthful.
+        chip = (
+            "I haven't used Tailwind CSS directly, but I've worked with React "
+            "and Next.js to create responsive applications at TechCorp"
+        )
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_truthful_affirmative_clause_with_correct_employer_is_kept(self):
+        # Over-drop discipline (#207 lesson): a truthful honesty-frame
+        # affirmation naming the RIGHT employer must survive.
+        chip = (
+            "I haven't used Tailwind directly, but I've worked with React and "
+            "Next.js at TechCorp."
+        )
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_pure_denial_with_no_pivot_keeps_full_exemption(self):
+        chip = "I haven't used Tailwind CSS directly."
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_pure_denial_typographic_apostrophe_no_pivot_keeps_full_exemption(self):
+        chip = "I haven’t used Tailwind CSS directly."
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_pure_denial_german_no_pivot_keeps_full_exemption(self):
+        chip = "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet."
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_german_pivot_misattributed_affirmative_is_dropped(self):
+        chip = (
+            "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet, aber ich "
+            "habe React und Next.js bei StartupXYZ eingesetzt."
+        )
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
+
+    def test_german_pivot_correct_employer_affirmative_is_kept(self):
+        chip = (
+            "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet, aber ich "
+            "habe React und Next.js bei TechCorp eingesetzt."
+        )
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+    def test_affirmative_naming_no_employer_with_evidenced_term_is_kept(self):
+        # No employer named in the affirmative — today's whole-profile
+        # cluster-term check still applies (unchanged).
+        chip = "I haven't used GraphQL directly, but I've built with Next.js."
+        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+
+
 def _mode_a_state() -> dict:
     return {
         "mode": "targeted",
