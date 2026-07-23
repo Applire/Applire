@@ -259,6 +259,118 @@ class TestRestoreLedgerBullets:
         _restore_ledger_bullets(tailored, profile_json, ledger, budget)
         assert tailored.work_history[0].bullets == generic
 
+    def test_caps_entry_over_budget_even_without_restoration(self):
+        """#234-adjacent friction finding: the #122 coverage-review loop can push
+        the writer to ADD a bullet with no ceiling awareness of its own. This
+        entry already carries every claimable concept (nothing to restore) but
+        landed at 6 bullets against a max_bullets=5 ceiling -- the guard must
+        still cap it, cutting the no-hit bullet first."""
+        from applire.services.cv import _restore_ledger_bullets
+
+        profile_json, ledger, generic, hits = _founder_fixture()
+        forms = [f"Concept{i}" for i in range(1, 6)]
+        # 5 hit bullets (all claimable concepts already present) + 1 no-hit
+        # generic bullet the review loop tacked on -- 6 total, nothing missing.
+        six_bullets = list(hits) + [generic[0]]
+        tailored = _tailored_cv(six_bullets)
+        budget = _budget(5, claimable_forms=forms)
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 5
+        assert generic[0] not in final_bullets
+        for h in hits:
+            assert h in final_bullets
+
+    def test_caps_entry_even_when_every_surviving_bullet_is_a_hit(self):
+        """Live-reproduced shape: RoleBudget max_bullets=5, the writer/review loop
+        landed on 6 bullets that ALL carry a claimable hit. The ceiling still
+        applies -- the later-listed (last-in) hit bullet is cut."""
+        from applire.services.cv import _restore_ledger_bullets
+
+        profile_json, ledger, generic, hits = _founder_fixture()
+        forms = [f"Concept{i}" for i in range(1, 6)]
+        # 6 bullets, all hits (5 known concepts + a 6th that also carries Concept1
+        # again so nothing is "missing" -- pure over-ceiling, no restoration).
+        six_hit_bullets = list(hits) + ["Also delivered further Concept1 rollout"]
+        tailored = _tailored_cv(six_hit_bullets)
+        budget = _budget(5, claimable_forms=forms)
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 5
+        # Later-listed (last-in) bullet is cut first -- LIFO among equal hit-status.
+        assert "Also delivered further Concept1 rollout" not in final_bullets
+        assert final_bullets == hits
+
+    def test_entries_under_ceiling_are_left_untouched_and_unreordered(self):
+        """No restoration needed (every claimable concept already surfaces
+        elsewhere in the document) and already within budget -- the entry,
+        incl. its original bullet ORDER, must not be touched at all."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+
+        profile_json, ledger, generic, hits = _founder_fixture()
+        forms = [f"Concept{i}" for i in range(1, 6)]
+        # All 5 concepts already present -- in the SUMMARY, so nothing is
+        # "missing" and restoration never triggers for this entry.
+        two_bullets = [generic[0], hits[0]]
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Max"},
+            "summary": "Delivered Concept1 Concept2 Concept3 Concept4 Concept5 work.",
+            "work_history": [{
+                "id": "w1", "company": "Acme", "role": "Engineer",
+                "start_date": "2020-01", "end_date": None, "bullets": list(two_bullets),
+            }],
+            "skills": [],
+        })
+        budget = _budget(5, claimable_forms=forms)
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        assert result.work_history[0].bullets == two_bullets
+
+    def test_capping_without_restoration_is_idempotent(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        profile_json, ledger, generic, hits = _founder_fixture()
+        forms = [f"Concept{i}" for i in range(1, 6)]
+        six_bullets = list(hits) + [generic[0]]
+        tailored = _tailored_cv(six_bullets)
+        budget = _budget(5, claimable_forms=forms)
+
+        once = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        twice = _restore_ledger_bullets(once, profile_json, ledger, budget)
+
+        assert twice.work_history[0].bullets == once.work_history[0].bullets
+
+    def test_restore_and_cap_interact_in_one_pass(self):
+        """A vault restoration pushes an entry over budget in the SAME pass that
+        performs the restoration -- restore-then-cap must both happen, evicting
+        no-hit bullets first even though they were never touched by restoration."""
+        from applire.services.cv import _restore_ledger_bullets
+
+        profile_json, ledger, generic, hits = _founder_fixture()
+        forms = [f"Concept{i}" for i in range(1, 6)]
+        # Draft already has 4 hit bullets (Concept1-4) plus 2 generic no-hit
+        # bullets -- 6 total. Concept5 is still missing and must be restored,
+        # which would make 7 without capping; ceiling is 5.
+        draft = [hits[0], hits[1], hits[2], hits[3], generic[0], generic[1]]
+        tailored = _tailored_cv(draft)
+        budget = _budget(5, claimable_forms=forms)
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 5
+        assert hits[4] in final_bullets  # Concept5 was restored
+        for h in hits[:4]:
+            assert h in final_bullets  # pre-existing hits all survive
+        assert generic[0] not in final_bullets
+        assert generic[1] not in final_bullets
+
     def test_only_restores_from_the_matching_vault_entry(self):
         """A vault bullet on a DIFFERENT work entry must never be restored onto
         this one, even if it carries a missing claimable concept."""

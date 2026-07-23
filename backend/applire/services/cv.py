@@ -44,7 +44,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
@@ -629,6 +629,33 @@ def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> Tailored
     return TailoredCVData.model_validate(data)
 
 
+def _cap_bullets(
+    bullets: list[str], is_hit: Callable[[str], bool], max_bullets: int
+) -> list[str]:
+    """Trim ``bullets`` down to ``max_bullets``, mirroring
+    ``cv_budget.condense_to_budget``'s cut order: no-hit bullets are removed
+    before hit bullets, and within an equal hit-status the later-listed bullet
+    is removed first (so the earliest, typically strongest, bullets survive).
+    A hit bullet is NEVER removed while a no-hit bullet remains.
+
+    Unlike the restore-path reordering in ``_restore_ledger_bullets`` (which
+    intentionally regroups hits-first), this preserves the SURVIVORS' original
+    relative order -- entries this pass didn't otherwise touch must not have
+    their bullet order perturbed, only cut down to size.
+
+    No-op (returns ``bullets`` unchanged, same object) when already within budget.
+    """
+    if len(bullets) <= max_bullets:
+        return bullets
+    indexed = [(i, b, is_hit(b)) for i, b in enumerate(bullets)]
+    # Ascending (has_hit, -order): no-hit (False) sorts before hit (True); within
+    # a tie, the higher (later) order sorts first -- i.e. later-listed first.
+    removal_order = sorted(indexed, key=lambda t: (t[2], -t[0]))
+    cut = len(bullets) - max_bullets
+    removed_idx = {t[0] for t in removal_order[:cut]}
+    return [b for i, b, _hit in indexed if i not in removed_idx]
+
+
 def _restore_ledger_bullets(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -660,6 +687,16 @@ def _restore_ledger_bullets(
     A concept is restored at most once (into the first entry — reverse-
     chronological order — whose vault text carries it), so a second pass over an
     already-restored document is a no-op. Pure; ``tailored`` is left unmutated.
+
+    Ceiling enforcement is unconditional, not restoration-conditional (friction
+    finding adjacent to #234): EVERY work entry is capped at its
+    ``RoleBudget.max_bullets`` even when this pass restored nothing into it, since
+    upstream (the writer, or the #122 coverage-review loop asking for a reworded
+    sentence) has no ceiling awareness of its own and can leave an entry over
+    budget with no restoration ever happening. No-hit bullets are cut before hit
+    bullets, later-listed before earlier — mirrors ``cv_budget.condense_to_budget``'s
+    cut order exactly. Entries already within budget keep their original bullets
+    AND order untouched.
     """
     if not keyword_ledger:
         return tailored
@@ -667,9 +704,11 @@ def _restore_ledger_bullets(
     from applire.services.ats_audit import _norm, surface_present
     from applire.services.keyword_ledger import verified_missing_claimable
 
+    # NOTE: deliberately no early return when ``missing`` is empty — an entry can
+    # still be over its RoleBudget ceiling with nothing left to restore (the #122
+    # coverage-review loop pushing an ADD with no ceiling awareness of its own),
+    # and the per-entry loop below must run to enforce that ceiling regardless.
     missing = verified_missing_claimable(tailored.model_dump(mode="json"), keyword_ledger)
-    if not missing:
-        return tailored
 
     # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
     # this guard MUST run after it so tailored ids are populated.
@@ -726,20 +765,34 @@ def _restore_ledger_bullets(
                 existing_norms.add(vb_norm)
                 remaining.pop(hit_idx)
 
-        if not restored:
+        rb = budget.roles.get(eid) if budget is not None else None
+
+        if restored:
+            changed = True
+            hits = [b for b in existing_bullets if _is_hit(b)] + restored
+            no_hits = [b for b in existing_bullets if not _is_hit(b)]
+            ordered = hits + no_hits
+            if rb is not None and len(ordered) > rb.max_bullets:
+                ordered = ordered[: rb.max_bullets]
+            w_dict["bullets"] = ordered
             new_work.append(w_dict)
             continue
 
-        changed = True
-        hits = [b for b in existing_bullets if _is_hit(b)] + restored
-        no_hits = [b for b in existing_bullets if not _is_hit(b)]
-        ordered = hits + no_hits
+        # Nothing to restore into this entry, but #234-adjacent friction finding:
+        # upstream passes (the writer, and the #122 coverage-review loop) have no
+        # ceiling awareness of their own -- a review-driven ADD can leave an entry
+        # over its RoleBudget with nothing downstream to trim it back except a
+        # page-overrun condense pass that may never fire. Enforce the ceiling
+        # deterministically here too, mirroring cv_budget.condense_to_budget's cut
+        # order (no-hit bullets first, later-listed first within a tie -- a hit
+        # bullet is only ever cut once every no-hit bullet is gone). Untouched
+        # (under-ceiling) entries keep their original bullets AND order exactly.
+        if rb is not None and len(existing_bullets) > rb.max_bullets:
+            capped = _cap_bullets(existing_bullets, _is_hit, rb.max_bullets)
+            if capped != existing_bullets:
+                changed = True
+                w_dict["bullets"] = capped
 
-        rb = budget.roles.get(eid) if budget is not None else None
-        if rb is not None and len(ordered) > rb.max_bullets:
-            ordered = ordered[: rb.max_bullets]
-
-        w_dict["bullets"] = ordered
         new_work.append(w_dict)
 
     if not changed:
