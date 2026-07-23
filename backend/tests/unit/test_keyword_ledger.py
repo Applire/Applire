@@ -726,6 +726,42 @@ def test_denial_with_unicode_apostrophe_statement_still_matches_on_concept():
     assert e["claimable"] is False
 
 
+def test_word_boundary_regression_ai_ml_survives_ml_training_denial():
+    """Founder-acceptance adversarial pass (2026-07-23): a candidate denied
+    "machine learning model training" while explicitly reaffirming AI/ML
+    integration work in the same statement. Before the word-boundary fix,
+    _enforce_denial_stance force-killed the unrelated JD-required concept
+    "AI/ML" (fit_weight 1.0) because its short surface forms ("AI"/"ML")
+    collided as bare substrings inside "tr-ai-ning" — the exact class #207
+    deliberately excludes ml/ai from _ALIAS_GROUPS for. "Machine learning"
+    itself — the concept the candidate actually named as a whole word — must
+    still be suppressed."""
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "AI/ML", "direct", ["AI/ML", "AI", "ML"],
+                evidence="hands-on AI/ML integration experience",
+            ),
+            _cls(
+                "Machine learning", "partial", ["Machine learning"],
+                evidence="adjacency guess",
+            ),
+        ],
+        required_skills=["AI/ML", "Machine learning"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["machine learning model training"],
+    )
+    by_concept = _by_concept(ledger)
+    ai_ml = by_concept["AI/ML"]
+    assert ai_ml["status"] == "direct"
+    assert ai_ml["claimable"] is True
+
+    ml = by_concept["Machine learning"]
+    assert ml["status"] == "gap"
+    assert ml["claimable"] is False
+
+
 def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
     """F8's exact surface: LegalTech, denied via interview testimony, must not
     reach the ATS panel's "supported by your profile" claimable list — the
