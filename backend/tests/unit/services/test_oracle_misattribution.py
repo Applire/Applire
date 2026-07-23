@@ -369,6 +369,78 @@ async def test_entailment_grounded_on_exclusively_foreign_evidence_is_downgraded
     assert verdict.checker == "attribution"
 
 
+# ── #237 signature-story owner_ids (interview evidence gains an owner) ───────
+
+def test_signature_story_units_carry_owner_ids_from_experience_refs():
+    """A story anchored to a specific experience via ``experience_refs``
+    (US172/ADR-055 provenance pattern) becomes a FOREIGN owner for claims
+    rendered under any other position — the F14 fix (#237)."""
+    profile = dict(PROFILE)
+    profile["signature_stories"] = [
+        {
+            "title": "Testing culture",
+            "challenge": "Flaky releases undermined trust.",
+            "mechanism": "Introduced comprehensive test automation.",
+            "outcome": "Established reliability practices with full observability.",
+            "experience_refs": ["w-old"],
+        }
+    ]
+    index = build_vault_index(profile)
+    owners = {u.path: u.owner_ids for u in index.units}
+    assert owners["signature_stories[0].outcome"] == frozenset({"w-old"})
+    assert owners["signature_stories[0].mechanism"] == frozenset({"w-old"})
+
+
+def test_signature_story_without_experience_refs_stays_owner_neutral():
+    """A job-agnostic story (no experience_refs) still grounds any position —
+    only stories anchored to a real experience gain an owner."""
+    profile = dict(PROFILE)
+    profile["signature_stories"] = [
+        {
+            "title": "General practice",
+            "challenge": "N/A",
+            "mechanism": "N/A",
+            "outcome": "Consistently applies rigorous testing practices.",
+        }
+    ]
+    index = build_vault_index(profile)
+    owners = {u.path: u.owner_ids for u in index.units}
+    assert owners["signature_stories[0].outcome"] == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_story_backed_claim_under_foreign_role_is_misattributed():
+    """End-to-end: a claim anchored to w-new whose ONLY backing evidence is a
+    story owned by w-old is misattributed — exactly the F14 blend shape."""
+    profile = dict(PROFILE)
+    profile["signature_stories"] = [
+        {
+            "title": "Testing culture",
+            "challenge": "Flaky releases undermined trust.",
+            "mechanism": "Introduced comprehensive test automation.",
+            "outcome": (
+                "Established comprehensive testing, observability, and "
+                "reliability practices."
+            ),
+            "experience_refs": ["w-old"],
+        }
+    ]
+    verdict = await verify_claim(
+        Claim(
+            text=(
+                "Established comprehensive testing, observability, and "
+                "reliability practices."
+            ),
+            location="body.paragraphs[0][0].clauses[1]",
+            kind="clause",
+            source_experience_id="w-new",
+        ),
+        profile,
+    )
+    assert verdict.verdict == "misattributed"
+    assert verdict.checker == "attribution"
+
+
 @pytest.mark.asyncio
 async def test_unknown_source_id_fails_open():
     """A stamped id the vault does not know (backfill heuristics, stale data)
