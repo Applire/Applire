@@ -194,7 +194,7 @@ async def _ask_or_complete_at(
 
     profile_record = await _load_profile(state["profile_id"], db)
     if gaps_remaining <= 0:
-        return await _complete_session(record, state, db, "gaps_resolved", profile_record)
+        return await _complete_session(record, state, db, "gaps_resolved", provider, profile_record)
 
     next_gap = state["critical_gaps"][next_index]
     gate_entry = _gate_entry(state, next_gap)
@@ -1341,7 +1341,7 @@ async def send_message(
 
     # --- Done-signal check (pre-LLM, deterministic) ---
     if is_termination_signal(message):
-        return await _complete_session(record, state, db, "user_ended")
+        return await _complete_session(record, state, db, "user_ended", provider)
 
     current_idx = state["current_gap_index"]
     current_gap = state["critical_gaps"][current_idx]
@@ -1418,7 +1418,7 @@ async def send_message(
         # confirmation-surfacing branch below — so carry any reconciler ambiguity
         # into the completion response instead of silently dropping it.
         return await _complete_session(
-            record, state, db, "max_questions_reached", profile_record,
+            record, state, db, "max_questions_reached", provider, profile_record,
             pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations)
             if turn.pending_confirmations
             else None,
@@ -1474,7 +1474,7 @@ async def send_message(
         # Gap exhaustion check
         if gaps_remaining <= 0:
             return await _complete_session(
-                record, state, db, "gaps_resolved", profile_record
+                record, state, db, "gaps_resolved", provider, profile_record
             )
 
         # Generate next question
@@ -1629,6 +1629,7 @@ async def _complete_session(
     state: InterviewState,
     db: AsyncSession,
     reason: str,
+    provider: LLMProvider,
     profile_record: MasterProfile | None = None,
     pending_confirmations: list | None = None,
     conflict_summaries: list | None = None,
@@ -1639,6 +1640,23 @@ async def _complete_session(
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
+    # Capture scalars off `record` BEFORE any further commit/rollback below —
+    # a rollback (e.g. the IntegrityError branch inside analyze_gaps' idempotency
+    # race handling) unconditionally expires ORM state regardless of
+    # expire_on_commit, and a later lazy-load on an expired attribute inside an
+    # async session raises (sync IO in an async context). Mirrors the
+    # capture-ids-before-commit lesson from #122/#207.
+    session_id = record.id
+    job_analysis_id = record.job_analysis_id
+    fallback_questions_asked = record.questions_asked
+
+    # Also read off profile_record's completeness NOW, before analyze_gaps runs
+    # below — same expiry hazard as `record` above.
+    completeness = 0.0
+    if profile_record is not None:
+        profile_data = MasterProfileData.model_validate(profile_record.profile_json)
+        completeness = profile_data.calculate_completeness()
+
     # Issue #68: completing the interview must move the flow off the 'interview'
     # step, else resuming from the dashboard re-opens it with a fresh session.
     # Lazy import to avoid a session<->flow import cycle (mirrors the lazy-import
@@ -1648,19 +1666,42 @@ async def _complete_session(
     # here must not break the completion response.
     from applire.services.flow.orchestrator import advance_flow_on_interview_complete
     try:
-        await advance_flow_on_interview_complete(record.id, db)
+        await advance_flow_on_interview_complete(session_id, db)
     except Exception:
         logger.warning(
             "Flow advance after interview completion failed for session %s; "
             "flow left on 'interview' step (recoverable via Generate CV)",
-            record.id,
+            session_id,
             exc_info=True,
         )
 
-    completeness = 0.0
-    if profile_record is not None:
-        profile_data = MasterProfileData.model_validate(profile_record.profile_json)
-        completeness = profile_data.calculate_completeness()
+    # #240: an interview that closed gap clusters must refresh the match score
+    # that reaches the gaps page / CV workspace — without this, FlowSession.
+    # gap_analysis_id stays pointed at the pre-interview row forever (analyze_gaps
+    # only repoints the flow on ITS OWN recompute paths — /gaps/refresh,
+    # gap-click — never on interview completion, which advanced the flow's step
+    # but never touched the gap-analysis FK). Runs for every completion reason
+    # (gaps_resolved, user_ended, max_questions_reached — the targeted
+    # micro-session resolve_gap rides) so every way an interview ends refreshes
+    # the score. clamp_to_previous=True: added evidence is monotonic-up, so
+    # completing an interview can never LOWER the displayed score. Idempotent
+    # per (job, profile-fingerprint) — if the profile didn't change this turn,
+    # analyze_gaps cheaply reuses the existing row instead of re-running the LLM.
+    # Best-effort: the interview is already committed complete above; a failure
+    # here must not break the completion response — the next /gaps/refresh or
+    # gap-click recomputes it.
+    if job_analysis_id is not None:
+        try:
+            await analyze_gaps(job_analysis_id, db, provider, clamp_to_previous=True)
+        except Exception:
+            logger.warning(
+                "Post-interview gap recompute failed for session %s (job %s); "
+                "match score left on the pre-interview analysis (recoverable "
+                "via gaps/refresh)",
+                session_id,
+                job_analysis_id,
+                exc_info=True,
+            )
 
     addressed = state.get("addressed_gaps", [])
     all_gaps = state.get("critical_gaps", [])
@@ -1676,7 +1717,7 @@ async def _complete_session(
     return SessionMessageResponse(
         complete=True,
         reason=reason,
-        questions_asked=state.get("questions_asked", record.questions_asked),
+        questions_asked=state.get("questions_asked", fallback_questions_asked),
         gaps_resolved=len(addressed),
         gaps_unresolved=unresolved,
         completeness_score=completeness,
