@@ -135,6 +135,29 @@ def _independently_affirmed(token: str, denials: list[str], corpus: str) -> bool
     return any(_word_present(v, stripped) for v in _fold_variants(_norm(token)))
 
 
+def _bounded_present(form: str, text_norm: str) -> bool:
+    """Word-boundary variant of ``surface_present`` for the denial-matching
+    predicate (adversarial pass, 2026-07-23): a candidate denied "machine
+    learning model training" while explicitly REAFFIRMING AI/ML integration
+    work in the same statement, and the ledger floor force-killed the
+    unrelated, JD-required concept "AI/ML" because ``surface_present``'s bare
+    substring search let "ai" collide inside "tr-ai-ning" — the exact
+    collision class #207 deliberately excludes ml/ai from ``_ALIAS_GROUPS``
+    for. The grounding side (``_grounded``/``_word_present``) was already
+    boundary-guarded; the denial-side containment check was not.
+
+    Mirrors ``surface_present``'s fold-variants (plural morphology) but
+    requires every variant to hit at a word boundary (reuses ``_word_present``
+    — one instrument, not a second matcher). A denial that names a token as a
+    genuine whole word ("I have no AI experience") still matches; only the
+    ambiguous embedded-substring collision is excluded.
+    """
+    n = _norm(form)
+    if not n:
+        return False
+    return any(_word_present(v, text_norm) for v in _fold_variants(n))
+
+
 def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     """Is the token covered by the model's own denial verdict?
 
@@ -148,6 +171,11 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
       denied ONLY if the corpus never affirms the token outside the compound
       (#207: a denial of the compound is not a denial of the part). Without a
       grounding corpus (cv_upload/manual) this stays fail-closed.
+
+    Both containment checks are word-boundary matched (``_bounded_present``,
+    2026-07-23 fix) — a bare substring search let short/ambiguous tokens
+    ('ai', 'ml', 'css') false-match inside unrelated words in EITHER
+    direction ('ai' ⊂ 'training'; a short denial 'ai' ⊂ 'maintenance').
     """
     token_norm = _norm(token)
     if not token_norm:
@@ -157,9 +185,9 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
         d_norm = _norm(d)
         if not d_norm:
             continue
-        if any(surface_present(d, tf) for tf in token_forms):
+        if any(_bounded_present(d, tf) for tf in token_forms):
             return True
-        if surface_present(token, d_norm):
+        if _bounded_present(token, d_norm):
             if corpus is None or not _independently_affirmed(token, denials, corpus):
                 return True
     return False
