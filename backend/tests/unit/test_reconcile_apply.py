@@ -631,6 +631,98 @@ def test_upsert_certification_match_fill_unparseable_date_fills_nothing():
     _roundtrips(result.profile)
 
 
+# ── #239: cross-language / symbol / cognate-stem certification dupes ─────────
+# Founder-acceptance F6: a two-source import (CV PDF + LinkedIn PDF) produced
+# three EN/DE or symbol/morphological duplicate pairs that the lexical-only
+# near-dupe machinery let through as silent new entries (no confirmation ever
+# — worse than AMBIGUOUS).
+
+
+def test_upsert_certification_cross_language_pair_merges():
+    """'Expert for Computersystemvalidation' (EN) / 'Experte für
+    Computervalidierung' (DE) — disjoint token sets under skill_tokens alone,
+    must merge via the certifications-only cross-language fold."""
+    profile = _profile_with_certification("Expert for Computersystemvalidation")
+    ops = [UpsertCertification(name="Experte für Computervalidierung")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert not result.pending_confirmations
+
+
+def test_upsert_certification_symbol_variant_merges():
+    """'ITIL Foundation Level' / 'ITIL® Foundation' — the ® fuses onto the
+    adjacent token ('itil®'), pushing the pair below the near-dupe threshold
+    unless the trademark symbol is stripped first."""
+    profile = _profile_with_certification("ITIL Foundation Level")
+    ops = [UpsertCertification(name="ITIL® Foundation")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert not result.pending_confirmations
+
+
+def test_upsert_certification_cognate_stem_variant_merges():
+    """'...Software Architect...' / '...Software Architecture...' — a Jaccard
+    overlap of 0.71, just under the 0.75 near-dupe threshold, resolved by
+    folding the architect/architecture cognate stem."""
+    profile = _profile_with_certification(
+        "Certified Professional Software Architect Foundation Level"
+    )
+    ops = [UpsertCertification(
+        name="Certified Professional for Software Architecture Foundation Level"
+    )]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert not result.pending_confirmations
+
+
+def test_upsert_certification_credential_id_matches_despite_different_names():
+    """Same credential_id is a definitive identity anchor — matches even when
+    the two sides used completely different display names for it."""
+    profile = MasterProfileData(certifications=[
+        Certification(name="ITIL Foundation", credential_id="GR123456789")
+    ])
+    ops = [UpsertCertification(name="Information Technology Infrastructure Library",
+                               credential_id="gr123456789")]  # case-insensitive match
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1
+    assert not result.pending_confirmations
+
+
+def test_upsert_certification_same_issuer_different_cert_does_not_merge():
+    """Two genuinely different AWS certifications from the same issuer must
+    NOT merge just because the issuer matches (#239 negative case)."""
+    profile = MasterProfileData(certifications=[
+        Certification(name="AWS Certified Solutions Architect",
+                      issuing_organization="Amazon Web Services")
+    ])
+    ops = [UpsertCertification(name="AWS Certified Developer",
+                               issuing_organization="Amazon Web Services")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 2
+
+
+def test_upsert_certification_itil_foundation_vs_expert_does_not_merge():
+    """'ITIL Foundation' and 'ITIL Expert' are different certification levels
+    — must not merge (#239 negative case)."""
+    profile = _profile_with_certification("ITIL Foundation")
+    ops = [UpsertCertification(name="ITIL Expert")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 2
+
+
+def test_upsert_certification_weak_similarity_asks_instead_of_appending():
+    """A bare single-token containment on the folded names, with no shared
+    issuer to confirm identity either way, must ask rather than silently
+    decide (#239 direction 3: prefer AMBIGUOUS over silent merge AND over
+    silent append)."""
+    profile = _profile_with_certification("AWS")
+    ops = [UpsertCertification(name="AWS Certified Developer")]
+    result = apply_ops(profile, ops, source="test")
+    assert len(result.profile.certifications) == 1          # not appended
+    assert len(result.pending_confirmations) == 1
+    assert result.pending_confirmations[0].context["section"] == "certifications"
+
+
 def test_upsert_publication_match_fill_coerces_partial_date():
     profile = _profile_with_publication("Model-based Testing of Embedded Systems")
     ops = [UpsertPublication(title="Model-Based Testing of Embedded Systems",

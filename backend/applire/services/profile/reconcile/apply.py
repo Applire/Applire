@@ -52,7 +52,11 @@ from applire.schemas.profile import (
     _coerce_partial_date,
 )
 
-from applire.services.profile.reconcile.dedupe import classify_dupe, classify_engagement_dupe
+from applire.services.profile.reconcile.dedupe import (
+    classify_certification_dupe,
+    classify_dupe,
+    classify_engagement_dupe,
+)
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     FlagConflict,
@@ -758,8 +762,14 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
 
 
 def _apply_upsert_certification(op, profile, changes, pending):
-    verdict = classify_dupe(
-        {"name": op.name}, profile.certifications, {"name": lambda c: c.name}
+    verdict = classify_certification_dupe(
+        name=op.name,
+        issuing_organization=op.issuing_organization,
+        credential_id=op.credential_id,
+        existing=profile.certifications,
+        name_getter=lambda c: c.name,
+        org_getter=lambda c: c.issuing_organization,
+        credential_id_getter=lambda c: c.credential_id,
     )
     if verdict.match is not None:
         # #177 review: coerce raw op strings onto date-typed fields BEFORE the
