@@ -45,23 +45,33 @@ from applire.services.keyword_ledger import _norm, upgrade_ledger_for_concepts
 from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
+from applire.services.profile.reconcile.stance import record_denials
 
 logger = logging.getLogger(__name__)
 
 _SOURCE = "agent_interview"
 
 
-def _derive_status(result: ClaimResult) -> str:
+def _derive_status(
+    result: ClaimResult, *, has_applied_changes: bool, has_denial: bool
+) -> str:
     """Documented precedence: error > needs_confirmation > conflict > applied
-    > no_change (the three lists are parallel — one claim can yield all)."""
+    > denial_recorded > no_change (the three lists are parallel — one claim
+    can yield all). ``has_applied_changes``/``has_denial`` are passed
+    separately from ``result.changes`` (#231): that list may carry BOTH a real
+    op change and a denial receipt, and only the former counts as "applied" —
+    a denial-only turn must read as its own honest status, never masquerade
+    as an applied profile change."""
     if result.detail is not None:
         return "error"
     if result.confirmations:
         return "needs_confirmation"
     if result.conflicts:
         return "conflict"
-    if result.changes:
+    if has_applied_changes:
         return "applied"
+    if has_denial:
+        return "denial_recorded"
     return "no_change"
 
 
@@ -186,19 +196,33 @@ async def submit_agent_claims(
         current.metadata.pending_confirmations.extend(confirmations)
         current.metadata.pending_conflicts.extend(applied.conflicts)
 
-        if applied.changes:
+        # #231 — persist the reconciler's own denial verdict into the vault
+        # (previously discarded: enforce_stance strips a denied token from
+        # THIS turn's ops, but rc.denials itself never survived past the
+        # call). Runs whether or not the turn also applied real ops.
+        denial_changes = record_denials(
+            current.metadata,
+            rc.denials,
+            statement=claim.statement,
+            source=_SOURCE,
+            when=datetime.now(timezone.utc),
+        )
+        receipt_changes = applied.changes + denial_changes
+
+        if receipt_changes:
             current.metadata.enrichment_history.append(
                 EnrichmentRecord(
                     timestamp=datetime.now(timezone.utc),
                     source=_SOURCE,
                     source_session_id=submission_id,
-                    changes=applied.changes,
+                    changes=receipt_changes,
                 )
             )
             # Ledger upgrade — gated exactly like the interview's addressed-gate
             # (#188): only a claim that actually changed the profile may flip
-            # its (pre-validated, exact-member) concept.
-            if claim.gap and gap_row is not None and gap_row.keyword_ledger:
+            # its (pre-validated, exact-member) concept. A denial-only receipt
+            # must NEVER upgrade a ledger entry — gate stays on applied.changes.
+            if applied.changes and claim.gap and gap_row is not None and gap_row.keyword_ledger:
                 new_ledger, changed = upgrade_ledger_for_concepts(
                     gap_row.keyword_ledger, [claim.gap], claim.statement
                 )
@@ -221,11 +245,19 @@ async def submit_agent_claims(
         result = ClaimResult(
             index=index,
             status="no_change",
-            changes=applied.changes,
+            changes=receipt_changes,
             confirmations=confirmations,
             conflicts=applied.conflicts,
         )
-        result = result.model_copy(update={"status": _derive_status(result)})
+        result = result.model_copy(
+            update={
+                "status": _derive_status(
+                    result,
+                    has_applied_changes=bool(applied.changes),
+                    has_denial=bool(denial_changes),
+                )
+            }
+        )
         results.append(result)
 
     # Persist once. metadata.last_updated / completeness_score recompute stays

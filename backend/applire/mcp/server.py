@@ -113,7 +113,7 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-07-22"
+GUIDE_VERSION = "2026-07-23"
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +365,8 @@ async def update_profile(section: str, data: dict | list) -> dict:
         "call). Optional `gap` must be an EXACT concept string from "
         "analyze_gaps output (requires job_id). Ambiguous or conflicting "
         "claims are parked for the candidate in the profile Health hub, "
-        "reported per claim."
+        "reported per claim. A denial is recorded too (status "
+        "denial_recorded), never silently dropped."
     )
 )
 async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
@@ -534,13 +535,19 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     #   needs_confirmation — the reconciler flagged an ambiguity it won't guess
     #     (the answer WAS applied, but a refinement is parked for the human);
     #   addressed — the testimony wrote a change into the vault;
-    #   no_change — a valid answer that added nothing (e.g. an honest "no").
+    #   denial_recorded (#231) — the testimony explicitly denied a skill and
+    #     nothing else changed; the denial IS recorded (metadata.denied_concepts
+    #     + a receipt) so a later analyze_gaps run cannot re-infer it via
+    #     adjacency — never silently "no_change";
+    #   no_change — a valid answer that added nothing AND denied nothing.
     pending = [c.model_dump(mode="json") for c in (result.pending_confirmations or [])]
     conflicts = [c.model_dump(mode="json") for c in (result.pending_conflicts or [])]
     if pending or conflicts:
         status = "needs_confirmation"
     elif result.changes_applied:
         status = "addressed"
+    elif result.denial_recorded:
+        status = "denial_recorded"
     else:
         status = "no_change"
     out = {

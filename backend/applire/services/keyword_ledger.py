@@ -32,6 +32,8 @@ import logging
 import re
 from typing import Any
 
+from applire.services.profile.reconcile.stance import is_denied_concept
+
 logger = logging.getLogger(__name__)
 
 # fit_weight by the strongest source a concept belongs to.
@@ -241,6 +243,62 @@ def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             entry = {**entry, "surface_forms": forms or [entry.get("concept", "")]}
         result.append(entry)
+    return result
+
+
+def _enforce_denial_stance(
+    ledger: list[dict[str, Any]], denied_concepts: list[str] | None
+) -> list[dict[str, Any]]:
+    """The candidate's PERSISTED denials (#231, ProfileMetadata.denied_concepts)
+    are a hard floor the classifier's own adjacency inference can never
+    override.
+
+    Blind acceptance run 2026-07-23 (F8): a candidate denied hands-on
+    LegalTech/embedding-model/vector-store/reranker work in testimony, the
+    denial vanished (never persisted — fixed separately), and the NEXT
+    ``analyze_gaps`` run upgraded the denied concept via adjacency ("RAG
+    experience typically involves embeddings") from ``{gap, claimable: false}``
+    to ``{partial, claimable: true}``. This is the deterministic backstop once
+    the denial IS persisted: any ledger entry whose concept OR surface forms
+    match a denied concept is forced to ``gap``/``claimable: false`` regardless
+    of what the classifier said, its evidence replaced with an honest marker.
+
+    Matching reuses THE SAME instrument ``enforce_stance`` uses for the
+    same-turn op guard (``stance.is_denied_concept`` — alias groups,
+    word-boundary, unicode-normalized) — one predicate for both the reconcile-
+    time guard and this durable ledger floor, never a second matcher that
+    could quietly disagree (concept-scoped, NOT topic-radius: denying
+    "hands-on embeddings config" does not touch an unrelated "RAG" entry).
+    """
+    denials = [d for d in (denied_concepts or []) if _norm(d)]
+    if not denials:
+        return ledger
+
+    result: list[dict[str, Any]] = []
+    for entry in ledger:
+        concept = entry.get("concept", "")
+        forms = entry.get("surface_forms") or [concept]
+        denied = is_denied_concept(concept, denials) or any(
+            is_denied_concept(f, denials) for f in forms
+        )
+        if not denied:
+            result.append(entry)
+            continue
+        if entry.get("claimable"):
+            logger.warning(
+                "_enforce_denial_stance: forced claimable concept %r to gap — "
+                "the candidate explicitly denied it in testimony (#231, "
+                "ADR-040 never-claim-beats-claim outranks adjacency inference)",
+                concept,
+            )
+        result.append(
+            {
+                **entry,
+                "status": "gap",
+                "claimable": False,
+                "evidence": "Candidate explicitly stated a limit here (interview).",
+            }
+        )
     return result
 
 
@@ -579,6 +637,8 @@ def build_keyword_ledger(
     required_skills: list[str],
     nice_to_have_skills: list[str],
     keywords: list[str],
+    *,
+    denied_concepts: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
 
@@ -586,12 +646,18 @@ def build_keyword_ledger(
         classifications: LLM output, one per concept:
             ``{concept, status, evidence, surface_forms?}``.
         required_skills / nice_to_have_skills / keywords: the JD's three lists.
+        denied_concepts: concept tokens the candidate's own testimony
+            explicitly denied (``ProfileMetadata.denied_concepts``, #231) —
+            applied as a final deterministic floor (``_enforce_denial_stance``)
+            that the classifier's adjacency inference can never override.
 
     Returns:
         A list of ledger-entry dicts, each:
             ``{concept, surface_forms[], sources[], fit_weight, status,
                evidence, claimable}``.
-        ``claimable`` is ``status in {direct, partial}``.
+        ``claimable`` is ``status in {direct, partial}``, UNLESS the concept
+        was explicitly denied (see ``denied_concepts`` above), which always
+        wins.
     """
     # Authoritative JD expectation set: norm_key -> {"text", "sources"}.
     union: dict[str, dict[str, Any]] = {}
@@ -672,4 +738,5 @@ def build_keyword_ledger(
             }
         )
 
-    return _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
+    ledger = _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
+    return _enforce_denial_stance(ledger, denied_concepts)

@@ -777,6 +777,76 @@ async def test_engine_drops_ungrounded_interview_claims() -> None:
     assert result.ops == []
 
 
+# ── #231 — durable denial persistence + the public ledger-reuse predicate ───
+
+
+def test_record_denials_persists_and_writes_a_receipt_change() -> None:
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    changes = record_denials(
+        meta,
+        ["Embeddings"],
+        statement="No embeddings work.",
+        source="agent_interview",
+        when=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    assert len(changes) == 1
+    assert changes[0].field == "denied_concepts"
+    assert changes[0].action == "added"
+    assert len(meta.denied_concepts) == 1
+    assert meta.denied_concepts[0].concept == "Embeddings"
+    assert meta.denied_concepts[0].statement == "No embeddings work."
+    assert meta.denied_concepts[0].source == "agent_interview"
+    assert meta.denied_concepts[0].date == "2026-07-23"
+
+
+def test_record_denials_redenial_updates_in_place_case_insensitively() -> None:
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings work.",
+        source="agent_interview", when=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    changes2 = record_denials(
+        meta, ["embeddings"], statement="Confirmed: no embeddings work.",
+        source="agent_interview", when=datetime(2026, 7, 24, tzinfo=timezone.utc),
+    )
+    assert len(meta.denied_concepts) == 1, "re-denial must update, never duplicate"
+    assert meta.denied_concepts[0].statement == "Confirmed: no embeddings work."
+    assert meta.denied_concepts[0].date == "2026-07-24"
+    assert len(changes2) == 1
+    assert changes2[0].action == "updated"
+
+
+def test_record_denials_empty_or_blank_is_a_noop() -> None:
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    changes = record_denials(meta, ["", "   "], statement="x", source="interview")
+    assert changes == []
+    assert meta.denied_concepts == []
+
+
+def test_is_denied_concept_reuses_the_same_alias_and_boundary_machinery() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    assert is_denied_concept("Kubernetes", ["k8s"]) is True  # alias group (#207)
+    assert is_denied_concept("K8s", ["Kubernetes"]) is True
+    # concept-scoped, not topic-radius (#207 over-drop lesson): an unrelated
+    # concept must survive a denial of something else entirely.
+    assert is_denied_concept("RAG", ["embeddings"]) is False
+    assert is_denied_concept("", ["embeddings"]) is False
+
+
 def test_system_prompt_carries_stance_rule() -> None:
     # The prompt half of the two-layer fix: an explicit stance/denial rule and
     # the denials envelope key. (The mock fingerprint must survive the edit.)
