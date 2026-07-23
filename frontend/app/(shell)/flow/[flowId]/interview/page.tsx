@@ -67,6 +67,14 @@ interface SessionCreateResponse {
   gaps_remaining: number;
   choices: string[] | null;
   resumed: boolean;
+  // issue #241 item 1 — the cluster-tracker anchor the backend actually
+  // tracks (InterviewState.current_gap_index / addressed_gaps). current_gap_id
+  // is the critical_gaps entry being asked about right now; for a real MODE A
+  // gap-cluster session it is exactly the gap-cluster id used below. It is
+  // undefined/null for degenerate sessions (no critical gaps) — treated the
+  // same as "unknown" by the tracker.
+  current_gap_id?: string | null;
+  addressed_gap_ids?: string[];
 }
 
 interface ConflictSummary {
@@ -93,6 +101,9 @@ interface MessageResponse {
   completeness_score?: number;
   pending_conflicts?: ConflictSummary[];
   pending_confirmations?: PendingConfirmation[];
+  // issue #241 item 1 — see SessionCreateResponse; same honest anchor, per-turn.
+  current_gap_id?: string | null;
+  addressed_gap_ids?: string[] | null;
 }
 
 interface Message {
@@ -373,6 +384,18 @@ export default function InterviewPage({
         setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
         setChoices(sessionData.choices ?? null);
 
+        // issue #241 item 1 — anchor the cluster tracker to the server's own
+        // current_gap_id / addressed_gap_ids (InterviewState.current_gap_index /
+        // addressed_gaps) rather than guessing from array index arithmetic. On
+        // resume this also correctly restores already-resolved clusters instead
+        // of starting the tracker's resolved set empty.
+        if (sessionData.current_gap_id) {
+          setCurrentClusterId(sessionData.current_gap_id);
+        }
+        if (sessionData.addressed_gap_ids?.length) {
+          setResolvedClusterIds(new Set(sessionData.addressed_gap_ids));
+        }
+
         if (sessionData.resumed) {
           setResumed(true);
           setShowResumeBanner(true);
@@ -404,7 +427,10 @@ export default function InterviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tErrors is not identity-stable; re-running init would re-create sessions
   }, [flowId, router]);
 
-  // Set first cluster as current once gap analysis is loaded
+  // Fallback only: if the session response didn't supply a current_gap_id
+  // (e.g. a degenerate/legacy session), default to the first cluster once gap
+  // analysis loads. The init() effect above sets the real server-supplied
+  // value unconditionally once it arrives, so this never overrides it.
   useEffect(() => {
     if (gapAnalysis && gapAnalysis.gap_clusters.length > 0 && !currentClusterId) {
       setCurrentClusterId(gapAnalysis.gap_clusters[0].id);
@@ -467,17 +493,24 @@ export default function InterviewPage({
         // Update choices
         setChoices(data.choices ?? null);
 
-        // Advance cluster tracker
-        if (gapAnalysis && data.gaps_remaining !== undefined) {
-          const totalClusters = gapAnalysis.gap_clusters.length;
-          const resolvedCount = totalClusters - (data.gaps_remaining ?? 0);
-          const nextCluster = gapAnalysis.gap_clusters[resolvedCount];
-          if (currentClusterId) {
-            setResolvedClusterIds((prev) => new Set([...prev, currentClusterId]));
-          }
-          if (nextCluster) {
-            setCurrentClusterId(nextCluster.id);
-          }
+        // Advance cluster tracker (issue #241 item 1) — driven by the server's
+        // own current_gap_id / addressed_gap_ids, never by re-deriving progress
+        // from gaps_remaining via array-index arithmetic (that conflated
+        // fine-grained gap counts with coarse cluster indices: a follow-up
+        // question on the SAME gap was marking it ✓, and skipped/gate/conflict
+        // entries desynced the count from the cluster array). A turn that
+        // stays on the current gap (follow-up) reports the same current_gap_id
+        // and an unchanged addressed_gap_ids — so the tracker correctly leaves
+        // that cluster un-resolved instead of guessing it moved on.
+        if (data.addressed_gap_ids?.length) {
+          setResolvedClusterIds((prev) => {
+            const next = new Set(prev);
+            for (const id of data.addressed_gap_ids ?? []) next.add(id);
+            return next;
+          });
+        }
+        if (data.current_gap_id) {
+          setCurrentClusterId(data.current_gap_id);
         }
 
         if (data.completeness_score !== undefined) {
@@ -842,6 +875,8 @@ export default function InterviewPage({
                 return (
                   <div
                     key={cluster.id}
+                    data-testid={`gap-cluster-${cluster.id}`}
+                    data-status={isResolved ? "resolved" : isCurrent ? "current" : "pending"}
                     className={cn(
                       "rounded-md px-3 py-2 text-xs border-l-2 transition-colors",
                       isResolved

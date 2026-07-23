@@ -234,6 +234,8 @@ async def _ask_or_complete_at(
         question=next_question,
         gaps_remaining=gaps_remaining,
         choices=next_choices,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -266,7 +268,9 @@ async def _handle_gate_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     action = "merge" if decision == "merge" else "discard"
@@ -347,7 +351,9 @@ async def _handle_confirmation_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=options
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=options,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
@@ -463,6 +469,8 @@ async def _handle_interview_confirmation_answer(
         return SessionMessageResponse(
             complete=False, question=question, gaps_remaining=gaps_remaining,
             choices=options,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     profile_record = await _load_profile(state["profile_id"], db)
@@ -531,7 +539,9 @@ async def _handle_conflict_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     resolution = "existing" if decision == "existing" else "incoming"
@@ -602,6 +612,8 @@ async def _ask_confirmation(
         choices=list(confirmation.options),
         pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations),
         pending_conflicts=turn.conflict_summaries or None,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -777,6 +789,7 @@ async def create_profile_review_session(
         gaps_total=len(review_ids),
         gaps_remaining=len(review_ids),
         choices=first_choices,
+        current_gap_id=review_ids[0],
     )
 
 
@@ -910,6 +923,8 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
         gaps_remaining=gaps_remaining,
         choices=current_choices,
         resumed=answered,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -1067,6 +1082,7 @@ async def _create_targeted_session(
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
+        current_gap_id=first_cluster_id,
     )
 
 
@@ -1154,6 +1170,7 @@ async def _create_guided_session(
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
+        current_gap_id=first_cluster_id,
     )
 
 
@@ -1251,6 +1268,7 @@ async def _create_micro_session(
         gaps_total=1,
         gaps_remaining=1,
         choices=first_choices,
+        current_gap_id=target_cluster_id,
     )
 
 
@@ -1512,6 +1530,8 @@ async def send_message(
             gaps_remaining=gaps_remaining,
             pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=next_choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     else:
@@ -1551,6 +1571,8 @@ async def send_message(
             gaps_remaining=gaps_remaining,
             pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=None,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
 
@@ -1879,3 +1901,20 @@ def _count_remaining(
         1 for g in critical_gaps[from_index:]
         if g not in skipped_gaps
     )
+
+
+def _current_gap_id(state: InterviewState) -> str | None:
+    """The critical_gaps entry the session is currently asking about, if any.
+
+    issue #241 item 1 — the honest anchor for the frontend split-screen cluster
+    tracker. In MODE A this entry IS the gap-cluster id (gap_detector() builds
+    critical_gaps straight from gap_analysis.gap_clusters[].id), so the value
+    returned here can be matched 1:1 against the ids in GET /api/job/{id}/gaps.
+    Returns None when the index is out of range (defensive — should not happen
+    on a non-complete turn).
+    """
+    gaps = state.get("critical_gaps") or []
+    idx = state.get("current_gap_index", 0)
+    if 0 <= idx < len(gaps):
+        return gaps[idx]
+    return None
