@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.config import settings
 from applire.db.session import get_db
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
@@ -66,7 +67,10 @@ async def post_generate(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> CoverLetterGenerateResponse:
     """Enqueue async cover letter generation. Returns immediately with status='pending'."""
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await generate_cover_letter(body, db, provider, background_tasks, base_url)
     except LookupError as exc:
@@ -82,7 +86,10 @@ async def get_by_job(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> CoverLetterStatusResponse:
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await get_cover_letter_by_job(job_id, db, base_url)
     except LookupError as exc:
@@ -96,7 +103,10 @@ async def get_cl_status(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> CoverLetterStatusResponse:
-    base_url = str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    base_url = settings.applire_base_url.rstrip("/")
     try:
         return await get_cover_letter_status(cl_id, db, base_url)
     except LookupError as exc:

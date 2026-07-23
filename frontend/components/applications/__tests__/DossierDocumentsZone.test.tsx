@@ -300,6 +300,35 @@ describe("DossierDocumentsZone (US232 — full version recall)", () => {
     expect(onPinChange).not.toHaveBeenCalled();
   });
 
+  it("opens the PDF same-origin when the server returns an absolute URL with a different host (#232)", async () => {
+    // Behind a reverse proxy, the backend's own base_url setting can differ
+    // from the origin the browser actually reached the app on (wrong host/port
+    // dropped by the proxy). Since /api/* is always same-origin-proxied by
+    // Next.js (next.config rewrites), the path is trustworthy but the host in
+    // a server-provided absolute URL is not — prefer window.location.origin.
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [
+        {
+          cv_id: "cv-wrong-host",
+          status: "ready",
+          template: "classic_german",
+          created_at: "2026-07-10T09:00:00Z",
+          pdf_url: "http://wrong-host:9999/api/cv/cv-wrong-host/pdf",
+        },
+      ],
+    });
+
+    const row = await screen.findByTestId("dossier-doc-row");
+    fireEvent.click(within(row).getByTestId("dossier-doc-pdf"));
+
+    expect(window.open).toHaveBeenCalledWith(
+      `${window.location.origin}/api/cv/cv-wrong-host/pdf`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  });
+
   it("calls onError when the CV list fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     const onError = vi.fn();

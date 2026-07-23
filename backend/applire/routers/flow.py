@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.config import settings
 from applire.db.session import get_db
 from applire.schemas.flow import (
     AdvanceFlowRequest,
@@ -41,7 +42,13 @@ router = APIRouter(prefix="/api/flow", tags=["flow"])
 
 
 def _base_url(request: Request) -> str:
-    return str(request.base_url).rstrip("/")
+    # #232: derive from the operator-configured external origin, not the
+    # incoming request's Host — a reverse proxy on a non-80/443 port drops
+    # the port from request.base_url, pointing agents/UIs at the wrong origin.
+    # `request` is accepted (unused) to keep this a drop-in for the three
+    # call sites below, one of which also needs it for auth.get_current_user.
+    del request
+    return settings.applire_base_url.rstrip("/")
 
 
 @router.post("", response_model=CreateFlowResponse, status_code=status.HTTP_201_CREATED)

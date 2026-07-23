@@ -117,7 +117,17 @@ export function DossierDocumentsZone({
   }
 
   function openPdf(url: string) {
-    window.open(url, "_blank", "noopener,noreferrer");
+    // #232: the backend derives pdf_url/html_url from its own configured
+    // origin, which can differ from the origin the browser actually reached
+    // this app on (behind a reverse proxy, a mismatched setting drops the
+    // port). Next.js proxies every /api/* path to the backend same-origin
+    // (see next.config rewrites), so for API paths the host is not
+    // trustworthy but the path is — always open those same-origin.
+    const resolved = new URL(url, window.location.origin);
+    const target = resolved.pathname.startsWith("/api/")
+      ? `${window.location.origin}${resolved.pathname}${resolved.search}`
+      : url;
+    window.open(target, "_blank", "noopener,noreferrer");
   }
 
   async function handleMarkCvSent(cvId: string) {
