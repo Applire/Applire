@@ -402,3 +402,56 @@ async def test_parked_ambiguity_surfaces_as_needs_confirmation(db):
 
     assert result["status"] == "needs_confirmation"
     assert result["pending_confirmations"][0]["question"].startswith("Is this the same role")
+
+
+@pytest.mark.asyncio
+async def test_resolve_gap_inherits_completion_recompute(db):
+    """#240: resolve_gap's targeted micro-session completes through the SAME
+    _complete_session as the guided UI interview — it must inherit the
+    post-completion gap-analysis recompute + flow-FK repoint too, not just the
+    UI path. Unmocked composition (real MockLLMProvider) per the 2026-07-22
+    resolve_gap review finding that over-mocked tests prove nothing here."""
+    from applire.mcp.server import resolve_gap
+    from applire.models.gap import GapAnalysis
+    from applire.models.flow import FlowSession
+    from applire.models.user import User
+    from sqlalchemy import select
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    old_ga = (await db.execute(
+        select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
+    )).scalar_one()
+
+    user_id = uuid.uuid4()
+    db.add(User(id=user_id, email="local@applire.community"))
+    flow = FlowSession(
+        user_id=user_id, job_id=job_id, current_step="interview",
+        user_type="new", available_actions={"next": "cv_generation"},
+        gap_analysis_id=old_ga.id,
+    )
+    db.add(flow)
+    await db.commit()
+    await db.refresh(flow)
+
+    p1, p2 = _mock_provider_patches(db)
+    with p1, p2:
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s",
+            answer="I ran production Kubernetes clusters for three years at Acme.",
+        )
+    assert result["status"] in ("addressed", "no_change", "needs_confirmation")
+
+    all_rows = (await db.execute(
+        select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
+    )).scalars().all()
+    assert len(all_rows) == 2, (
+        "resolve_gap's micro-session completion did not trigger a recompute — "
+        "still only the pre-resolution gap_analyses row exists"
+    )
+    new_ga = next(r for r in all_rows if r.id != old_ga.id)
+
+    flow_after = (await db.execute(
+        select(FlowSession).where(FlowSession.id == flow.id)
+    )).scalar_one()
+    assert flow_after.gap_analysis_id == new_ga.id
+    assert flow_after.gap_analysis_id != old_ga.id
