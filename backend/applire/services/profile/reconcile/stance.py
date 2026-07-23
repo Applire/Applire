@@ -278,8 +278,11 @@ def record_denials(
 
 
 def _text_claims_denied(text: str, denials: list[str]) -> bool:
+    # Word-boundary matched (_bounded_present) for the same reason as _is_denied:
+    # a bare substring check let a denial of "AI" drop truthful bullets whose only
+    # "match" was inside "training"/"maintenance" (adversarial pass 2026-07-23).
     text_norm = _norm(text)
-    return any(surface_present(d, text_norm) for d in denials)
+    return any(_bounded_present(d, text_norm) for d in denials)
 
 
 def _grounding_corpus(new_info: Any, source: str) -> str | None:

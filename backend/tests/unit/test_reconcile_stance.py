@@ -966,3 +966,29 @@ def test_system_prompt_carries_stance_rule() -> None:
     assert "profile reconciler" in lowered  # mock fingerprint (mock.py keys on it)
     assert "denial" in lowered
     assert '"denials"' in RECONCILE_SYSTEM_PROMPT
+
+
+def test_bullet_with_substring_collision_word_is_not_dropped() -> None:
+    # Adversarial-pass follow-up (2026-07-23): _text_claims_denied shared the
+    # bare-substring hazard — a denial of "AI" must not drop a truthful bullet
+    # whose only "match" is the substring inside "training"/"maintenance".
+    ops = [
+        AddBullets(
+            target="w1",
+            achievements=[
+                "Led maintenance and training programs for the QC team",
+                "Built AI pipelines for document classification",
+            ],
+        )
+    ]
+    turn = {
+        "gap": "AI experience",
+        "question": "Do you have AI experience?",
+        "answer": "I have not built AI systems myself; I led maintenance and training programs for the QC team.",
+    }
+    out = enforce_stance(ops, denials=["AI"], new_info=turn, source="interview")
+    assert len(out) == 1
+    # The whole-word AI bullet dies; the training/maintenance bullet survives.
+    assert out[0].achievements == [
+        "Led maintenance and training programs for the QC team"
+    ]
