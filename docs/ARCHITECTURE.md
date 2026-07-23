@@ -544,6 +544,22 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 ---
 
+### ADR-057 — The Prism: Truthful Positioning as the Leading Principle (accepted 2026-07-21)
+
+**Decision:** Applire's leading principle — above the four pillars — is the **Prism**: present the strongest case the candidate's data can *truthfully* support. Concretely: a gap identified by `analyze_gaps` is never treated as a deficiency until classified with the human — an evidenced strength is shown, a *likely-but-unstated* strength is elicited and imported (via `resolve_gap` / `submit_claims`) before being treated as absent, and a *true* gap is either positioned honestly or de-emphasized. Positioning means **truthful altitude selection**: argue the lowest level of abstraction at which the candidate has real, evidenced experience, with the level stated explicitly — bounded by the truthfulness audit (any inflated/unbacked/misattributed verdict rejects the claim). The doctrine lives in the agent guide (`get_guide`); no new required tools.
+
+**Why:** Real-world testing showed a truthful pipeline can still produce a truthful-but-*flat* document — faithful to a profile that never captured the candidate's most relevant experience, and silent on why a gap isn't a deal-breaker. Verification without positioning is the flat CV; positioning without verification is lying. The two are designed as a pair.
+
+---
+
+### ADR-058 — One Capability Core, Two Doors: the Door-Parity Invariant (accepted 2026-07-23)
+
+**Decision:** Applire's product is its **deterministic capability core** — the Master Profile vault (reconciliation/notary), the Truthfulness Oracle, norms-checked rendering, the application tracker, and the deterministic analysis layer (keyword ledger, ATS audit). Each capability is a named operation with a public contract, consumed identically by the web UI and the MCP tools. The standing **door-parity invariant**: no capability may exist only inside the built-in generation pipeline — anything the pipeline can do to a user's documents must be reachable à-la-carte with equal semantics (same validation, same norms enforcement, same audit hooks); intentional differences are named parameters, never accidents of the entry path. Parity is CI-tested. The built-in pipeline itself is reframed as Applire's **bundled agent** for users who don't bring their own: fully supported, but with a written capability floor — it is frozen at its current feature set (bugfix-only) rather than competing with caller models on prose. The flow state machine becomes a browser-side convenience: no core operation requires a flow session.
+
+**Why:** Every capability that lived only inside the pipeline eventually surfaced as an agent-door limitation discovered the hard way. Making parity a tested invariant turns that defect class into a failing build — and it resolves the human-door/agent-door tension structurally: both doors are callers of the same core, so the user without an agent loses nothing while the user with one is never boxed in.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
