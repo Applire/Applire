@@ -948,6 +948,7 @@
     "unavailable": "Wahrheitsbericht für dieses Dokument nicht verfügbar.",
     "allClear": "{count, plural, one {# Aussage geprüft — alles durch Ihr Profil gedeckt} other {# Aussagen geprüft — alles durch Ihr Profil gedeckt}}",
     "needsReview": "{count, plural, one {# Aussage braucht Ihre Prüfung} other {# Aussagen brauchen Ihre Prüfung}}",
+    "mostlyUnverifiable": "Die meisten Aussagen konnten nicht mit Ihrem Profil abgeglichen werden ({unverifiable} von {total})",
     "unverifiableNote": "{count, plural, one {# weiche Aussage kann nicht gegen Ihr Profil geprüft werden} other {# weiche Aussagen können nicht gegen Ihr Profil geprüft werden}}",
     "detailsButton": "Details",
     "evidenceLabel": "Beleg aus Ihrem Profil:",

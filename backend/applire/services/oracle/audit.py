@@ -334,7 +334,7 @@ async def audit_document(
     if tailored_data is not None:
         claims = extract_claims_from_tailored(tailored_data)
     elif letter_data is not None:
-        claims = extract_claims_from_letter(letter_data)
+        claims = extract_claims_from_letter(letter_data, profile)
     else:
         claims = await extract_claims_from_text(text or "", provider=provider)
 

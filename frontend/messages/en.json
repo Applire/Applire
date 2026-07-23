@@ -948,6 +948,7 @@
     "unavailable": "Truthfulness report not available for this document.",
     "allClear": "{count, plural, one {# claim checked — everything backed by your profile} other {# claims checked — everything backed by your profile}}",
     "needsReview": "{count, plural, one {# claim needs your review} other {# claims need your review}}",
+    "mostlyUnverifiable": "Most claims couldn't be checked against your profile ({unverifiable} of {total})",
     "unverifiableNote": "{count, plural, one {# soft claim can't be checked against your profile} other {# soft claims can't be checked against your profile}}",
     "detailsButton": "Details",
     "evidenceLabel": "Evidence from your profile:",

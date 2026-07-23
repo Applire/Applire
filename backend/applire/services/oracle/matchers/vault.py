@@ -193,12 +193,24 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     # ADR-055 — signature stories: every prose field is an evidence unit, so a
     # document claim backed only by a story still verifies as grounded, and
     # figures stated in `outcome` become citable number provenance.
+    #
+    # #237 (F14): a story anchored to a specific experience via
+    # ``experience_refs`` (the Skill provenance pattern, US172) now carries
+    # that ownership too — an interview-derived story about a DIFFERENT role
+    # is a foreign owner for a claim rendered under another position, exactly
+    # like a work-entry achievement is (#196). A job-agnostic story (no
+    # experience_refs) stays owner-neutral and grounds any position, same as
+    # summary/skills — the presence of a real anchor is what changes, not the
+    # unit kind.
     for i, story in enumerate(p.signature_stories):
-        _add(f"signature_stories[{i}].title", story.title)
-        _add(f"signature_stories[{i}].challenge", story.challenge)
-        _add(f"signature_stories[{i}].mechanism", story.mechanism)
-        _add(f"signature_stories[{i}].outcome", story.outcome)
-        _add(f"signature_stories[{i}].benchmark", story.benchmark)
+        story_owners = frozenset(
+            r.strip() for r in (story.experience_refs or []) if isinstance(r, str) and r.strip()
+        )
+        _add(f"signature_stories[{i}].title", story.title, story_owners)
+        _add(f"signature_stories[{i}].challenge", story.challenge, story_owners)
+        _add(f"signature_stories[{i}].mechanism", story.mechanism, story_owners)
+        _add(f"signature_stories[{i}].outcome", story.outcome, story_owners)
+        _add(f"signature_stories[{i}].benchmark", story.benchmark, story_owners)
 
     # ADR-046 receipts: attach enrichment record ids whose new-value blob
     # contains the unit's normalized text.

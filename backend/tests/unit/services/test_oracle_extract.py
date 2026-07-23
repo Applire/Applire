@@ -13,6 +13,7 @@ from applire.services.oracle.extract import (
     extract_claims_from_letter,
     extract_claims_from_text,
     split_sentences,
+    split_clauses,
 )
 
 
@@ -213,3 +214,141 @@ async def test_extract_from_text_llm_failure_degrades(monkeypatch):
     blob = "led everything and delivered many results without punctuation " * 4
     claims = await extract_claims_from_text(blob, provider=_Boom())
     assert len(claims) == 1  # graceful degradation, never an exception
+
+
+# ── #237 clause-level decomposition (letter narrative sentences) ─────────────
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # ", with" boundary — the exact F14 blend shape.
+        (
+            "At BioNTech, I led AI automation projects, with comprehensive "
+            "testing, observability, and reliability practices.",
+            [
+                "At BioNTech, I led AI automation projects",
+                "comprehensive testing, observability",
+                "reliability practices.",
+            ],
+        ),
+        # Semicolon boundary.
+        (
+            "I led the rollout; it cut onboarding time in half.",
+            ["I led the rollout", "it cut onboarding time in half."],
+        ),
+        # "including" boundary.
+        (
+            "I modernised the stack, including the CI pipeline.",
+            ["I modernised the stack", "the CI pipeline."],
+        ),
+        # Spaced em-dash boundary (real-model text uses these).
+        (
+            "I led the migration — cutting costs by 30 percent.",
+            ["I led the migration", "cutting costs by 30 percent."],
+        ),
+        # DE: ", und" boundary.
+        (
+            "Ich leitete das Projekt, und ich verbesserte die Prozesse.",
+            ["Ich leitete das Projekt", "ich verbesserte die Prozesse."],
+        ),
+        # DE: "; " boundary.
+        (
+            "Ich leitete das Team; wir lieferten pünktlich.",
+            ["Ich leitete das Team", "wir lieferten pünktlich."],
+        ),
+        # No boundary at all — the whole sentence is the only clause.
+        (
+            "I look forward to hearing from you.",
+            ["I look forward to hearing from you."],
+        ),
+        # Unicode apostrophe must not confuse the splitter or get dropped.
+        (
+            "I’m proud of the team’s results, with strong retention.",
+            ["I’m proud of the team’s results", "strong retention."],
+        ),
+    ],
+)
+def test_split_clauses(text, expected):
+    assert split_clauses(text) == expected
+
+
+def test_split_clauses_never_returns_empty_for_nonempty_text():
+    assert split_clauses("") == []
+    assert split_clauses("   ") == []
+
+
+# ── #237 employer anchoring for letter claims ─────────────────────────────────
+
+PROFILE_WITH_TWO_EMPLOYERS = {
+    "work_experience": [
+        {"id": "w-biontech", "company": "BioNTech", "role": "Automation Lead"},
+        {"id": "w-acme", "company": "Acme GmbH", "role": "Engineer"},
+    ],
+}
+
+
+def test_extract_from_letter_anchors_en_employer_prefix():
+    letter = {
+        "body": {
+            "paragraphs": [
+                "At BioNTech, I led AI automation projects, with comprehensive "
+                "testing, observability, and reliability practices."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
+    assert claims  # sanity: decomposition produced something
+    assert all(c.source_experience_id == "w-biontech" for c in claims)
+
+
+def test_extract_from_letter_anchors_de_employer_prefix():
+    letter = {
+        "body": {"paragraphs": ["Bei BioNTech habe ich die Automatisierung geleitet."]}
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
+    assert claims
+    assert all(c.source_experience_id == "w-biontech" for c in claims)
+
+
+def test_extract_from_letter_ambiguous_two_employers_stays_unanchored():
+    letter = {
+        "body": {
+            "paragraphs": [
+                "I moved from BioNTech to Acme GmbH and grew in both roles."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
+    assert claims
+    assert all(c.source_experience_id is None for c in claims)
+
+
+def test_extract_from_letter_no_profile_stays_unanchored():
+    letter = {"body": {"paragraphs": ["At BioNTech, I led automation projects."]}}
+    claims = extract_claims_from_letter(letter)
+    assert all(c.source_experience_id is None for c in claims)
+
+
+def test_extract_from_letter_single_clause_sentence_keeps_kind_sentence():
+    """Backward compatibility: a sentence with no clause boundary is still a
+    single 'sentence' claim at the same location as before #237."""
+    letter = {"body": {"paragraphs": ["I led the SAP rollout."]}}
+    claims = extract_claims_from_letter(letter)
+    assert len(claims) == 1
+    assert claims[0].kind == "sentence"
+    assert claims[0].location == "body.paragraphs[0][0]"
+
+
+def test_extract_from_letter_multi_clause_sentence_uses_kind_clause():
+    letter = {
+        "body": {
+            "paragraphs": [
+                "I led the rollout; it cut onboarding time in half."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter)
+    assert len(claims) == 2
+    assert all(c.kind == "clause" for c in claims)
+    assert claims[0].location == "body.paragraphs[0][0].clauses[0]"
+    assert claims[1].location == "body.paragraphs[0][0].clauses[1]"
