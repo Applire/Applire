@@ -56,6 +56,11 @@ const baseId = (id: string) => id.replace(/-\d+$/, "");
 // back to the EN `details` string instead of rendering a raw key path.
 const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-target",
+  // #238 (founder-acceptance F4): an explicit page target the condense loop
+  // could not hit — a genuine miss, never dressed up as senior-profile
+  // advice. Ships with status="fail" (see ats_audit.py), so it renders
+  // through the existing failed-check path — red, inline, no new UI state.
+  "page-length-target-missed",
   "page-length-senior",
   "page-length-exhausted",
   "page-length-exceeds",
