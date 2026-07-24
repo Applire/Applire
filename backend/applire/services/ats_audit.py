@@ -308,7 +308,8 @@ def _keyword_coverage(
         unclaimable_surface_forms,
     )
 
-    claimable_norm = {_norm(f) for f in claimable_surface_forms(ledger)}
+    claimable_concepts = claimable_surface_forms(ledger)
+    claimable_norm = {_norm(f) for f in claimable_concepts}
     missing_claimable = [k for k in missing if _norm(k) in claimable_norm]
     missing_honest_gap = [k for k in missing if _norm(k) not in claimable_norm]
 
@@ -321,12 +322,16 @@ def _keyword_coverage(
         k for k in present
         if _norm(k) in unclaimable_norm and _norm(k) not in claimable_norm
     ]
+    # E048/US266 (#249 option b): the FULL claimable list, independent of
+    # presence — the same list already computed above for the missing_claimable
+    # split, exposed on the report itself.
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
         missing_claimable=missing_claimable,
         missing_honest_gap=missing_honest_gap,
         present_unsupported=present_unsupported,
+        claimable_concepts=claimable_concepts,
     )
 
 

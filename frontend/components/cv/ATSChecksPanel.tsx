@@ -45,6 +45,13 @@ export type ATSReport = {
     // #117 (ADR-048 fourth quadrant): present in the document WITHOUT profile backing —
     // an unsupported claim (truthfulness warning). Optional for back-compat.
     present_unsupported?: string[];
+    // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
+    // forms (concept name included), regardless of presence in the document —
+    // lets TruthfulnessPanel join an Oracle "unbacked" skill claim against a
+    // ledger concept the candidate supports only via semantic adjacency, so
+    // that case renders as a distinct honest "related evidence" state instead
+    // of a contradiction between the two panels. Optional for back-compat.
+    claimable_concepts?: string[];
   };
 } | null;
 
