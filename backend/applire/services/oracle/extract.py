@@ -60,6 +60,32 @@ def _normalize_punct(text: str) -> str:
     return out
 
 
+# ── #248 — legal-form-suffix tolerance for LOOSE company-name matching ──────
+# Independent copy of ``services.profile.reconcile.attribution``'s
+# ``_LEGAL_FORM_RE`` / ``_core_company_name`` (same rationale as this module's
+# own independent copy of ``_split_sentences`` there: oracle depends on the
+# reconcile write path's OUTPUT, never the reverse, and neither module wants
+# a cross-package import for a few dozen lines of regex). Ground truth
+# (2026-07-24, generated_cover_letters 37ee8f77-...): the vault stores the
+# full legal entity name ("BioNTech SE"), but real-model letter prose almost
+# never repeats it ("at BioNTech") — used ONLY for the LOOSE, ambiguity-
+# tolerant signals (``letter_named_experience_ids`` / ``Claim.
+# sentence_named_ids``), never for the STRICT per-claim anchor
+# (``_find_employer_anchor``), which keeps its existing exact-name, fail-
+# open-on-ambiguity behaviour unchanged (zero regression risk there).
+_LEGAL_FORM_RE = re.compile(
+    r"\s+(?:SE|AG|GmbH(?:\s*&\s*Co\.?\s*KG)?|gGmbH|mbH|KG|OHG|GbR|"
+    r"e\.\s?V\.?|Inc\.?|LLC|Ltd\.?|Co\.?|Corp\.?|Corporation|PLC|LLP)\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _core_company_name(name: str) -> str:
+    """Legal-form-stripped company name for LOOSE anchor matching."""
+    stripped = _LEGAL_FORM_RE.sub("", name.strip())
+    return stripped.strip() or name.strip()
+
+
 # ── courtesy/meta formula filter (adversarial-pass residual, 2026-07-23) ────
 # An entirely honest letter still scored unverifiable-dominated because pure
 # courtesy openers/closers ("I am writing to express my interest…", "Thank
@@ -186,7 +212,9 @@ def _profile_get(obj: Any, key: str) -> Any:
     return getattr(obj, key, None)
 
 
-def _employer_anchor_candidates(profile: Any | None) -> list[tuple[str, str]]:
+def _employer_anchor_candidates(
+    profile: Any | None, *, loose: bool = False
+) -> list[tuple[str, str]]:
     """(surface name, experience id) pairs a letter sentence can anchor to.
 
     Covers work-experience company names and project names (own id, or the
@@ -194,6 +222,14 @@ def _employer_anchor_candidates(profile: Any | None) -> list[tuple[str, str]]:
     US187 nesting rule vault.py already applies). Duck-types over a
     ``MasterProfileData`` or its raw JSONB dict — extraction runs before the
     vault index exists, so it never requires a full model coercion.
+
+    ``loose=True`` (#248) strips common legal-form suffixes from COMPANY
+    names only (never project names, which don't carry them) — used
+    exclusively by the ambiguity-tolerant signals (``letter_named_
+    experience_ids`` / per-sentence ``sentence_named_ids``). The STRICT
+    per-claim anchor (``_find_employer_anchor``) always calls this with the
+    default ``loose=False`` — its exact-name, fail-open-on-ambiguity
+    behaviour is unchanged by #248.
     """
     if profile is None:
         return []
@@ -205,7 +241,8 @@ def _employer_anchor_candidates(profile: Any | None) -> list[tuple[str, str]]:
         if isinstance(wid, str) and wid.strip() and isinstance(company, str) and company.strip():
             wid = wid.strip()
             work_ids.add(wid)
-            pairs.append((company.strip(), wid))
+            name = _core_company_name(company.strip()) if loose else company.strip()
+            pairs.append((name, wid))
 
     for pr in _profile_get(profile, "projects") or []:
         name = _profile_get(pr, "name")
@@ -220,6 +257,29 @@ def _employer_anchor_candidates(profile: Any | None) -> list[tuple[str, str]]:
     return pairs
 
 
+def _match_ids(text: str, candidates: list[tuple[str, str]]) -> frozenset[str]:
+    """Every candidate id whose name appears in ``text`` (word-boundary,
+    case-insensitive, punctuation-normalized) — no uniqueness constraint.
+
+    The shared primitive behind the STRICT per-claim anchor
+    (:func:`_find_employer_anchor`, which additionally requires exactly one
+    result) and every LOOSE, ambiguity-tolerant signal (whole-letter
+    :func:`letter_named_experience_ids`, per-sentence ``sentence_named_ids``,
+    #248) — callers decide what "ambiguous" means for their own purpose.
+    """
+    if not candidates:
+        return frozenset()
+    normalized_text = _normalize_punct(text)
+    found: set[str] = set()
+    for name, entity_id in candidates:
+        pattern = re.compile(
+            r"\b" + re.escape(_normalize_punct(name)) + r"\b", re.IGNORECASE
+        )
+        if pattern.search(normalized_text):
+            found.add(entity_id)
+    return frozenset(found)
+
+
 def _find_employer_anchor(sentence: str, candidates: list[tuple[str, str]]) -> str | None:
     """The experience id a sentence anchors to, or ``None`` (fail open).
 
@@ -230,16 +290,7 @@ def _find_employer_anchor(sentence: str, candidates: list[tuple[str, str]]) -> s
     rather than risk mis-anchoring (adversarial-review lesson: fail open,
     never fail wrong).
     """
-    if not candidates:
-        return None
-    normalized_sentence = _normalize_punct(sentence)
-    found: set[str] = set()
-    for name, entity_id in candidates:
-        pattern = re.compile(
-            r"\b" + re.escape(_normalize_punct(name)) + r"\b", re.IGNORECASE
-        )
-        if pattern.search(normalized_sentence):
-            found.add(entity_id)
+    found = _match_ids(sentence, candidates)
     if len(found) == 1:
         return next(iter(found))
     return None
@@ -255,27 +306,25 @@ def letter_named_experience_ids(
     match to stamp a claim's own attribution), this scans the WHOLE letter
     and keeps every id it finds, ambiguity included — a letter legitimately
     names several employers across different paragraphs. Used only to decide
-    whether an UNANCHORED figure claim's owned-only vault backing belongs to
-    a position the letter simply never mentions (genuinely unattributable,
-    see ``audit.verify_claim``'s ``letter_named_ids``) vs one it names
-    elsewhere (legitimate — full per-clause attribution just isn't provable).
+    whether an UNANCHORED claim's owned-only vault backing belongs to a
+    position the letter simply never mentions (genuinely unattributable, see
+    ``audit.verify_claim``'s ``letter_named_ids``) vs one it names elsewhere
+    (legitimate — full per-clause attribution just isn't provable).
+
+    Legal-form-suffix tolerant (``loose=True``, #248): the vault stores the
+    full legal entity name ("BioNTech SE"); real letter prose rarely repeats
+    it. A whole-document scan is where this matters most — missing it here
+    silently mis-widens the "letter names exactly one employer" escape
+    hatch below into treating a genuinely multi-employer letter as single-
+    employer (ground truth: generated_cover_letters 37ee8f77-...).
     """
-    candidates = _employer_anchor_candidates(profile)
+    candidates = _employer_anchor_candidates(profile, loose=True)
     if not candidates:
         return frozenset()
     body = (letter_data or {}).get("body") or {}
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
-    text = _normalize_punct(
-        " ".join(p for p in (paragraphs or []) if isinstance(p, str))
-    )
-    found: set[str] = set()
-    for name, entity_id in candidates:
-        pattern = re.compile(
-            r"\b" + re.escape(_normalize_punct(name)) + r"\b", re.IGNORECASE
-        )
-        if pattern.search(text):
-            found.add(entity_id)
-    return frozenset(found)
+    text = " ".join(p for p in (paragraphs or []) if isinstance(p, str))
+    return _match_ids(text, candidates)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -375,7 +424,7 @@ def extract_claims_from_letter(
     coverage floor, and letters structurally could not stamp
     ``source_experience_id`` at all — so a misattributed blend (real
     BioNTech achievement + unrelated interview evidence, blended into one
-    sentence) filed as merely "unverifiable". Two additive steps fix this
+    sentence) filed as merely "unverifiable". Additive steps fix this
     without touching the frozen writer:
 
     1. Each sentence is decomposed into clause-level claims
@@ -386,10 +435,28 @@ def extract_claims_from_letter(
        (:func:`_find_employer_anchor`), every claim derived from it is
        stamped with that role's id — making the v2 attribution matcher
        (#196) reachable for letters for the first time.
+    3. (#248) When the SENTENCE itself is ambiguous (names two or more
+       employers, or none) but has more than one clause, each CLAUSE is
+       re-checked independently: a clause naming EXACTLY one employer gets
+       its OWN anchor even though the sentence as a whole couldn't decide —
+       the writer-blend signature is a sentence naming two employers with
+       one clause belonging to each, and sentence-level fail-open used to
+       launder exactly that case. A clause naming none stays unanchored.
+    4. (#248) Every clause/claim also carries ``sentence_named_ids`` — every
+       employer/project LOOSELY named (legal-form-suffix tolerant, ambiguity
+       tolerated) anywhere in its OWN enclosing sentence. This is deliberately
+       more permissive than the strict per-claim anchor: it lets the
+       non-figure ownership check (``audit._unattributable_evidence_flag``)
+       recognise "this clause's own sentence already names its true owner"
+       even when the strict anchor stayed ``None`` (e.g. the vault's legal
+       entity name vs. the letter's shortened mention, or same-company
+       duplicate ids) — see ground truth in ``test_oracle_extract.py``'s
+       #248 section and ``test_oracle_letter_nonfigure_ownership.py``.
     """
     body = (letter_data or {}).get("body") or {}
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
     candidates = _employer_anchor_candidates(profile)
+    loose_candidates = _employer_anchor_candidates(profile, loose=True)
     claims: list[Claim] = []
     for pi, para in enumerate(paragraphs or []):
         if not isinstance(para, str):
@@ -397,7 +464,8 @@ def extract_claims_from_letter(
         for si, sentence in enumerate(split_sentences(para)):
             if len(sentence) < _MIN_CLAIM_CHARS:
                 continue
-            anchor = _find_employer_anchor(sentence, candidates)
+            sentence_anchor = _find_employer_anchor(sentence, candidates)
+            sentence_named = _match_ids(sentence, loose_candidates)
             clauses = split_clauses(sentence)
             base = f"body.paragraphs[{pi}][{si}]"
             multi = len(clauses) > 1
@@ -406,12 +474,19 @@ def extract_claims_from_letter(
                     continue
                 if _is_pure_formula_clause(clause):
                     continue
+                clause_anchor = sentence_anchor
+                if clause_anchor is None and multi:
+                    # #248 direction 1: the sentence itself was ambiguous
+                    # (two+ employers) or named none — give this CLAUSE its
+                    # own chance to anchor independently.
+                    clause_anchor = _find_employer_anchor(clause, candidates)
                 claims.append(
                     Claim(
                         text=clause,
                         location=f"{base}.clauses[{ci}]" if multi else base,
                         kind="clause" if multi else "sentence",
-                        source_experience_id=anchor,
+                        source_experience_id=clause_anchor,
+                        sentence_named_ids=sentence_named,
                     )
                 )
     return claims
