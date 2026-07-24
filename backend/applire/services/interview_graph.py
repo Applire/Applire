@@ -64,6 +64,7 @@ from applire.prompts.review_question_language import (
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.session import InterviewState
 from applire.services.choice_grounding import filter_ungrounded_choices
+from applire.services.interview_quant import detect_unquantified_concepts
 from applire.services.reviewer import review_and_refine
 from applire.utils.display import format_display_value
 
@@ -204,6 +205,7 @@ async def question_generator_with_profile(
     job_context: dict | None = None,
     follow_up_hint: str | None = None,
     lang: str = "en",
+    include_availability: bool = False,
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -213,6 +215,11 @@ async def question_generator_with_profile(
     MODE A: cluster-aware question with potential choices (uses aparse_json)
     MODE B: section-building question (uses acomplete, choices always None)
     Follow-up: lateral-probe question (uses acomplete, choices always None)
+
+    include_availability: US265 — set True only by the caller's one-shot check
+    (JD availability marker + >=2 open profile roles); folded into the MODE A
+    cluster prompt for the first real cluster of a targeted session only, so
+    "one availability question" stays enforced by never being computed twice.
     """
     mode = state.get("mode", "targeted")
 
@@ -278,8 +285,16 @@ async def question_generator_with_profile(
         {"id": cluster_id, "label": cluster_id, "gaps": [], "jd_skills": [], "jd_context": ""},
     )
 
+    # US265 — deterministic, pure detector; empty result is a silent no-op
+    # (build_question_prompt appends nothing when quant_concepts is falsy).
+    quant_concepts = detect_unquantified_concepts(cluster, profile)
     data: dict = await provider.aparse_json(
-        build_question_prompt(cluster, profile, state["messages"], gap_category=gap_category),
+        build_question_prompt(
+            cluster, profile, state["messages"],
+            gap_category=gap_category,
+            quant_concepts=quant_concepts,
+            include_availability=include_availability,
+        ),
         system=with_language(QUESTION_SYSTEM_PROMPT, lang),
         temperature=0.4,
         max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,

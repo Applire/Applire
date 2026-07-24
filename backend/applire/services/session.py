@@ -68,6 +68,7 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
+from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import upgrade_ledger_for_concepts
 from applire.services.interview_graph import (
     build_confirmation_clusters,
@@ -1054,9 +1055,17 @@ async def _create_targeted_session(
         first_choices = gate_entry["choices"]
     else:
         first_category = gap_categories.get(first_cluster_id)
+        # US265 — availability elicitation is folded into the FIRST real MODE A
+        # cluster question only: computed once here, never recomputed for any
+        # later cluster in this session, so "one availability question" holds
+        # by construction rather than a tracked flag.
+        include_availability = should_ask_availability(
+            job.raw_text, profile_record.profile_json
+        )
         q_data = await question_generator_with_profile(
             state, profile_record.profile_json, provider,
             gap_category=first_category, lang=lang,
+            include_availability=include_availability,
         )
         first_question = q_data["question"]
         first_choices = q_data["choices"]
