@@ -34,7 +34,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key,
+  // Params are appended (JSON) so tests can pin what value a key was
+  // interpolated with (issue #245 NEW-4 — "of up to {total}" must receive
+  // the real hard_ceiling, not the soft estimate) without needing the real
+  // message catalogs loaded.
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}(${JSON.stringify(params)})` : key,
 }));
 
 // React 19 `use()` reads instrumented promises synchronously — avoids
@@ -288,5 +293,107 @@ describe("InterviewPage cluster tracker (#241 item 1)", () => {
     expect(screen.getByTestId("gap-cluster-c2")).toHaveAttribute("data-status", "current");
     expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "resolved");
     expect(screen.getByTestId("gap-cluster-c3")).toHaveAttribute("data-status", "pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue #245 — hard-ceiling completion auto-advance + honest question-count
+// copy. Founder-acceptance NEW-3/NEW-4: a session that hit hard_ceiling=12
+// left the page frozen on the last question (no test previously drove a
+// `complete: true` message response through sendAnswer at all — the
+// mechanism existed in the code but was entirely unpinned); separately, the
+// "~7" soft-estimate copy overshot by 70% because the real ceiling is 12.
+// ---------------------------------------------------------------------------
+
+function mockCeilingApi(messageResponse: Record<string, unknown>, hardCeiling = 12) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/flow/f1/state")) {
+      return {
+        ok: true,
+        json: async () => ({
+          job_id: "j1",
+          current_step: "interview",
+          job_summary: { role_title: "Engineer" },
+        }),
+      };
+    }
+    if (url.includes("/api/job/j1/gaps")) return { ok: false, status: 404, json: async () => ({}) };
+    if (url.includes("/api/session/s1/message")) {
+      return { ok: true, json: async () => messageResponse };
+    }
+    if (url.includes("/api/session")) {
+      return {
+        ok: true,
+        json: async () => ({
+          session_id: "s1",
+          mode: "targeted",
+          first_question: "Tell me about a recent project.",
+          question: "Tell me about a recent project.",
+          estimated_questions: 7, // the soft midpoint the ceiling overshot
+          hard_ceiling: hardCeiling,
+          gaps_total: 1,
+          gaps_remaining: 1,
+          choices: null,
+          resumed: false,
+        }),
+      };
+    }
+    if (url.includes("/api/flow/f1/advance")) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+    }
+    throw new Error(`unexpected fetch: ${url} ${init?.method ?? "GET"}`);
+  });
+}
+
+describe("InterviewPage hard-ceiling completion (#245)", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("shows the honest 'of up to {hard_ceiling}' progress copy, not the soft ~7 estimate", async () => {
+    global.fetch = mockCeilingApi({}, 12) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent(
+        "Tell me about a recent project.",
+      ),
+    );
+
+    // total:12 (the real hard_ceiling) — NOT total:7 (the soft midpoint
+    // estimated_questions, which is what the founder-acceptance run overshot).
+    expect(document.body.textContent).toContain('questionOf({"current":1,"total":12})');
+    expect(document.body.textContent).not.toContain('"total":7');
+  });
+
+  it("auto-advances to the completion screen when a hard-ceiling turn completes, without a manual reload", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockCeilingApi({
+      complete: true,
+      reason: "max_questions_reached",
+      questions_asked: 12,
+      gaps_resolved: 3,
+      gaps_unresolved: ["Kubernetes"],
+      completeness_score: 0.8,
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent(
+        "Tell me about a recent project.",
+      ),
+    );
+
+    await sendAnswer(user, "We shipped it to production last quarter.");
+
+    // The completion screen must appear on THIS response — no reload, no
+    // second fetch, no lingering on the last question.
+    await waitFor(() => expect(screen.getByTestId("completion-screen")).toBeInTheDocument());
+    expect(screen.queryByTestId("interview-page")).not.toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument(); // questions_asked stat
   });
 });

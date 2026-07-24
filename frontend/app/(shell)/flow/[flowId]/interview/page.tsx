@@ -63,6 +63,11 @@ interface SessionCreateResponse {
   first_question: string;
   question: string;
   estimated_questions: number;
+  // issue #245 (NEW-4) — the real configured ceiling (InterviewState.
+  // hard_ceiling). estimated_questions is a soft midpoint that a real
+  // session can legitimately overshoot by a wide margin; the progress
+  // copy/bar now derives its total from this honest field instead.
+  hard_ceiling?: number;
   gaps_total: number;
   gaps_remaining: number;
   choices: string[] | null;
@@ -378,7 +383,10 @@ export default function InterviewPage({
         const sessionData: SessionCreateResponse = await sessionRes.json();
 
         setSessionId(sessionData.session_id);
-        setEstimatedQuestions(sessionData.estimated_questions || 5);
+        // issue #245 (NEW-4) — prefer the real hard_ceiling over the soft
+        // "~7" midpoint estimate so "Question X of …" cannot be honestly
+        // overshot by a session that legitimately runs to the true ceiling.
+        setEstimatedQuestions(sessionData.hard_ceiling || sessionData.estimated_questions || 5);
         setGapsTotal(sessionData.gaps_total ?? 0);
         setGapsRemaining(sessionData.gaps_remaining ?? 0);
         setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
