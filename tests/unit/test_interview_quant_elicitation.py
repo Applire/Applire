@@ -372,3 +372,207 @@ async def test_followup_path_never_carries_the_quantification_instruction():
         )
         follow_up_prompt = follow_provider.acomplete.call_args.args[0]
         assert "quantif" not in follow_up_prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# Part E — full (guided/MODE B) session: availability wiring at ALL
+# session-creation call sites, not just the targeted path.
+#
+# Coordinator correction (2026-07-24): the initial cut wired
+# should_ask_availability only into _create_targeted_session. The founder-
+# charter path — a candidate with a messy/incomplete profile (>=2 open-ended
+# current roles) auto-routes to MODE B (guided, from-scratch) when the JD
+# itself says "Permanent employment only" — never got the check. Same
+# by-construction once-only argument: compute at session creation for the
+# FIRST section only; every later section (send_message's advance branch)
+# never passes the flag.
+# ---------------------------------------------------------------------------
+
+import uuid
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture
+async def sqlite_session():
+    """In-memory SQLite async session — no Docker required (mirrors the
+    fixture in test_session_service.py; kept local so this file stays
+    self-contained)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from applire.db.session import Base  # noqa: F401
+    import applire.models.profile  # noqa: F401
+    import applire.models.job  # noqa: F401
+    import applire.models.cv  # noqa: F401
+    import applire.models.gap  # noqa: F401
+    import applire.models.session  # noqa: F401
+    import applire.models.user  # noqa: F401
+    import applire.models.flow  # noqa: F401
+    import applire.models.application  # noqa: F401
+    import applire.models.color_profile  # noqa: F401
+    import applire.models.company  # noqa: F401
+    import applire.models.user_settings  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+
+    await engine.dispose()
+
+
+def _availability_job(**kwargs):
+    from applire.models.job import JobAnalysis
+
+    defaults = dict(
+        raw_text_hash=uuid.uuid4().hex,
+        raw_text=(
+            "Senior Engineer role. This is a permanent employment position; "
+            "please state your notice period."
+        ),
+        role_title="Senior Engineer",
+        required_skills=["Python"],
+        nice_to_have_skills=[],
+        keywords=["Python"],
+        seniority_level="Senior",
+        company_culture_signals=[],
+        language_requirement="English",
+    )
+    defaults.update(kwargs)
+    return JobAnalysis(**defaults)
+
+
+def _profile_two_open_roles():
+    from applire.models.profile import MasterProfile
+
+    return MasterProfile(
+        profile_json={
+            "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
+            "skills": [],
+            "work_experience": [
+                {"company": "Acme", "role": "Engineer", "is_current": True, "end_date": None},
+                {"company": "Beta", "role": "Consultant", "is_current": True, "end_date": None},
+            ],
+        }
+    )
+
+
+def _spy_provider(question="Tell me about your background."):
+    """A provider whose acomplete/aparse_json calls are individually
+    inspectable via call_args_list, unlike the fully-mocked
+    question_generator_with_profile used elsewhere — this test needs the
+    REAL build_guided_question_prompt output to reach the provider."""
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(return_value=question)
+    provider.aparse_json = AsyncMock(
+        return_value={"approved": True, "issues": [], "feedback": ""}
+    )
+    provider.__class__.__name__ = "SpyProvider"
+    return provider
+
+
+@pytest.mark.asyncio
+async def test_guided_session_first_section_carries_availability_instruction(sqlite_session):
+    """The FULL guided (MODE B, from-scratch) session's first section question
+    carries the availability instruction when the JD marker + >=2 open roles
+    both hold — the founder-charter scenario."""
+    from applire.services.session import create_session
+    from applire.schemas.session import SessionCreateRequest
+
+    job = _availability_job()
+    profile = _profile_two_open_roles()
+    sqlite_session.add(job)
+    sqlite_session.add(profile)
+    await sqlite_session.commit()
+
+    req = SessionCreateRequest(job_id=job.id, mode="guided")
+    provider = _spy_provider()
+
+    await create_session(req, sqlite_session, provider)
+
+    first_prompt = provider.acomplete.call_args_list[0].args[0]
+    assert "availability" in first_prompt.lower() or "notice period" in first_prompt.lower()
+    assert "valid" in first_prompt.lower()  # terminal-answer rule present
+
+
+@pytest.mark.asyncio
+async def test_guided_session_first_section_no_availability_without_marker(sqlite_session):
+    """Same >=2 open roles, but a JD with no availability/commitment marker —
+    the instruction must NOT appear."""
+    from applire.services.session import create_session
+    from applire.schemas.session import SessionCreateRequest
+
+    job = _availability_job(
+        raw_text="Senior Engineer role focused on backend systems and FastAPI.",
+        raw_text_hash=uuid.uuid4().hex,
+    )
+    profile = _profile_two_open_roles()
+    sqlite_session.add(job)
+    sqlite_session.add(profile)
+    await sqlite_session.commit()
+
+    req = SessionCreateRequest(job_id=job.id, mode="guided")
+    provider = _spy_provider()
+
+    await create_session(req, sqlite_session, provider)
+
+    first_prompt = provider.acomplete.call_args_list[0].args[0]
+    assert "notice period" not in first_prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_guided_session_later_section_never_recarries_availability(sqlite_session):
+    """Once the FIRST section's question has (optionally) carried the
+    availability instruction, advancing to the SECOND section within the SAME
+    full session must never carry it again — the one-shot check is computed
+    exactly once, at session creation, never on advance."""
+    from applire.services.session import create_session, send_message
+    from applire.schemas.session import SessionCreateRequest
+    from applire.schemas.profile import FieldChange
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    job = _availability_job()
+    profile = _profile_two_open_roles()
+    sqlite_session.add(job)
+    sqlite_session.add(profile)
+    await sqlite_session.commit()
+
+    req = SessionCreateRequest(job_id=job.id, mode="guided")
+    create_provider = _spy_provider()
+    create_result = await create_session(req, sqlite_session, create_provider)
+
+    first_prompt = create_provider.acomplete.call_args_list[0].args[0]
+    assert "availability" in first_prompt.lower() or "notice period" in first_prompt.lower()
+
+    # Advance to the second section: the reconciler reports a real profile
+    # change (addressed=True) so send_message's advance branch fires and
+    # generates the NEXT section's question via the real prompt builder.
+    updated_profile = dict(profile.profile_json)
+    turn = InterviewTurnResult(
+        profile_dict=updated_profile,
+        changes=[FieldChange(section="work_experience", field="Acme", action="added")],
+        addressed=True,
+        conflict_summaries=[],
+    )
+    advance_provider = _spy_provider("Tell me about your education.")
+    with patch(
+        "applire.services.session.reconcile_interview_turn",
+        new=AsyncMock(return_value=turn),
+    ):
+        result = await send_message(
+            create_result.session_id,
+            "I worked at Acme as an engineer for 5 years.",
+            sqlite_session,
+            advance_provider,
+        )
+
+    assert result.complete is False
+    second_prompt = advance_provider.acomplete.call_args_list[0].args[0]
+    assert "notice period" not in second_prompt.lower()
+    assert "availability opportunity" not in second_prompt.lower()

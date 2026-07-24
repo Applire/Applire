@@ -39,6 +39,9 @@
 #     append an at-most-one, terminal-answer quantification/availability
 #     instruction when services/interview_quant.py flags something. Both
 #     default falsy so an un-flagged call is byte-identical to before.
+#   - build_guided_question_prompt (MODE B) accepts the same include_availability
+#     — folded into the FIRST section only of a guided (from-scratch) session,
+#     via the same session-creation-time one-shot check.
 
 import json
 
@@ -318,12 +321,17 @@ def build_guided_question_prompt(
     section: str,
     job_context: dict,
     recent_messages: list[dict],
+    include_availability: bool = False,
 ) -> str:
     """Build the prompt for a MODE B (Guided Build) section question.
 
     section: one of _VALID_SECTIONS keys
     job_context: {"role_title": str, "seniority_level": str}
     recent_messages: last N messages from the conversation
+    include_availability: US265 — folded in ONLY for the first section of a
+        guided session (session.py computes the one-shot check once, at
+        session creation); default False keeps every other call byte-identical
+        to before.
     """
     history = ""
     if recent_messages:
@@ -344,13 +352,16 @@ def build_guided_question_prompt(
             )
         )
 
-    return (
+    prompt = (
         f"Profile section to build: {label}\n"
         f"Guidance: {guidance}"
         f"{role_ctx}"
         f"{history}\n\n"
         "Generate the question."
     )
+    if include_availability:
+        prompt += _AVAILABILITY_INSTRUCTION
+    return prompt
 
 
 # ---------------------------------------------------------------------------

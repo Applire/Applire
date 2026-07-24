@@ -218,8 +218,11 @@ async def question_generator_with_profile(
 
     include_availability: US265 — set True only by the caller's one-shot check
     (JD availability marker + >=2 open profile roles); folded into the MODE A
-    cluster prompt for the first real cluster of a targeted session only, so
-    "one availability question" stays enforced by never being computed twice.
+    cluster prompt OR the MODE B guided-section prompt, but only for the first
+    real cluster/section of a session — the caller (session.py) computes this
+    exactly once, at session creation, and every later advance/follow-up call
+    leaves it at the False default, so "one availability question" stays
+    enforced by construction rather than a tracked flag.
     """
     mode = state.get("mode", "targeted")
 
@@ -268,6 +271,7 @@ async def question_generator_with_profile(
                 section,
                 job_context or {},
                 state["messages"],
+                include_availability=include_availability,
             ),
             system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,
