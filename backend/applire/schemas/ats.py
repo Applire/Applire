@@ -46,6 +46,15 @@ class ATSKeywordCoverage(BaseModel):
     # via the section editor). Surfaced as a truthfulness warning, never silently
     # counted as ordinary coverage. Empty when no ledger is available (cannot judge).
     present_unsupported: list[str] = []
+    # E048/US266 (#249 option b): EVERY claimable ledger entry's surface forms
+    # (concept name included), regardless of whether the term is present or
+    # missing in the document — unlike `missing_claimable`, which only covers
+    # the absent subset. Lets the frontend join the Truthfulness Oracle's
+    # per-skill "unbacked" verdict against the Keyword Ledger's (possibly
+    # adjacency-only) claimable classification, without a new endpoint or any
+    # change to the Oracle's own verdict taxonomy. Empty when no ledger is
+    # available (legacy back-compat).
+    claimable_concepts: list[str] = []
 
 
 class ATSReport(BaseModel):

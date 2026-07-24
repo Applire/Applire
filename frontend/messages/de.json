@@ -951,6 +951,8 @@
     "needsReview": "{count, plural, one {# Aussage braucht Ihre Prüfung} other {# Aussagen brauchen Ihre Prüfung}}",
     "mostlyUnverifiable": "Die meisten Aussagen konnten nicht mit Ihrem Profil abgeglichen werden ({unverifiable} von {total})",
     "unverifiableNote": "{count, plural, one {# weiche Aussage kann nicht gegen Ihr Profil geprüft werden} other {# weiche Aussagen können nicht gegen Ihr Profil geprüft werden}}",
+    "relatedNote": "{count, plural, one {# Fähigkeit stützt sich auf verwandte Belege in Ihrem Profil, nicht den wörtlichen Begriff} other {# Fähigkeiten stützen sich auf verwandte Belege in Ihrem Profil, nicht den wörtlichen Begriff}}",
+    "relatedDetail": "Verwandter Beleg — nicht wörtlich in Ihren Unterlagen.",
     "detailsButton": "Details",
     "evidenceLabel": "Beleg aus Ihrem Profil:",
     "statedLimit": "Dieser Bericht prüft die Übereinstimmung zwischen Dokument und Ihrem Profil. Er kann das Profil selbst nicht beweisen — Profilangaben sind Selbstauskünfte; die dokumentierte Herkunft aus Interviews mildert das, hebt es aber nicht auf.",
@@ -959,7 +961,8 @@
       "inflated": "Überhöht",
       "misattributed": "Falsch zugeordnet",
       "unbacked": "Nicht belegt",
-      "unverifiable": "Nicht prüfbar"
+      "unverifiable": "Nicht prüfbar",
+      "related": "Verwandter Beleg"
     }
   },
   "admin": {

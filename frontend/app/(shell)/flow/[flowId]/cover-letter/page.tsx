@@ -390,7 +390,7 @@ export default function CoverLetterPage({
         atsPanel={
           <div className="space-y-2">
             <ATSChecksPanel report={atsReport} />
-            <TruthfulnessPanel report={truthReport} />
+            <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
           </div>
         }
         sidebar={
