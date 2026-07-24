@@ -616,6 +616,52 @@ async def _render_cover_letter_background(
             gap = gap_result.scalar_one_or_none()
             keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
 
+            # E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)): deterministic,
+            # no-LLM positioning inputs — a blind hiring panel rejected an otherwise-honest
+            # letter for (1) never engaging the employer's product/domain, (2) never arguing
+            # the candidate's own transfer story for the one true gap even though it sat in
+            # the vault as interview testimony, (3) never addressing an obvious
+            # concurrent-roles/availability question. All three are found here from data
+            # ALREADY loaded above (job, gap, profile) — no new query, no new LLM chain — and
+            # threaded into the prompt ONLY when genuinely present (silence over invention).
+            from applire.services.cover_letter_positioning import (
+                detect_concurrent_roles,
+                find_availability_testimony,
+                find_gap_testimony,
+            )
+            from applire.services.gap import askable_gap_inputs
+
+            profile_json = profile.profile_json if profile is not None else {}
+            signature_stories = profile_json.get("signature_stories") or []
+            gap_testimony = (
+                find_gap_testimony(askable_gap_inputs(gap), signature_stories)
+                if gap is not None
+                else None
+            )
+
+            work_experience = profile_json.get("work_experience") or []
+            enrichment_history = (
+                (profile_json.get("metadata") or {}).get("enrichment_history") or []
+            )
+            availability_testimony: str | None = None
+            if detect_concurrent_roles(work_experience):
+                availability_testimony = find_availability_testimony(
+                    signature_stories, enrichment_history
+                )
+                if availability_testimony is None:
+                    logger.info(
+                        "Letter positioning: concurrent-roles condition detected for CL %s "
+                        "but no vault availability testimony found — no availability claim "
+                        "made.",
+                        cl_id,
+                    )
+                else:
+                    logger.info(
+                        "Letter positioning: concurrent-roles condition detected for CL %s — "
+                        "threading vault availability testimony into the prompt.",
+                        cl_id,
+                    )
+
             # Call LLM
             # #177 / ADR-051 §6 amended: feedforward body-word budget from the region
             # norm registry — the CV's guarantee shape, extended to letters. NO
@@ -633,6 +679,9 @@ async def _render_cover_letter_background(
                 role_title=job.role_title,
                 word_budget=norm.letter_body_word_budget,
                 letter_pages=norm.letter_pages,
+                company_name=job.company_name,
+                gap_testimony=gap_testimony,
+                availability_testimony=availability_testimony,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -654,6 +703,12 @@ async def _render_cover_letter_background(
                         for k in ("motivation", "salary", "availability")
                         if pre_gen.get(k)
                     },
+                    # E048/US264 (ADR-057 amended 2026-07-24): the letter now engages the
+                    # employer's own product/domain concretely (POSITIONING: COMPANY & DOMAIN
+                    # ENGAGEMENT above), so the reviewer needs the SAME JD text the generator
+                    # saw to judge whether a company/domain claim is grounded — an invented
+                    # company fact must still fail review 4 (Oracle discipline unchanged).
+                    "job_description": job.raw_text[:2000] if job.raw_text else "",
                 },
                 ensure_ascii=False,
                 indent=2,

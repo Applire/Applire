@@ -311,6 +311,25 @@ async def test_mock_cover_letter_fingerprint():
 
 
 @pytest.mark.asyncio
+async def test_mock_recognizes_current_cover_letter_system_prompt():
+    """E048/US264 (ADR-057 amended 2026-07-24) regression: the cover-letter SYSTEM_PROMPT
+    grew a new POSITIONING INPUTS rule block. MockLLMProvider.aparse_json keys off a
+    system-prompt SUBSTRING ("dach career coach") — this asserts the mock still
+    recognises the chain using the ACTUAL, current SYSTEM_PROMPT (not a hand-copied
+    literal), so a future prompt edit that accidentally drops/reorders the lead-in
+    phrase is caught here instead of silently corrupting CI's mock-provider E2E run."""
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    provider = MockLLMProvider()
+    result = await provider.aparse_json("Generate a cover letter.", system=SYSTEM_PROMPT)
+
+    assert isinstance(result, dict)
+    for key in ("header", "recipient", "body", "signature"):
+        assert key in result, f"Missing key: {key}"
+
+
+@pytest.mark.asyncio
 async def test_mock_cover_letter_grounding_reviewer_approves():
     """US170 — the cover-letter grounding reviewer (review_cover_letter) must be a
     recognised chain so CI's mock approves it. An unrecognised reviewer falls through to
