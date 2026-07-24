@@ -12,6 +12,7 @@ from applire.services.oracle.matchers.grounding import (
     GroundingResult,
     ground_skill_claim,
     ground_text_claim,
+    ground_via_skill_union,
     match_figures,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "GroundingResult",
     "ground_skill_claim",
     "ground_text_claim",
+    "ground_via_skill_union",
     "match_figures",
 ]

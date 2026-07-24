@@ -83,6 +83,95 @@ def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
     )
 
 
+# ── skill-union fallback for enumeration clauses (adversarial-pass residual,
+# 2026-07-23) ─────────────────────────────────────────────────────────────
+#
+# A truthful multi-skill enumeration ("My experience includes designing and
+# implementing RESTful APIs with Python, FastAPI") spans several independent
+# vault skill units — no SINGLE unit clears ``GROUNDED_MIN_COVERAGE``, so
+# ``ground_text_claim`` alone leaves it unverifiable even though every named
+# skill is individually attested. This fallback computes coverage over the
+# UNION of role-agnostic vault ``skills[]`` units instead of one best unit.
+#
+# Only skill units may aggregate this way — union-ing work-experience
+# narrative units would let a cross-role blend slip past the attribution
+# matcher (the #196 lesson), so callers MUST run the attribution red-flag
+# check against the single-unit grounding's own evidence BEFORE ever trying
+# this fallback (see services/oracle/audit.py) — a misattribution verdict is
+# never eligible to be rescued by it.
+#
+# Raw connective verbs/nouns that frame a skill list without being checkable
+# content themselves. Passed through ``skill_tokens`` too (below) so the guarded
+# plural fold (e.g. "includes" -> "include") lines up with how claim text is
+# tokenized — a raw/stemmed mismatch would silently leave a scaffold word
+# uncovered and wrongly count against the enumeration's coverage.
+_UNION_SCAFFOLD_WORDS_RAW = (
+    # EN
+    "my", "i", "have", "has", "had",
+    "experience", "includes", "including", "included",
+    "designing", "designed", "implementing", "implemented",
+    "developing", "developed", "building", "built",
+    "managing", "automating", "automated", "integrating", "maintaining",
+    "supporting", "delivering", "leading", "establishing",
+    "operating", "configuring", "administering", "coordinating",
+    "overseeing", "leveraging",
+    "worked", "working", "work",
+    "use", "used", "using", "utilizing", "utilized",
+    "such", "as", "various", "several", "multiple",
+    # DE
+    "erfahrung", "einschliesslich", "einschließlich",
+    "entwickelt", "entwickelte", "entwickelten",
+    "implementiert", "implementierte",
+    "gearbeitet", "arbeite", "arbeitete",
+    "mit", "und", "sowie", "verwendet", "genutzt", "nutzung",
+)
+_UNION_SCAFFOLD_STOPWORDS = frozenset(skill_tokens(" ".join(_UNION_SCAFFOLD_WORDS_RAW)))
+
+
+def _skill_union_units(index: VaultIndex) -> list[EvidenceUnit]:
+    """Role-agnostic vault skill units — the only pool the union may draw on."""
+    return [u for u in index.units if u.path.startswith("skills[")]
+
+
+def ground_via_skill_union(text: str, index: VaultIndex) -> GroundingResult | None:
+    """Skill-union grounding for enumeration clauses, or ``None`` if it fails.
+
+    Content tokens are stripped of the scaffold/verb stopwords above (union
+    path only — ``ground_text_claim`` is untouched) and coverage is measured
+    against the union of ALL ``skills[]`` units, not one best unit. Returns a
+    :class:`GroundingResult` (``qualifying_units`` = every matched skill unit)
+    when the remaining tokens clear ``GROUNDED_MIN_COVERAGE``, else ``None`` —
+    callers fall through to their existing unverifiable/entailment path.
+    """
+    tokens = sorted(skill_tokens(text) - _UNION_SCAFFOLD_STOPWORDS)
+    if not tokens:
+        return None
+    union_units = _skill_union_units(index)
+    if not union_units:
+        return None
+    matched_units: list[EvidenceUnit] = []
+    hits = 0
+    for t in tokens:
+        for unit in union_units:
+            if surface_present(t, unit.text_norm):
+                hits += 1
+                if unit not in matched_units:
+                    matched_units.append(unit)
+                break
+    n = len(tokens)
+    coverage = hits / n
+    if coverage < GROUNDED_MIN_COVERAGE or not matched_units:
+        return None
+    return GroundingResult(
+        best_coverage=coverage,
+        best_unit=matched_units[0],
+        overall_coverage=coverage,
+        content_tokens=n,
+        top_units=matched_units,
+        qualifying_units=matched_units,
+    )
+
+
 def ground_skill_claim(name: str, index: VaultIndex) -> EvidenceUnit | None:
     """Evidence unit backing a skill claim, or None if the vault has nothing.
 
