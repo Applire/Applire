@@ -17,12 +17,33 @@ fires for it — by design, it only judges claims that ARE anchored. That left
 a genuine ownership gap: an unanchored figure whose only vault backing is
 owned by a position the letter simply never (or ambiguously) names verdicted
 ``grounded`` from evidence that, read narratively, belongs to someone else.
-:func:`_unattributable_figure_flag` closes it: for letters only (CV bullets
+:func:`_unattributable_evidence_flag` closes it: for letters only (CV bullets
 always carry their real rendered-position id directly, no ambiguity to
-resolve), an unanchored figure backed exclusively by owned units downgrades
-to ``unverifiable`` UNLESS the letter names exactly one employer/project
-overall and that one owns the evidence — the same "ambiguity beats false
-certainty" rule the anchor matcher itself already applies.
+resolve), an unanchored claim backed exclusively by owned units downgrades to
+``unverifiable`` UNLESS (a) the claim's OWN enclosing sentence already names
+one of the owning positions (``Claim.sentence_named_ids``, #248 — see below),
+or (b) the letter names exactly one employer/project overall and that one
+owns the evidence — the same "ambiguity beats false certainty" rule the
+anchor matcher itself already applies.
+
+#248 (non-figure letter ownership, live-reproduced 2026-07-24,
+generated_cover_letters 37ee8f77-...): df78cac's fix above was scoped to
+FIGURES only (the per-figure loop in ``verify_claim`` §2). A figure-FREE
+clause — "a deterministic verification layer ensuring trustworthiness.",
+BioNTech-sentence-adjacent but exclusively Applire-owned — reaches
+``verify_claim``'s SEPARATE figure-free grounding branch (§3), which had no
+equivalent ownership check at all: an unanchored figure-free claim backed
+exclusively by owned evidence simply verdicted ``grounded``, full stop.
+:func:`_unattributable_evidence_flag` is now generalized (renamed from
+``_unattributable_figure_flag``) to accept ANY evidence-unit list, and §3
+calls it exactly like §2c does for figures. The extra ``sentence_named_ids``
+escape (a) is what keeps this from over-dropping an honest, single-employer
+sentence whose evidence genuinely belongs to it but whose STRICT anchor
+failed for an unrelated reason (e.g. the vault's legal-form company name vs.
+the letter's shortened mention, #248) — without it, the letter-wide escape
+(b) alone cannot tell "this clause's own sentence names its true owner" apart
+from "the letter names an owner somewhere else, but not here", and would
+wrongly flag the former too (see ``test_oracle_letter_nonfigure_ownership.py``).
 """
 from __future__ import annotations
 
@@ -112,34 +133,53 @@ def _attribution_red_flag(
     )
 
 
-def _unattributable_figure_flag(
+def _unattributable_evidence_flag(
     source_id: str | None,
     letter_named_ids: frozenset[str] | None,
-    fig_units: list[EvidenceUnit],
+    sentence_named_ids: frozenset[str],
+    units: list[EvidenceUnit],
 ) -> ClaimVerdict | None:
-    """#243-adjacent — the letter figure-ownership check (module docstring).
+    """#243-adjacent / #248 — the letter ownership check (module docstring).
+
+    Generalized (#248) from figure-only evidence to ANY evidence-unit list —
+    both the per-figure loop (§2c) and the figure-free grounding path (§3) of
+    :func:`verify_claim` call this with their own qualifying units.
 
     Complements :func:`_attribution_red_flag`, which only fires when a claim
     IS anchored to a rendered position (``source_id`` set) and can therefore
     be provably wrong. An UNANCHORED letter claim (no employer named, or two)
-    carrying a figure whose ENTIRE vault backing is owned — by construction,
-    every ``fig_units`` entry has non-empty ``owner_ids`` — and none of those
-    owners are named ANYWHERE else in the letter either, is genuinely
-    unattributable: neither "this employer" nor "not this employer" is
-    decidable, so it must not verdict ``grounded`` (that would silently
-    launder a blend exactly like #237/F14, just without the anchor to catch
-    it). Downgrades to ``unverifiable`` with an honest note instead of
-    fabricating a misattribution verdict the claim's own text never claims.
+    whose ENTIRE vault backing is owned — by construction, every ``units``
+    entry has non-empty ``owner_ids`` — and none of those owners are named
+    ANYWHERE else in the letter either, is genuinely unattributable: neither
+    "this employer" nor "not this employer" is decidable, so it must not
+    verdict ``grounded`` (that would silently launder a blend exactly like
+    #237/F14, just without the anchor to catch it). Downgrades to
+    ``unverifiable`` with an honest note instead of fabricating a
+    misattribution verdict the claim's own text never claims.
 
     Fails open (returns ``None``, no flag) whenever:
       * the claim IS anchored (``source_id`` is not ``None`` — the existing
-        per-figure attribution check already covers that case), or
+        attribution check already covers that case), or
       * ``letter_named_ids`` is ``None`` (a CV claim, or any caller that
         didn't opt in — the CV path never needs this: bullets always carry
         their real rendered-position id directly, no anchoring ambiguity), or
       * any backing unit is role-agnostic (``not u.owner_ids``) — role-
         agnostic evidence (summary, skills, stories with no experience_refs)
         clears any position, anchored or not, or
+      * ``sentence_named_ids`` (#248) — every employer/project LOOSELY named
+        anywhere in THIS CLAIM'S OWN enclosing sentence, legal-form-suffix
+        and same-company-duplicate-id ambiguity tolerated (unlike the strict
+        anchor) — intersects the backing owners. This is the narrower,
+        claim-local escape: a sentence naming its own true owner (just not
+        crisply enough for the strict anchor, e.g. the vault's legal entity
+        name vs. the letter's shortened mention) is NOT the genuinely
+        unattributable case, even when the letter overall names several
+        employers. Checked BEFORE the letter-wide escape below because it is
+        strictly more precise (ground truth: an honest "In my recent role at
+        BioNTech..." sentence must clear here even in a letter that also
+        names Applire elsewhere — the letter-wide escape alone would wrongly
+        flag it once BioNTech is correctly counted as "named elsewhere",
+        #248), or
       * the letter names EXACTLY ONE employer/project overall and its id is
         AMONG the backing units' owners — an unambiguous single-employer
         letter, just not repeated in THIS clause (legitimate unanchored
@@ -149,31 +189,34 @@ def _unattributable_figure_flag(
         name is a candidate anchor mapped straight to that PARENT id
         (``_employer_anchor_candidates``) — the bare project id can never
         itself appear in ``letter_named_ids``, so requiring the full owner
-        set to be named would never clear a project-owned figure at all.
+        set to be named would never clear a project-owned claim at all.
 
-    A letter naming TWO OR MORE employers/projects anywhere — even when one
-    of them happens to own the figure — stays flagged: this is the live
-    #243-adjacent shape (BioNTech named in one sentence, Applire in the very
-    next, then a bare unanchored "I also built…" continuation) where a human
-    reader would infer the WRONG employer from local context even though the
-    right one is technically "named somewhere". Mirrors
+    A letter naming TWO OR MORE employers/projects anywhere, with NEITHER
+    escape clearing it — this is the live #243-adjacent / #248 shape
+    (BioNTech named in one sentence, Applire in the next, then a bare
+    unanchored continuation naming neither) where a human reader would infer
+    the WRONG employer from local context even though the right one is
+    technically "named somewhere" in the document. Mirrors
     :func:`_find_employer_anchor`'s own fail-open-on-ambiguity rule — two or
     more candidates is never enough to clear an unanchored claim, only
-    exactly one is.
+    exactly one is (or the claim's own sentence naming the true owner
+    directly).
     """
-    if source_id is not None or letter_named_ids is None or not fig_units:
+    if source_id is not None or letter_named_ids is None or not units:
         return None
-    if any(not u.owner_ids for u in fig_units):
+    if any(not u.owner_ids for u in units):
         return None
-    owners = {oid for u in fig_units for oid in u.owner_ids}
+    owners = {oid for u in units for oid in u.owner_ids}
+    if sentence_named_ids and sentence_named_ids & owners:
+        return None
     if len(letter_named_ids) == 1 and letter_named_ids & owners:
         return None
     return ClaimVerdict(
         verdict="unverifiable",
         checker="attribution",
-        evidence=_evidence_refs(fig_units),
+        evidence=_evidence_refs(units),
         detail=(
-            "This figure's only vault evidence is owned by a position, but "
+            "This claim's only vault evidence is owned by a position, but "
             "this claim names no employer and the letter's own context "
             "doesn't unambiguously point to that one position — attribution "
             "cannot be verified."
@@ -253,7 +296,7 @@ async def verify_claim(
     return before ``provider`` is ever consulted. ``letter_named_ids``
     (#243-adjacent) is the set of experience ids named anywhere in a letter
     being audited — ``None`` for CV/text callers, who never need it (see
-    :func:`_unattributable_figure_flag`).
+    :func:`_unattributable_evidence_flag`).
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
@@ -328,7 +371,9 @@ async def verify_claim(
         for fig, fig_units in fig_match.matched:
             if fig.kind == "year":
                 continue
-            flag = _unattributable_figure_flag(source_id, letter_named_ids, fig_units)
+            flag = _unattributable_evidence_flag(
+                source_id, letter_named_ids, claim.sentence_named_ids, fig_units
+            )
             if flag is not None:
                 return flag
         # US245: entailment ONLY when both sides lack stance markers.
@@ -392,6 +437,16 @@ async def verify_claim(
         # window); only when all of them belong to a foreign position is the
         # claim misattributed (same-role or role-agnostic backing clears it).
         flag = _attribution_red_flag(source_id, grounding.qualifying_units)
+        if flag is not None:
+            return flag
+        # ── unattributable figure-free claim (unanchored letter claim, #248) ─
+        # The non-figure counterpart of §2c: an unanchored letter claim whose
+        # entire grounding backing is owned is the SAME genuine-unattributable
+        # shape a figure carries, just without a figure to route through the
+        # per-figure loop above (df78cac was scoped to figures only).
+        flag = _unattributable_evidence_flag(
+            source_id, letter_named_ids, claim.sentence_named_ids, grounding.qualifying_units
+        )
         if flag is not None:
             return flag
         return ClaimVerdict(
