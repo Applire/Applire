@@ -245,6 +245,39 @@ def _find_employer_anchor(sentence: str, candidates: list[tuple[str, str]]) -> s
     return None
 
 
+def letter_named_experience_ids(
+    letter_data: dict[str, Any] | None, profile: Any | None
+) -> frozenset[str]:
+    """Every experience id whose employer/project name is named ANYWHERE in
+    the letter body (#243-adjacent, oracle figure-ownership check).
+
+    Unlike :func:`_find_employer_anchor` (per-sentence, requires EXACTLY one
+    match to stamp a claim's own attribution), this scans the WHOLE letter
+    and keeps every id it finds, ambiguity included — a letter legitimately
+    names several employers across different paragraphs. Used only to decide
+    whether an UNANCHORED figure claim's owned-only vault backing belongs to
+    a position the letter simply never mentions (genuinely unattributable,
+    see ``audit.verify_claim``'s ``letter_named_ids``) vs one it names
+    elsewhere (legitimate — full per-clause attribution just isn't provable).
+    """
+    candidates = _employer_anchor_candidates(profile)
+    if not candidates:
+        return frozenset()
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    text = _normalize_punct(
+        " ".join(p for p in (paragraphs or []) if isinstance(p, str))
+    )
+    found: set[str] = set()
+    for name, entity_id in candidates:
+        pattern = re.compile(
+            r"\b" + re.escape(_normalize_punct(name)) + r"\b", re.IGNORECASE
+        )
+        if pattern.search(text):
+            found.add(entity_id)
+    return frozenset(found)
+
+
 def split_sentences(text: str) -> list[str]:
     """Deterministic sentence split with abbreviation and decimal guards."""
     t = (text or "").strip()

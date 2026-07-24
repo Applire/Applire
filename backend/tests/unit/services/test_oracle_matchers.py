@@ -128,6 +128,96 @@ def test_ground_skill_claim_surface_and_near_dupe():
     assert ground_skill_claim("React Native", index) is None
 
 
+# ── #244 — CV skill-audit vs keyword ledger contradiction (live 2026-07-24
+# founder acceptance run, generated_cvs ed9234fe-1502-...) ───────────────────
+#
+# Ground truth pinned against the dev DB profile 63cc8964-8100-4ae7-9b3b-
+# 508ebea9414f: vault skill "Team Leadership and Mentorship" plus a BioNTech
+# responsibility "Provided strategic guidance and mentorship to the
+# architecture team..." back the CV skill "Mentoring", but the panel flagged
+# it unbacked because neither the literal-substring nor the strict
+# skills_near_dupe/containment check folds the gerund "Mentoring" to the
+# vault's "...Mentorship" noun form (different single tokens by construction
+# -- not a plural, not a multi-token containment, Jaccard 0). "Strategic
+# Planning" has NO such deterministic tie to "Digital Strategy" (different
+# stems entirely: strategic/strategy, planning/direction) -- its ledger
+# "evidence" is LLM semantic adjacency, not a literal/near-dupe vault match,
+# so it is correctly left unbacked by the Oracle's deterministic contract.
+BUG244_PROFILE = {
+    "personal_info": {"name": "Anna Bauer"},
+    "professional_summary": {
+        "en": (
+            "Clinical-adjacent leadership includes GCLP team management, "
+            "establishing the clinical front end for individualized drug "
+            "production."
+        )
+    },
+    "work_experience": [
+        {
+            "id": "w-biontech",
+            "company": "BioNTech SE",
+            "role": "Associate Director",
+            "responsibilities": [
+                "Set strategic direction, roadmap and release planning for "
+                "supply-chain systems in alignment with global process "
+                "owners and domain architects",
+                "Provided strategic guidance and mentorship to the "
+                "architecture team, cultivating a culture of innovation "
+                "and collaboration",
+            ],
+        }
+    ],
+    "skills": [{"name": "Digital Strategy"}, {"name": "Team Leadership and Mentorship"}],
+}
+
+
+def test_ground_skill_claim_mentoring_folds_to_mentorship_vault_skill():
+    """#244: 'Mentoring' must ground -- vault carries 'Mentorship' evidence
+    (the skill AND a matching responsibility), a same-stem derivational form
+    the near-dupe/containment instruments cannot see (single differing
+    tokens), reusing the shared surface_present verb-form fallback instead."""
+    index = build_vault_index(BUG244_PROFILE)
+    unit = ground_skill_claim("Mentoring", index)
+    assert unit is not None
+    assert "mentorship" in unit.text_norm
+
+
+def test_ground_skill_claim_strategic_planning_stays_unbacked():
+    """#244: 'Strategic Planning' has NO deterministic vault tie -- the
+    ledger's claimable verdict rests on LLM semantic adjacency ('Digital
+    Strategy' skill + a roadmap/planning responsibility), not a literal or
+    near-dupe match, so the Oracle correctly leaves it unbacked."""
+    index = build_vault_index(BUG244_PROFILE)
+    assert ground_skill_claim("Strategic Planning", index) is None
+
+
+def test_ground_skill_claim_team_management_already_grounds_via_literal_phrase():
+    """#244 regression lock: 'Team Management' already grounds today via the
+    literal substring 'team management' in the professional summary -- this
+    pair was never actually broken, unlike 'Mentoring'."""
+    index = build_vault_index(BUG244_PROFILE)
+    unit = ground_skill_claim("Team Management", index)
+    assert unit is not None
+    assert "team management" in unit.text_norm
+
+
+def test_ground_skill_claim_agrees_with_ledger_claimable_skill_evidence():
+    """Ledger-vs-audit agreement (#122 lesson): a skill the Keyword Ledger
+    marks claimable with evidence naming a real vault skill must not audit
+    unbacked -- the two surfaces must never disagree on the SAME skill."""
+    ledger_entry = {
+        "concept": "Mentoring",
+        "claimable": True,
+        "evidence": (
+            "Explicit skill (Team Leadership and Mentorship) and "
+            "demonstrated in responsibilities."
+        ),
+    }
+    index = build_vault_index(BUG244_PROFILE)
+    assert ledger_entry["claimable"] is True
+    assert ground_skill_claim(ledger_entry["concept"], index) is not None
+
+
 def test_ground_text_claim_coverage():
     index = build_vault_index(PROFILE)
     close = ground_text_claim("Cut deployment time through CI automation.", index)

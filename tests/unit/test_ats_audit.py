@@ -966,3 +966,59 @@ def test_dedupe_predicates_stay_strict_after_verb_fold():
     # -ed entries added, only the pre-existing guarded singular/plural pair.
     assert _fold_variants("mentoring") == ["mentoring", "mentorings"]
     assert _fold_variants("reviews") == ["reviews", "review"]
+
+
+# ---------------------------------------------------------------------------
+# #244 — the '-ship' derivational-noun fold, extending the verb-form fallback.
+# Live-reproduced: the CV skill "Mentoring" flagged unbacked against a vault
+# that only carries "...Mentorship" (the skill "Team Leadership and
+# Mentorship" plus a responsibility saying "...guidance and mentorship...").
+# Neither form is a plural of the other and they are single, differing
+# tokens -- skill_tokens/skills_near_dupe correctly refuse them (containment
+# needs >= 2 tokens, Jaccard is 0) -- so the fold belongs here, in
+# surface_present's existing guarded token-level fallback, exactly like the
+# -ing/-ed pair already does for "Mentored"/"Mentoring".
+# ---------------------------------------------------------------------------
+
+def test_surface_present_folds_ship_noun_to_ing_verb_form():
+    """'Mentoring' (CV skill) must be found in text that only says
+    '...mentorship...' — the #244 live false negative."""
+    text_norm = _norm("Team Leadership and Mentorship")
+    assert surface_present("Mentoring", text_norm) is True
+
+
+def test_surface_present_folds_ship_noun_reverse_direction():
+    """The fold must work the other way too: 'Mentorship' (keyword) found in
+    text that only says 'mentoring'."""
+    text_norm = _norm("Responsible for mentoring junior engineers")
+    assert surface_present("Mentorship", text_norm) is True
+
+
+def test_verb_stem_ship_fold_respects_min_stem_length():
+    """'Airship' would strip to 'air' (3 chars) -- below the guard floor, so
+    the suffix must NOT be stripped at all, exactly like the existing 'AI'
+    guard. (Tested directly on ``_verb_stem``: any text containing a longer
+    word trivially contains its own stem as a literal substring, so this
+    guard is unobservable through ``surface_present`` alone.)"""
+    from applire.services.ats_audit import _verb_stem
+
+    assert _verb_stem("airship") == "airship"
+    assert _verb_stem("mentorship") == "mentor"
+
+
+def test_surface_present_ship_fold_unrelated_words_do_not_false_positive():
+    """'Relationship' stems to 'relation' -- must not falsely match an
+    unrelated word like 'relative'."""
+    text_norm = _norm("Anna Bauer is a close relative of the hiring manager")
+    assert surface_present("Relationship", text_norm) is False
+
+
+def test_dedupe_predicates_stay_strict_after_ship_fold():
+    """Guard against ripple, mirroring the -ing/-ed guard above: the ADR-046
+    dedupe instruments must NOT gain the -ship fold either. 'Mentor' and
+    'Mentorship' are genuinely different skill labels and must still NOT
+    auto-merge; the guarded plural-only phrase fold is unaffected."""
+    from applire.services.ats_audit import _fold_variants, skills_near_dupe
+
+    assert skills_near_dupe("Mentor", "Mentorship") is False
+    assert _fold_variants("mentorship") == ["mentorship", "mentorships"]
