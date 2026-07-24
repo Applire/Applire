@@ -42,6 +42,7 @@ from applire.prompts.reconcile import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData
+from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.ops import (
     ReconcileOp,
     ReconcileResult,
@@ -103,6 +104,10 @@ async def reconcile(
     # Stance guard (#127): the model's own denials outrank its ops, and
     # interview-turn token claims must be grounded in the turn's text.
     ops = enforce_stance(ops, denials=denials, new_info=new_info, source=source)
+    # Attribution guard (#243): a multi-employer answer's clause must never
+    # silently land on a DIFFERENT employer's entity — deterministic backstop
+    # on top of the model's own (occasionally wrong) target choice.
+    ops = enforce_attribution(ops, profile=profile, new_info=new_info, source=source)
     return ReconcileResult(ops=ops, ambiguities=ambiguities, denials=denials)
 
 
