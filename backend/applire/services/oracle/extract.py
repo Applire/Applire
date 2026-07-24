@@ -25,6 +25,7 @@ from applire.constants import (
     ORACLE_SEGMENT_MAX_TOKENS,
 )
 from applire.schemas.oracle import Claim
+from applire.services.ats_audit import skill_tokens
 
 # Dotted abbreviations that must not terminate a sentence (DE + EN). Matching
 # is case-sensitive on purpose: "No." the abbreviation is title-cased, while a
@@ -57,6 +58,93 @@ def _normalize_punct(text: str) -> str:
     for ch in _DASH_CHARS:
         out = out.replace(ch, "-")
     return out
+
+
+# ── courtesy/meta formula filter (adversarial-pass residual, 2026-07-23) ────
+# An entirely honest letter still scored unverifiable-dominated because pure
+# courtesy openers/closers ("I am writing to express my interest…", "Thank
+# you for your time and consideration.") were extracted as claims and, having
+# no vault-checkable content, piled into the unverifiable bucket. These are
+# formulas, not factual claims about the candidate, so they must never be
+# extracted at all — but conservatively: a clause that ALSO carries a factual
+# assertion keeps its full original text as a real claim (see
+# ``_is_pure_formula_clause`` below).
+#
+# Each pattern's own bounded tail (where present) consumes the typical
+# short "for/in the {role} at {company}" framing that belongs to the SAME
+# formula, not a separate fact — real multi-fact sentences bolt a second
+# fact on via a clause-boundary conjunction (``split_clauses`` above already
+# isolates that fact into its own clause before this filter ever runs). The
+# tail is length-bounded (not ``.*``) so it cannot silently swallow an
+# unrelated later fact within the same unsplit clause.
+_ROLE_TAIL = r"(?:\s+(?:for|in)\s+.{0,90})?"
+
+_FORMULA_SEED_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # EN openers
+        rf"i am writing to (?:you )?(?:express my (?:strong |keen |sincere )?interest|apply){_ROLE_TAIL}",
+        rf"i am (?:excited|thrilled|pleased|delighted|honou?red) to apply{_ROLE_TAIL}",
+        r"with (?:great|keen|genuine|much) (?:interest|enthusiasm)",
+        r"it is with (?:great|much) pleasure",
+        # EN closers / availability
+        r"thank you for (?:your|the) (?:time|consideration|attention)",
+        r"i appreciate (?:your|the) (?:time|consideration)",
+        r"please do not hesitate to contact me",
+        r"i (?:remain|am) available (?:for an interview|at your convenience|to discuss)",
+        r"at your earliest convenience",
+        r"i would welcome the opportunity to discuss",
+        r"i look forward to (?:discussing|the opportunity to discuss|your response|scheduling|speaking with you)",
+        # DE openers/closers
+        r"sehr geehrte[rn]?",
+        r"mit freundlichen gr[uü]ßen",
+        r"mit (?:gro[ßs]em|gro[ßs]er|viel) interesse",
+        r"vielen dank f[uü]r ihre (?:zeit|aufmerksamkeit|ber[uü]cksichtigung)",
+        r"ich freue mich (?:auf ein (?:pers[oö]nliches )?gespr[aä]ch|[uü]ber die m[oö]glichkeit)",
+        r"stehe ich (?:ihnen )?gerne (?:f[uü]r ein gespr[aä]ch )?zur verf[uü]gung",
+    )
+]
+
+# Residual filler that survives seed removal but still carries no candidate
+# fact (the reader-facing framing of the SAME formula, not the applicant's
+# own evidence) — only ever subtracted from a clause a seed already matched.
+_FORMULA_FRAMING_WORDS = frozenset(
+    {
+        "role", "position", "opportunity", "team", "company", "organisation",
+        "organization", "firm", "employer", "consideration", "convenience",
+        "interview", "application", "vacancy", "opening", "advertised",
+        "regarding", "concerning", "this", "that", "further", "it",
+        "write", "writing", "you", "i", "my",
+        # DE
+        "stelle", "unternehmen", "gelegenheit", "bewerbung", "vorstellungsgespraech",
+        "vorstellungsgespräch", "gespraech", "gespräch", "beruecksichtigung",
+        "berücksichtigung", "zeit", "aufmerksamkeit", "interesse",
+        "damen", "herren", "und", "sowie",
+    }
+)
+
+
+def _is_pure_formula_clause(text: str) -> bool:
+    """True when ``text`` is a courtesy/meta formula with no substantive claim.
+
+    Conservative by construction: only clauses that match at least one known
+    formula seed are considered at all, and even then only when NO content
+    tokens survive after stripping the matched seed(s) and the reader-facing
+    framing words (reusing ``skill_tokens`` — the shared tokenizer, never a
+    fork). A clause naming no formula seed, or one that keeps a real fact
+    after the formula is removed, is left untouched and extracted as usual.
+    """
+    normalized = _normalize_punct(text)
+    residual = normalized
+    matched = False
+    for pattern in _FORMULA_SEED_PATTERNS:
+        new_residual, n = pattern.subn(" ", residual)
+        if n:
+            matched = True
+            residual = new_residual
+    if not matched:
+        return False
+    return not (skill_tokens(residual) - _FORMULA_FRAMING_WORDS)
 
 
 # Clause boundaries: a semicolon, a comma followed by a coordinating
@@ -282,6 +370,8 @@ def extract_claims_from_letter(
             multi = len(clauses) > 1
             for ci, clause in enumerate(clauses):
                 if len(clause) < _MIN_CLAIM_CHARS:
+                    continue
+                if _is_pure_formula_clause(clause):
                     continue
                 claims.append(
                     Claim(
