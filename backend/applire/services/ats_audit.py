@@ -85,17 +85,63 @@ def _fold_variants(needle_norm: str) -> list[str]:
     return variants
 
 
+# Friction finding (#234-adjacent): conservative English verb-form fold, added
+# to `surface_present`'s TOKEN-LEVEL FALLBACK only — it must never touch
+# `_fold_variants` (the phrase-level substring fold `surface_present` tries
+# first) nor `skill_tokens`/`skills_near_dupe` (the ADR-046 dedupe instruments,
+# deliberately strictness-hardened). Checked longest-suffix-first so "mentoring"
+# strips to "mentor" via "-ing", not a shorter/wrong suffix.
+_VERB_SUFFIXES = ("ing", "ed", "es", "s")
+
+
+def _verb_stem(token: str) -> str:
+    """Strip one trailing verb-form suffix (-ing/-ed/-es/-s), only when the
+    remaining stem keeps >= ``_FOLD_MIN_STEM`` chars — same guard rail as the
+    plural fold, so short tokens ('AI', 'SaaS') never fold. Longest suffix
+    checked first (order above) so "mentoring" -> "mentor", not a partial
+    "mentorin" from a shorter, wrong match. No suffix applies -> unchanged."""
+    for suf in _VERB_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= _FOLD_MIN_STEM:
+            return token[: -len(suf)]
+    return token
+
+
+def _verb_form_present(form_norm: str, text_norm: str) -> bool:
+    """Token-level verb-form fallback (bounded, conservative, English only):
+    True only when ``form_norm`` is a SINGLE token that shares a stem — after
+    stripping -ing/-ed/-es/-s, both directions, stem length >= 4 — with some
+    single token in ``text_norm``. Multi-token forms are refused outright:
+    reordering/POS-shuffling a phrase ("test automation" vs "automated tests")
+    is paraphrase-level matching, explicitly out of scope (do not attempt it
+    here — see ``surface_present`` docstring).
+    """
+    form_tokens = form_norm.split()
+    if len(form_tokens) != 1:
+        return False
+    needle_stem = _verb_stem(form_tokens[0])
+    return any(_verb_stem(word) == needle_stem for word in text_norm.split())
+
+
 def surface_present(form: str, text_norm: str) -> bool:
     """THE presence predicate (US212): is this surface form in this normalised text?
 
     Single shared instrument for the ATS panel, the gap hints (#117), and the
     generation-time coverage check (US213) — consumers may never disagree on
     presence by construction (ADR-048 amended 2026-07-04, #122).
+
+    Falls back to a conservative same-stem ENGLISH VERB-FORM fold (#234-adjacent
+    friction finding) when the direct phrase-level substring/plural check misses:
+    "Mentoring" (keyword) is present in text that only says "Mentored" (and vice
+    versa). Bounded to single-token forms — this can only ever ADD a match, never
+    remove one, and never attempts multi-token paraphrase matching ("performance
+    optimization" vs "improving ... performance" stays a true miss, by design).
     """
     n = _norm(form)
     if not n:
         return False
-    return any(text_norm.find(v) >= 0 for v in _fold_variants(n))
+    if any(text_norm.find(v) >= 0 for v in _fold_variants(n)):
+        return True
+    return _verb_form_present(n, text_norm)
 
 
 # ── #172: near-duplicate skill detection ─────────────────────────────────────
@@ -383,6 +429,19 @@ def _audit_cv_text(
     # hard-code a page number (ADR-051 §1). Keep id "page-length" (frontend i18n keys
     # on it); details carry a details_key + details_params pair so the frontend can
     # localise them (ADR-038), with the EN `details` string as the fallback.
+    #
+    # #238 (founder-acceptance F4) amendment: the "within max" branch used to pass
+    # unconditionally once page_count <= maximum, regardless of WHY it was over
+    # tgt — so an EXPLICIT target the candidate chose (production always resolves
+    # and passes one; only text-only callers omit it) that the condense loop
+    # could not hit still shipped as unprompted "senior profile" advice, hiding
+    # the miss. `target is not None` distinguishes "a target was actually asked
+    # for" from the back-compat "no target given, defaults to the regional
+    # standard" callers — only the latter keeps the old blanket senior-advisory
+    # wording; the former is now an honest fail, whether or not
+    # `condensation_exhausted` was set (the section-editor re-audit path can miss
+    # the target without ever running the condense loop at all — same honesty
+    # applies defensively).
     if page_count is not None:
         norm = REGION_NORMS[region]
         standard = norm.cv_standard_pages
@@ -404,13 +463,29 @@ def _audit_cv_text(
                 details_params={"pages": page_count, "target": tgt,
                                 "region": region, "standard": standard},
             ))
-        elif page_count <= maximum:
+        elif page_count <= maximum and target is None:
+            # No explicit target was asked for (back-compat: the region standard
+            # was used as a default, not a candidate choice) — the old advisory
+            # wording is still honest here, nothing was promised and missed.
             checks.append(ATSCheck(
                 id="page-length", status="pass",
                 details=f"{page_count} pages — acceptable for senior profiles; "
                         f"the {region} norm is {standard} pages",
                 details_key="page-length-senior",
                 details_params={"pages": page_count, "region": region, "standard": standard},
+            ))
+        elif page_count <= maximum:
+            # #238: an explicit target was chosen and missed, even though the
+            # document still sits within the regional max — must fail honestly,
+            # never dressed up as senior-profile advice (founder-acceptance F4).
+            checks.append(ATSCheck(
+                id="page-length", status="fail",
+                details=f"{page_count} pages — couldn't condense to your {tgt}-page "
+                        f"target without cutting relevant content; the {region} max "
+                        f"is {maximum} pages",
+                details_key="page-length-target-missed",
+                details_params={"pages": page_count, "target": tgt, "region": region,
+                                "standard": standard, "max": maximum},
             ))
         elif condensation_exhausted:
             checks.append(ATSCheck(

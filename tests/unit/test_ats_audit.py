@@ -18,7 +18,7 @@
 import pytest
 
 from applire.schemas.cv import TailoredCVData
-from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+from applire.services.ats_audit import _audit_cv_text, _audit_letter_text, _norm, surface_present
 
 
 # ---------------------------------------------------------------------------
@@ -189,12 +189,15 @@ def test_page_length_at_standard_with_substandard_target_plain_pass():
     assert c.details_key is None and c.details_params is None
 
 
-def test_page_length_over_substandard_target_still_senior_advisory():
-    # target=1 missed and pages beyond the standard → the senior advisory is honest.
+def test_page_length_over_explicit_substandard_target_is_honest_miss():
+    # #238 founder-acceptance F4: rewritten from the old
+    # "still_senior_advisory" expectation, which CODIFIED the bug this fixes —
+    # an EXPLICIT target (here target=1) that was missed must never be dressed
+    # up as senior-profile advice, even though 3 pages is within the DACH max.
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=3, target=1)
     c = _check_by_id(report, "page-length")
-    assert c is not None and c.status == "pass"
-    assert c.details_key == "page-length-senior"
+    assert c is not None and c.status == "fail"
+    assert c.details_key == "page-length-target-missed"
 
 
 def test_page_length_within_norm_under_higher_chosen_target_no_advisory():
@@ -211,6 +214,53 @@ def test_page_length_under_chosen_target_no_advisory_when_target_is_standard():
     report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=1, target=2)
     c = _check_by_id(report, "page-length")
     assert c is not None and c.status == "pass" and c.details is None
+
+
+# #238 (founder-acceptance F4): the founder chose an explicit page target in the
+# template picker ("2 pages — DACH standard") and got 3 pages back dressed as
+# "acceptable for senior profiles" — the miss was reframed as advice. The old
+# band checked condensation_exhausted ONLY once page_count > maximum, so at
+# exactly maximum (3 <= 3) it was dead: a chosen-but-missed target inside the
+# regional max fell straight into the unconditional senior-advisory pass.
+
+
+def test_page_length_target_missed_within_max_is_honest_fail():
+    # The exact founder scenario: explicit target=2 (== the DACH standard, i.e.
+    # the "2 pages — DACH standard" picker option), condense loop exhausted its
+    # budget, delivered 3 (== the DACH max). Must be an honest miss, not advice.
+    report = _audit_cv_text(
+        _full_text(), _CV, keywords=[], page_count=3, target=2, condensation_exhausted=True
+    )
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details and "3 pages" in c.details and "2" in c.details
+    assert "senior" not in c.details
+    assert c.details_key == "page-length-target-missed"
+    assert c.details_params == {
+        "pages": 3, "target": 2, "region": "DACH", "standard": 2, "max": 3,
+    }
+
+
+def test_page_length_target_missed_within_max_honest_even_when_not_exhausted():
+    # Defensive: the condense loop should always set condensation_exhausted when
+    # it fails to meet the target, but the section-editor re-audit path can call
+    # _audit_cv_text WITHOUT running the loop at all. An explicit target miss must
+    # read as honest regardless of the flag's value.
+    report = _audit_cv_text(
+        _full_text(), _CV, keywords=[], page_count=3, target=2, condensation_exhausted=False
+    )
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "fail"
+    assert c.details_key == "page-length-target-missed"
+
+
+def test_page_length_target_met_still_plain_pass():
+    # Same explicit target (2) but the document actually meets it — a real pass,
+    # not touched by the honest-miss branch.
+    report = _audit_cv_text(_full_text(), _CV, keywords=[], page_count=2, target=2)
+    c = _check_by_id(report, "page-length")
+    assert c is not None and c.status == "pass" and c.details is None
+    assert c.details_key is None and c.details_params is None
 
 
 def test_page_length_fail_exhausted_wording():
@@ -832,3 +882,87 @@ def test_gap_stance_not_widened_by_foreign_entry():
     report = _audit_cv_text(text, _CV, keywords=["Azure"], ledger=ledger)
     assert report.keywords.missing == ["Azure"]
     assert report.keywords.missing_honest_gap == ["Azure"]
+
+
+# ---------------------------------------------------------------------------
+# Friction finding (#234-adjacent) — verb-form false negatives in surface_present.
+# Live-reproduced: "Mentoring" and "Performance optimization" were reported
+# missing_claimable although the CV verbatim said "Mentored 2 junior engineers"
+# and "...improving query performance by 40%". Bounded fix: a conservative
+# same-stem verb-form fold (-ing/-ed/-es/-s, stem length >= 4, both directions)
+# added to surface_present's token-level fallback ONLY. Paraphrase-level
+# matching ("performance optimization" vs "improving ... performance") stays
+# explicitly out of scope.
+# ---------------------------------------------------------------------------
+
+def test_surface_present_folds_ing_to_ed_verb_form():
+    """'Mentoring' (the ledger/keyword form) must be found in text that only
+    says 'Mentored' — the live-reproduced false negative."""
+    text_norm = _norm("Mentored 2 junior engineers on system design")
+    assert surface_present("Mentoring", text_norm) is True
+
+
+def test_surface_present_folds_ed_to_ing_verb_form_reverse_direction():
+    """The fold must work in the other direction too: keyword 'Mentored' found
+    in text that only says 'Mentoring'."""
+    text_norm = _norm("Responsible for mentoring junior engineers")
+    assert surface_present("Mentored", text_norm) is True
+
+
+def test_surface_present_paraphrase_reorder_stays_out_of_scope():
+    """'test automation' (keyword) vs 'automated tests' (document) is a
+    multi-token paraphrase (word-order AND part-of-speech shift on both
+    words) — the SAME category as 'performance optimization' vs 'improving
+    query performance', which the fix explicitly does not attempt. Pinned:
+    this must NOT match."""
+    text_norm = _norm("Built a suite of automated tests for the pipeline")
+    assert surface_present("test automation", text_norm) is False
+
+
+def test_surface_present_stems_under_four_chars_never_fold():
+    """'AI' must never fold — far too short to safely stem, and folding it
+    would substring-match unrelated words. (Text deliberately avoids any
+    'ai' substring so this isolates the NEW fold from the pre-existing
+    plain-substring check.)"""
+    text_norm = _norm("The team runs quarterly audits")
+    assert surface_present("AI", text_norm) is False
+
+
+def test_surface_present_unrelated_words_do_not_false_positive():
+    """'mentor' and 'mention' must NOT match: 'mention' strips no suffix (its
+    -ing/-ed/-es/-s pass doesn't apply) and stays 'mention'; 'mentor' likewise
+    stays 'mentor' -- different stems, no fold."""
+    text_norm = _norm("Anna Bauer did not mention this responsibility")
+    assert surface_present("mentor", text_norm) is False
+
+
+def test_surface_present_trailing_s_fold_unchanged():
+    """Pre-existing US212 trailing-s plural fold must be untouched by the new
+    verb-form fallback."""
+    text_norm = _norm("Anna Bauer ran weekly code reviews for the platform team")
+    assert surface_present("Code review", text_norm) is True
+
+
+def test_missing_claimable_no_longer_false_negatives_on_mentored():
+    """Report-level repro of the live finding: 'Mentoring' must land in
+    ``present``, not ``missing_claimable``, when the CV verbatim says
+    'Mentored'."""
+    text = "Anna Bauer mentored 2 junior engineers and improved query performance by 40 percent"
+    report = _audit_cv_text(text, _CV, keywords=["Mentoring"], ledger=_LEDGER_122)
+    assert report.keywords.present == ["Mentoring"]
+    assert report.keywords.missing_claimable == []
+
+
+def test_dedupe_predicates_stay_strict_after_verb_fold():
+    """Guard against ripple: skill_tokens/skills_near_dupe/_fold_variants (the
+    ADR-046 dedupe instruments) must NOT gain the verb-form fold -- they stay
+    exactly as strict as before. 'Mentor' and 'Mentoring' are genuinely
+    different skill labels and must still NOT auto-merge."""
+    from applire.services.ats_audit import _fold_variants, skills_near_dupe
+
+    assert skills_near_dupe("Mentor", "Mentoring") is False
+    # _fold_variants (phrase-level substring fold) must still be the plain
+    # trailing-s-only fold, UNCHANGED by the new verb-form fallback: no -ing/
+    # -ed entries added, only the pre-existing guarded singular/plural pair.
+    assert _fold_variants("mentoring") == ["mentoring", "mentorings"]
+    assert _fold_variants("reviews") == ["reviews", "review"]

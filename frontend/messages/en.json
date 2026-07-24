@@ -36,7 +36,7 @@
     "optional": "(Optional — you can add this later)",
     "analyzeButton": "Analyze & Build Profile",
     "uploadAtLeastOne": "Upload at least one CV to continue",
-    "usuallyTakes": "This usually takes about 30 seconds",
+    "usuallyTakes": "This usually takes under a few minutes — large CVs can take longer",
     "addMoreFiles": "Add more files for a richer profile",
     "linkedinHint": "Tip: a LinkedIn profile PDF export works as a CV.",
     "noCv": "No CV at hand?",
@@ -102,7 +102,7 @@
       "detailMergedCVs": "Merged {count} CVs into unified profile",
       "errorFlowNotFound": "Flow not found. Please start over.",
       "percentComplete": "{pct}% complete",
-      "usuallyTakes": "This usually takes about 30 seconds"
+      "usuallyTakes": "This usually takes under a few minutes — large CVs can take longer"
     },
     "cancelApplication": "Cancel application",
     "cancelApplicationInline": "Not a fit? Cancel this application",
@@ -918,6 +918,7 @@
     "missingHonestGap": "Not supported by your profile — an honest gap ({count}):",
     "structureOk": "ATS structure — all checks passed",
     "structureIssues": "{count, plural, one {# ATS check failed} other {# ATS checks failed}}",
+    "structureOkKeywordsMissing": "{count, plural, one {Structure passed — # supported keyword missing from the document} other {Structure passed — # supported keywords missing from the document}}",
     "detailsButton": "Details",
     "groupCount": "({passed} of {total} parsed)",
     "checks": {
@@ -936,6 +937,7 @@
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
+      "page-length-target-missed": "{pages} pages — couldn't condense to your {target}-page target without cutting relevant content; the {region} max is {max} pages",
       "page-length-senior": "{pages} pages — acceptable for senior profiles; the {region} norm is {standard} pages",
       "page-length-exhausted": "{pages} pages — condensed to the maximum; length driven by education/skills volume; exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
@@ -947,6 +949,7 @@
     "unavailable": "Truthfulness report not available for this document.",
     "allClear": "{count, plural, one {# claim checked — everything backed by your profile} other {# claims checked — everything backed by your profile}}",
     "needsReview": "{count, plural, one {# claim needs your review} other {# claims need your review}}",
+    "mostlyUnverifiable": "Most claims couldn't be checked against your profile ({unverifiable} of {total})",
     "unverifiableNote": "{count, plural, one {# soft claim can't be checked against your profile} other {# soft claims can't be checked against your profile}}",
     "detailsButton": "Details",
     "evidenceLabel": "Evidence from your profile:",
@@ -1040,6 +1043,11 @@
     "confirmDownload": "Yes, this reflects my experience",
     "confirmDefault": "Looks good",
     "attestationNote": "By downloading you confirm the content reflects your actual experience.",
+    "storyChallenge": "Challenge",
+    "storyMechanism": "Approach",
+    "storyOutcome": "Outcome",
+    "storyBenchmark": "Benchmark",
+    "storyLabel": "{label}: ",
     "action": {
       "added": "added",
       "updated": "updated",
@@ -1056,6 +1064,7 @@
       "projects": "Projects",
       "publications": "Publications",
       "volunteer_activities": "Volunteer work",
+      "signature_stories": "Signature story",
       "*": "Profile"
     },
     "rationale": {

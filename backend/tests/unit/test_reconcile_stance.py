@@ -528,6 +528,47 @@ def test_denial_reaches_alias_forms() -> None:
     assert out == []
 
 
+# ── #231 regression (founder-acceptance adversarial pass, 2026-07-23) ────────
+# Live scenario: a candidate denied "machine learning model training" while
+# explicitly REAFFIRMING AI/ML integration work in the SAME statement. The
+# denial-side match (_is_denied's bare substring containment check) let "ai"
+# collide inside "tr-ai-ning", force-killing the unrelated, JD-required
+# concept "AI/ML" — the exact collision class #207 excludes ml/ai from
+# _ALIAS_GROUPS for.
+
+_ML_TRAINING_DENIAL_TURN = {
+    "gap": "AI/ML expertise",
+    "question": "Tell us about your machine learning experience.",
+    "answer": (
+        "I haven't done machine learning model training myself, but I do "
+        "have hands-on AI/ML integration experience — wiring LLM APIs into "
+        "production services and building retrieval pipelines."
+    ),
+}
+
+
+def test_ml_training_denial_does_not_suppress_reaffirmed_ai_ml() -> None:
+    ops = [UpsertSkill(name="AI/ML", category="technical")]
+    out = enforce_stance(
+        ops,
+        denials=["machine learning model training"],
+        new_info=_ML_TRAINING_DENIAL_TURN,
+        source="agent_interview",
+    )
+    assert len(out) == 1
+
+
+def test_ml_training_denial_still_suppresses_machine_learning_itself() -> None:
+    ops = [UpsertSkill(name="Machine Learning", category="technical")]
+    out = enforce_stance(
+        ops,
+        denials=["machine learning model training"],
+        new_info=_ML_TRAINING_DENIAL_TURN,
+        source="agent_interview",
+    )
+    assert out == []
+
+
 # Verbatim interview turn, 2026-07-19T07:20:49Z (E046 adversarial pass): every
 # figure is spelled out — a story op rendering them as numerals must survive.
 _HELPDESK_TURN = {
@@ -777,6 +818,145 @@ async def test_engine_drops_ungrounded_interview_claims() -> None:
     assert result.ops == []
 
 
+# ── #231 — durable denial persistence + the public ledger-reuse predicate ───
+
+
+def test_record_denials_persists_and_writes_a_receipt_change() -> None:
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    changes = record_denials(
+        meta,
+        ["Embeddings"],
+        statement="No embeddings work.",
+        source="agent_interview",
+        when=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    assert len(changes) == 1
+    assert changes[0].field == "denied_concepts"
+    assert changes[0].action == "added"
+    assert len(meta.denied_concepts) == 1
+    assert meta.denied_concepts[0].concept == "Embeddings"
+    assert meta.denied_concepts[0].statement == "No embeddings work."
+    assert meta.denied_concepts[0].source == "agent_interview"
+    assert meta.denied_concepts[0].date == "2026-07-23"
+
+
+def test_record_denials_redenial_updates_in_place_case_insensitively() -> None:
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings work.",
+        source="agent_interview", when=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    changes2 = record_denials(
+        meta, ["embeddings"], statement="Confirmed: no embeddings work.",
+        source="agent_interview", when=datetime(2026, 7, 24, tzinfo=timezone.utc),
+    )
+    assert len(meta.denied_concepts) == 1, "re-denial must update, never duplicate"
+    assert meta.denied_concepts[0].statement == "Confirmed: no embeddings work."
+    assert meta.denied_concepts[0].date == "2026-07-24"
+    assert len(changes2) == 1
+    assert changes2[0].action == "updated"
+
+
+def test_record_denials_empty_or_blank_is_a_noop() -> None:
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    changes = record_denials(meta, ["", "   "], statement="x", source="interview")
+    assert changes == []
+    assert meta.denied_concepts == []
+
+
+def test_is_denied_concept_reuses_the_same_alias_and_boundary_machinery() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    assert is_denied_concept("Kubernetes", ["k8s"]) is True  # alias group (#207)
+    assert is_denied_concept("K8s", ["Kubernetes"]) is True
+    # concept-scoped, not topic-radius (#207 over-drop lesson): an unrelated
+    # concept must survive a denial of something else entirely.
+    assert is_denied_concept("RAG", ["embeddings"]) is False
+    assert is_denied_concept("", ["embeddings"]) is False
+
+
+# ── #231 regression (founder-acceptance adversarial pass, 2026-07-23) ───────
+#
+# A candidate denied "machine learning model training" while explicitly
+# REAFFIRMING AI/ML integration work in the same statement. The denial-side
+# match was a bare substring search (surface_present) with no word-boundary
+# guard — the exact collision class #207 deliberately excludes ml/ai from
+# _ALIAS_GROUPS for ("tr-AI-ning" contains "ai"). The grounding side
+# (_word_present) was already guarded; the denial side ("token strictly
+# inside the denied compound") was not. Both directions of the containment
+# check share the same hazard and both must be boundary-safe.
+
+
+def test_short_token_does_not_collide_inside_an_unrelated_word_in_the_denial() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # "AI" must NOT be considered denied just because "ai" appears embedded in
+    # "training" — the live scenario: denying "machine learning model
+    # training" while reaffirming AI/ML in the same breath.
+    assert is_denied_concept("AI", ["machine learning model training"]) is False
+    assert is_denied_concept("ML", ["machine learning model training"]) is False
+    assert is_denied_concept("AI/ML", ["machine learning model training"]) is False
+
+
+def test_denial_still_suppresses_the_concept_it_actually_names_as_a_whole_word() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # The legitimate #231 behavior stays: "Machine learning" IS a whole-word
+    # substring of "machine learning model training" and must still be denied.
+    assert is_denied_concept("Machine learning", ["machine learning model training"]) is True
+
+
+def test_whole_word_denial_of_ai_still_suppresses_ai_ml_concepts() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # A denial that names "AI" as a genuine whole word ("I have no AI
+    # experience") must still reach AI/ML concepts — only the ambiguous
+    # embedded-substring collision is excluded, not legitimate whole-word hits.
+    assert is_denied_concept("AI/ML", ["AI"]) is True
+    assert is_denied_concept("AI", ["I have no AI experience"]) is True
+
+
+def test_denial_word_boundary_reverse_direction_also_guarded() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # Same hazard, opposite direction: a short single-word denial ("ai") must
+    # not collide with a substring embedded inside an unrelated concept name
+    # ("Maintenance" contains "ai" but not as a whole word).
+    assert is_denied_concept("Maintenance", ["ai"]) is False
+    assert is_denied_concept("AI Governance", ["ai"]) is True  # whole word "ai"
+
+
+def test_hyphenated_and_slashed_forms_stay_word_boundary_safe() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # Hyphens fold to spaces before matching; slashes are already boundaries
+    # (not in [a-z0-9]) — both must behave as genuine word edges.
+    assert is_denied_concept("AI-driven", ["AI"]) is True
+    assert is_denied_concept("AI/ML", ["AI"]) is True
+    assert is_denied_concept("Training", ["AI"]) is False
+
+
+def test_embeddings_word_boundary_denial_unchanged() -> None:
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    # #231's legitimate behavior, pinned again at the is_denied_concept level:
+    # denying "embeddings" still suppresses "Embeddings" (word-boundary hit).
+    assert is_denied_concept("Embeddings", ["embeddings"]) is True
+
+
 def test_system_prompt_carries_stance_rule() -> None:
     # The prompt half of the two-layer fix: an explicit stance/denial rule and
     # the denials envelope key. (The mock fingerprint must survive the edit.)
@@ -786,3 +966,29 @@ def test_system_prompt_carries_stance_rule() -> None:
     assert "profile reconciler" in lowered  # mock fingerprint (mock.py keys on it)
     assert "denial" in lowered
     assert '"denials"' in RECONCILE_SYSTEM_PROMPT
+
+
+def test_bullet_with_substring_collision_word_is_not_dropped() -> None:
+    # Adversarial-pass follow-up (2026-07-23): _text_claims_denied shared the
+    # bare-substring hazard — a denial of "AI" must not drop a truthful bullet
+    # whose only "match" is the substring inside "training"/"maintenance".
+    ops = [
+        AddBullets(
+            target="w1",
+            achievements=[
+                "Led maintenance and training programs for the QC team",
+                "Built AI pipelines for document classification",
+            ],
+        )
+    ]
+    turn = {
+        "gap": "AI experience",
+        "question": "Do you have AI experience?",
+        "answer": "I have not built AI systems myself; I led maintenance and training programs for the QC team.",
+    }
+    out = enforce_stance(ops, denials=["AI"], new_info=turn, source="interview")
+    assert len(out) == 1
+    # The whole-word AI bullet dies; the training/maintenance bullet survives.
+    assert out[0].achievements == [
+        "Led maintenance and training programs for the QC team"
+    ]

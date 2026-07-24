@@ -98,6 +98,56 @@ async def test_bridge_preserves_existing_enrichment_history():
 
 
 @pytest.mark.asyncio
+async def test_denial_only_turn_is_recorded_not_dropped_as_no_op():
+    """#231 — "no direct LegalTech experience, that's an honest gap" must not
+    vanish as a plain no-op: the denial persists to
+    metadata.denied_concepts WITH a receipt, and `denial_recorded` is True —
+    but `addressed` stays False (a denial must never read as "resolved this
+    gap"; F8's ledger-upgrade/gap-advance gate stays keyed on real changes)."""
+
+    class _Denier:
+        async def aparse_json(self, prompt, **kw):
+            return {"ops": [], "ambiguities": [], "denials": ["LegalTech"]}
+
+    answer = "No direct LegalTech experience, that's an honest gap."
+    out = await reconcile_interview_turn(
+        profile_dict={}, gap="LegalTech experience",
+        question="Do you have LegalTech experience?",
+        answer=answer, provider=_Denier(), session_id="s3",
+    )
+    assert out.addressed is False
+    assert out.denial_recorded is True
+    denied = out.profile_dict["metadata"]["denied_concepts"]
+    assert len(denied) == 1
+    assert denied[0]["concept"] == "LegalTech"
+    assert denied[0]["statement"] == answer
+    assert denied[0]["source"] == "interview"
+    history = out.profile_dict["metadata"]["enrichment_history"]
+    assert history, "a denial-only turn must still leave a receipt"
+    assert history[-1]["source"] == "interview"
+    assert any(c["field"] == "denied_concepts" for c in history[-1]["changes"])
+
+
+@pytest.mark.asyncio
+async def test_no_denials_key_in_payload_is_still_a_clean_no_op():
+    """Back-compat: a provider payload omitting `denials` entirely (the shape
+    _Empty already used) must not crash record_denials and stays no_change/
+    not-addressed/not-denial_recorded."""
+
+    class _Empty:
+        async def aparse_json(self, prompt, **kw):
+            return {"ops": [], "ambiguities": []}
+
+    out = await reconcile_interview_turn(
+        profile_dict={}, gap="g", question="q", answer="a",
+        provider=_Empty(), session_id="s1",
+    )
+    assert out.addressed is False
+    assert out.denial_recorded is False
+    assert out.profile_dict.get("metadata", {}).get("denied_concepts", []) == []
+
+
+@pytest.mark.asyncio
 async def test_current_position_answer_resolves_end_date_gap():
     """#155 — "this is my current position" must converge: the reconciler emits
     set_field is_current=true, end_date stays null, and re-detection no longer

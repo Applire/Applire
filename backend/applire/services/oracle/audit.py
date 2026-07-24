@@ -38,6 +38,7 @@ from applire.services.oracle.matchers import (
     find_foreign_owner,
     ground_skill_claim,
     ground_text_claim,
+    ground_via_skill_union,
     match_figures,
 )
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
@@ -302,6 +303,31 @@ async def verify_claim(
             checker="grounding",
             evidence=_evidence_refs([grounding.best_unit]),
         )
+
+    # ── 3b. skill-union fallback for enumeration clauses (adversarial-pass
+    # residual, 2026-07-23) ─────────────────────────────────────────────────
+    # The attribution check runs FIRST, against the single-unit grounding's
+    # OWN best-effort evidence (``top_units`` — the best-scoring units found,
+    # regardless of whether they cleared the coverage floor). A claim whose
+    # only real evidence belongs to a foreign position must flag misattributed
+    # here and stop — it must never be allowed to reach the skill-union
+    # fallback and get rescued by role-agnostic skill evidence.
+    if source_id is not None:
+        pre_union_flag = _attribution_red_flag(source_id, grounding.top_units)
+        if pre_union_flag is not None:
+            return pre_union_flag
+    union_grounding = ground_via_skill_union(claim.text, idx)
+    if union_grounding is not None:
+        return ClaimVerdict(
+            verdict="grounded",
+            checker="grounding",
+            evidence=_evidence_refs(union_grounding.qualifying_units),
+            detail=(
+                "Grounded via the union of vault skill evidence "
+                "(multi-skill enumeration clause)."
+            ),
+        )
+
     fallback = ClaimVerdict(
         verdict="unverifiable",
         checker="grounding",
@@ -334,7 +360,7 @@ async def audit_document(
     if tailored_data is not None:
         claims = extract_claims_from_tailored(tailored_data)
     elif letter_data is not None:
-        claims = extract_claims_from_letter(letter_data)
+        claims = extract_claims_from_letter(letter_data, profile)
     else:
         claims = await extract_claims_from_text(text or "", provider=provider)
 

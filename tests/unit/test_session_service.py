@@ -537,6 +537,12 @@ class TestCreateSession:
         assert result.resumed is False
         assert result.gaps_total == 2
         assert "Tell me about GCP" in result.question
+        # issue #241 item 1 — the created session's first current_gap_id IS the
+        # real gap-cluster id (matches gap_analysis.gap_clusters[0]["id"]), so
+        # the frontend tracker can highlight the actual current cluster from
+        # session creation onward, not just index 0 by assumption.
+        assert result.current_gap_id == "cluster-gcp-certification"
+        assert result.addressed_gap_ids == []
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_no_profile_raises(self, sqlite_session):
@@ -1162,6 +1168,78 @@ class TestSendMessage:
         assert result.complete is False
         # Still on the same (first) gap → both gaps remain.
         assert result.gaps_remaining == 2
+
+    @pytest.mark.asyncio
+    async def test_advance_response_carries_new_current_gap_id(self, sqlite_session):
+        """issue #241 item 1 — the turn response exposes the honest server-side
+        anchor for the frontend cluster tracker: current_gap_id advances to the
+        NEW gap and addressed_gap_ids gains the just-resolved one. The frontend
+        must never have to infer this via gaps_remaining array arithmetic."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _addressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I have 3 years of GCP experience.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Advanced off "GCP certification" onto "FastAPI experience".
+        assert result.current_gap_id == "FastAPI experience"
+        assert result.addressed_gap_ids == ["GCP certification"]
+
+    @pytest.mark.asyncio
+    async def test_follow_up_response_keeps_same_current_gap_id(self, sqlite_session):
+        """The honesty half of #241 item 1: a follow-up (re-ask on the SAME gap,
+        e.g. the "Q4 re-asked a already-✓ cluster" wobble) must NOT report the
+        gap as addressed and must NOT change current_gap_id — the frontend
+        tracker must not mark a cluster resolved on a turn that didn't resolve
+        it."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Have you taken any GCP architect exams?", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I've done some GCP work.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.current_gap_id == "GCP certification"
+        assert result.addressed_gap_ids == []
         assert "GCP architect" in result.question
 
     @pytest.mark.asyncio
@@ -1937,7 +2015,9 @@ async def test_complete_session_advances_owning_flow(sqlite_session):
         "applire.services.flow.orchestrator.advance_flow_on_interview_complete",
         new_callable=AsyncMock,
     ) as mock_advance:
-        await _complete_session(record, state, sqlite_session, reason="user_ended")
+        await _complete_session(
+            record, state, sqlite_session, reason="user_ended", provider=_mock_provider()
+        )
 
     assert record.status == "complete"
     mock_advance.assert_awaited_once_with(record.id, sqlite_session)
@@ -1971,7 +2051,9 @@ async def test_complete_session_survives_flow_advance_failure(sqlite_session):
         new=AsyncMock(side_effect=RuntimeError("boom")),
     ):
         # Must not raise — flow advance is best-effort.
-        await _complete_session(record, state, sqlite_session, reason="user_ended")
+        await _complete_session(
+            record, state, sqlite_session, reason="user_ended", provider=_mock_provider()
+        )
 
     assert record.status == "complete"
 
@@ -1985,11 +2067,21 @@ _CICD_CLUSTER_ID = "cluster-ci-cd"
 _CICD_ANSWER = "I built the CI/CD pipelines at Acme end-to-end with GitHub Actions."
 
 
-def _make_gap_with_ledger(job_id, profile_id, *, cluster_concepts=("CI/CD",)):
+def _make_gap_with_ledger(job, profile, *, cluster_concepts=("CI/CD",)):
     """A persisted GapAnalysis whose ledger holds an honest-gap 'CI/CD' entry (plus a
-    claimable 'Python' entry) and one cluster owning `cluster_concepts`."""
-    from applire.models.gap import GapAnalysis
+    claimable 'Python' entry) and one cluster owning `cluster_concepts`.
 
+    #240: carries a REAL input_fingerprint (matching services.gap._input_fingerprint
+    for the given job/profile) so that a completion-time analyze_gaps recompute
+    against an unchanged profile idempotently reuses this row instead of inserting
+    a duplicate — mirroring how every production row gets its fingerprint. Without
+    this the #188 "in-place ledger upgrade, no new row" invariant below would be
+    a fixture artifact, not a real guarantee.
+    """
+    from applire.models.gap import GapAnalysis
+    from applire.services.gap import _input_fingerprint
+
+    job_id, profile_id = job.id, profile.id
     cluster = {
         "id": _CICD_CLUSTER_ID,
         "label": "CI/CD",
@@ -2008,6 +2100,7 @@ def _make_gap_with_ledger(job_id, profile_id, *, cluster_concepts=("CI/CD",)):
         job_analysis_id=job_id,
         profile_id=profile_id,
         match_score=0.6,
+        input_fingerprint=_input_fingerprint(job, profile),
         critical_gaps=[_CICD_CLUSTER_ID],
         minor_gaps=[],
         strengths=["Python"],
@@ -2094,7 +2187,7 @@ class TestAddressedGapUpgradesLedger:
         sqlite_session.add(profile)
         await sqlite_session.flush()
 
-        gap = _make_gap_with_ledger(job.id, profile.id)
+        gap = _make_gap_with_ledger(job, profile)
         sqlite_session.add(gap)
         await sqlite_session.flush()
         session_record = _cicd_session(job.id, profile.id, gap.id)
@@ -2137,7 +2230,7 @@ class TestAddressedGapUpgradesLedger:
         sqlite_session.add(profile)
         await sqlite_session.flush()
 
-        gap = _make_gap_with_ledger(job.id, profile.id)
+        gap = _make_gap_with_ledger(job, profile)
         sqlite_session.add(gap)
         await sqlite_session.flush()
         # State has gap_analysis_id = None even though a row exists in the DB.
@@ -2172,7 +2265,7 @@ class TestAddressedGapUpgradesLedger:
         sqlite_session.add(profile)
         await sqlite_session.flush()
 
-        gap = _make_gap_with_ledger(job.id, profile.id, cluster_concepts=("Quantum Computing",))
+        gap = _make_gap_with_ledger(job, profile, cluster_concepts=("Quantum Computing",))
         sqlite_session.add(gap)
         await sqlite_session.flush()
         session_record = _cicd_session(
@@ -2207,7 +2300,7 @@ class TestAddressedGapUpgradesLedger:
         sqlite_session.add(profile)
         await sqlite_session.flush()
 
-        gap = _make_gap_with_ledger(job.id, profile.id)
+        gap = _make_gap_with_ledger(job, profile)
         sqlite_session.add(gap)
         await sqlite_session.flush()
         session_record = _cicd_session(job.id, profile.id, gap.id)

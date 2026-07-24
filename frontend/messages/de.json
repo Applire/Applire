@@ -36,7 +36,7 @@
     "optional": "(Optional — du kannst das später hinzufügen)",
     "analyzeButton": "Analysieren & Profil erstellen",
     "uploadAtLeastOne": "Lade mindestens einen Lebenslauf hoch, um fortzufahren",
-    "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden",
+    "usuallyTakes": "Das dauert normalerweise wenige Minuten — bei umfangreichen Lebensläufen kann es länger dauern",
     "addMoreFiles": "Weitere Dateien hinzufügen für ein vollständigeres Profil",
     "linkedinHint": "Tipp: Ein PDF-Export deines LinkedIn-Profils zählt als Lebenslauf.",
     "noCv": "Keinen Lebenslauf zur Hand?",
@@ -102,7 +102,7 @@
       "detailMergedCVs": "{count} Lebensläufe zu einheitlichem Profil zusammengeführt",
       "errorFlowNotFound": "Ablauf nicht gefunden. Bitte starten Sie erneut.",
       "percentComplete": "{pct} % abgeschlossen",
-      "usuallyTakes": "Das dauert normalerweise ca. 30 Sekunden"
+      "usuallyTakes": "Das dauert normalerweise wenige Minuten — bei umfangreichen Lebensläufen kann es länger dauern"
     },
     "cancelApplication": "Bewerbung abbrechen",
     "cancelApplicationInline": "Kein Match? Bewerbung abbrechen",
@@ -918,6 +918,7 @@
     "missingHonestGap": "Nicht durch Ihr Profil belegt — eine ehrliche Lücke ({count}):",
     "structureOk": "ATS-Struktur — alle Prüfungen bestanden",
     "structureIssues": "{count, plural, one {# ATS-Prüfung fehlgeschlagen} other {# ATS-Prüfungen fehlgeschlagen}}",
+    "structureOkKeywordsMissing": "{count, plural, one {Struktur bestanden — # belegtes Keyword fehlt im Dokument} other {Struktur bestanden — # belegte Keywords fehlen im Dokument}}",
     "detailsButton": "Details",
     "groupCount": "({passed} von {total} erkannt)",
     "checks": {
@@ -936,6 +937,7 @@
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht Ihrem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
+      "page-length-target-missed": "{pages} Seiten — konnte ohne Kürzung relevanter Inhalte nicht auf Ihr Ziel von {target} Seiten gebracht werden; das {region}-Maximum sind {max} Seiten",
       "page-length-senior": "{pages} Seiten — für Senior-Profile akzeptabel; die {region}-Norm sind {standard} Seiten",
       "page-length-exhausted": "{pages} Seiten — maximal gekürzt; die Länge ergibt sich aus dem Umfang von Ausbildung und Fähigkeiten; überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
@@ -947,6 +949,7 @@
     "unavailable": "Wahrheitsbericht für dieses Dokument nicht verfügbar.",
     "allClear": "{count, plural, one {# Aussage geprüft — alles durch Ihr Profil gedeckt} other {# Aussagen geprüft — alles durch Ihr Profil gedeckt}}",
     "needsReview": "{count, plural, one {# Aussage braucht Ihre Prüfung} other {# Aussagen brauchen Ihre Prüfung}}",
+    "mostlyUnverifiable": "Die meisten Aussagen konnten nicht mit Ihrem Profil abgeglichen werden ({unverifiable} von {total})",
     "unverifiableNote": "{count, plural, one {# weiche Aussage kann nicht gegen Ihr Profil geprüft werden} other {# weiche Aussagen können nicht gegen Ihr Profil geprüft werden}}",
     "detailsButton": "Details",
     "evidenceLabel": "Beleg aus Ihrem Profil:",
@@ -1040,6 +1043,11 @@
     "confirmDownload": "Ja, das entspricht meiner Erfahrung",
     "confirmDefault": "Sieht gut aus",
     "attestationNote": "Mit dem Download bestätigst du, dass der Inhalt deine tatsächliche Erfahrung widerspiegelt.",
+    "storyChallenge": "Herausforderung",
+    "storyMechanism": "Vorgehen",
+    "storyOutcome": "Ergebnis",
+    "storyBenchmark": "Vergleichswert",
+    "storyLabel": "{label}: ",
     "action": {
       "added": "hinzugefügt",
       "updated": "geändert",
@@ -1056,6 +1064,7 @@
       "projects": "Projekte",
       "publications": "Veröffentlichungen",
       "volunteer_activities": "Ehrenamtliche Tätigkeiten",
+      "signature_stories": "Erfolgsgeschichte",
       "*": "Profil"
     },
     "rationale": {

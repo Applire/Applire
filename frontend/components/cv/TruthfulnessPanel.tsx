@@ -41,6 +41,21 @@ export type TruthfulnessReport = {
 
 const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
 
+// #237 (F14): a report with no red flags can still be dominated by claims the
+// vault simply couldn't check (the letter path's whole-sentence claims almost
+// never clear the grounding floor) — that must never render as the same
+// green "everything backed" headline as a genuinely well-grounded document.
+// Floor avoids noise on tiny documents (e.g. a 2-claim all-green report).
+const UNVERIFIABLE_DOMINANCE_FLOOR = 3;
+
+function isUnverifiableDominant(
+  groundedCount: number,
+  unverifiableCount: number,
+  total: number,
+): boolean {
+  return total >= UNVERIFIABLE_DOMINANCE_FLOOR && unverifiableCount > groundedCount;
+}
+
 const VERDICT_CHIP_CLASS: Record<Verdict, string> = {
   grounded: "bg-success-container text-success",
   inflated: "bg-critical-container text-critical",
@@ -88,6 +103,10 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
   const claims = report.claims ?? [];
   const flagged = claims.filter((c) => FLAG_VERDICTS.includes(c.verdict.verdict));
   const unverifiable = claims.filter((c) => c.verdict.verdict === "unverifiable");
+  const groundedCount = claims.filter((c) => c.verdict.verdict === "grounded").length;
+  const unverifiableDominant =
+    flagged.length === 0 &&
+    isUnverifiableDominant(groundedCount, unverifiable.length, claims.length);
   const verdictLabel = (v: Verdict) => t(`verdicts.${v}`);
 
   // Drawer ordering: red flags first, then unverifiable, grounded last.
@@ -109,21 +128,36 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
             <p
               data-testid="truthfulness-status"
               className={`flex items-center gap-1.5 text-sm font-medium ${
-                flagged.length === 0 ? "text-on-surface" : "text-critical"
+                flagged.length > 0
+                  ? "text-critical"
+                  : unverifiableDominant
+                    ? "text-warning"
+                    : "text-on-surface"
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`text-xs font-bold ${flagged.length === 0 ? "text-success" : "text-critical"}`}
+                className={`text-xs font-bold ${
+                  flagged.length > 0
+                    ? "text-critical"
+                    : unverifiableDominant
+                      ? "text-warning"
+                      : "text-success"
+                }`}
               >
-                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
-                {flagged.length === 0 ? "✓" : "✗"}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail/warn glyphs */}
+                {flagged.length > 0 ? "✗" : unverifiableDominant ? "!" : "✓"}
               </span>
-              {flagged.length === 0
-                ? t("allClear", { count: claims.length })
-                : t("needsReview", { count: flagged.length })}
+              {flagged.length > 0
+                ? t("needsReview", { count: flagged.length })
+                : unverifiableDominant
+                  ? t("mostlyUnverifiable", {
+                      unverifiable: unverifiable.length,
+                      total: claims.length,
+                    })
+                  : t("allClear", { count: claims.length })}
             </p>
-            {unverifiable.length > 0 && (
+            {unverifiable.length > 0 && !unverifiableDominant && (
               <p
                 data-testid="truthfulness-unverifiable-note"
                 className="text-xs text-on-surface-variant"

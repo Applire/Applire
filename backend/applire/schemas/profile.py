@@ -416,6 +416,25 @@ class ProfileChangesResponse(BaseModel):
     pending_conflicts: list["Conflict"] = Field(default_factory=list)
 
 
+class DeniedConcept(BaseModel):
+    """#231 — an explicit denial the candidate gave testimony for ("I did not
+    personally configure the embedding models…"), persisted so it survives
+    past the single reconcile turn that produced it.
+
+    ``concept`` is the reconciler's own denied-token verdict (``rc.denials`` —
+    the same list ``enforce_stance`` already uses to strip a same-turn op);
+    ``statement`` is the verbatim testimony, kept for the transparency
+    receipt. Re-denying the same concept (case-insensitively) refreshes
+    ``statement``/``date`` in place rather than duplicating the entry —
+    matched by ``services.profile.reconcile.stance.record_denials``.
+    """
+
+    concept: str
+    statement: str
+    source: Literal["interview", "agent_interview"]
+    date: str  # ISO date (YYYY-MM-DD) — the day the denial was recorded
+
+
 class PendingConfirmation(BaseModel):
     """E037 PQ #4 — an import-time reconciler ambiguity (a ``RequestConfirmation``)
     persisted so the user can answer it later in the profile-review interview.
@@ -446,6 +465,10 @@ class ProfileMetadata(BaseModel):
     # E037 PQ #4 — N-option reconciler ambiguities awaiting a user choice. Kept
     # distinct from pending_conflicts (a Conflict cannot represent an N-option ask).
     pending_confirmations: list[PendingConfirmation] = Field(default_factory=list)
+    # #231 — explicit denials the candidate gave testimony for, persisted so a
+    # later analyze_gaps run cannot re-infer the denied concept via adjacency
+    # (the ledger's deterministic override, services.keyword_ledger, reads this).
+    denied_concepts: list[DeniedConcept] = Field(default_factory=list)
 
 
 # ─── Completeness calculation ─────────────────────────────────────────────────

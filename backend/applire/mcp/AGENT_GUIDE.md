@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-07-22 · re-fetch anytime with `get_guide`*
+*Revision 2026-07-23 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -116,9 +116,11 @@ the matching `artifact_id` when advancing.
   lower-level alternative (records testimony to the vault without the per-gap
   question). Notes: the `answer` is **testimony**, not a control word (don't
   pass "skip"/"done" — to skip a gap, just don't resolve it); `status` is
-  `addressed` (your testimony wrote a change), `no_change` (a valid answer
-  that added nothing, e.g. an honest "no"), or `needs_confirmation` (the
-  reconciler needs the human to disambiguate — the returned
+  `addressed` (your testimony wrote a change), `denial_recorded` (the
+  testimony explicitly denied the skill — recorded to the vault so a later
+  `analyze_gaps` cannot re-infer it via adjacency; NOT the same as
+  `no_change`), `no_change` (a valid answer that added and denied nothing),
+  or `needs_confirmation` (the reconciler needs the human to disambiguate — the returned
   `pending_confirmations` go to the profile Health hub). It won't run while a
   full `run_interview` is active for the job (finish that first). Re-run
   `analyze_gaps` afterwards to see the refreshed match score.

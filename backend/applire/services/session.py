@@ -194,7 +194,7 @@ async def _ask_or_complete_at(
 
     profile_record = await _load_profile(state["profile_id"], db)
     if gaps_remaining <= 0:
-        return await _complete_session(record, state, db, "gaps_resolved", profile_record)
+        return await _complete_session(record, state, db, "gaps_resolved", provider, profile_record)
 
     next_gap = state["critical_gaps"][next_index]
     gate_entry = _gate_entry(state, next_gap)
@@ -234,6 +234,8 @@ async def _ask_or_complete_at(
         question=next_question,
         gaps_remaining=gaps_remaining,
         choices=next_choices,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -266,7 +268,9 @@ async def _handle_gate_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     action = "merge" if decision == "merge" else "discard"
@@ -347,7 +351,9 @@ async def _handle_confirmation_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=options
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=options,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
@@ -463,6 +469,8 @@ async def _handle_interview_confirmation_answer(
         return SessionMessageResponse(
             complete=False, question=question, gaps_remaining=gaps_remaining,
             choices=options,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     profile_record = await _load_profile(state["profile_id"], db)
@@ -531,7 +539,9 @@ async def _handle_conflict_answer(
             state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
         )
         return SessionMessageResponse(
-            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices
+            complete=False, question=question, gaps_remaining=gaps_remaining, choices=choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     resolution = "existing" if decision == "existing" else "incoming"
@@ -602,6 +612,8 @@ async def _ask_confirmation(
         choices=list(confirmation.options),
         pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations),
         pending_conflicts=turn.conflict_summaries or None,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -777,6 +789,7 @@ async def create_profile_review_session(
         gaps_total=len(review_ids),
         gaps_remaining=len(review_ids),
         choices=first_choices,
+        current_gap_id=review_ids[0],
     )
 
 
@@ -910,6 +923,8 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
         gaps_remaining=gaps_remaining,
         choices=current_choices,
         resumed=answered,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
     )
 
 
@@ -1067,6 +1082,7 @@ async def _create_targeted_session(
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
+        current_gap_id=first_cluster_id,
     )
 
 
@@ -1154,6 +1170,7 @@ async def _create_guided_session(
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
+        current_gap_id=first_cluster_id,
     )
 
 
@@ -1251,6 +1268,7 @@ async def _create_micro_session(
         gaps_total=1,
         gaps_remaining=1,
         choices=first_choices,
+        current_gap_id=target_cluster_id,
     )
 
 
@@ -1341,7 +1359,7 @@ async def send_message(
 
     # --- Done-signal check (pre-LLM, deterministic) ---
     if is_termination_signal(message):
-        return await _complete_session(record, state, db, "user_ended")
+        return await _complete_session(record, state, db, "user_ended", provider)
 
     current_idx = state["current_gap_index"]
     current_gap = state["critical_gaps"][current_idx]
@@ -1418,12 +1436,13 @@ async def send_message(
         # confirmation-surfacing branch below — so carry any reconciler ambiguity
         # into the completion response instead of silently dropping it.
         return await _complete_session(
-            record, state, db, "max_questions_reached", profile_record,
+            record, state, db, "max_questions_reached", provider, profile_record,
             pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations)
             if turn.pending_confirmations
             else None,
             conflict_summaries=conflict_summaries or None,
             changes_applied=turn.addressed,
+            denial_recorded=turn.denial_recorded,
         )
 
     # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
@@ -1474,7 +1493,7 @@ async def send_message(
         # Gap exhaustion check
         if gaps_remaining <= 0:
             return await _complete_session(
-                record, state, db, "gaps_resolved", profile_record
+                record, state, db, "gaps_resolved", provider, profile_record
             )
 
         # Generate next question
@@ -1511,6 +1530,8 @@ async def send_message(
             gaps_remaining=gaps_remaining,
             pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=next_choices,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
     else:
@@ -1550,6 +1571,8 @@ async def send_message(
             gaps_remaining=gaps_remaining,
             pending_conflicts=conflict_summaries if conflict_summaries else None,
             choices=None,
+            current_gap_id=_current_gap_id(state),
+            addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
 
@@ -1629,15 +1652,34 @@ async def _complete_session(
     state: InterviewState,
     db: AsyncSession,
     reason: str,
+    provider: LLMProvider,
     profile_record: MasterProfile | None = None,
     pending_confirmations: list | None = None,
     conflict_summaries: list | None = None,
     changes_applied: bool | None = None,
+    denial_recorded: bool | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    # Capture scalars off `record` BEFORE any further commit/rollback below —
+    # a rollback (e.g. the IntegrityError branch inside analyze_gaps' idempotency
+    # race handling) unconditionally expires ORM state regardless of
+    # expire_on_commit, and a later lazy-load on an expired attribute inside an
+    # async session raises (sync IO in an async context). Mirrors the
+    # capture-ids-before-commit lesson from #122/#207.
+    session_id = record.id
+    job_analysis_id = record.job_analysis_id
+    fallback_questions_asked = record.questions_asked
+
+    # Also read off profile_record's completeness NOW, before analyze_gaps runs
+    # below — same expiry hazard as `record` above.
+    completeness = 0.0
+    if profile_record is not None:
+        profile_data = MasterProfileData.model_validate(profile_record.profile_json)
+        completeness = profile_data.calculate_completeness()
 
     # Issue #68: completing the interview must move the flow off the 'interview'
     # step, else resuming from the dashboard re-opens it with a fresh session.
@@ -1648,19 +1690,42 @@ async def _complete_session(
     # here must not break the completion response.
     from applire.services.flow.orchestrator import advance_flow_on_interview_complete
     try:
-        await advance_flow_on_interview_complete(record.id, db)
+        await advance_flow_on_interview_complete(session_id, db)
     except Exception:
         logger.warning(
             "Flow advance after interview completion failed for session %s; "
             "flow left on 'interview' step (recoverable via Generate CV)",
-            record.id,
+            session_id,
             exc_info=True,
         )
 
-    completeness = 0.0
-    if profile_record is not None:
-        profile_data = MasterProfileData.model_validate(profile_record.profile_json)
-        completeness = profile_data.calculate_completeness()
+    # #240: an interview that closed gap clusters must refresh the match score
+    # that reaches the gaps page / CV workspace — without this, FlowSession.
+    # gap_analysis_id stays pointed at the pre-interview row forever (analyze_gaps
+    # only repoints the flow on ITS OWN recompute paths — /gaps/refresh,
+    # gap-click — never on interview completion, which advanced the flow's step
+    # but never touched the gap-analysis FK). Runs for every completion reason
+    # (gaps_resolved, user_ended, max_questions_reached — the targeted
+    # micro-session resolve_gap rides) so every way an interview ends refreshes
+    # the score. clamp_to_previous=True: added evidence is monotonic-up, so
+    # completing an interview can never LOWER the displayed score. Idempotent
+    # per (job, profile-fingerprint) — if the profile didn't change this turn,
+    # analyze_gaps cheaply reuses the existing row instead of re-running the LLM.
+    # Best-effort: the interview is already committed complete above; a failure
+    # here must not break the completion response — the next /gaps/refresh or
+    # gap-click recomputes it.
+    if job_analysis_id is not None:
+        try:
+            await analyze_gaps(job_analysis_id, db, provider, clamp_to_previous=True)
+        except Exception:
+            logger.warning(
+                "Post-interview gap recompute failed for session %s (job %s); "
+                "match score left on the pre-interview analysis (recoverable "
+                "via gaps/refresh)",
+                session_id,
+                job_analysis_id,
+                exc_info=True,
+            )
 
     addressed = state.get("addressed_gaps", [])
     all_gaps = state.get("critical_gaps", [])
@@ -1676,7 +1741,7 @@ async def _complete_session(
     return SessionMessageResponse(
         complete=True,
         reason=reason,
-        questions_asked=state.get("questions_asked", record.questions_asked),
+        questions_asked=state.get("questions_asked", fallback_questions_asked),
         gaps_resolved=len(addressed),
         gaps_unresolved=unresolved,
         completeness_score=completeness,
@@ -1687,6 +1752,7 @@ async def _complete_session(
         pending_confirmations=pending_confirmations or None,
         pending_conflicts=conflict_summaries or None,
         changes_applied=changes_applied,
+        denial_recorded=denial_recorded,
     )
 
 
@@ -1835,3 +1901,20 @@ def _count_remaining(
         1 for g in critical_gaps[from_index:]
         if g not in skipped_gaps
     )
+
+
+def _current_gap_id(state: InterviewState) -> str | None:
+    """The critical_gaps entry the session is currently asking about, if any.
+
+    issue #241 item 1 — the honest anchor for the frontend split-screen cluster
+    tracker. In MODE A this entry IS the gap-cluster id (gap_detector() builds
+    critical_gaps straight from gap_analysis.gap_clusters[].id), so the value
+    returned here can be matched 1:1 against the ids in GET /api/job/{id}/gaps.
+    Returns None when the index is out of range (defensive — should not happen
+    on a non-complete turn).
+    """
+    gaps = state.get("critical_gaps") or []
+    idx = state.get("current_gap_index", 0)
+    if 0 <= idx < len(gaps):
+        return gaps[idx]
+    return None

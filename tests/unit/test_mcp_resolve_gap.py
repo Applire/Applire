@@ -341,6 +341,34 @@ async def test_happy_path_composes_targeted_session(db):
 
 
 @pytest.mark.asyncio
+async def test_denial_recorded_status_when_testimony_denies_without_other_change(db):
+    """#231 — a denial-only answer must report the honest `denial_recorded`
+    status, distinct from both `addressed` (a real change) and `no_change`
+    (nothing happened at all)."""
+    from applire.mcp.server import resolve_gap
+    from applire.schemas.session import SessionCreateResponse, SessionMessageResponse
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-legaltech"])
+    created = SessionCreateResponse(
+        session_id=uuid.uuid4(), mode="targeted", first_question="Q?",
+        estimated_questions=1, question="Q?", gaps_total=1, gaps_remaining=1,
+    )
+    completed = SessionMessageResponse(
+        complete=True, reason="max_questions_reached", completeness_score=0.5,
+        changes_applied=False, denial_recorded=True,
+    )
+    p1, p2 = _patches(db)
+    with p1, p2, \
+        patch("applire.services.session.create_session", AsyncMock(return_value=created)), \
+        patch("applire.services.session.send_message", AsyncMock(return_value=completed)):
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-legaltech",
+            answer="No direct LegalTech experience, that's an honest gap.",
+        )
+    assert result["status"] == "denial_recorded"
+
+
+@pytest.mark.asyncio
 async def test_parked_ambiguity_surfaces_as_needs_confirmation(db):
     """A reconciler ambiguity on the one answer must NOT be silently dropped
     (the micro-session ceiling-return skips the confirmation-surfacing branch);
@@ -374,3 +402,56 @@ async def test_parked_ambiguity_surfaces_as_needs_confirmation(db):
 
     assert result["status"] == "needs_confirmation"
     assert result["pending_confirmations"][0]["question"].startswith("Is this the same role")
+
+
+@pytest.mark.asyncio
+async def test_resolve_gap_inherits_completion_recompute(db):
+    """#240: resolve_gap's targeted micro-session completes through the SAME
+    _complete_session as the guided UI interview — it must inherit the
+    post-completion gap-analysis recompute + flow-FK repoint too, not just the
+    UI path. Unmocked composition (real MockLLMProvider) per the 2026-07-22
+    resolve_gap review finding that over-mocked tests prove nothing here."""
+    from applire.mcp.server import resolve_gap
+    from applire.models.gap import GapAnalysis
+    from applire.models.flow import FlowSession
+    from applire.models.user import User
+    from sqlalchemy import select
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    old_ga = (await db.execute(
+        select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
+    )).scalar_one()
+
+    user_id = uuid.uuid4()
+    db.add(User(id=user_id, email="local@applire.community"))
+    flow = FlowSession(
+        user_id=user_id, job_id=job_id, current_step="interview",
+        user_type="new", available_actions={"next": "cv_generation"},
+        gap_analysis_id=old_ga.id,
+    )
+    db.add(flow)
+    await db.commit()
+    await db.refresh(flow)
+
+    p1, p2 = _mock_provider_patches(db)
+    with p1, p2:
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s",
+            answer="I ran production Kubernetes clusters for three years at Acme.",
+        )
+    assert result["status"] in ("addressed", "no_change", "needs_confirmation")
+
+    all_rows = (await db.execute(
+        select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
+    )).scalars().all()
+    assert len(all_rows) == 2, (
+        "resolve_gap's micro-session completion did not trigger a recompute — "
+        "still only the pre-resolution gap_analyses row exists"
+    )
+    new_ga = next(r for r in all_rows if r.id != old_ga.id)
+
+    flow_after = (await db.execute(
+        select(FlowSession).where(FlowSession.id == flow.id)
+    )).scalar_one()
+    assert flow_after.gap_analysis_id == new_ga.id
+    assert flow_after.gap_analysis_id != old_ga.id

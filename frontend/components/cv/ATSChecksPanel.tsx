@@ -56,6 +56,11 @@ const baseId = (id: string) => id.replace(/-\d+$/, "");
 // back to the EN `details` string instead of rendering a raw key path.
 const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-target",
+  // #238 (founder-acceptance F4): an explicit page target the condense loop
+  // could not hit — a genuine miss, never dressed up as senior-profile
+  // advice. Ships with status="fail" (see ats_audit.py), so it renders
+  // through the existing failed-check path — red, inline, no new UI state.
+  "page-length-target-missed",
   "page-length-senior",
   "page-length-exhausted",
   "page-length-exceeds",
@@ -172,6 +177,14 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   const missingHonestGap = report.keywords.missing_honest_gap ?? [];
   const presentUnsupported = report.keywords.present_unsupported ?? [];
 
+  // #234 (Tiramisu founder-acceptance F1): a document with zero failing ATSChecks
+  // can still be missing keywords the vault genuinely supports — the #234 bullet-
+  // retention guard runs best-effort and does not guarantee every claimable term
+  // survives. That case must never render under the plain green all-clear
+  // headline; it gets its own distinct (non-green, non-failure) state.
+  const structurePassed = failed.length === 0;
+  const hasUnsurfacedClaimable = structurePassed && missingClaimable.length > 0;
+
   return (
     <>
       <section
@@ -188,17 +201,23 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
             <p
               data-testid="ats-structure-status"
               className={`flex items-center gap-1.5 text-sm font-medium ${
-                failed.length === 0 ? "text-on-surface" : "text-critical"
+                !structurePassed ? "text-critical" : "text-on-surface"
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`text-xs font-bold ${failed.length === 0 ? "text-success" : "text-critical"}`}
+                className={`text-xs font-bold ${
+                  !structurePassed ? "text-critical" : hasUnsurfacedClaimable ? "text-warning" : "text-success"
+                }`}
               >
-                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
-                {failed.length === 0 ? "✓" : "✗"}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail/advisory glyphs */}
+                {!structurePassed ? "✗" : hasUnsurfacedClaimable ? "!" : "✓"}
               </span>
-              {failed.length === 0 ? t("structureOk") : t("structureIssues", { count: failed.length })}
+              {!structurePassed
+                ? t("structureIssues", { count: failed.length })
+                : hasUnsurfacedClaimable
+                  ? t("structureOkKeywordsMissing", { count: missingClaimable.length })
+                  : t("structureOk")}
             </p>
             {missingClaimable.length > 0 && (
               <p

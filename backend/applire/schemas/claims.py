@@ -85,10 +85,20 @@ class ClaimResult(BaseModel):
     """Per-claim outcome. The three lists are PARALLEL — one claim can yield
     changes AND a confirmation AND a conflict (ApplyResult semantics); `status`
     is derived with precedence error > needs_confirmation > conflict > applied
-    > no_change."""
+    > denial_recorded > no_change.
+
+    `denial_recorded` (#231): the claim's testimony explicitly denied a skill
+    ("I did not personally configure the embedding models…") and nothing else
+    in the profile changed. The denial is NOT silently dropped as `no_change`
+    — it is persisted to `metadata.denied_concepts` (see `changes`, which
+    carries the receipt FieldChange) and the keyword ledger's denial override
+    (services.keyword_ledger) then reads it as a hard floor no later adjacency
+    inference can override."""
 
     index: int
-    status: Literal["error", "needs_confirmation", "conflict", "applied", "no_change"]
+    status: Literal[
+        "error", "needs_confirmation", "conflict", "applied", "denial_recorded", "no_change"
+    ]
     changes: list[FieldChange] = Field(default_factory=list)
     confirmations: list[PendingConfirmation] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)

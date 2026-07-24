@@ -607,3 +607,181 @@ def test_stance_strip_falls_back_to_concept_when_all_forms_were_gaps():
     )
     cloud = _by_concept(ledger)["Cloud platforms"]
     assert cloud["surface_forms"] == ["Cloud platforms"]
+
+
+# ── #231 — persisted denial stance is a hard floor over adjacency inference ──
+#
+# F8 (founder-acceptance run, 2026-07-23): a candidate denied hands-on
+# LegalTech/embedding/vector-store/reranker work in testimony; the denial was
+# never persisted (fixed separately, ProfileMetadata.denied_concepts), so the
+# NEXT analyze_gaps run upgraded the denied concept via adjacency ("RAG
+# experience typically involves embeddings") — Embeddings went
+# {gap, claimable: False} -> {partial, claimable: True}. These tests pin the
+# deterministic floor once the denial IS persisted and threaded in as
+# ``denied_concepts`` (build_keyword_ledger's own contract — services/gap.py
+# is responsible for extracting the token list from the profile).
+
+
+def test_denied_concept_overrides_claimable_classification_to_gap():
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Embeddings", "partial", ["Embeddings"],
+                evidence="RAG experience typically involves embeddings",
+            ),
+        ],
+        required_skills=["Embeddings"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["embeddings"],
+    )
+    e = _by_concept(ledger)["Embeddings"]
+    assert e["status"] == "gap"
+    assert e["claimable"] is False
+    assert "explicit" in e["evidence"].lower() or "limit" in e["evidence"].lower()
+    assert "typically involves embeddings" not in e["evidence"]  # adjacency rationale gone
+
+
+def test_denied_concept_matches_via_alias_group():
+    # Denial recorded as "kubernetes"; ledger concept is the canonical form.
+    # Reuses the SAME alias groups as enforce_stance (stance.py _ALIAS_GROUPS).
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Kubernetes", "direct", ["Kubernetes", "K8s"], evidence="ran K8s clusters"),
+        ],
+        required_skills=["Kubernetes"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["k8s"],
+    )
+    e = _by_concept(ledger)["Kubernetes"]
+    assert e["status"] == "gap"
+    assert e["claimable"] is False
+
+
+def test_denial_is_concept_scoped_not_topic_radius():
+    """#207 over-drop lesson: denying "embeddings" must NOT suppress an
+    unrelated but topically-adjacent RAG claim — matching is token/alias
+    scoped, never a semantic-radius guess."""
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Embeddings", "gap", ["Embeddings"]),
+            _cls("RAG", "direct", ["RAG"], evidence="built a production RAG pipeline"),
+        ],
+        required_skills=["Embeddings", "RAG"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["embeddings"],
+    )
+    rag = _by_concept(ledger)["RAG"]
+    assert rag["status"] == "direct"
+    assert rag["claimable"] is True
+    assert rag["evidence"] == "built a production RAG pipeline"
+
+
+def test_denied_concepts_none_or_empty_is_a_noop():
+    ledger_no_arg = build_keyword_ledger(
+        classifications=[_cls("Python", "direct", ["Python"], evidence="5 years")],
+        required_skills=["Python"], nice_to_have_skills=[], keywords=[],
+    )
+    ledger_empty = build_keyword_ledger(
+        classifications=[_cls("Python", "direct", ["Python"], evidence="5 years")],
+        required_skills=["Python"], nice_to_have_skills=[], keywords=[],
+        denied_concepts=[],
+    )
+    assert ledger_no_arg == ledger_empty
+    assert _by_concept(ledger_empty)["Python"]["claimable"] is True
+
+
+def test_denial_with_unicode_apostrophe_statement_still_matches_on_concept():
+    """The persisted denial's verbatim STATEMENT (kept only for the receipt,
+    never for matching) may carry typographic punctuation a real model emits
+    ("I didn't personally configure…", U+2019) — services/gap.py extracts
+    only the concept TOKEN ("embeddings") from ProfileMetadata.denied_concepts
+    before calling build_keyword_ledger, so the override must not depend on,
+    or be defeated by, the statement's punctuation."""
+    statement = (
+        "I didn’t personally configure the embedding models, the vector "
+        "store or any reranking."
+    )
+    # Round-trips through the real persisted shape (DeniedConcept) exactly as
+    # services/gap.py would read it off profile.profile_json["metadata"].
+    from applire.schemas.profile import DeniedConcept
+
+    denied = DeniedConcept(
+        concept="embeddings", statement=statement, source="agent_interview",
+        date="2026-07-23",
+    ).model_dump(mode="json")
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Embeddings", "partial", ["Embeddings"], evidence="adjacency guess"),
+        ],
+        required_skills=["Embeddings"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=[denied["concept"]],
+    )
+    e = _by_concept(ledger)["Embeddings"]
+    assert e["status"] == "gap"
+    assert e["claimable"] is False
+
+
+def test_word_boundary_regression_ai_ml_survives_ml_training_denial():
+    """Founder-acceptance adversarial pass (2026-07-23): a candidate denied
+    "machine learning model training" while explicitly reaffirming AI/ML
+    integration work in the same statement. Before the word-boundary fix,
+    _enforce_denial_stance force-killed the unrelated JD-required concept
+    "AI/ML" (fit_weight 1.0) because its short surface forms ("AI"/"ML")
+    collided as bare substrings inside "tr-ai-ning" — the exact class #207
+    deliberately excludes ml/ai from _ALIAS_GROUPS for. "Machine learning"
+    itself — the concept the candidate actually named as a whole word — must
+    still be suppressed."""
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "AI/ML", "direct", ["AI/ML", "AI", "ML"],
+                evidence="hands-on AI/ML integration experience",
+            ),
+            _cls(
+                "Machine learning", "partial", ["Machine learning"],
+                evidence="adjacency guess",
+            ),
+        ],
+        required_skills=["AI/ML", "Machine learning"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["machine learning model training"],
+    )
+    by_concept = _by_concept(ledger)
+    ai_ml = by_concept["AI/ML"]
+    assert ai_ml["status"] == "direct"
+    assert ai_ml["claimable"] is True
+
+    ml = by_concept["Machine learning"]
+    assert ml["status"] == "gap"
+    assert ml["claimable"] is False
+
+
+def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
+    """F8's exact surface: LegalTech, denied via interview testimony, must not
+    reach the ATS panel's "supported by your profile" claimable list — the
+    SAME persisted GapAnalysis.keyword_ledger row both the ATS audit
+    (claimable_surface_forms) and CV/letter generation read."""
+    from applire.services.keyword_ledger import claimable_surface_forms
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "LegalTech", "partial", ["LegalTech"],
+                evidence="adjacent to contract-management tooling experience",
+            ),
+        ],
+        required_skills=["LegalTech"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["LegalTech"],
+    )
+    e = _by_concept(ledger)["LegalTech"]
+    assert e["status"] == "gap"
+    assert e["claimable"] is False
+    assert "LegalTech" not in claimable_surface_forms(ledger)

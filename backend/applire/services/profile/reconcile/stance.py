@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
+from applire.schemas.profile import DeniedConcept, FieldChange, ProfileMetadata
 from applire.services.ats_audit import _fold_variants, _norm, surface_present
 from applire.services.profile.reconcile.ops import (
     AddBullets,
@@ -133,6 +135,29 @@ def _independently_affirmed(token: str, denials: list[str], corpus: str) -> bool
     return any(_word_present(v, stripped) for v in _fold_variants(_norm(token)))
 
 
+def _bounded_present(form: str, text_norm: str) -> bool:
+    """Word-boundary variant of ``surface_present`` for the denial-matching
+    predicate (adversarial pass, 2026-07-23): a candidate denied "machine
+    learning model training" while explicitly REAFFIRMING AI/ML integration
+    work in the same statement, and the ledger floor force-killed the
+    unrelated, JD-required concept "AI/ML" because ``surface_present``'s bare
+    substring search let "ai" collide inside "tr-ai-ning" — the exact
+    collision class #207 deliberately excludes ml/ai from ``_ALIAS_GROUPS``
+    for. The grounding side (``_grounded``/``_word_present``) was already
+    boundary-guarded; the denial-side containment check was not.
+
+    Mirrors ``surface_present``'s fold-variants (plural morphology) but
+    requires every variant to hit at a word boundary (reuses ``_word_present``
+    — one instrument, not a second matcher). A denial that names a token as a
+    genuine whole word ("I have no AI experience") still matches; only the
+    ambiguous embedded-substring collision is excluded.
+    """
+    n = _norm(form)
+    if not n:
+        return False
+    return any(_word_present(v, text_norm) for v in _fold_variants(n))
+
+
 def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     """Is the token covered by the model's own denial verdict?
 
@@ -146,6 +171,11 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
       denied ONLY if the corpus never affirms the token outside the compound
       (#207: a denial of the compound is not a denial of the part). Without a
       grounding corpus (cv_upload/manual) this stays fail-closed.
+
+    Both containment checks are word-boundary matched (``_bounded_present``,
+    2026-07-23 fix) — a bare substring search let short/ambiguous tokens
+    ('ai', 'ml', 'css') false-match inside unrelated words in EITHER
+    direction ('ai' ⊂ 'training'; a short denial 'ai' ⊂ 'maintenance').
     """
     token_norm = _norm(token)
     if not token_norm:
@@ -155,17 +185,104 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
         d_norm = _norm(d)
         if not d_norm:
             continue
-        if any(surface_present(d, tf) for tf in token_forms):
+        if any(_bounded_present(d, tf) for tf in token_forms):
             return True
-        if surface_present(token, d_norm):
+        if _bounded_present(token, d_norm):
             if corpus is None or not _independently_affirmed(token, denials, corpus):
                 return True
     return False
 
 
+def is_denied_concept(concept: str, denials: list[str]) -> bool:
+    """Public reuse of the denial predicate for #231's LEDGER-level override
+    (services.keyword_ledger): does ``concept`` fall under any of the
+    candidate's persisted ``denied_concepts`` tokens?
+
+    Same alias-group + word-boundary + unicode-normalized machinery as
+    ``enforce_stance`` (``_is_denied``) — one matching instrument for the
+    same-turn op guard AND the durable ledger override, so the two can never
+    disagree on what counts as denied. There is no interview-turn grounding
+    corpus at ledger-build time (the denial was recorded turns ago), so this
+    calls ``_is_denied`` with ``corpus=None`` — the same fail-closed behaviour
+    ``enforce_stance`` already falls back to outside an interview turn.
+    """
+    return _is_denied(concept, denials, corpus=None)
+
+
+def record_denials(
+    metadata: ProfileMetadata,
+    denials: list[str],
+    *,
+    statement: str,
+    source: str,
+    when: datetime | None = None,
+) -> list[FieldChange]:
+    """Persist explicit denials (#231) into ``metadata.denied_concepts`` and
+    return the receipt ``FieldChange``s for a denial-only turn.
+
+    The reconciler already drops a denied token from the SAME turn's ops
+    (``enforce_stance``); this is the durable half — without it a denial-only
+    answer ("no direct LegalTech experience, that's an honest gap") left no
+    trace in the vault and a later ``analyze_gaps`` run could re-infer the
+    denied concept via adjacency (F8).
+
+    Deduplicated case-insensitively: re-denying the same concept refreshes its
+    ``statement``/``date`` in place rather than appending a duplicate entry.
+    Returns one ``FieldChange`` per NEW-or-refreshed denial so the caller can
+    fold it into the turn's ``EnrichmentRecord`` receipt even when nothing
+    else in the profile changed — a denial-only turn must not go silently
+    unrecorded (#231a).
+    """
+    when = when or datetime.now()
+    date_str = when.date().isoformat()
+    changes: list[FieldChange] = []
+    for raw in denials:
+        text = raw.strip()
+        if not text:
+            continue
+        norm = _norm(text)
+        existing = next(
+            (d for d in metadata.denied_concepts if _norm(d.concept) == norm), None
+        )
+        if existing is None:
+            metadata.denied_concepts.append(
+                DeniedConcept(
+                    concept=text, statement=statement, source=source, date=date_str
+                )
+            )
+            changes.append(
+                FieldChange(
+                    section="metadata",
+                    field="denied_concepts",
+                    action="added",
+                    old_value=None,
+                    new_value=text,
+                    rationale=f"Noted limit: no hands-on {text} (candidate's own testimony)",
+                )
+            )
+        elif existing.statement != statement or existing.source != source:
+            existing.statement = statement
+            existing.source = source
+            existing.date = date_str
+            changes.append(
+                FieldChange(
+                    section="metadata",
+                    field="denied_concepts",
+                    action="updated",
+                    old_value=text,
+                    new_value=text,
+                    rationale=f"Re-confirmed limit: no hands-on {text} (candidate's own testimony)",
+                )
+            )
+    return changes
+
+
 def _text_claims_denied(text: str, denials: list[str]) -> bool:
+    # Word-boundary matched (_bounded_present) for the same reason as _is_denied:
+    # a bare substring check let a denial of "AI" drop truthful bullets whose only
+    # "match" was inside "training"/"maintenance" (adversarial pass 2026-07-23).
     text_norm = _norm(text)
-    return any(surface_present(d, text_norm) for d in denials)
+    return any(_bounded_present(d, text_norm) for d in denials)
 
 
 def _grounding_corpus(new_info: Any, source: str) -> str | None:

@@ -68,11 +68,18 @@ class Claim(BaseModel):
     # Dotted location inside the source document, e.g. "summary[0]",
     # "work_history[1].bullets[2]", "body.paragraphs[0][1]", "text[4]".
     location: str
-    kind: Literal["sentence", "bullet", "skill"] = "sentence"
+    # ``clause`` (#237): a narrative sentence decomposed into a smaller,
+    # independently checkable fragment — the letter path's answer to the
+    # F14 "one multi-fact sentence never clears the coverage floor" defect.
+    kind: Literal["sentence", "bullet", "skill", "clause"] = "sentence"
     # The source WorkEntry.id of the position this claim is rendered under
     # (carried on TailoredWorkEntry.id since US187). None for role-agnostic
-    # surfaces (summary, skills, letters) and legacy/id-less tailored data —
-    # the attribution matcher then stays silent (fails open to v1 behaviour).
+    # surfaces (summary, skills) and legacy/id-less tailored data — the
+    # attribution matcher then stays silent (fails open to v1 behaviour).
+    # #237: letter claims are NOT unconditionally role-agnostic anymore — a
+    # sentence naming exactly one known employer/project is stamped with that
+    # role's id too (see extract.extract_claims_from_letter), so the same
+    # matcher becomes reachable for the letter path.
     source_experience_id: str | None = None
 
 

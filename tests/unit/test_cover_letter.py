@@ -1352,8 +1352,15 @@ async def _seed_letter_with_context(
     profile_name: str | None = "Emma Weber",
     company_name: str | None = "DataCraft GmbH",
     role_title: str = "Data Analyst",
+    jd_language: str | None = None,
 ):
-    """MasterProfile + JobAnalysis + ready cover letter. Returns cl_id."""
+    """MasterProfile + JobAnalysis + ready cover letter. Returns cl_id.
+
+    ``jd_language`` (issue #241 item 3) — the letter's actual output language is
+    resolved from the JD's language (ADR-038), not a language field on the
+    letter itself. None leaves ``jd_language`` unset, falling back to
+    detection on ``raw_text`` ("Sample JD" ties → 'de', the DACH-first default).
+    """
     from applire.models.cover_letter import GeneratedCoverLetter
     from applire.models.job import JobAnalysis
     from applire.models.profile import MasterProfile
@@ -1372,6 +1379,7 @@ async def _seed_letter_with_context(
         seniority_level="Senior",
         company_culture_signals=[],
         language_requirement="German",
+        jd_language=jd_language,
     )
     db.add_all([profile, job])
     await db.flush()
@@ -1419,6 +1427,40 @@ async def test_cover_letter_pdf_filename_falls_back_when_parts_missing(db):
     )
     filename = await get_cover_letter_pdf_filename(cl_id, db)
     assert filename == f"anschreiben-{str(cl_id)[:8]}.pdf"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_uses_english_suffix_for_english_jd(db):
+    """issue #241 item 3 — an English-JD letter must not carry a German
+    filename suffix. Language follows resolve_jd_language (ADR-038), matching
+    the letter's actual output language, not a hardcoded default."""
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(db, jd_language="en")
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == "Emma-Weber_DataCraft-GmbH_Data-Analyst_Cover-Letter.pdf"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_english_fallback_when_parts_missing(db):
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(
+        db, profile_name=None, company_name=None, role_title="", jd_language="en",
+    )
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == f"cover-letter-{str(cl_id)[:8]}.pdf"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_pdf_filename_still_german_when_jd_language_explicitly_de(db):
+    """Explicit 'de' stays on the existing German suffix — no behaviour change
+    for the common case, only the previously-hardcoded English case is fixed."""
+    from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+    cl_id = await _seed_letter_with_context(db, jd_language="de")
+    filename = await get_cover_letter_pdf_filename(cl_id, db)
+    assert filename == "Emma-Weber_DataCraft-GmbH_Data-Analyst_Anschreiben.pdf"
 
 
 # ---------------------------------------------------------------------------

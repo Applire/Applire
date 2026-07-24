@@ -83,10 +83,20 @@ Choice truthfulness rules (critical — choices pre-fill the candidate's answer)
 candidate profile summary below. Never attribute a JD technology to the candidate that the \
 profile does not show.
 - Never invent specific projects, systems, employers, or metrics.
-- For EXPLORATORY (gap_type=C) clusters the profile shows no signal — choices must be honesty \
-frames: deny direct experience and bridge to related experience the profile does show \
-(e.g. "I haven't worked with X directly, but ..."), or leave the claim open for the candidate \
-to complete. Do not draft affirmative claims for C clusters.
+- A choice that names an employer may only describe work that employer's own responsibilities/ \
+achievements below actually state. Do not invent a task, context, industry detail, or urgency \
+("under tight timelines", "in a fast-moving environment", ...) for that employer that its \
+bullets do not say — even when the underlying skill/tool IS real for that employer. Ground the \
+NARRATIVE, not just the noun.
+- EXPLORATORY (gap_type=C) clusters can absorb several constituent gaps, and a cluster is \
+Category C as soon as ANY ONE of them is unevidenced — so some of its OTHER named gaps or \
+skills may actually appear in the candidate profile summary below. Check each constituent gap \
+individually: for one the profile genuinely shows NO evidence, choices must be an honesty frame \
+that denies THAT concept and bridges to related experience the profile does show (e.g. "I \
+haven't worked with X directly, but ..."). For one the profile DOES evidence (even partially), \
+lead with that real evidence honestly instead of denying it — do not blanket-deny the whole \
+cluster just because it is Category C. Never draft an affirmative claim for a concept the \
+profile shows no evidence for.
 
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
@@ -99,6 +109,18 @@ Schema:
   "question": "The question text",
   "choices": ["Option A", "Option B"] or null
 }"""
+
+
+#236: per-role bullet caps for the Mode-A profile summary — the model was
+# drafting chips from company/role/technologies alone with NO substance to
+# describe, and invented task/context narrative to fill the gap (the F5 live
+# trace: a real BioNTech tech chip wrapped in a fabricated "clinical data
+# workflows under tight timelines" story). Capped rather than unbounded
+# because build_question_prompt runs once per gap cluster across a profile
+# that can carry many roles — cv_tailoring.py's full-profile dump is fine for
+# a once-per-application call; this one is not.
+_QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE = 4
+_QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE = 3
 
 
 def build_question_prompt(
@@ -115,13 +137,21 @@ def build_question_prompt(
     profile_summary = json.dumps(
         {
             "skills": profile.get("skills", []),
-            # Technologies included so choices can be grounded in real evidence
-            # (#110) — company/role alone gave the model nothing to anchor on.
+            # Technologies AND a bounded slice of each role's own bullets, so
+            # choices can be grounded in real per-role substance (#110, #236) —
+            # company/role/technologies alone gave the model a noun with no
+            # narrative, so it invented one.
             "work_experience": [
                 {
                     "company": e.get("company"),
                     "role": e.get("role"),
                     "technologies": e.get("technologies") or [],
+                    "responsibilities": (e.get("responsibilities") or [])[
+                        :_QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE
+                    ],
+                    "achievements": (e.get("achievements") or [])[
+                        :_QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE
+                    ],
                 }
                 for e in profile.get("work_experience", [])
             ],

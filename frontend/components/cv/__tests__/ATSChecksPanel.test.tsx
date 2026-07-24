@@ -50,6 +50,22 @@ const REPORT_WITH_BUCKETS: ATSReport = {
   },
 };
 
+// #234 (Tiramisu founder-acceptance F1): every structural check passes, but the
+// Keyword Ledger guard could not surface one supported keyword anywhere in the
+// document — the headline must not read as a plain green all-clear.
+const REPORT_WITH_BUCKETS_ALL_PASS: ATSReport = {
+  checks: [
+    { id: "contact-name", status: "pass" },
+    { id: "skills", status: "pass" },
+  ],
+  keywords: {
+    present: ["TypeScript"],
+    missing: ["React"],
+    missing_claimable: ["React"],
+    missing_honest_gap: [],
+  },
+};
+
 const REPORT_WITH_UNSUPPORTED: ATSReport = {
   checks: [{ id: "contact-name", status: "pass" }],
   keywords: {
@@ -209,6 +225,28 @@ describe("ATSChecksPanel", () => {
     expect(screen.queryByTestId("ats-keywords-missing")).toBeNull();
   });
 
+  // #234 (Tiramisu founder-acceptance F1): a document that is structurally sound
+  // (every ATSCheck passes) but is still missing supported keywords must NOT ship
+  // under the plain green "all checks passed" headline — that reads as an all-clear
+  // when the guard couldn't surface everything the vault supports.
+  it("shows a distinct non-green headline when checks pass but claimable keywords are missing", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS_ALL_PASS} />));
+    const status = screen.getByTestId("ats-structure-status");
+    // The plain green all-clear text must NOT appear.
+    expect(status.textContent).not.toContain("all checks passed");
+    // A distinct message naming the still-missing count must appear instead.
+    expect(status.textContent).toContain("1");
+    // The headline glyph must not read as a green checkmark.
+    expect(status.querySelector(".text-success")).toBeNull();
+  });
+
+  it("keeps the plain green all-clear when checks pass and nothing claimable is missing", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+    const status = screen.getByTestId("ats-structure-status");
+    expect(status.textContent).toContain("all checks passed");
+    expect(status.querySelector(".text-success")).not.toBeNull();
+  });
+
   // US203: claimable vs honest-gap missing keywords render in two distinct buckets
   it("renders missing-claimable and missing-honest-gap as distinct buckets", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
@@ -323,5 +361,46 @@ describe("ATSChecksPanel", () => {
     const advisoryRow = screen.getByTestId("ats-advisory-page-length");
     expect(advisoryRow.textContent).toContain("meets your chosen target of 3");
     expect(advisoryRow.textContent).not.toContain("checkDetails");
+  });
+
+  // #238 (founder-acceptance F4): a chosen page target the condense loop could
+  // not hit ships as a FAILING check (never a pass-with-advisory) — the miss
+  // must read as a genuine problem, not senior-profile advice. It renders
+  // through the existing failed-check path: no new panel state was added.
+  const REPORT_WITH_TARGET_MISSED: ATSReport = {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      {
+        id: "page-length",
+        status: "fail",
+        details:
+          "3 pages — couldn't condense to your 2-page target without cutting relevant content; the DACH max is 3 pages",
+        details_key: "page-length-target-missed",
+        details_params: { pages: 3, target: 2, region: "DACH", standard: 2, max: 3 },
+      },
+    ],
+    keywords: { present: ["TypeScript"], missing: [] },
+  };
+
+  it("renders a missed page-length target as an inline failure, not an advisory", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_TARGET_MISSED} />));
+    const failRow = screen.getByTestId("ats-check-page-length");
+    expect(failRow.textContent).toContain(
+      "couldn't condense to your 2-page target without cutting relevant content",
+    );
+    expect(failRow.textContent).not.toContain("senior");
+    // Never rendered as a pass-with-advisory row.
+    expect(screen.queryByTestId("ats-advisory-page-length")).toBeNull();
+    // The headline reads as a problem, not the all-clear state.
+    expect(screen.getByTestId("ats-structure-status").textContent).not.toContain("✓");
+  });
+
+  it("localises the missed page-length target detail into German", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_TARGET_MISSED} />, "de"));
+    const failRow = screen.getByTestId("ats-check-page-length");
+    expect(failRow.textContent).toContain(
+      "konnte ohne Kürzung relevanter Inhalte nicht auf Ihr Ziel von 2 Seiten gebracht werden",
+    );
+    expect(failRow.textContent).not.toContain("couldn't condense");
   });
 });
