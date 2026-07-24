@@ -91,15 +91,25 @@ def _fold_variants(needle_norm: str) -> list[str]:
 # first) nor `skill_tokens`/`skills_near_dupe` (the ADR-046 dedupe instruments,
 # deliberately strictness-hardened). Checked longest-suffix-first so "mentoring"
 # strips to "mentor" via "-ing", not a shorter/wrong suffix.
-_VERB_SUFFIXES = ("ing", "ed", "es", "s")
+#
+# "ship" (#244-adjacent, live-reproduced 2026-07-24): a CV skill claim
+# "Mentoring" audited unbacked against a vault carrying only "...Mentorship"
+# (a same-stem derivational NOUN form, not a plural or a verb tense) — the
+# keyword ledger, built by the LLM, happily cited the connection, but neither
+# `skills_near_dupe` (single differing tokens, containment needs >= 2 tokens,
+# Jaccard 0) nor the pre-existing -ing/-ed/-es/-s fold could see it. Same
+# guard rail (min stem length, single-token forms only, ADD-only) as the rest
+# of this fallback — never touches skill_tokens/skills_near_dupe either.
+_VERB_SUFFIXES = ("ship", "ing", "ed", "es", "s")
 
 
 def _verb_stem(token: str) -> str:
-    """Strip one trailing verb-form suffix (-ing/-ed/-es/-s), only when the
-    remaining stem keeps >= ``_FOLD_MIN_STEM`` chars — same guard rail as the
-    plural fold, so short tokens ('AI', 'SaaS') never fold. Longest suffix
-    checked first (order above) so "mentoring" -> "mentor", not a partial
-    "mentorin" from a shorter, wrong match. No suffix applies -> unchanged."""
+    """Strip one trailing verb-form/derivational-noun suffix (-ship/-ing/-ed/
+    -es/-s), only when the remaining stem keeps >= ``_FOLD_MIN_STEM`` chars —
+    same guard rail as the plural fold, so short tokens ('AI', 'SaaS',
+    'airship' -> 'air') never fold. Longest suffix checked first (order
+    above) so "mentorship" -> "mentor" via "-ship", not a partial/wrong
+    match. No suffix applies -> unchanged."""
     for suf in _VERB_SUFFIXES:
         if token.endswith(suf) and len(token) - len(suf) >= _FOLD_MIN_STEM:
             return token[: -len(suf)]
@@ -130,11 +140,13 @@ def surface_present(form: str, text_norm: str) -> bool:
     presence by construction (ADR-048 amended 2026-07-04, #122).
 
     Falls back to a conservative same-stem ENGLISH VERB-FORM fold (#234-adjacent
-    friction finding) when the direct phrase-level substring/plural check misses:
-    "Mentoring" (keyword) is present in text that only says "Mentored" (and vice
-    versa). Bounded to single-token forms — this can only ever ADD a match, never
-    remove one, and never attempts multi-token paraphrase matching ("performance
-    optimization" vs "improving ... performance" stays a true miss, by design).
+    friction finding, extended #244-adjacent) when the direct phrase-level
+    substring/plural check misses: "Mentoring" (keyword) is present in text
+    that only says "Mentored" (and vice versa) — or, via the "-ship"
+    derivational-noun suffix, only says "Mentorship". Bounded to single-token
+    forms — this can only ever ADD a match, never remove one, and never
+    attempts multi-token paraphrase matching ("performance optimization" vs
+    "improving ... performance" stays a true miss, by design).
     """
     n = _norm(form)
     if not n:
