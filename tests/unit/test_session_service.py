@@ -483,6 +483,10 @@ class TestCreateSession:
         result = await create_session(req, sqlite_session, _mock_provider())
         assert result.session_id == session_record.id
         assert result.resumed is True
+        # issue #245 (NEW-4) — the resumed response must carry the record's
+        # real persisted ceiling, not just the soft estimate, so the frontend
+        # can show an honest "of up to N" instead of a fixed midpoint.
+        assert result.hard_ceiling == session_record.hard_ceiling
 
     @pytest.mark.asyncio
     async def test_freshly_created_session_is_not_marked_resumed(self, sqlite_session):
@@ -543,6 +547,11 @@ class TestCreateSession:
         # session creation onward, not just index 0 by assumption.
         assert result.current_gap_id == "cluster-gcp-certification"
         assert result.addressed_gap_ids == []
+        # issue #245 (NEW-4) — a fresh MODE A session reports the real
+        # hard_ceiling (12), not the soft "~7" midpoint that overshot in the
+        # founder-acceptance run.
+        from applire.constants import INTERVIEW_HARD_CEILING_TARGETED
+        assert result.hard_ceiling == INTERVIEW_HARD_CEILING_TARGETED
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_no_profile_raises(self, sqlite_session):
@@ -1323,6 +1332,60 @@ class TestSendMessage:
 
         assert result.complete is True
         assert result.reason == "max_questions_reached"
+
+    @pytest.mark.asyncio
+    async def test_hard_ceiling_completion_survives_completeness_scoring_failure(self, sqlite_session):
+        """issue #245 — a downstream completeness-scoring exception must never
+        turn an already-committed completion into a failed response.
+
+        `_complete_session` commits `record.status = "complete"` BEFORE
+        scoring completeness; live founder-acceptance UAT saw the DB flip to
+        'complete' while the interview page never learned it (frozen on the
+        last question until a manual reload). If `calculate_completeness()`
+        (unguarded before this fix) raises, the exception used to propagate
+        out of `send_message` as a 500 — the frontend would see a failed
+        fetch and never call setCompletion, even though the DB already says
+        complete. This pins the fix: the completion response must still
+        arrive with complete=True (completeness degrades to 0.0, recoverable
+        via the profile health view), mirroring the pattern already used for
+        analyze_gaps/advance_flow_on_interview_complete right below it.
+        """
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        state_override = {"hard_ceiling": 2, "questions_asked": 1}
+        session_record = _make_active_session(job.id, profile.id, state=state_override)
+        session_record.hard_ceiling = 2
+        session_record.questions_asked = 1
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with patch("applire.services.session.reconcile_interview_turn",
+                   new=AsyncMock(return_value=turn)), \
+             patch(
+                 "applire.schemas.profile.MasterProfileData.model_validate",
+                 side_effect=ValueError("malformed profile_json"),
+             ):
+            result = await send_message(
+                session_record.id, "I don't have much GCP experience.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is True
+        assert result.reason == "max_questions_reached"
+        assert result.completeness_score == 0.0
+
+        # The DB commit from _complete_session must have gone through — the
+        # failure is purely in the best-effort scoring step after it.
+        await sqlite_session.refresh(session_record)
+        assert session_record.status == "complete"
 
     @pytest.mark.asyncio
     async def test_all_gaps_resolved_triggers_completion(self, sqlite_session):

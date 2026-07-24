@@ -35,6 +35,7 @@ import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
+import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 
 type CLTemplate =
   | "classic_german"
@@ -229,11 +230,17 @@ export default function CoverLetterPage({
     try {
       const res = await fetch(`${API_BASE}/api/cover-letter/${clState.coverLetterId}/pdf`);
       if (!res.ok) throw new Error(tc("error"));
+      // issue #246 (NEW-5) — use the server's own Content-Disposition filename
+      // (jd_language-aware, PR #242) instead of a hardcoded German default that
+      // silently overrode it for every letter, English ones included.
+      const filename =
+        extractFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        "anschreiben.pdf";
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "anschreiben.pdf";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();

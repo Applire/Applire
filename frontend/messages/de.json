@@ -178,7 +178,7 @@
   },
   "interview": {
     "loading": "Interview wird gestartet…",
-    "questionOf": "Frage {current} von ~{total}",
+    "questionOf": "Frage {current} von bis zu {total}",
     "closingGapsFor": "Lücken werden geschlossen für",
     "gapsRemaining": "{count, plural, one {# Lücke verbleibend} other {# Lücken verbleibend}}",
     "categoryBBadge": "Wir vermuten, dass du diese Erfahrung hast — hilf uns, das zu bestätigen.",

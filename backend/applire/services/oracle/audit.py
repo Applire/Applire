@@ -8,6 +8,21 @@ narrow entailment call is structurally unreachable once a deterministic red
 flag exists, which is how "entailment may never overrule a deterministic red
 flag" (ADR-052 §2) is enforced. Entailment fires only where deterministic
 checks cannot decide, and its budget is hard-capped per document.
+
+#243-adjacent (letter figure ownership, live-reproduced 2026-07-24): a letter
+clause naming no employer (or two — :func:`extract._find_employer_anchor`
+fails open on ambiguity) carries no ``source_experience_id``, so the existing
+per-figure attribution red flag (:func:`_attribution_red_flag`, #196) never
+fires for it — by design, it only judges claims that ARE anchored. That left
+a genuine ownership gap: an unanchored figure whose only vault backing is
+owned by a position the letter simply never (or ambiguously) names verdicted
+``grounded`` from evidence that, read narratively, belongs to someone else.
+:func:`_unattributable_figure_flag` closes it: for letters only (CV bullets
+always carry their real rendered-position id directly, no ambiguity to
+resolve), an unanchored figure backed exclusively by owned units downgrades
+to ``unverifiable`` UNLESS the letter names exactly one employer/project
+overall and that one owns the evidence — the same "ambiguity beats false
+certainty" rule the anchor matcher itself already applies.
 """
 from __future__ import annotations
 
@@ -29,6 +44,7 @@ from applire.services.oracle.extract import (
     extract_claims_from_letter,
     extract_claims_from_tailored,
     extract_claims_from_text,
+    letter_named_experience_ids,
 )
 from applire.services.oracle.matchers import (
     EvidenceUnit,
@@ -96,6 +112,75 @@ def _attribution_red_flag(
     )
 
 
+def _unattributable_figure_flag(
+    source_id: str | None,
+    letter_named_ids: frozenset[str] | None,
+    fig_units: list[EvidenceUnit],
+) -> ClaimVerdict | None:
+    """#243-adjacent — the letter figure-ownership check (module docstring).
+
+    Complements :func:`_attribution_red_flag`, which only fires when a claim
+    IS anchored to a rendered position (``source_id`` set) and can therefore
+    be provably wrong. An UNANCHORED letter claim (no employer named, or two)
+    carrying a figure whose ENTIRE vault backing is owned — by construction,
+    every ``fig_units`` entry has non-empty ``owner_ids`` — and none of those
+    owners are named ANYWHERE else in the letter either, is genuinely
+    unattributable: neither "this employer" nor "not this employer" is
+    decidable, so it must not verdict ``grounded`` (that would silently
+    launder a blend exactly like #237/F14, just without the anchor to catch
+    it). Downgrades to ``unverifiable`` with an honest note instead of
+    fabricating a misattribution verdict the claim's own text never claims.
+
+    Fails open (returns ``None``, no flag) whenever:
+      * the claim IS anchored (``source_id`` is not ``None`` — the existing
+        per-figure attribution check already covers that case), or
+      * ``letter_named_ids`` is ``None`` (a CV claim, or any caller that
+        didn't opt in — the CV path never needs this: bullets always carry
+        their real rendered-position id directly, no anchoring ambiguity), or
+      * any backing unit is role-agnostic (``not u.owner_ids``) — role-
+        agnostic evidence (summary, skills, stories with no experience_refs)
+        clears any position, anchored or not, or
+      * the letter names EXACTLY ONE employer/project overall and its id is
+        AMONG the backing units' owners — an unambiguous single-employer
+        letter, just not repeated in THIS clause (legitimate unanchored
+        summary-style sentence). Membership, not subset: a project unit's
+        ``owner_ids`` also carries the project's OWN id alongside its
+        resolved parent work id (US187 nesting, vault.py), but a project
+        name is a candidate anchor mapped straight to that PARENT id
+        (``_employer_anchor_candidates``) — the bare project id can never
+        itself appear in ``letter_named_ids``, so requiring the full owner
+        set to be named would never clear a project-owned figure at all.
+
+    A letter naming TWO OR MORE employers/projects anywhere — even when one
+    of them happens to own the figure — stays flagged: this is the live
+    #243-adjacent shape (BioNTech named in one sentence, Applire in the very
+    next, then a bare unanchored "I also built…" continuation) where a human
+    reader would infer the WRONG employer from local context even though the
+    right one is technically "named somewhere". Mirrors
+    :func:`_find_employer_anchor`'s own fail-open-on-ambiguity rule — two or
+    more candidates is never enough to clear an unanchored claim, only
+    exactly one is.
+    """
+    if source_id is not None or letter_named_ids is None or not fig_units:
+        return None
+    if any(not u.owner_ids for u in fig_units):
+        return None
+    owners = {oid for u in fig_units for oid in u.owner_ids}
+    if len(letter_named_ids) == 1 and letter_named_ids & owners:
+        return None
+    return ClaimVerdict(
+        verdict="unverifiable",
+        checker="attribution",
+        evidence=_evidence_refs(fig_units),
+        detail=(
+            "This figure's only vault evidence is owned by a position, but "
+            "this claim names no employer and the letter's own context "
+            "doesn't unambiguously point to that one position — attribution "
+            "cannot be verified."
+        ),
+    )
+
+
 _ENTAILMENT_PROMPT = (
     "You are a strict verification function for job-application claims.\n"
     "Compare the DOCUMENT CLAIM against the PROFILE EVIDENCE and return "
@@ -159,12 +244,16 @@ async def verify_claim(
     *,
     index: VaultIndex | None = None,
     budget: _EntailmentBudget | None = None,
+    letter_named_ids: frozenset[str] | None = None,
 ) -> ClaimVerdict:
     """Verdict for a single claim against the vault (ADR-052 §1).
 
     ``profile`` accepts a ``MasterProfileData`` or its JSONB dict; pass a
     prebuilt ``index`` when auditing many claims. Deterministic red flags
-    return before ``provider`` is ever consulted.
+    return before ``provider`` is ever consulted. ``letter_named_ids``
+    (#243-adjacent) is the set of experience ids named anywhere in a letter
+    being audited — ``None`` for CV/text callers, who never need it (see
+    :func:`_unattributable_figure_flag`).
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
@@ -233,6 +322,13 @@ async def verify_claim(
             if fig.kind == "year":
                 continue
             flag = _attribution_red_flag(source_id, fig_units)
+            if flag is not None:
+                return flag
+        # ── 2c. unattributable figure (unanchored letter claim, #243-adjacent)
+        for fig, fig_units in fig_match.matched:
+            if fig.kind == "year":
+                continue
+            flag = _unattributable_figure_flag(source_id, letter_named_ids, fig_units)
             if flag is not None:
                 return flag
         # US245: entailment ONLY when both sides lack stance markers.
@@ -357,10 +453,15 @@ async def audit_document(
     if len(sources) != 1:
         raise ValueError("audit_document needs exactly one of tailored_data/letter_data/text")
 
+    # #243-adjacent: only a letter audit knows/needs "named anywhere in this
+    # document" — CV bullets carry their real rendered-position id directly,
+    # no anchoring ambiguity, so ``letter_named_ids`` stays None for them.
+    letter_named_ids: frozenset[str] | None = None
     if tailored_data is not None:
         claims = extract_claims_from_tailored(tailored_data)
     elif letter_data is not None:
         claims = extract_claims_from_letter(letter_data, profile)
+        letter_named_ids = letter_named_experience_ids(letter_data, profile)
     else:
         claims = await extract_claims_from_text(text or "", provider=provider)
 
@@ -369,7 +470,12 @@ async def audit_document(
     results: list[ClaimResult] = []
     for claim in claims:
         verdict = await verify_claim(
-            claim, profile, provider, index=index, budget=budget
+            claim,
+            profile,
+            provider,
+            index=index,
+            budget=budget,
+            letter_named_ids=letter_named_ids,
         )
         results.append(ClaimResult(claim=claim, verdict=verdict))
 

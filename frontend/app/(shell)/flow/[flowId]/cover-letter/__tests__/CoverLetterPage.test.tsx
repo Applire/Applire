@@ -191,7 +191,11 @@ describe("CoverLetterPage — polling loop", () => {
       }
       if (url.includes("/pdf")) {
         pdfFetched = true;
-        return { ok: true, blob: async () => new Blob(["pdf"]) } as Response;
+        return {
+          ok: true,
+          headers: new Headers(),
+          blob: async () => new Blob(["pdf"]),
+        } as Response;
       }
       if (url.includes("/status")) {
         return {
@@ -213,6 +217,107 @@ describe("CoverLetterPage — polling loop", () => {
     // Confirming the notice proceeds with the download (nudge, not gate).
     await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
     await waitFor(() => expect(pdfFetched).toBe(true));
+  });
+
+  it("issue #246 (NEW-5) — uses the server's Content-Disposition filename for the download, not a hardcoded German default", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    let downloadedFilename: string | null = null;
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) => {
+        const el = originalCreateElement(tag);
+        if (tag === "a") {
+          Object.defineProperty(el, "download", {
+            set: (value: string) => { downloadedFilename = value; },
+            get: () => downloadedFilename ?? "",
+            configurable: true,
+          });
+        }
+        return el;
+      });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/pdf")) {
+        return {
+          ok: true,
+          headers: new Headers({
+            "Content-Disposition":
+              'attachment; filename="Max-Muster_Acme_Lead-Engineer_Cover-Letter.pdf"',
+          }),
+          blob: async () => new Blob(["pdf"]),
+        } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument());
+    await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
+
+    await waitFor(() =>
+      expect(downloadedFilename).toBe("Max-Muster_Acme_Lead-Engineer_Cover-Letter.pdf"),
+    );
+    createElementSpy.mockRestore();
+  });
+
+  it("falls back to anschreiben.pdf when the response carries no Content-Disposition header", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    let downloadedFilename: string | null = null;
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) => {
+        const el = originalCreateElement(tag);
+        if (tag === "a") {
+          Object.defineProperty(el, "download", {
+            set: (value: string) => { downloadedFilename = value; },
+            get: () => downloadedFilename ?? "",
+            configurable: true,
+          });
+        }
+        return el;
+      });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/pdf")) {
+        return { ok: true, headers: new Headers(), blob: async () => new Blob(["pdf"]) } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    await waitFor(() => expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument());
+    await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
+
+    await waitFor(() => expect(downloadedFilename).toBe("anschreiben.pdf"));
+    createElementSpy.mockRestore();
   });
 
   it("renders the match score as a percentage — gap_summary.match_score is a 0–1 fraction", async () => {

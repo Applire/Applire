@@ -178,7 +178,7 @@
   },
   "interview": {
     "loading": "Starting interview…",
-    "questionOf": "Question {current} of ~{total}",
+    "questionOf": "Question {current} of up to {total}",
     "closingGapsFor": "Closing gaps for",
     "gapsRemaining": "{count, plural, one {# gap remaining} other {# gaps remaining}}",
     "categoryBBadge": "We think you might have this experience based on your background — help us confirm.",

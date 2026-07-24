@@ -754,6 +754,7 @@ async def create_profile_review_session(
             first_question=all_clear,
             question=all_clear,
             estimated_questions=0,
+            hard_ceiling=0,
             gaps_total=0,
             gaps_remaining=0,
         )
@@ -786,6 +787,7 @@ async def create_profile_review_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
+        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
         gaps_total=len(review_ids),
         gaps_remaining=len(review_ids),
         choices=first_choices,
@@ -919,6 +921,9 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
         first_question=current_q,
         question=current_q,
         estimated_questions=estimated,
+        # The record's own persisted ceiling — the single source of truth,
+        # rather than re-deriving it from mode (issue #245).
+        hard_ceiling=existing.hard_ceiling,
         gaps_total=gaps_total,
         gaps_remaining=gaps_remaining,
         choices=current_choices,
@@ -1024,6 +1029,7 @@ async def _create_targeted_session(
             first_question=no_gaps_msg,
             question=no_gaps_msg,
             estimated_questions=0,
+            hard_ceiling=0,
             gaps_total=0,
             gaps_remaining=0,
         )
@@ -1079,6 +1085,7 @@ async def _create_targeted_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("targeted"),
+        hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -1167,6 +1174,7 @@ async def _create_guided_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
+        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -1265,6 +1273,7 @@ async def _create_micro_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=1,
+        hard_ceiling=_MICRO_CEILING,
         gaps_total=1,
         gaps_remaining=1,
         choices=first_choices,
@@ -1676,10 +1685,25 @@ async def _complete_session(
 
     # Also read off profile_record's completeness NOW, before analyze_gaps runs
     # below — same expiry hazard as `record` above.
+    # issue #245 — this must never propagate: `record.status` is ALREADY
+    # committed 'complete' above, so a scoring failure here must not turn an
+    # already-successful completion into a 500 that strands the frontend on
+    # the last question with no way to learn the session actually finished
+    # (the DB says complete; the response the caller sees must agree). Same
+    # best-effort contract as advance_flow_on_interview_complete/analyze_gaps
+    # immediately below — mirrors their try/except, not new behaviour.
     completeness = 0.0
     if profile_record is not None:
-        profile_data = MasterProfileData.model_validate(profile_record.profile_json)
-        completeness = profile_data.calculate_completeness()
+        try:
+            profile_data = MasterProfileData.model_validate(profile_record.profile_json)
+            completeness = profile_data.calculate_completeness()
+        except Exception:
+            logger.warning(
+                "Completeness scoring failed on interview completion for session %s; "
+                "reporting 0.0 (recoverable — profile health view recomputes it)",
+                record.id,
+                exc_info=True,
+            )
 
     # Issue #68: completing the interview must move the flow off the 'interview'
     # step, else resuming from the dashboard re-opens it with a fresh session.

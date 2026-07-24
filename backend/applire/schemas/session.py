@@ -49,6 +49,13 @@ class SessionCreateResponse(BaseModel):
     mode: Literal["targeted", "guided"]
     first_question: str
     estimated_questions: int  # soft target mid-point for the resolved mode
+    # issue #245 (NEW-4) — the actual configured hard_ceiling (InterviewSession.
+    # hard_ceiling), read-only. `estimated_questions` is a soft midpoint
+    # ((target_min + hard_ceiling) // 2, e.g. 7 for MODE A) that a real session
+    # can legitimately overshoot by a wide margin (a founder-acceptance run hit
+    # the real ceiling of 12 — 70% over the "~7" copy). The frontend now shows
+    # an honest upper bound derived from this field instead of the midpoint.
+    hard_ceiling: int = 0
     # Legacy fields kept for backwards compatibility
     question: str  # same as first_question
     gaps_total: int
