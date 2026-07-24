@@ -33,6 +33,15 @@
 #   - build_question_prompt accepts an optional gap_category ("B" | "C" | None)
 #   - Category B gaps produce confirmation questions ("You likely have X — can you describe it?")
 #   - Category C gaps produce exploratory questions ("Tell me about your experience with X")
+#
+# US265 (E048 / ADR-058 exception b) changes vs v4:
+#   - build_question_prompt accepts optional quant_concepts / include_availability —
+#     append an at-most-one, terminal-answer quantification/availability
+#     instruction when services/interview_quant.py flags something. Both
+#     default falsy so an un-flagged call is byte-identical to before.
+#   - build_guided_question_prompt (MODE B) accepts the same include_availability
+#     — folded into the FIRST section only of a guided (from-scratch) session,
+#     via the same session-creation-time one-shot check.
 
 import json
 
@@ -123,11 +132,40 @@ _QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE = 4
 _QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE = 3
 
 
+# US265 — at most ONE quantification/availability add-on per cluster question;
+# the rule explicitly forbids re-asking for numbers, and structurally can't
+# repeat anyway since build_question_prompt fires exactly once per cluster
+# (follow-ups use build_follow_up_question_prompt, which carries neither param).
+def _quant_instruction(quant_concepts: list[str]) -> str:
+    concept = quant_concepts[0]
+    return (
+        "\n\nQuantification opportunity: the candidate's profile evidences "
+        f"'{concept}' without any number, team size, or measurable outcome. "
+        "As part of THIS ONE question (not a second question), invitingly ask "
+        "if they can share a number for it — team size, scale, or a measurable "
+        "outcome. An answer with no numbers is a completely valid, final "
+        "answer — never imply they must supply one, and never plan to ask "
+        "again for numbers on this cluster; this is the only chance it gets."
+    )
+
+
+_AVAILABILITY_INSTRUCTION = (
+    "\n\nAvailability opportunity: the job posting signals an availability/"
+    "notice-period requirement, and the candidate's profile shows multiple "
+    "open-ended current roles. As part of THIS ONE question, you may add a "
+    "brief, factual ask about their current availability or notice period. "
+    "An answer without specifics is a completely valid, final answer — never "
+    "ask again."
+)
+
+
 def build_question_prompt(
     cluster: dict,
     profile: dict,
     recent_messages: list[dict],
     gap_category: str | None = None,
+    quant_concepts: list[str] | None = None,
+    include_availability: bool = False,
 ) -> str:
     history = ""
     if recent_messages:
@@ -192,7 +230,7 @@ def build_question_prompt(
     if jd_context:
         cluster_context += f"\nJD context: {jd_context}"
 
-    return (
+    prompt = (
         f"{cluster_context}\n"
         f"{gap_type_hint}\n"
         f"{choices_hint}\n\n"
@@ -200,6 +238,11 @@ def build_question_prompt(
         f"{history}\n\n"
         "Generate the JSON response."
     )
+    if quant_concepts:
+        prompt += _quant_instruction(quant_concepts)
+    if include_availability:
+        prompt += _AVAILABILITY_INSTRUCTION
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +321,17 @@ def build_guided_question_prompt(
     section: str,
     job_context: dict,
     recent_messages: list[dict],
+    include_availability: bool = False,
 ) -> str:
     """Build the prompt for a MODE B (Guided Build) section question.
 
     section: one of _VALID_SECTIONS keys
     job_context: {"role_title": str, "seniority_level": str}
     recent_messages: last N messages from the conversation
+    include_availability: US265 — folded in ONLY for the first section of a
+        guided session (session.py computes the one-shot check once, at
+        session creation); default False keeps every other call byte-identical
+        to before.
     """
     history = ""
     if recent_messages:
@@ -304,13 +352,16 @@ def build_guided_question_prompt(
             )
         )
 
-    return (
+    prompt = (
         f"Profile section to build: {label}\n"
         f"Guidance: {guidance}"
         f"{role_ctx}"
         f"{history}\n\n"
         "Generate the question."
     )
+    if include_availability:
+        prompt += _AVAILABILITY_INSTRUCTION
+    return prompt
 
 
 # ---------------------------------------------------------------------------

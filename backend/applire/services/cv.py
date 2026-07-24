@@ -966,6 +966,99 @@ def _tailor_skills_to_jd(
     return tailored.model_copy(update={"skills": selected})
 
 
+def _drop_ungrounded_jd_echo_skills(
+    tailored: TailoredCVData,
+    profile_json: dict,
+    job_dict: dict,
+    keyword_ledger: list[dict] | None,
+) -> TailoredCVData:
+    """#250 (Tiramisu founder-acceptance blind-panel finding, run 3, 2026-07-24).
+
+    Ground truth: the tailored CV's Skills section carried near-verbatim JD phrases
+    as bare skill tags ("Fast-Moving Product-Led Environment Experience", "Commercial
+    AI Product Development", "AI Reliability", "AI Observability", "Production
+    Ownership"). Both blind reviewers (HR + hiring manager) independently called this
+    keyword-stuffing / inflation, even though the truthfulness pipeline never flags
+    it -- every one of those concepts is ledger-CLAIMABLE, so grounding never trips.
+    The defect is PLACEMENT, not truthfulness: a human reader reads a JD phrase minted
+    as a skill tag as inflation, because a skill tag with no attested vault backing
+    carries none of the evidence a work bullet or the summary would.
+
+    Drops a tailored skill entry only when BOTH hold:
+
+    * it near-dupes NO master-profile skill (:func:`ats_audit.skills_near_dupe` --
+      the SAME shared containment/near-dupe instrument #172/#192/#244 already use,
+      so this pass can never disagree with the dedup/tailoring passes about what
+      counts as "the same skill"), AND
+    * it near-dupes a JD-required/nice-to-have/keyword term or a Keyword Ledger
+      concept/surface form (:func:`_jd_skill_terms`) -- i.e. it reads as an echo of
+      the posting's own phrasing, not an independently-attested candidate skill.
+
+    A skill that DOES near-dupe a vault skill is NEVER dropped -- and is reworded to
+    the vault's own phrasing when it currently reads as the JD's rather than the
+    vault's (prefer the attested name over the posting's), so "Team Leadership" (the
+    writer's JD-flavoured trim of the vault's "Team Leadership and Mentorship")
+    surfaces under its real, vault-grounded name rather than vanishing or staying in
+    the JD's words. A concept that ALSO exists as a genuine vault skill (e.g. "AI
+    Observability" with real ``experience_refs``) is correctly kept even though it
+    happens to match the JD's own phrasing verbatim -- the fix is JD-echo-with-no-tie,
+    never "matches the JD" alone.
+
+    Runs LAST in the skills pipeline (after #192's ``_tailor_skills_to_jd``), so a
+    dropped tag can never be silently re-added by an earlier pass, and strictly
+    BEFORE the record's ``tailored_data``/ATS audit are persisted -- so
+    ``keyword_ledger.verified_missing_claimable`` (US213/#122's shared presence
+    predicate) sees the true, final document: a concept still genuinely present in a
+    bullet/summary elsewhere stays covered (no false amber), while a concept that was
+    ONLY ever covered by the now-dropped tag honestly reappears as missing-claimable
+    instead of being silently laundered by a bare tag.
+
+    Pure; ``tailored`` is left unmutated. No-op (returns ``tailored`` unchanged, same
+    object) when nothing is dropped or renamed.
+    """
+    from applire.services.ats_audit import skills_near_dupe
+
+    original = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
+    if not original:
+        return tailored
+
+    profile_skills: list[str] = []
+    for s in profile_json.get("skills") or []:
+        name = s.get("name") if isinstance(s, dict) else s
+        if isinstance(name, str) and name.strip():
+            profile_skills.append(name.strip())
+
+    required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
+    jd_terms = required + nice + keyword
+
+    def _vault_tie(skill: str) -> str | None:
+        """The vault skill's own name this tag near-dupes, if any (first match)."""
+        return next((p for p in profile_skills if skills_near_dupe(skill, p)), None)
+
+    def _is_jd_echo(skill: str) -> bool:
+        return any(skills_near_dupe(skill, t) for t in jd_terms)
+
+    kept: list[str] = []
+    for s in original:
+        tie = _vault_tie(s)
+        if tie is None:
+            if _is_jd_echo(s):
+                continue  # bare JD echo, no deterministic vault tie -- drop
+            kept.append(s)
+            continue
+        # Vault-tied: always survives. Prefer the vault's own attested phrasing over
+        # the JD's when the tag currently reads as a JD echo of it.
+        name = tie if (s != tie and _is_jd_echo(s)) else s
+        if not any(skills_near_dupe(name, k) for k in kept):
+            kept.append(name)
+        # else: collapses into an already-kept near-dupe (dedup safety net --
+        # renaming toward the vault name must never re-introduce a duplicate).
+
+    if kept == original:
+        return tailored
+    return tailored.model_copy(update={"skills": kept})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -1484,6 +1577,17 @@ async def _render_cv_background(
             # the cap, and never invents a skill. Uses the SORTED profile_json (still bound
             # here — the photo step below rebinds `profile_json` to the raw profile dict).
             tailored = _tailor_skills_to_jd(
+                tailored, profile_json, job_dict, keyword_ledger
+            )
+
+            # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
+            # tags that are JD/ledger-concept echoes with no deterministic vault tie
+            # (both blind reviewers independently flagged these as keyword-stuffing).
+            # MUST run LAST in the skills pipeline -- after #192's cap/guarantee pass,
+            # so nothing re-adds a dropped tag -- and BEFORE tailored_data/the ATS
+            # audit are persisted below, so the coverage check reflects the final,
+            # honest document.
+            tailored = _drop_ungrounded_jd_echo_skills(
                 tailored, profile_json, job_dict, keyword_ledger
             )
 

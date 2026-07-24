@@ -969,6 +969,63 @@ def test_dedupe_predicates_stay_strict_after_verb_fold():
 
 
 # ---------------------------------------------------------------------------
+# E048/US266 (#249 option b): the frontend third-state join (Oracle "unbacked"
+# skill claim vs Keyword Ledger adjacency-claimable concept) needs the FULL
+# claimable concept list on the ATS report -- not just missing_claimable
+# (which only covers concepts missing from the document text). A concept the
+# generator DID surface (present in the document) needs to reach the frontend
+# too, since that is exactly the case that produced the #249 contradiction.
+# ---------------------------------------------------------------------------
+
+def test_claimable_concepts_exposes_full_claimable_list_regardless_of_presence():
+    """`claimable_concepts` carries every claimable ledger entry's surface forms
+    (concept name included), whether the term is present or missing in the
+    document -- unlike `missing_claimable`, which only covers the absent
+    subset. Honest-gap (non-claimable) concepts never appear."""
+    # Present case: "Python" literally appears in the CV text.
+    report_present = _audit_cv_text(_full_text(), _CV, keywords=["Python", "GraphQL"], ledger=_LEDGER)
+    assert "Python" in report_present.keywords.claimable_concepts
+    assert "GraphQL" not in report_present.keywords.claimable_concepts
+
+    # Missing case: neither term appears in the text -- claimable_concepts is
+    # unaffected by presence (only missing_claimable changes).
+    text = "Anna Bauer some unrelated prose with no job keywords"
+    report_missing = _audit_cv_text(text, _CV, keywords=["Python", "GraphQL"], ledger=_LEDGER)
+    assert "Python" in report_missing.keywords.claimable_concepts
+    assert "GraphQL" not in report_missing.keywords.claimable_concepts
+
+
+def test_claimable_concepts_includes_adjacency_surface_forms():
+    """A ledger entry whose CONCEPT differs from its literal surface form
+    (e.g. an adjacency-classified 'Strategic Planning' concept the LLM only
+    supported via a related 'Digital Strategy' profile skill) must expose
+    BOTH the concept name and its surface forms, so the frontend can join
+    against whichever text the document actually renders."""
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            {
+                "concept": "Strategic Planning",
+                "status": "partial",
+                "surface_forms": ["Strategic Planning"],
+                "evidence": "Adjacent to profile skill 'Digital Strategy'.",
+            },
+        ],
+        required_skills=["Strategic Planning"],
+        nice_to_have_skills=[],
+        keywords=["Strategic Planning"],
+    )
+    report = _audit_cv_text(
+        "Anna Bauer led Strategic Planning initiatives across three markets",
+        _CV,
+        keywords=["Strategic Planning"],
+        ledger=ledger,
+    )
+    assert "Strategic Planning" in report.keywords.claimable_concepts
+
+
+# ---------------------------------------------------------------------------
 # #244 — the '-ship' derivational-noun fold, extending the verb-form fallback.
 # Live-reproduced: the CV skill "Mentoring" flagged unbacked against a vault
 # that only carries "...Mentorship" (the skill "Team Leadership and

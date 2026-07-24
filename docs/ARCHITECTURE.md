@@ -550,6 +550,8 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 **Why:** Real-world testing showed a truthful pipeline can still produce a truthful-but-*flat* document — faithful to a profile that never captured the candidate's most relevant experience, and silent on why a gap isn't a deal-breaker. Verification without positioning is the flat CV; positioning without verification is lying. The two are designed as a pair.
 
+*Amended 2026-07-24:* the deferred positioning step is partially un-deferred for the built-in letter, scoped strictly to **prompt-input threading**: the letter prompt now receives the JD's company/domain for concrete engagement, interview answers tagged to true gaps as the honest transfer argument, and an availability statement sourced from vault data only (detected concurrent open roles; nothing is invented when the vault is silent). No new LLM passes, templates, or UI positioning flow — those stay deferred. All positioning output remains bounded by the truthfulness audit.
+
 ---
 
 ### ADR-058 — One Capability Core, Two Doors: the Door-Parity Invariant (accepted 2026-07-23)
@@ -557,6 +559,8 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 **Decision:** Applire's product is its **deterministic capability core** — the Master Profile vault (reconciliation/notary), the Truthfulness Oracle, norms-checked rendering, the application tracker, and the deterministic analysis layer (keyword ledger, ATS audit). Each capability is a named operation with a public contract, consumed identically by the web UI and the MCP tools. The standing **door-parity invariant**: no capability may exist only inside the built-in generation pipeline — anything the pipeline can do to a user's documents must be reachable à-la-carte with equal semantics (same validation, same norms enforcement, same audit hooks); intentional differences are named parameters, never accidents of the entry path. Parity is CI-tested. The built-in pipeline itself is reframed as Applire's **bundled agent** for users who don't bring their own: fully supported, but with a written capability floor — it is frozen at its current feature set (bugfix-only) rather than competing with caller models on prose. The flow state machine becomes a browser-side convenience: no core operation requires a flow session.
 
 **Why:** Every capability that lived only inside the pipeline eventually surfaced as an agent-door limitation discovered the hard way. Making parity a tested invariant turns that defect class into a failing build — and it resolves the human-door/agent-door tension structurally: both doors are callers of the same core, so the user without an agent loses nothing while the user with one is never boxed in.
+
+*Amended 2026-07-24:* the freeze boundary is now ruled explicitly. **Allowed under the freeze:** threading *existing* vault/ledger/interview data into *existing* prompts, prompt-rule wording, and deterministic guards or post-passes — these improve inputs, not capability. **Recorded exceptions (both bounded):** the letter positioning inputs (see the ADR-057 amendment) and one interview prompt rule — for cluster concepts already evidenced but unquantified, the existing question generator may ask one quantification follow-up (team size / scale / outcome), and may ask availability once when the job description requires it and the vault holds none; "I don't have numbers" is a valid terminal answer, never re-asked. No new modes, engines, or question-ceiling changes.
 
 ---
 

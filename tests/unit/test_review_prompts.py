@@ -923,3 +923,451 @@ class TestCoverLetterServiceReviewIntegration:
         src = calls[0]["source"]
         assert "Kubernetes" in src and "K8s" in src
         assert "Rust" in src
+
+
+class TestCoverLetterPositioningIntegration:
+    """E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)) — the blind
+    hiring-panel blockers: the letter must engage the target company/domain, honestly
+    argue the candidate's OWN transfer story for the one true (Category C) gap when
+    vault testimony exists, and address availability only when BOTH the deterministic
+    concurrent-roles detector fires AND matching vault testimony exists. All three are
+    deterministic prompt-input threading — no new LLM chain, no new pass — so this
+    harness (mirrors TestCoverLetterServiceReviewIntegration) drives the REAL
+    ``_render_cover_letter_background`` and inspects the ACTUAL generation prompt the
+    (spy) provider received."""
+
+    def _wire(self, mock_cl, mock_job, mock_cv, mock_profile, mock_gap, mock_provider):
+        """Common db/session/provider patch stack — returns the context manager list
+        (as a list of `with` targets is awkward, callers use this via a helper)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = shared_result
+        return mock_db
+
+    @pytest.mark.asyncio
+    async def test_render_threads_company_name_into_generation_prompt(self):
+        """Blocker #1 — the letter must gain an explicit, concrete company/domain
+        engagement instruction naming the TARGET company."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {
+            "contact": {"name": "Max Muster"}, "summary": "Backend developer.",
+            "work_history": [{"company": "Acme GmbH", "role": "Software Developer",
+                              "start_date": "2020-01", "end_date": "2022-12",
+                              "bullets": ["Built REST APIs"]}],
+            "skills": ["Python", "FastAPI"],
+        }
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
+        mock_job.company_name = "Roche Diagnostics"
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"],
+        }
+        mock_gap = None  # legacy pre-E037 row — no ledger, no category_c
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in generation_prompt
+        assert "TARGET COMPANY: Roche Diagnostics" in generation_prompt
+        assert "diagnostics instruments" in generation_prompt  # the JD's own domain text
+
+    @pytest.mark.asyncio
+    async def test_render_threads_gap_testimony_when_category_c_story_matches(self):
+        """Blocker #2 — a Category C gap with a matching Signature Story (ADR-055)
+        must surface the candidate's OWN transfer-argument testimony verbatim."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {
+            "contact": {"name": "Max Muster"}, "summary": "QA specialist.",
+            "work_history": [{"company": "Acme GmbH", "role": "QA Engineer",
+                              "start_date": "2020-01", "end_date": "2022-12",
+                              "bullets": ["Built automated regression suites"]}],
+            "skills": ["Test Automation"],
+        }
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We need regulated industries experience."
+        mock_job.company_name = None
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"],
+            "signature_stories": [
+                {
+                    "title": "Bringing GxP rigor to a startup",
+                    "challenge": "The team had never worked in regulated industries before.",
+                    "mechanism": "I applied my prior pharma QA discipline to the release process.",
+                    "outcome": "We passed our first external audit with zero findings.",
+                    "benchmark": None,
+                }
+            ],
+        }
+        mock_gap = MagicMock()
+        mock_gap.category_c = ["regulated industries experience"]
+        mock_gap.keyword_ledger = []
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: HONEST GAP / TRANSFER ARGUMENT" in generation_prompt
+        assert "GAP: regulated industries experience" in generation_prompt
+        assert "prior pharma QA discipline" in generation_prompt  # the story's own text, verbatim
+        assert "passed our first external audit" in generation_prompt
+
+    @pytest.mark.asyncio
+    async def test_render_omits_gap_testimony_when_no_story_matches(self):
+        """No Signature Story overlaps the Category C gap → the letter says nothing
+        about it (silence over invention)."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {
+            "contact": {"name": "Max Muster"}, "summary": "QA specialist.",
+            "work_history": [], "skills": [],
+        }
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We need Kubernetes orchestration experience."
+        mock_job.company_name = None
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": [], "skills": [],
+            "signature_stories": [
+                {
+                    "title": "Winning a design award",
+                    "challenge": "Our brand felt generic.",
+                    "mechanism": "I ran a full visual identity overhaul.",
+                    "outcome": "We won a regional design award.",
+                }
+            ],
+        }
+        mock_gap = MagicMock()
+        mock_gap.category_c = ["Kubernetes orchestration"]
+        mock_gap.keyword_ledger = []
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: HONEST GAP / TRANSFER ARGUMENT" not in generation_prompt
+
+    @pytest.mark.asyncio
+    async def test_render_threads_availability_only_when_detector_fires_and_testimony_exists(self):
+        """Blocker #3 — >=2 open-ended work_experience entries (concurrent roles) PLUS
+        matching vault testimony → the availability block is threaded, verbatim."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {"contact": {"name": "Max Muster"}, "summary": "", "work_history": [], "skills": []}
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We are hiring."
+        mock_job.company_name = None
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": [], "skills": [],
+            "work_experience": [
+                {"role": "CTO", "company": "Startup A", "is_current": True, "end_date": None},
+                {"role": "Advisor", "company": "Startup B", "is_current": True, "end_date": None},
+            ],
+            "signature_stories": [
+                {
+                    "title": "Managing concurrent commitments",
+                    "challenge": "I run two advisory roles in parallel.",
+                    "mechanism": "I block dedicated hours for each and communicate availability clearly.",
+                    "outcome": "Both engagements stayed on schedule.",
+                }
+            ],
+        }
+        mock_gap = None
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS" in generation_prompt
+        assert "I run two advisory roles in parallel" in generation_prompt
+
+    @pytest.mark.asyncio
+    async def test_render_omits_availability_when_detector_fires_but_no_testimony(self):
+        """Detector fires (2 open-ended roles) but the vault holds NO availability
+        testimony — the letter must make NO availability/commitment claim."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {"contact": {"name": "Max Muster"}, "summary": "", "work_history": [], "skills": []}
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We are hiring."
+        mock_job.company_name = None
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": [], "skills": [],
+            "work_experience": [
+                {"role": "CTO", "company": "Startup A", "is_current": True, "end_date": None},
+                {"role": "Advisor", "company": "Startup B", "is_current": True, "end_date": None},
+            ],
+            "signature_stories": [],
+        }
+        mock_gap = None
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS" not in generation_prompt
+
+    @pytest.mark.asyncio
+    async def test_render_omits_availability_when_only_single_current_role(self):
+        """Detector does NOT fire (only 1 open-ended role) — no availability block even
+        if testimony happens to exist in the vault."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {"contact": {"name": "Max Muster"}, "summary": "", "work_history": [], "skills": []}
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "We are hiring."
+        mock_job.company_name = None
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {
+            "work_history": [], "skills": [],
+            "work_experience": [
+                {"role": "CTO", "company": "Startup A", "is_current": True, "end_date": None},
+                {"role": "Past role", "company": "B", "is_current": False, "end_date": "2019"},
+            ],
+            "signature_stories": [
+                {
+                    "title": "Managing concurrent commitments",
+                    "challenge": "I run two advisory roles in parallel.",
+                    "mechanism": "I block dedicated hours for each.",
+                    "outcome": "Both engagements stayed on schedule.",
+                }
+            ],
+        }
+        mock_gap = None
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        async def fake_review(**kwargs):
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        assert "POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS" not in generation_prompt
+
+    @pytest.mark.asyncio
+    async def test_render_threads_job_description_into_reviewer_grounding_source(self):
+        """Oracle discipline unchanged (AC #4): the reviewer must receive the SAME JD
+        text the generator saw, so a company/domain claim can be judged grounded or
+        invented — an invented company fact must still fail to ground."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cv_tailored = {"contact": {"name": "Max Muster"}, "summary": "", "work_history": [], "skills": []}
+        letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
+        mock_job.company_name = "Roche Diagnostics"
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        mock_profile = MagicMock()
+        mock_profile.profile_json = {"work_history": [], "skills": []}
+        mock_gap = None
+
+        mock_db = self._wire(mock_cl, mock_job, mock_cv, mock_profile, mock_gap, None)
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls, "review_and_refine was not called"
+        src = calls[0]["source"]
+        # The reviewer's ground truth now carries the SAME JD text the generator saw —
+        # the necessary condition for it to judge a company/domain claim grounded vs
+        # invented (an invented product/market NOT in this text has nowhere to ground).
+        assert "diagnostics instruments" in src
+        assert "job_description" in src
+
+    def test_review_system_prompt_flags_invented_employer_facts(self):
+        """The reviewer's own instructions must name employer/company facts not
+        present in job_description as invented — proves an invented company fact
+        would NOT be grounded (Oracle discipline unchanged, AC #4)."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+
+        assert "job_description" in REVIEW_SYSTEM_PROMPT
+        assert "INVENTED EMPLOYER" in REVIEW_SYSTEM_PROMPT.upper()

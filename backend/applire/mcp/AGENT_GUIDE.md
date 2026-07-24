@@ -104,7 +104,9 @@ the matching `artifact_id` when advancing.
 - `submit_claims` — you ran your own interview: submit the candidate's
   answers as testimony (read `schema://claims` first, max 20 per call). Link
   a claim to a ledger gap only with the EXACT concept string from
-  `analyze_gaps` output.
+  `analyze_gaps` output. For JD-critical capabilities, include quantification
+  (team size, scale, measurable outcomes) where the candidate actually has it
+  — a hiring panel weighs numbers over adjectives.
 - `resolve_gap` — resolve ONE gap cluster in a single call, the guided way:
   pass a `gap_id` from `analyze_gaps`' `gap_clusters` plus the candidate's
   testimony; Applire generates the scoped question, applies your answer

@@ -90,6 +90,20 @@ Rules:
 - Keep the letter body within the WORD BUDGET given in the user message — that line also
   states the region's page norm (ADR-051 §1: no page/word number is ever hard-coded here).
 - Use the tone specified: formal=sehr geehrte/r, professional=warm but polished, conversational=direct.
+- POSITIONING INPUTS (ADR-057 amended 2026-07-24 / US264) — thread these in only where present;
+  never invent any of the three when the corresponding input is absent from the user message:
+  * COMPANY & DOMAIN ENGAGEMENT: when a TARGET COMPANY line appears, engage that employer
+    concretely in the opening or motivation paragraph — reference what they build, sell, or
+    operate in, using ONLY the JOB DESCRIPTION text given above it. Never invent a company
+    product, market, or achievement that is not stated in that JOB DESCRIPTION text.
+  * HONEST GAP / TRANSFER ARGUMENT: when a GAP TESTIMONY block appears, write exactly ONE
+    honest paragraph that (a) names/acknowledges the stated gap directly and (b) delivers the
+    candidate's OWN transfer argument, grounded VERBATIM in the testimony given in that block —
+    never invent a transfer argument the candidate did not state. When no GAP TESTIMONY block
+    is present, do not mention any gap at all.
+  * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
+    address availability/commitment using ONLY that testimony, grounded verbatim. When it is
+    absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
 """
 
 
@@ -102,6 +116,9 @@ def build_cover_letter_prompt(
     role_title: str | None = None,
     word_budget: int | None = None,
     letter_pages: int | None = None,
+    company_name: str | None = None,
+    gap_testimony: dict[str, Any] | None = None,
+    availability_testimony: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -125,6 +142,23 @@ def build_cover_letter_prompt(
         interpolated into the WORD BUDGET line so SYSTEM_PROMPT never has to
         hard-code "one page" (ADR-051 §1 review finding). Optional so legacy/
         degraded callers do not break; only used when word_budget is also given.
+    company_name: the TARGET job's company name (JobAnalysis.company_name) — E048/US264
+        (ADR-057 amended 2026-07-24): a blind hiring panel rejected a letter that never
+        engaged the employer's product/domain at all. Threads an explicit instruction to
+        engage this company concretely, grounded ONLY in the JOB DESCRIPTION text (never
+        invented). Omitted/empty → no company-engagement block is added.
+    gap_testimony: ``{"gap": <category-C gap label>, "story": <SignatureStory dict>}`` —
+        E048/US264: the candidate's OWN interview testimony (ADR-055 signature story) that
+        argues past the one true (Category C) gap in this JD — e.g. a career-pivot/transfer
+        argument. Found by :func:`applire.services.cover_letter_positioning.find_gap_testimony`
+        (deterministic keyword match, no LLM). Threaded so the letter can honestly
+        acknowledge the gap AND deliver the candidate's own transfer argument, verbatim.
+        Omitted/None → no gap is mentioned (silence over invention).
+    availability_testimony: the candidate's OWN vault testimony (verbatim) addressing
+        availability/concurrent commitments — E048/US264. The caller only passes this when
+        BOTH the deterministic concurrent-roles detector fired AND matching testimony exists
+        in the vault (:func:`applire.services.cover_letter_positioning`); otherwise None, and
+        no availability/commitment claim beyond PRE-GENERATION INPUTS is made.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -199,6 +233,21 @@ def build_cover_letter_prompt(
         jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
     ]
 
+    # E048/US264 (ADR-057 amended 2026-07-24): the panel's #1 blocker — the letter never
+    # engaged the employer's product/domain at all. company_name is threaded here (never
+    # a new extraction — it is JobAnalysis.company_name, already resolved by the caller)
+    # so the model has an explicit instruction to engage the JD's OWN text concretely.
+    if company_name:
+        lines += [
+            "",
+            "=== POSITIONING: COMPANY & DOMAIN ENGAGEMENT ===",
+            f"TARGET COMPANY: {company_name}",
+            "Engage this employer concretely in the opening or motivation paragraph — "
+            "reference what they build, sell, or operate in, using ONLY the JOB DESCRIPTION "
+            "text above. Never invent a company product, market, or achievement that is not "
+            "stated there.",
+        ]
+
     # ADR-048 §8 / US201: the Keyword Ledger — claimable terms (with profile evidence) to
     # surface, honest gaps never to claim. Grounding strictly outranks coverage.
     from applire.services.keyword_ledger import render_ledger_prompt_block
@@ -206,6 +255,31 @@ def build_cover_letter_prompt(
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     if ledger_block:
         lines += ["", ledger_block]
+
+    # E048/US264 (ADR-057 amended 2026-07-24): the panel's #2 blocker — the letter never
+    # argued the candidate's OWN transfer story for the one true (Category C) gap, even
+    # though the argument sat in the vault as interview testimony (a Signature Story,
+    # ADR-055). gap_testimony is found deterministically (no LLM) by
+    # applire.services.cover_letter_positioning.find_gap_testimony; absent → say nothing.
+    if gap_testimony:
+        story = gap_testimony.get("story") or {}
+        testimony_parts = [
+            story.get("challenge") or "",
+            story.get("mechanism") or "",
+            story.get("outcome") or "",
+            story.get("benchmark") or "",
+        ]
+        testimony_text = " ".join(p for p in testimony_parts if p)
+        lines += [
+            "",
+            "=== POSITIONING: HONEST GAP / TRANSFER ARGUMENT ===",
+            f"GAP: {gap_testimony.get('gap', '')}",
+            "CANDIDATE'S OWN TESTIMONY (verbatim — ground the paragraph in this; invent "
+            "nothing beyond it):",
+            testimony_text,
+            "Write exactly ONE honest paragraph acknowledging this gap and delivering the "
+            "candidate's own transfer argument from the testimony above.",
+        ]
 
     lines += [
         "",
@@ -235,6 +309,20 @@ def build_cover_letter_prompt(
         lines.append(f"Eintrittstermin (availability/notice period): {availability}")
     if motivation:
         lines.append(f"Personal motivation (incorporate naturally): {motivation}")
+
+    # E048/US264 (ADR-057 amended 2026-07-24): the panel's #3 blocker — an obvious
+    # concurrent-roles/availability question went unaddressed. The caller only passes
+    # availability_testimony when BOTH the deterministic detector fired (>=2 open-ended
+    # roles) AND matching vault testimony exists — so this block is verbatim-grounded by
+    # construction; absent → no availability/commitment claim beyond the line above.
+    if availability_testimony:
+        lines += [
+            "",
+            "=== POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS ===",
+            "CANDIDATE'S OWN TESTIMONY (verbatim):",
+            availability_testimony,
+            "Address availability/commitment using ONLY this testimony, grounded verbatim.",
+        ]
 
     lines += [
         "",

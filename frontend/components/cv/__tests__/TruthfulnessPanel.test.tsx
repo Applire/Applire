@@ -1,10 +1,11 @@
 // Copyright (C) 2026 Tobias Rosenbaum
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import TruthfulnessPanel, { type TruthfulnessReport } from "../TruthfulnessPanel";
+import type { ATSReport } from "../ATSChecksPanel";
 
 const REPORT_WITH_FLAGS: TruthfulnessReport = {
   version: "1.0",
@@ -117,6 +118,128 @@ const UNVERIFIABLE_DOMINATED_REPORT: TruthfulnessReport = {
   counts: { grounded: 1, inflated: 0, misattributed: 0, unbacked: 0, unverifiable: 8 },
   stated_limit: "This report verifies document-vault consistency only.",
 };
+
+// E048/US266 (#249 option b): a skill claim the Oracle calls "unbacked" whose
+// text matches a Keyword Ledger CLAIMABLE concept (the ATS report's new
+// `claimable_concepts`, present or missing in the doc alike — this is
+// adjacency evidence, not a literal vault hit) must render a third, honestly
+// labeled state — never a red flag, never the plain green "backed" chip.
+const UNBACKED_WITH_LEDGER_MATCH_REPORT: TruthfulnessReport = {
+  version: "1.1",
+  document_kind: "cv",
+  claims: [
+    {
+      claim: { text: "Strategic Planning", location: "skills[0]", kind: "skill" },
+      verdict: {
+        verdict: "unbacked",
+        checker: "grounding",
+        evidence: [],
+        detail: 'Skill "Strategic Planning" has no vault evidence.',
+      },
+    },
+    {
+      claim: { text: "Cut deployment time by 40%.", location: "work_history[0].bullets[0]", kind: "bullet" },
+      verdict: { verdict: "grounded", checker: "numbers", evidence: [], detail: null },
+    },
+  ],
+  counts: { grounded: 1, inflated: 0, unbacked: 1, unverifiable: 0 },
+  stated_limit: "This report verifies document-vault consistency only.",
+};
+
+const ATS_WITH_CLAIMABLE_MATCH: ATSReport = {
+  checks: [],
+  keywords: {
+    present: ["Strategic Planning"],
+    missing: [],
+    claimable_concepts: ["Strategic Planning", "Digital Strategy"],
+  },
+};
+
+const ATS_WITHOUT_CLAIMABLE_MATCH: ATSReport = {
+  checks: [],
+  keywords: {
+    present: [],
+    missing: ["GraphQL"],
+    claimable_concepts: ["GraphQL"],
+  },
+};
+
+describe("TruthfulnessPanel — E048/US266 third-state skill/ledger join", () => {
+  it("unbacked skill matching a claimable ledger concept renders the related-evidence state, not a red flag", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={ATS_WITH_CLAIMABLE_MATCH} />,
+      ),
+    );
+    // NOT in the loud red-flag list.
+    expect(screen.queryByTestId("truthfulness-flag-skills[0]")).not.toBeInTheDocument();
+    // Rendered instead as the distinct related-evidence chip.
+    expect(screen.getByTestId("truthfulness-related-skills[0]")).toBeInTheDocument();
+    expect(screen.getByTestId("truthfulness-chip-related").textContent).toBe("Related evidence");
+    // Headline count excludes it — only the grounded claim, zero claims "need review".
+    expect(screen.getByTestId("truthfulness-status").textContent).not.toContain("1 claim");
+  });
+
+  it("unbacked skill with NO matching claimable concept stays unbacked and red", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={ATS_WITHOUT_CLAIMABLE_MATCH} />,
+      ),
+    );
+    expect(screen.getByTestId("truthfulness-flag-skills[0]")).toBeInTheDocument();
+    expect(screen.getByTestId("truthfulness-chip-unbacked")).toBeInTheDocument();
+    expect(screen.queryByTestId("truthfulness-related-skills[0]")).not.toBeInTheDocument();
+  });
+
+  it("without an atsReport prop at all, behaviour is unchanged (back-compat)", () => {
+    render(withIntl(<TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} />));
+    expect(screen.getByTestId("truthfulness-flag-skills[0]")).toBeInTheDocument();
+  });
+
+  it("grounded claims are never affected by the ledger join", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={ATS_WITH_CLAIMABLE_MATCH} />,
+      ),
+    );
+    expect(screen.queryByTestId("truthfulness-related-work_history[0].bullets[0]")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("truthfulness-flag-work_history[0].bullets[0]")).not.toBeInTheDocument();
+  });
+
+  it("case-folded match still joins (e.g. ledger concept differs only in case)", () => {
+    const atsReport: ATSReport = {
+      checks: [],
+      keywords: { present: ["strategic planning"], missing: [], claimable_concepts: ["strategic planning"] },
+    };
+    render(withIntl(<TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={atsReport} />));
+    expect(screen.getByTestId("truthfulness-related-skills[0]")).toBeInTheDocument();
+  });
+
+  it("DE locale: related-evidence chip and note render in German", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={ATS_WITH_CLAIMABLE_MATCH} />,
+        "de",
+      ),
+    );
+    expect(screen.getByTestId("truthfulness-chip-related").textContent).toBe("Verwandter Beleg");
+    expect(screen.getByTestId("truthfulness-related-note").textContent).toContain("verwandte Belege");
+  });
+
+  it("drawer shows the related-evidence claim with the neutral chip and honest detail text", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={UNBACKED_WITH_LEDGER_MATCH_REPORT} atsReport={ATS_WITH_CLAIMABLE_MATCH} />,
+      ),
+    );
+    fireEvent.click(screen.getByTestId("truthfulness-details-button"));
+    const drawer = screen.getByTestId("truthfulness-drawer");
+    expect(within(drawer).getByTestId("truthfulness-drawer-claim-skills[0]")).toBeInTheDocument();
+    expect(
+      within(drawer).getByText("Related evidence — not literally in your records."),
+    ).toBeInTheDocument();
+  });
+});
 
 describe("TruthfulnessPanel", () => {
   it("unverifiable-dominated report (F14): headline is NOT the green all-clear state", () => {

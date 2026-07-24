@@ -81,6 +81,20 @@ class Claim(BaseModel):
     # role's id too (see extract.extract_claims_from_letter), so the same
     # matcher becomes reachable for the letter path.
     source_experience_id: str | None = None
+    # #248 — every experience/project id whose employer/project name is named
+    # LOOSELY (word-boundary substring, legal-form-suffix tolerant,
+    # ambiguity across same-company duplicate ids and multiple distinct
+    # employers alike TOLERATED) in the SENTENCE this claim/clause was
+    # extracted from. Deliberately a separate, more permissive signal than
+    # ``source_experience_id`` (the strict "exactly one candidate, fail open
+    # on any ambiguity" anchor, #237): it lets the non-figure ownership check
+    # (``oracle.audit._unattributable_evidence_flag``) tell "this clause's
+    # OWN sentence already names an owner of its evidence" apart from "the
+    # letter names an owner somewhere else, but not here" — the distinction
+    # that keeps an honest, single-employer sentence grounded even when the
+    # strict anchor couldn't stamp it (e.g. the vault's legal-form company
+    # name vs. the letter's shortened mention). Empty for non-letter callers.
+    sentence_named_ids: frozenset[str] = Field(default_factory=frozenset)
 
 
 class ClaimVerdict(BaseModel):

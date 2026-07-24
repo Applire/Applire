@@ -366,6 +366,96 @@ def test_system_prompt_forbids_claiming_gaps_in_possessive_framing():
     assert "motivation" in low or "grow into" in low or "eager" in low
 
 
+# ---------------------------------------------------------------------------
+# E048/US264 (ADR-057 amended 2026-07-24) — positioning inputs
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_states_positioning_inputs_contract():
+    """ADR-057 amended 2026-07-24 — the SYSTEM_PROMPT must carry explicit instructions
+    for all three positioning inputs, each gated on grounding."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    assert "positioning" in low
+    assert "company & domain engagement" in low or "company and domain engagement" in low
+    assert "transfer argument" in low
+    assert "availability" in low and "concurrent commitments" in low
+
+
+def test_build_cover_letter_prompt_includes_company_engagement_block():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={"contact": {"name": "A. Test"}},
+        jd_text="We build diagnostics instruments for regulated healthcare labs.",
+        pre_gen_inputs={},
+        detected_language="en",
+        company_name="Roche Diagnostics",
+    )
+    assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in prompt
+    assert "TARGET COMPANY: Roche Diagnostics" in prompt
+
+
+def test_build_cover_letter_prompt_omits_company_engagement_block_when_no_company_name():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="en",
+    )
+    assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" not in prompt
+
+
+def test_build_cover_letter_prompt_includes_gap_testimony_verbatim():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="en",
+        gap_testimony={
+            "gap": "regulated industries experience",
+            "story": {
+                "challenge": "New to regulated industries.",
+                "mechanism": "Applied adjacent QA rigor from my prior role.",
+                "outcome": "Delivered a compliant release on the first attempt.",
+                "benchmark": None,
+            },
+        },
+    )
+    assert "POSITIONING: HONEST GAP / TRANSFER ARGUMENT" in prompt
+    assert "GAP: regulated industries experience" in prompt
+    assert "Applied adjacent QA rigor from my prior role." in prompt
+    assert "Delivered a compliant release on the first attempt." in prompt
+
+
+def test_build_cover_letter_prompt_omits_gap_testimony_block_when_none():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="en",
+    )
+    assert "POSITIONING: HONEST GAP / TRANSFER ARGUMENT" not in prompt
+
+
+def test_build_cover_letter_prompt_includes_availability_testimony_verbatim():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="en",
+        availability_testimony="I run two advisory roles in parallel and block dedicated hours for each.",
+    )
+    assert "POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS" in prompt
+    assert "I run two advisory roles in parallel" in prompt
+
+
+def test_build_cover_letter_prompt_omits_availability_block_when_none():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={}, jd_text="x", pre_gen_inputs={}, detected_language="en",
+    )
+    assert "POSITIONING: AVAILABILITY / CONCURRENT COMMITMENTS" not in prompt
+
+
 def test_build_cover_letter_prompt_routes_gap_to_do_not_claim_and_grounds_profile():
     """E037 PQ #1 — build_cover_letter_prompt must (a) feed grounded profile material
     (real work-history bullets, not just the thin summary) so achievements come from

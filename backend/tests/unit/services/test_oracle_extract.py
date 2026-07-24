@@ -12,6 +12,7 @@ from applire.services.oracle.extract import (
     extract_claims_from_tailored,
     extract_claims_from_letter,
     extract_claims_from_text,
+    letter_named_experience_ids,
     split_sentences,
     split_clauses,
 )
@@ -352,3 +353,163 @@ def test_extract_from_letter_multi_clause_sentence_uses_kind_clause():
     assert all(c.kind == "clause" for c in claims)
     assert claims[0].location == "body.paragraphs[0][0].clauses[0]"
     assert claims[1].location == "body.paragraphs[0][0].clauses[1]"
+
+
+# ── #248 — legal-form-suffix tolerance + sentence_named_ids + clause anchors ──
+#
+# Live-reproduced 2026-07-24 (generated_cover_letters 37ee8f77-...): the vault
+# stores "BioNTech SE" (the legal entity name), but a real-model letter
+# naturally drops the legal-form suffix ("at BioNTech"). The OLD exact-name
+# anchor match therefore treated the sentence as naming NO employer at all —
+# not just failing to anchor it (`source_experience_id` stays `None` by
+# design, matching #237's own "fail open, never guess" rule for the STRICT
+# anchor), but also making the letter-wide `letter_named_experience_ids` scan
+# blind to BioNTech entirely, which silently widened the #243-adjacent
+# ownership check's "letter names exactly one employer" escape hatch to fire
+# on a letter that, read narratively, names TWO. `Claim.sentence_named_ids`
+# (loose — ambiguity across same-company duplicate ids tolerated, unlike the
+# strict per-claim anchor) is the new, additive signal that lets
+# ``audit._unattributable_evidence_flag`` tell "this clause's OWN sentence
+# already names its true owner" apart from "the letter names an owner
+# somewhere, but not here" — see test_oracle_letter_nonfigure_ownership.py for
+# the full audit-level regression.
+
+PROFILE_LEGAL_SUFFIX = {
+    "work_experience": [
+        {"id": "w-biontech", "company": "BioNTech SE", "role": "Automation Lead"},
+        {"id": "w-applire", "company": "Applire", "role": "Founder"},
+    ],
+}
+
+
+def test_letter_named_experience_ids_tolerates_legal_form_suffix():
+    """The letter-wide scan finds BioNTech even though it never spells out
+    the legal-form suffix stored in the vault ("BioNTech SE")."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "In my recent role at BioNTech, I led automation projects.",
+                "As Founder of Applire, I built a platform.",
+            ]
+        }
+    }
+    ids = letter_named_experience_ids(letter, PROFILE_LEGAL_SUFFIX)
+    assert ids == {"w-biontech", "w-applire"}
+
+
+def test_sentence_named_ids_tolerates_legal_form_suffix_even_when_strict_anchor_fails():
+    """The STRICT anchor (`source_experience_id`) still fails on the bare
+    "BioNTech" mention — #237's exact-name behaviour is unchanged, zero
+    regression risk there — but the new loose `sentence_named_ids` signal
+    finds it anyway, because IT is what the #248 ownership check needs."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "In my recent role at BioNTech, I initiated an agentic GenAI "
+                "system automating validation documentation."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_LEGAL_SUFFIX)
+    assert len(claims) == 1
+    assert claims[0].source_experience_id is None  # strict anchor: unchanged
+    assert claims[0].sentence_named_ids == frozenset({"w-biontech"})
+
+
+def test_sentence_named_ids_empty_when_sentence_names_no_employer():
+    """The exact #248 blend shape: a bare continuation sentence ("This
+    system...") names no employer at all — the loose signal must stay empty,
+    not silently inherit anything from neighbouring sentences."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "This system, running on Databricks, demonstrated my "
+                "hands-on expertise, with a deterministic verification "
+                "layer ensuring trustworthiness."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_LEGAL_SUFFIX)
+    assert claims
+    assert all(c.sentence_named_ids == frozenset() for c in claims)
+
+
+# ── #248 direction 1 — clause-level anchoring for a two-employer sentence ────
+
+PROFILE_TWO_EMPLOYERS_CLAUSE = {
+    "work_experience": [
+        {"id": "w-biontech", "company": "BioNTech", "role": "Automation Lead"},
+        {"id": "w-acme", "company": "Acme GmbH", "role": "Engineer"},
+    ],
+}
+
+
+def test_two_employer_sentence_anchors_each_clause_independently_en():
+    """A sentence naming BOTH employers stays ambiguous at the SENTENCE
+    level (unchanged #237 behaviour), but each CLAUSE that names exactly one
+    of them now gets that clause's own anchor — the writer-blend signature
+    direction: a clause mentioning neither stays unanchored."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "At BioNTech, I led automation, and at Acme GmbH, I "
+                "redesigned onboarding."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
+    assert len(claims) == 2
+    assert claims[0].source_experience_id == "w-biontech"
+    assert claims[1].source_experience_id == "w-acme"
+
+
+def test_two_employer_sentence_anchors_each_clause_independently_de():
+    """DE 'bei X' variant of the same two-employer, per-clause shape."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Bei BioNTech habe ich die Automatisierung geleitet, und "
+                "bei Acme GmbH habe ich das Onboarding neu gestaltet."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
+    assert len(claims) == 2
+    assert claims[0].source_experience_id == "w-biontech"
+    assert claims[1].source_experience_id == "w-acme"
+
+
+def test_single_employer_multi_clause_sentence_anchor_unchanged():
+    """A single-employer sentence split into several clauses (comma + 'with')
+    keeps anchoring EVERY clause via the sentence-level anchor, same as
+    before #248 — the new per-clause fallback only ever engages when the
+    SENTENCE itself couldn't decide."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "At BioNTech, I led automation, with strong reliability "
+                "practices."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
+    assert len(claims) == 2
+    assert all(c.source_experience_id == "w-biontech" for c in claims)
+
+
+def test_clause_naming_neither_employer_stays_unanchored_in_two_employer_sentence():
+    """Within an ambiguous two-employer sentence, a clause naming NEITHER
+    employer stays unanchored (falls through to the ownership check, not a
+    guessed anchor)."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "I have worked at both BioNTech and Acme GmbH, and it went "
+                "very well overall."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
+    assert len(claims) == 2
+    assert claims[0].source_experience_id is None
+    assert claims[1].source_experience_id is None

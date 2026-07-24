@@ -172,3 +172,207 @@ def test_keyword_ledger_drives_relevance_when_job_fields_absent():
     result = _tailor_skills_to_jd(writer_output, _PROFILE, job_no_fields, keyword_ledger=ledger)
 
     assert "React" in result.skills
+
+
+# ── #250 (Tiramisu founder-acceptance blind-panel finding, run 3, 2026-07-24) ──
+# Both blind reviewers (HR + hiring manager) independently flagged near-verbatim
+# JD phrases minted as bare skill tags ("Fast-Moving Product-Led Environment
+# Experience", "Commercial AI Product Development", "AI Reliability", "AI
+# Observability", "Production Ownership") as keyword-stuffing / inflation. The
+# ledger never flags them (they're claimable concepts) -- the defect is
+# PLACEMENT: a JD concept surfaced as a bare skill tag with no deterministic
+# vault tie reads as inflation to a human, even when it's truthful.
+
+_RUN3_REQUIRED = [
+    "Fast-Moving Product-Led Environment",
+    "Commercial AI Product Development",
+    "AI Reliability",
+    "AI Observability",
+    "Production Ownership",
+    "Python",
+    "Team Leadership",
+]
+
+_RUN3_PROFILE = {
+    "skills": [
+        {"name": "Python", "category": "technical", "experience_refs": ["w1"]},
+        {
+            "name": "Team Leadership and Mentorship",
+            "category": "soft",
+            "experience_refs": ["w1"],
+        },
+        {"name": "AI Observability", "category": "technical", "experience_refs": ["w1"]},
+    ]
+}
+
+_RUN3_JOB = {"role_title": "CTO", "required_skills": _RUN3_REQUIRED}
+
+
+def _run3_writer_output() -> list[str]:
+    """The run-3 shape: 4 bare JD-echo tags with no vault tie, plus 3 genuine
+    vault-tied skills (one exact, one JD-reworded, one untouched)."""
+    return [
+        "Fast-Moving Product-Led Environment Experience",
+        "Commercial AI Product Development",
+        "AI Reliability",
+        "Production Ownership",
+        "Python",
+        "Team Leadership",  # writer trimmed the vault's own "...and Mentorship"
+        "AI Observability",
+    ]
+
+
+class TestDropUngroundedJdEchoSkills:
+    def test_jd_echo_tags_with_no_vault_tie_are_dropped(self):
+        """#250 regression: the 4 near-verbatim JD phrases the blind panel flagged
+        as keyword-stuffing must not survive -- none of them near-dupes any real
+        vault skill."""
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+
+        writer_output = _tailored(_run3_writer_output())
+
+        result = _drop_ungrounded_jd_echo_skills(
+            writer_output, _RUN3_PROFILE, _RUN3_JOB, keyword_ledger=[]
+        )
+
+        for jd_echo in (
+            "Fast-Moving Product-Led Environment Experience",
+            "Commercial AI Product Development",
+            "AI Reliability",
+            "Production Ownership",
+        ):
+            assert jd_echo not in result.skills, f"{jd_echo!r} should have been dropped"
+
+    def test_vault_tied_entries_survive_with_vault_grounded_naming(self):
+        """Genuine vault skills are never dropped. An exact vault name (Python,
+        AI Observability) is kept verbatim; a writer rewording that near-dupes a
+        vault skill toward JD phrasing ("Team Leadership") is renamed back to the
+        vault's own attested phrasing ("Team Leadership and Mentorship")."""
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+
+        writer_output = _tailored(_run3_writer_output())
+
+        result = _drop_ungrounded_jd_echo_skills(
+            writer_output, _RUN3_PROFILE, _RUN3_JOB, keyword_ledger=[]
+        )
+
+        assert "Python" in result.skills
+        assert "AI Observability" in result.skills
+        assert "Team Leadership and Mentorship" in result.skills
+        assert "Team Leadership" not in result.skills
+
+    def test_claimable_concept_with_genuine_vault_tie_is_kept(self):
+        """A ledger-claimable concept present ONLY as a skill tag but WITH a real
+        vault-skill tie (name + experience_refs) must NOT be over-dropped just
+        because it also happens to match the JD's own phrasing."""
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+
+        ledger = [
+            {
+                "concept": "AI Observability",
+                "surface_forms": ["AI Observability"],
+                "sources": ["required"],
+                "claimable": True,
+            }
+        ]
+        writer_output = _tailored(["AI Observability"])
+
+        result = _drop_ungrounded_jd_echo_skills(
+            writer_output, _RUN3_PROFILE, {"role_title": "CTO"}, keyword_ledger=ledger
+        )
+
+        assert "AI Observability" in result.skills
+
+    def test_no_op_when_all_skills_are_vault_tied_and_not_jd_reworded(self):
+        """Pure function, no-op guard: a skills list untouched by the pass returns
+        the SAME object (mirrors the no-op contract of the sibling passes)."""
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+
+        writer_output = _tailored(["Python", "AI Observability"])
+
+        result = _drop_ungrounded_jd_echo_skills(
+            writer_output, _RUN3_PROFILE, {"role_title": "CTO"}, keyword_ledger=[]
+        )
+
+        assert result is writer_output
+
+
+class TestJdEchoCoverageInteraction:
+    """#250: the deterministic drop must not silently hide a concept that's
+    genuinely absent, nor falsely amber a concept that's genuinely present
+    elsewhere in the document (US213/#122's shared presence predicate)."""
+
+    def _doc(self, *, skills, extra_bullet=None) -> dict:
+        work_history = [
+            {
+                "id": "w1",
+                "company": "Acme",
+                "role": "CTO",
+                "start_date": "2020-01",
+                "bullets": [extra_bullet] if extra_bullet else [],
+            }
+        ]
+        return {
+            "contact": {"name": "Max"},
+            "summary": "Engineering leader.",
+            "work_history": work_history,
+            "skills": skills,
+        }
+
+    def test_concept_covered_in_bullets_stays_covered_after_drop(self):
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+        from applire.services.keyword_ledger import verified_missing_claimable
+
+        ledger = [
+            {
+                "concept": "Commercial AI Product Development",
+                "surface_forms": ["Commercial AI Product Development"],
+                "sources": ["required"],
+                "claimable": True,
+            }
+        ]
+        tailored = TailoredCVData.model_validate(
+            self._doc(
+                skills=["Commercial AI Product Development", "Python"],
+                extra_bullet="Led commercial AI product development for the platform.",
+            )
+        )
+
+        result = _drop_ungrounded_jd_echo_skills(
+            tailored, _RUN3_PROFILE, {"role_title": "CTO"}, keyword_ledger=ledger
+        )
+
+        assert "Commercial AI Product Development" not in result.skills
+        missing = verified_missing_claimable(result.model_dump(mode="json"), ledger)
+        assert missing == [], "concept is present in the bullet -- must not amber"
+
+    def test_concept_covered_only_by_dropped_tag_reappears_as_missing(self):
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _drop_ungrounded_jd_echo_skills
+        from applire.services.keyword_ledger import verified_missing_claimable
+
+        ledger = [
+            {
+                "concept": "Production Ownership",
+                "surface_forms": ["Production Ownership"],
+                "sources": ["required"],
+                "claimable": True,
+            }
+        ]
+        tailored = TailoredCVData.model_validate(
+            self._doc(skills=["Production Ownership", "Python"])
+        )
+
+        # Before the drop, the bare tag satisfies the coverage scan (the exact
+        # trivial-satisfaction path #250 is about).
+        before = verified_missing_claimable(tailored.model_dump(mode="json"), ledger)
+        assert before == []
+
+        result = _drop_ungrounded_jd_echo_skills(
+            tailored, _RUN3_PROFILE, {"role_title": "CTO"}, keyword_ledger=ledger
+        )
+
+        assert "Production Ownership" not in result.skills
+        after = verified_missing_claimable(result.model_dump(mode="json"), ledger)
+        assert len(after) == 1 and after[0]["concept"] == "Production Ownership"

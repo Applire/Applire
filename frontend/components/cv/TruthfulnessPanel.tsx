@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
+import type { ATSReport } from "@/components/cv/ATSChecksPanel";
 
 // E043/US247 (ADR-052 §4): per-claim truthfulness report panel — sibling of
 // ATSChecksPanel in the document workspace. Red flags (inflated /
@@ -56,26 +57,57 @@ function isUnverifiableDominant(
   return total >= UNVERIFIABLE_DOMINANCE_FLOOR && unverifiableCount > groundedCount;
 }
 
-const VERDICT_CHIP_CLASS: Record<Verdict, string> = {
+// E048/US266 (#249 option b): "related" is a FRONTEND-ONLY display state, never
+// a backend verdict (the Oracle verdict taxonomy in schemas/oracle.py is
+// untouched, per ADR-052 §3 / #249's hard boundary). It reclassifies how an
+// "unbacked" skill claim RENDERS when the Keyword Ledger's own adjacency
+// classification already vouches for the same concept — never a change to
+// what the Oracle itself concluded.
+type DisplayKind = Verdict | "related";
+
+const VERDICT_CHIP_CLASS: Record<DisplayKind, string> = {
   grounded: "bg-success-container text-success",
   inflated: "bg-critical-container text-critical",
   misattributed: "bg-critical-container text-critical",
   unbacked: "bg-warning-container text-warning",
   unverifiable: "border border-outline-variant text-on-surface-variant",
+  // Deliberately neither the red (flag) nor the green (grounded) palette —
+  // a genuinely neutral/informational chip (#249: must not look like either).
+  related: "bg-primary-container text-primary",
 };
 
-function VerdictChip({ verdict, label }: { verdict: Verdict; label: string }) {
+function VerdictChip({ kind, label }: { kind: DisplayKind; label: string }) {
   return (
     <span
-      data-testid={`truthfulness-chip-${verdict}`}
-      className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${VERDICT_CHIP_CLASS[verdict]}`}
+      data-testid={`truthfulness-chip-${kind}`}
+      className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${VERDICT_CHIP_CLASS[kind]}`}
     >
       {label}
     </span>
   );
 }
 
-export default function TruthfulnessPanel({ report }: { report: TruthfulnessReport }) {
+// Simple, deterministic client-side fold (#249: "keep it simple and
+// deterministic") — case and surrounding-whitespace only, no fuzzy matching.
+function foldSkillText(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+/** Does this claim's text match a claimable Keyword Ledger concept? */
+function isLedgerClaimable(text: string, claimableSet: Set<string>): boolean {
+  return claimableSet.has(foldSkillText(text));
+}
+
+export default function TruthfulnessPanel({
+  report,
+  atsReport,
+}: {
+  report: TruthfulnessReport;
+  // E048/US266 (#249 option b): optional — the sibling ATS report, whose
+  // Keyword Ledger `claimable_concepts` drive the third-state join. Absent
+  // entirely, behaviour is unchanged (back-compat: no reclassification).
+  atsReport?: ATSReport;
+}) {
   const t = useTranslations("truthfulness");
   const tCommon = useTranslations("common");
   const [open, setOpen] = useState(false);
@@ -101,7 +133,26 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
   }
 
   const claims = report.claims ?? [];
-  const flagged = claims.filter((c) => FLAG_VERDICTS.includes(c.verdict.verdict));
+
+  // E048/US266 (#249 option b): a skill claim the Oracle calls "unbacked"
+  // whose text matches a Keyword Ledger CLAIMABLE concept (present OR missing
+  // in the document — presence is irrelevant to this join) has RELATED vault
+  // evidence, just not a literal hit. Rendering it as a plain red flag next
+  // to the ATS panel calling the same concept "claimable" is the exact
+  // contradiction #249 reported; rendering it plain green would overclaim.
+  // Third state: visible, neutral, excluded from the red-flag headline.
+  const claimableSet = new Set(
+    (atsReport?.keywords.claimable_concepts ?? []).map(foldSkillText),
+  );
+  const isRelated = (c: TruthfulnessClaimResult) =>
+    c.verdict.verdict === "unbacked" &&
+    c.claim.kind === "skill" &&
+    isLedgerClaimable(c.claim.text, claimableSet);
+
+  const flagged = claims.filter(
+    (c) => FLAG_VERDICTS.includes(c.verdict.verdict) && !isRelated(c),
+  );
+  const related = claims.filter((c) => isRelated(c));
   const unverifiable = claims.filter((c) => c.verdict.verdict === "unverifiable");
   const groundedCount = claims.filter((c) => c.verdict.verdict === "grounded").length;
   const unverifiableDominant =
@@ -109,9 +160,11 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
     isUnverifiableDominant(groundedCount, unverifiable.length, claims.length);
   const verdictLabel = (v: Verdict) => t(`verdicts.${v}`);
 
-  // Drawer ordering: red flags first, then unverifiable, grounded last.
+  // Drawer ordering: red flags first, then related-evidence, then
+  // unverifiable, grounded last.
   const ordered = [
     ...flagged,
+    ...related,
     ...unverifiable,
     ...claims.filter((c) => c.verdict.verdict === "grounded"),
   ];
@@ -165,6 +218,14 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
                 {t("unverifiableNote", { count: unverifiable.length })}
               </p>
             )}
+            {related.length > 0 && (
+              <p
+                data-testid="truthfulness-related-note"
+                className="text-xs text-on-surface-variant"
+              >
+                {t("relatedNote", { count: related.length })}
+              </p>
+            )}
           </div>
 
           <Button
@@ -188,7 +249,7 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
                 className="flex items-start gap-2 text-sm text-on-surface"
               >
                 <VerdictChip
-                  verdict={c.verdict.verdict}
+                  kind={c.verdict.verdict}
                   label={verdictLabel(c.verdict.verdict)}
                 />
                 <span className="min-w-0">
@@ -198,6 +259,29 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
                       {c.verdict.detail}
                     </span>
                   ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* E048/US266 (#249): visible but NEITHER red nor green — a neutral,
+            informational third state, distinct from both the loud red-flag
+            list above and the plain grounded/green claims. */}
+        {related.length > 0 && (
+          <ul className="mt-2 space-y-1.5 border-t border-outline-variant pt-2">
+            {related.map((c) => (
+              <li
+                key={c.claim.location}
+                data-testid={`truthfulness-related-${c.claim.location}`}
+                className="flex items-start gap-2 text-sm text-on-surface"
+              >
+                <VerdictChip kind="related" label={t("verdicts.related")} />
+                <span className="min-w-0">
+                  <span className="block">{c.claim.text}</span>
+                  <span className="block text-xs text-on-surface-variant">
+                    {t("relatedDetail")}
+                  </span>
                 </span>
               </li>
             ))}
@@ -242,6 +326,14 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
                 const profileEvidence = c.verdict.evidence.filter(
                   (e) => e.kind === "profile_path",
                 );
+                const claimIsRelated = isRelated(c);
+                // #249: a related-evidence claim gets its own honest chip/detail —
+                // never the oracle's raw "no vault evidence" wording alongside the
+                // ledger's "claimable" framing (that pairing IS the contradiction
+                // this feature resolves).
+                const chipKind: DisplayKind = claimIsRelated ? "related" : c.verdict.verdict;
+                const chipLabel = claimIsRelated ? t("verdicts.related") : verdictLabel(c.verdict.verdict);
+                const detailText = claimIsRelated ? t("relatedDetail") : c.verdict.detail;
                 return (
                   <li
                     key={c.claim.location}
@@ -249,17 +341,14 @@ export default function TruthfulnessPanel({ report }: { report: TruthfulnessRepo
                     className="space-y-1 text-sm text-on-surface"
                   >
                     <div className="flex items-start gap-2">
-                      <VerdictChip
-                        verdict={c.verdict.verdict}
-                        label={verdictLabel(c.verdict.verdict)}
-                      />
+                      <VerdictChip kind={chipKind} label={chipLabel} />
                       <span className="min-w-0 flex-1">{c.claim.text}</span>
                     </div>
                     <p className="pl-1 font-mono text-[11px] text-on-surface-variant">
                       {c.claim.location}
                     </p>
-                    {c.verdict.detail ? (
-                      <p className="pl-1 text-xs text-on-surface-variant">{c.verdict.detail}</p>
+                    {detailText ? (
+                      <p className="pl-1 text-xs text-on-surface-variant">{detailText}</p>
                     ) : null}
                     {profileEvidence.length > 0 && (
                       <div className="ml-1 border-l-2 border-outline-variant pl-2">
