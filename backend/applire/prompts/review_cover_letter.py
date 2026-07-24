@@ -39,7 +39,11 @@ in the candidate's source material. Your task is to flag any claim that is NOT g
 The CANDIDATE SOURCE you are given is the only authoritative basis of fact: it contains
 the candidate's grounded CV data, master profile, and the candidate's own stated inputs
 (motivation, salary expectation, availability). Treat the candidate's own stated inputs
-as true — they are not fabrications.
+as true — they are not fabrications. It also carries the target job's OWN description
+text (``job_description``) — the only authoritative source for claims ABOUT THE EMPLOYER
+(their product, domain, or market): a company/domain claim grounded in that text is fine,
+but any company product, market, or achievement NOT stated there is still an invented,
+ungrounded claim (ADR-057 amended 2026-07-24 / US264).
 
 Check the body paragraphs for ALL of the following ungrounded/invented content:
 1. INVENTED DATES OR TENURE: any date, duration, or length-of-experience claim not
@@ -68,6 +72,10 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
        to fabricate or force a term that does not genuinely fit.
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
        something the candidate has, has done, or knows, flag it — that is a fabrication.
+6. INVENTED EMPLOYER/COMPANY FACTS (ADR-057 amended 2026-07-24 / US264): any claim ABOUT THE
+   TARGET EMPLOYER (their product, domain, market, or an achievement of theirs) that does not
+   appear in the source's ``job_description`` text is invented — flag it exactly like an
+   invented candidate fact. A claim that DOES appear in ``job_description`` is grounded and fine.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
