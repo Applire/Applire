@@ -1,51 +1,36 @@
-# Panel-Review Test Case — "Daniel Kovač → NovaPay Senior Backend Engineer (Payments)"
+# Panel-Review Test Cases — the document-quality gate's canonical inputs
 
-Canonical end-to-end **document-quality** test case: the full Applire process runs to
-generated documents, and the run only counts as green when a **blind simulated hiring
-panel** (HR screener + hiring manager subagents) decides to invite the candidate.
-Process checks alone (import, gaps, interview, Oracle, ATS) verify *honesty*; this case
-verifies the *outcome* — would the application actually earn an interview?
+End-to-end **document-quality** test cases: the full Applire process runs to generated
+documents, and a run only counts as green when a **blind simulated hiring panel**
+(HR screener + hiring manager subagents) decides to **invite the candidate**.
+Process checks (import, gaps, interview, Oracle, ATS) verify *honesty*; these cases
+verify the *outcome* — would the application actually earn an interview?
 
-Procedure: `applire-journey-walkthrough` skill, §"Hiring-panel quality gate".
-The panel briefing contract mirrors `applire-edge-uat` Phase 4.
+Procedure: `applire-journey-walkthrough` skill, §"Hiring-panel quality gate"
+(panel contract shared with `applire-edge-uat` Phase 4).
 
-## Files
+## Case index (persona archetypes are industry-agnostic — the family deliberately spans occupations)
 
-| File | Purpose |
-|---|---|
-| `cv_daniel_kovac.md` | Primary CV (text — usable via UI paste or `import_cv(text=…)`) |
-| `linkedin_daniel_kovac.md` | Second source (LinkedIn-style export) — exercises two-source merge/dedupe |
-| `jd_novapay_senior_backend.md` | The job description (English; German market company) |
-| `dossier_daniel_kovac.md` | **Off-CV dossier** — candidate facts NOT in either CV, keyed to the expected gaps. The tester answers interview questions ONLY from CV + dossier; the honest denial is in here too. |
+| Case folder | Persona archetype | Occupation | Language | Distinct stress |
+|---|---|---|---|---|
+| `it_backend_daniel/` | Marcus | IT / backend engineering | EN | Baseline; tech-skill gaps, PSD2 honest partial, blockchain denial |
+| `operations_marcus_de/` | Marcus | Manufacturing / operations | **DE** (same-language DE run) | Non-IT vocabulary (Lean/MES/ISO), leadership-span honesty, IFS/BRC denial, German Anrede/letter norms |
+| `nursing_priya_relocator/` | Priya | Healthcare / nursing | EN → DACH employer | Relocator process-states (Anerkennung, language level) that must never be rounded up; ECMO no-overclaim; paediatric denial |
+| `controlling_emma_de/` | Emma (occupation stand-in) | Finance / controlling | **DE** | Certification-vs-responsibility precision (IFRS "not lead-responsible"), soft-skill leadership honesty, US-GAAP denial |
 
-## Designed shape
+## Shared design shape (every case)
 
-The CVs deliberately omit evidence the candidate genuinely has (dossier), so the
-pre-interview match lands mid-band and the interview has real work to do:
+1. **Two CV sources** (CV + LinkedIn/XING-style export) — exercises two-source merge and dedupe.
+2. **A JD engineered for a pre-interview match of 0.55–0.80** (the band, not a point, is the assertion — LLM classification wobbles).
+3. **An off-CV dossier** (`dossier_*.md`) — facts the candidate genuinely has that appear in NEITHER CV, keyed to the designed gaps. The tester answers interview questions **only** from the CVs + dossier, first person, 2–5 sentences, never inventing.
+4. **One verbatim explicit denial** per case — must yield an honest status (`denial_recorded` on the agent channel) and the concept must **never become claimable** afterwards (ADR-059).
+5. **At least one no-overclaim trap** — a partial the documents must state precisely (assisted-not-independent, in-progress-not-done, course-not-responsibility). An unbounded claim in any generated document is a truthfulness finding.
+6. **Expected panel outcome: HR pass = yes, hiring manager invite = yes.** Full designed-shape table and per-case expectations in each case's `README.md`.
 
-| JD requirement | In CVs? | In dossier? | Expected classification |
-|---|---|---|---|
-| Python 5+ yrs, Django/Flask, PostgreSQL, AWS, CI/CD, mentoring, German, English | ✓ | — | direct (A) |
-| FastAPI | partial (Flask/Django only) | ✓ migrated two services | B — uncaptured strength |
-| Kafka / event-driven | ✗ | ✓ order-event pipeline | B — uncaptured strength |
-| Kubernetes | ✗ | ✓ led 12-service migration (signature-story material) | B — uncaptured strength |
-| Observability (Prometheus/Grafana) | ✗ | ✓ dashboards + SLO alerts | B — uncaptured strength |
-| Payments domain / PSD2 | ✗ | partial (one Stripe PSP integration; **no PSD2**) | C — position honestly |
-| Blockchain/crypto (nice-to-have) | ✗ | **explicit denial** ("no blockchain experience — honest gap") | C — must become `denial_recorded`, never claimable |
+## Interpreting panel results
 
-## Expected outcomes (acceptance)
+- **Quality-"no"** (evidence exists in the vault but the documents bury it; impression "evasive"/"inflated") → a **finding** on generation.
+- **Fit-"no"** on these cases → the run drifted or generation buried the evidence — investigate, don't shrug (the cases are designed to be invitable once the dossier evidence lands in the vault).
+- Match reviewers to the market: DE cases get German-speaking reviewers judging DACH conventions (photo/address, MM/YYYY, Anschreiben norms); the nursing case gets international-programme reviewers.
 
-1. **Pre-interview match: 0.55–0.80** (mid-band; LLM classification wobbles — the band, not a point, is the assertion).
-2. **Interview**: questions target the gap clusters; tester answers strictly from the dossier; the blockchain denial returns an honest status (`denial_recorded` on the agent channel) and the concept is **never claimable** afterwards.
-3. **Post-interview**: match increases; Kafka/Kubernetes/observability/FastAPI evidence lands in the vault with receipts; the Kubernetes migration arc is signature-story material.
-4. **Documents**: CV + cover letter generate; Oracle reports grounded-dominated; no fabricated PSD2/blockchain claims; ATS headline honest about anything still missing.
-5. **Panel (the new last check)**: blind HR screener → *pass-to-hiring-manager: yes*; blind hiring manager → **invite to interview: yes**. A "no" for *document-quality* reasons (evasive, inflated, key evidence missing from the documents although it's in the vault) is a **finding**; a "no" for genuine *fit* reasons should not occur with this case's design — if it does, either the design drifted or generation buried the evidence: investigate, don't shrug.
-
-## Rules for the tester
-
-- Answer interview questions **only** from the CVs + dossier — never invent.
-- Deliver the denial verbatim when blockchain comes up.
-- Run the panel **blind** (reviewers screen "an incoming application", never told a tool wrote it), subagents on **sonnet**, in parallel, with the fixed output contract from the skill.
-- Verify content claims at the DB JSONB, not the preview.
-
-Synthetic persona — no real personal data. Contact strings use example.com.
+Synthetic personas — no real personal data; contact strings use example.com.
