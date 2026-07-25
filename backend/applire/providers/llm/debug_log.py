@@ -31,11 +31,25 @@ sent and received.
 Stage labelling: callers may wrap a section with :func:`llm_log_stage` (or call
 :func:`set_stage`) so each record is attributable to a pipeline stage. Unlabelled
 calls still log their full content with ``stage = null``.
+
+Review-loop observability (#264, ADR-021 amended): ``stage`` alone cannot tell a
+reviewer-verdict call apart from a corrector-retry call within the SAME
+``review_and_refine`` chain, nor which attempt it was — reconstructing that
+previously required matching on the system prompt's first line. :func:`set_review_call_meta`
+labels the next call(s) with their ``role`` ("reviewer"/"generator") and 1-based
+``attempt`` number as extra structured fields on the debug-log record. Separately,
+:func:`log_review_verdict` / :func:`log_review_exhausted` / :func:`log_review_call_failed`
+emit stable, PII-free, always-on structured lines via the standard ``applire.llm.review``
+logger — unlike the full-fidelity JSONL (dev-only, gated behind ``settings.llm_debug_log``
+because it carries prompt/response content), these carry only counts/booleans/chain-ids,
+so they stay on in production and are the durable signal an exhausted review can be
+counted from after the fact.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -51,6 +65,15 @@ from applire.providers.llm.base import LLMProvider
 # copied per asyncio task, so concurrent requests never clobber each other's stage.
 _stage: ContextVar[str] = ContextVar("llm_log_stage", default="")
 
+# Per-task review-loop position (#264): which call ROLE within a review_and_refine
+# chain ("reviewer" | "generator") and which 1-based ATTEMPT. None/None outside a loop.
+_review_role: ContextVar[str | None] = ContextVar("llm_review_role", default=None)
+_review_attempt: ContextVar[int | None] = ContextVar("llm_review_attempt", default=None)
+
+# Standard, always-on logger for review-loop observability (#264) — distinct from the
+# dev-only PII-bearing JSONL: these records carry only counts/booleans/chain-ids.
+_review_logger = logging.getLogger("applire.llm.review")
+
 # Serialises the (rare, dev-only) file appends so large prompt lines never interleave.
 _write_lock = threading.Lock()
 
@@ -61,6 +84,54 @@ _MAX_FIELD_CHARS = 200_000
 def set_stage(label: str) -> None:
     """Set the current pipeline-stage label for subsequent LLM calls in this task."""
     _stage.set(label)
+
+
+def set_review_call_meta(role: str | None, attempt: int | None) -> None:
+    """Label the NEXT LLM call(s) in this task with their review-loop ``role``
+    ("reviewer" or "generator") and 1-based ``attempt`` number (#264).
+
+    Recorded as the ``review_role`` / ``review_attempt`` fields on the debug-log
+    record (a no-op when the debug log is disabled) alongside the existing
+    ``stage`` label — ``stage`` says WHICH chain a call belongs to; this says WHERE
+    in the loop. Call with ``(None, None)`` once the loop finishes so a later,
+    unrelated call in the same task doesn't inherit a stale label.
+    """
+    _review_role.set(role)
+    _review_attempt.set(attempt)
+
+
+def log_review_verdict(
+    chain_id: str, attempt: int, max_retries: int, *, approved: bool, issues_count: int
+) -> None:
+    """Structured, PII-free line for one reviewer verdict within a review loop (#264).
+
+    Emitted via the standard (always-on) logger, unlike the full-fidelity debug-log
+    JSONL — no prompt/response/issue text, so it is safe to leave on in production
+    and is the durable signal review rounds can be counted/measured from."""
+    _review_logger.info(
+        "REVIEW_VERDICT chain=%s attempt=%d/%d approved=%s issues=%d",
+        chain_id, attempt, max_retries, approved, issues_count,
+    )
+
+
+def log_review_exhausted(chain_id: str, max_retries: int, issues_count: int) -> None:
+    """A review loop ran out of retries and is shipping its last, unapproved draft.
+
+    Stable ``REVIEW_EXHAUSTED`` prefix + chain id: grep this to count exhaustion
+    after the fact (#264) — this is the "silently ships" case made visible."""
+    _review_logger.warning(
+        "REVIEW_EXHAUSTED chain=%s max_retries=%d issues=%d — shipping last draft unreviewed",
+        chain_id, max_retries, issues_count,
+    )
+
+
+def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: str) -> None:
+    """A reviewer or refiner call itself failed (truncated/timed out) mid-loop —
+    distinct from exhaustion: the loop could not even complete this attempt (#264)."""
+    _review_logger.warning(
+        "REVIEW_CALL_FAILED chain=%s role=%s attempt=%d error=%s — shipping current draft",
+        chain_id, role, attempt, error_type,
+    )
 
 
 @contextmanager
@@ -121,6 +192,8 @@ class _LoggingProvider(LLMProvider):
             _record(
                 ts=datetime.now(timezone.utc).isoformat(),
                 stage=_stage.get() or None,
+                review_role=_review_role.get(),
+                review_attempt=_review_attempt.get(),
                 provider=type(self._inner).__name__,
                 model=getattr(self._inner, "_model", None),
                 method=method,

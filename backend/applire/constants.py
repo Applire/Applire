@@ -22,9 +22,20 @@ import os
 # Mode auto-detection: completeness_score below this → MODE B (Guided Build)
 MODE_B_COMPLETENESS_THRESHOLD: float = 0.3
 
-# Hard ceilings — session ends after this many questions even if gaps remain
-INTERVIEW_HARD_CEILING_TARGETED: int = 12  # MODE A
-INTERVIEW_HARD_CEILING_GUIDED: int = 20    # MODE B
+# Hard ceilings — DEFAULT VALUES only (issue #259). The runtime value an
+# active session actually uses comes from config.Settings
+# (interview_max_questions_targeted / interview_max_questions_guided, env
+# vars INTERVIEW_MAX_QUESTIONS_TARGETED / INTERVIEW_MAX_QUESTIONS_GUIDED) —
+# services/session.py reads settings.*, never these names directly. Since
+# #259 the ceiling is a COST GUARD, not the primary termination driver: the
+# interview ends on a deterministic sufficiency check
+# (services/interview/sufficiency.py) OR this budget OR an explicit user
+# 'done', whichever comes first. "If the ceiling is a bottleneck, it's
+# artificial" (PO directive, run-4: the interview stopped at the old
+# hardcoded 12 one question before a fact both blind panel reviewers named
+# as invite-flipping).
+INTERVIEW_HARD_CEILING_TARGETED: int = 12  # MODE A default
+INTERVIEW_HARD_CEILING_GUIDED: int = 20    # MODE B default
 
 # Soft targets — informational only, used for estimated_questions in response
 INTERVIEW_TARGET_MIN_TARGETED: int = 3

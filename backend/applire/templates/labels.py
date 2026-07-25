@@ -58,6 +58,15 @@ _COVER_LETTER_LABELS: dict[str, dict[str, str]] = {
     "en": {"subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "salutation": "Dear Sir or Madam,"},
 }
 
+# #261: the word framing a target bullet's paired measured outcome ("target X
+# — measured: Y" / "Ziel X — gemessen: Y") — same language-follows-output
+# invariant as the section headings above; this text is written INTO
+# generated CV/letter content, not UI chrome, but the rule is identical.
+_OUTCOME_FRAME_LABELS: dict[str, str] = {
+    "de": "gemessen",
+    "en": "measured",
+}
+
 
 def cv_labels(lang: str) -> dict[str, str]:
     """Return the CV section labels for `lang` (falls back to German — DACH default)."""
@@ -67,3 +76,9 @@ def cv_labels(lang: str) -> dict[str, str]:
 def cover_letter_labels(lang: str) -> dict[str, str]:
     """Return the cover-letter chrome labels for `lang` (falls back to German)."""
     return _COVER_LETTER_LABELS.get(lang, _COVER_LETTER_LABELS["de"])
+
+
+def outcome_frame_label(lang: str) -> str:
+    """The "measured"/"gemessen" word for #261's target->outcome framing
+    (falls back to German — DACH default, mirrors ``cv_labels``)."""
+    return _OUTCOME_FRAME_LABELS.get(lang, _OUTCOME_FRAME_LABELS["de"])

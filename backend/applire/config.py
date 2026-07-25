@@ -20,6 +20,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from applire.constants import (
+    INTERVIEW_HARD_CEILING_GUIDED,
+    INTERVIEW_HARD_CEILING_TARGETED,
+)
+
 # Backend package root — the directory that contains the `applire/` package.
 # config.py lives at <backend>/applire/config.py, so two parents up is <backend>.
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -97,6 +102,17 @@ class Settings(BaseSettings):
     ocr_backend: str = "mistral_vision"
     cors_origins: str = "*"
     log_level: str = "INFO"  # DEBUG | INFO | WARNING | ERROR — applied to all applire.* loggers
+    # Interview question-count budget (issue #259 / PO: "if the ceiling is a
+    # bottleneck, it's artificial"). This is now a COST GUARD, not the primary
+    # termination driver: the interview ends on sufficiency (every JD-critical
+    # concept addressed/denied/triaged — services/interview/sufficiency.py) OR
+    # this budget OR an explicit user 'done', whichever comes first. Defaults
+    # mirror the pre-#259 hardcoded ceilings (constants.py) so an operator who
+    # sets nothing sees unchanged behaviour; raise these if a real run is
+    # hitting the ceiling before sufficiency (the run-4 finding this issue
+    # fixes) rather than editing constants.py.
+    interview_max_questions_targeted: int = INTERVIEW_HARD_CEILING_TARGETED  # MODE A
+    interview_max_questions_guided: int = INTERVIEW_HARD_CEILING_GUIDED     # MODE B
 
 
 settings = Settings()

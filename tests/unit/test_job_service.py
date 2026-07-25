@@ -23,6 +23,16 @@ from applire.services.job import analyze_jd
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _disable_jd_review(monkeypatch):
+    """#264: analyze_jd() now runs its output through review_and_refine
+    (chain_id="job_analysis"). These tests use a single fixed mocked response and
+    are about extraction/validation behaviour, not the review loop itself — see
+    tests/unit/test_review_job_analysis.py for that coverage — so disable it to
+    keep this file's provider call sequence deterministic and single-shot."""
+    monkeypatch.setattr("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0)
+
+
 @pytest_asyncio.fixture
 async def db():
     """In-memory SQLite session with all models registered."""

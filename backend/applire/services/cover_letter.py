@@ -63,6 +63,8 @@ from applire.prompts.review_cover_letter import (
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.services.letter_figure_guard import guard_letter_figures
+from applire.services.letter_outcome_guard import guard_letter_outcome_preference
 from applire.services.reviewer import review_and_refine
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
@@ -662,6 +664,57 @@ async def _render_cover_letter_background(
                         cl_id,
                     )
 
+            # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
+            # received all three POSITIONING blocks (and engaged the domain) but the
+            # ADR-021 reviewer/corrector loop never did — so it could not tell a legitimate,
+            # requested domain reference / honest gap-transfer argument apart from a
+            # forbidden candidate-competence claim, and stripped it. Build the SAME
+            # positioning content once here (all three inputs are already resolved above)
+            # and thread it into grounding_source below, so every review_and_refine call in
+            # this render (including the condense pass) carries it too.
+            positioning_requested: dict = {}
+            if job.company_name:
+                positioning_requested["company_domain_engagement"] = {
+                    "target_company": job.company_name,
+                    "required": True,
+                    "instruction": (
+                        "REQUIRED content: the letter must concretely engage this "
+                        "employer's product/domain/market in the opening or motivation "
+                        "paragraph, grounded ONLY in the job_description text above. Its "
+                        "absence from the letter body is a review issue."
+                    ),
+                }
+            if gap_testimony:
+                gt_story = gap_testimony.get("story") or {}
+                gt_testimony_text = " ".join(
+                    p for p in (
+                        gt_story.get("challenge") or "",
+                        gt_story.get("mechanism") or "",
+                        gt_story.get("outcome") or "",
+                        gt_story.get("benchmark") or "",
+                    ) if p
+                )
+                positioning_requested["gap_transfer_argument"] = {
+                    "gap": gap_testimony.get("gap", ""),
+                    "testimony": gt_testimony_text,
+                    "required": True,
+                    "instruction": (
+                        "REQUIRED content: exactly one honest paragraph naming this gap "
+                        "and delivering the candidate's OWN transfer argument, grounded "
+                        "verbatim in 'testimony' above. Its absence is a review issue. "
+                        "Naming the gap itself is honesty, not a forbidden claim."
+                    ),
+                }
+            if availability_testimony:
+                positioning_requested["availability"] = {
+                    "testimony": availability_testimony,
+                    "required": True,
+                    "instruction": (
+                        "REQUIRED content: address availability/commitment using ONLY "
+                        "this testimony, grounded verbatim. Its absence is a review issue."
+                    ),
+                }
+
             # Call LLM
             # #177 / ADR-051 §6 amended: feedforward body-word budget from the region
             # norm registry — the CV's guarantee shape, extended to letters. NO
@@ -709,6 +762,12 @@ async def _render_cover_letter_background(
                     # saw to judge whether a company/domain claim is grounded — an invented
                     # company fact must still fail review 4 (Oracle discipline unchanged).
                     "job_description": job.raw_text[:2000] if job.raw_text else "",
+                    # #255 (ADR-057 amended 2026-07-24): the SAME positioning inputs the
+                    # writer received — see build above. Without this the reviewer/
+                    # corrector cannot distinguish a REQUESTED, grounded domain reference /
+                    # honest transfer argument from a forbidden candidate-competence claim,
+                    # and cannot flag a requested block's absence either.
+                    "positioning_requested": positioning_requested,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -736,6 +795,23 @@ async def _render_cover_letter_background(
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 chain_id="cover_letter",
+            )
+
+            # #254 — deterministic figure-attribution guard, run on the FINAL
+            # settled output of the review/corrector loop (never mid-loop): the
+            # ADR-021 corrector sees the whole profile and can mint a figure
+            # borrowed from an unrelated role/story (e.g. "mentoring teams of
+            # 5+" borrowed from a different position's "team of five"). Belt
+            # and suspenders with the Oracle's post-hoc detection (services/
+            # oracle/audit.py) — this is the generation-path prevention half.
+            letter_data = guard_letter_figures(letter_data, profile.profile_json if profile else {})
+
+            # #261 (run-4 blind hiring-panel finding): the letter-side twin of the
+            # CV's outcome-preference guard — surface a measured result over a bare
+            # target/projection for the same, unambiguously-named initiative. Same
+            # settled-output contract as the figure guard above.
+            letter_data = guard_letter_outcome_preference(
+                letter_data, profile.profile_json if profile else {}, detected_language
             )
 
             # F3 (blind PQ blocker): the recipient the user typed in the generate dialog
@@ -826,6 +902,18 @@ async def _render_cover_letter_background(
                             provider=provider,
                             max_retries=LLM_REVIEW_MAX_RETRIES,
                             chain_id="cover_letter_condense",
+                        )
+                        # #254 — same generation-path guard as the primary loop
+                        # above: the condense pass is itself a fresh corrector-
+                        # style rewrite routed back through review_and_refine
+                        # and must be checked again before it ships.
+                        condensed = guard_letter_figures(
+                            condensed, profile.profile_json if profile else {}
+                        )
+                        # #261 — same generation-path guard as the primary loop above,
+                        # re-applied to the condense pass's fresh rewrite.
+                        condensed = guard_letter_outcome_preference(
+                            condensed, profile.profile_json if profile else {}, detected_language
                         )
                         condensed = _apply_recipient_overrides(condensed, pre_gen)
                         condensed = _inject_letter_date(condensed, detected_language)
@@ -953,8 +1041,21 @@ async def _update_ats_report_letter(
         # ADR-048 / US203: the latest Keyword Ledger buckets each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
+        # literal vault tie never lands in present_unsupported (one vocabulary).
+        from applire.services.keyword_ledger import profile_literal_corpus
+
+        profile_row = await db.get(MasterProfile, cl.profile_id)
+        vault_text_norm = (
+            profile_literal_corpus(profile_row.profile_json if profile_row else None)
+            or None
+        )
         cl.ats_report = audit_cover_letter(
-            pdf, letter_data, list(job.keywords or []) if job else [], ledger
+            pdf,
+            letter_data,
+            list(job.keywords or []) if job else [],
+            ledger,
+            vault_text_norm=vault_text_norm,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)

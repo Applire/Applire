@@ -43,6 +43,27 @@ class LLMTimeoutError(LLMError):
     """
 
 
+class LLMProviderUnavailableError(LLMError):
+    """The provider is unable to serve the request right now (issue #256).
+
+    Covers two crash shapes actually observed in production (run-4, 2026-07-24):
+      - A genuine HTTP 5xx from the gateway/provider (raised by the vendor SDK
+        as e.g. ``openai.InternalServerError`` / ``anthropic.InternalServerError``).
+      - The OpenRouter/Requesty "200 OK with no usable completion" quirk: the
+        upstream inference provider (e.g. Mistral) 503s, but the gateway itself
+        answers 200 with an ``choices``-less/None body instead of raising —
+        blind ``response.choices[0]`` indexing on that shape crashed with a raw
+        ``TypeError: 'NoneType' object is not subscriptable``.
+
+    Retryable: no partial state is ever persisted for the failed turn (routers
+    map this to HTTP 503 + a stable ``provider_unavailable`` code). Provider
+    implementations MUST NOT embed the raw provider response body/JSON in this
+    exception's message — only a short, static, human-safe description — since
+    routers/callers may render ``str(exc)`` in logs or (historically) in error
+    responses.
+    """
+
+
 class LLMTruncatedError(LLMError):
     """The model stopped because it hit the token budget, not because it finished.
 

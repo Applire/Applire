@@ -247,7 +247,9 @@ def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _enforce_denial_stance(
-    ledger: list[dict[str, Any]], denied_concepts: list[str] | None
+    ledger: list[dict[str, Any]],
+    denied_concepts: list[str] | None,
+    vault_corpus: str | None = None,
 ) -> list[dict[str, Any]]:
     """The candidate's PERSISTED denials (#231, ProfileMetadata.denied_concepts)
     are a hard floor the classifier's own adjacency inference can never
@@ -269,6 +271,17 @@ def _enforce_denial_stance(
     time guard and this durable ledger floor, never a second matcher that
     could quietly disagree (concept-scoped, NOT topic-radius: denying
     "hands-on embeddings config" does not touch an unrelated "RAG" entry).
+
+    ``vault_corpus`` (#249 run-4, 2026-07-24): the profile's own literal text
+    (:func:`profile_literal_corpus`), threaded through to
+    ``is_denied_concept`` so its compound-containment rule ("RAG" is a whole
+    word strictly inside the denied "RAG pipeline") can independently affirm
+    a BROAD term against real vault evidence instead of always fail-closing
+    (the #207 CSS/Tailwind-CSS default, correct when there is no vault text
+    to check). A broad term is downgraded only if it is itself denied, or has
+    no independent literal vault evidence outside the denied compound —
+    never both classified `direct`/technologies-backed AND presented as an
+    unsupported claim by the ATS panel on the very same document.
     """
     denials = [d for d in (denied_concepts or []) if _norm(d)]
     if not denials:
@@ -278,8 +291,8 @@ def _enforce_denial_stance(
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
-        denied = is_denied_concept(concept, denials) or any(
-            is_denied_concept(f, denials) for f in forms
+        denied = is_denied_concept(concept, denials, vault_corpus) or any(
+            is_denied_concept(f, denials, vault_corpus) for f in forms
         )
         if not denied:
             result.append(entry)
@@ -632,6 +645,188 @@ def upgrade_ledger_for_concepts(
     return new_ledger, changed
 
 
+# ── #260 — pre-generation keyword-liability check ───────────────────────────
+# The inverse of #250 (which drops a JD-echo skill TAG with no vault tie at
+# all): here the concept genuinely clears the ledger's OWN claimable
+# classification (it may even be a literal vault hit) — the missing thing is
+# specifically NARRATIVE depth. A hard-requirement keyword sitting only in a
+# bare skills-list entry, with no bullet/achievement/signature-story anywhere
+# to substantiate it, will still be echoed by the generator (it's claimable)
+# but reads as unsubstantiated to a human reviewer (run-4: "RAG appears once,
+# as a skills-list keyword"). Deterministic — no new LLM pass; reuses THE
+# shared presence predicate (ats_audit.surface_present) already used by
+# `verified_missing_claimable`/`profile_literal_corpus`.
+#
+# Distinct vocabulary from #249's "related" state (TruthfulnessPanel.tsx):
+# "related" reclassifies a POST-generation Oracle "unbacked" verdict on a
+# claim that already shipped, when the ledger's own (possibly adjacency-only)
+# ADJACENCY evidence backs the same concept. This is a PRE-generation check
+# on a different axis — LITERAL vault presence (claimable/narrative_backed)
+# vs NARRATIVE depth (challenge/mechanism/outcome, a bullet, an achievement)
+# — and never touches the Oracle verdict taxonomy or #249's frontend states.
+# The two are orthogonal and additive: a concept can be #249-"related" AND
+# #260-"liability" at once without contradiction (see
+# test_ats_audit.py::test_249_related_and_260_liability_are_orthogonal).
+
+_NARRATIVE_EXPERIENCE_FIELDS = ("work_experience", "projects", "volunteer_activities")
+_NARRATIVE_STORY_FIELDS = ("title", "challenge", "mechanism", "outcome", "benchmark")
+
+
+def _narrative_texts(profile_json: dict[str, Any] | None) -> list[str]:
+    """Every narrative-bearing string in the vault (#260): work/project/
+    volunteer responsibilities + achievements, and signature-story fields
+    (ADR-055, challenge/mechanism/outcome/benchmark/title). Deliberately
+    EXCLUDES the bare skills list, technologies[], and the professional
+    summary — a skill entry alone, or a one-line elevator pitch, is not a
+    story. ``None``/malformed-shape tolerant.
+    """
+    if not profile_json:
+        return []
+    texts: list[str] = []
+    for field in _NARRATIVE_EXPERIENCE_FIELDS:
+        for entry in profile_json.get(field) or []:
+            if not isinstance(entry, dict):
+                continue
+            texts.extend(s for s in (entry.get("responsibilities") or []) if isinstance(s, str))
+            texts.extend(s for s in (entry.get("achievements") or []) if isinstance(s, str))
+    for story in profile_json.get("signature_stories") or []:
+        if not isinstance(story, dict):
+            continue
+        for field in _NARRATIVE_STORY_FIELDS:
+            v = story.get(field)
+            if isinstance(v, str):
+                texts.append(v)
+    return texts
+
+
+def profile_narrative_corpus(profile_json: dict[str, Any] | None) -> str:
+    """The vault's NARRATIVE-bearing text only, flattened + normalised (#260).
+
+    Narrower than :func:`profile_literal_corpus` (which is the WHOLE profile,
+    used by the denial floor) — this scopes to the fields a human reviewer
+    would recognise as "a story", so a bare skills-list/technologies[] entry
+    can never count as its own narrative evidence.
+    """
+    if not profile_json:
+        return ""
+    from applire.services.ats_audit import _norm as ats_norm
+
+    return ats_norm(" ".join(_narrative_texts(profile_json)))
+
+
+def _annotate_narrative_backed(
+    ledger: list[dict[str, Any]],
+    profile_json: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Stamp every ledger entry with ``narrative_backed`` (#260).
+
+    ``profile_json is None`` (the argument omitted entirely) reproduces the
+    pre-#260 behaviour exactly — ``narrative_backed = True`` for every entry,
+    so no caller that has no profile on hand ever raises a false liability
+    signal. A profile that IS given but genuinely carries no narrative text
+    is the honest opposite: every entry comes back unbacked. Runs as a final
+    pass over the fully-built ledger so it never has to special-case the
+    duplicate-collapse / gap-stance / denial-stance orderings above.
+    """
+    if profile_json is None:
+        return [{**e, "narrative_backed": True} for e in ledger]
+
+    from applire.services.ats_audit import surface_present
+
+    corpus = profile_narrative_corpus(profile_json)
+    out: list[dict[str, Any]] = []
+    for e in ledger:
+        forms = list(e.get("surface_forms") or [e.get("concept", "")])
+        if e.get("concept"):
+            forms.append(e["concept"])
+        backed = bool(corpus) and any(surface_present(f, corpus) for f in forms)
+        out.append({**e, "narrative_backed": backed})
+    return out
+
+
+def keyword_liabilities(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The #260 liability slice: JD HARD-REQUIREMENT concepts that ARE
+    claimable (will be echoed by the generator) but have NO narrative
+    evidence anywhere in the vault.
+
+    Scoped to ``required`` sources only — a nice-to-have bare keyword is
+    never flagged (hard requirements only, per the run-4 finding). An
+    honest-gap (non-claimable) entry is never a liability either: it will
+    not be echoed as a strength in the first place. ``None``/empty tolerant.
+    """
+    return [
+        e
+        for e in (keyword_ledger or [])
+        if e.get("claimable")
+        and "required" in (e.get("sources") or [])
+        and not e.get("narrative_backed", True)
+    ]
+
+
+def downgrade_ledger_for_concepts(
+    keyword_ledger: list[dict[str, Any]] | None,
+    concepts: list[str],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Deterministically DOWNGRADE claimable entries to an honest gap (#260
+    exit b — the candidate's own choice to DROP a keyword-liability concept
+    rather than tell its story via ``resolve_gap``, exit a).
+
+    Mirrors :func:`upgrade_ledger_for_concepts`'s shape/guarantees, run in
+    reverse: only CLAIMABLE entries whose concept normalize-matches are
+    touched; every other entry copies through untouched. Never invents or
+    removes an entry — an unmatched/reworded concept simply no-ops. The
+    generator's existing claimable/forbidden split
+    (:func:`split_ledger_for_prompt`) then treats the downgraded concept as
+    a DO-NOT-CLAIM honest gap on the next generation — never a silent echo
+    of a keyword the candidate chose not to substantiate.
+    """
+    if not keyword_ledger or not concepts:
+        return list(keyword_ledger or []), False
+    concept_norms = [_norm(c) for c in concepts if _norm(c)]
+    if not concept_norms:
+        return list(keyword_ledger), False
+
+    new_ledger: list[dict[str, Any]] = []
+    changed = False
+    for entry in keyword_ledger:
+        e = dict(entry)
+        concept_norm = _norm(e.get("concept", ""))
+        if (
+            e.get("claimable")
+            and concept_norm
+            and any(_matches(concept_norm, cn) for cn in concept_norms)
+        ):
+            e["claimable"] = False
+            e["status"] = "gap"
+            e["evidence"] = ""
+            # No longer claimable — moot either way, but keep the flag honest
+            # so a re-read never re-flags a concept the candidate just dropped.
+            e["narrative_backed"] = True
+            changed = True
+        new_ledger.append(e)
+    return new_ledger, changed
+
+
+def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
+    """The vault's OWN literal text, flattened + normalised (#249 run-4,
+    2026-07-24).
+
+    Reuses :func:`_draft_strings` (already the shared flattener the US213
+    verified-coverage check scans a DRAFT document with — any dict of
+    arbitrary shape) against the PROFILE instead, so the SAME flattening
+    logic backs both instruments. Feeds ``_enforce_denial_stance``'s
+    independent-affirmation check: a broad concept ("RAG") with a literal
+    vault tie (``work_experience[].technologies[]``) outside every denied
+    compound must never be tarred by a narrow denial ("RAG pipeline") the
+    way an untethered containment check would. ``None``/empty tolerant.
+    """
+    if not profile_json:
+        return ""
+    from applire.services.ats_audit import _norm as ats_norm
+
+    return ats_norm(" ".join(_draft_strings(profile_json)))
+
+
 def build_keyword_ledger(
     classifications: list[dict[str, Any]],
     required_skills: list[str],
@@ -639,6 +834,7 @@ def build_keyword_ledger(
     keywords: list[str],
     *,
     denied_concepts: list[str] | None = None,
+    profile_json: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
 
@@ -650,14 +846,24 @@ def build_keyword_ledger(
             explicitly denied (``ProfileMetadata.denied_concepts``, #231) —
             applied as a final deterministic floor (``_enforce_denial_stance``)
             that the classifier's adjacency inference can never override.
+        profile_json: the candidate's ``MasterProfile.profile_json`` (#249
+            run-4) — flattened via :func:`profile_literal_corpus` and passed
+            to the denial floor so a narrow denial cannot tar a broader term
+            the vault independently, literally attests. ``None`` (the
+            default) reproduces the pre-fix fail-closed behaviour exactly —
+            back-compat for every caller that has no profile on hand.
 
     Returns:
         A list of ledger-entry dicts, each:
             ``{concept, surface_forms[], sources[], fit_weight, status,
-               evidence, claimable}``.
+               evidence, claimable, narrative_backed}``.
         ``claimable`` is ``status in {direct, partial}``, UNLESS the concept
         was explicitly denied (see ``denied_concepts`` above), which always
-        wins.
+        wins. ``narrative_backed`` (#260) is whether the vault's narrative
+        fields (work/project/volunteer responsibilities+achievements,
+        signature stories) — NOT the bare skills list — substantiate the
+        concept; ``True`` when ``profile_json`` is omitted (back-compat, no
+        false liability signal without data to check).
     """
     # Authoritative JD expectation set: norm_key -> {"text", "sources"}.
     union: dict[str, dict[str, Any]] = {}
@@ -739,4 +945,9 @@ def build_keyword_ledger(
         )
 
     ledger = _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
-    return _enforce_denial_stance(ledger, denied_concepts)
+    vault_corpus = profile_literal_corpus(profile_json)
+    ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
+    # #260: final pass — stamp narrative_backed so downstream consumers (the
+    # pre-generation summary, the agent-channel ledger surface) can single
+    # out a claimable-but-unstoried hard requirement without re-deriving it.
+    return _annotate_narrative_backed(ledger, profile_json)

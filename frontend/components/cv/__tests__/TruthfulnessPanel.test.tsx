@@ -241,6 +241,57 @@ describe("TruthfulnessPanel — E048/US266 third-state skill/ledger join", () =>
   });
 });
 
+// #249/US266 letter panel louder-failure copy: a sibling backend change adds
+// `unverifiable_dominated: bool` to the report itself (>50% unverifiable) —
+// distinct from the existing FRONTEND heuristic above (isUnverifiableDominant,
+// #237/F14). Defensive: the field may be absent on older reports (=> false).
+const BACKEND_DOMINATED_REPORT: TruthfulnessReport = {
+  version: "1.2",
+  document_kind: "cover_letter",
+  claims: [
+    {
+      claim: { text: "Excited to bring my skills to your team.", location: "body.paragraphs[0][0]", kind: "sentence" },
+      verdict: { verdict: "unverifiable", checker: "grounding", evidence: [], detail: null },
+    },
+  ],
+  counts: { grounded: 0, inflated: 0, unbacked: 0, unverifiable: 1 },
+  stated_limit: "This report verifies document-vault consistency only.",
+  unverifiable_dominated: true,
+};
+
+describe("TruthfulnessPanel — unverifiable_dominated backend field (louder letter warning)", () => {
+  it("renders a loud warning banner when the backend field is true", () => {
+    render(withIntl(<TruthfulnessPanel report={BACKEND_DOMINATED_REPORT} />));
+    const banner = screen.getByTestId("truthfulness-unverifiable-dominated-warning");
+    expect(banner).toBeInTheDocument();
+    expect(banner.textContent).toContain("unreviewed");
+  });
+
+  it("does not render the banner when the field is absent (older reports, back-compat)", () => {
+    render(withIntl(<TruthfulnessPanel report={UNVERIFIABLE_DOMINATED_REPORT} />));
+    expect(
+      screen.queryByTestId("truthfulness-unverifiable-dominated-warning"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the banner when the field is explicitly false", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={{ ...BACKEND_DOMINATED_REPORT, unverifiable_dominated: false }} />,
+      ),
+    );
+    expect(
+      screen.queryByTestId("truthfulness-unverifiable-dominated-warning"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("DE locale: the warning banner renders German copy", () => {
+    render(withIntl(<TruthfulnessPanel report={BACKEND_DOMINATED_REPORT} />, "de"));
+    const banner = screen.getByTestId("truthfulness-unverifiable-dominated-warning");
+    expect(banner.textContent).toContain("ungeprüft");
+  });
+});
+
 describe("TruthfulnessPanel", () => {
   it("unverifiable-dominated report (F14): headline is NOT the green all-clear state", () => {
     render(withIntl(<TruthfulnessPanel report={UNVERIFIABLE_DOMINATED_REPORT} />));

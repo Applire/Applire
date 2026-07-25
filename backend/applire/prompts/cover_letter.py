@@ -70,6 +70,9 @@ Rules:
   supports them: surface those terms from the candidate's own material where the evidence
   fits, never as a stretch and without over-stuffing. The DO-NOT-CLAIM entries are honest
   gaps absent from the profile — never present them as something the candidate has or knows.
+  Never invent a number, team size, budget, or metric to make a claimable term land — if the
+  evidence given carries no figure, surface the term qualitatively; a minted figure is a
+  fabrication like any other (US264/#255).
 - CLAIM FRAMING (the why-me / achievements paragraph is where fabrication creeps in — this is
   the cover-letter equivalent of the CV's keyword-gap rule):
   You may assert a competency, skill, tool, domain, or "track record" ONLY where it traces to a
@@ -81,6 +84,12 @@ Rules:
   possesses it. For a requirement the candidate's profile does NOT evidence, the ONLY permitted
   framing is forward-looking MOTIVATION — eagerness to grow into, contribute to, or develop the
   area. When the profile does not evidence a strength, do not assert it; express interest instead.
+  This possessive-framing restriction is scoped to CANDIDATE COMPETENCE claims only (US264/#255)
+  — the SAME term may still appear (a) as a factual reference to the EMPLOYER's own domain or
+  product, sourced ONLY from the JOB DESCRIPTION text (see COMPANY & DOMAIN ENGAGEMENT below),
+  and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
+  naming the term as an absence you do NOT have — before pivoting to real, grounded experience
+  — is honesty, not a claim.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.

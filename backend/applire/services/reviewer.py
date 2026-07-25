@@ -35,6 +35,14 @@ Cap-safety (ADR-021 amended / ADR-047 call-shape taxonomy):
 
 Never raises — on retry exhaustion, reviewer failure, or refiner truncation the last
 known-good draft is returned and a WARNING is logged so the issue stays observable.
+
+Observability (#264): every reviewer verdict, and any exhaustion or call failure, is
+also logged via the standard (always-on, PII-free) ``applire.llm.review`` logger with
+a stable ``REVIEW_VERDICT`` / ``REVIEW_EXHAUSTED`` / ``REVIEW_CALL_FAILED`` prefix, and
+each call within the loop is tagged with its role/attempt on the debug-log record (see
+``providers/llm/debug_log.py``) — an exhausted review is countable after the fact
+without heuristic prompt-matching, and stays visible even when the (dev-only,
+prompt-content-bearing) debug log is off.
 """
 
 import logging
@@ -44,6 +52,12 @@ from typing import Any
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import (
+    log_review_call_failed,
+    log_review_exhausted,
+    log_review_verdict,
+    set_review_call_meta,
+)
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 
 logger = logging.getLogger(__name__)
@@ -103,78 +117,99 @@ async def review_and_refine(
     current_draft = draft
     last_issues: list[str] = []
 
-    for attempt in range(max_retries):
-        try:
-            review: dict = await provider.aparse_json(
-                reviewer_prompt_fn(source, current_draft),
-                system=reviewer_system,
-                temperature=0.1,
-                max_tokens=reviewer_max_tokens,
-                disable_thinking=disable_thinking,
+    try:
+        for attempt in range(max_retries):
+            # #264: label this call's role/attempt on the debug-log record — `stage`
+            # alone can't tell a reviewer-verdict call apart from a corrector-retry
+            # call in the same chain.
+            set_review_call_meta("reviewer", attempt + 1)
+            try:
+                review: dict = await provider.aparse_json(
+                    reviewer_prompt_fn(source, current_draft),
+                    system=reviewer_system,
+                    temperature=0.1,
+                    max_tokens=reviewer_max_tokens,
+                    disable_thinking=disable_thinking,
+                )
+            except (LLMTruncatedError, LLMTimeoutError) as exc:
+                # The bounded verdict should never blow the cap; if it somehow does (or the
+                # call times out) ship the current draft un-reviewed rather than crash.
+                log_review_call_failed(chain_id, "reviewer", attempt + 1, type(exc).__name__)
+                logger.warning(
+                    "review_and_refine: chain=%s reviewer call failed (%s) on attempt %d; "
+                    "shipping current draft un-reviewed",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                )
+                return current_draft
+
+            approved = bool(review.get("approved", False))
+            last_issues = review.get("issues", [])
+            # #264: structured, always-on verdict line — every attempt, approved or
+            # not, so retry-round distributions are countable without heuristic
+            # prompt-matching over the (dev-only) debug log.
+            log_review_verdict(
+                chain_id, attempt + 1, max_retries, approved=approved, issues_count=len(last_issues)
             )
-        except (LLMTruncatedError, LLMTimeoutError) as exc:
-            # The bounded verdict should never blow the cap; if it somehow does (or the
-            # call times out) ship the current draft un-reviewed rather than crash.
-            logger.warning(
-                "review_and_refine: chain=%s reviewer call failed (%s) on attempt %d; "
-                "shipping current draft un-reviewed",
-                chain_id,
-                type(exc).__name__,
+            if approved:
+                return current_draft
+
+            feedback = review.get("feedback", "")
+            logger.debug(
+                "review_and_refine attempt %d/%d rejected. Issues: %r",
                 attempt + 1,
+                max_retries,
+                last_issues,
             )
-            return current_draft
 
-        if review.get("approved", False):
-            return current_draft
+            retry_prompt = generator_prompt_fn(current_draft, feedback, source)
+            logger.info(
+                "review_and_refine: chain=%s attempt=%d retry_input_chars=%d feedback_chars=%d",
+                chain_id,
+                attempt + 1,
+                len(retry_prompt),
+                len(feedback),
+            )
 
-        last_issues = review.get("issues", [])
-        feedback = review.get("feedback", "")
-        logger.debug(
-            "review_and_refine attempt %d/%d rejected. Issues: %r",
-            attempt + 1,
+            set_review_call_meta("generator", attempt + 1)
+            try:
+                current_draft = await provider.aparse_json(
+                    retry_prompt,
+                    system=generator_system,
+                    temperature=0.1,
+                    max_tokens=generator_max_tokens,
+                    disable_thinking=disable_thinking,
+                )
+            except (LLMTruncatedError, LLMTimeoutError) as exc:
+                # The refiner regenerates the document and can blow a small output cap.
+                # The pre-refinement draft was already validated (e.g. the segmented
+                # generation that produced it), so ship that rather than a truncated
+                # refinement or a crash (ADR-021 amended / ADR-047 cap-safety).
+                log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
+                logger.warning(
+                    "review_and_refine: chain=%s refiner call truncated/timed out (%s) on "
+                    "attempt %d; keeping last known-good draft. Last issues: %r",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                    last_issues,
+                )
+                return current_draft
+
+        # Exhausted all retries — return the last generated draft unreviewed.
+        # This is intentional: degraded output is preferable to a broken flow
+        # (spec: ADR-021; worst-case call count = 2 * max_retries). #264: this is the
+        # "ships silently" case — make it loudly, durably visible.
+        log_review_exhausted(chain_id, max_retries, len(last_issues))
+        logger.warning(
+            "review_and_refine: chain=%s %d retries exhausted. Last known issues: %r",
+            chain_id,
             max_retries,
             last_issues,
         )
-
-        retry_prompt = generator_prompt_fn(current_draft, feedback, source)
-        logger.info(
-            "review_and_refine: chain=%s attempt=%d retry_input_chars=%d feedback_chars=%d",
-            chain_id,
-            attempt + 1,
-            len(retry_prompt),
-            len(feedback),
-        )
-
-        try:
-            current_draft = await provider.aparse_json(
-                retry_prompt,
-                system=generator_system,
-                temperature=0.1,
-                max_tokens=generator_max_tokens,
-                disable_thinking=disable_thinking,
-            )
-        except (LLMTruncatedError, LLMTimeoutError) as exc:
-            # The refiner regenerates the document and can blow a small output cap.
-            # The pre-refinement draft was already validated (e.g. the segmented
-            # generation that produced it), so ship that rather than a truncated
-            # refinement or a crash (ADR-021 amended / ADR-047 cap-safety).
-            logger.warning(
-                "review_and_refine: chain=%s refiner call truncated/timed out (%s) on "
-                "attempt %d; keeping last known-good draft. Last issues: %r",
-                chain_id,
-                type(exc).__name__,
-                attempt + 1,
-                last_issues,
-            )
-            return current_draft
-
-    # Exhausted all retries — return the last generated draft unreviewed.
-    # This is intentional: degraded output is preferable to a broken flow
-    # (spec: ADR-021; worst-case call count = 2 * max_retries).
-    logger.warning(
-        "review_and_refine: chain=%s %d retries exhausted. Last known issues: %r",
-        chain_id,
-        max_retries,
-        last_issues,
-    )
-    return current_draft
+        return current_draft
+    finally:
+        # Clear the role/attempt label so a later, unrelated call in this task
+        # doesn't inherit a stale review-loop position.
+        set_review_call_meta(None, None)

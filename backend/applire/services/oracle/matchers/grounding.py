@@ -23,6 +23,54 @@ from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
 # content tokens is present in a single vault evidence unit.
 GROUNDED_MIN_COVERAGE = 0.6
 
+# #237 (run-4 residual): ``skill_tokens`` was built for SHORT SKILL NAMES — its
+# stopword list is deliberately minimal (bare conjunctions/articles), because
+# a skill name almost never carries a pronoun or an auxiliary verb. Full
+# narrative sentences/clauses (the letter path's own claim shape, #237) do,
+# constantly — "My background in...", "I have extensive experience...",
+# "additionally, as Founder of..." — and every one of those function words
+# counts as a "content token" the coverage floor has to explain, diluting a
+# genuine paraphrase below ``GROUNDED_MIN_COVERAGE`` for no evidentiary
+# reason. This set is PURELY function words (pronouns, demonstratives,
+# common prepositions/conjunctions/auxiliary verbs) — never a domain or
+# action word — and is subtracted ONLY inside prose-grounding paths
+# (:func:`ground_text_claim`, :func:`ground_via_role_union`), never from
+# ``skill_tokens`` itself (a shared instrument other modules rely on
+# unchanged) and never from the skill-union fallback's own scaffold list
+# (a different, enumeration-specific concern). Removing pure function words
+# can only ever RAISE a genuine paraphrase's coverage — a fabricated clause's
+# real (non-function) content words still won't match anything, so this
+# cannot manufacture a false positive on its own.
+#
+# Deliberately EXCLUDES prepositions ("on", "at", "in", "within"...) — unlike
+# pronouns/auxiliaries, a preposition occasionally IS the coincidental word
+# that makes a real match ("My focus is increasingly on AI" vs a claim
+# "...focus on AI..." — stripping "on" there costs a genuine hit, not just
+# noise), so the dilution risk isn't worth it for a token class that rarely
+# dominates a claim's token count anyway.
+_NARRATIVE_STOPWORDS = frozenset(
+    {
+        # EN pronouns / demonstratives
+        "i", "my", "me", "mine", "myself", "we", "us", "our", "ours",
+        "you", "your", "yours", "it", "its", "this", "that", "these", "those",
+        # EN connective adverbs (additive framing, never content-bearing)
+        "as", "also", "additionally", "further", "furthermore", "moreover",
+        "therefore", "thus", "hence", "so",
+        # EN auxiliary/linking verbs
+        "have", "has", "had", "is", "are", "was", "were", "be", "been",
+        "being", "will", "would", "can", "could", "should", "shall", "may",
+        "might", "do", "does", "did",
+        # DE mirror (pronouns, demonstratives, common connectives)
+        "ich", "mein", "meine", "meiner", "meinem", "meinen", "mir", "mich",
+        "wir", "uns", "unser", "unsere", "sie", "ihr", "ihre", "es",
+        "diese", "dieser", "dieses", "diesen", "diesem",
+        "auch", "sowie", "zudem", "außerdem", "ausserdem", "weiterhin",
+        "daher", "somit",
+        "habe", "hat", "hatte", "bin", "ist", "war", "waren", "sein",
+        "werde", "wird", "kann", "koennte", "könnte", "soll",
+    }
+)
+
 
 @dataclass
 class FigureMatchResult:
@@ -60,7 +108,7 @@ class GroundingResult:
 
 
 def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
-    tokens = sorted(skill_tokens(text))
+    tokens = sorted(skill_tokens(text) - _NARRATIVE_STOPWORDS)
     if not tokens:
         return GroundingResult(0.0, None, 0.0, 0)
 
@@ -153,6 +201,84 @@ def ground_via_skill_union(text: str, index: VaultIndex) -> GroundingResult | No
     hits = 0
     for t in tokens:
         for unit in union_units:
+            if surface_present(t, unit.text_norm):
+                hits += 1
+                if unit not in matched_units:
+                    matched_units.append(unit)
+                break
+    n = len(tokens)
+    coverage = hits / n
+    if coverage < GROUNDED_MIN_COVERAGE or not matched_units:
+        return None
+    return GroundingResult(
+        best_coverage=coverage,
+        best_unit=matched_units[0],
+        overall_coverage=coverage,
+        content_tokens=n,
+        top_units=matched_units,
+        qualifying_units=matched_units,
+    )
+
+
+# ── role-union fallback for anchored narrative claims (#237 run-4 residual) ──
+#
+# A letter claim genuinely ANCHORED to one position (``source_experience_id``
+# set — by the strict per-sentence anchor, #237, or its same-company
+# current-role tie-break / paragraph-continuation inheritance) often narrates
+# several distinct facts about that SAME role in one sentence ("...my hands-on
+# experience in production AI, cross-functional collaboration, and commercial
+# AI product development.") — content scattered across that role's OWN
+# responsibilities/achievements/technologies, no single bullet of which
+# clears ``GROUNDED_MIN_COVERAGE`` alone. Exactly the skill-union fallback's
+# shape, generalized from "the union of role-agnostic skills[]" to "the union
+# of evidence OWNED BY THIS ONE EXPERIENCE ID" — safe because the pool is
+# scoped to a single, already-resolved owner: it can never blend evidence
+# across roles the way a whole-vault union would (the #196 lesson the
+# skill-union docstring itself calls out), and unlike the skill-union path it
+# is deliberately NOT offered to unanchored claims (there is no "this role"
+# to scope the union to without a real anchor).
+#
+# #237 round-3: the pool also includes ``same_employer_ids`` — every OTHER
+# position at the SAME company as ``source_id`` (``VaultIndex.
+# same_employer_ids``). A tenure-spanning sentence anchored to the CURRENT
+# role (the extract.py current-role tie-break) narrating a fact that
+# actually lives on a PAST role at the identical employer is an ordinary
+# same-employer claim, not a cross-role blend — mirrors
+# ``matchers.attribution.find_foreign_owner``'s identical widening, so the
+# grounding fallback and the attribution guard never disagree about what
+# counts as "this claim's own company".
+def _role_union_units(
+    index: VaultIndex, source_id: str, same_employer_ids: frozenset[str] = frozenset()
+) -> list[EvidenceUnit]:
+    allowed = same_employer_ids | {source_id}
+    return [u for u in index.units if u.owner_ids & allowed]
+
+
+def ground_via_role_union(
+    text: str,
+    index: VaultIndex,
+    source_id: str,
+    same_employer_ids: frozenset[str] = frozenset(),
+) -> GroundingResult | None:
+    """Union-of-one-EMPLOYER grounding for a narrative claim anchored to it.
+
+    Mirrors :func:`ground_via_skill_union`'s mechanics (narrative stopwords
+    stripped, coverage measured over the union rather than one best unit),
+    scoped to the units :func:`_role_union_units` returns for ``source_id``
+    and its same-employer siblings. Returns ``None`` (never a verdict) when
+    the pool is empty or coverage doesn't clear the floor — callers fall
+    through to their existing unverifiable/entailment/skill-union path.
+    """
+    tokens = sorted(skill_tokens(text) - _NARRATIVE_STOPWORDS)
+    if not tokens:
+        return None
+    role_units = _role_union_units(index, source_id, same_employer_ids)
+    if not role_units:
+        return None
+    matched_units: list[EvidenceUnit] = []
+    hits = 0
+    for t in tokens:
+        for unit in role_units:
             if surface_present(t, unit.text_norm):
                 hits += 1
                 if unit not in matched_units:

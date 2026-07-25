@@ -86,6 +86,42 @@ def _core_company_name(name: str) -> str:
     return stripped.strip() or name.strip()
 
 
+# ── #237 round-3 (live MCP probe residual, 2026-07-24) — employer-fact
+# classification ─────────────────────────────────────────────────────────────
+# A letter that engages the target employer (#255 now REQUIRES this) states
+# facts ABOUT that company sourced from the JD ("ClaimFlow is a fast-growing
+# InsurTech company.") — the ADR-021 reviewer already validates these against
+# JD text; the deterministic vault audit can never ground them and must not
+# mislabel them as a checkable-but-failed claim. A sentence naming the
+# RECIPIENT company (legal-form-suffix tolerant, like the loose anchor
+# signals) with NO first-person pronoun anywhere (EN+DE) is an employer fact;
+# a follow-up sentence in the SAME paragraph that names nothing of its own
+# but ALSO carries no first-person pronoun continues the classification
+# ("Its AI platform..." pronoun-referring back) — mirrors the anchor-
+# continuation mechanism (#237 run-4). A first-person sentence — even one
+# that ALSO names the recipient ("I'm excited to join ClaimFlow.") — always
+# breaks the run: the pronoun is a hard disqualifier, checked first.
+_FIRST_PERSON_RE = re.compile(
+    r"\b(?:"
+    # EN
+    r"i|i'm|i've|i'd|i'll|my|me|mine|myself|"
+    r"we|we're|we've|our|ours|us|"
+    # DE
+    r"ich|mein|meine|meiner|meinem|meinen|meins|"
+    r"wir|unser|unsere|unserer|unserem|unseren|uns|mir|mich"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _mentions_company(text: str, company: str | None) -> bool:
+    if not company or not company.strip():
+        return False
+    core = _core_company_name(company.strip())
+    pattern = re.compile(r"\b" + re.escape(_normalize_punct(core)) + r"\b", re.IGNORECASE)
+    return bool(pattern.search(_normalize_punct(text)))
+
+
 # ── courtesy/meta formula filter (adversarial-pass residual, 2026-07-23) ────
 # An entirely honest letter still scored unverifiable-dominated because pure
 # courtesy openers/closers ("I am writing to express my interest…", "Thank
@@ -117,10 +153,17 @@ _FORMULA_SEED_PATTERNS = [
         r"thank you for (?:your|the) (?:time|consideration|attention)",
         r"i appreciate (?:your|the) (?:time|consideration)",
         r"please do not hesitate to contact me",
-        r"i (?:remain|am) available (?:for an interview|at your convenience|to discuss)",
+        r"i (?:remain|am) available "
+        r"(?:for an interview|at your convenience|"
+        r"to discuss(?: my| the)? notice period|to discuss)",
         r"at your earliest convenience",
-        r"i would welcome the opportunity to discuss",
-        r"i look forward to (?:discussing|the opportunity to discuss|your response|scheduling|speaking with you)",
+        r"i would welcome the opportunity to "
+        r"(?:discuss(?: how (?:my|our) (?:background|experience|skills)(?: in)?)?"
+        r"|explore how (?:my|our) skills "
+        r"(?:can|could|might) (?:support|contribute to|benefit))",
+        r"i look forward to (?:discussing|the opportunity to discuss|"
+        r"your response|scheduling|speaking with you|"
+        r"(?:the possibility of )?contributing to)",
         # DE openers/closers
         r"sehr geehrte[rn]?",
         r"mit freundlichen gr[uü]ßen",
@@ -140,7 +183,7 @@ _FORMULA_FRAMING_WORDS = frozenset(
         "organization", "firm", "employer", "consideration", "convenience",
         "interview", "application", "vacancy", "opening", "advertised",
         "regarding", "concerning", "this", "that", "further", "it",
-        "write", "writing", "you", "i", "my",
+        "write", "writing", "you", "your", "i", "my",
         # DE
         "stelle", "unternehmen", "gelegenheit", "bewerbung", "vorstellungsgespraech",
         "vorstellungsgespräch", "gespraech", "gespräch", "beruecksichtigung",
@@ -173,6 +216,40 @@ def _is_pure_formula_clause(text: str) -> bool:
     return not (skill_tokens(residual) - _FORMULA_FRAMING_WORDS)
 
 
+def _strip_formula_prefix(text: str) -> str:
+    """Trim a RECOGNIZED courtesy/framing PREFIX from a clause, keeping any
+    substantive remainder as the claim text (#237 round-3) — the partial
+    counterpart of :func:`_is_pure_formula_clause`'s all-or-nothing drop.
+
+    "I would welcome the opportunity to discuss how my background in
+    backend engineering, production LLM applications, and mentoring aligns
+    with your needs." carries a real, checkable competence list — but the
+    courtesy preamble ("I would welcome the opportunity to discuss how my
+    background in") dilutes it below the grounding coverage floor if kept
+    verbatim. ANCHORED at the START of the (punctuation-normalized) clause
+    only (``pattern.match``, never ``.search``) — a formula phrase
+    appearing mid-clause is never trimmed, only ever a leading preamble, so
+    an unrelated real sentence's own grammar is never corrupted.
+    ``_normalize_punct`` is length-preserving (1 char -> 1 char
+    substitutions only), so the match end index is reused directly against
+    the ORIGINAL text — the returned remainder keeps the writer's own
+    punctuation/casing, only the recognized prefix itself is dropped.
+    Returns ``text`` unchanged when no prefix matches, or when the
+    remainder would carry no real content (fails safe to the original,
+    unmodified clause — the drop decision stays ``_is_pure_formula_clause``'s
+    alone).
+    """
+    normalized = _normalize_punct(text)
+    for pattern in _FORMULA_SEED_PATTERNS:
+        m = pattern.match(normalized)
+        if not m:
+            continue
+        remainder = text[m.end():].strip(" ,.;:-")
+        if remainder and (skill_tokens(remainder) - _FORMULA_FRAMING_WORDS):
+            return remainder
+    return text
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it
@@ -186,6 +263,18 @@ _CLAUSE_BOUNDARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# #237 round-3 (live MCP probe residual, 2026-07-24): EM-DASH specifically
+# (U+2014) — never the broader ``_DASH_CHARS`` set, which also carries
+# en-dash (U+2013, commonly an unspaced DATE-RANGE separator, "2020–2023",
+# that must never be treated as a clause boundary). Real-model prose pairs
+# em-dashes, unspaced, around a parenthetical aside ("background—building
+# X, Y, and Z—gives me..."). The general boundary regex above requires
+# surrounding WHITESPACE and so never sees an unspaced pair at all — the
+# aside's OWN internal Oxford-comma "and" (which DOES have surrounding
+# whitespace) wins instead, mid-fragmenting the aside's enumeration list
+# ("...workflows, audit trails" | "and validation reports...").
+_EM_DASH = "—"
+
 
 def split_clauses(text: str) -> list[str]:
     """Deterministic clause-level split for narrative sentences (#237).
@@ -198,10 +287,21 @@ def split_clauses(text: str) -> list[str]:
     Splitting on clause boundaries turns it into several smaller,
     independently checkable claims. Falls back to the whole sentence when no
     boundary is found — the common case stays a single ``sentence`` claim.
+
+    #237 round-3: a text carrying EXACTLY TWO em-dashes is treated as a
+    paired parenthetical aside FIRST — the whole aside becomes its own
+    single clause (never re-split by the general boundary rules below, which
+    would re-fragment its own internal enumeration) — before falling back to
+    the general boundary regex for any other shape (a single, unpaired
+    em-dash keeps using the pre-existing spaced-dash rule below unchanged).
     """
     t = (text or "").strip()
     if not t:
         return []
+    if t.count(_EM_DASH) == 2:
+        first, second = t.index(_EM_DASH), t.rindex(_EM_DASH)
+        parts = [t[:first].strip(), t[first + 1 : second].strip(), t[second + 1 :].strip()]
+        return [p for p in parts if p]
     parts = [p.strip() for p in _CLAUSE_BOUNDARY_RE.split(t)]
     return [p for p in parts if p]
 
@@ -280,7 +380,30 @@ def _match_ids(text: str, candidates: list[tuple[str, str]]) -> frozenset[str]:
     return frozenset(found)
 
 
-def _find_employer_anchor(sentence: str, candidates: list[tuple[str, str]]) -> str | None:
+def _current_work_ids(profile: Any | None) -> frozenset[str]:
+    """Ids of every ``is_current`` work-experience entry (#237 run-4
+    residual) — the same-company multi-role tie-break below needs to know
+    which of several ambiguous candidates is the CURRENT position."""
+    if profile is None:
+        return frozenset()
+    ids: set[str] = set()
+    for w in _profile_get(profile, "work_experience") or []:
+        wid = _profile_get(w, "id")
+        if (
+            isinstance(wid, str)
+            and wid.strip()
+            and bool(_profile_get(w, "is_current"))
+        ):
+            ids.add(wid.strip())
+    return frozenset(ids)
+
+
+def _find_employer_anchor(
+    sentence: str,
+    candidates: list[tuple[str, str]],
+    current_ids: frozenset[str] = frozenset(),
+    loose_candidates: list[tuple[str, str]] | None = None,
+) -> str | None:
     """The experience id a sentence anchors to, or ``None`` (fail open).
 
     A sentence naming EXACTLY one known employer/project stamps every claim
@@ -289,10 +412,47 @@ def _find_employer_anchor(sentence: str, candidates: list[tuple[str, str]]) -> s
     sentence naming two or more distinct known employers stays unanchored
     rather than risk mis-anchoring (adversarial-review lesson: fail open,
     never fail wrong).
+
+    #237 (run-4 residual, DEVIATION from the #248 "strict anchor exact-name
+    behaviour is unchanged" pin — see ``test_oracle_extract.py``'s updated
+    ``test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_
+    tiebreak``): live-reproduced 2026-07-24 (run-4 self-audit, 10/14
+    unverifiable) — the exact-name-only strict anchor NEVER fires for a
+    company whose vault name carries a legal-form suffix ("BioNTech SE")
+    when the letter naturally drops it ("At BioNTech"), which is the
+    COMMON case, not the exception. That starves the attribution matcher of
+    the anchor it exists to feed, and is the single largest reason a
+    realistic multi-role-tenure letter scored near-zero discriminating
+    power. Two additive widenings, both still fail-open by construction:
+
+    1. When the EXACT candidate set matches NOTHING at all (not merely
+       ambiguous), retry against ``loose_candidates`` (legal-form-suffix
+       tolerant) if provided.
+    2. A long tenure at ONE company held across several internal roles
+       (e.g. three successive BioNTech positions) matches every one of them
+       by company name — genuinely ambiguous by name alone. When the
+       ambiguity is PURELY "which era at the SAME company" (every found
+       candidate shares one surface name) and EXACTLY one of them is
+       ``current_ids``' current position, resolve to that one: "At Company
+       X, I did Y" conventionally reads as the CURRENT role absent any
+       other signal.
+
+    Both still fail open the moment names genuinely differ (a true
+    multi-employer sentence) or the tie-break itself can't decide (more
+    than one/none of the found candidates is current) — this narrows, never
+    removes, the existing fail-open guarantee.
     """
     found = _match_ids(sentence, candidates)
+    if not found and loose_candidates:
+        found = _match_ids(sentence, loose_candidates)
     if len(found) == 1:
         return next(iter(found))
+    if len(found) > 1:
+        names = {n for n, i in (loose_candidates or candidates) if i in found}
+        if len(names) == 1:
+            current_found = found & current_ids
+            if len(current_found) == 1:
+                return next(iter(current_found))
     return None
 
 
@@ -452,20 +612,67 @@ def extract_claims_from_letter(
        entity name vs. the letter's shortened mention, or same-company
        duplicate ids) — see ground truth in ``test_oracle_extract.py``'s
        #248 section and ``test_oracle_letter_nonfigure_ownership.py``.
+    5. (#237 run-4 residual) PARAGRAPH-SCOPED anchor continuation: once a
+       sentence anchors, that anchor CARRIES FORWARD to later sentences in
+       the SAME paragraph that name no employer of their own — the common
+       letter shape "At Company X, I did A. This/It also enabled B." where
+       only the first sentence names the employer. A sentence that names
+       something of its own (anchored or ambiguously not) neither inherits
+       nor silently keeps the old anchor for ITSELF, and the carry NEVER
+       crosses a paragraph boundary — a new paragraph starts fresh. Also
+       narrowed by the same-company ``current_ids`` tie-break above (point
+       3's `_find_employer_anchor`).
+    6. (#237 round-3) Every clause/claim also carries ``is_employer_fact`` —
+       True for a sentence naming the RECIPIENT company (``letter_data.
+       recipient.company``, legal-form-suffix tolerant) with NO first-person
+       pronoun (EN/DE) anywhere, or a same-paragraph continuation of such a
+       run (mirrors point 5's anchor carry). A first-person sentence always
+       breaks the run, checked first, even when it ALSO names the
+       recipient. ``audit.verify_claim`` short-circuits these to
+       ``not_applicable`` before any vault-grounding attempt — see this
+       module's own top-of-file section for the rationale.
     """
     body = (letter_data or {}).get("body") or {}
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
     candidates = _employer_anchor_candidates(profile)
     loose_candidates = _employer_anchor_candidates(profile, loose=True)
+    current_ids = _current_work_ids(profile)
+    recipient = (letter_data or {}).get("recipient") or {}
+    recipient_company = recipient.get("company") if isinstance(recipient, dict) else None
     claims: list[Claim] = []
     for pi, para in enumerate(paragraphs or []):
         if not isinstance(para, str):
             continue
+        carried_anchor: str | None = None
+        in_employer_fact_run = False
         for si, sentence in enumerate(split_sentences(para)):
             if len(sentence) < _MIN_CLAIM_CHARS:
                 continue
-            sentence_anchor = _find_employer_anchor(sentence, candidates)
+            sentence_anchor = _find_employer_anchor(
+                sentence, candidates, current_ids, loose_candidates
+            )
             sentence_named = _match_ids(sentence, loose_candidates)
+            if sentence_anchor is not None:
+                carried_anchor = sentence_anchor
+                effective_anchor = sentence_anchor
+            elif not (_match_ids(sentence, candidates) or sentence_named):
+                # Names no employer of its own at all (exact or loose) —
+                # inherit the paragraph's last established anchor, if any.
+                effective_anchor = carried_anchor
+            else:
+                # Names something, but not resolvably (ambiguous) — never
+                # guess; also never overwrite the carried anchor with this
+                # sentence's own failure to resolve.
+                effective_anchor = None
+            # #237 round-3: employer-fact classification (module docstring
+            # point 6, below) — a hard first-person disqualifier, then
+            # either a fresh recipient-company mention or a same-paragraph
+            # continuation of an already-established run.
+            sentence_has_first_person = bool(_FIRST_PERSON_RE.search(sentence))
+            sentence_is_employer_fact = not sentence_has_first_person and (
+                _mentions_company(sentence, recipient_company) or in_employer_fact_run
+            )
+            in_employer_fact_run = sentence_is_employer_fact
             clauses = split_clauses(sentence)
             base = f"body.paragraphs[{pi}][{si}]"
             multi = len(clauses) > 1
@@ -474,19 +681,32 @@ def extract_claims_from_letter(
                     continue
                 if _is_pure_formula_clause(clause):
                     continue
-                clause_anchor = sentence_anchor
+                clause_anchor = effective_anchor
                 if clause_anchor is None and multi:
                     # #248 direction 1: the sentence itself was ambiguous
                     # (two+ employers) or named none — give this CLAUSE its
                     # own chance to anchor independently.
-                    clause_anchor = _find_employer_anchor(clause, candidates)
+                    clause_anchor = _find_employer_anchor(
+                        clause, candidates, current_ids, loose_candidates
+                    )
+                # A clause-level safety net: a multi-clause sentence could in
+                # principle separate a first-person clause from an
+                # employer-fact one — re-check at clause granularity too.
+                clause_is_employer_fact = sentence_is_employer_fact and not (
+                    multi and _FIRST_PERSON_RE.search(clause)
+                )
+                # #237 round-3: trim a recognized courtesy PREFIX (anchor/
+                # employer-fact detection above already ran against the
+                # FULL, untrimmed clause — only the stored claim TEXT
+                # changes here).
                 claims.append(
                     Claim(
-                        text=clause,
+                        text=_strip_formula_prefix(clause),
                         location=f"{base}.clauses[{ci}]" if multi else base,
                         kind="clause" if multi else "sentence",
                         source_experience_id=clause_anchor,
                         sentence_named_ids=sentence_named,
+                        is_employer_fact=clause_is_employer_fact,
                     )
                 )
     return claims

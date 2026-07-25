@@ -45,8 +45,13 @@ import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.providers.llm.base import (
+    LLMProvider,
+    raise_if_no_completion,
+    raise_if_truncated,
+    retry_on_truncation,
+)
 
 _DEFAULT_BASE_URL = "https://router.eu.requesty.ai/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -133,6 +138,16 @@ class RequestyProvider(LLMProvider):
             raise LLMRateLimitError("Requesty rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("Requesty SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: see openrouter.py's identical mapping — a genuine 5xx from
+            # the gateway/upstream provider is a retryable outage, never a
+            # reason to surface the raw provider-JSON body to the caller.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"Requesty is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
 
     async def aparse_json(
         self,
@@ -160,6 +175,14 @@ class RequestyProvider(LLMProvider):
             raise LLMRateLimitError("Requesty rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("Requesty SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: see acomplete's identical mapping above.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"Requesty is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
         # Strip markdown code fences some models emit
         if content.startswith("```"):
             content = content.split("```")[1]
@@ -229,6 +252,7 @@ class RequestyProvider(LLMProvider):
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
@@ -253,6 +277,7 @@ class RequestyProvider(LLMProvider):
             usage.prompt_tokens if usage else "?",
             usage.completion_tokens if usage else "?",
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 

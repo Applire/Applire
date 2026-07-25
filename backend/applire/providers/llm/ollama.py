@@ -25,8 +25,23 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+
+
+def _completion_text(data: dict, *, model: str) -> str:
+    """Extract the message content, raising LLMProviderUnavailableError (never
+    a raw KeyError/TypeError) on a malformed/empty local-server response
+    (issue #256 — same crash class as the OpenAI-compat providers' blind
+    ``response.choices[0]`` indexing, just shaped differently here)."""
+    message = data.get("message") if isinstance(data, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str):
+        raise LLMProviderUnavailableError(
+            f"{model or 'Ollama'} returned no completion (malformed response). "
+            "Retry the same request."
+        )
+    return content
 
 _CONNECT_TIMEOUT = 5.0   # fail fast if Ollama is not running
 
@@ -82,6 +97,13 @@ class OllamaProvider(LLMProvider):
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise LLMRateLimitError("Ollama rate limit after 3 attempts") from exc
+            if exc.response.status_code >= 500:
+                # #256: never surface exc's raw response-body text (may embed
+                # the local server's own error JSON) to the caller.
+                raise LLMProviderUnavailableError(
+                    f"Ollama is temporarily unavailable (HTTP {exc.response.status_code}). "
+                    "Retry the same request."
+                ) from exc
             raise
 
     async def aparse_json(
@@ -108,6 +130,11 @@ class OllamaProvider(LLMProvider):
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise LLMRateLimitError("Ollama rate limit after 3 attempts") from exc
+            if exc.response.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"Ollama is temporarily unavailable (HTTP {exc.response.status_code}). "
+                    "Retry the same request."
+                ) from exc
             raise
         return json.loads(raw)
 
@@ -126,7 +153,7 @@ class OllamaProvider(LLMProvider):
             response.raise_for_status()
         data = response.json()
         raise_if_truncated(data.get("done_reason"), model=self._model)
-        return data["message"]["content"]
+        return _completion_text(data, model=self._model)
 
     @_retry
     async def _parse_json(self, messages: list, temperature: float, max_tokens: int) -> str:
@@ -144,7 +171,7 @@ class OllamaProvider(LLMProvider):
             response.raise_for_status()
         data = response.json()
         raise_if_truncated(data.get("done_reason"), model=self._model)
-        return data["message"]["content"]
+        return _completion_text(data, model=self._model)
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

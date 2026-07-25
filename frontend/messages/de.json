@@ -12,6 +12,7 @@
     "close": "Schließen",
     "done": "Fertig",
     "preparing": "Wird vorbereitet…",
+    "retry": "Erneut versuchen",
     "ariaClose": "Schließen",
     "ariaDismiss": "Verwerfen",
     "ariaRemoveFile": "Datei entfernen"
@@ -174,7 +175,16 @@
     "matchScoreDisplay": "{label}: {score}%",
     "mergeMovedTitle": "Wir haben deine Importe zusammengeführt",
     "mergeMovedBody": "Applire hat die hochgeladenen Lebensläufe zu einem Master-Profil zusammengeführt.",
-    "mergeMovedLink": "Im Profil ansehen, was zusammengeführt wurde"
+    "mergeMovedLink": "Im Profil ansehen, was zusammengeführt wurde",
+    "liabilityTitle": "Schlagworte, die eine Geschichte brauchen",
+    "liabilitySubtitle": "Diese geforderten Fähigkeiten stehen in deinem Profil, aber bisher belegt sie nichts — einem Auswahlgremium fällt ein blankes Schlagwort auf.",
+    "liabilityBadge": "{count, plural, one {# Schlagwort braucht eine Geschichte} other {# Schlagworte brauchen eine Geschichte}}",
+    "liabilityTellStory": "Geschichte erzählen",
+    "liabilityDrop": "Schlagwort verwerfen",
+    "liabilityDropped": "Verworfen — wird nicht mehr beansprucht",
+    "liabilityResolved": "Geschichte hinzugefügt",
+    "liabilityUnavailable": "Frage wird noch vorbereitet — bitte gleich noch einmal versuchen",
+    "liabilityDropError": "Schlagwort konnte nicht verworfen werden. Bitte erneut versuchen."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -592,7 +602,23 @@
       "interview": "Interview",
       "manual_edit": "Manuelle Bearbeitung",
       "manual_role_add": "Manuell hinzugefügte Rolle",
-      "agent_interview": "Agent-Interview"
+      "agent_interview": "Agent-Interview",
+      "testimony": "Eigene Notizen"
+    },
+    "testimony": {
+      "title": "Eigene Notizen",
+      "description": "Gibt es etwas, das Recruiter über dich wissen sollten und das noch nirgends steht? Füge hier freien Text ein — Applire gleicht ihn mit deinem Profil ab und speichert ihn mit Beleg.",
+      "placeholder": "z. B. eine Projektgeschichte, eine Zahl, eine Einschränkung, an die du dich erinnerst …",
+      "submit": "Übernehmen",
+      "submitting": "Wird abgeglichen …",
+      "emptyError": "Bitte zuerst etwas Text eingeben.",
+      "submitFailed": "Deine Notizen konnten nicht übernommen werden.",
+      "statusApplied": "{count, plural, one {# Änderung} other {# Änderungen}} in deinem Profil gespeichert.",
+      "statusNoChange": "Nichts Neues gefunden — das steht schon in deinem Profil.",
+      "statusDenialRecorded": "Notiert — diese Einschränkung ist jetzt vermerkt und wird nicht mehr angenommen.",
+      "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",
+      "statusConflict": "Das widerspricht etwas, das schon in deinem Profil steht — im Profilzustand-Hub zu finden.",
+      "statusError": "Konnte nicht verarbeitet werden: {detail}"
     },
     "completeness": "Profilvollständigkeit",
     "enrichProfile": "Profil ergänzen",
@@ -784,6 +810,7 @@
     "http504": "Das dauert länger als üblich. Bitte versuche es erneut.",
     "http503": "Dienst vorübergehend ausgelastet. Bitte warte und versuche es erneut.",
     "http502": "Verarbeitungsfehler. Bitte versuche ein anderes Format.",
+    "providerUnavailable": "Der KI-Anbieter ist vorübergehend nicht erreichbar. Bitte warte und versuche es erneut.",
     "generic": "Ein Fehler ist aufgetreten ({status}). Bitte versuche es erneut."
   },
   "enrich": {
@@ -953,6 +980,8 @@
     "unverifiableNote": "{count, plural, one {# weiche Aussage kann nicht gegen Ihr Profil geprüft werden} other {# weiche Aussagen können nicht gegen Ihr Profil geprüft werden}}",
     "relatedNote": "{count, plural, one {# Fähigkeit stützt sich auf verwandte Belege in Ihrem Profil, nicht den wörtlichen Begriff} other {# Fähigkeiten stützen sich auf verwandte Belege in Ihrem Profil, nicht den wörtlichen Begriff}}",
     "relatedDetail": "Verwandter Beleg — nicht wörtlich in Ihren Unterlagen.",
+    "unverifiableDominatedTitle": "Diesen Brief als ungeprüft behandeln",
+    "unverifiableDominatedBody": "Die meisten Aussagen konnten nicht mit Ihrem Profil abgeglichen werden — behandeln Sie diesen Brief als ungeprüft.",
     "detailsButton": "Details",
     "evidenceLabel": "Beleg aus Ihrem Profil:",
     "statedLimit": "Dieser Bericht prüft die Übereinstimmung zwischen Dokument und Ihrem Profil. Er kann das Profil selbst nicht beweisen — Profilangaben sind Selbstauskünfte; die dokumentierte Herkunft aus Interviews mildert das, hebt es aber nicht auf.",
@@ -962,7 +991,8 @@
       "misattributed": "Falsch zugeordnet",
       "unbacked": "Nicht belegt",
       "unverifiable": "Nicht prüfbar",
-      "related": "Verwandter Beleg"
+      "related": "Verwandter Beleg",
+      "not_applicable": "Aussage über den Arbeitgeber"
     }
   },
   "admin": {

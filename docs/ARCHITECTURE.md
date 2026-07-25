@@ -83,6 +83,8 @@ Mode is auto-detected at session creation from `completeness_score` vs `MODE_B_C
 
 **Key invariant:** One active session per `(user_id, job_id)`. `POST /api/session` is idempotent — returns the existing session with `resumed: true` if one exists.
 
+**Termination (issue #259, amended 2026-07-24):** the "3–12" / "10–20" question counts above are a **cost guard**, not the primary termination driver. The interview ends when the first of these fires: (1) **sufficiency** — every JD-critical concept is evidenced, explicitly denied (terminal, never re-asked), or triaged as a true gap (`services/interview/sufficiency.py`, deterministic, no LLM call); (2) the operator-configured **budget** is exhausted (`INTERVIEW_MAX_QUESTIONS_TARGETED` / `INTERVIEW_MAX_QUESTIONS_GUIDED` env vars, read via `config.Settings`, defaulting to the previous hardcoded 12/20); or (3) the user explicitly says "done". Question **ordering** additionally promotes a JD-hard-requirement concept that is keyword-only or unquantified in the vault ahead of nice-to-have breadth within its priority bucket, so a budget cut always lands on a lower-value question first — the run-4 trigger was the ceiling cutting off a required capability's quantification one question early.
+
 ---
 
 ### ADR-049 — Unified Interview Session Engine (supersedes ADR-045)

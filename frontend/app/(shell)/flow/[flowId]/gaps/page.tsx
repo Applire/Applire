@@ -31,6 +31,7 @@ import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
+import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
 import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
@@ -51,6 +52,8 @@ interface GapAnalysis {
   gap_clusters: GapCluster[];
   // ADR-048 fit-slice — the canonical requirement set all counts derive from (#111)
   keyword_ledger?: LedgerChipEntry[];
+  // #260 — derived server-side: required + claimable + no narrative anywhere.
+  keyword_liabilities?: LiabilityEntry[];
 }
 
 interface FlowState {
@@ -649,6 +652,32 @@ export default function GapsPage({
     }));
   }
 
+  // #260: dropping/storying a liability changes the ledger's claimable/gap
+  // split, so the headline match score can genuinely move (down for a drop,
+  // up for a story) — POST /gaps/refresh, same as an ordinary gap-cluster
+  // answer (handleGapResolved below). Idempotency (E037 PQ #3) makes this
+  // safe for BOTH exits: a drop mutates the ledger directly without
+  // touching profile_json, so the fingerprint is unchanged and refresh just
+  // re-reads the already-downgraded row (no LLM re-run); a story answer
+  // reconciles into the vault's narrative fields, which DOES change the
+  // fingerprint, so refresh genuinely recomputes narrative_backed from the
+  // fresh profile — the only path that can honestly clear a liability.
+  async function refreshMatchScoreAfterLiabilityAction() {
+    if (!flowState?.job_id) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const refreshed: GapAnalysis = await res.json();
+        setGaps(refreshed);
+        setMatchScore(refreshed.match_score ? Math.round(refreshed.match_score * 100) : matchScore);
+      }
+    } catch {
+      // Non-critical — the panel already reflects the action locally.
+    }
+  }
+
   async function handleGapResolved(gap: string) {
     setResolvedGaps((prev) => new Set([...prev, gap]));
     setGapStates((prev) => ({ ...prev, [gap]: { ...EMPTY_GAP_STATE, status: "resolved" } }));
@@ -973,6 +1002,22 @@ export default function GapsPage({
             ) : null
           )}
         </div>
+      )}
+
+      {/* #260: pre-generation keyword-liability summary — a JD hard
+          requirement the profile can claim but has no narrative anywhere.
+          Placed after the gap clusters (real gaps first) and before the
+          detailed A/B/C breakdown, so both honest exits are visible
+          BEFORE the user moves on to CV generation. */}
+      {hasJob && flowState?.job_id && gaps?.keyword_liabilities && gaps.keyword_liabilities.length > 0 && (
+        <LiabilityPanel
+          jobId={flowState.job_id}
+          liabilities={gaps.keyword_liabilities}
+          clusters={gaps.gap_clusters ?? []}
+          apiBase={API_BASE}
+          onDropped={() => void refreshMatchScoreAfterLiabilityAction()}
+          onStoryAdded={() => void refreshMatchScoreAfterLiabilityAction()}
+        />
       )}
 
       {/* Detailed breakdown */}

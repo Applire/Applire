@@ -396,4 +396,241 @@ describe("InterviewPage hard-ceiling completion (#245)", () => {
     expect(screen.queryByTestId("interview-page")).not.toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument(); // questions_asked stat
   });
+
+  it("#259 run-4 finding 9: a RESUMED session restores the real question count instead of resetting to 1", async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            job_id: "j1",
+            current_step: "interview",
+            job_summary: { role_title: "Engineer" },
+          }),
+        };
+      }
+      if (url.includes("/api/job/j1/gaps")) return { ok: false, status: 404, json: async () => ({}) };
+      if (url.includes("/api/session")) {
+        return {
+          ok: true,
+          json: async () => ({
+            session_id: "s1",
+            mode: "targeted",
+            first_question: "Tell me about your Kubernetes experience.",
+            question: "Tell me about your Kubernetes experience.",
+            estimated_questions: 7,
+            hard_ceiling: 12,
+            gaps_total: 3,
+            gaps_remaining: 2,
+            choices: null,
+            resumed: true,
+            questions_asked: 5,
+          }),
+        };
+      }
+      if (url.includes("/api/flow/f1/advance")) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent(
+        "Tell me about your Kubernetes experience.",
+      ),
+    );
+
+    // current:5 (the server's real questions_asked) — NOT current:1, the
+    // pre-#259 reset every page refresh produced despite real server-side
+    // progress.
+    expect(document.body.textContent).toContain('questionOf({"current":5,"total":12})');
+    expect(document.body.textContent).not.toContain('"current":1,');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue #256 — a failed turn (provider 503, or any other backend error) must
+// never render raw backend text in the chat surface, must re-enable the
+// input, and must offer a Retry affordance that re-sends the same answer.
+// The pinned vector: apiErrorMessage() used to read body.detail verbatim and
+// translateError()'s default branch echoed it straight into the error
+// banner — fixed to translate purely from {status, code}, never backend text.
+// ---------------------------------------------------------------------------
+
+function mockRetryApi({
+  messageResponses,
+}: {
+  messageResponses: Array<{ ok: true; body: Record<string, unknown> } | { ok: false; status: number; body: unknown }>;
+}) {
+  const queue = [...messageResponses];
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/flow/f1/state")) {
+      return {
+        ok: true,
+        json: async () => ({ job_id: "j1", current_step: "interview", job_summary: { role_title: "Engineer" } }),
+      };
+    }
+    if (url.includes("/api/job/j1/gaps")) {
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
+    if (url.includes("/api/session/s1/message")) {
+      const next = queue.shift();
+      if (!next) throw new Error("mockRetryApi: no more queued message responses");
+      if (next.ok) {
+        return { ok: true, status: 200, json: async () => next.body };
+      }
+      return { ok: false, status: next.status, json: async () => next.body };
+    }
+    if (url.includes("/api/session")) {
+      return {
+        ok: true,
+        json: async () => ({
+          session_id: "s1",
+          mode: "targeted",
+          first_question: "What is your Docker experience?",
+          question: "What is your Docker experience?",
+          estimated_questions: 5,
+          gaps_total: 2,
+          gaps_remaining: 2,
+          choices: null,
+          resumed: false,
+        }),
+      };
+    }
+    if (url.includes("/api/flow/f1/advance")) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+    }
+    throw new Error(`unexpected fetch: ${url} ${init?.method ?? "GET"}`);
+  });
+}
+
+describe("InterviewPage failed-turn recovery (#256)", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("never renders the raw provider payload — translates a structured provider_unavailable error, re-enables the input, and Retry re-sends the same answer", async () => {
+    const user = userEvent.setup();
+    const rawProviderText = "mistralai/mistral-large-latest is temporarily unavailable — do not show me";
+    global.fetch = mockRetryApi({
+      messageResponses: [
+        {
+          ok: false,
+          status: 503,
+          body: { detail: { error_code: "provider_unavailable", message: rawProviderText } },
+        },
+        { ok: true, body: { complete: false, question: "Tell me about Kubernetes.", gaps_remaining: 1 } },
+      ],
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+
+    await sendAnswer(user, "I have used Docker for 3 years.");
+
+    // The raw provider payload must never appear anywhere in the DOM.
+    await waitFor(() => expect(screen.getByTestId("retry-answer-button")).toBeInTheDocument());
+    expect(document.body.textContent).not.toContain(rawProviderText);
+
+    // The input must be re-enabled (not permanently disabled) after the failure.
+    const textarea = screen.getByTestId("answer-textarea") as HTMLTextAreaElement;
+    expect(textarea).not.toBeDisabled();
+
+    // A Retry affordance must be present.
+    const retryButton = await screen.findByTestId("retry-answer-button");
+    await user.click(retryButton);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("Tell me about Kubernetes."),
+    );
+  });
+
+  it("never renders a raw Python exception string leaked as a bare-string detail (defense in depth, any status)", async () => {
+    const user = userEvent.setup();
+    const rawExceptionText = "'NoneType' object is not subscriptable";
+    global.fetch = mockRetryApi({
+      messageResponses: [
+        { ok: false, status: 500, body: { detail: rawExceptionText } },
+        { ok: true, body: { complete: false, question: "Tell me about Kubernetes.", gaps_remaining: 1 } },
+      ],
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+
+    await sendAnswer(user, "I have used Docker for 3 years.");
+
+    await waitFor(() => expect(screen.getByTestId("retry-answer-button")).toBeInTheDocument());
+    expect(document.body.textContent).not.toContain(rawExceptionText);
+    expect(screen.getByTestId("answer-textarea")).not.toBeDisabled();
+  });
+
+  it("session-creation failure shows a Retry affordance instead of silently wedging the interview forever", async () => {
+    const user = userEvent.setup();
+    let sessionCallCount = 0;
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f1/state")) {
+        return {
+          ok: true,
+          json: async () => ({ job_id: "j1", current_step: "interview", job_summary: { role_title: "Engineer" } }),
+        };
+      }
+      if (url.includes("/api/job/j1/gaps")) {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+      if (url.includes("/api/session")) {
+        sessionCallCount += 1;
+        if (sessionCallCount === 1) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({
+              detail: { error_code: "provider_unavailable", message: "raw provider text — must not render" },
+            }),
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            session_id: "s1",
+            mode: "targeted",
+            first_question: "What is your Docker experience?",
+            question: "What is your Docker experience?",
+            estimated_questions: 5,
+            gaps_total: 2,
+            gaps_remaining: 2,
+            choices: null,
+            resumed: false,
+          }),
+        };
+      }
+      if (url.includes("/api/flow/f1/advance")) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    const retryButton = await screen.findByTestId("retry-session-button");
+    expect(document.body.textContent).not.toContain("raw provider text — must not render");
+
+    await user.click(retryButton);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("interview-question")).toHaveTextContent("What is your Docker experience?"),
+    );
+    expect(sessionCallCount).toBe(2);
+  });
 });

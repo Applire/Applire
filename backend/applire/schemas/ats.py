@@ -55,6 +55,16 @@ class ATSKeywordCoverage(BaseModel):
     # change to the Oracle's own verdict taxonomy. Empty when no ledger is
     # available (legacy back-compat).
     claimable_concepts: list[str] = []
+    # #260 — pre-generation keyword-liability check (agent-door + report
+    # parity): the concept names of every Keyword Ledger entry that is a JD
+    # HARD REQUIREMENT, claimable (WILL be echoed by the generator), but
+    # carries no narrative evidence anywhere in the vault (bare skills-list
+    # entry only). Distinct axis from `claimable_concepts`/#249's "related"
+    # state — literal vault presence vs narrative depth — and additive: a
+    # concept may appear in both lists without contradiction. Empty when no
+    # ledger is available, or the ledger predates #260 (no `narrative_backed`
+    # key — back-compat default is "backed", so nothing is flagged).
+    keyword_liability_concepts: list[str] = []
 
 
 class ATSReport(BaseModel):

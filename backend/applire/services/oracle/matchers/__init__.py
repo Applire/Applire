@@ -6,12 +6,17 @@ Grounding reuses THE shared presence predicate (``surface_present``,
 ADR-048/US212) — never a fourth near-dupe implementation (ADR-046 lesson).
 """
 from applire.services.oracle.matchers.attribution import find_foreign_owner
-from applire.services.oracle.matchers.figures import Figure, extract_figures
+from applire.services.oracle.matchers.figures import (
+    Figure,
+    extract_figures,
+    extract_spelled_figures,
+)
 from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex, build_vault_index
 from applire.services.oracle.matchers.grounding import (
     GroundingResult,
     ground_skill_claim,
     ground_text_claim,
+    ground_via_role_union,
     ground_via_skill_union,
     match_figures,
 )
@@ -19,6 +24,7 @@ from applire.services.oracle.matchers.grounding import (
 __all__ = [
     "Figure",
     "extract_figures",
+    "extract_spelled_figures",
     "find_foreign_owner",
     "EvidenceUnit",
     "VaultIndex",
@@ -26,6 +32,7 @@ __all__ = [
     "GroundingResult",
     "ground_skill_claim",
     "ground_text_claim",
+    "ground_via_role_union",
     "ground_via_skill_union",
     "match_figures",
 ]

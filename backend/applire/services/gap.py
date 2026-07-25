@@ -47,7 +47,12 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
-from applire.services.keyword_ledger import build_keyword_ledger, keyword_only_honest_gaps
+from applire.services.keyword_ledger import (
+    build_keyword_ledger,
+    downgrade_ledger_for_concepts,
+    keyword_liabilities,
+    keyword_only_honest_gaps,
+)
 from applire.services.match_score import compute_match_score_from_ledger
 
 logger = logging.getLogger(__name__)
@@ -201,6 +206,46 @@ async def analyze_gaps_for_session(
     return await analyze_gaps(session.job_analysis_id, db, provider)
 
 
+async def downgrade_keyword_liability(
+    job_id: uuid.UUID,
+    concept: str,
+    db: AsyncSession,
+) -> GapAnalysisResponse:
+    """Exit (b) of the #260 pre-generation liability check: the candidate's
+    own choice to DROP a keyword-liability concept (a JD hard requirement,
+    claimable, but with no narrative anywhere in the vault) rather than tell
+    its story via ``resolve_gap`` (exit a).
+
+    Deterministic, no LLM: flips the matching CLAIMABLE ledger entry to an
+    honest gap (:func:`keyword_ledger.downgrade_ledger_for_concepts`) and
+    re-derives the match score from the resulting ledger — the SAME formula
+    ``analyze_gaps`` uses, so the displayed score honestly reflects that the
+    concept is no longer being claimed (never a silent inflation). A no-op
+    (unchanged row returned) when the concept doesn't match any claimable
+    entry — never invents or removes a ledger row.
+    """
+    gap_analysis = await _latest_gap_analysis(job_id, db)
+    if gap_analysis is None:
+        raise LookupError(f"No gap analysis found for job {job_id}")
+
+    new_ledger, changed = downgrade_ledger_for_concepts(gap_analysis.keyword_ledger, [concept])
+    if changed:
+        # JSONB tracking gotcha (mirrors session.py's upgrade path): keyword_ledger
+        # is a plain _JSON column, not a MutableList — reassign the WHOLE list.
+        gap_analysis.keyword_ledger = new_ledger
+        scored = compute_match_score_from_ledger(new_ledger)
+        gap_analysis.match_score = scored["match_score"]
+        gap_analysis.category_a = scored["category_a"]
+        gap_analysis.category_b = scored["category_b"]
+        gap_analysis.category_c = scored["category_c"]
+        gap_analysis.critical_gaps = scored["critical_gaps"]
+        gap_analysis.minor_gaps = scored["minor_gaps"]
+        gap_analysis.requirement_breakdown = scored["requirement_breakdown"]
+        await db.commit()
+        await db.refresh(gap_analysis)
+    return GapAnalysisResponse.model_validate(gap_analysis)
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
@@ -222,6 +267,20 @@ def askable_gap_inputs(gap_analysis: GapAnalysis) -> list:
     seen_c = {_norm_gap(g) for g in category_c}
     for concept in keyword_only_honest_gaps(getattr(gap_analysis, "keyword_ledger", None)):
         if _norm_gap(concept) not in seen_c:
+            category_c.append(concept)
+            seen_c.add(_norm_gap(concept))
+    # #260: keyword-LIABILITY concepts (required + claimable + no narrative
+    # anywhere) live in category_a — a plain "strength" — and so never reach
+    # category_c on their own either, exactly like the keyword-only honest
+    # gaps above. Fold them in through the SAME seam so exit (a) of the
+    # pre-generation liability check ("elicit the story via resolve_gap")
+    # is real: the concept becomes clusterable, and therefore reachable via
+    # a resolve_gap `gap_id`, without a second clustering call or any prompt
+    # change (the existing clustering LLM already accepts arbitrary concept
+    # strings — see #204's identical precedent above).
+    for entry in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None)):
+        concept = entry.get("concept", "")
+        if concept and _norm_gap(concept) not in seen_c:
             category_c.append(concept)
             seen_c.add(_norm_gap(concept))
     return category_c
@@ -385,6 +444,10 @@ async def _run_analysis(
         list(job.nice_to_have_skills or []),
         list(job.keywords or []),
         denied_concepts=denied_concepts,
+        # #249 run-4: the vault's own literal text, so the denial floor can
+        # independently affirm a broad term against real evidence instead of
+        # always fail-closing on a narrow denial's compound-containment rule.
+        profile_json=profile.profile_json,
     )
 
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's

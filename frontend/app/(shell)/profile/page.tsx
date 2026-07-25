@@ -27,6 +27,7 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
 import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
+import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -421,6 +422,12 @@ export default function ProfilePage() {
               onPhotoChange={(url) => setProfilePhotoUrl(url)}
             />
           </Card>
+
+          {/* #258 — free-text testimony intake ("anything else recruiters
+              should know"), reconciled into the vault with receipts exactly
+              like an interview answer; reload on success so the sections and
+              enrichment history below reflect the new receipts immediately. */}
+          <TestimonyIntake onSubmitted={loadProfile} />
 
           {/* Profile Sections */}
           {(Object.keys(SECTION_LABEL_KEYS) as SectionKey[]).map((section) => {

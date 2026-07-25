@@ -155,6 +155,12 @@ class TestJobServiceHashText:
 
 
 class TestAnalyzeJd:
+    """#264: analyze_jd() now routes its draft through review_and_refine
+    (chain_id="job_analysis"). These tests are about caching/dedup and field
+    mapping, not the review loop itself, so they disable it (LLM_REVIEW_MAX_RETRIES=0)
+    to keep call-count assertions meaningful — the review wiring has its own
+    coverage in tests/unit/test_review_job_analysis.py."""
+
     @pytest.mark.asyncio
     async def test_analyze_jd_creates_new_record(self, sqlite_session):
         from applire.services.job import analyze_jd
@@ -171,7 +177,8 @@ class TestAnalyzeJd:
         }
         provider = _make_mock_provider(llm_response)
 
-        result = await analyze_jd("We need a backend developer", sqlite_session, provider)
+        with patch("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0):
+            result = await analyze_jd("We need a backend developer", sqlite_session, provider)
         assert result.role_title == "Backend Developer"
         assert result.seniority_level == "mid"
         provider.aparse_json.assert_called_once()
@@ -193,9 +200,10 @@ class TestAnalyzeJd:
         provider = _make_mock_provider(llm_response)
 
         text = "Identical job description text"
-        await analyze_jd(text, sqlite_session, provider)
-        # Second call with the same text should return cached result without LLM call
-        result2 = await analyze_jd(text, sqlite_session, provider)
+        with patch("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0):
+            await analyze_jd(text, sqlite_session, provider)
+            # Second call with the same text should return cached result without LLM call
+            result2 = await analyze_jd(text, sqlite_session, provider)
 
         assert result2.role_title == "DevOps Engineer"
         # LLM should only have been called once (cache hit on second call)
@@ -218,9 +226,10 @@ class TestAnalyzeJd:
         provider = _make_mock_provider(llm_response)
 
         url = "https://example.com/jobs/123"
-        await analyze_jd("First version of job text", sqlite_session, provider, source_url=url)
-        # Same URL — should return cached record without calling LLM again
-        result2 = await analyze_jd("Different text same URL", sqlite_session, provider, source_url=url)
+        with patch("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0):
+            await analyze_jd("First version of job text", sqlite_session, provider, source_url=url)
+            # Same URL — should return cached record without calling LLM again
+            result2 = await analyze_jd("Different text same URL", sqlite_session, provider, source_url=url)
 
         assert result2.role_title == "Frontend Dev"
         assert provider.aparse_json.call_count == 1

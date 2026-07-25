@@ -31,6 +31,7 @@ const KNOWN_SOURCES = [
   "manual_edit",
   "manual_role_add",
   "agent_interview",
+  "testimony",
 ];
 
 type Catalog = Record<string, unknown>;

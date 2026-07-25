@@ -52,6 +52,14 @@ async def db():
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _disable_jd_review(monkeypatch):
+    """#264: analyze_jd() now runs its draft through review_and_refine. These
+    override tests use a single fixed mocked response and aren't about the
+    review loop — disable it for a deterministic, single-shot call sequence."""
+    monkeypatch.setattr("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0)
+
+
 class _EmbedFails:
     """Embedding provider stub → NULL embedding (no network in unit tests)."""
 

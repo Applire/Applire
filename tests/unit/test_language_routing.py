@@ -186,8 +186,10 @@ def test_job_analysis_model_has_jd_language_column():
 
 
 @pytest.mark.asyncio
-async def test_analyze_jd_stores_detected_jd_language_german(db):
+async def test_analyze_jd_stores_detected_jd_language_german(db, monkeypatch):
     from applire.services.job import analyze_jd
+    # #264: analyze_jd() now runs review_and_refine; not under test here.
+    monkeypatch.setattr("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0)
     provider = AsyncMock()
     provider.aparse_json = AsyncMock(return_value=_VALID_JD_RESPONSE)
     result = await analyze_jd(GERMAN_JD, db, provider)
@@ -199,8 +201,10 @@ async def test_analyze_jd_stores_detected_jd_language_german(db):
 
 
 @pytest.mark.asyncio
-async def test_analyze_jd_stores_detected_jd_language_english(db):
+async def test_analyze_jd_stores_detected_jd_language_english(db, monkeypatch):
     from applire.services.job import analyze_jd
+    # #264: analyze_jd() now runs review_and_refine; not under test here.
+    monkeypatch.setattr("applire.services.job.LLM_REVIEW_MAX_RETRIES", 0)
     provider = AsyncMock()
     provider.aparse_json = AsyncMock(return_value=_VALID_JD_RESPONSE)
     await analyze_jd(ENGLISH_JD, db, provider)

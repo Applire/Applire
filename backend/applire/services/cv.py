@@ -802,6 +802,58 @@ def _restore_ledger_bullets(
     )
 
 
+def _prefer_measured_outcomes(
+    tailored: TailoredCVData, profile_json: dict, lang: str = "de"
+) -> TailoredCVData:
+    """#261 — prefer MEASURED OUTCOMES over TARGETS for the same initiative.
+
+    Ground truth (run-4 blind hiring-panel finding, 2026-07-24): the tailored
+    CV kept a naked "targeting a 70% reduction" bullet sitting next to a
+    properly quantified measured win for the SAME initiative — read by the
+    blind hiring manager as "intentionally blurring aspiration and outcome",
+    one of two named invite-"no" reasons.
+
+    Deterministic post-draft guard, mirroring ``_restore_ledger_bullets``'s
+    own idiom (runs after it, on the SAME vault WorkEntry.id identity
+    ``_backfill_work_ids`` establishes): for every work entry whose bullets
+    contain a target-phrase bullet with a safely-paired measured outcome
+    elsewhere in the vault (owner-scoped, #196/#244 attribution machinery —
+    see ``services.outcome_preference`` module docstring for the full pairing
+    rule and its fabrication guard), the outcome is surfaced and the naked
+    target is either dropped (already present as its own bullet) or reframed
+    with the target folded in as explicit context. MUST run after
+    ``_restore_ledger_bullets`` so a restored vault bullet is also subject to
+    this preference. Pure; ``tailored`` is left unmutated. No-op (returns the
+    SAME object) when no work entry changes.
+
+    ``lang`` (ADR-038) — the framing word ("measured"/"gemessen") follows the
+    document's own OUTPUT language, never the UI language: this text is
+    written into generated document content, same invariant as
+    ``templates.labels.cv_labels``.
+    """
+    from applire.services.oracle.matchers import build_vault_index
+    from applire.services.outcome_preference import prefer_measured_outcomes_for_owner
+
+    index = build_vault_index(profile_json)
+
+    changed = False
+    new_work: list[TailoredWorkEntry] = []
+    for w in tailored.work_history:
+        owner_id = (w.id or "").strip()
+        new_bullets = prefer_measured_outcomes_for_owner(
+            list(w.bullets), owner_id, index.units, lang
+        )
+        if new_bullets != w.bullets:
+            changed = True
+            new_work.append(w.model_copy(update={"bullets": new_bullets}))
+        else:
+            new_work.append(w)
+
+    if not changed:
+        return tailored
+    return tailored.model_copy(update={"work_history": new_work})
+
+
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
@@ -1565,6 +1617,16 @@ async def _render_cv_background(
             # the raw profile dict).
             tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
 
+            # #261 (run-4 blind hiring-panel finding): deterministically prefer a
+            # MEASURED outcome over a bare target/projection for the same initiative
+            # (owner-scoped via the #196/#244 attribution machinery). MUST run after
+            # _restore_ledger_bullets so a restored vault bullet is also covered.
+            # Uses the SORTED profile_json (still bound here; the photo step below
+            # rebinds the name to the raw profile dict).
+            tailored = _prefer_measured_outcomes(
+                tailored, profile_json, resolve_jd_language(job)
+            )
+
             # #172: collapse near-duplicate skill tags (the shared ats_audit
             # predicate) so the CV is clean even when the master profile still
             # carries twins. After the language pass, which rewords the tags.
@@ -1815,6 +1877,16 @@ async def _update_ats_report(
         # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
         ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
+        # #249 run-4: the vault's own literal text backs the shared-predicate guard —
+        # a keyword the Oracle would ground against the vault verbatim must never land
+        # in present_unsupported, so the two panels cannot contradict each other.
+        from applire.services.keyword_ledger import profile_literal_corpus
+
+        profile_row = await db.get(MasterProfile, record.profile_id)
+        vault_text_norm = (
+            profile_literal_corpus(profile_row.profile_json if profile_row else None)
+            or None
+        )
         record.ats_report = _audit_cv_text(
             text,
             tailored,
@@ -1824,6 +1896,7 @@ async def _update_ats_report(
             target=target,
             region=region,
             condensation_exhausted=condensation_exhausted,
+            vault_text_norm=vault_text_norm,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

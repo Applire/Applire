@@ -54,6 +54,8 @@ _EXPECTED_TOOLS = {
     "render_document",
     # BYOI agent-door claims (E045/US255, ADR-054 — surface complete, 24 tools)
     "submit_claims",
+    # Free-text testimony intake (#258) — the agent-door twin of the UI paste box
+    "submit_testimony",
     # Agent-usage guide + honesty contract (E047/US262, ADR-056 — meta tool,
     # not part of the ADR-054 application surface)
     "get_guide",
@@ -77,6 +79,7 @@ _EXPECTED_STATIC_RESOURCE_URIS = {
     "schema://cv",
     "schema://cover-letter",
     "schema://claims",
+    "schema://testimony",
     # E047/US262 (ADR-056): the agent-usage guide. NOTE: the assertion over this
     # set is a SUBSET check — adding the URI here is what gives the guard teeth.
     "guide://usage",

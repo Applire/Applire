@@ -15,7 +15,12 @@ from typing import Any
 
 from applire.schemas.profile import MasterProfileData
 from applire.services.ats_audit import _norm
-from applire.services.oracle.matchers.figures import Figure, extract_figures
+from applire.services.oracle.extract import _core_company_name
+from applire.services.oracle.matchers.figures import (
+    Figure,
+    extract_figures,
+    extract_spelled_figures,
+)
 
 
 @dataclass
@@ -45,6 +50,17 @@ class VaultIndex:
     # a member or the attribution matcher stays silent (fail open on ids from
     # backfill heuristics / stale data, #196 adversarial review).
     experience_ids: frozenset[str] = frozenset()
+    # #237 round-3 (live MCP probe residual): work_experience id -> every id
+    # (INCLUDING itself) sharing that SAME company (legal-form-suffix
+    # tolerant grouping, mirrors extract.py's loose anchor matching) — a long
+    # tenure held across several internal roles. The attribution matcher
+    # (:func:`matchers.attribution.find_foreign_owner`) treats a claim's
+    # anchor and any of its company siblings as equally "not foreign": a
+    # sentence anchored to the CURRENT role (the extract.py current-role
+    # tie-break) whose evidence actually lives on a PAST role at the SAME
+    # company is an ordinary tenure-spanning claim, not a cross-employer
+    # blend. Empty for an id with no siblings (the common single-role case).
+    same_employer_ids: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -91,12 +107,20 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         stripped = text.strip()
         if not stripped:
             return
+        # #237 (run-4 residual): the vault's OWN prose may spell a small
+        # count out ("a team of five tech leads") where generated document
+        # prose (or a quantifier phrasing like "5+") uses a digit —
+        # ``extract_spelled_figures`` bridges that ONLY on this, the vault-
+        # indexing side (see its docstring), so the figure becomes citable
+        # evidence instead of a fabricated-looking claim silently getting a
+        # pass because the vault "doesn't have a 5" in digit form.
+        figures = extract_figures(stripped) + extract_spelled_figures(stripped)
         units.append(
             EvidenceUnit(
                 path=path,
                 text=stripped,
                 text_norm=_norm(stripped),
-                figures=extract_figures(stripped),
+                figures=figures,
                 owner_ids=owners,
             )
         )
@@ -104,6 +128,17 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     summary = p.professional_summary
     _add("professional_summary.de", getattr(summary, "de", None))
     _add("professional_summary.en", getattr(summary, "en", None))
+
+    # #237 (run-4 residual): location/nationality claims ("Based in Germany",
+    # "EU work authorization") were structurally unverifiable — not because
+    # the vault lacks the fact, but because ``build_vault_index`` never
+    # indexed ``personal_info`` at all. Role-agnostic (no owner_ids), like
+    # summary/skills — a candidate's location isn't scoped to one position.
+    personal_info = p.personal_info
+    if personal_info is not None:
+        _add("personal_info.location", getattr(personal_info, "location", None))
+        _add("personal_info.address", getattr(personal_info, "address", None))
+        _add("personal_info.nationality", getattr(personal_info, "nationality", None))
 
     def _safe_id(value: Any) -> str | None:
         return value.strip() if isinstance(value, str) and value.strip() else None
@@ -224,10 +259,30 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         for fig in unit.figures:
             figure_map.setdefault((fig.kind, fig.value), []).append(unit)
 
+    # #237 round-3: group WORK-EXPERIENCE ids by legal-form-suffix-tolerant
+    # company name — every id in a group is a "same employer" sibling of
+    # every other. Deliberately scoped to work_experience only (the concrete
+    # bug shape); projects/volunteer entries have no comparable company
+    # field to group by.
+    company_groups: dict[str, set[str]] = {}
+    for w in p.work_experience:
+        wid = _safe_id(w.id)
+        company = (w.company or "").strip()
+        if wid is None or not company:
+            continue
+        key = _core_company_name(company).strip().lower()
+        company_groups.setdefault(key, set()).add(wid)
+    same_employer_ids: dict[str, frozenset[str]] = {
+        wid: frozenset(group)
+        for group in company_groups.values()
+        for wid in group
+    }
+
     return VaultIndex(
         units=units,
         all_text_norm=_norm(" ".join(u.text for u in units)),
         skill_names=skill_names,
         figure_map=figure_map,
         experience_ids=frozenset(experience_ids),
+        same_employer_ids=same_employer_ids,
     )

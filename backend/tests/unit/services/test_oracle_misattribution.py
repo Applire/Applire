@@ -247,14 +247,18 @@ async def test_report_counts_include_misattributed():
     assert report.counts["misattributed"] == 1
     assert set(report.counts) == {
         "grounded", "inflated", "unbacked", "unverifiable", "misattributed",
+        "not_applicable",
     }
     assert sum(report.counts.values()) == len(report.claims)
 
 
-def test_empty_report_carries_all_five_count_keys():
+def test_empty_report_carries_all_six_count_keys():
+    """#237 round-3: widened from five to six with the additive
+    ``not_applicable`` verdict (employer-fact claims)."""
     report = TruthfulnessReport.from_results("cv", [])
     assert report.counts["misattributed"] == 0
-    assert len(report.counts) == 5
+    assert report.counts["not_applicable"] == 0
+    assert len(report.counts) == 6
 
 
 # ── adversarial review 2026-07-19 — the four confirmed defects ───────────────

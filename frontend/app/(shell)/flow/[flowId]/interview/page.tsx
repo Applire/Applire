@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
@@ -80,6 +80,11 @@ interface SessionCreateResponse {
   // same as "unknown" by the tracker.
   current_gap_id?: string | null;
   addressed_gap_ids?: string[];
+  // #259 run-4 finding 9 — the server-tracked question count. On a fresh
+  // session this is 1; on a RESUMED session (page refresh mid-interview) it
+  // is the real count, so the counter doesn't reset to "1 of up to N" while
+  // the server has already tracked real progress.
+  questions_asked?: number;
 }
 
 interface ConflictSummary {
@@ -127,25 +132,41 @@ interface CompletionData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function apiErrorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    const detail = body.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail))
-      return detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
-    return res.statusText || `HTTP ${res.status}`;
-  } catch {
-    return res.statusText || `HTTP ${res.status}`;
-  }
+// issue #256 — the backend's `detail` (whether a bare string, an array of
+// Pydantic validation errors, or the structured `{error_code, message}` body
+// routers now emit for provider failures) must NEVER be rendered verbatim:
+// a raw Python exception message (the run-4 `'NoneType' object is not
+// subscriptable` traceback) and a raw provider-JSON error payload have both
+// reached the chat surface this way. Only the HTTP status and a structured
+// `error_code` (never free text) are read off the response — translateError
+// below maps those to a fully local, translated string. ADR-038: chrome UI
+// text is `labels[lang]`, never backend-authored prose.
+interface ApiErrorInfo {
+  status: number;
+  code?: string;
 }
 
-function translateError(status: number, t: ReturnType<typeof useTranslations>, detail?: string): string {
-  switch (status) {
+async function parseApiError(res: Response): Promise<ApiErrorInfo> {
+  let code: string | undefined;
+  try {
+    const body = await res.json();
+    const detail = body?.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && typeof detail.error_code === "string") {
+      code = detail.error_code;
+    }
+  } catch {
+    // No body / invalid JSON — fall back to status-only classification below.
+  }
+  return { status: res.status, code };
+}
+
+function translateError(info: ApiErrorInfo, t: ReturnType<typeof useTranslations>): string {
+  if (info.code === "provider_unavailable") return t("providerUnavailable");
+  switch (info.status) {
     case 504: return t("http504");
     case 503: return t("http503");
     case 502: return t("http502");
-    default:  return detail ?? t("generic", { status });
+    default:  return t("generic", { status: info.status });
   }
 }
 
@@ -338,6 +359,10 @@ export default function InterviewPage({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  // #256 — the exact user text a failed turn tried to send, so the Retry
+  // affordance can re-send it verbatim instead of forcing a re-type. null
+  // once there is nothing to retry (no failure yet, or it just succeeded).
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
 
   const [completion, setCompletion] = useState<CompletionData | null>(null);
   const [advancingToCV, setAdvancingToCV] = useState(false);
@@ -353,87 +378,106 @@ export default function InterviewPage({
   const [choices, setChoices] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
 
-  useEffect(() => {
-    async function init() {
-      try {
-        // Load flow state
-        const fsRes = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
-        if (!fsRes.ok) throw new Error(tErrors("flowNotFound"));
-        const fs: FlowState = await fsRes.json();
-        setFlowState(fs);
+  // #256 — extracted from the mount effect so the "couldn't start the
+  // interview" screen below can call it again from a Retry button. Before
+  // this fix a session-creation failure (e.g. a provider 503 on the very
+  // first LLM call) left `sessionId` permanently null: the page rendered
+  // normally with the error banner, but sendAnswer() silently no-ops forever
+  // on a null sessionId — a full page reload was the only way out. Retry now
+  // re-runs exactly the flow the initial mount ran.
+  const initSession = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // Load flow state
+      const fsRes = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
+      if (!fsRes.ok) throw new Error(tErrors("flowNotFound"));
+      const fs: FlowState = await fsRes.json();
+      setFlowState(fs);
 
-        // Fetch gap analysis for cluster tracker
-        fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data: GapAnalysisData | null) => {
-            if (data) {
-              setGapAnalysis(data);
-              setMatchScore(data.match_score);
-            }
-          })
-          .catch(() => {});
+      // Fetch gap analysis for cluster tracker
+      fetch(`${API_BASE}/api/job/${fs.job_id}/gaps`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: GapAnalysisData | null) => {
+          if (data) {
+            setGapAnalysis(data);
+            setMatchScore(data.match_score);
+          }
+        })
+        .catch(() => {});
 
-        // Create or resume interview session
-        const sessionRes = await fetch(`${API_BASE}/api/session`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ job_id: fs.job_id }),
-        });
-        if (!sessionRes.ok) throw new Error(await apiErrorMessage(sessionRes));
-        const sessionData: SessionCreateResponse = await sessionRes.json();
-
-        setSessionId(sessionData.session_id);
-        // issue #245 (NEW-4) — prefer the real hard_ceiling over the soft
-        // "~7" midpoint estimate so "Question X of …" cannot be honestly
-        // overshot by a session that legitimately runs to the true ceiling.
-        setEstimatedQuestions(sessionData.hard_ceiling || sessionData.estimated_questions || 5);
-        setGapsTotal(sessionData.gaps_total ?? 0);
-        setGapsRemaining(sessionData.gaps_remaining ?? 0);
-        setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
-        setChoices(sessionData.choices ?? null);
-
-        // issue #241 item 1 — anchor the cluster tracker to the server's own
-        // current_gap_id / addressed_gap_ids (InterviewState.current_gap_index /
-        // addressed_gaps) rather than guessing from array index arithmetic. On
-        // resume this also correctly restores already-resolved clusters instead
-        // of starting the tracker's resolved set empty.
-        if (sessionData.current_gap_id) {
-          setCurrentClusterId(sessionData.current_gap_id);
-        }
-        if (sessionData.addressed_gap_ids?.length) {
-          setResolvedClusterIds(new Set(sessionData.addressed_gap_ids));
-        }
-
-        if (sessionData.resumed) {
-          setResumed(true);
-          setShowResumeBanner(true);
-        }
-
-        // Advance flow to 'interview' step
-        const advRes = await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ step: "interview", artifact_id: sessionData.session_id }),
-        });
-        // 409 is benign only when the flow really is at the interview step
-        // (resume).  Otherwise the transition was rejected — the flow is on a
-        // different step, so let the flow index re-route to the real one.
-        if (advRes.status === 409 && fs.current_step !== "interview") {
-          router.replace(`/flow/${flowId}`);
-          return;
-        }
-        if (!advRes.ok && advRes.status !== 409) {
-          console.warn("advance_flow:", await advRes.text());
-        }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : tErrors("failedToStart"));
-      } finally {
-        setLoading(false);
+      // Create or resume interview session
+      const sessionRes = await fetch(`${API_BASE}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: fs.job_id }),
+      });
+      if (!sessionRes.ok) {
+        const info = await parseApiError(sessionRes);
+        throw new Error(translateError(info, tErrors));
       }
+      const sessionData: SessionCreateResponse = await sessionRes.json();
+
+      setSessionId(sessionData.session_id);
+      // #259 run-4 finding 9 — restore the real server-tracked count on
+      // resume (page refresh mid-interview), instead of leaving the "1" the
+      // state was initialised with. A fresh session's own questions_asked is
+      // already 1, so this is a no-op on first creation.
+      setQuestionsAsked(sessionData.questions_asked ?? 1);
+      // issue #245 (NEW-4) — prefer the real hard_ceiling over the soft
+      // "~7" midpoint estimate so "Question X of …" cannot be honestly
+      // overshot by a session that legitimately runs to the true ceiling.
+      setEstimatedQuestions(sessionData.hard_ceiling || sessionData.estimated_questions || 5);
+      setGapsTotal(sessionData.gaps_total ?? 0);
+      setGapsRemaining(sessionData.gaps_remaining ?? 0);
+      setMessages([{ role: "assistant", content: sessionData.question ?? sessionData.first_question }]);
+      setChoices(sessionData.choices ?? null);
+
+      // issue #241 item 1 — anchor the cluster tracker to the server's own
+      // current_gap_id / addressed_gap_ids (InterviewState.current_gap_index /
+      // addressed_gaps) rather than guessing from array index arithmetic. On
+      // resume this also correctly restores already-resolved clusters instead
+      // of starting the tracker's resolved set empty.
+      if (sessionData.current_gap_id) {
+        setCurrentClusterId(sessionData.current_gap_id);
+      }
+      if (sessionData.addressed_gap_ids?.length) {
+        setResolvedClusterIds(new Set(sessionData.addressed_gap_ids));
+      }
+
+      if (sessionData.resumed) {
+        setResumed(true);
+        setShowResumeBanner(true);
+      }
+
+      // Advance flow to 'interview' step
+      const advRes = await fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "interview", artifact_id: sessionData.session_id }),
+      });
+      // 409 is benign only when the flow really is at the interview step
+      // (resume).  Otherwise the transition was rejected — the flow is on a
+      // different step, so let the flow index re-route to the real one.
+      if (advRes.status === 409 && fs.current_step !== "interview") {
+        router.replace(`/flow/${flowId}`);
+        return;
+      }
+      if (!advRes.ok && advRes.status !== 409) {
+        console.warn("advance_flow:", await advRes.text());
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : tErrors("failedToStart"));
+    } finally {
+      setLoading(false);
     }
-    void init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tErrors is not identity-stable; re-running init would re-create sessions
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tErrors is not identity-stable; re-running would re-create sessions
   }, [flowId, router]);
+
+  useEffect(() => {
+    void initSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initSession is stable enough for mount-only; re-running would re-create sessions
+  }, [flowId]);
 
   // Fallback only: if the session response didn't supply a current_gap_id
   // (e.g. a degenerate/legacy session), default to the first cluster once gap
@@ -455,6 +499,7 @@ export default function InterviewPage({
 
     setAnswer("");
     setError("");
+    setRetryMessage(null);
     setShowDoneConfirm(false);
     setSending(true);
     setPendingConflicts([]);
@@ -468,8 +513,8 @@ export default function InterviewPage({
         body: JSON.stringify({ message: userMsg }),
       });
       if (!res.ok) {
-        const msg = await apiErrorMessage(res);
-        throw new Error(translateError(res.status, tErrors, msg));
+        const info = await parseApiError(res);
+        throw new Error(translateError(info, tErrors));
       }
       const data: MessageResponse = await res.json();
 
@@ -526,6 +571,13 @@ export default function InterviewPage({
         }
       }
     } catch (e: unknown) {
+      // #256 — the backend confirmed a failed turn never partially commits
+      // (single commit per turn, #179/#245 pattern — see the interview
+      // service's resumability tests), so the exact same message is always
+      // safe to resend as-is. Drop the optimistic user bubble the retry will
+      // re-add, rather than leaving a duplicate once it succeeds.
+      setMessages((prev) => (prev.at(-1)?.role === "user" ? prev.slice(0, -1) : prev));
+      setRetryMessage(userMsg);
       setError(e instanceof Error ? e.message : tErrors("failedToStart"));
     } finally {
       setSending(false);
@@ -563,6 +615,37 @@ export default function InterviewPage({
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-teal border-t-transparent rounded-full mx-auto mb-4" />
           <p className="text-sm text-gray-500 font-body">{t("loading")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Session-start failure (#256) — a provider outage on the very first LLM
+  // call (session creation) used to leave sessionId permanently null: the
+  // interview screen below rendered anyway with only an error banner, and
+  // sendAnswer() silently no-ops on a null sessionId — no error, no recovery
+  // affordance, wedged until a manual reload (the pinned run-4 vector 3).
+  // ------------------------------------------------------------------------
+  if (!sessionId && error) {
+    return (
+      <div
+        data-testid="interview-start-failed"
+        className="flex items-center justify-center min-h-[60vh] px-4"
+      >
+        <div className="text-center max-w-sm">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-critical/10 mb-4">
+            <svg className="w-6 h-6 text-critical" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </div>
+          <p className="font-heading text-lg font-semibold text-neutral-dark mb-2">
+            {tErrors("failedToStart")}
+          </p>
+          <p className="text-sm text-gray-500 font-body mb-6">{error}</p>
+          <Button data-testid="retry-session-button" onClick={() => void initSession()}>
+            {tCommon("retry")}
+          </Button>
         </div>
       </div>
     );
@@ -764,10 +847,25 @@ export default function InterviewPage({
             </details>
           )}
 
-          {/* Error */}
+          {/* Error (#256) — a failed turn's translated message, plus a Retry
+              affordance that re-sends the exact same answer (the backend
+              guarantees a failed turn never partially commits, so this is
+              always safe — see the interview service's resumability tests). */}
           {error && (
-            <div className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20">
+            <div className="mb-3 px-3 py-2 rounded-lg bg-critical/10 border border-critical/20 flex items-center justify-between gap-3">
               <p className="text-sm text-critical">{error}</p>
+              {retryMessage && (
+                <Button
+                  data-testid="retry-answer-button"
+                  size="sm"
+                  variant="outline"
+                  disabled={sending}
+                  onClick={() => void sendAnswer(retryMessage)}
+                  className="shrink-0"
+                >
+                  {tCommon("retry")}
+                </Button>
+              )}
             </div>
           )}
 

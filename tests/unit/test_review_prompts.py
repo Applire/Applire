@@ -1371,3 +1371,340 @@ class TestCoverLetterPositioningIntegration:
 
         assert "job_description" in REVIEW_SYSTEM_PROMPT
         assert "INVENTED EMPLOYER" in REVIEW_SYSTEM_PROMPT.upper()
+
+
+# ---------------------------------------------------------------------------
+# #255 — positioning inputs threaded through the reviewer/corrector loop, and the
+# denied-concept vocabulary collision (a DO-NOT-CLAIM term is forbidden only as a
+# candidate-competence claim, not as an honest employer-domain fact or an honest
+# gap-naming inside the transfer argument).
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerPositioningThreading:
+    """The reviewer prompt must know positioning content was REQUESTED, so it can
+    (a) flag its absence, and (b) not mistake an honestly-used denied concept for a
+    forbidden candidate claim."""
+
+    def test_review_system_prompt_explains_positioning_requested_block(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        assert "positioning_requested" in p
+        assert "company_domain_engagement" in p
+        assert "gap_transfer_argument" in p
+
+    def test_review_system_prompt_flags_missing_required_positioning_content(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "missing required positioning content" in low
+        assert "absence" in low and "issue" in low
+
+    def test_review_system_prompt_scopes_forbidden_claim_to_possessive_framing(self):
+        """The vocabulary collision (#255): 'LegalTech' sits in DO NOT CLAIM because the
+        candidate denied having it — but the reviewer must not flag it as an employer-
+        domain fact or inside an honest transfer argument naming the gap."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "possessive" in low or "competence" in low
+        assert "legaltech" in low  # the concrete #255 example is named
+        assert "not a claim" in low or "not the fabrication" in low or "honesty, not" in low
+
+    def test_review_system_prompt_flags_minted_figures(self):
+        """#255: the corrector previously minted 'mentoring teams of 5+' while chasing
+        a coverage push — the reviewer must never invite/accept an unverbatim figure."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "minted figure" in low or "mint a figure" in low
+        assert "verbatim" in low
+
+    def test_build_review_prompt_asks_about_positioning_completeness(self):
+        from applire.prompts.review_cover_letter import build_review_prompt
+
+        result = build_review_prompt(_SAMPLE_LETTER_SOURCE, _SAMPLE_LETTER)
+        assert "positioning_requested" in result
+
+    def test_refinement_prompt_instructs_preserving_positioning_content(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "positioning_requested" in p
+        assert "preserve" in low
+
+    def test_refinement_prompt_forbids_minting_figures(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "never mint a figure" in low or "never introduce a number" in low
+        assert "verbatim" in low
+
+    def test_writer_system_prompt_scopes_do_not_claim_to_competence_only(self):
+        """The writer's own CLAIM FRAMING rule must carry the same vocabulary-collision
+        clarification, not just the reviewer — defense in depth (#255)."""
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "candidate competence" in low
+        assert "honesty, not a claim" in low or "not a claim" in low
+
+    def test_writer_system_prompt_forbids_minting_ledger_figures(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "minted figure" in low or "invent a number" in low
+
+
+class TestCoverLetterServiceThreadsPositioningToReviewer:
+    """The service assembly (services/cover_letter.py) must put the SAME positioning
+    blocks the writer got into the reviewer/corrector source (grounding_source)."""
+
+    @staticmethod
+    def _base_mocks(company_name, gap_testimony_profile_extra=None, work_experience=None,
+                     signature_stories=None, category_c=None):
+        from unittest.mock import MagicMock
+
+        cv_tailored = {
+            "contact": {"name": "Max Muster"}, "summary": "QA specialist.",
+            "work_history": [{"company": "Acme GmbH", "role": "QA Engineer",
+                              "start_date": "2020-01", "end_date": "2022-12",
+                              "bullets": ["Built automated regression suites"]}],
+            "skills": ["Test Automation"],
+        }
+        import json as _json
+        letter_raw = _json.loads(_json.dumps(_SAMPLE_LETTER))
+
+        mock_cl = MagicMock(); mock_cl.status = "pending"
+        mock_cl.pre_gen_inputs = {"tone": "formal", "motivation": "", "salary": "", "availability": ""}
+        mock_cl.letter_data = {}; mock_cl.section_overrides = {}
+        mock_job = MagicMock()
+        mock_job.raw_text = "Roche builds diagnostics instruments for regulated healthcare labs."
+        mock_job.company_name = company_name
+        mock_job.keywords = []
+        mock_cv = MagicMock(); mock_cv.tailored_data = cv_tailored
+        profile_json = {
+            "work_history": cv_tailored["work_history"], "skills": cv_tailored["skills"],
+        }
+        if work_experience is not None:
+            profile_json["work_experience"] = work_experience
+        if signature_stories is not None:
+            profile_json["signature_stories"] = signature_stories
+        mock_profile = MagicMock(); mock_profile.profile_json = profile_json
+
+        mock_gap = None
+        if category_c is not None:
+            mock_gap = MagicMock()
+            mock_gap.category_c = category_c
+            mock_gap.keyword_ledger = []
+
+        return mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw
+
+    @pytest.mark.asyncio
+    async def test_grounding_source_carries_positioning_requested_for_company(self):
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
+            company_name="Roche Diagnostics",
+        )
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls, "review_and_refine was not called"
+        src = calls[0]["source"]
+        assert "positioning_requested" in src
+        assert "company_domain_engagement" in src
+        assert "Roche Diagnostics" in src
+        assert '"required": true' in src.lower()
+
+    @pytest.mark.asyncio
+    async def test_grounding_source_omits_positioning_requested_entries_when_absent(self):
+        """No company, no gap testimony, no availability testimony → the
+        positioning_requested object in the reviewer source is empty (not omitted —
+        empty), matching the writer's silence-over-invention discipline."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
+            company_name=None,
+        )
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls
+        src = calls[0]["source"]
+        assert '"positioning_requested": {}' in src
+
+    @pytest.mark.asyncio
+    async def test_grounding_source_carries_gap_transfer_testimony_verbatim(self):
+        """Reproduces the #255 ground truth: LegalTech denied-concept gap + regulated/
+        GxP transfer testimony must reach the reviewer, verbatim, via positioning_requested."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
+            company_name=None,
+            signature_stories=[
+                {
+                    "title": "Bringing GxP rigor to a startup",
+                    "challenge": "The team had never worked in LegalTech before.",
+                    "mechanism": "I applied my prior regulated-industry GxP discipline to the release process.",
+                    "outcome": "We passed our first external audit with zero findings.",
+                    "benchmark": None,
+                }
+            ],
+            category_c=["LegalTech domain experience"],
+        )
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls
+        src = calls[0]["source"]
+        assert "gap_transfer_argument" in src
+        assert "LegalTech domain experience" in src
+        assert "prior regulated-industry GxP discipline" in src  # verbatim testimony
+
+    @pytest.mark.asyncio
+    async def test_retry_prompt_and_corrector_system_carry_positioning_when_rejected(self):
+        """Full loop: on a rejection, the corrector's retry USER prompt (which re-sends
+        `source`) must still carry positioning_requested, and its SYSTEM prompt is the
+        preserve-positioning-aware COVER_LETTER_REFINEMENT_PROMPT."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
+            company_name="Roche Diagnostics",
+        )
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        # Use the REAL review_and_refine so the actual reviewer_prompt_fn/generator_system
+        # wiring from services/cover_letter.py is exercised, with a scripted reviewer verdict.
+        from applire.services.reviewer import review_and_refine as real_review_and_refine
+
+        verdicts = iter([
+            {"approved": False, "issues": ["missing domain engagement"], "feedback": "add it"},
+            {"approved": True, "issues": [], "feedback": ""},
+        ])
+
+        async def scripted_aparse_json(prompt, system=None, **kwargs):
+            # First call = the writer's generation call (system=SYSTEM_PROMPT from
+            # prompts/cover_letter.py). Subsequent calls alternate reviewer/generator
+            # inside review_and_refine, distinguished by which system prompt is used.
+            from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+            if system == REVIEW_SYSTEM_PROMPT:
+                return next(verdicts)
+            return letter_raw
+
+        mock_provider.aparse_json.side_effect = scripted_aparse_json
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", new=real_review_and_refine), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        # Find the retry (generator refinement) call — its system prompt is
+        # COVER_LETTER_REFINEMENT_PROMPT and its user prompt is build_retry_prompt's output.
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT
+        retry_calls = [
+            c for c in mock_provider.aparse_json.call_args_list
+            if c.kwargs.get("system") == COVER_LETTER_REFINEMENT_PROMPT
+        ]
+        assert retry_calls, "corrector retry call not observed"
+        retry_prompt = retry_calls[0].args[0]
+        assert "positioning_requested" in retry_prompt
+        assert "Roche Diagnostics" in retry_prompt

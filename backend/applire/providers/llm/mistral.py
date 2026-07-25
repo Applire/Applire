@@ -26,8 +26,13 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from mistralai import Mistral
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.providers.llm.base import (
+    LLMProvider,
+    raise_if_no_completion,
+    raise_if_truncated,
+    retry_on_truncation,
+)
 
 
 def _is_rate_limit(exc: BaseException) -> bool:
@@ -38,6 +43,19 @@ def _is_rate_limit(exc: BaseException) -> bool:
     if response is not None and getattr(response, "status_code", None) == 429:
         return True
     return False
+
+
+def _unavailable_status_code(exc: BaseException) -> int | None:
+    """Return the HTTP status code if exc is a Mistral 5xx (speakeasy SDK
+    SDKError), else None (issue #256 — a genuine gateway/upstream outage,
+    distinct from a 429 rate limit)."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None) if response is not None else None
+    if isinstance(status, int) and status >= 500:
+        return status
+    return None
 
 
 _retry = retry(
@@ -85,6 +103,14 @@ class MistralProvider(LLMProvider):
         except Exception as exc:
             if _is_rate_limit(exc):
                 raise LLMRateLimitError("Mistral rate limit after 3 attempts") from exc
+            status = _unavailable_status_code(exc)
+            if status is not None:
+                # #256: never surface the raw SDK error text (embeds the
+                # provider's JSON body) — only a static, status-code-only message.
+                raise LLMProviderUnavailableError(
+                    f"Mistral is temporarily unavailable (HTTP {status}). "
+                    "Retry the same request."
+                ) from exc
             raise
 
     async def aparse_json(
@@ -111,6 +137,14 @@ class MistralProvider(LLMProvider):
         except Exception as exc:
             if _is_rate_limit(exc):
                 raise LLMRateLimitError("Mistral rate limit after 3 attempts") from exc
+            status = _unavailable_status_code(exc)
+            if status is not None:
+                # #256: never surface the raw SDK error text (embeds the
+                # provider's JSON body) — only a static, status-code-only message.
+                raise LLMProviderUnavailableError(
+                    f"Mistral is temporarily unavailable (HTTP {status}). "
+                    "Retry the same request."
+                ) from exc
             raise
         return json.loads(raw)
 
@@ -122,6 +156,7 @@ class MistralProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
@@ -134,6 +169,7 @@ class MistralProvider(LLMProvider):
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 

@@ -12,6 +12,7 @@
     "close": "Close",
     "done": "Done",
     "preparing": "Preparing…",
+    "retry": "Retry",
     "ariaClose": "Close",
     "ariaDismiss": "Dismiss",
     "ariaRemoveFile": "Remove file"
@@ -174,7 +175,16 @@
     "matchScoreDisplay": "{label}: {score}%",
     "mergeMovedTitle": "We combined your imports",
     "mergeMovedBody": "Applire merged the CVs you uploaded into one master profile.",
-    "mergeMovedLink": "Review what was combined in your profile"
+    "mergeMovedLink": "Review what was combined in your profile",
+    "liabilityTitle": "Keywords that need a story",
+    "liabilitySubtitle": "These required skills are on your profile, but nothing backs them up yet — a hiring panel notices a bare keyword.",
+    "liabilityBadge": "{count, plural, one {# keyword needs a story} other {# keywords need a story}}",
+    "liabilityTellStory": "Tell the story",
+    "liabilityDrop": "Drop this keyword",
+    "liabilityDropped": "Dropped — no longer claimed",
+    "liabilityResolved": "Story added",
+    "liabilityUnavailable": "Still preparing a question — check back in a moment",
+    "liabilityDropError": "Couldn't drop the keyword. Try again."
   },
   "interview": {
     "loading": "Starting interview…",
@@ -592,7 +602,23 @@
       "interview": "Interview",
       "manual_edit": "Manual edit",
       "manual_role_add": "Manually added role",
-      "agent_interview": "Agent interview"
+      "agent_interview": "Agent interview",
+      "testimony": "Your own notes"
+    },
+    "testimony": {
+      "title": "Your own notes",
+      "description": "Anything recruiters should know that isn't captured anywhere yet? Paste free text here — Applire reconciles it against your profile and stores it with a receipt.",
+      "placeholder": "e.g. a project story, a number, a limit you remember …",
+      "submit": "Add to profile",
+      "submitting": "Reconciling …",
+      "emptyError": "Please enter some text first.",
+      "submitFailed": "We couldn't add your notes.",
+      "statusApplied": "{count, plural, one {# change} other {# changes}} saved to your profile.",
+      "statusNoChange": "Nothing new found — this is already in your profile.",
+      "statusDenialRecorded": "Noted — this limit is now on record and won't be assumed later.",
+      "statusNeedsConfirmation": "A few details need your confirmation — check the profile Health hub.",
+      "statusConflict": "This conflicts with something already in your profile — check the profile Health hub.",
+      "statusError": "Couldn't process this: {detail}"
     },
     "completeness": "Profile Completeness",
     "enrichProfile": "Enrich Profile",
@@ -784,6 +810,7 @@
     "http504": "This is taking longer than usual. Please try again.",
     "http503": "Service temporarily busy. Please wait and retry.",
     "http502": "Processing error. Please try a different format.",
+    "providerUnavailable": "The AI provider is temporarily unavailable. Please wait and retry.",
     "generic": "An error occurred ({status}). Please try again."
   },
   "enrich": {
@@ -953,6 +980,8 @@
     "unverifiableNote": "{count, plural, one {# soft claim can't be checked against your profile} other {# soft claims can't be checked against your profile}}",
     "relatedNote": "{count, plural, one {# skill rests on related evidence in your profile, not the literal term} other {# skills rest on related evidence in your profile, not the literal term}}",
     "relatedDetail": "Related evidence — not literally in your records.",
+    "unverifiableDominatedTitle": "Treat this letter as unreviewed",
+    "unverifiableDominatedBody": "Most claims couldn't be verified against your profile — treat this letter as unreviewed.",
     "detailsButton": "Details",
     "evidenceLabel": "Evidence from your profile:",
     "statedLimit": "This report verifies consistency between the document and your profile. It cannot prove the profile itself — profile claims are self-attested; documented interview provenance mitigates but does not eliminate this.",
@@ -962,7 +991,8 @@
       "misattributed": "Misattributed",
       "unbacked": "Unbacked",
       "unverifiable": "Unverifiable",
-      "related": "Related evidence"
+      "related": "Related evidence",
+      "not_applicable": "About the employer"
     }
   },
   "admin": {

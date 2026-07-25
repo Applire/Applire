@@ -30,8 +30,13 @@ import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.providers.llm.base import (
+    LLMProvider,
+    raise_if_no_completion,
+    raise_if_truncated,
+    retry_on_truncation,
+)
 
 _retry = retry(
     retry=retry_if_exception_type(openai.RateLimitError),
@@ -85,6 +90,17 @@ class OpenAIProvider(LLMProvider):
             raise LLMRateLimitError("OpenAI rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("OpenAI SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: see openrouter.py's identical mapping — a genuine 5xx is a
+            # retryable outage, never a reason to surface the raw provider-
+            # JSON body to the caller. Also covers self-hosted OpenAI-
+            # compatible servers (LM Studio etc.) returning a 5xx.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"{self._model or 'The LLM provider'} is temporarily unavailable "
+                    f"(HTTP {exc.status_code}). Retry the same request."
+                ) from exc
+            raise
 
     async def aparse_json(
         self,
@@ -111,6 +127,17 @@ class OpenAIProvider(LLMProvider):
             raise LLMRateLimitError("OpenAI rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("OpenAI SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: see openrouter.py's identical mapping — a genuine 5xx is a
+            # retryable outage, never a reason to surface the raw provider-
+            # JSON body to the caller. Also covers self-hosted OpenAI-
+            # compatible servers (LM Studio etc.) returning a 5xx.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"{self._model or 'The LLM provider'} is temporarily unavailable "
+                    f"(HTTP {exc.status_code}). Retry the same request."
+                ) from exc
+            raise
         # Strip markdown code fences (common with local models)
         if content.startswith("```"):
             content = content.split("```")[1]
@@ -126,6 +153,7 @@ class OpenAIProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 
@@ -141,6 +169,7 @@ class OpenAIProvider(LLMProvider):
             max_tokens=max_tokens,
             **kwargs,
         )
+        raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
 

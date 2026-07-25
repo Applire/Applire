@@ -36,7 +36,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from applire.exceptions import LLMTruncatedError
+from applire.exceptions import LLMProviderUnavailableError, LLMTruncatedError
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,35 @@ def raise_if_truncated(stop_reason: Any, *, model: str = "") -> None:
             f"Model {model or '?'} hit the token budget (stop_reason={stop_reason!r}); "
             "output is truncated. Raise max_tokens or reduce reasoning."
         )
+
+
+def raise_if_no_completion(response: Any, *, model: str = "") -> None:
+    """Raise LLMProviderUnavailableError when a chat-completion response has no
+    usable choice (issue #256).
+
+    OpenAI-compatible gateways (OpenRouter, Requesty) can answer HTTP 200 with
+    an error embedded in the body — ``choices`` comes back empty or ``None`` —
+    when the upstream inference provider they routed to is itself down (e.g. a
+    Mistral 503 relayed through OpenRouter). The openai SDK does not raise for
+    this shape, so callers that blindly index ``response.choices[0]`` crash
+    with a raw, user-facing ``TypeError``. Guard every provider's completion
+    path with this before indexing.
+
+    Never includes the raw provider payload in the raised message — only logs
+    it server-side — so a caller that (mis)renders ``str(exc)`` can't leak it.
+    """
+    if getattr(response, "choices", None):
+        return
+    provider_error = getattr(response, "error", None)
+    logger.warning(
+        "model=%s returned a completion with no choices (likely an upstream "
+        "provider outage relayed as HTTP 200); provider-reported error=%r",
+        model or "?", provider_error,
+    )
+    raise LLMProviderUnavailableError(
+        f"{model or 'The LLM provider'} returned no completion (upstream outage). "
+        "Retry the same request."
+    )
 
 
 class LLMProvider(ABC):

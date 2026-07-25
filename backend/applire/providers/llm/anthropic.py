@@ -48,7 +48,7 @@ from anthropic import AsyncAnthropic
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated
 
 _retry = retry(
@@ -93,6 +93,15 @@ class AnthropicProvider(LLMProvider):
             raise LLMRateLimitError("Anthropic rate limit after 3 attempts") from exc
         except anthropic.APITimeoutError as exc:
             raise LLMTimeoutError("Anthropic SDK reported timeout") from exc
+        except anthropic.APIStatusError as exc:
+            # #256: a genuine 5xx (e.g. "Overloaded") is a retryable outage —
+            # never surface exc's raw provider-JSON body to the caller.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"Anthropic is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
 
     async def aparse_json(
         self,
@@ -119,6 +128,15 @@ class AnthropicProvider(LLMProvider):
             raise LLMRateLimitError("Anthropic rate limit after 3 attempts") from exc
         except anthropic.APITimeoutError as exc:
             raise LLMTimeoutError("Anthropic SDK reported timeout") from exc
+        except anthropic.APIStatusError as exc:
+            # #256: a genuine 5xx (e.g. "Overloaded") is a retryable outage —
+            # never surface exc's raw provider-JSON body to the caller.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"Anthropic is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
         raw = ("{" + text).strip()
         # Drop any trailing prose / code fence after the JSON object.
         end = raw.rfind("}")
@@ -153,10 +171,16 @@ class AnthropicProvider(LLMProvider):
 
 
 def _text(response: Any) -> str:
-    """Concatenate the text blocks of a Messages-API response."""
+    """Concatenate the text blocks of a Messages-API response.
+
+    #256: ``getattr(..., [])`` only covers a missing attribute — a malformed
+    response with ``content=None`` (attribute present, value None) would still
+    crash ``for block in None`` with a raw TypeError; the trailing ``or []``
+    covers that shape too.
+    """
     parts = [
         block.text
-        for block in getattr(response, "content", [])
+        for block in (getattr(response, "content", None) or [])
         if getattr(block, "type", None) == "text"
     ]
     return "".join(parts)

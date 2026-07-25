@@ -267,10 +267,47 @@ async def test_extract_from_text_llm_failure_degrades(monkeypatch):
             "I’m proud of the team’s results, with strong retention.",
             ["I’m proud of the team’s results", "strong retention."],
         ),
+        # #237 round-3 (live MCP probe residual): a PAIRED, unspaced em-dash
+        # marks a parenthetical aside — must isolate the aside as its OWN
+        # clause rather than let an Oxford-comma "and" INSIDE it win instead
+        # (which used to fragment the aside's own enumeration list, "GxP
+        # documentation workflows, audit trails" | "and validation reports
+        # ...", mid-list).
+        (
+            "my regulated-industry background—building GxP documentation "
+            "workflows, audit trails, and validation reports for "
+            "pharma-adjacent customers—gives me hands-on experience.",
+            [
+                "my regulated-industry background",
+                "building GxP documentation workflows, audit trails, and "
+                "validation reports for pharma-adjacent customers",
+                "gives me hands-on experience.",
+            ],
+        ),
     ],
 )
 def test_split_clauses(text, expected):
     assert split_clauses(text) == expected
+
+
+def test_split_clauses_single_unpaired_em_dash_uses_normal_boundary_rules():
+    """Over-relax guard: exactly ONE em-dash (not a pair) must still use the
+    pre-existing spaced-dash boundary rule — the paired-aside rule is scoped
+    to EXACTLY two em-dashes only."""
+    assert split_clauses("I led the migration — cutting costs by 30 percent.") == [
+        "I led the migration",
+        "cutting costs by 30 percent.",
+    ]
+
+
+def test_split_clauses_en_dash_date_range_is_not_split():
+    """Over-relax guard: an unspaced en-dash date range ("2020–2023") must
+    never be treated as a clause boundary — the paired-aside rule is scoped
+    to EM-DASH specifically (U+2014), not the broader ``_DASH_CHARS`` set
+    that also carries en-dash (U+2013, commonly a date-range separator)."""
+    assert split_clauses("I worked there from 2020–2023 and grew the team.") == [
+        "I worked there from 2020–2023 and grew the team."
+    ]
 
 
 def test_split_clauses_never_returns_empty_for_nonempty_text():
@@ -397,11 +434,22 @@ def test_letter_named_experience_ids_tolerates_legal_form_suffix():
     assert ids == {"w-biontech", "w-applire"}
 
 
-def test_sentence_named_ids_tolerates_legal_form_suffix_even_when_strict_anchor_fails():
-    """The STRICT anchor (`source_experience_id`) still fails on the bare
-    "BioNTech" mention — #237's exact-name behaviour is unchanged, zero
-    regression risk there — but the new loose `sentence_named_ids` signal
-    finds it anyway, because IT is what the #248 ownership check needs."""
+def test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_tiebreak():
+    """SUPERSEDES the #248-era pin that the STRICT anchor stayed ``None`` on
+    a bare "BioNTech" mention. #237 run-4 residual (live self-audit,
+    2026-07-24): that exact-name-only behaviour was disproved by production
+    data — "BioNTech SE" vs. a letter that simply says "BioNTech" is the
+    COMMON case, not a rare edge, and starved the attribution matcher of an
+    anchor on almost every real BioNTech-mentioning sentence in a realistic
+    letter (10/14 claims unverifiable on an honest letter). The strict
+    anchor now retries against the legal-form-suffix-tolerant candidate set
+    when the exact set matches nothing at all (see
+    ``extract._find_employer_anchor``'s #237 docstring section) — for a
+    single-role company like this fixture's, that alone resolves it (no
+    tie-break needed, since exactly one loose candidate matches). The
+    ownership-check-only signal this test used to isolate,
+    ``sentence_named_ids``, still carries the same id (loose matching was
+    already this permissive) — it and the strict anchor now agree here."""
     letter = {
         "body": {
             "paragraphs": [
@@ -412,8 +460,24 @@ def test_sentence_named_ids_tolerates_legal_form_suffix_even_when_strict_anchor_
     }
     claims = extract_claims_from_letter(letter, PROFILE_LEGAL_SUFFIX)
     assert len(claims) == 1
-    assert claims[0].source_experience_id is None  # strict anchor: unchanged
+    assert claims[0].source_experience_id == "w-biontech"
     assert claims[0].sentence_named_ids == frozenset({"w-biontech"})
+
+
+def test_strict_anchor_stays_unanchored_on_genuine_same_company_multi_role_ambiguity():
+    """Over-drop guard for the #237 run-4 widening above: when a company was
+    held across MULTIPLE internal roles and none of them is marked
+    ``is_current``, the tie-break can't decide either — the strict anchor
+    must still fail open, exactly as before."""
+    profile = {
+        "work_experience": [
+            {"id": "w-old1", "company": "BioNTech SE", "role": "System Engineer"},
+            {"id": "w-old2", "company": "BioNTech SE", "role": "Architect"},
+        ],
+    }
+    letter = {"body": {"paragraphs": ["At BioNTech, I led automation projects."]}}
+    claims = extract_claims_from_letter(letter, profile)
+    assert all(c.source_experience_id is None for c in claims)
 
 
 def test_sentence_named_ids_empty_when_sentence_names_no_employer():

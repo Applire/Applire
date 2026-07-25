@@ -135,6 +135,74 @@ def test_gap_detector_c_before_b():
     assert ids[1] == "cluster-b"
 
 
+def test_gap_detector_without_profile_preserves_legacy_order():
+    """Backward compatibility: no `profile` arg → no reordering at all (every
+    pre-#259 caller/test keeps its exact existing behaviour)."""
+    from applire.services.interview_graph import gap_detector
+    from unittest.mock import MagicMock
+    from applire.models.gap import GapAnalysis
+
+    ga = MagicMock(spec=GapAnalysis)
+    ga.gap_clusters = [
+        {"id": "cluster-breadth", "label": "Breadth", "category": "C", "gaps": ["Rust"], "jd_skills": [], "jd_context": ""},
+        {"id": "cluster-required", "label": "Required", "category": "C", "gaps": ["CI/CD"], "jd_skills": [], "jd_context": ""},
+    ]
+    ga.keyword_ledger = [
+        {"concept": "CI/CD", "sources": ["required"], "status": "gap"},
+        {"concept": "Rust", "sources": ["nice_to_have"], "status": "gap"},
+    ]
+    ids, _, _ = gap_detector(ga)
+    assert ids == ["cluster-breadth", "cluster-required"]
+
+
+def test_gap_detector_promotes_jd_required_keyword_only_concept_within_category():
+    """#259 ordering guardrail: a JD-hard-requirement concept that is
+    keyword-only in the vault is asked BEFORE a nice-to-have cluster question
+    — even though both clusters sit in the same category (breadth is listed
+    FIRST in the raw clustering output, so this proves reordering, not luck)."""
+    from applire.services.interview_graph import gap_detector
+    from unittest.mock import MagicMock
+    from applire.models.gap import GapAnalysis
+
+    ga = MagicMock(spec=GapAnalysis)
+    ga.gap_clusters = [
+        {"id": "cluster-breadth", "label": "Nice-to-have breadth", "category": "C", "gaps": ["Rust"], "jd_skills": [], "jd_context": ""},
+        {"id": "cluster-required", "label": "CI/CD (required)", "category": "C", "gaps": ["CI/CD"], "jd_skills": [], "jd_context": ""},
+    ]
+    ga.keyword_ledger = [
+        {"concept": "CI/CD", "sources": ["required"], "status": "gap"},
+        {"concept": "Rust", "sources": ["nice_to_have"], "status": "gap"},
+    ]
+    profile = {"work_experience": []}
+    ids, _, _ = gap_detector(ga, profile=profile)
+    assert ids[0] == "cluster-required"
+    assert ids[1] == "cluster-breadth"
+
+
+def test_gap_detector_priority_does_not_cross_category_boundary():
+    """A JD-required keyword-only concept in a category-B cluster still asks
+    AFTER every category-C cluster — the existing C-before-B ordering (a
+    coarser, already-load-bearing value signal) is not inverted; priority
+    only breaks ties WITHIN a bucket."""
+    from applire.services.interview_graph import gap_detector
+    from unittest.mock import MagicMock
+    from applire.models.gap import GapAnalysis
+
+    ga = MagicMock(spec=GapAnalysis)
+    ga.gap_clusters = [
+        {"id": "cluster-b-required", "label": "B required", "category": "B", "gaps": ["CI/CD"], "jd_skills": [], "jd_context": ""},
+        {"id": "cluster-c-breadth", "label": "C breadth", "category": "C", "gaps": ["Rust"], "jd_skills": [], "jd_context": ""},
+    ]
+    ga.keyword_ledger = [
+        {"concept": "CI/CD", "sources": ["required"], "status": "gap"},
+        {"concept": "Rust", "sources": ["nice_to_have"], "status": "gap"},
+    ]
+    profile = {"work_experience": []}
+    ids, _, _ = gap_detector(ga, profile=profile)
+    assert ids[0] == "cluster-c-breadth"
+    assert ids[1] == "cluster-b-required"
+
+
 # ---------------------------------------------------------------------------
 # #166: clustering payload must survive JSON-object mode (every real provider
 # forces a top-level object; a compliant model can NEVER emit a bare array).
@@ -353,3 +421,80 @@ async def test_cluster_gaps_uses_keyword_only_honest_gaps_as_clustering_input():
         await cluster_gaps(ga, job, provider, db)
     prompt_arg = provider.aparse_json.call_args.args[0]
     assert "Kubernetes" in prompt_arg
+
+
+# ---------------------------------------------------------------------------
+# #260 — askable_gap_inputs() ALSO augments with keyword-LIABILITY concepts
+# (required + claimable + no narrative anywhere): exit (a) of the
+# pre-generation liability check is "elicit the story via the existing
+# resolve_gap micro-session machinery" — routing through the SAME
+# augmentation seam US204 established for keyword-only honest gaps, so a
+# liability concept (which normally lives in category_a, never askable)
+# becomes clusterable and therefore resolve_gap-reachable.
+# ---------------------------------------------------------------------------
+
+
+def _liability_keyword_entry(concept):
+    """A required, claimable, narrative-less ledger entry (#260) — status
+    `direct`/category_a in compute_match_score terms, so it would never reach
+    category_c on its own, exactly like the keyword-only honest-gap case."""
+    return {
+        "concept": concept,
+        "claimable": True,
+        "fit_weight": 1.0,
+        "sources": ["required"],
+        "status": "direct",
+        "narrative_backed": False,
+    }
+
+
+def test_askable_gap_inputs_augments_with_keyword_liabilities():
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(category_c=[], keyword_ledger=[_liability_keyword_entry("RAG")])
+    assert askable_gap_inputs(ga) == ["RAG"]
+
+
+def test_askable_gap_inputs_dedupes_liability_against_category_c():
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(
+        category_c=["RAG"],
+        keyword_ledger=[_liability_keyword_entry("rag")],  # different casing
+    )
+    assert askable_gap_inputs(ga) == ["RAG"]
+
+
+def test_askable_gap_inputs_dedupes_liability_against_keyword_only_honest_gap():
+    """A concept cannot double-count if it somehow satisfied both
+    augmentation predicates (defensive; the two are normally disjoint since
+    a liability concept is claimable and a keyword-only honest gap is not)."""
+    from applire.services.gap import askable_gap_inputs
+    ga = _cluster_gaps_ga(
+        category_c=[],
+        keyword_ledger=[_honest_keyword_entry("Kubernetes"), _liability_keyword_entry("RAG")],
+    )
+    assert askable_gap_inputs(ga) == ["Kubernetes", "RAG"]
+
+
+def test_askable_gap_inputs_narrative_backed_liability_entry_never_augments():
+    """A backed entry (narrative_backed True, or missing status not
+    required/claimable) is not a liability and stays out of askable input."""
+    from applire.services.gap import askable_gap_inputs
+    backed = _liability_keyword_entry("RAG")
+    backed["narrative_backed"] = True
+    ga = _cluster_gaps_ga(category_c=[], keyword_ledger=[backed])
+    assert askable_gap_inputs(ga) == []
+
+
+@pytest.mark.asyncio
+async def test_cluster_gaps_uses_keyword_liabilities_as_clustering_input():
+    from applire.services.gap import cluster_gaps
+    ga = _cluster_gaps_ga(category_c=[], category_b=[], keyword_ledger=[_liability_keyword_entry("RAG")])
+    job = _cluster_gaps_job()
+    provider = _cluster_gaps_provider({"clusters": []})
+    db = _MagicMock()
+    db.commit = _AsyncMock()
+    db.__contains__ = _MagicMock(return_value=True)
+    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+        await cluster_gaps(ga, job, provider, db)
+    prompt_arg = provider.aparse_json.call_args.args[0]
+    assert "RAG" in prompt_arg

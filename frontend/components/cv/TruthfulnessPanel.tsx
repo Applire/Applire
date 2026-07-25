@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ATSReport } from "@/components/cv/ATSChecksPanel";
 
@@ -14,7 +15,16 @@ import type { ATSReport } from "@/components/cv/ATSChecksPanel";
 // misattributed / unbacked) stay loud on the compact card; unverifiable soft
 // claims are a single muted note, never a wall of warnings.
 
-type Verdict = "grounded" | "inflated" | "misattributed" | "unbacked" | "unverifiable";
+type Verdict =
+  | "grounded"
+  | "inflated"
+  | "misattributed"
+  | "unbacked"
+  | "unverifiable"
+  // #237 round-3: statements ABOUT the target employer (sourced from the JD,
+  // validated by the ADR-021 reviewer) — the vault can't ground them, so the
+  // Oracle files them as not_applicable and excludes them from dominance.
+  | "not_applicable";
 
 type TruthfulnessEvidence = {
   kind: "profile_path" | "enrichment_record";
@@ -38,6 +48,13 @@ export type TruthfulnessReport = {
   claims: TruthfulnessClaimResult[];
   counts: Record<string, number>;
   stated_limit: string;
+  // #249/US266 "louder letter-panel failure copy": a report-level summary
+  // flag (>50% unverifiable) a sibling backend change adds to the
+  // Truthfulness Oracle report schema. Optional/frontend-only widening —
+  // backend/applire/schemas/oracle.py is NOT touched from this branch; older
+  // persisted reports simply lack the field, which must render exactly as
+  // before (absent === false, never a crash or a silent "true").
+  unverifiable_dominated?: boolean;
 } | null;
 
 const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
@@ -71,6 +88,7 @@ const VERDICT_CHIP_CLASS: Record<DisplayKind, string> = {
   misattributed: "bg-critical-container text-critical",
   unbacked: "bg-warning-container text-warning",
   unverifiable: "border border-outline-variant text-on-surface-variant",
+  not_applicable: "border border-outline-variant text-on-surface-variant",
   // Deliberately neither the red (flag) nor the green (grounded) palette —
   // a genuinely neutral/informational chip (#249: must not look like either).
   related: "bg-primary-container text-primary",
@@ -158,6 +176,12 @@ export default function TruthfulnessPanel({
   const unverifiableDominant =
     flagged.length === 0 &&
     isUnverifiableDominant(groundedCount, unverifiable.length, claims.length);
+  // #249/US266 letter panel louder-failure copy: a SEPARATE, backend-computed
+  // signal (>50% unverifiable) from the client-side heuristic above — a
+  // sibling change adds `unverifiable_dominated` to the report itself.
+  // Defensive by construction: `=== true` so an absent field (older reports)
+  // or any other value never trips the loud banner.
+  const unverifiableDominatedBackend = report.unverifiable_dominated === true;
   const verdictLabel = (v: Verdict) => t(`verdicts.${v}`);
 
   // Drawer ordering: red flags first, then related-evidence, then
@@ -167,6 +191,8 @@ export default function TruthfulnessPanel({
     ...related,
     ...unverifiable,
     ...claims.filter((c) => c.verdict.verdict === "grounded"),
+    // #237 round-3: employer facts render last — informational, never a flag.
+    ...claims.filter((c) => c.verdict.verdict === "not_applicable"),
   ];
 
   return (
@@ -238,6 +264,24 @@ export default function TruthfulnessPanel({
             {t("detailsButton")}
           </Button>
         </div>
+
+        {/* #249/US266: a report-level "unreviewed" warning — louder and more
+            explicit than the compact-card headline above, never a green or
+            neutral summary. Renders independently of the flagged-claims list
+            (a letter can be flag-free and STILL be mostly unverifiable). */}
+        {unverifiableDominatedBackend && (
+          <div
+            data-testid="truthfulness-unverifiable-dominated-warning"
+            role="alert"
+            className="mt-2 flex items-start gap-2 rounded-r-lg border-l-4 border-warning bg-warning-container p-3 text-sm text-neutral-dark"
+          >
+            <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              <span className="block font-semibold">{t("unverifiableDominatedTitle")}</span>
+              <span className="block">{t("unverifiableDominatedBody")}</span>
+            </span>
+          </div>
+        )}
 
         {/* Red flags stay loud: rendered inline, no interaction needed. */}
         {flagged.length > 0 && (

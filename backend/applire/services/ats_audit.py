@@ -287,6 +287,7 @@ def _keyword_coverage(
     text_norm: str,
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    vault_text_norm: str | None = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -305,6 +306,7 @@ def _keyword_coverage(
     # deterministic and local — no LLM, no synthetic score.
     from applire.services.keyword_ledger import (
         claimable_surface_forms,
+        keyword_liabilities,
         unclaimable_surface_forms,
     )
 
@@ -318,13 +320,35 @@ def _keyword_coverage(
     # without profile evidence (e.g. typed in via the section editor). Claimable always
     # wins on alias collisions; without a ledger we cannot judge, so nothing is flagged.
     unclaimable_norm = {_norm(f) for f in unclaimable_surface_forms(ledger)}
+    # #249 run-4 (2026-07-24): ONE shared presence predicate over BOTH
+    # surfaces — a keyword that clears `surface_present` against the vault's
+    # OWN literal text (the same instrument the Truthfulness Oracle's
+    # ground_skill_claim checks, services/oracle/matchers/grounding.py) can
+    # never be flagged present_unsupported, whatever the Keyword Ledger's own
+    # classification says. Defense-in-depth over narrowing the denial match
+    # at ledger-build time (services/keyword_ledger.py): even a stale or
+    # otherwise mis-classified ledger row can no longer put the ATS panel and
+    # the Oracle at odds about the same skill string. `vault_text_norm` is
+    # optional and back-compat (None for every existing caller) — omitting it
+    # reproduces today's behaviour exactly.
+    literally_grounded = (
+        {k for k in present if surface_present(k, vault_text_norm)}
+        if vault_text_norm
+        else set()
+    )
     present_unsupported = [
         k for k in present
-        if _norm(k) in unclaimable_norm and _norm(k) not in claimable_norm
+        if _norm(k) in unclaimable_norm
+        and _norm(k) not in claimable_norm
+        and k not in literally_grounded
     ]
     # E048/US266 (#249 option b): the FULL claimable list, independent of
     # presence — the same list already computed above for the missing_claimable
     # split, exposed on the report itself.
+    # #260: the pre-generation liability slice, exposed on the report too (agent
+    # + report-surface parity) — orthogonal to claimable_concepts (literal vault
+    # presence) and independent of document presence, same as claimable_concepts.
+    keyword_liability_concepts = [e.get("concept", "") for e in keyword_liabilities(ledger)]
     return ATSKeywordCoverage(
         present=present,
         missing=missing,
@@ -332,6 +356,7 @@ def _keyword_coverage(
         missing_honest_gap=missing_honest_gap,
         present_unsupported=present_unsupported,
         claimable_concepts=claimable_concepts,
+        keyword_liability_concepts=keyword_liability_concepts,
     )
 
 
@@ -354,6 +379,7 @@ def _audit_cv_text(
     target: int | None = None,
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
+    vault_text_norm: str | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -524,7 +550,7 @@ def _audit_cv_text(
                                 "standard": standard, "max": maximum},
             ))
 
-    return _finish("cv", checks, _keyword_coverage(t, keywords, ledger))
+    return _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
 
 
 def audit_cv(
@@ -535,6 +561,7 @@ def audit_cv(
     target: int | None = None,
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
+    vault_text_norm: str | None = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
@@ -550,11 +577,18 @@ def audit_cv(
 
     ``target``/``region``/``condensation_exhausted`` (E042/US238, ADR-051 §5) drive the
     target-aware page-length band; ``target`` defaults to the region standard.
+
+    ``vault_text_norm`` (#249 run-4, 2026-07-24): optional normalised literal vault
+    text — when given, a keyword that clears THE shared presence predicate against
+    it can never land in ``present_unsupported``, regardless of the ledger's own
+    classification (defense-in-depth over the denial-narrowing fix in
+    ``services/keyword_ledger.py``). ``None`` (default) reproduces prior behaviour.
     """
     text, page_count = extract_text_and_pages(pdf_bytes)
     return _audit_cv_text(
         text, tailored, keywords, ledger, page_count=page_count,
         target=target, region=region, condensation_exhausted=condensation_exhausted,
+        vault_text_norm=vault_text_norm,
     )
 
 
@@ -564,6 +598,7 @@ def _audit_letter_text(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
+    vault_text_norm: str | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -607,7 +642,7 @@ def _audit_letter_text(
                                 "letterPages": letter_pages},
             ))
 
-    return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger))
+    return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
 
 
 def audit_cover_letter(
@@ -615,6 +650,7 @@ def audit_cover_letter(
     letter_data: dict[str, Any],
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
+    vault_text_norm: str | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -624,6 +660,12 @@ def audit_cover_letter(
     E042/US240: reads the real page count via :func:`extract_text_and_pages` (one
     PdfReader pass, #171a-style) and threads it into :func:`_audit_letter_text` for
     the detection-only page-length check.
+
+    ``vault_text_norm`` (#249 run-4): see :func:`audit_cv` — same shared-predicate
+    guard on ``present_unsupported``, optional and back-compat.
     """
     text, page_count = extract_text_and_pages(pdf_bytes)
-    return _audit_letter_text(text, letter_data, keywords, ledger, page_count=page_count)
+    return _audit_letter_text(
+        text, letter_data, keywords, ledger, page_count=page_count,
+        vault_text_norm=vault_text_norm,
+    )

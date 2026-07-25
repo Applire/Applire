@@ -33,10 +33,11 @@ from applire.schemas.gap import (
     GapAnalysisResponse,
     GapJobResponse,
     GapJobStatusResponse,
+    KeywordLiabilityDowngradeRequest,
 )
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
 from applire.services.application import find_duplicate_application
-from applire.services.gap import analyze_gaps
+from applire.services.gap import analyze_gaps, downgrade_keyword_liability
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
 from applire.services.job import analyze_jd
 from applire.services.scraper import ScraperError, scrape_job_url
@@ -170,6 +171,42 @@ async def refresh_gap_analysis(
         )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.post(
+    "/{job_id}/gaps/liabilities/downgrade",
+    response_model=GapAnalysisResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def downgrade_gap_keyword_liability(
+    job_id: uuid.UUID,
+    request: KeywordLiabilityDowngradeRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> GapAnalysisResponse:
+    """#260 exit (b) — the pre-generation liability summary's "drop the
+    keyword" action. Deterministic, no LLM: flips the matching claimable
+    ledger entry to an honest gap and re-derives the match score. The other
+    exit stays the existing POST /api/session (target_gap) micro-session
+    flow — this endpoint only ever removes a claim, never adds one.
+    """
+    try:
+        return await downgrade_keyword_liability(job_id, request.concept, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception:
+        # #265: never format str(exc) into the response — a provider crash's
+        # message can embed a raw provider payload. Full detail is logged
+        # server-side; the client gets a stable machine-readable code (the
+        # #256 convention, applied here so new code adds no new leak).
+        logger.exception("keyword-liability downgrade failed for job %s", job_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "internal_error",
+                "message": "An unexpected error occurred. Please try again.",
+            },
+        )
 
 
 @router.get(

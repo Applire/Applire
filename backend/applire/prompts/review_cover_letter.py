@@ -28,6 +28,18 @@
 # OWN pre-generation inputs (motivation/salary/availability). A claim the candidate
 # themselves supplied is NOT a fabrication, so the reviewer is given those inputs too,
 # to avoid false-flagging them.
+#
+# #255 (ADR-057 amended 2026-07-24 / US264 follow-up): a run-4 letter shipped with ZERO
+# LegalTech/domain engagement and no transfer argument despite both being requested and
+# grounded in the writer's prompt. Root cause: the reviewer/corrector never received the
+# POSITIONING inputs (company/domain, gap/transfer, availability) the writer got, so (a)
+# it could not flag their absence, and (b) a DO-NOT-CLAIM term used HONESTLY — as an
+# employer-domain fact or inside the transfer argument naming the gap — was
+# indistinguishable from a forbidden candidate-competence claim, and got stripped along
+# with a legitimately invented detail. This module now threads the SAME positioning
+# inputs (via the source's ``positioning_requested`` block, assembled in
+# services/cover_letter.py) into both the reviewer and the corrector, and narrows the
+# forbidden-claim check to possessive/competence framing only.
 
 import json
 
@@ -44,6 +56,14 @@ text (``job_description``) — the only authoritative source for claims ABOUT TH
 (their product, domain, or market): a company/domain claim grounded in that text is fine,
 but any company product, market, or achievement NOT stated there is still an invented,
 ungrounded claim (ADR-057 amended 2026-07-24 / US264).
+
+The CANDIDATE SOURCE may also carry a ``positioning_requested`` block (ADR-057 amended
+2026-07-24 / US264/#255) naming up to three REQUIRED-content instructions the writer was
+given: ``company_domain_engagement``, ``gap_transfer_argument``, and ``availability``.
+Each entry states its own grounding (the ``job_description`` text, or the candidate's OWN
+verbatim testimony) plus an explicit instruction. Treat each present entry as REQUIRED
+content, not optional color — its absence from the letter body is itself a review issue
+(check 7 below).
 
 Check the body paragraphs for ALL of the following ungrounded/invented content:
 1. INVENTED DATES OR TENURE: any date, duration, or length-of-experience claim not
@@ -70,12 +90,40 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
        stretch beyond its stated evidence, waive it (name term + reason in feedback) — a waived
        term does not block approval. Grounding strictly OUTRANKS coverage; NEVER ask the writer
        to fabricate or force a term that does not genuinely fit.
-   (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
-       something the candidate has, has done, or knows, flag it — that is a fabrication.
+   (b) FORBIDDEN CLAIM — SCOPED TO POSSESSIVE/COMPETENCE FRAMING ONLY (amended 2026-07-24 /
+       US264/#255): if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
+       something the CANDIDATE has, has done, or knows, flag it — that is a fabrication. This
+       check is about the candidate's own competence, NOT the bare word — the SAME term is
+       ALLOWED, and must NOT be flagged, in either of these two grounded, non-possessive uses:
+       (i) as a factual reference to the EMPLOYER's own product/domain/market, sourced from
+       ``job_description`` (see check 6); and (ii) inside the letter's honest gap/transfer-
+       argument paragraph (see check 7 / ``positioning_requested.gap_transfer_argument``),
+       where the term is explicitly named as a gap the candidate does NOT have before pivoting
+       to related, grounded experience — e.g. "While I have not worked in LegalTech directly,
+       my regulated-industry GxP background…" names "LegalTech" as an absence, not a claim.
+       Only flag the term where the sentence asserts the candidate's own possession of it.
 6. INVENTED EMPLOYER/COMPANY FACTS (ADR-057 amended 2026-07-24 / US264): any claim ABOUT THE
    TARGET EMPLOYER (their product, domain, market, or an achievement of theirs) that does not
    appear in the source's ``job_description`` text is invented — flag it exactly like an
-   invented candidate fact. A claim that DOES appear in ``job_description`` is grounded and fine.
+   invented candidate fact. A claim that DOES appear in ``job_description`` is grounded and
+   fine — including when it happens to use a term that also appears in the DO NOT CLAIM list
+   (see check 5(b): that list only ever forbids a CANDIDATE competence claim).
+7. MISSING REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
+   source's ``positioning_requested`` block names a company/domain engagement, a gap/transfer
+   argument, or an availability address as REQUIRED, and the letter body does NOT deliver it,
+   that absence IS an issue — name which required block is missing and instruct the writer to
+   add it using ONLY the grounding given for that block (the ``job_description`` text for
+   company/domain; the candidate's own verbatim ``testimony`` for the gap/transfer argument
+   and availability). Do not approve a letter that silently drops content the candidate's own
+   vault testimony supports and that was explicitly requested of the writer.
+8. MINTED FIGURES (US264/#255 — a prior run's corrector invented "mentoring teams of 5+" while
+   chasing a keyword-coverage push): a number, team size, budget, or metric is grounded ONLY
+   when it appears VERBATIM somewhere in the source (the candidate profile, a claimable
+   ledger entry's own ``evidence`` field, or a positioning ``testimony``). A figure that does
+   not appear verbatim anywhere in the source is fabricated even if the surrounding sentence
+   is otherwise true — flag it exactly like an invented achievement (check 3). NEVER instruct
+   the writer, in your own feedback, to add a number that is not already verbatim in the
+   source; when the evidence lacks a figure, instruct a qualitative surfacing instead.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
@@ -102,7 +150,13 @@ def build_review_prompt(source_material: str, letter_json: dict) -> str:
         f"CANDIDATE SOURCE (source of truth):\n{source_material}\n\n"
         f"COVER LETTER:\n{json.dumps(letter_json, ensure_ascii=False, indent=2)}\n\n"
         "Does the letter body contain only claims grounded in the source — no invented "
-        "dates, employers, titles, achievements, or metrics? Return your review JSON."
+        "dates, employers, titles, achievements, or metrics? Also check any "
+        "'positioning_requested' block in the CANDIDATE SOURCE: is every REQUIRED "
+        "company/domain, gap/transfer-argument, or availability instruction actually "
+        "delivered in the body (check 7) — and, where a DO-NOT-CLAIM term is used there, "
+        "is it used honestly (naming an employer fact or the candidate's own absence of "
+        "it) rather than as a candidate competence claim (check 5(b))? Return your review "
+        "JSON."
     )
 
 
@@ -116,6 +170,19 @@ Rules:
 - Do not invent facts. If the reviewer's feedback quotes candidate source content, use those
   passages as the factual basis. Otherwise restrict your changes to removing or softening the
   ungrounded claims while keeping the letter coherent and well-written.
+- PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
+  CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
+  honest gap/transfer argument, and availability paragraphs are REQUIRED content — do not
+  strip or dilute them while fixing an unrelated issue. A DO-NOT-CLAIM term used honestly
+  there (naming an employer-domain fact from ``job_description``, or naming the candidate's
+  OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
+  reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate
+  competence claim; never delete an entire required paragraph to make a word disappear.
+- NEVER MINT A FIGURE: when correcting an absent-claimable coverage issue, use only wording
+  already present verbatim in the CANDIDATE SOURCE (the profile, or a ledger entry's own
+  ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
+  verbatim there. If the evidence carries no figure, describe the experience qualitatively
+  instead of inventing one.
 - Preserve the language, tone, structure, and every part the reviewer did not flag.
 - Leave recipient.date as null — the system inserts the letter date after generation.
 - Output ONLY the corrected cover letter JSON in the same schema as the input — no markdown,
