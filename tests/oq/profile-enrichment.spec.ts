@@ -244,7 +244,11 @@ test.describe("Profile Enrichment", () => {
     await page.waitForTimeout(500);
 
     // Find textarea for answer input
-    const textarea = page.locator("textarea").first();
+    // Scoped by testid, NOT `textarea.first()`: the profile page carries more than
+    // one textarea (the #258 free-text testimony intake lives there too), so a
+    // positional locator silently retargets the wrong control when the page gains
+    // a field — which is exactly how this spec broke on the wave-5 branch.
+    const textarea = page.getByTestId("enrich-answer-textarea");
     if (await textarea.isVisible().catch(() => false)) {
       // Type an answer
       await textarea.fill(
@@ -253,10 +257,7 @@ test.describe("Profile Enrichment", () => {
       await page.waitForTimeout(200);
 
       // Find and click Send/Submit button — try multiple variants
-      const sendBtn = page
-        .locator("button")
-        .filter({ hasText: /Send|Submit|Next|Continue/i })
-        .first();
+      const sendBtn = page.getByTestId("enrich-send");
 
       if (await sendBtn.isVisible().catch(() => false)) {
         await sendBtn.click();
