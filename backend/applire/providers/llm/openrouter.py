@@ -44,8 +44,13 @@ import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from applire.config import settings
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
+from applire.providers.llm.base import (
+    LLMProvider,
+    raise_if_no_completion,
+    raise_if_truncated,
+    retry_on_truncation,
+)
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -137,6 +142,18 @@ class OpenRouterProvider(LLMProvider):
             raise LLMRateLimitError("OpenRouter rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("OpenRouter SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: a genuine 5xx from the gateway/upstream provider is a
+            # retryable outage, not a config/client error — never surface
+            # exc's raw provider-JSON body text to the caller. Anything below
+            # 500 (bad request, auth, etc.) is a real caller/config problem —
+            # let it propagate as-is.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"OpenRouter is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
 
     async def aparse_json(
         self,
@@ -164,6 +181,14 @@ class OpenRouterProvider(LLMProvider):
             raise LLMRateLimitError("OpenRouter rate limit after 3 attempts") from exc
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError("OpenRouter SDK reported timeout") from exc
+        except openai.APIStatusError as exc:
+            # #256: see acomplete's identical mapping above.
+            if exc.status_code >= 500:
+                raise LLMProviderUnavailableError(
+                    f"OpenRouter is temporarily unavailable (HTTP {exc.status_code}). "
+                    "Retry the same request."
+                ) from exc
+            raise
         # Strip markdown code fences some models emit
         if content.startswith("```"):
             content = content.split("```")[1]
@@ -234,6 +259,7 @@ class OpenRouterProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage
         finish = response.choices[0].finish_reason
@@ -267,6 +293,7 @@ class OpenRouterProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage
         finish = response.choices[0].finish_reason

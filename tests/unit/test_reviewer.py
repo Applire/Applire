@@ -20,6 +20,7 @@ if str(_backend) not in sys.path:
 from applire.services.reviewer import review_and_refine
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTruncatedError, LLMTimeoutError
+from applire.providers.llm import debug_log
 
 
 @pytest.fixture
@@ -307,6 +308,115 @@ async def test_refiner_truncation_keeps_last_good_draft(mock_provider, caplog, e
 
     assert result == good_draft
     assert mock_provider.aparse_json.call_count == 2  # reviewer + one failed refiner, no further loop
+
+
+# ---------------------------------------------------------------------------
+# #264 — review-loop observability: structured verdict/exhaustion signals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_every_attempt_emits_a_structured_verdict_log(mock_provider, caplog):
+    """Each reviewer verdict — approved or rejected — is logged as a structured,
+    PII-free REVIEW_VERDICT line via the always-on applire.llm.review logger, so
+    retry-round distributions are countable without heuristic prompt-matching."""
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["a", "b"], "feedback": "fix a and b"},
+        {"patched": True},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft={"d": 1},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="my_chain",
+        )
+
+    verdict_lines = [r.getMessage() for r in caplog.records if "REVIEW_VERDICT" in r.getMessage()]
+    assert len(verdict_lines) == 2  # attempt 1 rejected, attempt 2 approved
+    assert "chain=my_chain attempt=1/3 approved=False issues=2" in verdict_lines[0]
+    assert "chain=my_chain attempt=2/3 approved=True issues=0" in verdict_lines[1]
+
+
+@pytest.mark.asyncio
+async def test_exhaustion_emits_a_review_exhausted_warning(mock_provider, caplog):
+    """Retry exhaustion must be countable from a stable, greppable log line — not
+    just the free-text WARNING that already existed."""
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        {"d": 2},
+        {"approved": False, "issues": ["y", "z"], "feedback": "fix y and z"},
+        {"d": 3},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft={"d": 1},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="exhaust_chain",
+        )
+
+    exhausted = [r for r in caplog.records if "REVIEW_EXHAUSTED" in r.getMessage()]
+    assert len(exhausted) == 1
+    assert exhausted[0].levelname == "WARNING"
+    assert "chain=exhaust_chain" in exhausted[0].getMessage()
+    assert "max_retries=2" in exhausted[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_review_call_meta_labels_each_call_and_clears_after(mock_provider):
+    """Each provider call within the loop is tagged with its role/attempt via the
+    debug_log ContextVar, and the label is cleared once the loop returns."""
+    seen: list[tuple[str | None, int | None]] = []
+    real_set = debug_log.set_review_call_meta
+
+    def _spy(role, attempt):
+        seen.append((role, attempt))
+        real_set(role, attempt)
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        {"d": 2},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    import applire.services.reviewer as reviewer_module
+    original = reviewer_module.set_review_call_meta
+    reviewer_module.set_review_call_meta = _spy
+    try:
+        await review_and_refine(
+            source="src",
+            draft={"d": 1},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="labelled_chain",
+        )
+    finally:
+        reviewer_module.set_review_call_meta = original
+
+    assert seen == [
+        ("reviewer", 1),
+        ("generator", 1),
+        ("reviewer", 2),
+        (None, None),  # cleared in the finally block
+    ]
 
 
 @pytest.mark.asyncio

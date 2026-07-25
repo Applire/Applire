@@ -25,7 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
 from applire.db.session import get_db
-from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
+from applire.exceptions import (
+    LLMProviderUnavailableError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+)
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
@@ -53,6 +58,27 @@ def _get_provider() -> LLMProvider:
     return get_provider()
 
 
+def _provider_unavailable_detail() -> dict:
+    """#256 — structured, stable, machine-readable error body for a provider
+    outage (never the raw provider payload / exception text)."""
+    return {
+        "error_code": "provider_unavailable",
+        "message": "The AI provider is temporarily unavailable. Please try again.",
+    }
+
+
+def _internal_error_detail() -> dict:
+    """#256 — the catch-all 500 body. Full detail is always logged server-side
+    via ``logger.exception`` immediately before this is raised; the response
+    itself must never carry raw exception text (a provider crash's str(exc)
+    can embed the raw provider JSON payload, or — pre-fix — a bare Python
+    TypeError like "'NoneType' object is not subscriptable")."""
+    return {
+        "error_code": "internal_error",
+        "message": "An unexpected error occurred. Please try again.",
+    }
+
+
 @router.post("", response_model=SessionCreateResponse, status_code=status.HTTP_201_CREATED)
 async def start_session(
     body: SessionCreateRequest,
@@ -66,6 +92,11 @@ async def start_session(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMProviderUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_provider_unavailable_detail(),
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except json.JSONDecodeError:
@@ -73,9 +104,12 @@ async def start_session(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("create_session failed for job %s", body.job_id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_internal_error_detail(),
+        )
 
 
 @router.post(
@@ -95,11 +129,19 @@ async def start_profile_review_session(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMProviderUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_provider_unavailable_detail(),
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("create_profile_review_session failed")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_internal_error_detail(),
+        )
 
 
 @router.get(
@@ -138,6 +180,11 @@ async def analyze_session_gaps(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMProviderUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_provider_unavailable_detail(),
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except json.JSONDecodeError:
@@ -145,9 +192,12 @@ async def analyze_session_gaps(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("analyze_session_gaps failed for session %s", session_id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_internal_error_detail(),
+        )
 
 
 @router.post(
@@ -173,6 +223,15 @@ async def post_message(
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except LLMProviderUnavailableError:
+        # #256 — a provider outage (5xx, or the OpenRouter/Requesty malformed-
+        # 200 quirk) mid-turn. The turn is atomic (single commit per turn,
+        # #179) and this is raised before that commit, so nothing was
+        # persisted — the same message can be resent unchanged.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_provider_unavailable_detail(),
+        )
     except LLMTruncatedError as exc:
         # #179: the turn is atomic (single commit after question generation), so a
         # truncated question rolled the whole turn back — honest + retryable.
@@ -189,6 +248,9 @@ async def post_message(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM returned invalid JSON",
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("post_message failed for session %s", session_id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_internal_error_detail(),
+        )

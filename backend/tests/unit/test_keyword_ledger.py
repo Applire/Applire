@@ -785,3 +785,96 @@ def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
     assert e["status"] == "gap"
     assert e["claimable"] is False
     assert "LegalTech" not in claimable_surface_forms(ledger)
+
+
+# ── #249 run-4 — a narrow denial must not tar a broader, independently ──────
+# evidenced concept (root cause of the ATS/Oracle contradiction, 2026-07-24).
+#
+# Run-4 (generated_cvs b9764181-411b-473d-8bf7-e37954fdc32e): the candidate
+# denied hands-on RAG PIPELINE INTERNALS configuration ("RAG pipeline",
+# "embedding models", "vector store", "reranking", "retrieval pipeline" —
+# metadata.denied_concepts) while the profile independently carries a
+# LITERAL "Retrieval-Augmented Generation (RAG)" work_experience[0].
+# technologies[2] entry. _enforce_denial_stance's compound-containment rule
+# ("RAG" is a whole word strictly inside the denied "RAG pipeline") fired
+# unconditionally — is_denied_concept always called ledger-build time with
+# corpus=None, so the #207 CSS/Tailwind-CSS fail-closed default applied even
+# though the vault independently attests the broader term. Result: the ATS
+# panel's keywords.present_unsupported carried "RAG" while the SAME document's
+# truthfulness report verdicted the SAME string "grounded" from that exact
+# technologies[] entry — one fact, two contradictory verdicts.
+#
+# Fix: build_keyword_ledger now accepts `profile_json` and threads a literal
+# vault corpus through to is_denied_concept, so the containment rule's
+# fail-closed default only applies when the broad term truly has no
+# independent literal vault evidence outside the denied compound.
+
+
+def test_narrow_denial_does_not_tar_broad_independently_evidenced_concept():
+    """The pinned run-4 shape: RAG stays claimable because the vault literally
+    carries it in technologies[], outside every denied compound."""
+    profile_json = {
+        "work_experience": [
+            {
+                "role": "ML Engineer",
+                "technologies": ["Python", "LangChain", "Retrieval-Augmented Generation (RAG)"],
+            }
+        ]
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "RAG", "direct", ["RAG", "Retrieval-Augmented Generation (RAG)"],
+                evidence="built a production RAG pipeline",
+            ),
+        ],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=[
+            "RAG pipeline", "embedding models", "vector store",
+            "reranking", "retrieval pipeline",
+        ],
+        profile_json=profile_json,
+    )
+    rag = _by_concept(ledger)["RAG"]
+    assert rag["status"] == "direct"
+    assert rag["claimable"] is True
+
+
+def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
+    """Contrast case: the floor is narrowed, not weakened. Without ANY
+    independent literal vault evidence for the broad term, the #207
+    CSS/Tailwind-CSS fail-closed containment rule still applies."""
+    profile_json = {"work_experience": [{"role": "Engineer", "technologies": ["Python"]}]}
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("RAG", "partial", ["RAG"], evidence="adjacency guess"),
+        ],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["RAG pipeline"],
+        profile_json=profile_json,
+    )
+    rag = _by_concept(ledger)["RAG"]
+    assert rag["status"] == "gap"
+    assert rag["claimable"] is False
+
+
+def test_profile_json_none_or_absent_is_a_noop_back_compat():
+    """No profile_json (legacy callers) → corpus=None → unchanged fail-closed
+    behaviour, exactly as before this fix."""
+    ledger_no_arg = build_keyword_ledger(
+        classifications=[_cls("RAG", "direct", ["RAG"], evidence="built RAG")],
+        required_skills=["RAG"], nice_to_have_skills=[], keywords=[],
+        denied_concepts=["RAG pipeline"],
+    )
+    ledger_none = build_keyword_ledger(
+        classifications=[_cls("RAG", "direct", ["RAG"], evidence="built RAG")],
+        required_skills=["RAG"], nice_to_have_skills=[], keywords=[],
+        denied_concepts=["RAG pipeline"], profile_json=None,
+    )
+    assert ledger_no_arg == ledger_none
+    rag = _by_concept(ledger_none)["RAG"]
+    assert rag["claimable"] is False

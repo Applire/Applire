@@ -565,14 +565,18 @@ async def test_enrich_skills_unmatched_calls_llm_estimation():
 
 @pytest.mark.asyncio
 async def test_enrich_skills_floor_applied_to_llm_estimate():
-    from applire.schemas.profile import MasterProfileData, Skill
+    from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
     from applire.services.skill_enrichment import enrich_skills
 
     profile = MasterProfileData(
         skills=[
             Skill(name="Leadership", category="soft", proficiency="expert"),
         ],
-        work_experience=[],
+        # #264: a plausibility ceiling now clamps LLM-estimated years to the
+        # candidate's career span — a real span well over the estimate below.
+        work_experience=[
+            WorkEntry(company="Siemens AG", role="Team Lead", start_date="2015-01", end_date="2020-01")
+        ],
     )
     mock_provider = AsyncMock()
     # LLM estimates only 1 year — should not downgrade existing expert
@@ -609,12 +613,16 @@ async def test_enrich_skills_null_llm_estimate_leaves_skill_without_years():
 
 @pytest.mark.asyncio
 async def test_enrich_skills_does_not_mutate_input():
-    from applire.schemas.profile import MasterProfileData, Skill
+    from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
     from applire.services.skill_enrichment import enrich_skills
 
     profile = MasterProfileData(
         skills=[Skill(name="Python", category="technical", proficiency="basic")],
-        work_experience=[],
+        # #264: a real career span, well over the 3-year estimate below, so the
+        # plausibility clamp doesn't interfere with this mutation-safety check.
+        work_experience=[
+            WorkEntry(company="Acme GmbH", role="Engineer", start_date="2015-01", end_date="2022-01")
+        ],
     )
     mock_provider = AsyncMock()
     mock_provider.aparse_json.return_value = {"Python": 3}
@@ -655,6 +663,95 @@ async def test_enrich_skills_language_skills_not_sent_to_llm():
     german = next(s for s in result.skills if s.name == "German")
     assert german.source is None
     assert german.experience_refs == []
+
+
+# ---------------------------------------------------------------------------
+# #264 — deterministic plausibility ceiling on LLM-estimated skill years.
+#
+# skill_enrichment's LLM estimation call has NO deterministic control today: the
+# only post-processing is the proficiency floor (never DOWNgrade an existing
+# level) and rounding. A hallucinated duration that overstates a skill beyond the
+# candidate's own career span was uncaught. This is the audit's closure — a
+# deterministic clamp rather than a second LLM reviewer call on every profile,
+# per the PO principle of preferring a cheap deterministic control where one can
+# fully close the loop.
+# ---------------------------------------------------------------------------
+
+
+class TestMaxPlausibleYears:
+    def test_no_experience_at_all_returns_zero(self):
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.skill_enrichment import _max_plausible_years
+
+        assert _max_plausible_years(MasterProfileData()) == 0
+
+    def test_earliest_start_date_bounds_the_span(self):
+        from applire.schemas.profile import MasterProfileData, WorkEntry
+        from applire.services.skill_enrichment import _max_plausible_years
+
+        profile = MasterProfileData(work_experience=[
+            WorkEntry(company="A", role="Dev", start_date="2020-01", end_date="2021-01"),
+            WorkEntry(company="B", role="Dev", start_date="2010-01", end_date="2012-01"),
+        ])
+        # Earliest start (2010) to today spans well over a decade.
+        assert _max_plausible_years(profile) >= 14
+
+    def test_unparseable_start_dates_are_skipped_not_fatal(self):
+        from applire.schemas.profile import MasterProfileData, WorkEntry
+        from applire.services.skill_enrichment import _max_plausible_years
+
+        profile = MasterProfileData(work_experience=[
+            WorkEntry(company="A", role="Dev", start_date=None, end_date=None),
+        ])
+        assert _max_plausible_years(profile) == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_skills_clamps_an_implausible_llm_estimate():
+    """A skill duration estimate exceeding the candidate's entire career span is
+    clamped to that span, not stored verbatim — no career history exists to
+    ground an 8-year claim on a 2-year-old career."""
+    from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
+    from applire.services.skill_enrichment import enrich_skills
+
+    profile = MasterProfileData(
+        skills=[Skill(name="Kubernetes", category="technical", proficiency="basic")],
+        work_experience=[
+            WorkEntry(company="Acme GmbH", role="Junior Dev", start_date="2024-01", end_date=None)
+        ],
+    )
+    mock_provider = AsyncMock()
+    # Hallucinated: 8 years of Kubernetes on an ~1.5-year-old career.
+    mock_provider.aparse_json.return_value = {"Kubernetes": 8}
+
+    result = await enrich_skills(profile, mock_provider)
+
+    skill = result.skills[0]
+    assert skill.years_experience is not None
+    assert skill.years_experience < 8
+    assert skill.source == "llm_estimated"
+
+
+@pytest.mark.asyncio
+async def test_enrich_skills_drops_estimate_with_zero_career_span():
+    """No experience entries at all → no basis for ANY duration estimate; a
+    positive LLM estimate is dropped entirely rather than clamped to a
+    nonsensical 0-that-gets-floored-to-1."""
+    from applire.schemas.profile import MasterProfileData, Skill
+    from applire.services.skill_enrichment import enrich_skills
+
+    profile = MasterProfileData(
+        skills=[Skill(name="Rust", category="technical", proficiency="basic")],
+        work_experience=[],
+    )
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = {"Rust": 5}
+
+    result = await enrich_skills(profile, mock_provider)
+
+    skill = result.skills[0]
+    assert skill.years_experience is None
+    assert skill.proficiency == "basic"  # unchanged — no grounds to enrich
 
 
 # ---------------------------------------------------------------------------

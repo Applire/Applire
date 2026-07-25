@@ -18,12 +18,20 @@
 """Unit tests for the developer-only LLM debug-logging wrapper."""
 
 import json
+import logging
 
 import pytest
 
 from applire.config import settings
 from applire.providers.llm.base import LLMProvider
-from applire.providers.llm.debug_log import llm_log_stage, wrap_provider
+from applire.providers.llm.debug_log import (
+    llm_log_stage,
+    log_review_call_failed,
+    log_review_exhausted,
+    log_review_verdict,
+    set_review_call_meta,
+    wrap_provider,
+)
 
 
 class _StubProvider(LLMProvider):
@@ -91,3 +99,75 @@ async def test_logs_errors_and_reraises(monkeypatch, tmp_path):
     assert rec["ok"] is False
     assert "kaboom" in rec["error"]
     assert rec["stage"] is None  # unlabelled call still logged
+
+
+# ---------------------------------------------------------------------------
+# #264 — review-loop observability: per-call role/attempt on the debug-log
+# record, and always-on structured application-log signals for verdict /
+# exhaustion / call-failure (so an exhausted review is visible even when the
+# PII-bearing debug log is off, e.g. production).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_call_meta_labels_the_debug_log_record(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "llm_debug_log", True)
+    monkeypatch.setattr(settings, "llm_debug_log_dir", str(tmp_path))
+
+    provider = wrap_provider(_StubProvider())
+    with llm_log_stage("cover_letter"):
+        set_review_call_meta("reviewer", 1)
+        await provider.aparse_json("review this", system="be strict")
+        set_review_call_meta("generator", 1)
+        await provider.aparse_json("fix this", system="be strict")
+        set_review_call_meta(None, None)
+        await provider.aparse_json("unrelated call outside any loop")
+
+    rec1, rec2, rec3 = _read_records(tmp_path)
+    assert rec1["stage"] == "cover_letter"
+    assert rec1["review_role"] == "reviewer"
+    assert rec1["review_attempt"] == 1
+    assert rec2["review_role"] == "generator"
+    assert rec2["review_attempt"] == 1
+    # Cleared after the loop — an unrelated call carries no stale role/attempt.
+    assert rec3["review_role"] is None
+    assert rec3["review_attempt"] is None
+
+
+def test_log_review_verdict_is_structured_and_greppable(caplog):
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        log_review_verdict("cover_letter", 1, 5, approved=False, issues_count=3)
+
+    assert len(caplog.records) == 1
+    msg = caplog.records[0].getMessage()
+    assert "REVIEW_VERDICT" in msg
+    assert "chain=cover_letter" in msg
+    assert "attempt=1/5" in msg
+    assert "approved=False" in msg
+    assert "issues=3" in msg
+    assert caplog.records[0].levelname == "INFO"
+
+
+def test_log_review_exhausted_is_a_warning_with_the_chain_id(caplog):
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        log_review_exhausted("cv_tailoring", 5, 2)
+
+    assert len(caplog.records) == 1
+    rec = caplog.records[0]
+    assert rec.levelname == "WARNING"
+    msg = rec.getMessage()
+    assert "REVIEW_EXHAUSTED" in msg
+    assert "chain=cv_tailoring" in msg
+    assert "max_retries=5" in msg
+
+
+def test_log_review_call_failed_names_role_and_error(caplog):
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        log_review_call_failed("profile_extraction", "reviewer", 2, "LLMTruncatedError")
+
+    msg = caplog.records[0].getMessage()
+    assert "REVIEW_CALL_FAILED" in msg
+    assert "chain=profile_extraction" in msg
+    assert "role=reviewer" in msg
+    assert "attempt=2" in msg
+    assert "error=LLMTruncatedError" in msg

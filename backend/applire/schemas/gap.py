@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.schemas.gap_cluster import GapClusterSchema
 
@@ -43,6 +43,12 @@ class KeywordLedgerEntry(BaseModel):
     status: str  # "direct" | "partial" | "gap"
     evidence: str = ""
     claimable: bool
+    # #260 — pre-generation keyword-liability check: is this concept
+    # substantiated by a NARRATIVE somewhere in the vault (a work/project
+    # bullet, an achievement, a signature story) — never just the bare
+    # skills list. Defaults True so a legacy row persisted before #260 (no
+    # key at all) is never mistaken for a liability.
+    narrative_backed: bool = True
 
 
 class GapAnalysisResponse(BaseModel):
@@ -60,6 +66,14 @@ class GapAnalysisResponse(BaseModel):
     keyword_ledger: list[KeywordLedgerEntry] = Field(default_factory=list)
     gap_clusters: list[GapClusterSchema] = Field(default_factory=list)
     requirement_breakdown: list[RequirementBreakdownItem] = Field(default_factory=list)
+    # #260 — derived, never independently settable: every keyword_ledger entry
+    # that is a JD hard requirement, claimable (will be echoed by the
+    # generator), but carries no narrative evidence anywhere in the vault.
+    # Populated by `_derive_keyword_liabilities` below from `keyword_ledger`
+    # itself, so it can never drift from the ledger it summarises — one
+    # source, read on the SAME response the gaps page and the `analyze_gaps`
+    # MCP tool already return (no new endpoint/tool for agent-door parity).
+    keyword_liabilities: list[KeywordLedgerEntry] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -69,6 +83,27 @@ class GapAnalysisResponse(BaseModel):
     def _ledger_none_to_empty(cls, v):
         # Legacy gap_analyses rows (pre-E037) have NULL keyword_ledger.
         return v or []
+
+    @model_validator(mode="after")
+    def _derive_keyword_liabilities(self) -> "GapAnalysisResponse":
+        # Local import: services/keyword_ledger.py has no reverse dependency
+        # on schemas/gap.py, but keeping the import local mirrors this
+        # codebase's established cycle-avoidance convention elsewhere.
+        from applire.services.keyword_ledger import keyword_liabilities as _compute
+
+        entries = [e.model_dump() for e in self.keyword_ledger]
+        self.keyword_liabilities = [
+            KeywordLedgerEntry(**e) for e in _compute(entries)
+        ]
+        return self
+
+
+class KeywordLiabilityDowngradeRequest(BaseModel):
+    """Body for POST /api/job/{job_id}/gaps/liabilities/downgrade (#260
+    exit b) — the candidate's own choice to drop a keyword-liability
+    concept rather than tell its story via resolve_gap (exit a)."""
+
+    concept: str
 
 
 _GAP_JOB_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]

@@ -334,6 +334,48 @@ async def test_analyze_gaps_happy_path():
 
 
 @pytest.mark.asyncio
+async def test_analyze_gaps_surfaces_keyword_liabilities_data_no_new_tool():
+    """#260 agent-door parity: the liability signal reaches the agent as DATA
+    on the EXISTING analyze_gaps tool response — no new MCP tool, no
+    description/schema growth (ADR-056 §4 char-budget discipline). Uses a
+    REAL GapAnalysisResponse (not a MagicMock passthrough) so the schema's
+    own derivation actually runs end to end."""
+    import datetime as _dt
+    from applire.mcp.server import analyze_gaps
+    from applire.schemas.gap import GapAnalysisResponse
+
+    job_id = str(uuid.uuid4())
+    cm, _ = _mock_db()
+    real_result = GapAnalysisResponse.model_validate({
+        "id": uuid.uuid4(),
+        "job_analysis_id": uuid.uuid4(),
+        "profile_id": uuid.uuid4(),
+        "match_score": 0.8,
+        "critical_gaps": [],
+        "minor_gaps": [],
+        "strengths": [],
+        "keyword_gaps": [],
+        "created_at": _dt.datetime(2026, 7, 25, tzinfo=_dt.timezone.utc),
+        "keyword_ledger": [
+            {
+                "concept": "RAG", "surface_forms": ["RAG"], "sources": ["required"],
+                "fit_weight": 1.0, "status": "direct", "evidence": "listed under Skills",
+                "claimable": True, "narrative_backed": False,
+            },
+        ],
+    })
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.gap_svc.analyze_gaps", AsyncMock(return_value=real_result)),
+    ):
+        result = await analyze_gaps(job_id=job_id)
+
+    assert [e["concept"] for e in result["keyword_liabilities"]] == ["RAG"]
+
+
+@pytest.mark.asyncio
 async def test_analyze_gaps_invalid_uuid_raises():
     from applire.mcp.server import analyze_gaps
 

@@ -307,6 +307,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
               {/* Input area */}
               <div className="shrink-0 border-t border-gray-200 p-3 flex flex-col gap-2">
                 <textarea
+                  data-testid="enrich-answer-textarea"
                   className="w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-neutral-dark placeholder:text-gray-400 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20 min-h-[72px]"
                   placeholder={t("placeholder")}
                   value={answer}
@@ -339,6 +340,7 @@ export function EnrichmentDrawer({ open, scope, onClose }: EnrichmentDrawerProps
                   </div>
                   <Button
                     size="sm"
+                    data-testid="enrich-send"
                     onClick={() => handleSend()}
                     disabled={loading || !answer.trim()}
                   >

@@ -70,6 +70,35 @@ def _parse_partial_date(s: str) -> date:
     return date(year, month, day)
 
 
+def _max_plausible_years(profile: MasterProfileData) -> int:
+    """Deterministic plausibility ceiling for an LLM-estimated skill duration (#264).
+
+    No skill can genuinely predate the candidate's professional history, so the
+    ceiling is the calendar span from the EARLIEST experience start date (across
+    jobs, projects, and volunteering) to today. A profile with no dated experience
+    at all has no basis for any duration estimate — the ceiling is 0, which drops
+    every positive estimate downstream rather than clamping to a false floor of 1.
+
+    This is a deterministic control, not an LLM reviewer: the estimation call
+    already runs once per profile enrichment, and the failure mode (a numeric
+    duration exceeding real career length) is fully closed by a bound — adding a
+    second LLM pass here would cost a call without checking anything a plausibility
+    clamp can't already guarantee.
+    """
+    starts: list[date] = []
+    for entry in profile.all_experiences:
+        if not entry.start_date:
+            continue
+        try:
+            starts.append(_parse_partial_date(entry.start_date))
+        except (ValueError, AttributeError):
+            continue
+    if not starts:
+        return 0
+    span_days = (date.today() - min(starts)).days
+    return max(0, round(span_days / 365.25))
+
+
 def _calculate_years(ranges: list[tuple[date, date]]) -> int:
     """Return total non-overlapping experience in years (rounded integer).
 
@@ -238,10 +267,24 @@ async def enrich_skills(
             )
             estimates = {}
 
+        # #264 — deterministic plausibility ceiling: no basis for a duration claim
+        # that outlives the candidate's own career span (see _max_plausible_years).
+        max_years = _max_plausible_years(profile)
+
         for skill in unmatched_skills:
             raw = estimates.get(skill.name)
+            years: int | None = None
             if isinstance(raw, (int, float)) and raw > 0:
                 years = max(1, int(round(raw)))
+                if years > max_years:
+                    logger.warning(
+                        "skill_enrichment: LLM estimated %d years for %r, exceeding the "
+                        "candidate's %d-year career span; clamping (#264 plausibility guard)",
+                        years, skill.name, max_years,
+                    )
+                    years = max_years or None  # 0 span → no basis at all, drop the estimate
+
+            if years is not None:
                 calc_prof = _years_to_proficiency(years)
                 final_prof = _apply_floor(calc_prof, skill.proficiency)
                 enriched_skills.append(skill.model_copy(update={

@@ -36,6 +36,7 @@ export const ENRICHMENT_SOURCE_KEYS: Record<string, string> = {
   manual_edit: "sources.manual_edit",
   manual_role_add: "sources.manual_role_add",
   agent_interview: "sources.agent_interview",
+  testimony: "sources.testimony",
 };
 
 /**

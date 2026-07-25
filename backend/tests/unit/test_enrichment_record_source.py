@@ -23,3 +23,14 @@ def test_source_accepts_manual_role_add():
         source="manual_role_add",
     )
     assert rec.source == "manual_role_add"
+
+
+def test_source_accepts_testimony():
+    """#258: submit_testimony receipts (UI paste box + MCP submit_testimony
+    tool) carry the `testimony` provenance marker, distinct from `interview`/
+    `agent_interview`."""
+    rec = EnrichmentRecord(
+        timestamp=datetime.now(timezone.utc),
+        source="testimony",
+    )
+    assert rec.source == "testimony"

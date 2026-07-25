@@ -5,14 +5,21 @@
 The Oracle verifies a document against the master profile (the vault) and
 returns a typed, receipt-carrying report. Verdict taxonomy v1 (ADR-052 §3):
 
-- ``grounded``      — the claim traces to vault evidence (refs attached)
-- ``inflated``      — target-vs-achieved stance mismatch (aspirational evidence
-                      rendered as an achieved outcome)
-- ``misattributed`` — role-attribution mismatch (v2, ADR-052 §6 / #196): the
-                      claim's only backing evidence belongs to a different
-                      position than the one it is rendered under
-- ``unbacked``      — no vault evidence for the claim (or a figure in it)
-- ``unverifiable``  — subjective/soft claim the vault cannot speak to
+- ``grounded``       — the claim traces to vault evidence (refs attached)
+- ``inflated``       — target-vs-achieved stance mismatch (aspirational evidence
+                       rendered as an achieved outcome)
+- ``misattributed``  — role-attribution mismatch (v2, ADR-052 §6 / #196): the
+                       claim's only backing evidence belongs to a different
+                       position than the one it is rendered under
+- ``unbacked``       — no vault evidence for the claim (or a figure in it)
+- ``unverifiable``   — subjective/soft claim the vault cannot speak to
+- ``not_applicable`` — (#237 round-3) a statement about the TARGET EMPLOYER,
+                       not the candidate (e.g. a JD-sourced fact about the
+                       recipient company) — structurally outside the vault's
+                       domain (a different reviewer, ADR-021, validates these
+                       against the JD). Extracted and shown, never silently
+                       dropped, but excluded from the ``unverifiable_dominated``
+                       denominator — see ``TruthfulnessReport.from_results``.
 """
 from __future__ import annotations
 
@@ -32,9 +39,14 @@ ORACLE_STATED_LIMIT = (
 # The current report schema version (bump on breaking shape changes; the
 # marker data files carry their own version field). 1.1 = the additive
 # ``misattributed`` verdict + fifth counts key (Oracle v2 role attribution).
-ORACLE_REPORT_VERSION = "1.1"
+# 1.2 = the additive ``not_applicable`` verdict + sixth counts key (#237
+# round-3, employer-fact claims).
+ORACLE_REPORT_VERSION = "1.2"
 
-Verdict = Literal["grounded", "inflated", "misattributed", "unbacked", "unverifiable"]
+Verdict = Literal[
+    "grounded", "inflated", "misattributed", "unbacked", "unverifiable",
+    "not_applicable",
+]
 
 # Checker ids, carried on every verdict so a report line is attributable to
 # the code (or the narrow entailment call) that produced it.
@@ -95,6 +107,14 @@ class Claim(BaseModel):
     # strict anchor couldn't stamp it (e.g. the vault's legal-form company
     # name vs. the letter's shortened mention). Empty for non-letter callers.
     sentence_named_ids: frozenset[str] = Field(default_factory=frozenset)
+    # #237 round-3: True when this clause/sentence is a statement about the
+    # TARGET EMPLOYER (mentions the recipient company, or continues a run of
+    # such sentences within the same paragraph, with NO first-person pronoun
+    # anywhere) rather than the candidate — see
+    # ``extract.extract_claims_from_letter``'s employer-fact classification.
+    # ``verify_claim`` short-circuits these to ``not_applicable`` before any
+    # vault-grounding attempt; always ``False`` for non-letter callers.
+    is_employer_fact: bool = False
 
 
 class ClaimVerdict(BaseModel):
@@ -117,6 +137,14 @@ class TruthfulnessReport(BaseModel):
     claims: list[ClaimResult] = Field(default_factory=list)
     # Verdict -> count, always carrying all five keys.
     counts: dict[str, int] = Field(default_factory=dict)
+    # #237 — "an unverifiable-dominated report should itself fail louder":
+    # True when STRICTLY MORE THAN HALF of all claims verdicted
+    # ``unverifiable`` (a tie, e.g. 2/4, is not dominated). A backend-computed
+    # fact rather than a UI-only heuristic re-derived from raw counts, so any
+    # report consumer (frontend panel, future export, agent channel) sees the
+    # same judgement. ``False`` for an empty report — no claims, nothing
+    # dominates.
+    unverifiable_dominated: bool = False
     # ADR-052 §5 — never omitted, never blocks delivery in v1 (ADR-040
     # attestation remains the delivery gate).
     stated_limit: str = ORACLE_STATED_LIMIT
@@ -133,7 +161,20 @@ class TruthfulnessReport(BaseModel):
         counts = {v: 0 for v in get_args(Verdict)}
         for r in results:
             counts[r.verdict.verdict] += 1
-        return cls(document_kind=document_kind, claims=results, counts=counts)
+        # #237 round-3: ``not_applicable`` (employer-fact) claims are shown
+        # but never count toward the ratio — a letter that correctly engages
+        # with the employer (#255) must not be penalised for it.
+        checkable_total = len(results) - counts["not_applicable"]
+        dominated = (
+            checkable_total > 0
+            and counts["unverifiable"] / checkable_total > 0.5
+        )
+        return cls(
+            document_kind=document_kind,
+            claims=results,
+            counts=counts,
+            unverifiable_dominated=dominated,
+        )
 
 
 class TruthfulnessReportResponse(BaseModel):

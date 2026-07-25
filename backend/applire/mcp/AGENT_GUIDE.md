@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-07-23 · re-fetch anytime with `get_guide`*
+*Revision 2026-07-25 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -100,13 +100,25 @@ the matching `artifact_id` when advancing.
   **Story selection and angling per job description is YOUR strategy job**;
   Applire supplies the stories, receipts, and the Oracle to check the result.
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
-  raw material for your positioning.
+  raw material for your positioning. Check `keyword_liabilities` on the
+  result: a hard requirement you already hold per the ledger but with no
+  bullet/achievement/story behind it anywhere — a bare skills-list echo, not
+  a strength (a hiring panel discounts it). Either elicit its story via
+  `resolve_gap` (its concept is a clusterable `gap_id`) or leave it be and
+  weight it lightly in your positioning — never surface it as a headline
+  claim while it stays unstoried.
 - `submit_claims` — you ran your own interview: submit the candidate's
   answers as testimony (read `schema://claims` first, max 20 per call). Link
   a claim to a ledger gap only with the EXACT concept string from
   `analyze_gaps` output. For JD-critical capabilities, include quantification
   (team size, scale, measurable outcomes) where the candidate actually has it
   — a hiring panel weighs numbers over adjectives.
+- `submit_testimony` — the candidate handed you (or pasted into their own UI
+  session) a WHOLE free-text document instead of itemized answers — an
+  off-CV dossier, a "anything else recruiters should know" note. Pass the
+  whole text as-is (read `schema://testimony` first; no per-claim char cap,
+  unlike `submit_claims`). Same reconciler, same receipts, same denial
+  handling — one submission, one `status`.
 - `resolve_gap` — resolve ONE gap cluster in a single call, the guided way:
   pass a `gap_id` from `analyze_gaps`' `gap_clusters` plus the candidate's
   testimony; Applire generates the scoped question, applies your answer

@@ -23,13 +23,20 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.constants import JD_ANALYSIS_MAX_TOKENS
+from applire.constants import JD_ANALYSIS_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
 from applire.models.job import JobAnalysis
 from applire.prompts.job_analysis import SYSTEM_PROMPT, build_user_prompt
+from applire.prompts.review_job_analysis import (
+    JOB_ANALYSIS_REFINEMENT_PROMPT,
+    JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT,
+    build_job_analysis_retry_prompt,
+    build_job_analysis_review_prompt,
+)
 from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.job import JobAnalysisResponse
+from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import detect_language
 
 logger = logging.getLogger(__name__)
@@ -150,6 +157,25 @@ async def analyze_jd(
         system=SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=JD_ANALYSIS_MAX_TOKENS,
+    )
+
+    # #264 (ADR-021 review-loop coverage): every downstream truthfulness surface
+    # (keyword ledger, gap analysis, interview, tailoring) treats required/nice-to-have
+    # skills as ground truth about what the posting asked for — a fabricated requirement
+    # here poisons all of them. No deterministic grounding guard exists for this output
+    # today (only the KldB code lookup and the "something JD-like is present" garbage
+    # check below), so it gets the standard author/reviewer loop.
+    data = await review_and_refine(
+        source=text,
+        draft=data,
+        generator_prompt_fn=build_job_analysis_retry_prompt,
+        generator_system=JOB_ANALYSIS_REFINEMENT_PROMPT,
+        reviewer_prompt_fn=build_job_analysis_review_prompt,
+        reviewer_system=JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT,
+        provider=provider,
+        max_retries=LLM_REVIEW_MAX_RETRIES,
+        generator_max_tokens=JD_ANALYSIS_MAX_TOKENS,
+        chain_id="job_analysis",
     )
 
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER

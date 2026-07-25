@@ -91,28 +91,62 @@ _MODE_B_EXTENDED_SECTIONS = ["publications", "volunteer_activities"]
 
 def gap_detector(
     gap_analysis: GapAnalysis,
+    profile: dict | None = None,
 ) -> tuple[list[str], dict[str, str], dict]:
     """Return (ordered_cluster_ids, cluster_categories, clusters_by_id).
 
     Priority order:
       1. Category C clusters — highest value; interview must ask about these
       2. Category B clusters — confirm inferred experience
+    WITHIN each category bucket (#259), a cluster holding a JD-hard-requirement
+    concept that is keyword-only or unquantified in the vault
+    (sufficiency.cluster_needs_priority) is promoted to the front — the
+    highest-value question comes first, so a budget cut always lands on a
+    lower-value question. The existing C-before-B ordering is a coarser,
+    already-load-bearing value signal and is never inverted by this — priority
+    only breaks ties within a bucket.
     Reads from gap_analysis.gap_clusters (set by cluster_gaps() in services/gap.py).
 
+    `profile` is optional (default None = no reordering, the exact pre-#259
+    behaviour) so every existing caller/test is unaffected; pass the master
+    profile dict to opt into the priority reorder.
+
     Returns:
-        cluster_ids: list[str] ordered C-first then B
+        cluster_ids: list[str] ordered C-first then B (priority-first within each)
         cluster_categories: dict mapping cluster_id to "B" or "C"
         clusters_by_id: dict mapping cluster_id to the full GapCluster dict
     """
     clusters: list[dict] = list(gap_analysis.gap_clusters or [])
     c_clusters = [c for c in clusters if c.get("category") == "C"]
     b_clusters = [c for c in clusters if c.get("category") == "B"]
+
+    if profile is not None:
+        keyword_ledger = getattr(gap_analysis, "keyword_ledger", None)
+        c_clusters = _prioritize_clusters(c_clusters, profile, keyword_ledger)
+        b_clusters = _prioritize_clusters(b_clusters, profile, keyword_ledger)
+
     ordered = c_clusters + b_clusters
 
     cluster_ids = [c["id"] for c in ordered]
     categories = {c["id"]: c["category"] for c in ordered}
     by_id = {c["id"]: c for c in ordered}
     return cluster_ids, categories, by_id
+
+
+def _prioritize_clusters(
+    clusters: list[dict],
+    profile: dict,
+    keyword_ledger: list[dict] | None,
+) -> list[dict]:
+    """Stable-sort `clusters` so any cluster needing priority (#259) leads —
+    ties (same priority) keep their original relative order, so this only
+    ever promotes, never shuffles unrelated clusters."""
+    from applire.services.interview.sufficiency import cluster_needs_priority
+
+    return sorted(
+        clusters,
+        key=lambda c: 0 if cluster_needs_priority(c, profile, keyword_ledger) else 1,
+    )
 
 
 # ---------------------------------------------------------------------------

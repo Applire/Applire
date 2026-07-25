@@ -212,6 +212,22 @@ def _unaddressed_turn(profile_dict, *, conflicts=None):
     )
 
 
+def _denied_turn(profile_dict, *, conflicts=None):
+    """A turn that recorded an explicit denial and nothing else (#231) — no
+    profile mutation, so `addressed` stays False (F8), but the denial is a
+    TERMINAL answer (#259 sufficiency criterion b): it must advance past the
+    gap on this turn, never re-ask it."""
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    return InterviewTurnResult(
+        profile_dict=profile_dict,
+        changes=[],
+        addressed=False,
+        denial_recorded=True,
+        conflict_summaries=list(conflicts or []),
+    )
+
+
 def _confirming_turn(profile_dict, *, addressed=True, changes=None):
     """A turn whose reconciler flagged an ambiguity → a confirmation is owed (US185)."""
     from applire.schemas.profile import FieldChange
@@ -487,6 +503,11 @@ class TestCreateSession:
         # real persisted ceiling, not just the soft estimate, so the frontend
         # can show an honest "of up to N" instead of a fixed midpoint.
         assert result.hard_ceiling == session_record.hard_ceiling
+        # #259 run-4 finding 9 — the resumed response must ALSO carry the
+        # real persisted questions_asked, or the frontend counter resets to
+        # "1 of up to N" on every page refresh even though the server has
+        # tracked real progress (questions_asked=2 here, not 1).
+        assert result.questions_asked == 2
 
     @pytest.mark.asyncio
     async def test_freshly_created_session_is_not_marked_resumed(self, sqlite_session):
@@ -552,6 +573,34 @@ class TestCreateSession:
         # founder-acceptance run.
         from applire.constants import INTERVIEW_HARD_CEILING_TARGETED
         assert result.hard_ceiling == INTERVIEW_HARD_CEILING_TARGETED
+
+    @pytest.mark.asyncio
+    async def test_operator_configured_budget_threads_into_created_session(
+        self, sqlite_session, monkeypatch
+    ):
+        """#259: an operator-raised INTERVIEW_MAX_QUESTIONS_TARGETED must reach
+        the actual created session's hard_ceiling — the runtime value comes
+        from config.settings, not the constants.py default, at the real
+        create_session() call site."""
+        from applire.services import session as session_module
+        from applire.schemas.session import SessionCreateRequest
+
+        monkeypatch.setattr(session_module.settings, "interview_max_questions_targeted", 30)
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+        result = await session_module.create_session(req, sqlite_session, _mock_provider())
+
+        assert result.hard_ceiling == 30
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_no_profile_raises(self, sqlite_session):
@@ -881,6 +930,53 @@ class TestGetSessionState:
 # Part 6: send_message (SQLite + mocked LLM)
 # ===========================================================================
 
+class TestSufficiencyEndsEarlierThanBudget:
+    @pytest.mark.asyncio
+    async def test_sufficiency_completes_well_under_the_configured_budget(self, sqlite_session):
+        """#259 guardrail: the sufficiency metric must be able to end the
+        interview EARLIER than the budget when everything is covered. Two
+        gaps, both addressed in two turns, hard_ceiling=12 — completion fires
+        as "gaps_resolved" at questions_asked=2, nowhere near the ceiling.
+        (The mirror guardrail — the budget still caps a pathological long
+        tail when gaps remain unresolved — is pinned by
+        TestSendMessage.test_hard_ceiling_triggers_completion.)"""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)  # hard_ceiling=12, 2 gaps
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _addressed_turn(profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            first = await send_message(
+                session_record.id, "I have 3 years of GCP experience.",
+                sqlite_session, _mock_provider()
+            )
+            assert first.complete is False
+            assert first.gaps_remaining == 1
+
+            second = await send_message(
+                session_record.id, "I have shipped FastAPI services in production.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert second.complete is True
+        assert second.reason == "gaps_resolved"
+        assert second.questions_asked == 3  # well under hard_ceiling=12
+        assert second.questions_asked < session_record.hard_ceiling
+
+
 class TestSendMessage:
     @pytest.mark.asyncio
     async def test_raises_when_session_not_found(self, sqlite_session):
@@ -998,6 +1094,45 @@ class TestSendMessage:
         assert result.gaps_remaining == 1
 
     @pytest.mark.asyncio
+    async def test_denial_advances_immediately_never_re_asked(self, sqlite_session):
+        """#259 sufficiency criterion (b): an explicit denial is a TERMINAL
+        answer — it must advance to the next gap on THIS turn, not fall
+        through to the "more specific example" follow-up loop. Before the
+        fix, `addressed` (which F8 deliberately excludes denials from) was
+        the ONLY advance trigger, so a denial-only turn looped into a
+        follow-up re-ask despite the candidate having already declined."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _denied_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "No, I have never touched GCP.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.question == "Tell me about FastAPI."
+        # Advanced to the second (and last) gap on THIS turn → one remaining.
+        assert result.gaps_remaining == 1
+        assert result.denial_recorded is None  # only set on the completion path
+
+    @pytest.mark.asyncio
     async def test_pending_confirmation_surfaces_as_targeted_question(self, sqlite_session):
         """An ambiguous reconcile turn surfaces a confirmation prompt, never a silent merge (US185).
 
@@ -1095,6 +1230,137 @@ class TestSendMessage:
         await sqlite_session.rollback()  # what get_db's context exit does in production
 
         assert len((await sqlite_session.get(InterviewSession, session_id)).state["messages"]) == msgs_before
+        assert (await sqlite_session.get(MasterProfile, profile_id)).profile_json == profile_before
+
+    @pytest.mark.asyncio
+    async def test_provider_outage_mid_turn_leaves_session_resumable(self, sqlite_session):
+        """#256 — pins the ground truth for "the interview freezes on a 503":
+        a provider outage raised by the SECOND LLM call of a turn (next-question
+        generation, AFTER the reconciler already wrote a real profile mutation)
+        must roll back exactly like the #179 truncation case above (one commit
+        per turn — the reconciler write and the transcript write are never
+        split across a partial commit), AND the exact same question must be
+        answerable again once the provider recovers — proving the session is
+        not just "not corrupted" but actually resumable from the UI's retry
+        affordance, not only via a full page reload."""
+        from applire.exceptions import LLMProviderUnavailableError
+        from applire.models.profile import MasterProfile
+        from applire.models.session import InterviewSession
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        session_id = session_record.id
+        profile_id = profile.id
+        state_before = (await sqlite_session.get(InterviewSession, session_id)).state
+        question_before = state_before["current_question"]
+        gap_index_before = state_before["current_gap_index"]
+        questions_asked_before = (await sqlite_session.get(InterviewSession, session_id)).questions_asked
+        profile_before = (await sqlite_session.get(MasterProfile, profile_id)).profile_json
+
+        mutated_profile = copy.deepcopy(profile.profile_json)
+        mutated_profile["skills"] = mutated_profile.get("skills", []) + [
+            {"name": "Resumability Probe Skill", "category": "technical", "proficiency": "advanced"}
+        ]
+        turn = _addressed_turn(mutated_profile)
+
+        # --- Turn 1: reconcile succeeds (real profile write), then the
+        # gateway 503s relaying an upstream outage on the next-question call.
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(
+                      side_effect=LLMProviderUnavailableError(
+                          "OpenRouter is temporarily unavailable (HTTP 503)."
+                      )
+                  )),
+        ):
+            with pytest.raises(LLMProviderUnavailableError):
+                await send_message(
+                    session_id, "I led a team of five engineers",
+                    sqlite_session, _mock_provider(),
+                )
+        await sqlite_session.rollback()  # what get_db's context exit does in production
+
+        record_after_failure = await sqlite_session.get(InterviewSession, session_id)
+        assert record_after_failure.state["current_question"] == question_before
+        assert record_after_failure.state["current_gap_index"] == gap_index_before
+        assert record_after_failure.questions_asked == questions_asked_before
+        assert (await sqlite_session.get(MasterProfile, profile_id)).profile_json == profile_before
+
+        # --- Turn 2: same session, same message, provider recovers — the
+        # turn the frontend's Retry button re-sends must succeed normally,
+        # not re-hit a corrupted/half-advanced state.
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_id, "I led a team of five engineers",
+                sqlite_session, _mock_provider(),
+            )
+
+        assert result.complete is False
+        assert result.question == "Tell me about FastAPI."
+        assert (await sqlite_session.get(MasterProfile, profile_id)).profile_json == mutated_profile
+
+    @pytest.mark.asyncio
+    async def test_provider_outage_on_reconcile_call_leaves_session_untouched(self, sqlite_session):
+        """#256 — the FIRST LLM call of a turn (reconcile_interview_turn) is
+        pure in-memory work with no DB access at all; a provider outage there
+        must leave the session and profile completely untouched (simplest
+        resumability case, still worth pinning explicitly)."""
+        from applire.exceptions import LLMProviderUnavailableError
+        from applire.models.profile import MasterProfile
+        from applire.models.session import InterviewSession
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        session_id = session_record.id
+        profile_id = profile.id
+        # #256 review finding: a plain reference to record.state (or a shallow
+        # copy) shares the nested `messages` list with whatever send_message's
+        # local `dict(record.state)` copy mutates in place — so a naive
+        # "before" snapshot gets silently poisoned by the very call under
+        # test, even though nothing was ever committed. deepcopy pins a real,
+        # independent snapshot.
+        state_before = copy.deepcopy((await sqlite_session.get(InterviewSession, session_id)).state)
+        profile_before = copy.deepcopy((await sqlite_session.get(MasterProfile, profile_id)).profile_json)
+
+        with patch(
+            "applire.services.session.reconcile_interview_turn",
+            new=AsyncMock(
+                side_effect=LLMProviderUnavailableError("Mistral is temporarily unavailable (HTTP 503).")
+            ),
+        ):
+            with pytest.raises(LLMProviderUnavailableError):
+                await send_message(
+                    session_id, "I led a team of five engineers",
+                    sqlite_session, _mock_provider(),
+                )
+        await sqlite_session.rollback()
+
+        assert (await sqlite_session.get(InterviewSession, session_id)).state == state_before
         assert (await sqlite_session.get(MasterProfile, profile_id)).profile_json == profile_before
 
     @pytest.mark.asyncio
@@ -1564,6 +1830,55 @@ class TestSessionRouter:
 
         assert resp.status_code == 500
 
+    def test_start_session_503_on_provider_unavailable(self):
+        """#256 — session CREATION is the very first LLM call the interview
+        page makes; a provider outage here must not surface as a raw 500
+        (this is the pinned "wedged interview" vector — see the frontend
+        InterviewPage tests for the recovery-affordance half of the fix)."""
+        from fastapi.testclient import TestClient
+        from applire.exceptions import LLMProviderUnavailableError
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        with patch(
+            "applire.routers.session.create_session",
+            new=AsyncMock(
+                side_effect=LLMProviderUnavailableError(
+                    "mistralai/mistral-large-latest returned no completion (upstream outage)."
+                )
+            ),
+        ):
+            with TestClient(app) as client:
+                resp = client.post("/api/session", json={"job_id": str(_uuid.uuid4())})
+
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict)
+        assert detail["error_code"] == "provider_unavailable"
+
+    def test_start_session_500_never_leaks_raw_exception_text(self):
+        """#256 run-4 evidence, pinned at the exact crash site: openrouter.py
+        _parse_json indexing response.choices[0] on a None/empty choices
+        list — the raw TypeError text must never reach the response body."""
+        from fastapi.testclient import TestClient
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        raw_exception_text = "'NoneType' object is not subscriptable"
+        with patch(
+            "applire.routers.session.create_session",
+            new=AsyncMock(side_effect=TypeError(raw_exception_text)),
+        ):
+            with TestClient(app) as client:
+                resp = client.post("/api/session", json={"job_id": str(_uuid.uuid4())})
+
+        assert resp.status_code == 500
+        assert raw_exception_text not in resp.text
+
     def test_get_session_returns_200(self):
         from fastapi.testclient import TestClient
         from applire.schemas.session import SessionStateResponse
@@ -1699,6 +2014,93 @@ class TestSessionRouter:
                 )
 
         assert resp.status_code == 503
+
+    def test_post_message_503_on_provider_unavailable(self):
+        """#256 — a provider outage mid-turn maps to a structured 503, not a
+        raw exception leak."""
+        from fastapi.testclient import TestClient
+        from applire.exceptions import LLMProviderUnavailableError
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        with patch(
+            "applire.routers.session.send_message",
+            new=AsyncMock(
+                side_effect=LLMProviderUnavailableError(
+                    "OpenRouter is temporarily unavailable (HTTP 503). Retry the same request."
+                )
+            ),
+        ):
+            with TestClient(app) as client:
+                resp = client.post(
+                    f"/api/session/{_uuid.uuid4()}/message",
+                    json={"message": "test message"},
+                )
+
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict), f"Expected structured dict, got: {detail!r}"
+        assert detail["error_code"] == "provider_unavailable"
+        assert "message" in detail and len(detail["message"]) > 0
+
+    def test_post_message_500_never_leaks_raw_exception_text(self):
+        """#256 run-4 evidence — a raw provider crash (bare TypeError, or an
+        SDK exception whose str() embeds the provider's JSON body) must never
+        reach the response body. Only a stable, generic error_code + a
+        translatable message may appear; the exact repro text from the
+        traceback must be absent."""
+        from fastapi.testclient import TestClient
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        raw_exception_text = "'NoneType' object is not subscriptable"
+        with patch(
+            "applire.routers.session.send_message",
+            new=AsyncMock(side_effect=TypeError(raw_exception_text)),
+        ):
+            with TestClient(app) as client:
+                resp = client.post(
+                    f"/api/session/{_uuid.uuid4()}/message",
+                    json={"message": "test message"},
+                )
+
+        assert resp.status_code == 500
+        body_text = resp.text
+        assert raw_exception_text not in body_text
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict), f"Expected structured dict, got: {detail!r}"
+        assert detail["error_code"] == "internal_error"
+
+    def test_post_message_500_never_leaks_raw_provider_json(self):
+        """#256 — the OTHER observed leak shape: an unmapped SDK exception
+        whose str() embeds the raw provider error JSON body verbatim."""
+        from fastapi.testclient import TestClient
+        import uuid as _uuid
+
+        app = _make_session_app()
+        app = _setup_router_deps(app)
+
+        raw_provider_json = (
+            "Error code: 503 - {'error': {'message': "
+            "'mistralai/mistral-large-latest is temporarily unavailable', 'code': 503}}"
+        )
+        with patch(
+            "applire.routers.session.send_message",
+            new=AsyncMock(side_effect=RuntimeError(raw_provider_json)),
+        ):
+            with TestClient(app) as client:
+                resp = client.post(
+                    f"/api/session/{_uuid.uuid4()}/message",
+                    json={"message": "test message"},
+                )
+
+        assert resp.status_code == 500
+        assert raw_provider_json not in resp.text
+        assert "mistralai" not in resp.text
 
     def test_post_message_502_on_truncated_error(self):
         """#179: a truncated question maps to a retryable 502, not a raw 500 — the

@@ -46,6 +46,7 @@ Tools:
   update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins, stale-CV dismiss)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
+  submit_testimony   — reconcile a whole free-text testimony document into the profile (#258)
 
 Resources:
   profile://current       — current MasterProfile JSON
@@ -55,6 +56,7 @@ Resources:
   schema://cv             — public tailored-CV content contract (ADR-054)
   schema://cover-letter   — public cover-letter content contract (ADR-054)
   schema://claims         — public agent-testimony contract (ADR-054, E045)
+  schema://testimony      — public free-text testimony contract (#258)
   guide://usage           — the agent-usage guide + honesty contract (ADR-056)
 
 Prompts:
@@ -113,7 +115,7 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-07-23"
+GUIDE_VERSION = "2026-07-25"
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +388,34 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
             result = await submit_agent_claims(submission, jid, db, provider)
         except ValueError as exc:
             raise invalid_input(str(exc))
+        except LookupError as exc:
+            raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool(
+    description=(
+        "Reconcile ONE whole free-text testimony document into the profile "
+        "with receipts (itemized claims: use submit_claims instead). Read "
+        "schema://testimony first."
+    )
+)
+async def submit_testimony(text: str) -> dict:
+    from pydantic import ValidationError
+
+    from applire.schemas.testimony import TestimonyRequest
+    from applire.services.profile.reconcile.testimony_bridge import (
+        submit_testimony as submit_testimony_svc,
+    )
+
+    try:
+        request = TestimonyRequest(text=text)
+    except ValidationError as exc:
+        raise invalid_input(str(exc))
+    provider = get_provider()
+    async with get_db() as db:
+        try:
+            result = await submit_testimony_svc(request.text, db, provider)
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")
@@ -1208,6 +1238,26 @@ async def resource_schema_claims() -> str:
         {
             "schema_version": CLAIMS_SCHEMA_VERSION,
             "json_schema": ClaimsSubmission.model_json_schema(),
+        }
+    )
+
+
+@mcp.resource(
+    "schema://testimony",
+    mime_type="application/json",
+    description=(
+        "The public versioned free-text testimony contract (#258): "
+        "{schema_version, json_schema}. Read this before calling "
+        "submit_testimony."
+    ),
+)
+async def resource_schema_testimony() -> str:
+    from applire.schemas.testimony import TESTIMONY_SCHEMA_VERSION, TestimonyRequest
+
+    return json.dumps(
+        {
+            "schema_version": TESTIMONY_SCHEMA_VERSION,
+            "json_schema": TestimonyRequest.model_json_schema(),
         }
     )
 

@@ -78,6 +78,14 @@ class SessionCreateResponse(BaseModel):
     # cluster the frontend tracker knows about; it should not be force-mapped.
     current_gap_id: str | None = None
     addressed_gap_ids: list[str] = []
+    # #259 run-4 finding 9 — the server-tracked question count (InterviewSession.
+    # questions_asked). Defaults to 1 (a freshly created session's first
+    # question), matching every create-path's actual starting value; a RESUMED
+    # session reports the record's real count so the frontend counter doesn't
+    # reset to "1 of up to N" on a page refresh despite real server-side
+    # progress (SessionStateResponse already exposed this — this closes the
+    # same gap on the create/resume response the frontend actually calls).
+    questions_asked: int = 1
 
 
 class ConflictSummary(BaseModel):

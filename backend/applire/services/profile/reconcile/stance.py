@@ -193,7 +193,9 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     return False
 
 
-def is_denied_concept(concept: str, denials: list[str]) -> bool:
+def is_denied_concept(
+    concept: str, denials: list[str], corpus: str | None = None
+) -> bool:
     """Public reuse of the denial predicate for #231's LEDGER-level override
     (services.keyword_ledger): does ``concept`` fall under any of the
     candidate's persisted ``denied_concepts`` tokens?
@@ -201,12 +203,15 @@ def is_denied_concept(concept: str, denials: list[str]) -> bool:
     Same alias-group + word-boundary + unicode-normalized machinery as
     ``enforce_stance`` (``_is_denied``) — one matching instrument for the
     same-turn op guard AND the durable ledger override, so the two can never
-    disagree on what counts as denied. There is no interview-turn grounding
-    corpus at ledger-build time (the denial was recorded turns ago), so this
-    calls ``_is_denied`` with ``corpus=None`` — the same fail-closed behaviour
-    ``enforce_stance`` already falls back to outside an interview turn.
+    disagree on what counts as denied. There is no INTERVIEW-TURN grounding
+    corpus at ledger-build time (the denial was recorded turns ago), but the
+    ledger builder MAY pass the vault's own literal text as ``corpus`` (#249
+    run-4, 2026-07-24) — that lets the compound-containment rule's
+    independent-affirmation check see real vault evidence instead of always
+    fail-closing. Default ``None`` preserves the original fail-closed
+    behaviour for any caller that has no vault text on hand.
     """
-    return _is_denied(concept, denials, corpus=None)
+    return _is_denied(concept, denials, corpus)
 
 
 def record_denials(

@@ -353,7 +353,7 @@ async def test_letter_audit_receives_keyword_ledger(db_with_cover_letter):
 
     captured: dict = {}
 
-    def fake_audit(pdf, letter_data, keywords, ledger=None):
+    def fake_audit(pdf, letter_data, keywords, ledger=None, **kwargs):
         captured["ledger"] = ledger
         return _make_ats_report("cover_letter")
 
@@ -375,6 +375,83 @@ async def test_letter_audit_receives_keyword_ledger(db_with_cover_letter):
         await _render_cover_letter_background(cl_id, None, job_id)
 
     assert captured.get("ledger") == ledger, "audit_cover_letter did not receive the Keyword Ledger"
+
+
+@pytest.mark.asyncio
+async def test_cv_audit_receives_vault_text_norm(db_with_cv):
+    """#249 run-4: _update_ats_report must thread the vault's literal corpus into the
+    audit so the shared-predicate guard on present_unsupported is active in production
+    (a keyword the Oracle grounds literally can never be labeled unsupported)."""
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+    job_id = ctx["job_id"]
+    profile_id = ctx["profile_id"]
+
+    captured: dict = {}
+
+    def fake_audit(text, tailored, keywords, ledger=None, **kwargs):
+        captured.update(kwargs)
+        return _make_ats_report("cv")
+
+    tailored_raw = _stub_tailored_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = tailored_raw
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=mock_provider), \
+         patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit._audit_cv_text", side_effect=fake_audit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    vault = captured.get("vault_text_norm")
+    assert isinstance(vault, str) and vault, "audit did not receive the vault corpus"
+    assert "acme" in vault, "vault corpus does not carry the profile's literal text"
+
+
+@pytest.mark.asyncio
+async def test_letter_audit_receives_vault_text_norm(db_with_cover_letter):
+    """#249 run-4 letter twin: _update_ats_report_letter threads the vault corpus."""
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    captured: dict = {}
+
+    def fake_audit(pdf, letter_data, keywords, ledger=None, **kwargs):
+        captured.update(kwargs)
+        return _make_ats_report("cover_letter")
+
+    letter_raw = _stub_letter_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = letter_raw
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.audit_cover_letter", side_effect=fake_audit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    vault = captured.get("vault_text_norm")
+    assert isinstance(vault, str) and vault, "letter audit did not receive the vault corpus"
+    assert "acme" in vault, "vault corpus does not carry the profile's literal text"
 
 
 # ---------------------------------------------------------------------------

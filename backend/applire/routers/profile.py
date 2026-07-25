@@ -56,6 +56,7 @@ from applire.schemas.profile import (
     UndoLastMergeResponse,
     UploadHistoryItem,
 )
+from applire.schemas.testimony import TestimonyRequest, TestimonyResult
 from applire.models.import_job import CVImportStatus
 from applire.services.profile.import_jobs import (
     create_import_job,
@@ -84,6 +85,7 @@ from applire.services.profile import (
 from applire.storage import get_storage
 from applire.storage.base import StorageProvider
 from applire.services.photo import delete_photo, get_photo_bytes, upload_photo
+from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -656,6 +658,31 @@ async def resolve_profile_conflict(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.post(
+    "/testimony",
+    response_model=TestimonyResult,
+    status_code=status.HTTP_200_OK,
+)
+async def submit_testimony_endpoint(
+    body: TestimonyRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+    provider: LLMProvider = Depends(_get_provider),
+) -> TestimonyResult:
+    """#258 — the UI door for free-text testimony ("anything else recruiters
+    should know"). One reconcile call — the same order of magnitude as a
+    single interview turn or `submit_claims` claim, not the multi-call
+    segmented CV-import pipeline — so this stays a direct, synchronous
+    endpoint rather than an async job (see routers/profile.py's
+    /import-jobs for that pattern, reserved for genuinely multi-call work).
+    Calls the exact same `submit_testimony` service the MCP `submit_testimony`
+    tool calls (ADR-058 door parity)."""
+    try:
+        return await submit_testimony(body.text, db, provider)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.patch("/{section}", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)

@@ -885,6 +885,73 @@ def test_gap_stance_not_widened_by_foreign_entry():
 
 
 # ---------------------------------------------------------------------------
+# #249 run-4 — ONE shared presence predicate: the ATS panel's
+# present_unsupported and the Truthfulness Oracle's "grounded" (deterministic
+# literal tie, services/oracle/matchers/grounding.py:ground_skill_claim) must
+# never contradict each other for the same skill string. Oracle's
+# ground_skill_claim checks `surface_present` against the vault's own literal
+# text — THE same instrument used here. Defense-in-depth over the #249
+# denial-narrowing fix (services/keyword_ledger.py): even a stale/mis-
+# classified ledger row can no longer make the ATS panel say "remove it or
+# add evidence" about a skill the vault literally attests.
+# ---------------------------------------------------------------------------
+
+def test_present_unsupported_never_contradicts_literal_vault_grounding():
+    """Reproduces the run-4 fixture shape: a ledger row wrongly marks 'RAG'
+    unclaimable/gap (as the pre-fix denial-containment bug did), but the
+    vault's own literal text — the SAME text Oracle's ground_skill_claim
+    checks — carries 'Retrieval-Augmented Generation (RAG)'. present_unsupported
+    must honour that literal tie over the ledger's classification."""
+    ledger = [
+        {"concept": "RAG", "surface_forms": ["RAG"], "claimable": False,
+         "status": "gap", "sources": ["required"], "fit_weight": 1.0,
+         "evidence": "Candidate explicitly stated a limit here (interview)."},
+    ]
+    text = "Anna Bauer built a production RAG system end to end"
+    vault_text_norm = _norm(
+        "work_experience[0].technologies: Python, LangChain, "
+        "Retrieval-Augmented Generation (RAG)"
+    )
+    report = _audit_cv_text(
+        text, _CV, keywords=["RAG"], ledger=ledger, vault_text_norm=vault_text_norm,
+    )
+    assert report.keywords.present == ["RAG"]
+    assert "RAG" not in report.keywords.present_unsupported
+    # The invariant made explicit: whatever the ledger says, a keyword that
+    # clears THE shared presence predicate against the vault's own literal
+    # text can never be flagged present_unsupported.
+    assert surface_present("RAG", vault_text_norm)
+
+
+def test_present_unsupported_without_vault_text_is_unchanged_back_compat():
+    """Legacy callers that never pass vault_text_norm keep today's exact
+    behaviour — the guard is additive, never a silent regression."""
+    ledger = [
+        {"concept": "RAG", "surface_forms": ["RAG"], "claimable": False,
+         "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+    ]
+    text = "Anna Bauer built a production RAG system end to end"
+    report = _audit_cv_text(text, _CV, keywords=["RAG"], ledger=ledger)
+    assert report.keywords.present_unsupported == ["RAG"]
+
+
+def test_present_unsupported_still_fires_when_no_literal_vault_tie_exists():
+    """Contrast: without any literal vault backing, a genuinely unsupported
+    present keyword still gets flagged — the guard narrows, never disables,
+    the fourth-quadrant truthfulness warning."""
+    ledger = [
+        {"concept": "RAG", "surface_forms": ["RAG"], "claimable": False,
+         "status": "gap", "sources": ["required"], "fit_weight": 1.0, "evidence": ""},
+    ]
+    text = "Anna Bauer built a production RAG system end to end"
+    vault_text_norm = _norm("Python FastAPI Kubernetes")
+    report = _audit_cv_text(
+        text, _CV, keywords=["RAG"], ledger=ledger, vault_text_norm=vault_text_norm,
+    )
+    assert report.keywords.present_unsupported == ["RAG"]
+
+
+# ---------------------------------------------------------------------------
 # Friction finding (#234-adjacent) — verb-form false negatives in surface_present.
 # Live-reproduced: "Mentoring" and "Performance optimization" were reported
 # missing_claimable although the CV verbatim said "Mentored 2 junior engineers"
@@ -1079,3 +1146,97 @@ def test_dedupe_predicates_stay_strict_after_ship_fold():
 
     assert skills_near_dupe("Mentor", "Mentorship") is False
     assert _fold_variants("mentorship") == ["mentorship", "mentorships"]
+
+
+# ---------------------------------------------------------------------------
+# #260 — pre-generation keyword-liability check, report-surface parity.
+# ---------------------------------------------------------------------------
+
+
+def test_keyword_liability_concepts_on_report_mirrors_the_ledger_predicate():
+    """A required, claimable, narrative-less concept surfaces on the ATS
+    report exactly like `claimable_concepts` does (agent + report-surface
+    parity, #260)."""
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            {"concept": "RAG", "status": "direct", "surface_forms": ["RAG"],
+             "evidence": "listed under Skills"},
+        ],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=["RAG"],
+        profile_json={"skills": [{"name": "RAG"}]},
+    )
+    report = _audit_cv_text(_full_text(), _CV, keywords=["RAG"], ledger=ledger)
+    assert report.keywords.keyword_liability_concepts == ["RAG"]
+
+
+def test_keyword_liability_concepts_empty_when_narrative_backed():
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ledger = build_keyword_ledger(
+        classifications=[
+            {"concept": "RAG", "status": "direct", "surface_forms": ["RAG"],
+             "evidence": "listed under Skills"},
+        ],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=["RAG"],
+        profile_json={
+            "skills": [{"name": "RAG"}],
+            "signature_stories": [
+                {"title": "x", "challenge": "x", "mechanism": "Built a RAG pipeline.", "outcome": "x"},
+            ],
+        },
+    )
+    report = _audit_cv_text(_full_text(), _CV, keywords=["RAG"], ledger=ledger)
+    assert report.keywords.keyword_liability_concepts == []
+
+
+def test_keyword_liability_concepts_absent_when_no_ledger():
+    report = _audit_cv_text(_full_text(), _CV, keywords=["Python"])
+    assert report.keywords.keyword_liability_concepts == []
+
+
+def test_249_related_and_260_liability_are_orthogonal_for_one_concept():
+    """Hard constraint: #260 must not contradict #249's third 'related
+    evidence' state. #249's `claimable_concepts` (literal-vault-presence
+    axis, feeds the frontend's 'related' display state when the Oracle
+    verdicts a claim unbacked) and #260's `keyword_liability_concepts`
+    (narrative-depth axis) are DIFFERENT axes over the SAME ledger entry —
+    a concept can legitimately appear in both lists at once. This is the
+    coherent combined vocabulary: 'claimable, and the ledger vouches for it'
+    (#249) is not the same fact as 'claimable, but nobody told its story yet'
+    (#260); a reader of both panels sees two complementary signals about the
+    same concept, never a contradiction."""
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    # Adjacency-only claimable concept (no literal surface form in the CV
+    # text at all — the #249 shape) that ALSO has no narrative anywhere
+    # (the #260 shape): both signals fire together, honestly, for one concept.
+    ledger = build_keyword_ledger(
+        classifications=[
+            {
+                "concept": "Strategic Planning",
+                "status": "partial",
+                "surface_forms": ["Strategic Planning"],
+                "evidence": "Adjacent to profile skill 'Digital Strategy'.",
+            },
+        ],
+        required_skills=["Strategic Planning"],
+        nice_to_have_skills=[],
+        keywords=["Strategic Planning"],
+        profile_json={"skills": [{"name": "Digital Strategy"}]},
+    )
+    report = _audit_cv_text(
+        "Anna Bauer some unrelated prose with no job keywords",
+        _CV,
+        keywords=["Strategic Planning"],
+        ledger=ledger,
+    )
+    assert "Strategic Planning" in report.keywords.claimable_concepts
+    assert "Strategic Planning" in report.keywords.keyword_liability_concepts
+    # Neither list contradicts the other -- both are true statements about
+    # the same underlying ledger entry, read off two different fields.

@@ -53,6 +53,7 @@ from applire.constants import (
     ORACLE_ENTAILMENT_MAX_TOKENS,
     ORACLE_MAX_ENTAILMENT_CALLS,
 )
+from applire.services.ats_audit import skill_tokens, surface_present
 from applire.schemas.oracle import (
     Claim,
     ClaimResult,
@@ -75,6 +76,7 @@ from applire.services.oracle.matchers import (
     find_foreign_owner,
     ground_skill_claim,
     ground_text_claim,
+    ground_via_role_union,
     ground_via_skill_union,
     match_figures,
 )
@@ -112,14 +114,24 @@ class _EntailmentBudget:
 
 
 def _attribution_red_flag(
-    source_id: str | None, units: list[EvidenceUnit]
+    source_id: str | None,
+    units: list[EvidenceUnit],
+    index: VaultIndex | None = None,
 ) -> ClaimVerdict | None:
     """The shared misattribution red flag (#196, ADR-052 §6) — deterministic.
 
     Wraps :func:`find_foreign_owner` (the matcher holds the exclusively-foreign
-    rule) into a verdict; ``None`` when attribution is fine.
+    rule) into a verdict; ``None`` when attribution is fine. ``index`` (#237
+    round-3) supplies ``same_employer_ids`` so a claim's SAME-COMPANY sibling
+    roles are never treated as foreign — omit only when no index is
+    available (fails open to the pre-round-3 behaviour, never over-flags).
     """
-    unit = find_foreign_owner(source_id, units)
+    same_employer_ids = (
+        index.same_employer_ids.get(source_id, frozenset())
+        if index is not None and source_id
+        else frozenset()
+    )
+    unit = find_foreign_owner(source_id, units, same_employer_ids)
     if unit is None:
         return None
     return ClaimVerdict(
@@ -133,7 +145,63 @@ def _attribution_red_flag(
     )
 
 
+# #237 (run-4 residual): the bar for "this claim is at least SOMEWHAT a
+# genuine restatement of vault content" — deliberately well BELOW
+# ``GROUNDED_MIN_COVERAGE`` (0.6, the bar for an independently grounded
+# claim). This check only fires once every ownership escape has already
+# failed, i.e. the claim could never verdict ``grounded`` here regardless;
+# its sole job is discriminating "plausible restatement, ownership just
+# unprovable" (stay unverifiable) from "a number wearing unrelated content"
+# (escalate to unbacked) — see ``_unattributable_evidence_flag``.
+_UNATTRIBUTABLE_CONTENT_FLOOR = 0.35
+
+
+def _owner_scoped_coverage(
+    claim_text: str, index: VaultIndex, owners: set[str]
+) -> float:
+    """Best single-unit coverage of ``claim_text`` against evidence OWNED BY
+    ``owners`` only (#237 run-4 residual).
+
+    Deliberately excludes role-agnostic evidence (professional summary,
+    skills) — that prose is broad and generic BY DESIGN (it describes the
+    whole career), so it coincidentally overlaps almost any leadership-
+    flavoured sentence at 30-50% coverage regardless of whether the claim is
+    genuine, which would make the vault-wide check too permissive to
+    discriminate a fabrication here. Scoping to the SAME position(s) whose
+    evidence the claim's figure/content actually matched keeps the question
+    honest: "does this claim's content, not just its number, belong to the
+    position that number came from?"
+    """
+    tokens = skill_tokens(claim_text)
+    if not tokens:
+        return 0.0
+    owned_units = [u for u in index.units if u.owner_ids & owners]
+    best = 0
+    for u in owned_units:
+        hits = sum(1 for t in tokens if surface_present(t, u.text_norm))
+        best = max(best, hits)
+    return best / len(tokens)
+
+
+def _all_same_employer(ids: frozenset[str], index: VaultIndex) -> bool:
+    """True when every id in ``ids`` is a same-employer sibling of every
+    other (#237 round-3, ``VaultIndex.same_employer_ids``) — the
+    letter-wide escape's generalization from "names exactly one experience
+    id" to "names roles at exactly one COMPANY". A single-id set is
+    trivially true (the pre-round-3 behaviour, unchanged); an id the vault
+    has no company grouping for (e.g. a project) falls back to its own
+    singleton group, so an actually-mixed set still correctly fails.
+    """
+    if not ids:
+        return False
+    first = next(iter(ids))
+    group = index.same_employer_ids.get(first, frozenset({first}))
+    return all(i in group for i in ids)
+
+
 def _unattributable_evidence_flag(
+    claim_text: str,
+    index: VaultIndex,
     source_id: str | None,
     letter_named_ids: frozenset[str] | None,
     sentence_named_ids: frozenset[str],
@@ -180,13 +248,17 @@ def _unattributable_evidence_flag(
         names Applire elsewhere — the letter-wide escape alone would wrongly
         flag it once BioNTech is correctly counted as "named elsewhere",
         #248), or
-      * the letter names EXACTLY ONE employer/project overall and its id is
-        AMONG the backing units' owners — an unambiguous single-employer
-        letter, just not repeated in THIS clause (legitimate unanchored
-        summary-style sentence). Membership, not subset: a project unit's
-        ``owner_ids`` also carries the project's OWN id alongside its
-        resolved parent work id (US187 nesting, vault.py), but a project
-        name is a candidate anchor mapped straight to that PARENT id
+      * the letter names roles at EXACTLY ONE EMPLOYER overall (#237
+        round-3: same-company siblings count as the same employer here too,
+        via ``VaultIndex.same_employer_ids`` — a tenure held across several
+        internal roles at ONE company, all loosely matched by the
+        whole-letter scan, is still an unambiguous single-employer letter)
+        and one of those ids is AMONG the backing units' owners — just not
+        repeated in THIS clause (legitimate unanchored summary-style
+        sentence). Membership, not subset: a project unit's ``owner_ids``
+        also carries the project's OWN id alongside its resolved parent
+        work id (US187 nesting, vault.py), but a project name is a
+        candidate anchor mapped straight to that PARENT id
         (``_employer_anchor_candidates``) — the bare project id can never
         itself appear in ``letter_named_ids``, so requiring the full owner
         set to be named would never clear a project-owned claim at all.
@@ -201,6 +273,22 @@ def _unattributable_evidence_flag(
     more candidates is never enough to clear an unanchored claim, only
     exactly one is (or the claim's own sentence naming the true owner
     directly).
+
+    #237 (run-4 residual): a report dominated by soft ``unverifiable``
+    verdicts camouflages a real fabrication as checker conservatism ("no
+    sufficiently close evidence" reads the same whether the vault is silent
+    OR was silently mismatched). Once every escape above has failed to
+    clear the claim, :func:`_owner_scoped_coverage` — the claim's best
+    coverage against ONLY the evidence owned by the position(s) that back
+    it, role-agnostic prose excluded — decides which negative verdict fits:
+    if the claim's own wording clears ``_UNATTRIBUTABLE_CONTENT_FLOOR``
+    against that position's OWN evidence (a plausible restatement whose
+    ownership just can't be pinned down in the letter's prose), stay
+    ``unverifiable`` — honest uncertainty, not an accusation. If it does not
+    (the claim's action/content has nothing to do with what that position's
+    evidence actually says — a number lifted from an unrelated fact and
+    dressed in different wording), escalate to ``unbacked``: the evidence
+    backs the FIGURE, not the CLAIM.
     """
     if source_id is not None or letter_named_ids is None or not units:
         return None
@@ -209,8 +297,20 @@ def _unattributable_evidence_flag(
     owners = {oid for u in units for oid in u.owner_ids}
     if sentence_named_ids and sentence_named_ids & owners:
         return None
-    if len(letter_named_ids) == 1 and letter_named_ids & owners:
+    if _all_same_employer(letter_named_ids, index) and letter_named_ids & owners:
         return None
+    if _owner_scoped_coverage(claim_text, index, owners) < _UNATTRIBUTABLE_CONTENT_FLOOR:
+        return ClaimVerdict(
+            verdict="unbacked",
+            checker="attribution",
+            evidence=_evidence_refs(units),
+            detail=(
+                "The only vault evidence for this claim's figure belongs to "
+                "a different position, and this claim's own wording does not "
+                "correspond to that evidence's content — the figure appears "
+                "borrowed from an unrelated fact."
+            ),
+        )
     return ClaimVerdict(
         verdict="unverifiable",
         checker="attribution",
@@ -246,6 +346,7 @@ async def _entailment(
     budget: _EntailmentBudget,
     fallback: ClaimVerdict,
     source_id: str | None = None,
+    index: VaultIndex | None = None,
 ) -> ClaimVerdict:
     """Narrow, bounded entailment call — used ONLY on deterministically
     undecided claims (never after a red flag; see module docstring)."""
@@ -269,7 +370,7 @@ async def _entailment(
         # drops coverage below the deterministic floor, entailment then
         # endorses the wrong position's evidence). Determinism outranks the
         # LLM here exactly as it does for red flags.
-        flag = _attribution_red_flag(source_id, evidence_units)
+        flag = _attribution_red_flag(source_id, evidence_units, index)
         if flag is not None:
             return flag
     return ClaimVerdict(
@@ -307,6 +408,23 @@ async def verify_claim(
     source_id = claim.source_experience_id
     if source_id is not None and source_id not in idx.experience_ids:
         source_id = None
+
+    # ── employer facts (#237 round-3): out of the vault's domain, full stop ─
+    # A statement about the TARGET COMPANY, not the candidate — never even
+    # attempt vault-grounding (there IS none to attempt; this is not the same
+    # as "the vault has no evidence", which would misleadingly read as an
+    # unbacked/unverifiable CANDIDATE claim). See extract.py's module
+    # docstring point 6 and top-of-file section for the classification.
+    if claim.is_employer_fact:
+        return ClaimVerdict(
+            verdict="not_applicable",
+            checker="extraction",
+            detail=(
+                "Statement about the target employer, not the candidate — "
+                "outside the vault's scope (checked against the job "
+                "description elsewhere, not here)."
+            ),
+        )
 
     # ── skills: shared-predicate grounding, deterministic either way ────────
     if claim.kind == "skill":
@@ -364,7 +482,7 @@ async def verify_claim(
         for fig, fig_units in fig_match.matched:
             if fig.kind == "year":
                 continue
-            flag = _attribution_red_flag(source_id, fig_units)
+            flag = _attribution_red_flag(source_id, fig_units, idx)
             if flag is not None:
                 return flag
         # ── 2c. unattributable figure (unanchored letter claim, #243-adjacent)
@@ -372,7 +490,7 @@ async def verify_claim(
             if fig.kind == "year":
                 continue
             flag = _unattributable_evidence_flag(
-                source_id, letter_named_ids, claim.sentence_named_ids, fig_units
+                claim.text, idx, source_id, letter_named_ids, claim.sentence_named_ids, fig_units
             )
             if flag is not None:
                 return flag
@@ -393,7 +511,7 @@ async def verify_claim(
                 if u not in context_units:
                     context_units.append(u)
             return await _entailment(
-                claim.text, context_units, provider, budget, fallback, source_id
+                claim.text, context_units, provider, budget, fallback, source_id, idx
             )
         return ClaimVerdict(
             verdict="grounded",
@@ -436,7 +554,7 @@ async def verify_claim(
         # (grounding.qualifying_units — deliberately not the top-3 entailment
         # window); only when all of them belong to a foreign position is the
         # claim misattributed (same-role or role-agnostic backing clears it).
-        flag = _attribution_red_flag(source_id, grounding.qualifying_units)
+        flag = _attribution_red_flag(source_id, grounding.qualifying_units, idx)
         if flag is not None:
             return flag
         # ── unattributable figure-free claim (unanchored letter claim, #248) ─
@@ -445,7 +563,12 @@ async def verify_claim(
         # shape a figure carries, just without a figure to route through the
         # per-figure loop above (df78cac was scoped to figures only).
         flag = _unattributable_evidence_flag(
-            source_id, letter_named_ids, claim.sentence_named_ids, grounding.qualifying_units
+            claim.text,
+            idx,
+            source_id,
+            letter_named_ids,
+            claim.sentence_named_ids,
+            grounding.qualifying_units,
         )
         if flag is not None:
             return flag
@@ -464,9 +587,93 @@ async def verify_claim(
     # here and stop — it must never be allowed to reach the skill-union
     # fallback and get rescued by role-agnostic skill evidence.
     if source_id is not None:
-        pre_union_flag = _attribution_red_flag(source_id, grounding.top_units)
+        pre_union_flag = _attribution_red_flag(source_id, grounding.top_units, idx)
         if pre_union_flag is not None:
             return pre_union_flag
+        # ── 3a2. role-union fallback (#237 run-4 residual) ───────────────────
+        # An ANCHORED claim narrating several facts about ONE role — no single
+        # bullet clears the floor, but the role's OWN evidence collectively
+        # does. Scoped to source_id's own units only (see
+        # grounding.ground_via_role_union's docstring) — the pre-union
+        # attribution guard above already ruled out a foreign-owned claim, so
+        # this can never rescue a misattributed blend.
+        role_grounding = ground_via_role_union(
+            claim.text, idx, source_id, idx.same_employer_ids.get(source_id, frozenset())
+        )
+        if role_grounding is not None:
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="grounding",
+                evidence=_evidence_refs(role_grounding.qualifying_units),
+                detail=(
+                    "Grounded via the union of this role's own vault evidence "
+                    "(multi-fact narrative clause)."
+                ),
+            )
+    elif len(claim.sentence_named_ids) == 1:
+        # ── 3a3. soft-anchor role-union (#237 run-4 residual) ────────────────
+        # The STRICT anchor (``source_id``) intentionally stays ``None`` on a
+        # legal-form-suffix mismatch or any other ambiguity it refuses to
+        # guess through (#237/#248's own "fail open, never guess" rule,
+        # unchanged). ``sentence_named_ids`` (#248) is deliberately more
+        # permissive — legal-form-suffix tolerant, same-company duplicate-id
+        # ambiguity tolerated — and already trusted elsewhere
+        # (``_unattributable_evidence_flag``'s escape) as "this clause's own
+        # sentence names its true owner". When it names EXACTLY one id, that
+        # is enough to try — never to CLAIM — the SAME role-union grounding
+        # an explicit anchor gets, still behind the identical pre-union
+        # attribution guard (a claim whose best-effort evidence is
+        # EXCLUSIVELY a different, foreign position must flag misattributed,
+        # never be silently rescued here).
+        (soft_id,) = claim.sentence_named_ids
+        pre_union_flag = _attribution_red_flag(soft_id, grounding.top_units, idx)
+        if pre_union_flag is not None:
+            return pre_union_flag
+        role_grounding = ground_via_role_union(
+            claim.text, idx, soft_id, idx.same_employer_ids.get(soft_id, frozenset())
+        )
+        if role_grounding is not None:
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="grounding",
+                evidence=_evidence_refs(role_grounding.qualifying_units),
+                detail=(
+                    "Grounded via the union of this role's own vault evidence "
+                    "(multi-fact narrative clause, sentence-named owner)."
+                ),
+            )
+    elif letter_named_ids and _all_same_employer(letter_named_ids, idx):
+        # ── 3a4. whole-letter single-employer role-union (#237 round-3) ──────
+        # A genuinely UNANCHORED claim with no employer context of its own —
+        # not even a same-company-ambiguous mention (that's 3a3 above) — in a
+        # letter that, taken as a WHOLE, only ever names roles at ONE
+        # company: there is no OTHER employer this content could plausibly be
+        # confused with, so it may draw on that company's full evidence via
+        # the same role-union mechanism. Never used for misattribution
+        # flagging (no specific rendered position is being claimed wrong,
+        # so no pre-union guard here) — only widens what counts as "this
+        # claim's own evidence" when nothing more precise names it. A letter
+        # naming TWO OR MORE distinct employers never reaches this branch
+        # (``_all_same_employer`` is false), so a genuine cross-employer
+        # letter gets no such benefit of the doubt.
+        whole_letter_id = next(iter(letter_named_ids))
+        role_grounding = ground_via_role_union(
+            claim.text,
+            idx,
+            whole_letter_id,
+            idx.same_employer_ids.get(whole_letter_id, frozenset()),
+        )
+        if role_grounding is not None:
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="grounding",
+                evidence=_evidence_refs(role_grounding.qualifying_units),
+                detail=(
+                    "Grounded via the union of the letter's single named "
+                    "employer's vault evidence (multi-fact narrative "
+                    "clause, no closer anchor available)."
+                ),
+            )
     union_grounding = ground_via_skill_union(claim.text, idx)
     if union_grounding is not None:
         return ClaimVerdict(
@@ -485,7 +692,7 @@ async def verify_claim(
         detail="No sufficiently close vault evidence for a deterministic verdict.",
     )
     return await _entailment(
-        claim.text, grounding.top_units, provider, budget, fallback, source_id
+        claim.text, grounding.top_units, provider, budget, fallback, source_id, idx
     )
 
 

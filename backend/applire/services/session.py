@@ -40,9 +40,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.config import settings
 from applire.constants import (
-    INTERVIEW_HARD_CEILING_GUIDED,
-    INTERVIEW_HARD_CEILING_TARGETED,
     INTERVIEW_MAX_QUESTIONS_PER_GAP,
     INTERVIEW_SESSION_TTL_DAYS as _SESSION_TTL_DAYS,
     INTERVIEW_TARGET_MIN_GUIDED,
@@ -68,6 +67,7 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
+from applire.services.interview.sufficiency import is_interview_sufficient
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import upgrade_ledger_for_concepts
 from applire.services.interview_graph import (
@@ -728,7 +728,7 @@ async def create_profile_review_session(
         gap_categories=review_categories,
         gap_clusters_by_id=review_by_id,
         current_question="",
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
     )
     state["entry"] = "profile_review"
     state["conflict_clusters"] = conflict_by_id
@@ -743,7 +743,7 @@ async def create_profile_review_session(
             mode="guided",
             status="complete",
             state=state,
-            hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+            hard_ceiling=settings.interview_max_questions_guided,
         )
         db.add(record)
         await db.commit()
@@ -775,7 +775,7 @@ async def create_profile_review_session(
         mode="guided",
         status="active",
         state=state,
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
         questions_asked=1,
     )
     db.add(record)
@@ -788,7 +788,7 @@ async def create_profile_review_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
         gaps_total=len(review_ids),
         gaps_remaining=len(review_ids),
         choices=first_choices,
@@ -915,7 +915,8 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
     # nothing yet.  A freshly created session sits at questions_asked == 1 (first
     # question generated, zero answers); only once the user has answered at least
     # one question (questions_asked > 1) is there somewhere to "continue from".
-    answered = (state.get("questions_asked", existing.questions_asked) or 0) > 1
+    real_questions_asked = state.get("questions_asked", existing.questions_asked) or 1
+    answered = real_questions_asked > 1
     return SessionCreateResponse(
         session_id=existing.id,
         mode=existing.mode,
@@ -931,6 +932,9 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
         resumed=answered,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        # #259 run-4 finding 9 — the real server-tracked count, so a page
+        # refresh restores "N of up to M" instead of resetting to "1 of…".
+        questions_asked=real_questions_asked,
     )
 
 
@@ -965,7 +969,12 @@ async def _create_targeted_session(
         )
         gap_analysis = ga_result2.scalar_one()
 
-    cluster_ids, cluster_categories, clusters_by_id = gap_detector(gap_analysis)
+    # #259 — pass the profile so gap_detector can promote a JD-required
+    # keyword-only/unquantified concept ahead of nice-to-have breadth within
+    # its C/B bucket (services/interview/sufficiency.cluster_needs_priority).
+    cluster_ids, cluster_categories, clusters_by_id = gap_detector(
+        gap_analysis, profile=profile_record.profile_json
+    )
 
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
     # mandatory and job-irrelevant.
@@ -986,7 +995,7 @@ async def _create_targeted_session(
             gap_categories={},
             gap_clusters_by_id={},
             current_question="",
-            hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
+            hard_ceiling=settings.interview_max_questions_targeted,
         )
         record = _make_session_record(
             job_id=job_id,
@@ -995,7 +1004,7 @@ async def _create_targeted_session(
             mode="targeted",
             status="complete",
             state=state,
-            hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
+            hard_ceiling=settings.interview_max_questions_targeted,
         )
         db.add(record)
         await db.commit()
@@ -1044,7 +1053,7 @@ async def _create_targeted_session(
         gap_categories=gap_categories,
         gap_clusters_by_id=gap_clusters_by_id,
         current_question="",
-        hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
+        hard_ceiling=settings.interview_max_questions_targeted,
     )
     state["gate_clusters"] = gate_by_id
 
@@ -1081,7 +1090,7 @@ async def _create_targeted_session(
         mode="targeted",
         status="active",
         state=state,
-        hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
+        hard_ceiling=settings.interview_max_questions_targeted,
         questions_asked=1,
     )
     db.add(record)
@@ -1094,7 +1103,7 @@ async def _create_targeted_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("targeted"),
-        hard_ceiling=INTERVIEW_HARD_CEILING_TARGETED,
+        hard_ceiling=settings.interview_max_questions_targeted,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -1138,7 +1147,7 @@ async def _create_guided_session(
         gap_categories=gate_categories,
         gap_clusters_by_id=gate_by_id,
         current_question="",
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
     )
     state["gate_clusters"] = gate_by_id
 
@@ -1178,7 +1187,7 @@ async def _create_guided_session(
         mode="guided",
         status="active",
         state=state,
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
         questions_asked=1,
     )
     db.add(record)
@@ -1191,7 +1200,7 @@ async def _create_guided_session(
         first_question=first_question,
         question=first_question,
         estimated_questions=_estimated_questions("guided"),
-        hard_ceiling=INTERVIEW_HARD_CEILING_GUIDED,
+        hard_ceiling=settings.interview_max_questions_guided,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -1495,6 +1504,14 @@ async def send_message(
     # addressed the gap. "declined" is already handled upstream by
     # is_termination_signal, so an answer that changes nothing -> follow up once.
     addressed = turn.addressed
+    # #259 sufficiency criterion (b): an explicit denial (#231) is a TERMINAL
+    # answer — never re-asked. F8 (interview_bridge.py) deliberately keeps
+    # `addressed` False on a denial-only turn (a denial must never read as a
+    # CONFIRMED strength / trigger the ledger upgrade below), but that turn
+    # still resolves the gap for advance purposes — it just falls into a
+    # separate OR branch instead of widening `addressed` itself, so the F8
+    # ledger-upgrade guard immediately below is untouched by this.
+    denial_recorded = turn.denial_recorded
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
     # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
@@ -1508,7 +1525,12 @@ async def send_message(
     if addressed:
         await _upgrade_ledger_for_addressed_gap(state, current_gap, message, db)
 
-    if addressed or resolving_confirmation or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP:
+    if (
+        addressed
+        or denial_recorded
+        or resolving_confirmation
+        or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP
+    ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
         skipped_set_updated = set(state.get("skipped_gaps", []))
@@ -1520,8 +1542,12 @@ async def send_message(
             state["critical_gaps"], next_index, skipped_set_updated
         )
 
-        # Gap exhaustion check
-        if gaps_remaining <= 0:
+        # Gap exhaustion check — #259: named sufficiency predicate (every gap
+        # from here on is addressed, denied, or triaged as a true gap/skipped).
+        # Same arithmetic _count_remaining already computed above; naming it
+        # makes "termination = sufficiency OR budget OR user-done" an explicit,
+        # independently testable seam rather than an implicit `<= 0` check.
+        if is_interview_sufficient(state["critical_gaps"], next_index, skipped_set_updated):
             return await _complete_session(
                 record, state, db, "gaps_resolved", provider, profile_record
             )
@@ -1816,8 +1842,8 @@ def _auto_detect_mode(profile_record: MasterProfile | None) -> str:
 
 def _estimated_questions(mode: str) -> int:
     if mode == "guided":
-        return (INTERVIEW_TARGET_MIN_GUIDED + INTERVIEW_HARD_CEILING_GUIDED) // 2
-    return (INTERVIEW_TARGET_MIN_TARGETED + INTERVIEW_HARD_CEILING_TARGETED) // 2
+        return (INTERVIEW_TARGET_MIN_GUIDED + settings.interview_max_questions_guided) // 2
+    return (INTERVIEW_TARGET_MIN_TARGETED + settings.interview_max_questions_targeted) // 2
 
 
 def _build_state(
