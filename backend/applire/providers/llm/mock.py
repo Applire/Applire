@@ -500,6 +500,14 @@ class MockLLMProvider(LLMProvider):
         if "cv data quality auditor" in system_lower or "cv quality auditor" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
+        # #264 — JD-analysis grounding reviewer (review_job_analysis). Same trap as the
+        # two above: unrecognised → fallback approved=None → review_and_refine exhausts
+        # its retries and analyze_jd ships the fallback dict, which fails JobAnalysis
+        # validation and surfaces as HTTP 422 on /api/jobs/analyze (caught by the CI
+        # Integration & E2E job, not by unit tests that patch LLM_REVIEW_MAX_RETRIES=0).
+        if "job-description data quality auditor" in system_lower:
+            return {"approved": True, "issues": [], "feedback": ""}
+
         if "cover-letter corrector" in system_lower:
             return dict(_COVER_LETTER_RESPONSE)
 
