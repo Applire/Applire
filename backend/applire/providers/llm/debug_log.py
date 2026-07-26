@@ -153,6 +153,24 @@ def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: s
     )
 
 
+def log_letter_over_budget(chain_id: str, word_count: int, word_budget: int) -> None:
+    """#272 wave-6 follow-up (charter run #6, Task 3): the letter that ships is still
+    over the region's letter_body_word_budget norm after the bounded condense pass —
+    e.g. because the closing-paragraph retention floor (retain_if=has_closing_paragraph)
+    correctly refused to ship a shorter draft that had lost its closing again. That is
+    the honest tradeoff (a proper closing beats an on-budget stub), but it must stay
+    COUNTABLE after the fact exactly like REVIEW_EXHAUSTED / REVIEW_CYCLE_DETECTED,
+    rather than silently shipping a norms violation.
+
+    Stable ``LETTER_OVER_BUDGET`` prefix + chain id, PII-free (no letter content) —
+    safe to leave on in production and grep for after the fact."""
+    _review_logger.warning(
+        "LETTER_OVER_BUDGET chain=%s word_count=%d word_budget=%d — shipping over the "
+        "region's letter norm rather than dropping required positioning content",
+        chain_id, word_count, word_budget,
+    )
+
+
 @contextmanager
 def llm_log_stage(label: str) -> Iterator[None]:
     """Label every LLM call made within the block (restores the prior label on exit)."""

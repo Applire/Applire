@@ -429,6 +429,17 @@ def build_condense_prompt(
     letter_pages: the region's page norm (REGION_NORMS[region].letter_pages) — ADR-051
         §1 forbids hard-coding a page number in the prompt text; the caller always
         passes the norm value (currently 1 for DACH, but never literal here).
+
+    Wave-6 follow-up (charter run #6): the prior wording ("cutting redundancy and
+    secondary detail") gave the model no signal about WHICH content is load-bearing,
+    so it shortened by deleting the closing paragraph — the least information-dense
+    paragraph, but a required one (services/cover_letter_positioning.has_closing_paragraph
+    is wired as review_and_refine's retain_if for this exact reason). The block below
+    names the required positioning content explicitly: shorten it, never drop it. This
+    is a prompt-wording-only change — no new LLM pass, no new loop (ADR-058 freeze);
+    the condense pass still routes through review_and_refine with the SAME
+    grounding_source as the primary generation, so positioning_requested content is
+    still available to the reviewer for this pass too.
     """
     page_word = "page" if letter_pages == 1 else "pages"
     return "\n".join([
@@ -438,6 +449,20 @@ def build_condense_prompt(
         "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
         "Shorten by cutting redundancy and secondary detail — NEVER add new facts,",
         "achievements, or claims that are not in the original letter.",
+        "",
+        "REQUIRED CONTENT THAT MUST SURVIVE THE SHORTENING (shorten these, never drop "
+        "them entirely):",
+        "- The closing paragraph: a genuine call-to-action / interest statement, not a "
+        "bare availability stub. Never end the letter on a standalone line like "
+        "\"Notice period can be discussed.\" with nothing else in that paragraph.",
+        "- The honest-gap / transfer argument, if the current letter makes one: the "
+        "candidate's own grounded reasoning for why their experience transfers despite "
+        "a gap in the job description.",
+        "- The company/domain engagement: any concrete reference to this employer or "
+        "its domain, not a generic sentence that could apply to any company.",
+        "- The availability / notice-period line, if present.",
+        "If the budget is tight, compress each of these to its shortest honest form — "
+        "do not delete any of them outright to make the count.",
         "",
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),

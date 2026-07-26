@@ -26,6 +26,15 @@
 # the model leave discipline-skill phrases ("Brand Identity", "Art Direction") in the
 # source language, and interview-added skills arrive pre-mixed. Like ADR-038 did for
 # interview questions, a directive alone leaks — so this reviewer ENFORCES it.
+#
+# Amended (Tiramisu wave-6, blind hiring-panel run #6, 2026-07-26): this same
+# enforcement pass was ALSO the vector for the opposite defect — over-eager
+# "translation" expanded the domain acronym "GxP" (not on its proper-noun allow-
+# list) into "Good Practice" inside three skill names. Added a VERBATIM LABELS
+# carve-out below (both the reviewer and the refiner) naming the domain-acronym
+# class explicitly. Prompt wording is a mitigation only — the real protection is
+# the deterministic ``_restore_skill_spelling`` post-pass in services/cv.py, run
+# after every LLM/refinement step regardless of what this chain produces.
 
 import json
 
@@ -53,6 +62,15 @@ Crucial boundary (this is where models slip):
 - Only genuinely language-invariant PROPER NOUNS stay unchanged: company names,
   product/tool/framework/technology names (Figma, Adobe Photoshop, Python, AWS, React),
   certifications' official names, dates and numeric metrics.
+- VERBATIM LABELS (a second, narrower boundary — this is ALSO where models slip): a
+  skill name, certification name, employer name, job title, or named system/product may
+  need its ordinary descriptive words translated, but a domain acronym riding inside it
+  IS the name, not shorthand to spell out. GxP, GMP, ALCOA+, CSV, LIMS, MES, ITIL (and an
+  unfamiliar one you don't recognise) are copied verbatim, never expanded or "corrected"
+  into their full words — do not flag them as untranslated, and do not accept a draft
+  that has spelled one out. "GxP Compliance & Computer System Validation" is CORRECT in
+  every required language; "Good Practice Compliance & Computer System Validation" is a
+  language-pass defect, not a translation.
 
 Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
 - approved: true only if summary, all bullets (work AND project), and all skills are
@@ -74,6 +92,12 @@ not inventing.
 Keep company names, project names, product/tool/technology names, certifications'
 official names, dates, and numeric metrics unchanged. Do NOT add, remove, reorder,
 split, or merge any entry, project, or skill — only translate text in place.
+VERBATIM LABELS: within a skill name, certification name, employer name, job title, or
+named system/product, a domain acronym — GxP, GMP, ALCOA+, CSV, LIMS, MES, ITIL, or an
+unfamiliar one — IS the name; copy it exactly and never expand it into its full words
+even while translating the label's ordinary descriptive words around it. If a previous
+draft already spelled one out (e.g. "Good Practice" for "GxP"), restore the acronym
+form — that is a correction, not a translation.
 When the feedback names an exact job-description keyword for a concept the draft already
 expresses, use that exact term as your wording for it — word choice, not new content.
 Output ONLY the corrected CV JSON in the exact same schema — no markdown, no commentary.
