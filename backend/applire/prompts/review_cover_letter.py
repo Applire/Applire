@@ -139,7 +139,7 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    profile, a claimable ledger entry's own ``evidence`` field, or a positioning ``testimony``).
    NUMERICALLY-EQUIVALENT means the SAME figure regardless of surface form — a number spelled
    out in words and the same number in digits are the same figure, never a form difference:
-   "seven months" and "7 months" are numerically-equivalent, and so are "€19bn" and its digit
+   "seven months" and "7 months" are numerically-equivalent, and so are "€4bn" and its digit
    form. NEVER flag a word-vs-digit (or spacing/symbol-placement) difference as a minted
    figure, and never instruct the writer to change one already-grounded form into another.
    Non-numeric quantifiers — "multiple", "several", "various", "a number of" — are NOT figures
@@ -153,11 +153,12 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    a form that simply reverses a change you yourself requested in an earlier round — if round
    N asked the writer to change "7 months" to "seven months", do not then flag "seven months"
    as unverbatim and ask for "7 months" back; that is oscillation, not a real finding.
-9. UNANCHORED POSITION-OWNED CONTENT (#283 — a run-6 letter folded BioNTech's "record-breaking
-   QC LIMS implementation (7 months, 3 sites)" into a sentence naming no employer, in a letter
-   that separately named a DIFFERENT employer elsewhere; the deterministic #254 figure guard
-   could not resolve ownership and silently dropped both figures downstream, leaving "delivered
-   ... in months across sites" — vaguer than the truth, reading as evasive padding): when a
+9. UNANCHORED POSITION-OWNED CONTENT (#283 — a run-6 letter folded one employer's
+   "record-breaking systems rollout (9 months, 4 sites)" into a sentence naming no employer, in
+   a letter that separately named a DIFFERENT employer elsewhere; the deterministic #254 figure
+   guard could not resolve ownership and silently dropped both figures downstream, leaving
+   "delivered ... in months across sites" — vaguer than the truth, reading as evasive padding):
+   when a
    sentence states an achievement, responsibility, or figure/metric that belongs to ONE
    specific employer or position, that employer must be named within the SAME sentence — not
    left for an earlier sentence or paragraph to imply. Flag any sentence that carries a
@@ -255,7 +256,7 @@ Rules:
 - ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE (#283): when you add, keep, or patch a
   sentence that states an achievement, responsibility, or figure/metric belonging to ONE
   specific employer or position, name that employer within the SAME sentence — e.g. "At
-  BioNTech, I delivered the QC LIMS implementation in 7 months across 3 sites" — never leave
+  Northwind Labs, I delivered the lab-systems rollout in 9 months across 4 sites" — never leave
   the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
   content to satisfy a coverage issue. A downstream truthfulness guard silently DROPS any
   figure it cannot attribute to a named employer, which only makes the letter vaguer and

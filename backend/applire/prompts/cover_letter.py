@@ -102,10 +102,10 @@ Rules:
 - POSITION ANCHORING (#283 — a downstream truthfulness guard silently strips an unattributable
   figure): whenever a sentence states an achievement, responsibility, or figure/metric that
   belongs to ONE specific employer or position — not something true of the candidate
-  everywhere — name that employer within the SAME sentence, e.g. "At BioNTech, I delivered
-  the QC LIMS implementation in 7 months across 3 sites", never a later, unattributed sentence
-  like "...and delivered record-breaking projects ... in 7 months across 3 sites" with the
-  employer left to an earlier sentence or paragraph to imply. This matters most in a paragraph
+  everywhere — name that employer within the SAME sentence, e.g. "At Northwind Labs, I
+  delivered the lab-systems rollout in 9 months across 4 sites", never a later, unattributed
+  sentence like "...and delivered record-breaking projects ... in 9 months across 4 sites" with
+  the employer left to an earlier sentence or paragraph to imply. This matters most in a paragraph
   that draws on more than one role or blends content from different positions: never fold a
   position-owned achievement into a general leadership/summary sentence that itself names no
   employer. An unanchored figure does not stay in the letter — it is silently dropped by a
@@ -229,7 +229,7 @@ def build_cover_letter_prompt(
         ``cv_data``'s tailoring condensation kept, so a fact present in the vault but
         absent from the tailored CV can still reach this prompt (Task 3, the run-5
         regression: the CANDIDATE PROFILE below is built from ``cv_data`` alone, which
-        had compressed the BioNTech work entry down to 3 bullets). Additional evidence
+        had compressed the most recent work entry down to 3 bullets). Additional evidence
         to choose from, never content the writer must all use, and never a licence to
         exceed the GROUNDING CONTRACT above. Optional so legacy/degraded callers do not
         break; omitted/empty → adds nothing.
@@ -484,7 +484,7 @@ def build_condense_prompt(
         "its domain, not a generic sentence that could apply to any company.",
         "- The availability / notice-period line, if present.",
         "- Every employer anchor attached to a position-owned achievement or figure "
-        "(e.g. \"At BioNTech,\") — never compress a sentence in a way that drops the "
+        "(e.g. \"At Northwind Labs,\") — never compress a sentence in a way that drops the "
         "employer name while keeping the achievement or figure. An unanchored figure "
         "is silently stripped by a downstream guard, which makes the letter vaguer, "
         "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "

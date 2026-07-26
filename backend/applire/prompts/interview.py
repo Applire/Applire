@@ -123,7 +123,7 @@ Schema:
 #236: per-role bullet caps for the Mode-A profile summary — the model was
 # drafting chips from company/role/technologies alone with NO substance to
 # describe, and invented task/context narrative to fill the gap (the F5 live
-# trace: a real BioNTech tech chip wrapped in a fabricated "clinical data
+# trace: a real employer-sourced tech chip wrapped in a fabricated "clinical data
 # workflows under tight timelines" story). Capped rather than unbounded
 # because build_question_prompt runs once per gap cluster across a profile
 # that can carry many roles — cv_tailoring.py's full-profile dump is fine for
