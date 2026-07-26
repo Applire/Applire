@@ -191,17 +191,36 @@ def filter_answered_concepts(
 
     from applire.services.keyword_ledger import _matches, _norm
 
-    direct_norms = {
-        _norm(e.get("concept", ""))
+    entries = [
+        (_norm(e.get("concept", "")), e.get("status"))
         for e in keyword_ledger
-        if e.get("status") == "direct" and _norm(e.get("concept", ""))
-    }
-    if not direct_norms:
+        if _norm(e.get("concept", ""))
+    ]
+    if not any(status == "direct" for _, status in entries):
         return cluster_ids, cluster_categories, clusters_by_id
 
     def _already_direct(concept: str) -> bool:
+        """True only when EVERY ledger entry matching ``concept`` is "direct".
+
+        ``_matches`` is bidirectional substring, so a broad concept matches
+        every narrower phrase containing it ("Python" matches "5+ years Python
+        experience"). Consulting the direct set alone therefore dropped
+        concepts the ledger itself still called ``gap`` — a depth/duration
+        requirement is NOT satisfied by presence of the bare token (#207
+        over-fire family; pinned from mock-stack PQ ground truth 2026-07-26,
+        where ``Python -> direct`` silently killed
+        ``5+ years Python experience -> gap``).
+
+        So a non-direct match VETOES: the narrower entry's own status is
+        authoritative over any broader entry that merely contains it. With no
+        match at all we still fail open (absence of ledger information is
+        never read as "already answered").
+        """
         cn = _norm(concept)
-        return bool(cn) and any(_matches(cn, dn) for dn in direct_norms)
+        if not cn:
+            return False
+        matched = [status for norm, status in entries if _matches(cn, norm)]
+        return bool(matched) and all(status == "direct" for status in matched)
 
     new_ids: list[str] = []
     new_categories: dict[str, str] = {}

@@ -328,6 +328,71 @@ def test_filter_answered_concepts_concept_absent_from_ledger_fails_open():
     assert by_id["cluster-x"]["gaps"] == ["Some Untracked Concept"]
 
 
+def test_filter_answered_concepts_never_drops_a_concept_the_ledger_calls_a_gap():
+    """A narrower concept that carries its OWN ``status: "gap"`` entry must
+    survive, even when a BROADER concept is ``direct``.
+
+    Pinned from mock-stack PQ ground truth (2026-07-26): the ledger held
+    ``Python -> direct`` AND ``5+ years Python experience -> gap``. Matching
+    the gap string against the direct set with the bidirectional-substring
+    ``_matches`` dropped the whole ``cluster-python-experience`` cluster — the
+    interview silently skipped a concept the ledger itself still called open.
+    Presence of a broader token never satisfies a depth/duration requirement
+    (#207 over-fire family). A non-direct match VETOES the drop.
+    """
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-python-experience"]
+    cluster_categories = {"cluster-python-experience": "C"}
+    clusters_by_id = {
+        "cluster-python-experience": _fac_cluster(
+            "cluster-python-experience",
+            "Python Experience Depth",
+            "C",
+            ["5+ years Python experience"],
+        ),
+    }
+    ledger = [
+        {"concept": "Python", "status": "direct", "claimable": True},
+        {"concept": "5+ years Python experience", "status": "gap", "claimable": False},
+    ]
+
+    ids, _, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-python-experience"]
+    assert by_id["cluster-python-experience"]["gaps"] == ["5+ years Python experience"]
+
+
+def test_filter_answered_concepts_partial_own_entry_vetoes_broader_direct():
+    """Same veto for ``partial`` — asking may still firm it into ``direct``."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-k8s"]
+    cluster_categories = {"cluster-k8s": "B"}
+    clusters_by_id = {
+        "cluster-k8s": _fac_cluster(
+            "cluster-k8s", "Cloud", "B", ["Kubernetes at production scale"]
+        ),
+    }
+    ledger = [
+        {"concept": "Kubernetes", "status": "direct", "claimable": True},
+        {
+            "concept": "Kubernetes at production scale",
+            "status": "partial",
+            "claimable": False,
+        },
+    ]
+
+    ids, _, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-k8s"]
+    assert by_id["cluster-k8s"]["gaps"] == ["Kubernetes at production scale"]
+
+
 def test_filter_answered_concepts_tolerates_none_and_empty_ledger():
     from applire.services.interview_graph import filter_answered_concepts
 
