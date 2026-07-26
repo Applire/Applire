@@ -1539,6 +1539,88 @@ class TestMintedFigureCheckWordingNarrowed:
         assert "missing required positioning content" in low
 
 
+class TestPositionAnchoringRequirement:
+    """#283 — the run-6 ground truth: a corrector chasing keyword coverage
+    folded an achievement (BioNTech's "record-breaking QC LIMS implementation
+    in 7 months across 3 sites") into a paragraph whose sentence never named
+    the employer. The letter separately named a DIFFERENT employer (Applire)
+    elsewhere, so neither the sentence-level anchor nor the whole-letter
+    single-employer escape could resolve ownership, and the deterministic
+    #254 figure guard correctly (and silently) dropped '7' and '3' — leaving
+    "delivered ... in months across sites", vaguer than the truth. The fix is
+    a prompt-level requirement: any sentence carrying a position-owned
+    achievement or figure must name that employer in the SAME sentence.
+    """
+
+    def test_review_system_prompt_flags_unanchored_position_owned_content(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "anchor" in low
+        assert "same sentence" in low
+        assert "#283" in p or "283" in p
+
+    def test_refinement_prompt_requires_naming_employer_in_same_sentence(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "anchor" in low
+        assert "same sentence" in low
+
+    def test_refinement_prompt_forbids_silently_omitting_the_anchor(self):
+        """The guardrail: restoring the figure with a correct anchor is the
+        goal — never quietly leaving it dropped/vaguer to avoid the check."""
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "vaguer" in low or "weaker" in low or "silently dropped" in low
+
+    def test_checks_1_through_8_are_not_weakened_by_the_anchor_check(self):
+        """Sanity: adding the anchor check must not have deleted or diluted
+        the earlier checks' key vocabulary."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "invented dates" in low or "invented date" in low
+        assert "invented employers" in low or "invented employer" in low
+        assert "fabricated achievements" in low or "fabricated achievement" in low
+        assert "minted figures" in low or "minted figure" in low
+        assert "cross-document consistency" in low
+
+
+class TestKeywordListSpecificityRequirement:
+    """#282 — both blind reviewers flagged keyword-stuffed prose: paragraph 2
+    rendered the claimable half of the keyword ledger as a flat enumerated
+    list ("team management, mentoring, cross-functional collaboration,
+    engineering standards, technical best practices, and production
+    ownership..."). ADR-048 already ranks grounding above coverage;
+    specificity must outrank raw coverage too — a term folded into a
+    concrete, specific sentence about what was actually built, owned, or
+    delegated is worth more than the same term recited in a list.
+    """
+
+    def test_system_prompt_requires_specificity_over_keyword_listing(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "specificity" in low
+        assert "#282" in p or "282" in p
+
+    def test_review_system_prompt_flags_flat_keyword_lists(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "flat" in low or "enumerat" in low
+        assert "specificity" in low
+
+    def test_refinement_prompt_requires_folding_terms_into_concrete_sentences(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "specificity" in low
+        assert "built" in low or "owned" in low or "delegated" in low
+
+
 class TestCoverLetterServiceThreadsPositioningToReviewer:
     """The service assembly (services/cover_letter.py) must put the SAME positioning
     blocks the writer got into the reviewer/corrector source (grounding_source)."""
