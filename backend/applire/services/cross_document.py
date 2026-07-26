@@ -54,6 +54,22 @@ than re-deriving them:
   * :mod:`applire.services.oracle.extract` — ``split_clauses``,
     ``extract_claims_from_tailored``, ``extract_claims_from_letter`` (the
     Oracle's own deterministic claim segmentation).
+
+Wave-7 (#278, #277 — charter run #6): two issues in this SAME module that
+pull in opposite directions. #278 — the ``bare_denial_of_claimable`` check
+was over-firing on legitimate honest denials because clause-wide
+CO-OCCURRENCE ("a claimable surface form appears somewhere in this clause"
+AND "this clause carries a negation marker somewhere") was being treated as
+ATTRIBUTION; fixed by requiring a genuine WORD-BOUNDARY match
+(:func:`_bounded_spans`, the #207 lesson) with the negation token genuinely
+ATTACHED to that specific occurrence (:func:`_negation_attached_to_form`),
+plus a minimum-specificity floor (:func:`_is_specific_enough`) so a very
+short/generic concept can never trigger the finding alone. #277 — the CV can
+over-claim what the letter honestly scopes; the fix is a THIRD, additive
+conflict kind (``unqualified_cv_vs_scoped_letter``,
+:func:`_find_unqualified_cv_vs_scoped_letter_conflicts`) over the EXISTING
+:class:`ScopedBoundary` primitive, never a loosening of the #278 fix — see
+each function's own docstring.
 """
 from __future__ import annotations
 
@@ -63,6 +79,8 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from applire.services.ats_audit import _FOLD_MIN_STEM
+from applire.services.ats_audit import _fold_variants as ats_fold_variants
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.cover_letter_positioning import _AVAILABILITY_PATTERNS
@@ -119,6 +137,102 @@ def _is_negated_clause(text: str) -> bool:
         return True
     tokens = set(_WORD_RE.findall(norm))
     return bool(tokens & _NEGATION_TOKENS)
+
+
+# ── #278 — negation ATTRIBUTION, not clause-wide co-occurrence ──────────────
+# Charter run #6 ground truth (backend/logs/llm/2026-07-26.jsonl, pinned, not
+# reproduced verbatim): two real false positives, both from the SAME defect
+# class — `_is_negated_clause` above asks "does this clause carry a negation
+# marker ANYWHERE", and the caller separately asks "does a claimable surface
+# form appear ANYWHERE in this clause" — co-occurrence was being treated as
+# attribution.
+#
+#   (a) 'AI' (surface_forms ['AI', 'Artificial Intelligence']) false-matched
+#       via bare substring: 'ai' is literally inside 'domain' and inside
+#       'claim' ("I lack direct LegalTech domain experience" / "I would not
+#       claim production logging..."). Neither clause contains the word 'AI'
+#       at all. Fixed by requiring a WORD-BOUNDARY occurrence of the surface
+#       form — the #207 claim-guard lesson (stance.py's `_word_present`)
+#       applied here.
+#   (b) 'Software engineering' false-matched on a CV bullet whose EARLY,
+#       POSITIVE mention ("...taught...software-engineering courses...") sits
+#       many words before an UNRELATED negation late in the same clause
+#       ("...team of engineers...with no prior IT/software experience") that
+#       modifies a different noun phrase entirely (the trainees' own
+#       background, not the candidate's). A real word-boundary match, but the
+#       negation does not attach to it. Fixed by requiring the negation token
+#       to be within a bounded WORD-DISTANCE window of the matched form's own
+#       occurrence, rather than merely present anywhere in the clause.
+_NEGATION_ATTACH_WINDOW = 6  # word-token distance; see module docstring above
+_BOUNDARY_TOKEN_RE = re.compile(r"[a-zA-ZÀ-ÿ]+(?:'[a-zA-Z]+)?")
+
+
+def _bounded_spans(form: str, text_norm: str) -> list[tuple[int, int]]:
+    """Word-boundary occurrence spans of ``form`` (any morphological fold
+    variant) in an already-normalised ``text_norm`` — never a bare substring
+    search. Mirrors ``profile/reconcile/stance.py``'s ``_word_present``
+    (#207): a short/generic form must never false-match inside an unrelated
+    word ('ai' ⊂ 'domain', 'ai' ⊂ 'claim'). Returns ``[]`` when absent.
+    """
+    n = ats_norm(form)
+    if not n:
+        return []
+    spans: list[tuple[int, int]] = []
+    for v in ats_fold_variants(n):
+        for m in re.finditer(rf"(?<![a-z0-9]){re.escape(v)}(?![a-z0-9])", text_norm):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def _negation_attached_to_form(
+    form: str, text_norm: str, *, window: int = _NEGATION_ATTACH_WINDOW
+) -> bool:
+    """True iff a negation TOKEN sits within ``window`` word-tokens of an
+    actual WORD-BOUNDARY occurrence of ``form`` in ``text_norm`` — negation
+    ATTACHED to this concept's own occurrence, not merely present somewhere
+    in the same (possibly long, multi-idea) clause. See the module docstring
+    above for the two real defects this fixes.
+    """
+    spans = _bounded_spans(form, text_norm)
+    if not spans:
+        return False
+    tokens = list(_BOUNDARY_TOKEN_RE.finditer(text_norm))
+    if not tokens:
+        return False
+    neg_idxs = [
+        i for i, m in enumerate(tokens)
+        if "n't" in m.group(0) or m.group(0) in _NEGATION_TOKENS
+    ]
+    if not neg_idxs:
+        return False
+    for start, end in spans:
+        covered = [i for i, m in enumerate(tokens) if m.start() < end and m.end() > start]
+        if not covered:
+            continue
+        lo, hi = min(covered), max(covered)
+        if any(lo - window <= ni <= hi + window for ni in neg_idxs):
+            return True
+    return False
+
+
+def _is_specific_enough(form: str) -> bool:
+    """Minimum-specificity floor (#278): a very short/generic SINGLE-TOKEN
+    surface form (normalized length below ``_FOLD_MIN_STEM`` — the same
+    conservative floor ``ats_audit``'s own morphological fold already uses,
+    e.g. 'AI', 'ML') can never, on its own, justify a
+    ``bare_denial_of_claimable`` finding — reused, not re-derived: this is
+    exactly the collision class ``stance.py`` deliberately excludes ml/ai
+    from its alias groups for. Multi-word forms are always specific enough
+    (a phrase is inherently harder to false-collide with).
+
+    Deliberately scoped to the SAME-clause bare-denial finding only — the
+    cross-document ``assert_vs_deny`` triangulated signal is a stronger,
+    two-document corroboration and must never be suppressed by this floor.
+    """
+    n = ats_norm(form)
+    if " " in n:
+        return True
+    return len(n) >= _FOLD_MIN_STEM
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -261,7 +375,9 @@ def find_scoped_boundaries(
 
 # ── Fix B.2 — cross-document conflicts ───────────────────────────────────────
 
-ConflictKind = Literal["bare_denial_of_claimable", "assert_vs_deny"]
+ConflictKind = Literal[
+    "bare_denial_of_claimable", "assert_vs_deny", "unqualified_cv_vs_scoped_letter"
+]
 
 
 @dataclass(frozen=True)
@@ -327,19 +443,36 @@ def find_cross_document_conflicts(
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None = None,
 ) -> list[Conflict]:
-    """Deterministic bare-denial / assert-vs-deny findings across CV + letter.
+    """Deterministic bare-denial / assert-vs-deny / unqualified-vs-scoped
+    findings across CV + letter.
 
-    Two conflict kinds, both scoped to ledger-CLAIMABLE concepts only — a
-    concept the ledger marks ``claimable: false`` being denied is legitimate
-    honesty and is NEVER flagged, in either document:
+    Three conflict kinds:
 
-    * ``bare_denial_of_claimable`` — a claimable concept's surface form
-      appears inside a NEGATED clause, in EITHER document (fires intra-
-      document too — the run-5 defect: the letter itself both asserts and
-      then bare-denies "retrieval systems").
-    * ``assert_vs_deny`` — the SAME concept is asserted (non-negated
-      occurrence) in one document and denied (negated occurrence) in the
-      OTHER document.
+    * ``bare_denial_of_claimable`` — scoped to ledger-CLAIMABLE concepts
+      only (a concept the ledger marks ``claimable: false`` being denied is
+      legitimate honesty and is NEVER flagged, in either document). A
+      claimable concept's surface form appears inside a clause, and a
+      negation token is genuinely ATTACHED to THAT occurrence (#278 —
+      :func:`_negation_attached_to_form`, not mere clause-wide co-occurrence)
+      — fires intra-document too (the run-5 defect: the letter itself both
+      asserts and then bare-denies "retrieval systems"). Gated by a
+      minimum-specificity floor (#278, :func:`_is_specific_enough`) so a
+      very short/generic single-token concept can never trigger this finding
+      alone.
+    * ``assert_vs_deny`` — the SAME claimable concept is asserted (non-
+      negated occurrence) in one document and denied (negated occurrence) in
+      the OTHER document. NOT gated by the specificity floor — a
+      cross-document triangulation is a stronger signal than a single-clause
+      co-occurrence.
+    * ``unqualified_cv_vs_scoped_letter`` (#277, #270 inverted) — a claimable
+      concept the vault ALSO holds an explicit limit on
+      (:func:`find_scoped_boundaries`) appears as an UNQUALIFIED bare
+      assertion in the CV (no negation, no inline scoping language of its
+      own), while the CURRENT letter draft independently echoes that same
+      vault-held limit — with NO negation token at all (an honest scoping
+      sentence is not a denial, so it can never reach ``denied_in``/
+      ``bare_denial_of_claimable``). The CV, read alone, over-claims what the
+      letter has already, honestly, bounded.
 
     Pure, deterministic; tolerates ``None``/malformed ``cv_data``/
     ``letter_data`` (returns ``[]`` rather than raising).
@@ -367,7 +500,11 @@ def find_cross_document_conflicts(
 
     conflicts: list[Conflict] = []
     for entry in claimable_entries:
-        forms = _ledger_forms(entry)
+        # Longest-first (#207 lesson, stance.py's alias-group precedent): the
+        # more specific surface form wins when several match, so a shorter,
+        # more collision-prone form is never preferred over an available
+        # longer/more specific one.
+        forms = sorted(_ledger_forms(entry), key=lambda f: len(ats_norm(f)), reverse=True)
         if not forms:
             continue
         concept = entry.get("concept", "") or ""
@@ -379,25 +516,37 @@ def find_cross_document_conflicts(
         seen_bare: set[tuple[str, str]] = set()
 
         for doc, loc, text in units:
-            text_norm = ats_norm(text)
-            matched_form = next((f for f in forms if f and surface_present(f, text_norm)), None)
+            # #278: curly-apostrophe folding applied BEFORE normalisation, up
+            # front, so both the word-boundary match AND the negation-token
+            # tokenisation below see the same ASCII apostrophe consistently
+            # (previously only ``_is_negated_clause`` folded it, separately,
+            # on the un-normalised text).
+            text_norm = ats_norm(_normalize_punct(text))
+            # #278: a real WORD-BOUNDARY occurrence, never a bare substring
+            # (see _bounded_spans — the 'ai' ⊂ 'domain'/'claim' collisions).
+            matched_form = next((f for f in forms if f and _bounded_spans(f, text_norm)), None)
             if matched_form is None:
                 continue
-            if _is_negated_clause(text):
+            # #278: negation must be ATTACHED to this SPECIFIC occurrence of
+            # the matched form, not merely present anywhere in the clause.
+            if _negation_attached_to_form(matched_form, text_norm):
                 denied_in.setdefault(doc, (loc, text))
                 if (doc, loc) not in seen_bare:
                     seen_bare.add((doc, loc))
-                    conflicts.append(
-                        Conflict(
-                            kind="bare_denial_of_claimable",
-                            concept=concept,
-                            surface_form=matched_form,
-                            document=doc,
-                            location=loc,
-                            quote=text,
-                            remedy=remedy,
+                    # #278: minimum-specificity floor — scoped to THIS
+                    # finding only; denied_in above still feeds assert_vs_deny.
+                    if _is_specific_enough(matched_form):
+                        conflicts.append(
+                            Conflict(
+                                kind="bare_denial_of_claimable",
+                                concept=concept,
+                                surface_form=matched_form,
+                                document=doc,
+                                location=loc,
+                                quote=text,
+                                remedy=remedy,
+                            )
                         )
-                    )
             else:
                 asserted_in.setdefault(doc, (loc, text))
 
@@ -416,6 +565,132 @@ def find_cross_document_conflicts(
                         remedy=remedy,
                     )
                 )
+
+    letter_units = [(loc, text) for doc, loc, text in units if doc == "letter"]
+    conflicts.extend(
+        _find_unqualified_cv_vs_scoped_letter_conflicts(
+            cv_claims, letter_units,
+            keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
+        )
+    )
+    return conflicts
+
+
+# ── #277 (#270 inverted) — CV over-claims what the letter honestly scopes ──
+
+
+def _unqualified_remedy(concept: str, denial_concept: str, denial_statement: str) -> str:
+    limit = denial_statement or denial_concept
+    return (
+        f"The CV asserts '{concept}' as an unqualified skill/claim while the letter "
+        f"already, honestly, scopes it (\"{limit}\"). Make the CV claim as PRECISE as "
+        f"the letter — add the SAME limiting language to the CV, grounded verbatim in "
+        f"the candidate's own words. This is a CV-side fix ONLY: the letter's own "
+        f"honest scoping is correct as written and must NEVER be edited, softened, or "
+        f"removed to resolve this finding."
+    )
+
+
+def _find_unqualified_cv_vs_scoped_letter_conflicts(
+    cv_claims: list[Any],
+    letter_units: list[tuple[str, str]],
+    *,
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[Any] | None,
+) -> list[Conflict]:
+    """#277 — a claimable concept the vault ALSO holds an explicit limit on
+    (:func:`find_scoped_boundaries`), asserted as an UNQUALIFIED bare tag in
+    the CV, while the CURRENT letter draft independently echoes that SAME
+    vault-held limit. The letter's honest-scoping sentence carries NO
+    negation token at all (it is not a denial), so it can never reach
+    ``denied_in``/``bare_denial_of_claimable`` above — a structurally
+    different signal, hence a third, separate conflict kind.
+
+    ``cv_claims`` are the UNSPLIT ``extract_claims_from_tailored`` claims
+    (whole bullet/sentence/skill-tag text) — deliberately NOT the
+    clause-split ``units`` the other two conflict kinds use: "already scoped
+    inline" must be judged against the CV bullet's own FULL sentence, never
+    a single sub-clause of it (a bullet reading "Designed the pipeline;
+    embeddings were configured by our system engineer." is honestly scoped
+    even though clause-splitting would separate the concept mention from its
+    own qualifier into two different clause units).
+
+    A CV occurrence is "unqualified" when:
+      * the concept's own surface form matches, word-boundary, somewhere in
+        the claim's full text;
+      * the SPECIFIC matched sub-clause carries no locally-attached negation
+        (a CV-side bare denial is the EXISTING ``bare_denial_of_claimable``
+        kind's problem, not this one);
+      * the claim's OWN FULL TEXT does not also mention the boundary's own
+        limiting text anywhere (already scoped inline — not a gap at all).
+
+    The letter "scopes" the boundary when some letter unit contains a
+    word-boundary occurrence of the boundary's own ``denial_concept`` —
+    deliberately negation-AGNOSTIC (an honest scoping sentence is not a
+    denial) and deliberately anchored to the SAME persisted-denial concept
+    text :func:`find_scoped_boundaries` already related to this ledger entry
+    — never a second, independent matcher.
+    """
+    boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
+    if not boundaries:
+        return []
+
+    conflicts: list[Conflict] = []
+    for boundary in boundaries:
+        if not boundary.denial_concept:
+            continue  # nothing reliable to search the letter for (safe skip)
+        forms = sorted(boundary.surface_forms, key=lambda f: len(ats_norm(f)), reverse=True)
+        if not forms:
+            continue
+
+        cv_hit: tuple[str, str] | None = None
+        for claim in cv_claims:
+            full_text = getattr(claim, "text", "") or ""
+            if not full_text:
+                continue
+            full_text_norm = ats_norm(_normalize_punct(full_text))
+            if not any(f and _bounded_spans(f, full_text_norm) for f in forms):
+                continue
+            if _bounded_spans(boundary.denial_concept, full_text_norm):
+                continue  # already scoped inline, anywhere in this claim's own text
+            for sub_loc, clause_text in _clause_units([claim]):
+                clause_norm = ats_norm(_normalize_punct(clause_text))
+                matched_form = next((f for f in forms if f and _bounded_spans(f, clause_norm)), None)
+                if matched_form is None:
+                    continue
+                if _negation_attached_to_form(matched_form, clause_norm):
+                    continue  # a CV-side denial is bare_denial_of_claimable's problem
+                cv_hit = (sub_loc, clause_text)
+                break
+            if cv_hit is not None:
+                break
+        if cv_hit is None:
+            continue
+
+        letter_hit: tuple[str, str] | None = None
+        for loc, text in letter_units:
+            text_norm = ats_norm(_normalize_punct(text))
+            if _bounded_spans(boundary.denial_concept, text_norm):
+                letter_hit = (loc, text)
+                break
+        if letter_hit is None:
+            continue
+
+        cv_loc, cv_text = cv_hit
+        letter_loc, letter_text = letter_hit
+        conflicts.append(
+            Conflict(
+                kind="unqualified_cv_vs_scoped_letter",
+                concept=boundary.concept,
+                surface_form=forms[0],
+                document="cv+letter",
+                location=f"{cv_loc} vs {letter_loc}",
+                quote=f"CV (unqualified): {cv_text!r} | LETTER (scoped): {letter_text!r}",
+                remedy=_unqualified_remedy(
+                    boundary.concept, boundary.denial_concept, boundary.denial_statement
+                ),
+            )
+        )
     return conflicts
 
 
@@ -705,12 +980,15 @@ def render_cross_document_conflicts_block(conflicts: list[Conflict]) -> str:
     if not conflicts:
         return ""
     lines = [
-        "CROSS-DOCUMENT CONSISTENCY CHECK (#270, deterministic — this is ground "
-        "truth, do not re-derive it). Every concept named below is CLAIMABLE per "
-        "the Keyword Ledger — it is NEVER a DO-NOT-CLAIM term, and you must NEVER "
-        "instruct the writer to name it as an absence. Each finding must be "
-        "resolved by rendering the scoped claim named in its remedy — never by "
-        "leaving or introducing a bare denial:",
+        "CROSS-DOCUMENT CONSISTENCY CHECK (#270/#277/#278, deterministic — this is "
+        "ground truth, do not re-derive it). Every concept named below is CLAIMABLE "
+        "per the Keyword Ledger — it is NEVER a DO-NOT-CLAIM term, and you must NEVER "
+        "instruct the writer to name it as an absence. Each finding must be resolved "
+        "EXACTLY as its own REMEDY instructs — never by leaving or introducing a bare "
+        "denial, and never by softening, shortening, or removing an honest disclosure "
+        "already present in either document (an 'unqualified_cv_vs_scoped_letter' "
+        "finding is a CV-side fix ONLY — the letter's own honest scoping is correct "
+        "as written):",
     ]
     for c in conflicts:
         lines.append(f"  - [{c.kind}] '{c.concept}' — {c.document} @ {c.location}: {c.quote!r}")
