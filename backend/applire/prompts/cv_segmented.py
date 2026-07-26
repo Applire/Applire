@@ -192,13 +192,21 @@ def build_summary_prompt(
     critical_gaps: list[str],
     output_language: str,
     keyword_ledger: list[dict] | None = None,
+    scoped_boundary_block: str | None = None,
 ) -> str:
+    """scoped_boundary_block: rendered SCOPED BOUNDARIES text (#277, mirrors
+    cv_tailoring.build_user_prompt's kwarg of the same name) — a claimable ledger
+    concept the vault also states an explicit limit on, so the summary can lead
+    with the SCOPED claim instead of a bare, unqualified one. Optional; empty →
+    adds nothing (back-compat)."""
+    scoped_boundary_section = f"{scoped_boundary_block}\n\n" if scoped_boundary_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
+        f"{scoped_boundary_section}"
         f"CRITICAL GAPS (acknowledge if applicable):\n{json.dumps(critical_gaps, ensure_ascii=False)}\n\n"
         "Return the summary JSON."
     )
@@ -225,13 +233,22 @@ def build_skills_prompt(
     keyword_gaps: list[str],
     output_language: str,
     keyword_ledger: list[dict] | None = None,
+    scoped_boundary_block: str | None = None,
 ) -> str:
+    """scoped_boundary_block: rendered SCOPED BOUNDARIES text (#277, mirrors
+    cv_tailoring.build_user_prompt's kwarg of the same name) — a claimable ledger
+    concept the vault also states an explicit limit on, so the skills list renders
+    the SCOPED claim instead of a bare, unqualified tag (the #277 hiring-manager
+    finding: a screener reading only the skills list over-rated the candidate on
+    the JD's most technical axis). Optional; empty → adds nothing (back-compat)."""
+    scoped_boundary_section = f"{scoped_boundary_block}\n\n" if scoped_boundary_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SKILLS TO FOREGROUND: {json.dumps(directive.get('skills_focus') or [], ensure_ascii=False)}\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
+        f"{scoped_boundary_section}"
         f"KEYWORD GAPS (include only where explicitly demonstrated):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the skills JSON."
