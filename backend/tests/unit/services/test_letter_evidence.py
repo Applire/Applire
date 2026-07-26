@@ -185,6 +185,93 @@ def test_measured_outcome_preferred_over_target_anchor():
     assert anchor_items[0].path == "work_experience[0].achievements[1]"
 
 
+def test_hermetic_same_initiative_evidence_reaches_digest_without_its_own_concept_match():
+    """Hermetic twin of ``test_run5_digest_surfaces_review_rounds_sentence_
+    never_in_cv_or_letter`` above — same channel (the SAME-INITIATIVE
+    EXTENSION to rule 2), synthetic vault, no ``.run5fixture/`` dependency.
+
+    A concept anchor only proves ONE sentence of an initiative is
+    JD-relevant; another figure-bearing achievement on the SAME work entry
+    reaches the digest too, even though its own text never mentions the
+    ledger concept's surface form — this is exactly how run-5's
+    achievements[3] (the review-rounds sentence) reached the digest for
+    real."""
+    ledger = [
+        {
+            "concept": "RAG pipelines",
+            "claimable": True,
+            "surface_forms": ["RAG pipelines", "RAG"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "ML Engineer",
+                "company": "Acme",
+                "achievements": [
+                    # The anchor: literally contains the ledger surface form.
+                    "Built RAG pipelines for the internal search platform.",
+                    # Same owner, same initiative, figure-bearing, NOT a
+                    # target phrase, and never says "RAG" itself — must
+                    # still surface via the same-initiative extension.
+                    "Reduced query latency by 42% across the retrieval stack.",
+                ],
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    paths = {i.path: i for i in items}
+    assert "work_experience[0].achievements[0]" in paths
+    same_initiative = paths.get("work_experience[0].achievements[1]")
+    assert same_initiative is not None, (
+        "the figure-bearing same-initiative achievement must reach the digest "
+        "even though it never says 'RAG' itself"
+    )
+    assert same_initiative.reason == "same-initiative-evidence"
+    assert same_initiative.text == "Reduced query latency by 42% across the retrieval stack."
+
+
+def test_hermetic_same_initiative_evidence_never_pulled_from_a_sibling_project():
+    """The subset scoping (module docstring, 'SAME-INITIATIVE EXTENSION')
+    must exclude a sibling project merely sharing the same parent employer —
+    only work/project entries whose OWN owner set is a subset of the
+    anchor's owner set qualify."""
+    ledger = [
+        {
+            "concept": "RAG pipelines",
+            "claimable": True,
+            "surface_forms": ["RAG pipelines", "RAG"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "ML Engineer",
+                "company": "Acme",
+                "achievements": ["Built RAG pipelines for the internal search platform."],
+            }
+        ],
+        projects=[
+            {
+                "id": "p1",
+                "name": "Unrelated internal tool",
+                "associated_experience": "w1",
+                "description": "A completely unrelated internal tool used by finance.",
+                "achievements": ["Cut manual reconciliation time by 60% for the finance team."],
+            }
+        ],
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    # The finance-tool achievement shares the employer via associated_experience
+    # (owner_ids = {"p1", "w1"}), which is NOT a subset of the anchor's
+    # {"w1"} — it must never surface via the same-initiative extension.
+    assert not any(
+        i.text == "Cut manual reconciliation time by 60% for the finance team." for i in items
+    )
+
+
 def test_leadership_evidence_absent_when_jd_does_not_signal_leadership():
     ledger = [
         {"concept": "Kubernetes", "claimable": True, "surface_forms": ["Kubernetes"]},

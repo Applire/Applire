@@ -1854,3 +1854,108 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
         vault_evidence_block=vault_evidence_block,
     )
     assert review_rounds_sentence in prompt_with_digest
+
+
+def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
+    """Hermetic twin of ``test_run5_vault_only_fact_reaches_writer_prompt_via_
+    evidence_digest`` above — same property, synthetic data, runs in CI with
+    no ``.run5fixture/`` present.
+
+    #271's headline proof: a fact that lives in the vault but was compressed
+    out of the TAILORED CV (``tailored_data``'s own condensation, never the
+    letter's own selection step) must still reach the writer's full prompt,
+    but ONLY once the Task 2 digest (``vault_evidence_block``) is threaded
+    in — never via ``cv_data`` alone. Both halves are asserted: absent
+    without the digest, present with it. A one-sided assertion would not
+    prove the digest is doing anything.
+    """
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+    from applire.services.jd_excerpt import build_jd_excerpt
+    from applire.services.letter_evidence import (
+        render_letter_evidence_block,
+        select_letter_evidence,
+    )
+
+    distinctive_sentence = (
+        "Human-authored runbooks usually need two to three review passes, "
+        "while the automated checks I built pass on the first attempt."
+    )
+
+    # The vault carries the distinctive sentence as a same-initiative
+    # achievement on the SAME work entry as the claimable-concept anchor
+    # (mirrors run-5's achievements[3]: same owner/initiative, no literal
+    # keyword match of its own — see services.letter_evidence's
+    # SAME-INITIATIVE EXTENSION).
+    profile = {
+        "work_experience": [
+            {
+                "id": "w1",
+                "role": "Senior QA Engineer",
+                "company": "Acme Biotech",
+                "achievements": [
+                    "Automated the release verification pipeline for the pharma platform.",
+                    distinctive_sentence,
+                ],
+            }
+        ]
+    }
+    ledger = [
+        {
+            "concept": "release verification pipeline",
+            "claimable": True,
+            "surface_forms": ["release verification pipeline", "verification pipeline"],
+        }
+    ]
+
+    # The tailored CV's own condensation kept only the anchor bullet — the
+    # distinctive sentence never survived to cv_data, exactly like run-5's
+    # BioNTech entry surviving tailoring with only 3 of its real bullets.
+    tailored_data = {
+        "work_history": [
+            {
+                "id": "w1",
+                "role": "Senior QA Engineer",
+                "company": "Acme Biotech",
+                "bullets": ["Automated the release verification pipeline for the pharma platform."],
+            }
+        ]
+    }
+    jd_raw = "We build pharma QA software. This role is 50% leadership and 50% hands-on."
+
+    # Precondition: the tailored CV's own condensed bullets (the exact slice
+    # build_cover_letter_prompt renders) never carry the distinctive
+    # sentence — otherwise this test would not be proving anything.
+    work_snippet_bullets = [
+        b for entry in tailored_data.get("work_history", [])[:6] for b in entry.get("bullets", [])[:6]
+    ]
+    assert distinctive_sentence not in work_snippet_bullets
+
+    jd_excerpt = build_jd_excerpt(jd_raw)
+    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_letter_evidence_block(digest_items)
+    assert distinctive_sentence in vault_evidence_block, (
+        "precondition failed: the digest never selected the distinctive "
+        "sentence in the first place"
+    )
+
+    # Without the digest, the fact is absent from the prompt (the tailored
+    # CV alone starves it).
+    prompt_without_digest = build_cover_letter_prompt(
+        cv_data=tailored_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+    )
+    assert distinctive_sentence not in prompt_without_digest
+
+    # With the digest threaded in, the vault-only fact reaches the prompt.
+    prompt_with_digest = build_cover_letter_prompt(
+        cv_data=tailored_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+        vault_evidence_block=vault_evidence_block,
+    )
+    assert distinctive_sentence in prompt_with_digest
