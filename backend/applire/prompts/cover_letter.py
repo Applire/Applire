@@ -96,6 +96,12 @@ Rules:
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
 - Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.
+- REQUIRED CLOSING PARAGRAPH (#272): the letter's LAST paragraph must be a genuine closing —
+  expressing interest and a call to action (e.g. inviting further discussion or an interview) —
+  never a bare, standalone availability/notice-period line. When availability/commitment content
+  applies (see AVAILABILITY / CONCURRENT COMMITMENTS below), fold it INTO this closing paragraph
+  alongside the interest/call-to-action language; it must never stand alone as the entire final
+  paragraph.
 - Keep the letter body within the WORD BUDGET given in the user message — that line also
   states the region's page norm (ADR-051 §1: no page/word number is ever hard-coded here).
 - Use the tone specified: formal=sehr geehrte/r, professional=warm but polished, conversational=direct.

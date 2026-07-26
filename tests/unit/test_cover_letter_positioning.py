@@ -151,11 +151,15 @@ def test_find_gap_testimony_first_matching_gap_wins():
 
 
 def test_find_availability_testimony_from_signature_story():
+    """#272 Task 1: the bare word 'parallel' in the challenge sentence must NOT be
+    what qualifies this story — only the mechanism sentence's own 'availability'
+    phrase does, and only THAT sentence is returned (never the challenge sentence,
+    never the whole story)."""
     from applire.services.cover_letter_positioning import find_availability_testimony
 
     stories = [
         {
-            "title": "Managing concurrent commitments",
+            "title": "Balancing two advisory roles",
             "challenge": "I run two advisory roles in parallel.",
             "mechanism": "I block dedicated hours for each and communicate availability clearly.",
             "outcome": "Both engagements stayed on schedule.",
@@ -163,7 +167,9 @@ def test_find_availability_testimony_from_signature_story():
     ]
     result = find_availability_testimony(stories, [])
     assert result is not None
-    assert "parallel" in result
+    assert "availability" in result
+    assert result == "I block dedicated hours for each and communicate availability clearly."
+    assert "parallel" not in result
 
 
 def test_find_availability_testimony_from_enrichment_history():
@@ -204,3 +210,184 @@ def test_find_availability_testimony_empty_inputs():
     from applire.services.cover_letter_positioning import find_availability_testimony
 
     assert find_availability_testimony([], []) is None
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 1 — RC-C regression: bare-token "parallel" must never qualify
+# ---------------------------------------------------------------------------
+
+
+def test_find_availability_testimony_rejects_paper_title_bare_parallel_match():
+    """RC-C ground truth (run-5): an enrichment record — rationale 'Added title to
+    publications via reconciliation', value 'Parallel Processing via a Dual
+    Olfactory Pathway in the Honeybee' — matched on the bare token 'parallel' and
+    was threaded into the writer prompt as availability testimony. It must NOT
+    match under phrase-scoped detection."""
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    enrichment_history = [
+        {
+            "changes": [
+                {
+                    "rationale": "Added title to publications via reconciliation.",
+                    "new_value": "Parallel Processing via a Dual Olfactory Pathway in the Honeybee",
+                }
+            ]
+        }
+    ]
+    assert find_availability_testimony([], enrichment_history) is None
+
+
+def test_find_availability_testimony_rejects_paper_title_as_story_text():
+    """Same paper-title record, but shaped as a signature story — still no match."""
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    stories = [
+        {
+            "title": "Parallel Processing via a Dual Olfactory Pathway in the Honeybee",
+            "challenge": "Added title to publications via reconciliation.",
+            "mechanism": None,
+            "outcome": None,
+        }
+    ]
+    assert find_availability_testimony(stories, []) is None
+
+
+def test_find_availability_testimony_from_denied_concept_statement():
+    """RC-C ground truth: the candidate's real availability testimony was the tail
+    of a denied_concepts[].statement — a source find_availability_testimony never
+    searched. Only the availability-bearing sentence must be returned, never the
+    RAG-scope sentences that precede it in the same statement."""
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    denied_concepts = [
+        {
+            "concept": "embedding models",
+            "statement": (
+                "…So I have not configured embedding models, vector stores or "
+                "rerankers myself… On availability: that can be discussed."
+            ),
+            "source": "interview",
+            "date": "2026-07-01",
+        }
+    ]
+    result = find_availability_testimony([], [], denied_concepts)
+    assert result == "On availability: that can be discussed."
+    assert "embedding models" not in result
+    assert "RAG" not in result
+
+
+def test_find_availability_testimony_denied_concepts_default_none_is_back_compat():
+    """Existing 2-positional-arg callers (pre-#272) must keep working unchanged."""
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    assert find_availability_testimony([], []) is None
+
+
+def test_find_availability_testimony_notice_period_phrase():
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    denied_concepts = [
+        {
+            "concept": "x",
+            "statement": "My current notice period is three months.",
+            "source": "interview",
+            "date": "2026-07-01",
+        }
+    ]
+    result = find_availability_testimony([], [], denied_concepts)
+    assert result == "My current notice period is three months."
+
+
+def test_find_availability_testimony_alongside_my_phrase():
+    from applire.services.cover_letter_positioning import find_availability_testimony
+
+    stories = [
+        {
+            "title": "Two commitments",
+            "challenge": "Context around the role.",
+            "mechanism": "I manage this alongside my current role without conflict.",
+            "outcome": None,
+        }
+    ]
+    result = find_availability_testimony(stories, [])
+    assert result == "I manage this alongside my current role without conflict."
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 3 — has_closing_paragraph (structural retention predicate)
+# ---------------------------------------------------------------------------
+
+
+def test_has_closing_paragraph_true_for_genuine_closing():
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "Dear Hiring Team,",
+                "Why me paragraph.",
+                "I would welcome the opportunity to discuss how my experience "
+                "aligns with your needs. My notice period can be discussed.",
+            ]
+        }
+    }
+    assert has_closing_paragraph(letter_data) is True
+
+
+def test_has_closing_paragraph_false_for_bare_stub():
+    """RC-D ground truth: the run-5 shipped final paragraph was the bare stub
+    'Notice period can be discussed.' — must read as NOT a genuine closing."""
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    letter_data = {"body": {"paragraphs": ["Dear Hiring Team,", "Notice period can be discussed."]}}
+    assert has_closing_paragraph(letter_data) is False
+
+
+def test_has_closing_paragraph_false_when_no_paragraphs():
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    assert has_closing_paragraph({"body": {"paragraphs": []}}) is False
+    assert has_closing_paragraph({}) is False
+    assert has_closing_paragraph(None) is False
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 6 — word_floor_reviewer_prompt_fn (deterministic reviewer wrapper)
+# ---------------------------------------------------------------------------
+
+
+def test_word_floor_reviewer_prompt_fn_appends_block_when_under_floor():
+    from applire.services.cover_letter_positioning import word_floor_reviewer_prompt_fn
+
+    def base(source, draft):
+        return "BASE PROMPT"
+
+    wrapped = word_floor_reviewer_prompt_fn(base, word_floor=150)
+    draft = {"body": {"paragraphs": ["Only ten words appear right here in this short body."]}}
+    result = wrapped("source", draft)
+    assert "BASE PROMPT" in result
+    assert "WORD FLOOR" in result
+    assert "insufficient selected evidence" in result.lower()
+
+
+def test_word_floor_reviewer_prompt_fn_no_block_when_at_or_above_floor():
+    from applire.services.cover_letter_positioning import word_floor_reviewer_prompt_fn
+
+    def base(source, draft):
+        return "BASE PROMPT"
+
+    wrapped = word_floor_reviewer_prompt_fn(base, word_floor=5)
+    draft = {"body": {"paragraphs": ["one two three four five six seven eight"]}}
+    result = wrapped("source", draft)
+    assert result == "BASE PROMPT"
+
+
+def test_word_floor_reviewer_prompt_fn_never_instructs_padding():
+    from applire.services.cover_letter_positioning import word_floor_reviewer_prompt_fn
+
+    wrapped = word_floor_reviewer_prompt_fn(lambda s, d: "BASE", word_floor=100)
+    result = wrapped("source", {"body": {"paragraphs": ["short body"]}})
+    low = result.lower()
+    assert "pad" not in low or "never" in low  # padding must be explicitly forbidden, not suggested
+    assert "invent" in low or "never invent" in low

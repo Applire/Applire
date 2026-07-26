@@ -1426,12 +1426,32 @@ class TestReviewerPositioningThreading:
         result = build_review_prompt(_SAMPLE_LETTER_SOURCE, _SAMPLE_LETTER)
         assert "positioning_requested" in result
 
+    def test_review_system_prompt_names_closing_as_required_positioning(self):
+        """#272 Task 2: the reviewer's positioning_requested vocabulary must
+        include "closing" alongside the pre-existing three, so check 7 (missing
+        required positioning content) also fires on a missing/eroded closing."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+
+        low = p.lower()
+        assert "closing" in low
+        assert "positioning_requested" in p
+
     def test_refinement_prompt_instructs_preserving_positioning_content(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
 
         low = p.lower()
         assert "positioning_requested" in p
         assert "preserve" in low
+
+    def test_refinement_prompt_never_deletes_closing_paragraph(self):
+        """RC-D ground truth: corrector round 5 deleted the entire closing
+        paragraph while fixing an unrelated (false-positive) availability flag.
+        The corrector's own system prompt must forbid that explicitly."""
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        low = p.lower()
+        assert "closing paragraph" in low
+        assert "never delete" in low or "do not delete" in low or "never remove" in low
 
     def test_refinement_prompt_forbids_minting_figures(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
@@ -1454,6 +1474,69 @@ class TestReviewerPositioningThreading:
 
         low = p.lower()
         assert "minted figure" in low or "invent a number" in low
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 4 — narrow the minted-figure check (check 8) so it stops
+# oscillating on word-vs-digit form and non-numeric quantifiers, without
+# weakening its real teeth (an actually-invented figure like "teams of 5+"
+# must still read as flagged).
+# ---------------------------------------------------------------------------
+
+
+class TestMintedFigureCheckWordingNarrowed:
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+        return REVIEW_SYSTEM_PROMPT.lower()
+
+    def test_word_and_digit_forms_of_same_number_are_never_a_form_difference(self):
+        """RC-E ground truth: round 3 wrote '7 months', round 4 changed it to
+        'seven months', round 5 flagged 'seven months' as unverbatim and asked
+        for '7 months' again — pure oscillation. The prompt must state a
+        word-form and its digit-form are the SAME figure."""
+        low = self._prompt
+        assert "seven months" in low and "7 months" in low
+        assert "same figure" in low or "numerically-equivalent" in low or "numerically equivalent" in low
+
+    def test_non_numeric_quantifiers_are_not_figures(self):
+        """RC-E ground truth: 'multiple LLMs' was wrongly flagged as an
+        unverbatim figure against a source stating 'several different LLMs' —
+        neither is a figure at all."""
+        low = self._prompt
+        for word in ("multiple", "several", "various"):
+            assert word in low
+        assert "not a figure" in low or "not figures" in low
+
+    def test_minted_only_when_no_equivalent_form_appears_anywhere(self):
+        low = self._prompt
+        assert "no numerically-equivalent form" in low or "no numerically equivalent form" in low
+
+    def test_never_reverse_a_previously_requested_change(self):
+        """The general anti-oscillation rule: never raise the same issue in a
+        form that reverses a change requested in an earlier round."""
+        low = self._prompt
+        assert "oscillat" in low or "reverses a change" in low or "revers" in low
+
+    def test_check_8_still_catches_a_genuinely_invented_figure(self):
+        """US264/#255 regression guard: the check's real teeth must survive the
+        wording narrowing — an actually-invented 'teams of 5+' must still read
+        as something the reviewer is instructed to flag."""
+        low = self._prompt
+        assert "teams of 5+" in low
+        assert "fabricat" in low or "invented" in low
+
+    def test_checks_1_through_7_are_not_weakened(self):
+        """Sanity: the check-8 rewrite must not have deleted or diluted the
+        earlier checks' own key vocabulary."""
+        low = self._prompt
+        assert "invented dates" in low or "invented date" in low
+        assert "invented employers" in low or "invented employer" in low
+        assert "fabricated achievements" in low or "fabricated achievement" in low
+        assert "ungrounded requirement claims" in low or "ungrounded requirement claim" in low
+        assert "verified coverage" in low
+        assert "invented employer/company facts" in low
+        assert "missing required positioning content" in low
 
 
 class TestCoverLetterServiceThreadsPositioningToReviewer:
@@ -1547,8 +1630,10 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
     @pytest.mark.asyncio
     async def test_grounding_source_omits_positioning_requested_entries_when_absent(self):
         """No company, no gap testimony, no availability testimony → the
-        positioning_requested object in the reviewer source is empty (not omitted —
-        empty), matching the writer's silence-over-invention discipline."""
+        conditional positioning_requested entries are absent — matching the
+        writer's silence-over-invention discipline. #272 Task 2: "closing" is
+        NOT conditional (every letter needs a real closing paragraph), so it is
+        always present, unlike the other three."""
         import uuid
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1586,7 +1671,10 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
 
         assert calls
         src = calls[0]["source"]
-        assert '"positioning_requested": {}' in src
+        import json as _json
+        parsed = _json.loads(src)
+        assert set(parsed["positioning_requested"].keys()) == {"closing"}
+        assert parsed["positioning_requested"]["closing"]["required"] is True
 
     @pytest.mark.asyncio
     async def test_grounding_source_carries_gap_transfer_testimony_verbatim(self):

@@ -180,6 +180,43 @@ def test_extract_recipient_returns_none_when_not_found():
     assert result["name"] is None
 
 
+# #272 Task 5 — LinkedIn "Direct message the job poster" block has no pattern
+# (RC-F ground truth): the scrape duplicates the short form before the full
+# name; the full name is whatever immediately precedes " | ".
+
+
+def test_extract_recipient_finds_linkedin_job_poster_block():
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = (
+        "Direct message the job poster from Connect-AI Sean Michael M. Sean "
+        "Michael M. Sean Murphy | Principal AI, Data & Software Engineering "
+        "Specialist"
+    )
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] == "Sean Murphy"
+
+
+def test_extract_recipient_linkedin_pattern_ignores_unrelated_pipe():
+    """Negative case: a pipe elsewhere in the JD with no 'Direct message the job
+    poster' anchor must never fire this pattern."""
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = "Tech Stack: Python | FastAPI | PostgreSQL. We are hiring a Backend Engineer."
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] is None
+
+
+def test_extract_recipient_linkedin_pattern_requires_anchor_phrase():
+    """A bare '<Name> | <Title>' shape without the LinkedIn anchor phrase must
+    not be mistaken for the job-poster block."""
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = "John Appleseed | Senior Recruiter at Some Company. Apply within."
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] is None
+
+
 # ---------------------------------------------------------------------------
 # Task 7 — LLM prompt builder
 # ---------------------------------------------------------------------------
@@ -381,6 +418,30 @@ def test_system_prompt_states_positioning_inputs_contract():
     assert "company & domain engagement" in low or "company and domain engagement" in low
     assert "transfer argument" in low
     assert "availability" in low and "concurrent commitments" in low
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 2 — the closing paragraph is REQUIRED content
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_requires_a_genuine_closing_paragraph():
+    """RC-D ground truth: the run-5 letter's real closing ("I would welcome the
+    opportunity to discuss how my experience aligns with your needs. My notice
+    period can be discussed.") was eroded by the review loop down to the bare
+    stub "Notice period can be discussed." The writer's own SYSTEM_PROMPT must
+    state the closing paragraph is required content and that availability is
+    folded into it, never left standalone."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    assert "closing paragraph" in low
+    assert "required" in low
+    assert "call to action" in low or "call-to-action" in low
+    # availability must be folded into the closing, never a standalone line
+    assert "never" in low and (
+        "standalone" in low or "terminal line" in low or "bare" in low
+    )
 
 
 def test_build_cover_letter_prompt_includes_company_engagement_block():

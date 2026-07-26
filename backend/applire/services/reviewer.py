@@ -43,6 +43,17 @@ each call within the loop is tagged with its role/attempt on the debug-log recor
 ``providers/llm/debug_log.py``) — an exhausted review is countable after the fact
 without heuristic prompt-matching, and stays visible even when the (dev-only,
 prompt-content-bearing) debug log is off.
+
+Retention (#272 Task 3, ADR-058 freeze): the loop above has no no-regression
+invariant — each round is a memoryless corrector rewrite, so a reviewer mistake
+(or an over-eager correction) can erode content a PRIOR round had right, and later
+rounds never recover it. ``retain_if`` is an OPTIONAL, opt-in deterministic
+predicate over a settled draft; when supplied, the loop tracks every draft it
+produces and, if the FINAL settled draft fails the predicate while an earlier
+round's draft satisfied it, substitutes that earlier draft back in (loudly
+logged). This never adds an LLM call — it only chooses among drafts the existing
+bounded loop already produced. Default ``None`` reproduces today's behaviour for
+every existing caller bit-for-bit (proven by test).
 """
 
 import logging
@@ -76,6 +87,7 @@ async def review_and_refine(
     reviewer_max_tokens: int = REVIEW_VERDICT_MAX_TOKENS,
     chain_id: str = "unknown",
     disable_thinking: bool | None = None,
+    retain_if: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -103,13 +115,54 @@ async def review_and_refine(
                   review) so a small token budget reaches the answer, not the reasoning
                   trace, under thinking models. Leave None for serious content (CV,
                   cover letter) where reasoning improves quality (ADR-009 amendment).
+        retain_if: Optional (#272 Task 3) deterministic, STRUCTURAL-ONLY predicate over
+                  a draft — never a quality score, never an LLM call. Default None
+                  reproduces today's behaviour exactly (no history tracking overhead
+                  beyond a plain list append, no behavioural change). When supplied,
+                  every draft produced by this loop (the initial draft, and each
+                  generator retry) is tracked; if the draft this call would otherwise
+                  return fails ``retain_if`` but an EARLIER draft in this same loop
+                  satisfied it, that earlier draft is returned instead, and the
+                  substitution is logged at WARNING so it stays observable.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
-        reviewer fails, or a refiner call truncates/times out.
+        reviewer fails, or a refiner call truncates/times out — subject to the
+        ``retain_if`` substitution above when that predicate is supplied.
     """
+    # #272 Task 3: track every draft this loop produces so an opt-in retain_if can
+    # choose among them at settle time. Cheap (a list append) and inert when
+    # retain_if is None — the settle helper below short-circuits immediately.
+    draft_history: list[dict[str, Any]] = [draft]
+
+    def _settle(final: dict[str, Any]) -> dict[str, Any]:
+        """Apply the optional retention predicate to a draft this function is
+        about to return. retain_if=None is a pure pass-through — behaviour is
+        bit-identical to pre-#272 for every existing caller."""
+        if retain_if is None:
+            return final
+        if retain_if(final):
+            return final
+        for candidate in reversed(draft_history[:-1]):
+            if retain_if(candidate):
+                logger.warning(
+                    "review_and_refine: chain=%s retain_if rejected the settled draft; "
+                    "substituting an earlier round's draft that satisfied the "
+                    "retention predicate instead (ADR-058 freeze: no new LLM call, "
+                    "only a choice among already-produced drafts).",
+                    chain_id,
+                )
+                return candidate
+        logger.warning(
+            "review_and_refine: chain=%s retain_if rejected the settled draft and no "
+            "earlier draft in this loop satisfied it either; shipping the settled "
+            "draft as-is (fail-open — never fabricate to satisfy the predicate).",
+            chain_id,
+        )
+        return final
+
     if max_retries <= 0:
-        return draft
+        return _settle(draft)
 
     # Tag every reviewer/refiner LLM call in this loop for the debug log (no-op in prod).
     set_llm_log_stage(chain_id)
@@ -142,7 +195,7 @@ async def review_and_refine(
                     type(exc).__name__,
                     attempt + 1,
                 )
-                return current_draft
+                return _settle(current_draft)
 
             approved = bool(review.get("approved", False))
             last_issues = review.get("issues", [])
@@ -153,7 +206,7 @@ async def review_and_refine(
                 chain_id, attempt + 1, max_retries, approved=approved, issues_count=len(last_issues)
             )
             if approved:
-                return current_draft
+                return _settle(current_draft)
 
             feedback = review.get("feedback", "")
             logger.debug(
@@ -195,7 +248,12 @@ async def review_and_refine(
                     attempt + 1,
                     last_issues,
                 )
-                return current_draft
+                return _settle(current_draft)
+
+            # #272 Task 3: a fresh draft was produced — track it so an opt-in
+            # retain_if can consider it at settle time. No-op cost when
+            # retain_if is None (the list is simply never consulted).
+            draft_history.append(current_draft)
 
         # Exhausted all retries — return the last generated draft unreviewed.
         # This is intentional: degraded output is preferable to a broken flow
@@ -208,7 +266,7 @@ async def review_and_refine(
             max_retries,
             last_issues,
         )
-        return current_draft
+        return _settle(current_draft)
     finally:
         # Clear the role/attempt label so a later, unrelated call in this task
         # doesn't inherit a stale review-loop position.
