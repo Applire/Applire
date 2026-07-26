@@ -58,7 +58,13 @@ _CORE_RULES = """\
 - Output language: write ALL prose in the OUTPUT LANGUAGE stated in the user message,
   translating from the source where needed (translating is not inventing). Skill/discipline
   phrases are ordinary language and MUST be translated; only proper nouns (company/product/
-  tool names, dates, metrics) stay unchanged."""
+  tool names, dates, metrics) stay unchanged.
+- VERBATIM LABELS — never translate, expand, or "correct" these even while translating the
+  prose around them: skill names, certification names, employer names, job titles, and named
+  systems/products. A domain acronym riding inside one of these labels IS the name (GxP, GMP,
+  ALCOA+, CSV, LIMS, MES, ITIL, or an unfamiliar one) — copy it exactly. "GxP Compliance &
+  Computer System Validation" must NEVER become "Good Practice Compliance & Computer System
+  Validation"."""
 
 
 # ---------------------------------------------------------------------------
