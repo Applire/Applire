@@ -40,7 +40,10 @@ from __future__ import annotations
 import pytest
 
 from applire.services.oracle import audit_document, verify_claim
-from applire.services.oracle.extract import extract_claims_from_letter
+from applire.services.oracle.extract import (
+    _is_pure_denial_clause,
+    extract_claims_from_letter,
+)
 from applire.schemas.oracle import Claim
 
 PROFILE = {
@@ -228,3 +231,43 @@ def test_ordinary_positive_claim_is_never_classified_denial():
     claims = extract_claims_from_letter(letter, PROFILE)
     assert len(claims) == 1
     assert not claims[0].is_denial
+
+
+# ── passive OWNERSHIP is not delegation (integration-review catch, wave 7) ───
+# The first cut of ``_is_pure_denial_clause`` keyed on delegation markers
+# ("was owned by", "was handled by", "wurde von") without asking WHO the work
+# went to. The passive voice is equally at home in an ownership claim, so
+# "release planning was owned by me" classified as a pure denial and would have
+# been routed to ``not_applicable`` — exempting a genuine positive claim from
+# verification altogether. That is a hole in the Oracle, the exact failure this
+# module's conservatism exists to prevent, and it is strictly worse than the
+# over-counting the feature set out to fix. These pin the distinction.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The platform migration was owned by me end to end",
+        "Release planning was owned by me and my two staff engineers",
+        "The rollout was handled by my team, which I led for three years",
+        "Das Backend wurde von mir entwickelt",
+        "Die Migration wurde durch mich verantwortet",
+    ],
+)
+def test_passive_ownership_claim_is_never_classified_denial(text: str) -> None:
+    """A first-person recipient means the candidate DID the work — gradeable."""
+    assert _is_pure_denial_clause(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the configuration was handled by our system engineer",
+        "the vector store was managed by a platform specialist",
+        "Die Konfiguration wurde von unserem Systemingenieur uebernommen",
+    ],
+)
+def test_third_party_delegation_still_classified_denial(text: str) -> None:
+    """Naming a genuine second party stays a delegation — the fix must not
+    swallow the real case it was built for."""
+    assert _is_pure_denial_clause(text) is True

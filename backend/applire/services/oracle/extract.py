@@ -299,23 +299,42 @@ _DENIAL_PIVOT_THEN_PRONOUN_RE = re.compile(
 
 _DENIAL_SEGMENT_SPLIT_RE = re.compile(r"[;,]\s+")
 
+# A delegation marker only distances the candidate when the work went to
+# SOMEBODY ELSE. The passive voice is equally at home in an OWNERSHIP claim —
+# "release planning was owned by me", "das Backend wurde von mir entwickelt" —
+# and misreading one of those as a denial would route a genuine positive claim
+# to ``not_applicable``, exempting it from verification entirely: a hole in the
+# Oracle, exactly what this module's conservatism exists to prevent. So a
+# delegation marker whose recipient is FIRST-PERSON is not a delegation at all.
+# First-person singular/possessive only ("by me", "by my team", "von mir"):
+# "handled by our system engineer" names a real second party and stays a
+# delegation, while the genuinely ambiguous "my team" falls to the safe side
+# and stays gradeable.
+_SELF_DELEGATION_RE = re.compile(
+    r"\b(?:by|von|durch)\s+(?:me|my|mir|mich|meine[mnrs]?|meiner)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_pure_denial_clause(text: str) -> bool:
     """True when ``text`` is ENTIRELY a denial/delegation statement — no
     smuggled positive claim riding along in the same clause (#282).
 
     Conservative by construction, mirroring ``_is_pure_formula_clause``'s
-    shape: the clause must name at least one denial marker at all, AND none
-    of its comma/semicolon-delimited segments may look like an independent,
-    non-negated first-person clause. A segment that itself carries a denial
-    marker is never treated as smuggled — including the denial's own
-    leading "I" ("I have not configured embedding models" is one segment,
-    not two). When in doubt this returns ``False`` (stay gradeable) — a
-    false ``not_applicable`` is a hole in the Oracle; a false
+    shape: the clause must name at least one denial marker at all, must not
+    be a passive OWNERSHIP claim in disguise (``_SELF_DELEGATION_RE``), AND
+    none of its comma/semicolon-delimited segments may look like an
+    independent, non-negated first-person clause. A segment that itself
+    carries a denial marker is never treated as smuggled — including the
+    denial's own leading "I" ("I have not configured embedding models" is
+    one segment, not two). When in doubt this returns ``False`` (stay
+    gradeable) — a false ``not_applicable`` is a hole in the Oracle; a false
     ``unverifiable`` is merely noise.
     """
     normalized = _normalize_punct(text).lower()
     if not any(marker in normalized for marker in _DENIAL_MARKERS):
+        return False
+    if _SELF_DELEGATION_RE.search(normalized):
         return False
     for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized):
         segment = segment.strip()
