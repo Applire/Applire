@@ -30,6 +30,15 @@
 # Changes from v4: Rule 4 amended (#235, Tiramisu founder-acceptance F3) — the summary
 #                  must lead with the KEYWORD LEDGER's top claimable concepts instead of
 #                  defaulting to whatever career phase dominates the raw profile text.
+# Changes from v5: Rule 7 amended (Tiramisu wave-6, blind hiring-panel run #6,
+#                  2026-07-26) — a VERBATIM LABELS carve-out: skill/certification/
+#                  employer/job-title/named-system labels, and the domain acronym
+#                  riding inside one, are never translated/expanded/"corrected", even
+#                  though the descriptive prose around them still is. "GxP" had been
+#                  spelled out to "Good Practice" because it wasn't on the narrow
+#                  proper-noun allow-list. The real protection is the deterministic
+#                  ``_restore_skill_spelling`` post-pass in services/cv.py — this
+#                  wording only reduces how often that guard has to intervene.
 # Added in retry-refinement work: CV_TAILORING_REFINEMENT_PROMPT — refinement-mode
 #                  system prompt used on review-loop retries (patch the previous tailored
 #                  CV JSON; the reviewer quotes profile content when needed).
@@ -75,6 +84,13 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
    names (Figma, Adobe Photoshop, Python, AWS), dates and metrics. Never copy bullets or skills
    verbatim in the source language and never mirror the language of CANDIDATE PROFILE or the job
    description when it differs from the OUTPUT LANGUAGE.
+   VERBATIM LABELS — never translate, expand, or "correct" these even while translating the prose
+   around them: skill names, certification names, employer names, job titles, and named
+   systems/products. A domain acronym riding inside one of these labels IS the name, not shorthand
+   to spell out — copy it exactly (GxP, GMP, ALCOA+, CSV, LIMS, MES, ITIL, and equally an
+   unfamiliar one you don't recognise). "GxP Compliance & Computer System Validation" must NEVER
+   become "Good Practice Compliance & Computer System Validation" — translate a skill's ordinary
+   descriptive words, never the acronym embedded in it.
 8. Claim-strength calibration — do NOT inflate. A bullet drawn from a truthful source but with
    misleading emphasis is still a defect: the candidate will be exposed in the interview. Stay
    within the seniority, scope, and impact the CANDIDATE PROFILE actually evidences:

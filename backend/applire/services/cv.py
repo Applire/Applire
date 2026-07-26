@@ -1111,6 +1111,176 @@ def _drop_ungrounded_jd_echo_skills(
     return tailored.model_copy(update={"skills": kept})
 
 
+def _acronym_expansion_vault_match(mangled: str, vault_skills: list[str]) -> str | None:
+    """Is ``mangled`` the vault's own skill name with a SINGLE token expanded/dropped?
+
+    Tiramisu wave-6, blind hiring-panel run #6 (2026-07-26): the ADR-038 language
+    pass treats a skill name as ordinary translatable prose. ``GxP`` is not on its
+    proper-noun allow-list, so the model "translated" it by spelling the acronym
+    out -- ``GxP Compliance & Computer System Validation`` shipped as ``Good
+    Practice Compliance & Computer System Validation``.
+
+    Why not just call :func:`ats_audit.skills_near_dupe` (the codebase's existing
+    near-duplicate instrument, reused everywhere else in this file)? Checked
+    against ground truth first (the fixer-pins-the-vector rule) and it returns
+    False on all three pinned pairs -- the two extra tokens ("good", "practice")
+    that replace the one dropped acronym token drag the Jaccard overlap down to
+    0.25-0.57, under its 0.75 near-dupe bar, and the acronym breaks its containment
+    check too (neither token set is a subset of the other). That bar is RIGHT for
+    its own job -- deciding whether two skills are safe to auto-merge across a
+    whole profile without conflating two genuinely different skills -- so it is
+    not loosened here; a different, narrower rule is needed for a different job:
+    restoring the spelling of an entry that both sides agree is the SAME skill.
+
+    Reuses :func:`ats_audit.skill_tokens` (the shared tokenization primitive --
+    NFKC, dash-fold, casefold, stopword/plural-fold) but applies its own strict
+    correspondence rule, tuned to this exact failure shape rather than general
+    similarity:
+
+    * the vault name's tokens not present in ``mangled`` (``vault_only``) must be
+      EXACTLY ONE token -- the presumed acronym -- never more (a bigger residual
+      is not "one acronym expanded", it is a materially different name);
+    * that one token must not be the vault name's ENTIRE content (an all-acronym
+      vault skill, e.g. bare "GxP", has no other tokens to anchor the match on,
+      so it is never restored via this path -- too ambiguous to risk);
+    * ``mangled`` must carry extra tokens beyond the vault name's remainder
+      (``mangled_only`` non-empty) -- something was substituted IN. A skill that
+      merely drops the acronym with nothing added back is genuine containment
+      and is already caught by ``skills_near_dupe`` (and thus already handled
+      upstream by ``_drop_ungrounded_jd_echo_skills``'s existing vault-tie
+      rename); duplicating that here would only risk a second, conflicting
+      rewrite;
+    * exactly ONE vault skill may satisfy the above -- if two candidates both
+      qualify, the correspondence is ambiguous by definition and neither is
+      returned (never guess between two vault originals).
+
+    Returns the matching vault skill's exact string, or ``None`` when no
+    candidate qualifies or more than one does.
+    """
+    from applire.services.ats_audit import skill_tokens
+
+    mangled_tokens = skill_tokens(mangled)
+    if not mangled_tokens:
+        return None
+
+    candidates: list[str] = []
+    for vault_skill in vault_skills:
+        vault_tokens = skill_tokens(vault_skill)
+        if not vault_tokens:
+            continue
+        vault_only = vault_tokens - mangled_tokens
+        mangled_only = mangled_tokens - vault_tokens
+        if len(vault_only) != 1:
+            continue
+        if len(vault_only) >= len(vault_tokens):
+            continue
+        if not mangled_only:
+            continue
+        candidates.append(vault_skill)
+
+    if len(candidates) == 1:
+        return candidates[0]
+    return None  # zero or ambiguous (>= 2) matches -- never guess
+
+
+def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None) -> TailoredCVData:
+    """Restore any tailored skill name the LLM chain has mangled back to the vault's
+    exact string (Tiramisu wave-6, blind hiring-panel run #6, 2026-07-26).
+
+    Ground truth: three of the tailored CV's skill entries had their vault-attested
+    ``GxP`` acronym expanded to "Good Practice" by the ADR-038 language pass
+    (``_review_cv_language``, chain_id ``cv_language``) -- see
+    ``_acronym_expansion_vault_match`` for how that vector was pinned against the
+    codebase's existing near-duplicate instrument before this guard was written.
+    The Oracle then correctly flagged all three as ``unbacked`` (no vault evidence
+    for "Good Practice Environments" -- true, that string does not exist in the
+    vault), and a blind hiring panel quoted the mangled names back as evidence the
+    document was untrustworthy. Prompt wording alone will not hold against every
+    provider/temperature -- this deterministic post-pass is the actual protection.
+
+    Deliberately conservative, per this fix's guardrails:
+
+    * an EXACT vault match (post NFKC/casefold/whitespace normalisation via
+      ``ats_audit._norm`` -- the same fold ``_dedup_skills``/``_tailor_skills_to_jd``
+      already rely on) is always restored to the vault's own casing/spacing --
+      formatting noise, never ambiguous;
+    * anything else is only rewritten when
+      :func:`_acronym_expansion_vault_match` finds a SINGLE, unambiguous vault
+      original -- see that function's docstring for the exact bar and why the
+      existing ``skills_near_dupe`` instrument does not (and should not) clear it
+      for this failure shape;
+    * a skill with no such correspondence is left EXACTLY as the writer produced
+      it and logged -- never guessed at, never deleted;
+    * a vault skill the tailoring step legitimately chose not to include is never
+      re-added -- this pass only ever rewrites the spelling of an entry that is
+      already present, never adds or removes one;
+    * selection and order from every upstream pass (``_tailor_skills_to_jd``'s
+      subsetting/cap, ``_drop_ungrounded_jd_echo_skills``'s drops) are preserved
+      exactly -- entries are rewritten strictly in place, never reordered.
+
+    Runs LAST in the skills pipeline, after ``_drop_ungrounded_jd_echo_skills``, so
+    it restores the spelling of the FINAL skill list, not an intermediate one that
+    a later pass might still drop or rename.
+
+    Certifications carry the same truthfulness requirement but need no equivalent
+    guard here: ``_apply_certifications`` already bypasses the LLM chains entirely
+    and copies ``profile_json["certifications"]`` in verbatim as a pure passthrough
+    (PQ F7 / ADR-040) -- there is no LLM-authored certification name for any chain
+    to mangle in the first place.
+
+    Pure; ``tailored`` is left unmutated. No-op (returns ``tailored`` unchanged,
+    same object) when nothing needs restoring. Tolerates ``profile_json`` being
+    ``None``/malformed and ``tailored.skills`` being empty.
+    """
+    from applire.services.ats_audit import _norm
+
+    original = list(tailored.skills or [])
+    if not original:
+        return tailored
+
+    vault_skills: list[str] = []
+    for entry in (profile_json or {}).get("skills") or []:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.strip():
+            vault_skills.append(name.strip())
+    if not vault_skills:
+        return tailored
+
+    vault_by_norm: dict[str, str] = {}
+    for v in vault_skills:
+        vault_by_norm.setdefault(_norm(v), v)
+
+    restored: list[str] = []
+    changed = False
+    for skill in original:
+        if not isinstance(skill, str) or not skill.strip():
+            restored.append(skill)
+            continue
+
+        exact = vault_by_norm.get(_norm(skill))
+        if exact is not None:
+            if exact != skill:
+                changed = True
+            restored.append(exact)
+            continue
+
+        match = _acronym_expansion_vault_match(skill, vault_skills)
+        if match is not None and match not in restored:
+            changed = True
+            restored.append(match)
+            continue
+
+        logger.info(
+            "skill spelling guard: %r has no unambiguous vault original -- left as-is",
+            skill,
+        )
+        restored.append(skill)
+
+    if not changed:
+        return tailored
+    return tailored.model_copy(update={"skills": restored})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -1645,13 +1815,22 @@ async def _render_cv_background(
             # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
             # tags that are JD/ledger-concept echoes with no deterministic vault tie
             # (both blind reviewers independently flagged these as keyword-stuffing).
-            # MUST run LAST in the skills pipeline -- after #192's cap/guarantee pass,
-            # so nothing re-adds a dropped tag -- and BEFORE tailored_data/the ATS
-            # audit are persisted below, so the coverage check reflects the final,
-            # honest document.
+            # MUST run after #192's cap/guarantee pass, so nothing re-adds a dropped
+            # tag, and BEFORE the spelling-restoration guard below so it acts on the
+            # FINAL selected/capped list, not an intermediate one.
             tailored = _drop_ungrounded_jd_echo_skills(
                 tailored, profile_json, job_dict, keyword_ledger
             )
+
+            # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
+            # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
+            # "Good Practice") back to the vault's exact string. MUST run LAST in
+            # the skills pipeline -- after every selection/cap/drop pass above, and
+            # BEFORE tailored_data/the ATS audit are persisted below, so the audit
+            # (and the Oracle, and any human reader) sees the final, correctly
+            # spelled document. Only ever rewrites a name already present; never
+            # adds or removes an entry.
+            tailored = _restore_skill_spelling(tailored, profile_json)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.
