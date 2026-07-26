@@ -878,3 +878,186 @@ def test_profile_json_none_or_absent_is_a_noop_back_compat():
     assert ledger_no_arg == ledger_none
     rag = _by_concept(ledger_none)["RAG"]
     assert rag["claimable"] is False
+
+
+# ── Wave-6 regression — the denial's OWN receipt defeats the denial floor ───
+#
+# #249 run-4 added `profile_literal_corpus` so the containment rule's
+# independent-affirmation check could see real vault evidence instead of
+# always fail-closing. Ground truth (live vault, 2026-07-25): the candidate's
+# testimony that DENIES a narrow compound ("hands-on embedding model
+# configuration") is itself persisted verbatim (`metadata.denied_concepts[]
+# .statement`, plus the durable enrichment-history "Noted limit: …" receipt)
+# — and you cannot deny embeddings without writing the word "embeddings".
+# `profile_literal_corpus` fed that verbatim denial text straight into the
+# affirmation corpus, so the denial's own receipt "independently affirmed"
+# the very concept it denied. Fix: the corpus must be built from POSITIVE
+# vault content only — `metadata.denied_concepts` (concept + statement) and
+# denial-receipt enrichment-history changes are excluded.
+
+_DENIAL_STATEMENT = (
+    "I have not personally set up or worked hands-on with embeddings tuning, "
+    "ranking systems, Prometheus, Grafana, or ELK stacks, and production "
+    "logging was not something I owned. Those are honest gaps for me."
+)
+
+
+def _denial_only_profile_json(extra_work_experience=None):
+    return {
+        "metadata": {
+            "denied_concepts": [
+                {
+                    "concept": "hands-on embedding model configuration",
+                    "statement": _DENIAL_STATEMENT,
+                    "source": "interview",
+                    "date": "2026-07-20",
+                },
+                {
+                    "concept": "hands-on ranking work",
+                    "statement": _DENIAL_STATEMENT,
+                    "source": "interview",
+                    "date": "2026-07-20",
+                },
+            ],
+            "enrichment_history": [
+                {
+                    "id": "e1",
+                    "timestamp": "2026-07-20T00:00:00",
+                    "source": "interview",
+                    "changes": [
+                        {
+                            "section": "metadata",
+                            "field": "denied_concepts",
+                            "action": "added",
+                            "old_value": None,
+                            "new_value": "hands-on embedding model configuration",
+                            "rationale": (
+                                "Noted limit: no hands-on hands-on embedding "
+                                "model configuration (candidate's own testimony)"
+                            ),
+                        },
+                        {
+                            "section": "metadata",
+                            "field": "denied_concepts",
+                            "action": "added",
+                            "old_value": None,
+                            "new_value": "hands-on ranking work",
+                            "rationale": (
+                                "Noted limit: no hands-on hands-on ranking "
+                                "work (candidate's own testimony)"
+                            ),
+                        },
+                        # A non-denial change in the SAME turn — must survive
+                        # the filter untouched (only denied_concepts changes
+                        # are stripped, nothing else in enrichment_history).
+                        {
+                            "section": "work_experience",
+                            "field": "technologies",
+                            "action": "merged",
+                            "old_value": None,
+                            "new_value": "Docker",
+                            "rationale": "Merged from interview testimony",
+                        },
+                    ],
+                }
+            ],
+        },
+        "work_experience": extra_work_experience or [
+            {"role": "ML Engineer", "technologies": ["Python"]}
+        ],
+    }
+
+
+def test_profile_literal_corpus_excludes_denial_concept_and_statement_text():
+    """Regression: with no OTHER positive mention, the denial's own receipt
+    text must never independently affirm the concept it denies."""
+    from applire.services.keyword_ledger import profile_literal_corpus
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    profile_json = _denial_only_profile_json()
+    corpus = profile_literal_corpus(profile_json)
+    denials = ["hands-on embedding model configuration", "hands-on ranking work"]
+
+    # Before the fix these were both False (the escape) — must be True now.
+    assert is_denied_concept("Embeddings", denials, corpus) is True
+    assert is_denied_concept("Ranking", denials, corpus) is True
+    # The receipt's own words must be gone from the corpus entirely.
+    assert "embedding" not in corpus
+    assert "docker" in corpus  # the untouched non-denial change survives
+
+
+def test_profile_literal_corpus_still_affirms_broad_concept_with_real_evidence():
+    """#249 must keep working: genuine POSITIVE vault evidence for the broad
+    concept, sitting alongside the exact same denial receipt, still
+    independently affirms it."""
+    from applire.services.keyword_ledger import profile_literal_corpus
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    profile_json = _denial_only_profile_json(
+        extra_work_experience=[
+            {
+                "role": "ML Engineer",
+                "technologies": ["Python", "LangChain", "Retrieval-Augmented Generation (RAG)"],
+            }
+        ]
+    )
+    corpus = profile_literal_corpus(profile_json)
+    denials = ["hands-on embedding model configuration", "hands-on ranking work"]
+
+    # RAG is not itself a denied compound and has independent literal evidence.
+    assert is_denied_concept("RAG", denials, corpus) is False
+
+
+def test_profile_literal_corpus_prometheus_style_token_only_in_denial_stays_denied():
+    """A token that IS the denial itself (or only ever appears inside denial
+    text) must stay denied whether or not a corpus is supplied — this is the
+    `_is_denied` branch-1 case (denial contained in the token) that never
+    depended on `_independently_affirmed` in the first place."""
+    from applire.services.keyword_ledger import profile_literal_corpus
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    profile_json = _denial_only_profile_json()
+    corpus = profile_literal_corpus(profile_json)
+    assert is_denied_concept("Prometheus", ["Prometheus"], corpus) is True
+    assert is_denied_concept("Prometheus", ["Prometheus"]) is True
+
+
+def test_profile_literal_corpus_tolerates_missing_and_malformed_metadata():
+    """None/absent/malformed metadata never crashes the corpus builder."""
+    from applire.services.keyword_ledger import profile_literal_corpus
+
+    assert profile_literal_corpus(None) == ""
+    assert profile_literal_corpus({}) == ""
+    # metadata=None: rest of the profile still flattens normally, no crash.
+    assert (
+        profile_literal_corpus({"metadata": None, "work_experience": [{"role": "Engineer"}]})
+        == "engineer"
+    )
+    # metadata present but not a dict, or denied_concepts/enrichment_history
+    # malformed shapes: tolerated, must not raise.
+    profile_literal_corpus({"metadata": ["oops"], "work_experience": []})
+    profile_literal_corpus({"metadata": {"denied_concepts": "oops", "enrichment_history": "oops"}})
+    profile_literal_corpus({"metadata": {"enrichment_history": ["oops", {"changes": "oops"}]}})
+
+
+def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable():
+    """Full pipeline: the denied concept comes out of build_keyword_ledger as
+    status=gap, claimable=False, even though its own receipt text would have
+    "independently affirmed" it under the pre-fix corpus."""
+    profile_json = _denial_only_profile_json()
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Embeddings", "partial", ["Embeddings", "embedding"],
+                evidence="RAG pipelines imply use of embeddings",
+            ),
+        ],
+        required_skills=["Embeddings"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["hands-on embedding model configuration"],
+        profile_json=profile_json,
+    )
+    entry = _by_concept(ledger)["Embeddings"]
+    assert entry["status"] == "gap"
+    assert entry["claimable"] is False
