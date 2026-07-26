@@ -986,3 +986,216 @@ async def test_required_fields_candidate_must_also_satisfy_retain_if(mock_provid
     # No eligible candidate (draft1 fails retain_if, draft2 lacks the field) —
     # fail open rather than reintroducing a retain_if-failing draft.
     assert result["company_name"] is None
+
+
+# ---------------------------------------------------------------------------
+# Wave-6 follow-up (charter run #6, Task 2) — retention design v2: prefer_if,
+# a SECONDARY structural tie-break over drafts retain_if already accepts.
+# ---------------------------------------------------------------------------
+
+
+def _closing(d: dict) -> bool:
+    return bool(d.get("closing"))
+
+
+def _within_budget(d: dict) -> bool:
+    return d.get("words", 0) <= 300
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_default_none_is_bit_identical_to_retain_if_only(mock_provider, caplog):
+    """prefer_if omitted (default None) must reproduce the pre-existing
+    retain_if-only algorithm EXACTLY — reusing the retain_if substitution
+    scenario from test_retain_if_substitutes_earlier_draft_when_final_fails_predicate
+    with prefer_if simply not passed."""
+    original = {"body": {"paragraphs": ["opening", "closing paragraph that is long enough to pass"]}}
+    retry1 = {"body": {"paragraphs": ["opening (revised)", "closing paragraph that is long enough to pass"]}}
+    retry2 = {"body": {"paragraphs": ["opening", "short stub"]}}
+
+    def has_long_closing(draft: dict) -> bool:
+        paragraphs = draft.get("body", {}).get("paragraphs", [])
+        return bool(paragraphs) and len(paragraphs[-1].split()) >= 5
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": False, "issues": ["y"], "feedback": "fix y"},
+        retry2,
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        retain_if=has_long_closing,
+        # prefer_if intentionally omitted
+    )
+
+    assert result == retry1
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_is_a_noop_when_retain_if_is_none(mock_provider):
+    """prefer_if without retain_if must never even be consulted — it is only a
+    tie-break AMONG drafts retain_if already accepts, so it is meaningless (and
+    must be inert) when there is no retain_if at all."""
+    calls: list[dict] = []
+
+    def never_call_me(d):
+        calls.append(d)
+        return False
+
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    draft = {"words": 999}
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=1,
+        prefer_if=never_call_me,
+        # retain_if intentionally omitted
+    )
+    assert result == draft
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_selects_draft_satisfying_both_over_retain_if_only(mock_provider, caplog):
+    """Given drafts [long+closing, short+no-closing, short+closing], the
+    short+closing draft (satisfying BOTH retain_if and prefer_if) is chosen —
+    even though it is neither the final nor the most recent draft."""
+    original = {"closing": True, "words": 250}  # short + closing: satisfies both
+    retry1 = {"closing": True, "words": 400}  # long + closing: retain_if only
+    retry2 = {"closing": False, "words": 200}  # short + no closing: fails retain_if
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": False, "issues": ["y"], "feedback": "fix y"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            retain_if=_closing,
+            prefer_if=_within_budget,
+        )
+
+    assert result == original
+    assert any("prefer_if" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_falls_back_to_retain_if_only_and_logs_loudly(mock_provider, caplog):
+    """Given only [long+closing, short+no-closing] — no draft satisfies both —
+    the long+closing draft (retain_if alone) is chosen, and a loud WARNING
+    names that the non-negotiable structural floor shipped without its
+    secondary preference (closing wins over fitting the budget)."""
+    original = {"closing": True, "words": 400}  # long + closing
+    retry1 = {"closing": False, "words": 200}  # short + no closing
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            retain_if=_closing,
+            prefer_if=_within_budget,
+        )
+
+    assert result == original
+    assert any(
+        "retain_if" in r.getMessage() and "prefer_if" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_never_overrides_a_failing_retain_if(mock_provider):
+    """prefer_if can never select a draft retain_if rejects, even when that
+    draft satisfies prefer_if and the retain_if-satisfying draft does not —
+    structure (retain_if) always wins."""
+    original = {"closing": True, "words": 999}  # closing, but over budget
+    retry1 = {"closing": False, "words": 1}  # tiny (prefer_if True), no closing
+
+    def impossible_retain(d: dict) -> bool:
+        return _closing(d)
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        retain_if=impossible_retain,
+        prefer_if=_within_budget,
+    )
+
+    # retry1 satisfies prefer_if but fails retain_if — must NEVER be chosen.
+    assert result == original
+
+
+@pytest.mark.asyncio
+async def test_prefer_if_no_substitution_log_when_final_already_satisfies_both(mock_provider, caplog):
+    """No substitution and no warning when the settled draft already satisfies
+    both retain_if and prefer_if."""
+    draft = {"closing": True, "words": 100}
+
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=1,
+            retain_if=_closing,
+            prefer_if=_within_budget,
+        )
+
+    assert result == draft
+    assert not any(
+        "retain_if" in r.getMessage() or "prefer_if" in r.getMessage() for r in caplog.records
+    )

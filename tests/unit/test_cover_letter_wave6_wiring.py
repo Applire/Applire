@@ -192,6 +192,195 @@ async def test_condense_pass_also_receives_retain_if(seeded):
 
 
 @pytest.mark.asyncio
+async def test_review_and_refine_receives_prefer_if_word_budget_check(seeded):
+    """Wave-6 follow-up (charter run #6, Task 2): the primary review_and_refine
+    call must also be wired with a ``prefer_if`` that checks the region's word
+    budget — proven behaviourally (it is a closure, not an importable stable
+    function, unlike retain_if) against a within-budget and an over-budget
+    draft."""
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+    from applire.norms import DEFAULT_REGION, REGION_NORMS
+
+    budget = REGION_NORMS[DEFAULT_REGION].letter_body_word_budget
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(return_value=_letter(["Dear team,", "Sincerely,"]))
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert calls, "review_and_refine was not called"
+    prefer_if = calls[0].get("prefer_if")
+    assert prefer_if is not None, "prefer_if was not wired into the primary review_and_refine call"
+
+    within = {"body": {"paragraphs": [" ".join(["word"] * (budget - 5))]}}
+    over = {"body": {"paragraphs": [" ".join(["word"] * (budget + 50))]}}
+    assert prefer_if(within) is True
+    assert prefer_if(over) is False
+
+
+@pytest.mark.asyncio
+async def test_condense_pass_also_receives_prefer_if(seeded):
+    """The condense/refine loop's review_and_refine call must ALSO carry the
+    word-budget prefer_if — mirroring test_condense_pass_also_receives_retain_if."""
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+    from applire.norms import DEFAULT_REGION, REGION_NORMS
+
+    budget = REGION_NORMS[DEFAULT_REGION].letter_body_word_budget
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),  # initial writer call
+            _letter(["Dear team,", "condensed closing"]),  # build_condense_prompt call
+        ]
+    )
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),  # over the 1-page DACH letter norm — forces condense
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert len(calls) == 2, "expected primary + condense review_and_refine calls"
+    for call in calls:
+        prefer_if = call.get("prefer_if")
+        assert prefer_if is not None
+        within = {"body": {"paragraphs": [" ".join(["word"] * (budget - 5))]}}
+        over = {"body": {"paragraphs": [" ".join(["word"] * (budget + 50))]}}
+        assert prefer_if(within) is True
+        assert prefer_if(over) is False
+
+
+@pytest.mark.asyncio
+async def test_condense_over_budget_result_emits_letter_over_budget_log(seeded, caplog):
+    """Wave-6 follow-up (charter run #6, Task 3): if the condense pass's settled
+    result STILL exceeds the region's word budget (e.g. because retain_if
+    correctly refused a shorter draft that lost its closing), that must be
+    countable after the fact via a distinct, stable LETTER_OVER_BUDGET log line
+    naming the chain, the measured word count, and the norm."""
+    import logging
+
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+    from applire.norms import DEFAULT_REGION, REGION_NORMS
+
+    budget = REGION_NORMS[DEFAULT_REGION].letter_body_word_budget
+    over_budget_body = " ".join(["word"] * (budget + 50))
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),  # initial writer call
+            _letter(["Dear team,", over_budget_body]),  # condense call — still over budget
+        ]
+    )
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),  # over the 1-page DACH letter norm — forces condense
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+            await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    over_budget_lines = [r for r in caplog.records if "LETTER_OVER_BUDGET" in r.getMessage()]
+    assert over_budget_lines, "expected a LETTER_OVER_BUDGET log line"
+    assert any("cover_letter_condense" in r.getMessage() for r in over_budget_lines)
+    assert any(str(budget) in r.getMessage() for r in over_budget_lines)
+
+
+@pytest.mark.asyncio
+async def test_condense_within_budget_result_emits_no_over_budget_log(seeded, caplog):
+    """No LETTER_OVER_BUDGET noise when the condensed result actually fits the
+    budget — the log must be specific to the genuine violation, not fire on
+    every condense pass."""
+    import logging
+
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),  # initial writer call
+            _letter(["Dear team,", "a short condensed closing paragraph indeed"]),
+        ]
+    )
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+            await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert not any("LETTER_OVER_BUDGET" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_reviewer_prompt_fn_carries_word_floor_block_when_under_floor(seeded):
     """#272 Task 6: the composed reviewer_prompt_fn wired into review_and_refine
     must append the deterministic WORD FLOOR block when the CURRENT draft's body
