@@ -152,7 +152,20 @@ def build_user_prompt(
     output_language: str = "de",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
+    scoped_boundary_block: str | None = None,
 ) -> str:
+    """Build the single-call CV tailoring user prompt.
+
+    scoped_boundary_block: rendered SCOPED BOUNDARIES text (#277, #270 Fix D
+        inverted — :func:`applire.services.cross_document.render_scoped_boundary_block`
+        over :func:`applire.services.cross_document.find_scoped_boundaries`) —
+        claimable ledger concepts the vault ALSO states an explicit limit on,
+        derived from the vault (Keyword Ledger + persisted denials) alone, so it is
+        available at CV-generation time even though no letter exists yet. Threaded
+        so the skills list and summary render the SCOPED claim instead of a bare,
+        unqualified tag. Optional so legacy/degraded callers do not break;
+        omitted/empty → adds nothing (identical prompt to before #277).
+    """
     language_name = "GERMAN" if output_language == "de" else "ENGLISH"
     # ADR-048 §8 / US200: the Keyword Ledger splits the JD's expectations into claimable
     # terms (carry their profile evidence — surface where supported) and honest gaps
@@ -161,6 +174,11 @@ def build_user_prompt(
 
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     ledger_section = f"{ledger_block}\n\n" if ledger_block else ""
+    # #277 (#270 Fix D inverted): the vault-derived scoped-boundary block — a claimable
+    # concept the vault ALSO holds an explicit stated limit on. Never a bare denial,
+    # never an unqualified claim; render the scoped form naming both halves. Empty →
+    # adds nothing (back-compat).
+    scoped_boundary_section = f"{scoped_boundary_block}\n\n" if scoped_boundary_block else ""
     # E042/US237, ADR-051 §3: per-role bullet-count ceilings computed deterministically
     # BEFORE generation, so the model aims at the target page count directly rather than
     # relying on a post-hoc trim. Empty/None budget → adds nothing (back-compat).
@@ -176,6 +194,7 @@ def build_user_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
+        f"{scoped_boundary_section}"
         f"{budget_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
