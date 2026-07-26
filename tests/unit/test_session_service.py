@@ -1445,6 +1445,197 @@ class TestSendMessage:
         assert result.gaps_remaining == 2
 
     @pytest.mark.asyncio
+    async def test_second_unproductive_answer_forces_advance_after_one_retry(
+        self, sqlite_session
+    ):
+        """#274/#284 fix: a turn that neither addresses the gap nor records a
+        denial gets AT MOST one retry follow-up. #284's run-6 evidence: two
+        substantive, well-evidenced answers (a mentoring arc, then an ISO
+        25010/GAMP5 standards narrative) each reconciled to zero ops and zero
+        denials — the reconciler found nothing NEW/distinct to write, so
+        `addressed` stayed False both times, yet the candidate had not
+        declined anything. #274 is the same shape from the opposite emotional
+        direction ("I cannot elaborate further" without a formal denial).
+        Before the fix, INTERVIEW_MAX_QUESTIONS_PER_GAP=3 let a THIRD
+        unproductive question be asked before force-advancing; this pins the
+        tightened budget (one retry, not two) so the cluster advances right
+        after the retry's answer instead of drilling a third question."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        # Simulate: the initial question was asked, one follow-up retry was
+        # already asked and answered unproductively (questions_per_gap bumped
+        # to 2 by that prior turn) — this message is the retry's ANSWER.
+        session_record = _make_active_session(
+            job.id, profile.id,
+            state={"questions_per_gap": {"GCP certification": 2}},
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        # A substantive narrative answer that carries no figure and maps to
+        # no distinct new profile field — Northwind Labs-style invented
+        # fixture data, mirroring #284's shape without reusing real content.
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id,
+                "I led the platform migration end-to-end, but I can't put a "
+                "number on the team size without guessing.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Advanced off "GCP certification" onto "FastAPI experience" — a
+        # THIRD follow-up on GCP was never generated.
+        assert result.current_gap_id == "FastAPI experience"
+        assert result.addressed_gap_ids == ["GCP certification"]
+        assert result.question == "Tell me about FastAPI."
+
+    @pytest.mark.asyncio
+    async def test_forced_advance_never_marks_the_gap_filled_or_touches_ledger(
+        self, sqlite_session
+    ):
+        """Guardrail: force-advancing on an unproductive retry must NEVER read
+        as 'the candidate provided this evidence'. The ledger upgrade
+        (#188) — which flips a keyword_ledger entry from gap to confirmed
+        strength — must fire only for a genuinely addressed turn, never for
+        the one-retry-exhausted termination path. Advancing the conversation
+        and claiming the evidence exists are different things."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(
+            job.id, profile.id,
+            state={"questions_per_gap": {"GCP certification": 2}},
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+            patch("applire.services.session._upgrade_ledger_for_addressed_gap",
+                  new=AsyncMock()) as mock_upgrade,
+        ):
+            result = await send_message(
+                session_record.id,
+                "I can describe the shape of the work but not the numbers.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.addressed_gap_ids == ["GCP certification"]
+        # The gap advanced past — but the ledger upgrade that marks a gap as
+        # a confirmed strength was never called for this turn.
+        mock_upgrade.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_forced_advance_does_not_terminate_early_with_real_gaps_remaining(
+        self, sqlite_session
+    ):
+        """Force-advancing off an unproductive retry must move to the NEXT
+        real gap and keep the interview open — never mistake 'stop asking
+        about this cluster' for 'the interview is done'. Two critical gaps
+        are configured; after the first force-advances, the second (a true,
+        unaddressed gap) must still be asked about."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(
+            job.id, profile.id,
+            state={"questions_per_gap": {"GCP certification": 2}},
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id,
+                "I can describe the shape of the work but not the numbers.",
+                sqlite_session, _mock_provider()
+            )
+
+        # Still open — "FastAPI experience" is a real, unaddressed gap.
+        assert result.complete is False
+        assert result.gaps_remaining == 1
+        assert result.current_gap_id == "FastAPI experience"
+
+    @pytest.mark.asyncio
+    async def test_genuine_denial_still_advances_immediately_even_mid_retry_budget(
+        self, sqlite_session
+    ):
+        """ADR-059 regression guard: the existing denial_recorded advance
+        trigger must keep working exactly as it did before this fix, at any
+        point in the retry budget — a denial is terminal on the turn it is
+        recorded, not just on the last allowed retry."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        # Mid-budget (not yet at the retry ceiling) — denial must still cut
+        # straight through rather than waiting for the ceiling.
+        session_record = _make_active_session(
+            job.id, profile.id,
+            state={"questions_per_gap": {"GCP certification": 1}},
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _denied_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "No, I have never touched GCP.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.addressed_gap_ids == ["GCP certification"]
+        assert result.current_gap_id == "FastAPI experience"
+
+    @pytest.mark.asyncio
     async def test_advance_response_carries_new_current_gap_id(self, sqlite_session):
         """issue #241 item 1 — the turn response exposes the honest server-side
         anchor for the frontend cluster tracker: current_gap_id advances to the

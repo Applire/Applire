@@ -28,11 +28,17 @@ if str(_backend) not in sys.path:
 # ---------------------------------------------------------------------------
 
 def test_max_questions_per_gap_default():
+    """#274/#284: the retry budget for a gap that neither advances (no
+    profile change) nor denies (no denial_recorded) is ONE retry — the
+    initial question plus one follow-up, not two follow-ups. Charter run 6
+    burned a third question on a cluster two substantive, unquantified
+    answers had already exhausted; tightened 3 -> 2 so the second
+    unproductive answer forces the advance instead of inviting a third."""
     os.environ.pop("INTERVIEW_MAX_QUESTIONS_PER_GAP", None)
     import importlib
     import applire.constants as c
     importlib.reload(c)
-    assert c.INTERVIEW_MAX_QUESTIONS_PER_GAP == 3
+    assert c.INTERVIEW_MAX_QUESTIONS_PER_GAP == 2
 
 
 def test_max_questions_per_gap_env_override():
