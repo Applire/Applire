@@ -391,3 +391,49 @@ def test_word_floor_reviewer_prompt_fn_never_instructs_padding():
     low = result.lower()
     assert "pad" not in low or "never" in low  # padding must be explicitly forbidden, not suggested
     assert "invent" in low or "never invent" in low
+
+
+# ---------------------------------------------------------------------------
+# Wave-6 follow-up (charter run #6, Task 2) — body_word_count / within_word_budget
+# ---------------------------------------------------------------------------
+
+
+def test_body_word_count_sums_all_paragraphs():
+    from applire.services.cover_letter_positioning import body_word_count
+
+    letter_data = {"body": {"paragraphs": ["one two three", "four five"]}}
+    assert body_word_count(letter_data) == 5
+
+
+def test_body_word_count_empty_inputs():
+    from applire.services.cover_letter_positioning import body_word_count
+
+    assert body_word_count(None) == 0
+    assert body_word_count({}) == 0
+    assert body_word_count({"body": {"paragraphs": []}}) == 0
+
+
+def test_within_word_budget_true_at_or_under_budget():
+    from applire.services.cover_letter_positioning import within_word_budget
+
+    letter_data = {"body": {"paragraphs": ["one two three four five"]}}
+    assert within_word_budget(letter_data, word_budget=5) is True
+    assert within_word_budget(letter_data, word_budget=10) is True
+
+
+def test_within_word_budget_false_over_budget():
+    from applire.services.cover_letter_positioning import within_word_budget
+
+    letter_data = {"body": {"paragraphs": ["one two three four five six"]}}
+    assert within_word_budget(letter_data, word_budget=5) is False
+
+
+def test_within_word_budget_reuses_the_same_counter_as_the_word_floor_check():
+    """The floor and the ceiling must never disagree about what "the body's
+    word count" means — both go through body_word_count."""
+    from applire.services.cover_letter_positioning import body_word_count, within_word_budget
+
+    letter_data = {"body": {"paragraphs": ["a b c d e f g h i j"]}}
+    count = body_word_count(letter_data)
+    assert within_word_budget(letter_data, word_budget=count) is True
+    assert within_word_budget(letter_data, word_budget=count - 1) is False

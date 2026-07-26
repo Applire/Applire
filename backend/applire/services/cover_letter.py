@@ -63,6 +63,7 @@ from applire.prompts.review_cover_letter import (
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import log_letter_over_budget
 from applire.services.letter_figure_guard import guard_letter_figures
 from applire.services.letter_outcome_guard import guard_letter_outcome_preference
 from applire.services.reviewer import review_and_refine
@@ -914,12 +915,23 @@ async def _render_cover_letter_background(
             # bound existed). Composes on top of the two wrappers above exactly like
             # they compose with each other — no new LLM call, no new loop.
             from applire.services.cover_letter_positioning import (
+                body_word_count,
                 has_closing_paragraph,
+                within_word_budget,
                 word_floor_reviewer_prompt_fn,
             )
             reviewer_prompt_fn = word_floor_reviewer_prompt_fn(
                 reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
             )
+            # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
+            # structural-only tie-break over drafts retain_if already accepts —
+            # among has_closing_paragraph-satisfying drafts, prefer one that ALSO
+            # fits the region's word budget. It can never select a draft that lost
+            # the closing (retain_if still decides eligibility); see
+            # services/reviewer.py's retention-design-v2 docstring.
+            def _within_budget(draft: dict) -> bool:
+                return within_word_budget(draft, norm.letter_body_word_budget)
+
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
@@ -937,6 +949,7 @@ async def _render_cover_letter_background(
                 # when the settled draft fails it, an earlier round's draft that
                 # passed is substituted instead — no new LLM call.
                 retain_if=has_closing_paragraph,
+                prefer_if=_within_budget,
             )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
@@ -1050,6 +1063,14 @@ async def _render_cover_letter_background(
                             # under length pressure and must not lose the closing
                             # paragraph either.
                             retain_if=has_closing_paragraph,
+                            # Wave-6 follow-up (charter run #6, Task 2): same
+                            # secondary tie-break as the primary loop — among
+                            # closing-satisfying drafts THIS condense loop produces,
+                            # prefer one that also fits the budget. retain_if still
+                            # decides eligibility, so a condense round that dropped
+                            # the closing again is never selected just because it
+                            # is shorter.
+                            prefer_if=_within_budget,
                         )
                         # #254 — same generation-path guard as the primary loop
                         # above: the condense pass is itself a fresh corrector-
@@ -1070,6 +1091,19 @@ async def _render_cover_letter_background(
                         condensed = _normalize_signature_closing(condensed, detected_language)
                         condensed = _backfill_sender_name(condensed, cv_data, profile)
                         letter_data = condensed
+                        # Wave-6 follow-up (charter run #6, Task 3): the condense
+                        # pass is bounded to exactly one round (ADR-051 §6) and
+                        # retain_if never sacrifices the closing to hit the budget
+                        # — so the letter CAN still ship over budget (with a
+                        # genuine closing) when no round satisfied both. That must
+                        # stay countable after the fact, not silent.
+                        _condensed_word_count = body_word_count(letter_data)
+                        if _condensed_word_count > norm.letter_body_word_budget:
+                            log_letter_over_budget(
+                                "cover_letter_condense",
+                                _condensed_word_count,
+                                norm.letter_body_word_budget,
+                            )
                         cl.letter_data = letter_data
                         await db.commit()
                         try:

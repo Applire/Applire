@@ -82,6 +82,29 @@ pass, no LLM-visible memory; the reviewer prompt stays memoryless):
     value. This is deterministic SELECTION among already-produced drafts — never a
     quality score or ranking — and adds no LLM call. Default ``None`` reproduces
     today's behaviour bit-for-bit (proven by test).
+
+Retention design v2 (wave-6 follow-up, charter run #6 — cover-letter closing vs.
+page-norm conflict): ``retain_if`` alone can express only ONE non-negotiable
+structural gate. Run #6 pinned a real conflict the single predicate couldn't
+reconcile: the cover-letter condense pass (services/cover_letter.py, ADR-051 §6)
+needs a draft that BOTH keeps the closing paragraph (``retain_if``) AND fits the
+page-norm word budget — and when a round satisfies only one, closing wins, but that
+tradeoff needs to be loud, not silent. ``prefer_if`` is an OPTIONAL second
+deterministic, STRUCTURAL-ONLY predicate — never a quality score, never an LLM
+call — that only ever narrows the choice among drafts ``retain_if`` already
+accepts; it can never select a draft ``retain_if`` rejects, and it is a no-op
+when ``retain_if`` is not supplied. Selection order at settle time:
+  1. If the settled draft satisfies BOTH ``retain_if`` and ``prefer_if``, ship it.
+  2. Else, among ``draft_history``, prefer the most recent EARLIER draft that
+     satisfies BOTH — no new LLM call, just a choice among drafts already produced.
+  3. Else, fall back to today's ``retain_if``-only selection (most recent draft
+     satisfying ``retain_if`` alone, or the settled draft itself if it already
+     does) — logged loudly when ``prefer_if`` went unmet, since the loop is
+     shipping the non-negotiable structural floor without its secondary
+     preference (e.g. over budget but with a genuine closing).
+Default ``prefer_if=None`` reproduces the pre-existing ``retain_if``-only
+behaviour bit-for-bit (proven by test) — every other ``retain_if`` caller is
+unaffected.
 """
 
 import json
@@ -119,6 +142,7 @@ async def review_and_refine(
     disable_thinking: bool | None = None,
     retain_if: Callable[[dict[str, Any]], bool] | None = None,
     required_fields: Sequence[str] | None = None,
+    prefer_if: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -166,6 +190,18 @@ async def review_and_refine(
                   Logged at WARNING when a substitution happens. This is deterministic
                   selection among already-produced drafts — no new LLM call, no
                   scoring or ranking.
+        prefer_if: Optional (wave-6 follow-up, charter run #6 Task 2) SECONDARY
+                  deterministic, structural-only predicate — a tie-breaker among
+                  drafts ``retain_if`` already accepts, never a way to accept a
+                  draft ``retain_if`` rejects, and a no-op when ``retain_if`` is
+                  None. When the settled draft satisfies ``retain_if`` but not
+                  ``prefer_if``, the loop looks (among ``draft_history``) for the
+                  most recent earlier draft satisfying BOTH; if found, that draft
+                  ships instead. If none exists, the ``retain_if``-only choice
+                  ships as before, logged loudly (structure — ``retain_if`` — always
+                  wins over this secondary preference). No new LLM call, never a
+                  quality score. Default None reproduces today's ``retain_if``-only
+                  behaviour bit-for-bit.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -224,21 +260,65 @@ async def review_and_refine(
             )
         return result
 
-    def _settle(final: dict[str, Any]) -> dict[str, Any]:
-        """Apply the optional retention predicate and required-fields floor to a
-        draft this function is about to return. Both default to a pure pass-through
-        — behaviour is bit-identical to pre-wave-6 for every existing caller."""
-        settled = final
-        if retain_if is not None:
-            if retain_if(settled):
-                pass
-            else:
-                substituted = None
-                for candidate in reversed(draft_history[:-1]):
-                    if retain_if(candidate):
-                        substituted = candidate
-                        break
-                if substituted is not None:
+    def _select_retained_draft(final: dict[str, Any]) -> dict[str, Any]:
+        """Choose which draft ships, subject to ``retain_if`` (non-negotiable) and,
+        when supplied, ``prefer_if`` (a secondary, tie-break-only preference — see
+        the wave-6 retention-design-v2 docstring above). ``retain_if`` alone
+        reproduces the exact pre-existing algorithm bit-for-bit; ``prefer_if`` only
+        ever narrows the choice among drafts ``retain_if`` already accepts."""
+        final_retains = retain_if(final)
+        final_prefers = prefer_if(final) if prefer_if is not None else True
+        if final_retains and final_prefers:
+            return final
+
+        # Earlier rounds only — mirrors the original single-predicate scan, most
+        # recent first.
+        earlier = list(reversed(draft_history[:-1]))
+
+        if prefer_if is not None:
+            for candidate in earlier:
+                if retain_if(candidate) and prefer_if(candidate):
+                    logger.warning(
+                        "review_and_refine: chain=%s retain_if/prefer_if: the "
+                        "settled draft did not satisfy both; substituting an "
+                        "earlier round's draft that satisfies BOTH the retention "
+                        "predicate and the secondary preference (ADR-058 freeze: "
+                        "no new LLM call, only a choice among already-produced "
+                        "drafts).",
+                        chain_id,
+                    )
+                    return candidate
+
+        if final_retains:
+            # retain_if is satisfied and nothing satisfied both — ship the
+            # settled draft, but say so loudly when a secondary preference was
+            # supplied and went unmet: structure always wins over the tie-break
+            # (wave-6 Task 2 — e.g. the letter ships over its word budget with a
+            # genuine closing rather than on-budget without one).
+            if prefer_if is not None:
+                logger.warning(
+                    "review_and_refine: chain=%s retain_if is satisfied but "
+                    "prefer_if is not, and no earlier draft in this loop "
+                    "satisfied both; shipping the retain_if-satisfying draft "
+                    "as-is — the non-negotiable structural floor wins over the "
+                    "secondary preference (ADR-058 freeze).",
+                    chain_id,
+                )
+            return final
+
+        for candidate in earlier:
+            if retain_if(candidate):
+                if prefer_if is not None and not prefer_if(candidate):
+                    logger.warning(
+                        "review_and_refine: chain=%s retain_if rejected the "
+                        "settled draft; substituting an earlier round's draft "
+                        "that satisfies the retention predicate instead (ADR-058 "
+                        "freeze: no new LLM call, only a choice among already-"
+                        "produced drafts). That substitute does not satisfy "
+                        "prefer_if either — the structural floor still wins.",
+                        chain_id,
+                    )
+                else:
                     logger.warning(
                         "review_and_refine: chain=%s retain_if rejected the settled "
                         "draft; substituting an earlier round's draft that satisfied "
@@ -246,15 +326,25 @@ async def review_and_refine(
                         "call, only a choice among already-produced drafts).",
                         chain_id,
                     )
-                    settled = substituted
-                else:
-                    logger.warning(
-                        "review_and_refine: chain=%s retain_if rejected the settled "
-                        "draft and no earlier draft in this loop satisfied it "
-                        "either; shipping the settled draft as-is (fail-open — "
-                        "never fabricate to satisfy the predicate).",
-                        chain_id,
-                    )
+                return candidate
+
+        logger.warning(
+            "review_and_refine: chain=%s retain_if rejected the settled draft "
+            "and no earlier draft in this loop satisfied it either; shipping "
+            "the settled draft as-is (fail-open — never fabricate to satisfy "
+            "the predicate).",
+            chain_id,
+        )
+        return final
+
+    def _settle(final: dict[str, Any]) -> dict[str, Any]:
+        """Apply the optional retention predicate(s) and required-fields floor to
+        a draft this function is about to return. All default to a pure
+        pass-through — behaviour is bit-identical to pre-wave-6 for every
+        existing caller."""
+        settled = final
+        if retain_if is not None:
+            settled = _select_retained_draft(settled)
         return _apply_required_fields(settled)
 
     if max_retries <= 0:

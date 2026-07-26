@@ -347,6 +347,27 @@ def test_build_condense_prompt_pluralizes_multi_page_norm():
     assert "1 page" not in prompt
 
 
+def test_build_condense_prompt_names_required_content_that_must_survive():
+    """Wave-6 follow-up (charter run #6, Task 1): the condense prompt must name
+    the closing paragraph, the honest-gap/transfer argument, the company/domain
+    engagement, and the availability line as REQUIRED content that must survive
+    the shortening — shorten, never drop. Prior wording said only "cutting
+    redundancy and secondary detail", which gave the model no signal that the
+    closing (the least information-dense paragraph) is load-bearing."""
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter_data = {"body": {"paragraphs": ["Hello there."]}}
+    prompt = build_condense_prompt(letter_data, word_budget=300, page_count=2, letter_pages=1)
+    low = prompt.lower()
+
+    assert "required" in low
+    assert "closing" in low
+    assert "never" in low  # "never drop them" / "never end on a bare stub"
+    assert "gap" in low or "transfer" in low
+    assert "company" in low or "domain" in low
+    assert "availability" in low or "notice" in low
+
+
 def test_build_cover_letter_prompt_returns_system_and_user():
     from applire.prompts.cover_letter import build_cover_letter_prompt, SYSTEM_PROMPT
     prompt = build_cover_letter_prompt(

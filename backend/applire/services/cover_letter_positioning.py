@@ -251,7 +251,10 @@ def has_closing_paragraph(letter_data: dict | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _body_word_count(letter_data: dict | None) -> int:
+def body_word_count(letter_data: dict | None) -> int:
+    """The letter body's word count — THE single counter every word-budget check
+    (floor and ceiling alike) must go through, so they can never disagree about
+    what "the body's word count" means (wave-6 follow-up, charter run #6)."""
     body = (letter_data or {}).get("body") or {}
     paragraphs = body.get("paragraphs") or []
     return sum(len((p or "").split()) for p in paragraphs)
@@ -272,6 +275,27 @@ def _render_word_floor_block(word_count: int, word_floor: int) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Wave-6 follow-up (charter run #6, Task 2) — structural word-budget predicate,
+# meant to compose with has_closing_paragraph as review_and_refine's OPTIONAL
+# ``prefer_if`` secondary preference. Reuses body_word_count (the SAME counter
+# the word-floor block above is built from) so the floor and the ceiling can
+# never disagree about what "the body's word count" means.
+# ---------------------------------------------------------------------------
+
+
+def within_word_budget(letter_data: dict | None, word_budget: int) -> bool:
+    """True iff the letter's body word count is at or under ``word_budget``
+    (REGION_NORMS[region].letter_body_word_budget). Pure structural check —
+    never a quality score — used as review_and_refine's ``prefer_if`` for the
+    cover-letter chains, alongside ``retain_if=has_closing_paragraph``: prefer a
+    draft that has BOTH the closing AND fits the norm; retain_if alone still
+    decides which drafts are eligible at all (the closing is never sacrificed
+    to satisfy this predicate — see review_and_refine's ``prefer_if`` contract).
+    """
+    return body_word_count(letter_data) <= word_budget
+
+
 def word_floor_reviewer_prompt_fn(base_fn, word_floor: int):
     """Wrap a ``reviewer_prompt_fn`` so every ADR-021 review iteration carries a
     deterministic WORD FLOOR CHECK against the CURRENT draft (#272 Task 6).
@@ -289,7 +313,7 @@ def word_floor_reviewer_prompt_fn(base_fn, word_floor: int):
 
     def fn(source: str, draft: dict) -> str:
         prompt = base_fn(source, draft)
-        count = _body_word_count(draft)
+        count = body_word_count(draft)
         if count < word_floor:
             prompt = f"{prompt}\n\n{_render_word_floor_block(count, word_floor)}"
         return prompt
