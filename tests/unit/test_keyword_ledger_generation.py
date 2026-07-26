@@ -315,3 +315,222 @@ class TestUpgradeLedgerForConcepts:
         assert upgrade_ledger_for_concepts(None, ["Rust"], "x") == ([], False)
         assert upgrade_ledger_for_concepts([], ["Rust"], "x") == ([], False)
         assert upgrade_ledger_for_concepts(LEDGER, [], "x")[1] is False
+
+
+# ---------------------------------------------------------------------------
+# #274/#284/#273 (PO reframing 2026-07-26) — reevaluate_gap_ledger_against_vault
+# ---------------------------------------------------------------------------
+# Run-6 ground truth: cluster-technical-leadership's five concepts were ALL
+# already status=="direct" in the SAME GapAnalysis row the interview loaded —
+# evidence had entered the vault ~24 minutes earlier via testimony intake, a
+# door #188's addressed-gate (bool(applied.changes) on THIS turn) never sees.
+# A requirement's status must reflect whether the vault answers it, not
+# whether one particular turn happened to write something. Invented
+# (Northwind Labs-style) fixture data throughout — never real profile content.
+
+_TM_DENIAL_STATEMENT = (
+    "I have not done hands-on team management at Northwind Labs — I was an "
+    "individual contributor there, not a people manager."
+)
+
+
+def _reeval_ledger():
+    return [
+        {
+            "concept": "Team management",
+            "surface_forms": ["Team management"],
+            "sources": ["required"],
+            "fit_weight": 1.0,
+            "status": "gap",
+            "evidence": "",
+            "claimable": False,
+        },
+        {
+            "concept": "Kubernetes orchestration",
+            "surface_forms": ["Kubernetes orchestration", "K8s orchestration"],
+            "sources": ["required"],
+            "fit_weight": 1.0,
+            "status": "gap",
+            "evidence": "",
+            "claimable": False,
+        },
+        {
+            "concept": "Data warehousing",
+            "surface_forms": ["Data warehousing"],
+            "sources": ["nice_to_have"],
+            "fit_weight": 0.5,
+            "status": "partial",
+            "evidence": "Built a small ETL pipeline once.",
+            "claimable": True,
+        },
+    ]
+
+
+def _reeval_profile(*, denied=False, extra_work_experience=None):
+    metadata = {"denied_concepts": [], "enrichment_history": []}
+    if denied:
+        metadata["denied_concepts"] = [
+            {
+                "concept": "Team management",
+                "statement": _TM_DENIAL_STATEMENT,
+                "source": "interview",
+                "date": "2026-07-20",
+            }
+        ]
+        metadata["enrichment_history"] = [
+            {
+                "id": "e1",
+                "timestamp": "2026-07-20T00:00:00",
+                "source": "interview",
+                "changes": [
+                    {
+                        "section": "metadata",
+                        "field": "denied_concepts",
+                        "action": "added",
+                        "old_value": None,
+                        "new_value": "Team management",
+                        "rationale": (
+                            "Noted limit: no hands-on Team management "
+                            "(candidate's own testimony)"
+                        ),
+                    },
+                ],
+            }
+        ]
+    return {
+        "metadata": metadata,
+        "work_experience": extra_work_experience or [],
+    }
+
+
+class TestReevaluateGapLedgerAgainstVault:
+    """The loop that heals must reuse the loop that grades (#122): presence
+    is decided by `ats_audit.surface_present`; the write is
+    `upgrade_ledger_for_concepts` (#188) — never a second matcher/write path.
+    """
+
+    def test_requirement_answered_via_a_different_door_is_upgraded(self):
+        """The run-6 shape: evidence entered the vault through testimony/CV
+        import (or an earlier session), never THIS turn — the ledger must
+        still catch up, with the actual vault text as evidence."""
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        ledger = _reeval_ledger()
+        profile = _reeval_profile(
+            extra_work_experience=[
+                {
+                    "company": "Northwind Labs",
+                    "role": "Engineering Lead",
+                    "responsibilities": [
+                        "Restructured the team and owned team management "
+                        "across two firmware squads."
+                    ],
+                    "achievements": [],
+                }
+            ]
+        )
+
+        new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile)
+
+        assert changed is True
+        entry = next(e for e in new_ledger if e["concept"] == "Team management")
+        assert entry["claimable"] is True
+        assert entry["status"] == "direct"
+        # Evidence is REAL vault text — the exact bullet — never a
+        # synthesized marker.
+        assert entry["evidence"] == (
+            "Restructured the team and owned team management across two "
+            "firmware squads."
+        )
+
+        # A concept the vault genuinely does not mention stays open.
+        k8s = next(e for e in new_ledger if e["concept"] == "Kubernetes orchestration")
+        assert k8s["claimable"] is False
+        assert k8s["status"] == "gap"
+
+        # Already-claimable "partial" entries are out of scope for this
+        # function (conservative: only status=='gap' is eligible) — untouched.
+        dw = next(e for e in new_ledger if e["concept"] == "Data warehousing")
+        assert dw == ledger[2]
+
+    def test_requirement_the_vault_does_not_answer_stays_open(self):
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        ledger = _reeval_ledger()
+        profile = _reeval_profile(
+            extra_work_experience=[
+                {"company": "Northwind Labs", "role": "Engineer", "responsibilities": []}
+            ]
+        )
+
+        new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile)
+
+        assert changed is False
+        assert new_ledger == ledger
+
+    def test_denied_concept_never_upgraded_via_its_own_denial_receipt_text(self):
+        """The exact prior-art trap: a denial's own statement/receipt text
+        must never satisfy the presence check and thereby upgrade the very
+        concept it denies. No OTHER vault mention exists here — the ONLY
+        occurrence of "team management" anywhere in the profile is inside
+        the denial testimony and its enrichment-history receipt."""
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        ledger = _reeval_ledger()
+        profile = _reeval_profile(denied=True)
+
+        new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile)
+
+        entry = next(e for e in new_ledger if e["concept"] == "Team management")
+        assert entry["claimable"] is False
+        assert entry["status"] == "gap"
+        assert changed is False
+
+    def test_denied_concept_never_upgraded_even_with_independent_vault_evidence(self):
+        """ADR-059 / ADR-040 (never-claim beats claim): once denied, a
+        concept must stay a gap even when a genuinely independent OTHER
+        vault mention would otherwise satisfy the presence check on its
+        own — the denial floor outranks presence, not just corpus-stripping.
+        """
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        ledger = _reeval_ledger()
+        profile = _reeval_profile(
+            denied=True,
+            extra_work_experience=[
+                {
+                    "company": "Northwind Labs",
+                    "role": "Rotational Engineer",
+                    "responsibilities": [
+                        "Supported team management activities during a "
+                        "cross-functional rotation."
+                    ],
+                }
+            ],
+        )
+
+        new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile)
+
+        entry = next(e for e in new_ledger if e["concept"] == "Team management")
+        assert entry["claimable"] is False
+        assert entry["status"] == "gap"
+
+    def test_makes_no_llm_call(self):
+        """Deterministic: no provider/LLM argument exists on the signature at
+        all, and the function runs to completion with none in scope."""
+        import inspect
+
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        sig = inspect.signature(reevaluate_gap_ledger_against_vault)
+        assert list(sig.parameters) == ["keyword_ledger", "profile_json"]
+
+        ledger = _reeval_ledger()
+        result = reevaluate_gap_ledger_against_vault(ledger, {"work_experience": []})
+        assert result == (ledger, False)
+
+    def test_tolerates_none_and_empty(self):
+        from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+        assert reevaluate_gap_ledger_against_vault(None, {}) == ([], False)
+        assert reevaluate_gap_ledger_against_vault([], {"work_experience": []}) == ([], False)

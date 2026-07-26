@@ -575,6 +575,254 @@ class TestCreateSession:
         assert result.hard_ceiling == INTERVIEW_HARD_CEILING_TARGETED
 
     @pytest.mark.asyncio
+    async def test_stale_gap_cluster_snapshot_already_direct_in_ledger_is_never_asked(
+        self, sqlite_session
+    ):
+        """The literal run-6 shape (#273/#284, PO reframing 2026-07-26):
+        gap_analysis.gap_clusters is a clustering-LLM SNAPSHOT that still
+        names a concept the SAME row's own keyword_ledger already shows
+        status=='direct' for (evidence arrived via testimony/CV import/an
+        earlier session — a door #188's per-turn addressed-gate never sees).
+        Session creation must filter the stale snapshot against the ledger
+        so the interview jumps straight to the genuinely open gap instead of
+        drilling the already-answered cluster."""
+        from applire.models.gap import GapAnalysis
+        from applire.schemas.session import SessionCreateRequest
+        from applire.services.session import create_session
+
+        job = _make_job()
+        profile = _make_profile(
+            completeness_json={
+                "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
+                "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
+                "work_experience": [
+                    {
+                        "company": "Northwind Labs",
+                        "role": "Engineering Lead",
+                        "start_date": "2020-01",
+                        "responsibilities": [
+                            "Restructured the team and owned team management "
+                            "across two firmware squads."
+                        ],
+                    }
+                ],
+                "metadata": {"denied_concepts": []},
+            }
+        )
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = GapAnalysis(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            match_score=0.8,
+            critical_gaps=["FastAPI experience"],
+            minor_gaps=[],
+            strengths=["Python"],
+            keyword_gaps=[],
+            category_a=["Team management"],
+            category_b=[],
+            category_c=["FastAPI experience"],
+            keyword_ledger=[
+                {
+                    "concept": "Team management",
+                    "surface_forms": ["Team management"],
+                    "sources": ["required"],
+                    "fit_weight": 1.0,
+                    "status": "direct",
+                    "evidence": (
+                        "Restructured the team and owned team management "
+                        "across two firmware squads."
+                    ),
+                    "claimable": True,
+                },
+                {
+                    "concept": "FastAPI experience",
+                    "surface_forms": ["FastAPI experience"],
+                    "sources": ["required"],
+                    "fit_weight": 1.0,
+                    "status": "gap",
+                    "evidence": "",
+                    "claimable": False,
+                },
+            ],
+            gap_clusters=[
+                # STALE — the clustering snapshot still lists Team management
+                # even though this row's own ledger already shows it direct.
+                {
+                    "id": "cluster-team-management",
+                    "label": "Technical Leadership",
+                    "category": "C",
+                    "gaps": ["Team management"],
+                    "jd_skills": ["Team management"],
+                    "jd_context": "Leadership.",
+                },
+                {
+                    "id": "cluster-fastapi-experience",
+                    "label": "FastAPI experience",
+                    "category": "C",
+                    "gaps": ["FastAPI experience"],
+                    "jd_skills": ["FastAPI experience"],
+                    "jd_context": "Backend framework.",
+                },
+            ],
+        )
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None}),
+        ):
+            result = await create_session(req, sqlite_session, _mock_provider())
+
+        # Only the genuinely open cluster is in the plan — never re-asked
+        # about the already-answered one.
+        assert result.gaps_total == 1
+        assert result.current_gap_id == "cluster-fastapi-experience"
+        assert "Tell me about FastAPI" in result.question
+
+    @pytest.mark.asyncio
+    async def test_gap_answered_via_a_different_door_before_session_start_is_never_asked(
+        self, sqlite_session
+    ):
+        """#274/#284: the ledger itself is still status=='gap' (no #188 turn
+        ever upgraded it), but the vault, as it stands right NOW, already
+        answers the requirement — evidence arrived through testimony/CV
+        import, not an interview turn. The session-start reevaluation must
+        catch this BEFORE the question plan is built."""
+        from applire.models.gap import GapAnalysis
+        from applire.schemas.session import SessionCreateRequest
+        from applire.services.session import create_session
+
+        job = _make_job()
+        profile = _make_profile(
+            completeness_json={
+                "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
+                "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
+                "work_experience": [
+                    {
+                        "company": "Northwind Labs",
+                        "role": "Engineering Lead",
+                        "start_date": "2020-01",
+                        "responsibilities": [
+                            "Owned team management for a distributed platform squad."
+                        ],
+                    }
+                ],
+                "metadata": {"denied_concepts": []},
+            }
+        )
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = GapAnalysis(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            match_score=0.6,
+            critical_gaps=["Team management", "FastAPI experience"],
+            minor_gaps=[],
+            strengths=["Python"],
+            keyword_gaps=[],
+            category_a=[],
+            category_b=[],
+            category_c=["Team management", "FastAPI experience"],
+            keyword_ledger=[
+                {
+                    "concept": "Team management",
+                    "surface_forms": ["Team management"],
+                    "sources": ["required"],
+                    "fit_weight": 1.0,
+                    "status": "gap",
+                    "evidence": "",
+                    "claimable": False,
+                },
+                {
+                    "concept": "FastAPI experience",
+                    "surface_forms": ["FastAPI experience"],
+                    "sources": ["required"],
+                    "fit_weight": 1.0,
+                    "status": "gap",
+                    "evidence": "",
+                    "claimable": False,
+                },
+            ],
+            gap_clusters=[
+                {
+                    "id": "cluster-team-management",
+                    "label": "Technical Leadership",
+                    "category": "C",
+                    "gaps": ["Team management"],
+                    "jd_skills": ["Team management"],
+                    "jd_context": "Leadership.",
+                },
+                {
+                    "id": "cluster-fastapi-experience",
+                    "label": "FastAPI experience",
+                    "category": "C",
+                    "gaps": ["FastAPI experience"],
+                    "jd_skills": ["FastAPI experience"],
+                    "jd_context": "Backend framework.",
+                },
+            ],
+        )
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None}),
+        ):
+            result = await create_session(req, sqlite_session, _mock_provider())
+
+        assert result.gaps_total == 1
+        assert result.current_gap_id == "cluster-fastapi-experience"
+
+        # The ledger itself was upgraded in place, real vault text as evidence.
+        await sqlite_session.refresh(gap)
+        tm = next(e for e in gap.keyword_ledger if e["concept"] == "Team management")
+        assert tm["claimable"] is True
+        assert tm["status"] == "direct"
+        assert "team management" in tm["evidence"].lower()
+
+    @pytest.mark.asyncio
+    async def test_real_remaining_gap_still_asked_after_reevaluation(self, sqlite_session):
+        """Guard against over-filtering: a requirement the vault genuinely
+        does not answer must still be asked, unchanged."""
+        from applire.services.session import create_session
+        from applire.schemas.session import SessionCreateRequest
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(job_id=job.id, mode="targeted")
+
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={"question": "Tell me about GCP.", "choices": None}),
+        ):
+            result = await create_session(req, sqlite_session, _mock_provider())
+
+        # No ledger at all on this fixture's GapAnalysis (_make_gap doesn't set
+        # one) — reevaluation/filtering must no-op, not accidentally drop the
+        # real gaps that were there before this change.
+        assert result.gaps_total == 2
+        assert result.current_gap_id == "cluster-gcp-certification"
+
+    @pytest.mark.asyncio
     async def test_operator_configured_budget_threads_into_created_session(
         self, sqlite_session, monkeypatch
     ):
