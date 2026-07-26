@@ -1,0 +1,277 @@
+# Copyright (C) 2026 Tobias Rosenbaum
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""#271 Tasks 2/3 — strongest-vault-evidence digest for the letter.
+
+Ground truth (charter run #5, ``.run5fixture/`` — git-excluded, read at
+runtime, never copied verbatim beyond the short quotes the issue brief itself
+gives): the letter's CANDIDATE PROFILE block is built from the TAILORED CV
+(``cv_data``), condensed to ``work_history[:6]`` x ``bullets[:6]``. The
+run-5 BioNTech entry survived tailoring with only 3 bullets, so
+``work_experience[0].achievements[3]`` — "Human-authored documents usually
+need two to three review rounds, while the right LLMs pass the first
+round" — never reached the CV or the letter, even though both run-4 blind
+panel reviewers named it as the invite-flipping fact. See
+``services.letter_evidence`` module docstring for the full selection design.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+import pytest
+
+from applire.services.letter_evidence import (
+    DEFAULT_DIGEST_CAP,
+    EvidenceDigestItem,
+    jd_signals_leadership,
+    render_letter_evidence_block,
+    select_letter_evidence,
+)
+
+_FIXTURE_DIR = Path(__file__).parents[4] / ".run5fixture"
+
+pytestmark_run5 = pytest.mark.skipif(
+    not _FIXTURE_DIR.exists(), reason="run-5 charter fixture not present in this checkout"
+)
+
+
+def _load_run5():
+    profile = json.loads((_FIXTURE_DIR / "profile.json").read_text(encoding="utf-8"))
+    ledger = json.loads((_FIXTURE_DIR / "ledger.json").read_text(encoding="utf-8"))
+    jd_raw = (_FIXTURE_DIR / "jd.txt").read_text(encoding="utf-8")
+    return profile, ledger, jd_raw
+
+
+# ---------------------------------------------------------------------------
+# Run-5 ground truth — the pinned regression test
+# ---------------------------------------------------------------------------
+
+
+@pytestmark_run5
+def test_run5_digest_surfaces_review_rounds_sentence_never_in_cv_or_letter():
+    """The exact sentence #271's ground truth says never reached EITHER
+    document — carried verbatim, from its own vault path."""
+    from applire.services.jd_excerpt import build_jd_excerpt
+
+    profile, ledger, jd_raw = _load_run5()
+    jd_excerpt = build_jd_excerpt(jd_raw)
+
+    items = select_letter_evidence(ledger, jd_excerpt, profile)
+
+    review_rounds = [i for i in items if i.path == "work_experience[0].achievements[3]"]
+    assert review_rounds, "achievements[3] (the review-rounds sentence) must be selected"
+    assert review_rounds[0].text == (
+        "Human-authored documents usually need two to three review rounds, "
+        "while the right LLMs pass the first round"
+    )
+    # Verbatim means verbatim — not a paraphrase of the vault text.
+    assert review_rounds[0].text in json.dumps(profile)
+
+
+@pytestmark_run5
+def test_run5_digest_surfaces_leadership_arc_when_jd_states_leadership_weighting():
+    """The JD's own 60/40 leadership-weighting line makes the vault's
+    leadership material eligible (rule 3) — the mentoring/transformation
+    arc the run-5 letter never used."""
+    from applire.services.jd_excerpt import build_jd_excerpt
+
+    profile, ledger, jd_raw = _load_run5()
+    jd_excerpt = build_jd_excerpt(jd_raw)
+    assert jd_signals_leadership(jd_excerpt)
+
+    items = select_letter_evidence(ledger, jd_excerpt, profile)
+    paths = {i.path for i in items}
+    assert "work_experience[0].responsibilities[14]" in paths  # "Leads a distributed team..."
+
+
+@pytestmark_run5
+def test_run5_digest_never_exceeds_default_cap():
+    from applire.services.jd_excerpt import build_jd_excerpt
+
+    profile, ledger, jd_raw = _load_run5()
+    items = select_letter_evidence(ledger, build_jd_excerpt(jd_raw), profile)
+    assert len(items) <= DEFAULT_DIGEST_CAP
+
+
+# ---------------------------------------------------------------------------
+# Unit-level behaviour (small synthetic fixtures — no run-5 dependency)
+# ---------------------------------------------------------------------------
+
+
+def _profile(work_experience=None, **extra):
+    return {"work_experience": work_experience or [], **extra}
+
+
+def test_select_letter_evidence_none_and_empty_tolerant():
+    assert select_letter_evidence(None, "", None) == []
+    assert select_letter_evidence([], "", {}) == []
+
+
+def test_claimable_concept_anchor_selected_verbatim_with_path():
+    ledger = [
+        {
+            "concept": "Kubernetes",
+            "claimable": True,
+            "surface_forms": ["Kubernetes", "K8s"],
+            "sources": ["required"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Platform Engineer",
+                "company": "Acme",
+                "achievements": ["Migrated the fleet to Kubernetes, cutting deploy time by half."],
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    assert len(items) == 1
+    assert items[0].path == "work_experience[0].achievements[0]"
+    assert items[0].text == "Migrated the fleet to Kubernetes, cutting deploy time by half."
+    assert items[0].concept == "Kubernetes"
+    assert items[0].reason == "claimable-concept"
+
+
+def test_non_claimable_ledger_entry_never_anchors():
+    """A ``claimable: false`` (honest-gap) entry must never contribute an
+    anchor — the digest only ever surfaces material the candidate can
+    truthfully stand behind."""
+    ledger = [
+        {"concept": "Kubernetes", "claimable": False, "surface_forms": ["Kubernetes"]},
+    ]
+    profile = _profile(
+        work_experience=[
+            {"id": "w1", "role": "Eng", "company": "Acme", "achievements": ["Worked with Kubernetes."]}
+        ]
+    )
+    assert select_letter_evidence(ledger, "", profile) == []
+
+
+def test_measured_outcome_preferred_over_target_anchor():
+    """Rule 2 (#261 extended): when the anchor itself reads as a
+    target/aspirational phrase, the digest swaps it for its safely-paired
+    measured outcome instead of surfacing the bare target."""
+    ledger = [
+        {
+            "concept": "cost reduction",
+            "claimable": True,
+            "surface_forms": ["cost reduction", "cost savings"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Ops Lead",
+                "company": "Acme",
+                "achievements": [
+                    "Targeting a 30% cost reduction in cloud spend across the whole "
+                    "platform organisation this fiscal year, agreed with finance.",
+                    "Achieved a 32% cost reduction in cloud spend, confirmed Q3.",
+                ],
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    paths = {i.path: i for i in items}
+    # The bare target (achievements[0]) must never be the surfaced anchor...
+    assert "work_experience[0].achievements[0]" not in paths
+    # ...its measured pair (achievements[1]) must be, instead.
+    anchor_items = [i for i in items if i.reason == "measured-outcome-preferred"]
+    assert len(anchor_items) == 1
+    assert anchor_items[0].path == "work_experience[0].achievements[1]"
+
+
+def test_leadership_evidence_absent_when_jd_does_not_signal_leadership():
+    ledger = [
+        {"concept": "Kubernetes", "claimable": True, "surface_forms": ["Kubernetes"]},
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Eng",
+                "company": "Acme",
+                "achievements": ["Migrated the fleet to Kubernetes."],
+                "responsibilities": ["Led a team of five engineers through a platform migration."],
+            }
+        ]
+    )
+    jd_no_leadership = "We are hiring a hands-on individual contributor to run our Kubernetes fleet."
+    assert not jd_signals_leadership(jd_no_leadership)
+    items = select_letter_evidence(ledger, jd_no_leadership, profile)
+    # Channel 2 (same-initiative figures) is independent of the leadership
+    # gate and may still surface this text on its own merits — what must
+    # NEVER happen is the LEADERSHIP channel itself firing.
+    assert not any(i.reason == "leadership-eligible" for i in items)
+
+
+def test_leadership_evidence_eligible_when_jd_states_leadership_weighting():
+    ledger = [
+        {"concept": "Kubernetes", "claimable": True, "surface_forms": ["Kubernetes"]},
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Eng",
+                "company": "Acme",
+                "achievements": ["Migrated the fleet to Kubernetes."],
+                "responsibilities": ["Led a team of five engineers through a platform migration."],
+            }
+        ]
+    )
+    jd_with_leadership = "This role carries significant leadership responsibility, managing a growing team."
+    assert jd_signals_leadership(jd_with_leadership)
+    items = select_letter_evidence(ledger, jd_with_leadership, profile)
+    assert any(i.path == "work_experience[0].responsibilities[0]" for i in items)
+
+
+def test_cap_is_enforced_and_drop_is_logged_not_silent(caplog):
+    ledger = [
+        {
+            "concept": f"skill-{i}",
+            "claimable": True,
+            "surface_forms": [f"skill-{i}"],
+        }
+        for i in range(15)
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Eng",
+                "company": "Acme",
+                "achievements": [f"Used skill-{i} to ship a project." for i in range(15)],
+            }
+        ]
+    )
+    with caplog.at_level(logging.INFO, logger="applire.services.letter_evidence"):
+        items = select_letter_evidence(ledger, "", profile, cap=5)
+    assert len(items) == 5
+    assert any("capped digest" in r.message for r in caplog.records)
+
+
+def test_render_letter_evidence_block_empty_for_no_items():
+    assert render_letter_evidence_block([]) == ""
+
+
+def test_render_letter_evidence_block_wording_and_verbatim_content():
+    items = [
+        EvidenceDigestItem(
+            concept="Kubernetes",
+            reason="claimable-concept",
+            path="work_experience[0].achievements[0]",
+            text="Migrated the fleet to Kubernetes, cutting deploy time by half.",
+        )
+    ]
+    block = render_letter_evidence_block(items)
+    assert "STRONGEST VAULT EVIDENCE" in block
+    assert "Migrated the fleet to Kubernetes, cutting deploy time by half." in block
+    assert "work_experience[0].achievements[0]" in block
+    low = block.lower()
+    assert "additional" in low and "not content that must all appear" in low
+    assert "never overrides" in low or "grounding contract" in low

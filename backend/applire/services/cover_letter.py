@@ -787,6 +787,25 @@ async def _render_cover_letter_background(
             from applire.norms import DEFAULT_REGION, REGION_NORMS
             norm = REGION_NORMS[DEFAULT_REGION]
             provider = get_provider()
+            # #271 Task 1: the SAME de-chromed JD excerpt the writer AND the
+            # reviewer (grounding_source below) both see — never re-sliced
+            # independently, so the two can never disagree about what the
+            # JD says (applire.services.jd_excerpt module docstring).
+            from applire.services.jd_excerpt import build_jd_excerpt
+            jd_excerpt = build_jd_excerpt(job.raw_text)
+            # #271 Tasks 2/3: the vault's strongest JD-relevant evidence,
+            # selected independently of what cv_data's tailoring
+            # condensation kept — so a fact present in the vault but
+            # dropped by tailoring can still reach the letter.
+            from applire.services.letter_evidence import (
+                render_letter_evidence_block,
+                select_letter_evidence,
+            )
+            vault_evidence_block = render_letter_evidence_block(
+                select_letter_evidence(
+                    keyword_ledger, jd_excerpt, profile.profile_json if profile else {}
+                )
+            )
             user_prompt = build_cover_letter_prompt(
                 cv_data=cv_data,
                 jd_text=job.raw_text,
@@ -801,6 +820,7 @@ async def _render_cover_letter_background(
                 availability_testimony=availability_testimony,
                 scoped_boundary_block=scoped_boundary_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
+                vault_evidence_block=vault_evidence_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -827,7 +847,9 @@ async def _render_cover_letter_background(
                     # ENGAGEMENT above), so the reviewer needs the SAME JD text the generator
                     # saw to judge whether a company/domain claim is grounded — an invented
                     # company fact must still fail review 4 (Oracle discipline unchanged).
-                    "job_description": job.raw_text[:2000] if job.raw_text else "",
+                    # #271 Task 1: literally the SAME excerpt string the writer prompt above
+                    # was built from (jd_excerpt) — never a second, independently-sliced copy.
+                    "job_description": jd_excerpt,
                     # #255 (ADR-057 amended 2026-07-24): the SAME positioning inputs the
                     # writer received — see build above. Without this the reviewer/
                     # corrector cannot distinguish a REQUESTED, grounded domain reference /
