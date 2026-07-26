@@ -1878,3 +1878,142 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         retry_prompt = retry_calls[0].args[0]
         assert "positioning_requested" in retry_prompt
         assert "Roche Diagnostics" in retry_prompt
+
+
+# ---------------------------------------------------------------------------
+# Wave-7 — the pressure valve nobody bounded. Two related run-6 defects:
+# #282 (flat keyword-listing) and #283 (fabricated cross-employer fusion) were
+# both downstream of a reviewer that could demand an unbounded number of
+# absent claimable terms in one round. These tests pin (a) the reviewer's
+# per-round coverage demand cap, and (b) the new unsupported-generalization /
+# filler check, in the writer, reviewer, and corrector prompts.
+# ---------------------------------------------------------------------------
+
+
+class TestCoverageDemandCap:
+    """Rule 1 — the reviewer's coverage check must bound what it demands per
+    round to at most two evidenced terms, ranked by fit/JD importance, never
+    the full VERIFIED COVERAGE CHECK list at once."""
+
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+        return REVIEW_SYSTEM_PROMPT.lower()
+
+    def test_caps_demand_at_two_terms_per_round(self):
+        low = self._prompt
+        assert "at most two" in low
+        assert "per round" in low
+
+    def test_ranks_by_fit_weight_or_jd_importance(self):
+        low = self._prompt
+        assert "fit weight" in low
+        assert "jd importance" in low or "importance" in low
+
+    def test_requires_evidence_cited_for_each_demanded_term(self):
+        low = self._prompt
+        assert "cite the specific profile evidence" in low or "cite" in low
+        assert "not a valid demand" in low
+
+    def test_uncited_term_must_be_waived_not_demanded(self):
+        low = self._prompt
+        assert "waived" in low
+        assert "never demanded anyway" in low or "never demanded" in low
+
+    def test_cap_does_not_relax_the_existing_approval_gate(self):
+        """The demand cap bounds what is ASKED for per round — it must not be
+        confused with a threshold/gating change: approved still stays false
+        while any un-waived term exists."""
+        low = self._prompt
+        assert "approved stays false" in low or "approved=false" in low
+
+    def test_run6_six_term_dump_is_named_as_the_ground_truth(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        assert "Cross-functional" in p or "cross-functional" in p.lower()
+        assert "six" in p.lower() or "SIX" in p
+
+    def test_checks_1_through_10_are_not_weakened_by_the_demand_cap(self):
+        """Sanity: the demand-cap insertion must not have deleted or diluted
+        earlier checks' key vocabulary."""
+        low = self._prompt
+        assert "invented dates" in low or "invented date" in low
+        assert "invented employers" in low or "invented employer" in low
+        assert "fabricated achievements" in low or "fabricated achievement" in low
+        assert "minted figures" in low or "minted figure" in low
+        assert "anchor" in low
+        assert "cross-document consistency" in low
+
+
+class TestUnsupportedGeneralizationCheck:
+    """Rule 2 — every body sentence must say something specific about the
+    candidate that traces to vault evidence; industry truisms and aspirational
+    filler are not claims. Exemptions (greeting/closing, availability line,
+    honest-gap paragraph, short connective clauses) must be named explicitly
+    so the check cannot be used to strip an honest disclosure."""
+
+    def test_writer_prompt_states_the_rule(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "unsupported generalization" in low
+        assert "candidate profile" in low
+
+    def test_writer_prompt_gives_the_run6_examples(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        assert "rigor end-to-end" in p or "end-to-end" in p
+        assert "regulated industries" in p.lower()
+
+    def test_writer_prompt_names_the_exemptions(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "greeting" in low and "closing" in low
+        assert "availability" in low
+        assert "connective clause" in low
+
+    def test_reviewer_prompt_states_the_rule(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "unsupported generalization" in low
+        assert "filler" in low
+
+    def test_reviewer_prompt_names_the_exemptions(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "explicitly not this check" in low
+        assert "greeting" in low
+        assert "connective clause" in low
+
+    def test_reviewer_prompt_forbids_using_the_check_against_honesty(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "never use this check" in low
+        assert "honest gap" in low or "honesty" in low
+
+    def test_reviewer_prompt_prefers_false_negatives(self):
+        """When in doubt, do not flag — a false positive removes honest
+        content, which the guardrails call worse than leaving padding in."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "when in doubt, do not flag" in low
+
+    def test_corrector_prompt_states_the_rule(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+        low = p.lower()
+        assert "unsupported generalization" in low
+
+    def test_corrector_prompt_never_shrinks_honest_disclosure(self):
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+        low = p.lower()
+        assert "honest gap disclosure" in low or "honesty" in low
+        assert "worse than leaving" in low
+
+    def test_checks_1_through_10_are_not_weakened_by_check_11(self):
+        """Sanity: adding check 11 must not have deleted or diluted the
+        earlier checks' key vocabulary."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = p.lower()
+        assert "invented dates" in low or "invented date" in low
+        assert "invented employers" in low or "invented employer" in low
+        assert "fabricated achievements" in low or "fabricated achievement" in low
+        assert "minted figures" in low or "minted figure" in low
+        assert "anchor" in low
+        assert "cross-document consistency" in low

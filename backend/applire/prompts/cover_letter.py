@@ -99,6 +99,19 @@ Rules:
   and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
   naming the term as an absence you do NOT have — before pivoting to real, grounded experience
   — is honesty, not a claim.
+- NO UNSUPPORTED GENERALIZATIONS (wave-7 — a run-6 Oracle audit found roughly a third of the
+  letter's unverifiable claims were soft padding that asserts nothing checkable about the
+  CANDIDATE — shapes like "My career applies this rigor end-to-end" or "Regulated industries
+  share the same discipline: planning, risk identification, tracking, and mitigation." Nothing
+  false is stated, but the sentence occupies space while claiming nothing about THIS candidate,
+  diluting the letter): every body sentence should say something specific about the candidate
+  that traces to the CANDIDATE PROFILE or a keyword-ledger CLAIMABLE entry's evidence. Do not
+  write an industry truism, an aspirational statement about the field/role in general, or a
+  generic claim that could apply to any candidate — write the specific, sourced fact instead, or
+  leave the sentence out. This does NOT apply to the greeting and closing courtesy lines, the
+  availability/notice-period line, the honest-gap/transfer-argument paragraph (see POSITIONING
+  below), or a short connective clause that introduces a grounded claim — those stay exactly as
+  the other rules in this prompt already require them.
 - POSITION ANCHORING (#283 — a downstream truthfulness guard silently strips an unattributable
   figure): whenever a sentence states an achievement, responsibility, or figure/metric that
   belongs to ONE specific employer or position — not something true of the candidate
