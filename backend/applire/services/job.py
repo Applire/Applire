@@ -36,6 +36,7 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.job import JobAnalysisResponse
+from applire.services.jd_shape_guard import apply_jd_shape_guard
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import detect_language
 
@@ -181,6 +182,14 @@ async def analyze_jd(
         # once either field is populated in any round, it must never ship absent.
         required_fields=("company_name", "role_title"),
     )
+
+    # Wave-6 Task 3 (belt and braces): the review loop's prompt-level shape
+    # contract (concept terms, never sentences) is necessary but not
+    # sufficient — apply the deterministic guard to the settled output before
+    # it feeds build_keyword_ledger(). Conservative by design: only drops a
+    # sentence-shaped entry when a concept-shaped equivalent is already
+    # present; anything ambiguous is left alone and logged, never invented.
+    data = apply_jd_shape_guard(data)
 
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
     try:

@@ -15,7 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1 (#264 — ADR-021 review-loop coverage audit)
+# Prompt version: v2 (Wave-6: concept-term shape rule for required_skills/
+# nice_to_have_skills/keywords, reconciled with the verbatim-grounding rule)
 # Used by: services/job.py -> analyze_jd() -> reviewer.review_and_refine
 #
 # JD analysis (services/job.py::analyze_jd) extracts required/nice-to-have skills,
@@ -54,6 +55,25 @@ that value's own text is sitting right there in the posting — that is a false 
 not a quality finding. This rule only shields values actually present in the source text;
 it never protects a value that appears NOWHERE in the posting — those remain exactly as
 flaggable as before under the FABRICATED / INVENTED checks below.
+
+CONCEPT-TERM SHAPE RULE (required_skills / nice_to_have_skills / keywords ONLY — read
+before flagging any of these three fields as unsupported): entries in these three lists
+are a controlled vocabulary of short CONCEPT TERMS (typically 1-4 words — a technology,
+tool, capability, or domain), not verbatim quotations of the posting's sentences. Judge
+each entry on whether the CONCEPT it names is present in the posting — never on whether
+the extracted string appears as a verbatim phrase. Extracting "Embeddings" from a
+sentence that only contains it as a sub-phrase — e.g. "Production experience with RAG,
+embeddings, ranking and retrieval pipelines" — is correct extraction, not a fabrication.
+Never ask the corrector to rewrite a concept term back into the source's own sentence or
+phrase — that is the exact defect this rule exists to prevent (it previously undid a
+"reduce to concept terms" correction the corrector had just made). Reconciling this with
+the VERBATIM GROUNDING RULE above: verbatim presence of a term PROVES it is grounded, but
+for these three concept fields the converse does NOT hold — the ABSENCE of a verbatim
+phrase does not disprove groundedness, because a correctly-extracted concept term is
+expected to be shorter than, and non-identical to, the sentence it was drawn from. Only
+flag one of these three fields when the CONCEPT ITSELF — not its exact wording — has no
+basis anywhere in the posting; that case remains fully covered by FABRICATED REQUIREMENT
+/ FABRICATED KEYWORDS below.
 
 ANTI-OSCILLATION RULE: never raise an issue that reverses a correction you (the reviewer,
 across review rounds of this same extraction) previously asked the corrector to make. If
@@ -119,6 +139,12 @@ Rules:
 - The previous extraction is your working draft. Modify it to resolve the reviewer's
   issues — remove or reclassify unsupported items; do not invent new ones.
 - Every remaining item must be traceable to the source posting text.
+- PRESERVE SHAPE in required_skills / nice_to_have_skills / keywords: these three
+  fields are a controlled vocabulary of short concept terms (typically 1-4 words),
+  never sentences or verbatim quotations. When fixing an unrelated issue you may add,
+  remove, or correct a concept term in these fields — but never reformat an existing
+  concept term into a sentence or a quotation from the source text, and never merge
+  several concept terms into one prose phrase.
 - Output ONLY the corrected JSON in the same schema as the input — no markdown, no
   commentary."""
 
