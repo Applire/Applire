@@ -807,9 +807,75 @@ def downgrade_ledger_for_concepts(
     return new_ledger, changed
 
 
+def _is_denial_receipt_change(change: Any) -> bool:
+    """Is this ``FieldChange`` the durable receipt of a denial (#231)?
+
+    Written exclusively by
+    :func:`applire.services.profile.reconcile.stance.record_denials` —
+    ``section == "metadata"`` and ``field == "denied_concepts"``, whatever
+    the ``action``/wording (the "Noted limit: …" / "Re-confirmed limit: …"
+    rationale is descriptive, not the identifying shape).
+    """
+    return (
+        isinstance(change, dict)
+        and change.get("section") == "metadata"
+        and change.get("field") == "denied_concepts"
+    )
+
+
+def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
+    """Filtered copy of ``profile_json`` with denial-testimony text removed
+    (wave-6, #270-adjacent).
+
+    The affirmation corpus (:func:`profile_literal_corpus`) must be built
+    from POSITIVE vault content only — a concept can never be "independently
+    affirmed" by the text of its own denial. Removes:
+
+    * ``metadata.denied_concepts`` entirely — both the ``concept`` label and
+      the verbatim ``statement`` (you cannot deny embeddings without writing
+      the word "embeddings", and the *statement* is free testimony prose, not
+      just the concept phrase ``_independently_affirmed`` already blanks).
+    * ``metadata.enrichment_history[].changes`` entries that ARE a denial
+      receipt (see :func:`_is_denial_receipt_change`) — the durable audit
+      trail carries the same concept text (``new_value``/``old_value``) plus
+      the "Noted limit: …" rationale.
+
+    Every other field — including every OTHER enrichment-history change —
+    passes through untouched, so a genuinely evidenced broad concept
+    elsewhere in the vault still independently affirms (#249). Tolerant of
+    ``None``/malformed shapes at every level (denial testimony may be absent,
+    or the section may not even be a dict).
+    """
+    if not isinstance(profile_json, dict):
+        return profile_json
+    metadata = profile_json.get("metadata")
+    if not isinstance(metadata, dict):
+        return profile_json
+
+    filtered_metadata = dict(metadata)
+    filtered_metadata.pop("denied_concepts", None)
+
+    history = metadata.get("enrichment_history")
+    if isinstance(history, list):
+        new_history: list[Any] = []
+        for record in history:
+            if not isinstance(record, dict):
+                new_history.append(record)
+                continue
+            changes = record.get("changes")
+            if not isinstance(changes, list):
+                new_history.append(record)
+                continue
+            kept = [c for c in changes if not _is_denial_receipt_change(c)]
+            new_history.append(record if kept == changes else {**record, "changes": kept})
+        filtered_metadata["enrichment_history"] = new_history
+
+    return {**profile_json, "metadata": filtered_metadata}
+
+
 def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     """The vault's OWN literal text, flattened + normalised (#249 run-4,
-    2026-07-24).
+    2026-07-24) — POSITIVE content only (wave-6, denial testimony excluded).
 
     Reuses :func:`_draft_strings` (already the shared flattener the US213
     verified-coverage check scans a DRAFT document with — any dict of
@@ -818,13 +884,29 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     independent-affirmation check: a broad concept ("RAG") with a literal
     vault tie (``work_experience[].technologies[]``) outside every denied
     compound must never be tarred by a narrow denial ("RAG pipeline") the
-    way an untethered containment check would. ``None``/empty tolerant.
+    way an untethered containment check would.
+
+    Wave-6 fix: ``metadata.denied_concepts`` and denial-receipt
+    enrichment-history changes are stripped BEFORE flattening
+    (:func:`_strip_denial_text`) — a denial's own verbatim statement/receipt
+    must never "independently affirm" the very concept it denies (a live
+    vault's testimony recording a denial of "hands-on embedding model
+    configuration" necessarily contains the word "embeddings", and that word
+    survived into the corpus verbatim, defeating the ADR-059 denial floor).
+    ``None``/empty tolerant.
+
+    The two other callers of this function (``services/cv.py``,
+    ``services/cover_letter.py``) feed the SAME class of "is this term
+    literally grounded in the vault" check (the ATS/Oracle
+    ``present_unsupported`` consistency guard) — a denied term's own
+    statement text must not count as grounding there either, so the
+    exclusion applies unconditionally for every caller; no parameter added.
     """
     if not profile_json:
         return ""
     from applire.services.ats_audit import _norm as ats_norm
 
-    return ats_norm(" ".join(_draft_strings(profile_json)))
+    return ats_norm(" ".join(_draft_strings(_strip_denial_text(profile_json))))
 
 
 def build_keyword_ledger(
