@@ -180,6 +180,43 @@ def test_extract_recipient_returns_none_when_not_found():
     assert result["name"] is None
 
 
+# #272 Task 5 — LinkedIn "Direct message the job poster" block has no pattern
+# (RC-F ground truth): the scrape duplicates the short form before the full
+# name; the full name is whatever immediately precedes " | ".
+
+
+def test_extract_recipient_finds_linkedin_job_poster_block():
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = (
+        "Direct message the job poster from Connect-AI Sean Michael M. Sean "
+        "Michael M. Sean Murphy | Principal AI, Data & Software Engineering "
+        "Specialist"
+    )
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] == "Sean Murphy"
+
+
+def test_extract_recipient_linkedin_pattern_ignores_unrelated_pipe():
+    """Negative case: a pipe elsewhere in the JD with no 'Direct message the job
+    poster' anchor must never fire this pattern."""
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = "Tech Stack: Python | FastAPI | PostgreSQL. We are hiring a Backend Engineer."
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] is None
+
+
+def test_extract_recipient_linkedin_pattern_requires_anchor_phrase():
+    """A bare '<Name> | <Title>' shape without the LinkedIn anchor phrase must
+    not be mistaken for the job-poster block."""
+    from applire.utils.recipient_extraction import extract_recipient_from_jd
+
+    jd = "John Appleseed | Senior Recruiter at Some Company. Apply within."
+    result = extract_recipient_from_jd(jd)
+    assert result["name"] is None
+
+
 # ---------------------------------------------------------------------------
 # Task 7 — LLM prompt builder
 # ---------------------------------------------------------------------------
@@ -381,6 +418,30 @@ def test_system_prompt_states_positioning_inputs_contract():
     assert "company & domain engagement" in low or "company and domain engagement" in low
     assert "transfer argument" in low
     assert "availability" in low and "concurrent commitments" in low
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 2 — the closing paragraph is REQUIRED content
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_requires_a_genuine_closing_paragraph():
+    """RC-D ground truth: the run-5 letter's real closing ("I would welcome the
+    opportunity to discuss how my experience aligns with your needs. My notice
+    period can be discussed.") was eroded by the review loop down to the bare
+    stub "Notice period can be discussed." The writer's own SYSTEM_PROMPT must
+    state the closing paragraph is required content and that availability is
+    folded into it, never left standalone."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    assert "closing paragraph" in low
+    assert "required" in low
+    assert "call to action" in low or "call-to-action" in low
+    # availability must be folded into the closing, never a standalone line
+    assert "never" in low and (
+        "standalone" in low or "terminal line" in low or "bare" in low
+    )
 
 
 def test_build_cover_letter_prompt_includes_company_engagement_block():
@@ -1717,3 +1778,184 @@ def test_letter_html_render_en_signoff_and_backfilled_name():
     assert "Mit freundlichen Grüßen" not in html
     # sender-name div must be non-empty (the bug rendered an empty <div>)
     assert "Catherine O&#39;Brien" in html or "Catherine O'Brien" in html
+
+
+# ---------------------------------------------------------------------------
+# #271 Task 3 — the CANDIDATE PROFILE block no longer starves on the
+# tailored CV: a vault-only fact absent from cv_data must still reach the
+# full writer prompt via the new vault_evidence_block kwarg.
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+_RUN5_FIXTURE_DIR = Path(__file__).parents[2] / ".run5fixture"
+
+
+@pytest.mark.skipif(
+    not _RUN5_FIXTURE_DIR.exists(), reason="run-5 charter fixture not present in this checkout"
+)
+def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
+    """Ground truth (#271): work_experience[0].achievements[3] — "Human-
+    authored documents usually need two to three review rounds, while the
+    right LLMs pass the first round" — is present in the vault but ABSENT
+    from the run-5 tailored CV (the BioNTech entry survived tailoring with
+    only 3 bullets). It must reach the full writer prompt only once the
+    Task 2 digest is threaded in via ``vault_evidence_block`` — never via
+    ``cv_data`` alone."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+    from applire.services.jd_excerpt import build_jd_excerpt
+    from applire.services.letter_evidence import (
+        render_letter_evidence_block,
+        select_letter_evidence,
+    )
+
+    profile = _json.loads((_RUN5_FIXTURE_DIR / "profile.json").read_text(encoding="utf-8"))
+    ledger = _json.loads((_RUN5_FIXTURE_DIR / "ledger.json").read_text(encoding="utf-8"))
+    cv_data = _json.loads((_RUN5_FIXTURE_DIR / "cv.json").read_text(encoding="utf-8"))
+    jd_raw = (_RUN5_FIXTURE_DIR / "jd.txt").read_text(encoding="utf-8")
+
+    review_rounds_sentence = (
+        "Human-authored documents usually need two to three review rounds, "
+        "while the right LLMs pass the first round"
+    )
+
+    # Ground truth precondition: the tailored CV's own condensed bullets
+    # (work_history[:6] x bullets[:6], the exact slice build_cover_letter_prompt
+    # renders) never carry this sentence.
+    work_snippet_bullets = [
+        b for entry in cv_data.get("work_history", [])[:6] for b in entry.get("bullets", [])[:6]
+    ]
+    assert not any(review_rounds_sentence in b for b in work_snippet_bullets), (
+        "precondition failed: the run-5 tailored CV unexpectedly already carries "
+        "the review-rounds sentence — the digest would not be proving anything"
+    )
+
+    jd_excerpt = build_jd_excerpt(jd_raw)
+    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_letter_evidence_block(digest_items)
+
+    # Without the digest, the fact is absent from the prompt (the CV alone starves it).
+    prompt_without_digest = build_cover_letter_prompt(
+        cv_data=cv_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+    )
+    assert review_rounds_sentence not in prompt_without_digest
+
+    # With the digest threaded in, the vault-only fact reaches the prompt.
+    prompt_with_digest = build_cover_letter_prompt(
+        cv_data=cv_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+        vault_evidence_block=vault_evidence_block,
+    )
+    assert review_rounds_sentence in prompt_with_digest
+
+
+def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
+    """Hermetic twin of ``test_run5_vault_only_fact_reaches_writer_prompt_via_
+    evidence_digest`` above — same property, synthetic data, runs in CI with
+    no ``.run5fixture/`` present.
+
+    #271's headline proof: a fact that lives in the vault but was compressed
+    out of the TAILORED CV (``tailored_data``'s own condensation, never the
+    letter's own selection step) must still reach the writer's full prompt,
+    but ONLY once the Task 2 digest (``vault_evidence_block``) is threaded
+    in — never via ``cv_data`` alone. Both halves are asserted: absent
+    without the digest, present with it. A one-sided assertion would not
+    prove the digest is doing anything.
+    """
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+    from applire.services.jd_excerpt import build_jd_excerpt
+    from applire.services.letter_evidence import (
+        render_letter_evidence_block,
+        select_letter_evidence,
+    )
+
+    distinctive_sentence = (
+        "Human-authored runbooks usually need two to three review passes, "
+        "while the automated checks I built pass on the first attempt."
+    )
+
+    # The vault carries the distinctive sentence as a same-initiative
+    # achievement on the SAME work entry as the claimable-concept anchor
+    # (mirrors run-5's achievements[3]: same owner/initiative, no literal
+    # keyword match of its own — see services.letter_evidence's
+    # SAME-INITIATIVE EXTENSION).
+    profile = {
+        "work_experience": [
+            {
+                "id": "w1",
+                "role": "Senior QA Engineer",
+                "company": "Acme Biotech",
+                "achievements": [
+                    "Automated the release verification pipeline for the pharma platform.",
+                    distinctive_sentence,
+                ],
+            }
+        ]
+    }
+    ledger = [
+        {
+            "concept": "release verification pipeline",
+            "claimable": True,
+            "surface_forms": ["release verification pipeline", "verification pipeline"],
+        }
+    ]
+
+    # The tailored CV's own condensation kept only the anchor bullet — the
+    # distinctive sentence never survived to cv_data, exactly like run-5's
+    # BioNTech entry surviving tailoring with only 3 of its real bullets.
+    tailored_data = {
+        "work_history": [
+            {
+                "id": "w1",
+                "role": "Senior QA Engineer",
+                "company": "Acme Biotech",
+                "bullets": ["Automated the release verification pipeline for the pharma platform."],
+            }
+        ]
+    }
+    jd_raw = "We build pharma QA software. This role is 50% leadership and 50% hands-on."
+
+    # Precondition: the tailored CV's own condensed bullets (the exact slice
+    # build_cover_letter_prompt renders) never carry the distinctive
+    # sentence — otherwise this test would not be proving anything.
+    work_snippet_bullets = [
+        b for entry in tailored_data.get("work_history", [])[:6] for b in entry.get("bullets", [])[:6]
+    ]
+    assert distinctive_sentence not in work_snippet_bullets
+
+    jd_excerpt = build_jd_excerpt(jd_raw)
+    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_letter_evidence_block(digest_items)
+    assert distinctive_sentence in vault_evidence_block, (
+        "precondition failed: the digest never selected the distinctive "
+        "sentence in the first place"
+    )
+
+    # Without the digest, the fact is absent from the prompt (the tailored
+    # CV alone starves it).
+    prompt_without_digest = build_cover_letter_prompt(
+        cv_data=tailored_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+    )
+    assert distinctive_sentence not in prompt_without_digest
+
+    # With the digest threaded in, the vault-only fact reaches the prompt.
+    prompt_with_digest = build_cover_letter_prompt(
+        cv_data=tailored_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+        vault_evidence_block=vault_evidence_block,
+    )
+    assert distinctive_sentence in prompt_with_digest

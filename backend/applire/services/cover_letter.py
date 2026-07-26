@@ -632,11 +632,23 @@ async def _render_cover_letter_background(
                 find_gap_testimony,
             )
             from applire.services.gap import askable_gap_inputs
+            from applire.services.cross_document import exclude_claimable_concepts
 
             profile_json = profile.profile_json if profile is not None else {}
             signature_stories = profile_json.get("signature_stories") or []
+            # #270 Fix A (the run-5 regression): askable_gap_inputs() deliberately
+            # folds #260 keyword LIABILITIES (claimable, required, no narrative
+            # depth) into the clusterable gap list so they stay reachable via
+            # resolve_gap — correct for clustering, but a CLAIMABLE concept must
+            # never be positioned as THIS letter's honest gap (the ledger already
+            # says the vault positively supports it). Filter at this call site
+            # only; askable_gap_inputs itself is untouched (other callers depend
+            # on the #260 fold).
             gap_testimony = (
-                find_gap_testimony(askable_gap_inputs(gap), signature_stories)
+                find_gap_testimony(
+                    exclude_claimable_concepts(askable_gap_inputs(gap), keyword_ledger),
+                    signature_stories,
+                )
                 if gap is not None
                 else None
             )
@@ -645,10 +657,16 @@ async def _render_cover_letter_background(
             enrichment_history = (
                 (profile_json.get("metadata") or {}).get("enrichment_history") or []
             )
+            # #272 Task 1: hoisted above the availability block (was computed further
+            # below, after this call site) so find_availability_testimony can search
+            # denied_concepts[].statement too — the run-5 ground truth showed the
+            # candidate's real availability testimony living as the TAIL of a denial
+            # statement, a source this call never searched before.
+            denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
             availability_testimony: str | None = None
             if detect_concurrent_roles(work_experience):
                 availability_testimony = find_availability_testimony(
-                    signature_stories, enrichment_history
+                    signature_stories, enrichment_history, denied_concepts
                 )
                 if availability_testimony is None:
                     logger.info(
@@ -664,6 +682,35 @@ async def _render_cover_letter_background(
                         cl_id,
                     )
 
+            # #270 Fix B/D: SCOPED BOUNDARIES — a claimable ledger concept the vault
+            # ALSO carries an explicit candidate-stated limit for (ADR-059 denial floor
+            # + a textually-related persisted denial). Deterministic, no LLM. Threaded
+            # into the writer prompt (below) AND positioning_requested (so the
+            # reviewer/corrector never mistake it for a DO-NOT-CLAIM concept and never
+            # instruct the writer to name it as an absence — the exact run-5 defect).
+            from applire.services.cross_document import (
+                find_scoped_boundaries,
+                find_unaddressed_hard_requirements,
+                render_scoped_boundary_block,
+                render_unaddressed_hard_requirements_block,
+                unaddressed_hard_requirements_positioning,
+            )
+            # denied_concepts already resolved above (#272 Task 1 hoist).
+            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
+            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+
+            # #270(c): unmet JD hard requirements (claimable: false, required) that need
+            # an explicit positioning decision. Computed with letter_data=None — no draft
+            # exists yet, so every required honest gap is trivially "unaddressed" and the
+            # FIRST draft gets a chance to address it (never relies solely on the
+            # gap-transfer-argument slot above, which only fires when a signature story
+            # happens to token-overlap the gap label — this is the deterministic
+            # backstop for when it does not).
+            unaddressed_requirements = find_unaddressed_hard_requirements(keyword_ledger, None)
+            unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
+                unaddressed_requirements, denied_concepts
+            )
+
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
             # received all three POSITIONING blocks (and engaged the domain) but the
             # ADR-021 reviewer/corrector loop never did — so it could not tell a legitimate,
@@ -673,6 +720,48 @@ async def _render_cover_letter_background(
             # and thread it into grounding_source below, so every review_and_refine call in
             # this render (including the condense pass) carries it too.
             positioning_requested: dict = {}
+            # #272 Task 2: UNCONDITIONAL — unlike the other positioning entries, every
+            # letter needs a genuine closing paragraph, so this is never gated on a
+            # deterministic condition. Plugs into the SAME machinery: reviewer check 7
+            # already flags missing required positioning content, and the corrector
+            # prompt already has a PRESERVE REQUIRED POSITIONING CONTENT rule.
+            positioning_requested["closing"] = {
+                "required": True,
+                "instruction": (
+                    "REQUIRED content: the letter must end with a genuine closing "
+                    "paragraph expressing interest and a call to action (e.g. inviting "
+                    "further discussion or an interview). Availability/notice-period "
+                    "content, when present, is folded INTO this closing paragraph — "
+                    "never left as a bare, standalone terminal line. Deleting or "
+                    "shrinking this closing paragraph to fix an unrelated issue is "
+                    "itself a review issue."
+                ),
+            }
+            if scoped_boundaries:
+                positioning_requested["scoped_boundaries"] = {
+                    "boundaries": [
+                        {
+                            "concept": b.concept,
+                            "evidence": b.evidence,
+                            "limit": b.denial_statement or b.denial_concept,
+                        }
+                        for b in scoped_boundaries
+                    ],
+                    "instruction": (
+                        "For each concept above, the vault holds BOTH a positive "
+                        "contribution AND an explicit candidate-stated limit. These "
+                        "concepts are CLAIMABLE, never a do-not-claim gap. Render the "
+                        "SCOPED claim naming both halves — never a bare denial that "
+                        "discards the positive half, and never an unqualified claim "
+                        "that ignores the limit."
+                    ),
+                }
+            if unaddressed_requirements:
+                positioning_requested["unaddressed_hard_requirements"] = (
+                    unaddressed_hard_requirements_positioning(
+                        unaddressed_requirements, denied_concepts
+                    )
+                )
             if job.company_name:
                 positioning_requested["company_domain_engagement"] = {
                     "target_company": job.company_name,
@@ -723,6 +812,25 @@ async def _render_cover_letter_background(
             from applire.norms import DEFAULT_REGION, REGION_NORMS
             norm = REGION_NORMS[DEFAULT_REGION]
             provider = get_provider()
+            # #271 Task 1: the SAME de-chromed JD excerpt the writer AND the
+            # reviewer (grounding_source below) both see — never re-sliced
+            # independently, so the two can never disagree about what the
+            # JD says (applire.services.jd_excerpt module docstring).
+            from applire.services.jd_excerpt import build_jd_excerpt
+            jd_excerpt = build_jd_excerpt(job.raw_text)
+            # #271 Tasks 2/3: the vault's strongest JD-relevant evidence,
+            # selected independently of what cv_data's tailoring
+            # condensation kept — so a fact present in the vault but
+            # dropped by tailoring can still reach the letter.
+            from applire.services.letter_evidence import (
+                render_letter_evidence_block,
+                select_letter_evidence,
+            )
+            vault_evidence_block = render_letter_evidence_block(
+                select_letter_evidence(
+                    keyword_ledger, jd_excerpt, profile.profile_json if profile else {}
+                )
+            )
             user_prompt = build_cover_letter_prompt(
                 cv_data=cv_data,
                 jd_text=job.raw_text,
@@ -735,6 +843,9 @@ async def _render_cover_letter_background(
                 company_name=job.company_name,
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
+                scoped_boundary_block=scoped_boundary_block,
+                unaddressed_requirements_block=unaddressed_requirements_block,
+                vault_evidence_block=vault_evidence_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -761,7 +872,9 @@ async def _render_cover_letter_background(
                     # ENGAGEMENT above), so the reviewer needs the SAME JD text the generator
                     # saw to judge whether a company/domain claim is grounded — an invented
                     # company fact must still fail review 4 (Oracle discipline unchanged).
-                    "job_description": job.raw_text[:2000] if job.raw_text else "",
+                    # #271 Task 1: literally the SAME excerpt string the writer prompt above
+                    # was built from (jd_excerpt) — never a second, independently-sliced copy.
+                    "job_description": jd_excerpt,
                     # #255 (ADR-057 amended 2026-07-24): the SAME positioning inputs the
                     # writer received — see build above. Without this the reviewer/
                     # corrector cannot distinguish a REQUESTED, grounded domain reference /
@@ -783,18 +896,47 @@ async def _render_cover_letter_background(
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
+            # #270 Fix D: compose (never replace) coverage_reviewer_prompt_fn with a
+            # SECOND deterministic wrapper — each reviewer iteration also carries the
+            # CURRENT draft's cross-document conflicts (bare-denial-of-claimable /
+            # assert-vs-deny against cv_data), recomputed fresh every pass exactly like
+            # the verified-coverage check above. No new LLM pass, no new loop.
+            from applire.services.cross_document import cross_document_reviewer_prompt_fn
+            reviewer_prompt_fn = cross_document_reviewer_prompt_fn(
+                coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
+                cv_data=cv_data,
+                keyword_ledger=keyword_ledger,
+                denied_concepts=denied_concepts,
+            )
+            # #272 Task 6: a THIRD deterministic wrapper — each reviewer iteration also
+            # carries a WORD FLOOR check against the CURRENT draft's body (ADR-051 norm
+            # registry; a thin letter previously passed silently since only an upper
+            # bound existed). Composes on top of the two wrappers above exactly like
+            # they compose with each other — no new LLM call, no new loop.
+            from applire.services.cover_letter_positioning import (
+                has_closing_paragraph,
+                word_floor_reviewer_prompt_fn,
+            )
+            reviewer_prompt_fn = word_floor_reviewer_prompt_fn(
+                reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
+            )
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
                 generator_prompt_fn=build_retry_prompt,
                 generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    build_review_prompt, keyword_ledger
-                ),
+                reviewer_prompt_fn=reviewer_prompt_fn,
                 reviewer_system=REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 chain_id="cover_letter",
+                # #272 Task 3: the ADR-021 loop has no no-regression invariant — a
+                # reviewer mistake (RC-C/RC-E) can erode content a prior round had
+                # right (RC-D: the real closing paragraph, eroded to a bare stub).
+                # retain_if is opt-in and structural-only (never a quality score);
+                # when the settled draft fails it, an earlier round's draft that
+                # passed is substituted instead — no new LLM call.
+                retain_if=has_closing_paragraph,
             )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
@@ -890,18 +1032,24 @@ async def _render_cover_letter_background(
                             system=SYSTEM_PROMPT,
                             max_tokens=CV_GENERATION_MAX_TOKENS,
                         )
+                        # #270 Fix D: same composed reviewer wrapper as the primary loop
+                        # above — the condense pass is a fresh rewrite and must be
+                        # re-checked for cross-document conflicts against cv_data too.
                         condensed = await review_and_refine(
                             source=grounding_source,
                             draft=condensed,
                             generator_prompt_fn=build_retry_prompt,
                             generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                            reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                                build_review_prompt, keyword_ledger
-                            ),
+                            reviewer_prompt_fn=reviewer_prompt_fn,
                             reviewer_system=REVIEW_SYSTEM_PROMPT,
                             provider=provider,
                             max_retries=LLM_REVIEW_MAX_RETRIES,
                             chain_id="cover_letter_condense",
+                            # #272 Task 3: same structural retention guard as the
+                            # primary loop — the condense pass is a fresh rewrite
+                            # under length pressure and must not lose the closing
+                            # paragraph either.
+                            retain_if=has_closing_paragraph,
                         )
                         # #254 — same generation-path guard as the primary loop
                         # above: the condense pass is itself a fresh corrector-

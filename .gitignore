@@ -79,3 +79,7 @@ docs/superpowers/
 
 # Session state
 /.remember/
+
+# Playwright MCP output (collects PDFs with real CV content — never commit)
+.playwright-mcp/
+**/.playwright-mcp/

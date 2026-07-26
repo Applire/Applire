@@ -96,6 +96,12 @@ Rules:
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
 - Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.
+- REQUIRED CLOSING PARAGRAPH (#272): the letter's LAST paragraph must be a genuine closing —
+  expressing interest and a call to action (e.g. inviting further discussion or an interview) —
+  never a bare, standalone availability/notice-period line. When availability/commitment content
+  applies (see AVAILABILITY / CONCURRENT COMMITMENTS below), fold it INTO this closing paragraph
+  alongside the interest/call-to-action language; it must never stand alone as the entire final
+  paragraph.
 - Keep the letter body within the WORD BUDGET given in the user message — that line also
   states the region's page norm (ADR-051 §1: no page/word number is ever hard-coded here).
 - Use the tone specified: formal=sehr geehrte/r, professional=warm but polished, conversational=direct.
@@ -113,6 +119,20 @@ Rules:
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
     address availability/commitment using ONLY that testimony, grounded verbatim. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
+- SCOPED BOUNDARIES (#270): when a SCOPED BOUNDARIES block appears in the user message, the
+  vault holds BOTH a positive contribution AND an explicit candidate-stated limit for that
+  concept — it is CLAIMABLE, never a do-not-claim gap, and it must NEVER be placed in the
+  honest-gap/transfer-argument paragraph. Render the SCOPED claim naming both halves (the
+  positive contribution AND the stated limit), grounded verbatim in the text given; never
+  reduce it to a bare denial that discards the positive half, and never an unqualified claim
+  that ignores the limit.
+- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
+  job-description concept the candidate's own material does not evidence (an honest gap),
+  choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
+  transfer argument (the HONEST GAP / TRANSFER ARGUMENT paragraph above), or a brief, honest
+  de-emphasis that names the gap without dwelling on it. Silence is never one of the options
+  for a hard requirement. Fold whichever response applies into the SAME single honest-gap
+  paragraph — never a litany of separate gap admissions.
 """
 
 
@@ -128,6 +148,9 @@ def build_cover_letter_prompt(
     company_name: str | None = None,
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
+    scoped_boundary_block: str | None = None,
+    unaddressed_requirements_block: str | None = None,
+    vault_evidence_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -168,6 +191,26 @@ def build_cover_letter_prompt(
         BOTH the deterministic concurrent-roles detector fired AND matching testimony exists
         in the vault (:func:`applire.services.cover_letter_positioning`); otherwise None, and
         no availability/commitment claim beyond PRE-GENERATION INPUTS is made.
+    scoped_boundary_block: rendered SCOPED BOUNDARIES text (#270,
+        :func:`applire.services.cross_document.render_scoped_boundary_block`) — claimable
+        ledger concepts the vault also states an explicit limit on. Optional so legacy/
+        degraded callers do not break; omitted/empty → adds nothing.
+    unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
+        :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
+        called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
+        honest gaps the first draft must give an explicit positioning decision to (a
+        transfer argument or a brief de-emphasis), never silence. Optional so legacy/
+        degraded callers do not break; omitted/empty → adds nothing.
+    vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
+        :func:`applire.services.letter_evidence.render_letter_evidence_block`) — the
+        vault's strongest JD-relevant material, selected independently of what
+        ``cv_data``'s tailoring condensation kept, so a fact present in the vault but
+        absent from the tailored CV can still reach this prompt (Task 3, the run-5
+        regression: the CANDIDATE PROFILE below is built from ``cv_data`` alone, which
+        had compressed the BioNTech work entry down to 3 bullets). Additional evidence
+        to choose from, never content the writer must all use, and never a licence to
+        exceed the GROUNDING CONTRACT above. Optional so legacy/degraded callers do not
+        break; omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -236,10 +279,19 @@ def build_cover_letter_prompt(
             )
         lines += ["", budget_line]
 
+    # #271 Task 1: a deterministic, de-chromed excerpt — replaces the old
+    # raw_text[:2000] slice, which on a real LinkedIn-scraped JD landed
+    # entirely on repeated sign-in boilerplate and never reached the JD's
+    # actual leadership-weighting/requirements content. Callers MUST build
+    # the reviewer's grounding_source["job_description"] from this SAME
+    # function so the writer and reviewer can never disagree about what the
+    # JD says (see applire.services.jd_excerpt module docstring).
+    from applire.services.jd_excerpt import build_jd_excerpt
+
     lines += [
         "",
         "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
-        jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
+        build_jd_excerpt(jd_text),
     ]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #1 blocker — the letter never
@@ -264,6 +316,29 @@ def build_cover_letter_prompt(
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     if ledger_block:
         lines += ["", ledger_block]
+
+    # #270 (Fix D): scoped-boundary concepts — the vault holds BOTH a positive
+    # contribution and an explicit stated limit. Threaded ONLY when genuinely found
+    # (services.cross_document.find_scoped_boundaries); absent → adds nothing.
+    if scoped_boundary_block:
+        lines += ["", scoped_boundary_block]
+
+    # #270(c): unmet JD hard requirements (claimable: false, "required") that
+    # need an explicit positioning decision (transfer argument or a brief,
+    # honest de-emphasis) — never silence. Threaded ONLY when genuinely found
+    # (services.cross_document.find_unaddressed_hard_requirements); absent →
+    # adds nothing.
+    if unaddressed_requirements_block:
+        lines += ["", unaddressed_requirements_block]
+
+    # #271 Tasks 2/3: the vault's strongest JD-relevant evidence, selected
+    # independently of what cv_data's tailoring condensation kept above —
+    # additional material to choose from, never required, never a licence
+    # to exceed the grounding contract. Threaded ONLY when genuinely found
+    # (services.letter_evidence.select_letter_evidence); absent → adds
+    # nothing.
+    if vault_evidence_block:
+        lines += ["", vault_evidence_block]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #2 blocker — the letter never
     # argued the candidate's OWN transfer story for the one true (Category C) gap, even

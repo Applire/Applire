@@ -38,11 +38,29 @@ class RegionNorm:
     # template (ADR-051 §6 amended, #177: enforcement, not just detection, for
     # letters — the CV's guarantee shape, extended to cover letters).
     letter_body_word_budget: int
+    # #272 Task 6: the LOWER bound ADR-051 §1 never set — a thin letter body
+    # (insufficient selected evidence) previously passed silently since only an
+    # upper bound existed. Read by the deterministic reviewer wrapper
+    # (services/cover_letter_positioning.word_floor_reviewer_prompt_fn); never
+    # a hard-coded word number outside this registry (ADR-051 §1).
+    #
+    # Calibrated against the blocker it exists for, not against "comfortably
+    # below the budget": charter run #5 shipped a 187-word body that BOTH blind
+    # reviewers rejected as thin ("~200 words … suggests either low genuine
+    # interest or a rushed application"). A floor the blocker case passes is not
+    # a floor, so it sits ABOVE 187. With the 300-word budget this leaves a
+    # 200–300 band — the normal length of a one-page DACH Anschreiben.
+    #
+    # The failure mode when a body is under the floor is an honest reviewer
+    # issue naming insufficient SELECTED EVIDENCE — never padding, never
+    # invented content (#271 supplies the evidence that makes the band
+    # reachable honestly).
+    letter_body_word_floor: int
 
 
 REGION_NORMS: dict[str, RegionNorm] = {
     "DACH": RegionNorm(cv_standard_pages=2, cv_max_pages=3, letter_pages=1,
-                        letter_body_word_budget=300),
+                        letter_body_word_budget=300, letter_body_word_floor=200),
 }
 
 DEFAULT_REGION = "DACH"

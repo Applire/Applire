@@ -53,6 +53,18 @@ _PATTERNS: list[re.Pattern] = [
         r"contact\s+((?:Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)\s+)?([A-Z][a-z]+\s+[A-Z][a-z]+)\s*,",
         re.UNICODE,
     ),
+    # #272 Task 5 (RC-F): LinkedIn "Direct message the job poster from <Company>
+    # <duplicated short form> <Full Name> | <Title>" block — the scrape
+    # duplicates the short form before the full name, so the greedy ".{0,300}"
+    # window (backtracking from its far end) lands on the LAST two-capitalized-
+    # word sequence immediately before " | ", i.e. the full name, never one of
+    # the earlier short-form repeats. Anchored on the literal LinkedIn phrase so
+    # an unrelated "<Name> | <Title>" shape elsewhere in a JD never fires this.
+    re.compile(
+        r"Direct message the job poster from\b.{0,300}"
+        r"([A-Z][a-zA-Z'\-]+\s+[A-Z][a-zA-Z'\-]+)\s*\|",
+        re.UNICODE,
+    ),
 ]
 
 

@@ -15,7 +15,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v3 (APP-14: added berufsbild_code/label — KldB 2020 DACH taxonomy)
+# Prompt version: v4 (Wave-6 JD-prompt shape fix: required_skills/nice_to_have_skills/
+# keywords stated as a controlled vocabulary of concept terms, never sentences —
+# pinned failure: .run5fixture/jd_chain.jsonl, Connect-AI posting, 2026-07-26)
 # Used by: services/job.py → LLMProvider.aparse_json
 
 SYSTEM_PROMPT = """\
@@ -36,6 +38,21 @@ Schema:
   "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null"
 }
+
+FIELD SHAPE — required_skills / nice_to_have_skills / keywords:
+Every entry in these three lists is a short, matchable CONCEPT TERM — a technology,
+tool, capability, or domain (typically 1-4 words). It is NEVER a full sentence, a
+bullet quotation, or a requirement phrase copied verbatim out of the posting. These
+terms are matched LITERALLY against a candidate's CV/letter text downstream (the
+keyword ledger, ADR-048) — a concept noun like "Embeddings" can match real document
+text, but a sentence like "Production experience with RAG, embeddings, ranking and
+retrieval pipelines" matches nothing and silently breaks that downstream matching.
+Good (concept term): "Embeddings", "RAG pipelines", "AI evaluation", "Technical leadership".
+Bad (sentence/requirement phrase — do NOT emit): "Production experience with RAG,
+embeddings, ranking and retrieval pipelines", "Hands-on experience with agentic
+systems and tool-using LLM applications", "Building and deploying AI-powered products
+in production". If the posting only states a requirement as a long phrase, extract the
+concept(s) it names as separate short terms — do not quote the phrase whole.
 
 For berufsbild_code, use the Klassifikation der Berufe 2020 (KldB 2020) from the Bundesagentur für Arbeit.
 Examples: '4311' for Softwareentwicklung, '4321' for IT-Systemanalyse, '7121' for Personalmanagement, '7211' for Finanzmanagement und Controlling.
