@@ -94,6 +94,16 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
        stretch beyond its stated evidence, waive it (name term + reason in feedback) — a waived
        term does not block approval. Grounding strictly OUTRANKS coverage; NEVER ask the writer
        to fabricate or force a term that does not genuinely fit.
+       SPECIFICITY (#282 — two blind hiring-panel reviewers flagged keyword-stuffed prose: a
+       paragraph that rendered claimable terms as a FLAT, ENUMERATED list — "team management,
+       mentoring, cross-functional collaboration, engineering standards, technical best
+       practices, and production ownership"): a flat list of three or more claimable terms
+       strung together is itself a review issue, exactly like an ungrounded claim — flag it and
+       instruct the writer to fold at most one or two terms per sentence into a concrete,
+       specific statement of what was actually built, owned, or delegated, at the SAME level of
+       specificity the rest of the letter uses. Specificity OUTRANKS raw coverage: a term better
+       left unsurfaced (or waived) than jammed into a list is the correct call, never the
+       fabrication of a false choice between "list it" and "drop it".
    (b) FORBIDDEN CLAIM — SCOPED TO POSSESSIVE/COMPETENCE FRAMING ONLY (amended 2026-07-24 /
        US264/#255): if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
        something the CANDIDATE has, has done, or knows, flag it — that is a fabrication. This
@@ -143,7 +153,21 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    a form that simply reverses a change you yourself requested in an earlier round — if round
    N asked the writer to change "7 months" to "seven months", do not then flag "seven months"
    as unverbatim and ask for "7 months" back; that is oscillation, not a real finding.
-9. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
+9. UNANCHORED POSITION-OWNED CONTENT (#283 — a run-6 letter folded BioNTech's "record-breaking
+   QC LIMS implementation (7 months, 3 sites)" into a sentence naming no employer, in a letter
+   that separately named a DIFFERENT employer elsewhere; the deterministic #254 figure guard
+   could not resolve ownership and silently dropped both figures downstream, leaving "delivered
+   ... in months across sites" — vaguer than the truth, reading as evasive padding): when a
+   sentence states an achievement, responsibility, or figure/metric that belongs to ONE
+   specific employer or position, that employer must be named within the SAME sentence — not
+   left for an earlier sentence or paragraph to imply. Flag any sentence that carries a
+   position-owned achievement or figure/metric but names no employer of its own, ESPECIALLY
+   when the letter names more than one employer overall (the single-employer escape cannot
+   save it) — name the paragraph and instruct the writer to add the employer anchor IN PLACE,
+   in the same sentence, never to drop the achievement/figure to make the issue disappear. A
+   figure silently dropped by the downstream guard for lack of an anchor is a review miss, not
+   a safe outcome — restoring the figure WITH its correct anchor is the goal.
+10. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
    and letter jointly misled a hiring panel, because a KEYWORD LEDGER CLAIMABLE concept
    ("retrieval systems") was positioned as the letter's honest gap and then bare-denied — "I
    have not worked hands-on with retrieval systems" — directly contradicting the CV's own
@@ -228,6 +252,21 @@ Rules:
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
   verbatim there. If the evidence carries no figure, describe the experience qualitatively
   instead of inventing one.
+- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE (#283): when you add, keep, or patch a
+  sentence that states an achievement, responsibility, or figure/metric belonging to ONE
+  specific employer or position, name that employer within the SAME sentence — e.g. "At
+  BioNTech, I delivered the QC LIMS implementation in 7 months across 3 sites" — never leave
+  the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
+  content to satisfy a coverage issue. A downstream truthfulness guard silently DROPS any
+  figure it cannot attribute to a named employer, which only makes the letter vaguer and
+  weaker, not safer — never let an achievement/figure ship unanchored and never quietly delete
+  it to sidestep this rule; restore it WITH its correct anchor instead.
+- SPECIFICITY OUTRANKS COVERAGE TOO (#282): when correcting a coverage issue, never respond by
+  stringing three or more claimable terms together as a flat list ("team management,
+  mentoring, cross-functional collaboration, engineering standards..."). Fold at most one or
+  two terms per sentence into a concrete, specific statement of what was actually built,
+  owned, or delegated — a term that does not fit a specific sentence this way is better left
+  qualitative, or for the next round's grounding waiver, than jammed into a list.
 - NEVER DEMOTE A SCOPED CLAIM TO A BARE DENIAL (#270): when the CANDIDATE SOURCE names a
   SCOPED BOUNDARY for a concept (``positioning_requested.scoped_boundaries``, or a
   CROSS-DOCUMENT CONSISTENCY CHECK finding) — the vault holding BOTH a positive contribution

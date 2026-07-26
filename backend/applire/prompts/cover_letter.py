@@ -73,6 +73,15 @@ Rules:
   Never invent a number, team size, budget, or metric to make a claimable term land — if the
   evidence given carries no figure, surface the term qualitatively; a minted figure is a
   fabrication like any other (US264/#255).
+  SPECIFICITY OUTRANKS COVERAGE TOO (#282 — two blind hiring-panel reviewers independently
+  flagged a paragraph that rendered the claimable half of the ledger as a flat enumerated
+  list: "team management, mentoring, cross-functional collaboration, engineering standards,
+  technical best practices, and production ownership"): never chase a coverage count by
+  stringing three or more claimable terms together as a bare list. Fold at most one or two
+  terms per sentence into a concrete, specific statement of what was actually built, owned,
+  or delegated — the same level of specificity the rest of the letter uses. A claimable term
+  that cannot be folded into a specific sentence this way is better surfaced qualitatively in
+  a later sentence, or left for the reviewer's grounding waiver, than jammed into a list.
 - CLAIM FRAMING (the why-me / achievements paragraph is where fabrication creeps in — this is
   the cover-letter equivalent of the CV's keyword-gap rule):
   You may assert a competency, skill, tool, domain, or "track record" ONLY where it traces to a
@@ -90,6 +99,19 @@ Rules:
   and (b) inside the HONEST GAP / TRANSFER ARGUMENT paragraph (see POSITIONING below), where
   naming the term as an absence you do NOT have — before pivoting to real, grounded experience
   — is honesty, not a claim.
+- POSITION ANCHORING (#283 — a downstream truthfulness guard silently strips an unattributable
+  figure): whenever a sentence states an achievement, responsibility, or figure/metric that
+  belongs to ONE specific employer or position — not something true of the candidate
+  everywhere — name that employer within the SAME sentence, e.g. "At BioNTech, I delivered
+  the QC LIMS implementation in 7 months across 3 sites", never a later, unattributed sentence
+  like "...and delivered record-breaking projects ... in 7 months across 3 sites" with the
+  employer left to an earlier sentence or paragraph to imply. This matters most in a paragraph
+  that draws on more than one role or blends content from different positions: never fold a
+  position-owned achievement into a general leadership/summary sentence that itself names no
+  employer. An unanchored figure does not stay in the letter — it is silently dropped by a
+  deterministic guard before the letter is sent, which only makes the claim vaguer and weaker
+  ("in months across sites"), never safer. Anchor it correctly instead of letting it go
+  unattributed.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
@@ -461,6 +483,12 @@ def build_condense_prompt(
         "- The company/domain engagement: any concrete reference to this employer or "
         "its domain, not a generic sentence that could apply to any company.",
         "- The availability / notice-period line, if present.",
+        "- Every employer anchor attached to a position-owned achievement or figure "
+        "(e.g. \"At BioNTech,\") — never compress a sentence in a way that drops the "
+        "employer name while keeping the achievement or figure. An unanchored figure "
+        "is silently stripped by a downstream guard, which makes the letter vaguer, "
+        "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
+        "sentence as the achievement/figure it belongs to.",
         "If the budget is tight, compress each of these to its shortest honest form — "
         "do not delete any of them outright to make the count.",
         "",
