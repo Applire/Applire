@@ -250,6 +250,84 @@ def _strip_formula_prefix(text: str) -> str:
     return text
 
 
+# ── #282 (wave 7) — honest gap disclaimer classification ────────────────────
+# A PURE denial or third-party delegation clause ("I have not configured X
+# myself"; "X was handled by our system engineer") has no positive claim to
+# ground — the vault holds no "evidence of absence". Marker list mirrors
+# ``choice_grounding.py``'s ``_HONESTY_MARKERS`` in SPIRIT (same "name the
+# denied term, don't claim it" shape), but is an independent copy: that
+# module classifies interview STARTING-POINT CHIPS (a different document
+# shape and marker set — "closest experience", no delegation phrasing at
+# all), and oracle/extract.py already keeps its own independent copies of
+# nearby primitives (module docstring, ``_core_company_name``) for the same
+# one-way-dependency reason. Deliberately EN+DE, matching every other
+# classifier in this module.
+_DENIAL_MARKERS: tuple[str, ...] = (
+    # EN — first-person negation
+    "have not", "haven't", "has not", "hasn't", "had not", "hadn't",
+    "do not have", "don't have", "does not have", "doesn't have",
+    "did not", "didn't",
+    "nor have i", "nor did i", "nor do i", "nor has",
+    "i lack", "lacking direct", "lacks direct",
+    "never worked", "never configured", "never led", "never managed",
+    "never set up",
+    "no direct experience", "not directly",
+    # EN — third-party delegation ("X was handled by someone else")
+    "was handled by", "were handled by", "is handled by", "are handled by",
+    "handled by our", "handled by the", "handled by a",
+    "was managed by", "were managed by", "was owned by", "were owned by",
+    # DE
+    "habe ich nicht", "hatte ich nicht", "keine direkte erfahrung",
+    "keine eigene erfahrung", "noch nie", "noch keine",
+    "wurde von", "wurde durch", "wurden von", "wurden durch",
+    "fehlt mir", "mir fehlt",
+)
+
+# A clause/comma-segment that STARTS with (an optional pivot word, then) a
+# first-person subject pronoun is a fresh, independent clause riding along
+# with the denial — the #207/#278 "attribute a negation to its own clause,
+# never a co-occurring sibling" lesson. Matched against a segment that does
+# NOT itself carry a denial marker (see ``_is_pure_denial_clause`` below) —
+# the denial clause's OWN leading pronoun ("I have not configured...") must
+# never be mistaken for a smuggled sibling.
+_DENIAL_PIVOT_THEN_PRONOUN_RE = re.compile(
+    r"^\s*(?:though|but|however|yet|still|nevertheless|nonetheless|while|"
+    r"aber|dennoch|jedoch|allerdings)?\s*"
+    r"(?:i|ich|we|wir)\b",
+    re.IGNORECASE,
+)
+
+_DENIAL_SEGMENT_SPLIT_RE = re.compile(r"[;,]\s+")
+
+
+def _is_pure_denial_clause(text: str) -> bool:
+    """True when ``text`` is ENTIRELY a denial/delegation statement — no
+    smuggled positive claim riding along in the same clause (#282).
+
+    Conservative by construction, mirroring ``_is_pure_formula_clause``'s
+    shape: the clause must name at least one denial marker at all, AND none
+    of its comma/semicolon-delimited segments may look like an independent,
+    non-negated first-person clause. A segment that itself carries a denial
+    marker is never treated as smuggled — including the denial's own
+    leading "I" ("I have not configured embedding models" is one segment,
+    not two). When in doubt this returns ``False`` (stay gradeable) — a
+    false ``not_applicable`` is a hole in the Oracle; a false
+    ``unverifiable`` is merely noise.
+    """
+    normalized = _normalize_punct(text).lower()
+    if not any(marker in normalized for marker in _DENIAL_MARKERS):
+        return False
+    for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized):
+        segment = segment.strip()
+        if not segment:
+            continue
+        if any(marker in segment for marker in _DENIAL_MARKERS):
+            continue
+        if _DENIAL_PIVOT_THEN_PRONOUN_RE.match(segment):
+            return False
+    return True
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it
@@ -672,10 +750,14 @@ def extract_claims_from_letter(
             sentence_is_employer_fact = not sentence_has_first_person and (
                 _mentions_company(sentence, recipient_company) or in_employer_fact_run
             )
-            in_employer_fact_run = sentence_is_employer_fact
             clauses = split_clauses(sentence)
             base = f"body.paragraphs[{pi}][{si}]"
             multi = len(clauses) > 1
+            # #282 (wave 7): the run carry, like the anchor carry, reflects
+            # this sentence's OWN tail state for the NEXT sentence — updated
+            # below as clauses are processed, defaulting to the sentence-
+            # level determination when every clause is filtered out.
+            run_state_for_next_sentence = sentence_is_employer_fact
             for ci, clause in enumerate(clauses):
                 if len(clause) < _MIN_CLAIM_CHARS:
                     continue
@@ -695,20 +777,53 @@ def extract_claims_from_letter(
                 clause_is_employer_fact = sentence_is_employer_fact and not (
                     multi and _FIRST_PERSON_RE.search(clause)
                 )
-                # #237 round-3: trim a recognized courtesy PREFIX (anchor/
-                # employer-fact detection above already ran against the
-                # FULL, untrimmed clause — only the stored claim TEXT
-                # changes here).
+                # #237 round-3: trim a recognized courtesy PREFIX (anchor
+                # detection above already ran against the FULL, untrimmed
+                # clause — the stored claim TEXT changes here).
+                final_text = _strip_formula_prefix(clause)
+                # #282 (wave 7): a courtesy PREFIX fused with a company-
+                # descriptive tail in ONE unsplit sentence ("I am writing to
+                # express my interest in X, a company whose platform serves
+                # customers.") wrongly failed the employer-fact check above
+                # — the "I" that disqualifies it lives entirely in the
+                # PREFIX that was just stripped away, not in the RETAINED
+                # claim text shown to the user. Re-classify against that
+                # retained text whenever a prefix was actually removed and
+                # the remainder itself carries no first-person pronoun of
+                # its own — narrower than the general check above, so every
+                # other path (no prefix stripped, or the remainder keeps its
+                # own "I") is unaffected.
+                if final_text != clause and not _FIRST_PERSON_RE.search(final_text):
+                    # The company mention itself may have lived INSIDE the
+                    # discarded prefix ("...interest in the ... position at
+                    # Connect-AI, a company whose platform..." -> only
+                    # "platform..." survives as the stored claim text, but
+                    # "Connect-AI" was real signal in the trimmed part) — so
+                    # check the ORIGINAL, pre-strip clause for the mention;
+                    # the retained remainder's own first-person-freedom
+                    # (checked above) is what actually gates this override.
+                    clause_is_employer_fact = (
+                        _mentions_company(clause, recipient_company)
+                        or in_employer_fact_run
+                    )
+                run_state_for_next_sentence = clause_is_employer_fact
+                # #282 (wave 7): honest gap disclaimer / third-party
+                # delegation — classified against the same RETAINED text
+                # (never the pre-strip clause, for the identical reason as
+                # the employer-fact re-check just above).
+                clause_is_denial = _is_pure_denial_clause(final_text)
                 claims.append(
                     Claim(
-                        text=_strip_formula_prefix(clause),
+                        text=final_text,
                         location=f"{base}.clauses[{ci}]" if multi else base,
                         kind="clause" if multi else "sentence",
                         source_experience_id=clause_anchor,
                         sentence_named_ids=sentence_named,
                         is_employer_fact=clause_is_employer_fact,
+                        is_denial=clause_is_denial,
                     )
                 )
+            in_employer_fact_run = run_state_for_next_sentence
     return claims
 
 
