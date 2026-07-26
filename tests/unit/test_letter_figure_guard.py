@@ -232,6 +232,110 @@ def test_unanchored_clause_dropped_when_letter_names_two_employers_and_neither_c
     assert "5+" not in body_text
 
 
+# ── #283 shape: multi-employer letter, achievement paragraph unanchored ─────
+# Invented fixture mirroring the run-6 ground truth (BioNTech "record-breaking
+# QC LIMS implementation, 7 months, 3 sites" — belongs to an OLDER position at
+# the SAME employer the letter names in a DIFFERENT paragraph; the letter
+# separately names a second, unrelated employer too, so the "letter names
+# exactly one employer" escape can never fire).
+MULTI_ROLE_PROFILE = {
+    "personal_info": {"name": "Jordan Lee"},
+    "work_experience": [
+        {
+            "id": "w-northwind-current",
+            "company": "Northwind Labs",
+            "role": "Director of Platform Engineering",
+            "is_current": True,
+            "achievements": ["Set strategic direction for the platform org."],
+        },
+        {
+            "id": "w-northwind-past",
+            "company": "Northwind Labs",
+            "role": "Systems Architect",
+            "is_current": False,
+            "achievements": [
+                "Led a record-breaking LIMS rollout (7 months, 3 sites) as "
+                "solution architect.",
+            ],
+        },
+        {
+            "id": "w-founder",
+            "company": "Riverstone",
+            "role": "Founder",
+            "achievements": ["Built an open-source developer platform."],
+        },
+    ],
+}
+
+
+def test_unanchored_achievement_paragraph_drops_the_figures_pinned_shape():
+    """The pinned #283 defect, reproduced with invented data: paragraph 2
+    names Northwind Labs; paragraph 3 carries the LIMS achievement but names
+    NO employer of its own, and the letter separately names a second employer
+    (Riverstone) — so neither the sentence anchor nor the whole-letter
+    single-employer escape can resolve ownership, and the figures are
+    dropped. This is the guard working AS INTENDED — the fix belongs in the
+    letter's anchoring (prompt level), not in relaxing this guard."""
+    letter = _letter(
+        [
+            "At Northwind Labs, I currently serve as Director of Platform "
+            "Engineering.",
+            "My technical leadership spans strategic direction, and I have "
+            "delivered record-breaking projects like the LIMS rollout in 7 "
+            "months across 3 sites while working fully remote.",
+            "As founder of Riverstone, I also built an open-source developer "
+            "platform.",
+        ]
+    )
+    result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "7 months" not in body_text
+    assert "3 sites" not in body_text
+    # the clause survives, figure-free — never deleted wholesale
+    assert "delivered record-breaking projects" in body_text
+
+
+def test_same_sentence_anchor_lets_the_figures_survive():
+    """The fix target: when the achievement-bearing SENTENCE ITSELF names the
+    employer (not just an earlier paragraph), the figures survive — this is
+    what the prompt-level anchoring requirement asks the writer/corrector to
+    produce. Restoring '7 months across 3 sites' WITH the correct anchor,
+    never a bare unattributed figure."""
+    letter = _letter(
+        [
+            "At Northwind Labs, I currently serve as Director of Platform "
+            "Engineering.",
+            "At Northwind Labs, I also delivered record-breaking projects "
+            "like the LIMS rollout in 7 months across 3 sites while working "
+            "fully remote.",
+            "As founder of Riverstone, I also built an open-source developer "
+            "platform.",
+        ]
+    )
+    result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "7 months" in body_text
+    assert "3 sites" in body_text
+
+
+def test_cross_role_borrowed_figure_still_dropped_even_when_anchored_elsewhere():
+    """Guard against #254 regression: an anchor naming the WRONG employer must
+    never launder a figure that genuinely belongs to a different one. The
+    LIMS figures belong to Northwind Labs, not Riverstone — anchoring the
+    sentence to Riverstone must still strip them."""
+    letter = _letter(
+        [
+            "As founder of Riverstone, I delivered record-breaking projects "
+            "like the LIMS rollout in 7 months across 3 sites while working "
+            "fully remote.",
+        ]
+    )
+    result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "7 months" not in body_text
+    assert "3 sites" not in body_text
+
+
 # ── no-op path ────────────────────────────────────────────────────────────
 
 def test_letter_with_no_figures_is_returned_unchanged_object():
