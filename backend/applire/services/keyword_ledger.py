@@ -645,6 +645,110 @@ def upgrade_ledger_for_concepts(
     return new_ledger, changed
 
 
+def reevaluate_gap_ledger_against_vault(
+    keyword_ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Deterministically re-check every still-open (``status == "gap"``,
+    ``claimable`` False) ledger entry against the CURRENT vault (#274/#284/
+    #273, PO reframing 2026-07-26).
+
+    A requirement's status must reflect whether the VAULT answers it, not
+    whether one particular interview turn happened to write something.
+    ``upgrade_ledger_for_concepts`` (#188) already covers the "this turn
+    addressed it" case; this covers every OTHER door the evidence could have
+    arrived through — CV import, testimony intake, an earlier interview
+    session, ``submit_claims`` (agent_bridge.py) — none of which run the
+    interview's own addressed-gate.
+
+    Reuses the two instruments this touches ALWAYS have to agree with:
+
+    * :func:`applire.services.ats_audit.surface_present` — THE shared
+      presence predicate (#122, US212). The loop that grades a document
+      (the ATS panel, :func:`verified_missing_claimable`) and the loop that
+      heals a ledger entry here must never disagree on "present".
+    * :func:`upgrade_ledger_for_concepts` — the ONE write path (#188) that
+      flips a ledger entry to claimable. This function only decides WHICH
+      concepts qualify and what real evidence to cite; it never duplicates
+      the flip logic itself.
+
+    Truthfulness floor (ADR-059): a concept the candidate explicitly denied
+    (``ProfileMetadata.denied_concepts``) is NEVER upgraded, however the
+    vault or the denial's own statement phrases it. The presence corpus is
+    built from :func:`profile_literal_corpus`'s own flattening
+    (``_strip_denial_text`` + ``_draft_strings``) — denial-testimony text is
+    stripped BEFORE flattening, so a denial's own receipt can never satisfy
+    this presence check and defeat the floor it is supposed to respect (the
+    same class of trap ``_enforce_denial_stance``/``profile_literal_corpus``
+    already close for the classifier's adjacency inference — see that
+    docstring). ``is_denied_concept`` is checked independently as a second,
+    belt-and-braces floor on top of the stripped corpus.
+
+    Conservative by construction (at least as conservative as #188):
+
+    * only ``status == "gap"`` entries are eligible — a ``partial`` entry is
+      already claimable and stays exactly as classified; this function never
+      upgrades partial evidence to "fully answered" on a bare substring hit,
+      which would be LESS conservative than the original LLM classification
+      that assigned "partial" rather than "direct" in the first place;
+    * a concept only upgrades when a REAL vault text node contains a surface
+      form (the node itself becomes the ``evidence`` — never a synthesized
+      marker, never fabricated);
+    * an entry with no concept, or whose forms match nothing in the corpus,
+      passes through untouched (fail-closed — never invents evidence).
+
+    Deterministic, no LLM call. Pure; tolerant of ``None``/empty.
+    """
+    if not keyword_ledger:
+        return list(keyword_ledger or []), False
+
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.ats_audit import surface_present
+
+    stripped_profile = _strip_denial_text(profile_json or {})
+    strings = [s for s in _draft_strings(stripped_profile) if s and s.strip()]
+    corpus = ats_norm(" ".join(strings))
+
+    denials = [
+        d.get("concept", "")
+        for d in (((profile_json or {}).get("metadata") or {}).get("denied_concepts") or [])
+        if isinstance(d, dict) and _norm(d.get("concept", ""))
+    ]
+
+    ledger = list(keyword_ledger)
+    changed = False
+    for entry in keyword_ledger:
+        if entry.get("claimable") or entry.get("status") != "gap":
+            continue
+        concept = entry.get("concept", "")
+        if not _norm(concept):
+            continue
+        forms = [f for f in (entry.get("surface_forms") or [concept]) if f]
+        probes = list(dict.fromkeys(forms + [concept]))  # dedupe, keep order
+
+        # ADR-059 floor: never upgrade a denied concept, however the vault or
+        # its own denial statement phrases it (corpus already denial-stripped
+        # above — this is the belt-and-braces second check).
+        if denials and any(is_denied_concept(p, denials, corpus) for p in probes):
+            continue
+
+        if not any(surface_present(p, corpus) for p in probes):
+            continue
+
+        # Cite the REAL vault text node the form was actually found in —
+        # never a synthesized marker.
+        evidence = next(
+            (s for p in probes for s in strings if surface_present(p, ats_norm(s))),
+            None,
+        )
+        if not evidence:
+            continue  # presence only at a join seam between two strings — fail closed
+
+        ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
+        changed = changed or did_change
+    return ledger, changed
+
+
 # ── #260 — pre-generation keyword-liability check ───────────────────────────
 # The inverse of #250 (which drops a JD-echo skill TAG with no vault tie at
 # all): here the concept genuinely clears the ledger's OWN claimable

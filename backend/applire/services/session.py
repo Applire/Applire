@@ -69,11 +69,15 @@ from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview.sufficiency import is_interview_sufficient
 from applire.services.interview_quant import should_ask_availability
-from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+from applire.services.keyword_ledger import (
+    reevaluate_gap_ledger_against_vault,
+    upgrade_ledger_for_concepts,
+)
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
     build_gate_clusters,
+    filter_answered_concepts,
     gap_detector,
     gap_detector_mode_b,
     interpret_conflict_answer,
@@ -969,11 +973,34 @@ async def _create_targeted_session(
         )
         gap_analysis = ga_result2.scalar_one()
 
+    # #274/#284/#273 (PO reframing 2026-07-26) — before building the question
+    # plan, re-check every still-open ledger entry against the CURRENT vault:
+    # evidence may have arrived through a door other than THIS turn (CV
+    # import, testimony intake, an earlier session, submit_claims) and #188's
+    # addressed-gate only ever fires for the turn that wrote it. Deterministic,
+    # no LLM call; reassign the whole attribute (plain _JSON column, not a
+    # MutableList — mirrors the #188 JSONB-tracking gotcha at line ~1371).
+    new_ledger, ledger_changed = reevaluate_gap_ledger_against_vault(
+        gap_analysis.keyword_ledger, profile_record.profile_json
+    )
+    if ledger_changed:
+        gap_analysis.keyword_ledger = new_ledger
+
     # #259 — pass the profile so gap_detector can promote a JD-required
     # keyword-only/unquantified concept ahead of nice-to-have breadth within
     # its C/B bucket (services/interview/sufficiency.cluster_needs_priority).
     cluster_ids, cluster_categories, clusters_by_id = gap_detector(
         gap_analysis, profile=profile_record.profile_json
+    )
+
+    # #273/#284 — gap_analysis.gap_clusters is a clustering-LLM snapshot that
+    # is never recomputed when the ledger is later upgraded (through the
+    # reevaluation just above, THIS session's own #188 write path on a
+    # resumed session, or submit_claims). Drop/narrow any cluster whose
+    # concepts the ledger now shows as genuinely "direct" — never re-ask a
+    # requirement the vault already answers.
+    cluster_ids, cluster_categories, clusters_by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, gap_analysis.keyword_ledger
     )
 
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
