@@ -17,9 +17,14 @@ returns a typed, receipt-carrying report. Verdict taxonomy v1 (ADR-052 §3):
                        not the candidate (e.g. a JD-sourced fact about the
                        recipient company) — structurally outside the vault's
                        domain (a different reviewer, ADR-021, validates these
-                       against the JD). Extracted and shown, never silently
-                       dropped, but excluded from the ``unverifiable_dominated``
-                       denominator — see ``TruthfulnessReport.from_results``.
+                       against the JD). Also (#282, wave 7) a PURE denial or
+                       third-party delegation ("I have not configured X
+                       myself") — a negative statement with no positive claim
+                       to ground, never a false-negative "unbacked" reading of
+                       an honest disclosure. Extracted and shown, never
+                       silently dropped, but excluded from the
+                       ``unverifiable_dominated`` denominator — see
+                       ``TruthfulnessReport.from_results``.
 """
 from __future__ import annotations
 
@@ -115,6 +120,20 @@ class Claim(BaseModel):
     # ``verify_claim`` short-circuits these to ``not_applicable`` before any
     # vault-grounding attempt; always ``False`` for non-letter callers.
     is_employer_fact: bool = False
+    # #282 (wave 7): True when this clause/sentence is a PURE denial or
+    # third-party delegation ("I have not configured X myself"; "X was
+    # handled by our system engineer") with NO positive claim of its own —
+    # the vault holds no "evidence of absence", so these can never verdict
+    # ``grounded`` and must not count toward ``unverifiable_dominated``
+    # either. See ``extract.extract_claims_from_letter``'s denial
+    # classification (``_is_pure_denial_clause``). Conservative by
+    # construction: a clause that denies one thing but ALSO smuggles a real
+    # positive claim ("I have not led AI teams, though I effectively ran the
+    # ML org") stays ``False`` — the #207/#278 lesson, over-fire is as
+    # damaging as under-fire. ``verify_claim`` short-circuits a ``True``
+    # claim to ``not_applicable`` exactly like ``is_employer_fact``; always
+    # ``False`` for non-letter callers.
+    is_denial: bool = False
 
 
 class ClaimVerdict(BaseModel):

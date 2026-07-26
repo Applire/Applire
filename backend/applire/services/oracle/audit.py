@@ -426,6 +426,25 @@ async def verify_claim(
             ),
         )
 
+    # ── honest gap disclaimers (#282, wave 7): no positive claim to ground ──
+    # A pure denial or third-party delegation ("I have not configured X
+    # myself"; "X was handled by our system engineer") asserts nothing about
+    # the candidate that the vault could ever confirm — there is no
+    # "evidence of absence" to trace to. Grading it ``unverifiable`` would
+    # score the more honest letter WORSE. See extract.py's
+    # ``_is_pure_denial_clause`` for the classification (conservative:
+    # never fires when the clause smuggles a real positive claim alongside
+    # the denial).
+    if claim.is_denial:
+        return ClaimVerdict(
+            verdict="not_applicable",
+            checker="extraction",
+            detail=(
+                "Honest denial or third-party delegation — no positive "
+                "claim about the candidate to verify against the vault."
+            ),
+        )
+
     # ── skills: shared-predicate grounding, deterministic either way ────────
     if claim.kind == "skill":
         unit = ground_skill_claim(claim.text, idx)
