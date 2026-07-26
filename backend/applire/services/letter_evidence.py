@@ -56,6 +56,23 @@ vault dump:
    reintroduces the "naked target next to its own outcome" shape #261 fixed
    on the CV side. Reused, not reimplemented, per the issue brief.
 
+   MEASURED-OUTCOME QUALIFIER (rule 2, run-6 follow-up): an anchor need not
+   itself read as a target to have its claim MADE CREDIBLE by a same-owner
+   measured result — a "pioneered X" responsibility is not aspirational
+   language, but the work entry can separately carry a bare headline figure
+   AND that figure's own measured justification. When the swap above does
+   NOT fire (the anchor is not itself a target phrase),
+   ``find_paired_outcome`` is tried anyway against the anchor's own text; a
+   genuine pairing is added immediately after the anchor, in the SAME
+   ledger-order slot, rather than left to the same-initiative scan below —
+   ground truth (run-6, verified against the real dev-DB vault/log,
+   2026-07-26): left to the same-initiative scan alone, this fact only
+   competes in path-sort order against every other figure-bearing sibling
+   and every other concept's own anchor, so it — not the bare headline
+   figure it explains — was the one silently lost to the shared cap. Both
+   run-4 blind panel reviewers named exactly this fact as the invite-
+   flipping evidence.
+
    SAME-INITIATIVE EXTENSION: a concept anchor only proves ONE sentence of
    an initiative is JD-relevant; the initiative's OTHER quantified evidence —
    still owned by the SAME work/project entry
@@ -63,15 +80,14 @@ vault dump:
    attribution machinery, unchanged) and carrying a concrete
    ``EvidenceUnit.figures`` entry — is "vault evidence that supports" the
    claimable concept in the broader sense rule 1 asks for, even when its own
-   text does not literally contain the concept's surface form (this is
-   exactly how ``achievements[3]`` above reaches the digest: it shares an
-   owner and an initiative with the "RAG pipelines"/"retrieval systems"/"AI
-   evaluation" ledger concepts' own anchors, but its own sentence never says
-   any of those words). The same-initiative scan is ALSO filtered through
-   ``is_target_phrase`` — a bare target-phrased sentence must never surface
-   via this extension either; if it has a genuine measured pair, that pair
-   independently qualifies as its own figure-bearing, non-target candidate
-   in the very same scan.
+   text does not literally contain the concept's surface form. The
+   same-initiative scan is ALSO filtered through ``is_target_phrase`` — a
+   bare target-phrased sentence must never surface via this extension
+   either; if it has a genuine measured pair, that pair independently
+   qualifies as its own figure-bearing, non-target candidate in the very
+   same scan (or, when it is itself the pairing for a NON-target anchor, it
+   is already selected by the qualifier rule above and skipped here as a
+   duplicate).
 
 3. LEADERSHIP ELIGIBILITY (rule 3) — gated on the JD excerpt itself stating a
    leadership weighting or leadership responsibilities (a fixed marker-word
@@ -249,6 +265,52 @@ def select_letter_evidence(
             continue
         selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path, text=anchor.text))
         selected_paths.add(anchor.path)
+
+        # #271 run-6 follow-up — MEASURED-OUTCOME QUALIFIER, placed
+        # immediately after its own anchor (never deferred to the separate
+        # same-initiative pass below): an anchor that does NOT itself read
+        # as a target (the swap above did not fire, reason is still
+        # "claimable-concept") can still have its own claim MADE CREDIBLE by
+        # a same-owner measured result elsewhere in the vault — exactly the
+        # run-6 shape (ground truth, verified against the real dev-DB vault/
+        # log 2026-07-26): a "pioneered X" responsibility whose work entry
+        # separately carries a bare headline figure AND that figure's
+        # measured justification. The same-initiative extension (below)
+        # WOULD eventually find this same unit too, but only in path-sort
+        # order alongside every other figure-bearing sibling and behind
+        # every other claimable concept's own anchor — under the shared
+        # global cap, that is what let the bare headline outlive the fact
+        # that justifies it. Anchoring the qualifier to ITS OWN concept's
+        # ledger-order slot (like the anchor itself) gives it the same
+        # priority protection the anchor already has.
+        #
+        # ``find_paired_outcome`` reused verbatim (#261's own pairing
+        # function — owner-scoped, token-overlap-gated, fails closed to
+        # ``None``) is not guaranteed to exclude the anchor's OWN unit from
+        # its candidate search when the anchor itself lives at an
+        # ``achievements[]``/``.outcome`` path (a legitimate "outcome
+        # candidate" path) — a self-match there would return the anchor
+        # unchanged. The explicit path check below is required, not
+        # decorative: self-matching anchors are exactly the case the
+        # existing same-initiative extension already covers unaided, so
+        # skipping them here causes no loss of coverage.
+        if reason == "claimable-concept" and anchor.owner_ids:
+            qualifier = find_paired_outcome(anchor.text, anchor.owner_ids, index.units)
+            if (
+                qualifier is not None
+                and qualifier.path != anchor.path
+                and qualifier.path not in selected_paths
+                and not is_target_phrase(qualifier.text)
+            ):
+                selected.append(
+                    EvidenceDigestItem(
+                        concept=concept,
+                        reason="measured-outcome-qualifier",
+                        path=qualifier.path,
+                        text=qualifier.text,
+                    )
+                )
+                selected_paths.add(qualifier.path)
 
     # ── Channel 2 (extension): same-initiative quantified evidence ─────────
     # A concept anchor proves one sentence of an initiative is JD-relevant;
