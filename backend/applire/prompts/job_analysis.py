@@ -17,7 +17,7 @@
 
 # Prompt version: v4 (Wave-6 JD-prompt shape fix: required_skills/nice_to_have_skills/
 # keywords stated as a controlled vocabulary of concept terms, never sentences —
-# pinned failure: .run5fixture/jd_chain.jsonl, Connect-AI posting, 2026-07-26)
+# pinned failure: .run5fixture/jd_chain.jsonl, charter run #6, 2026-07-26)
 # Used by: services/job.py → LLMProvider.aparse_json
 
 SYSTEM_PROMPT = """\
