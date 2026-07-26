@@ -113,6 +113,20 @@ Rules:
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
     address availability/commitment using ONLY that testimony, grounded verbatim. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
+- SCOPED BOUNDARIES (#270): when a SCOPED BOUNDARIES block appears in the user message, the
+  vault holds BOTH a positive contribution AND an explicit candidate-stated limit for that
+  concept — it is CLAIMABLE, never a do-not-claim gap, and it must NEVER be placed in the
+  honest-gap/transfer-argument paragraph. Render the SCOPED claim naming both halves (the
+  positive contribution AND the stated limit), grounded verbatim in the text given; never
+  reduce it to a bare denial that discards the positive half, and never an unqualified claim
+  that ignores the limit.
+- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
+  job-description concept the candidate's own material does not evidence (an honest gap),
+  choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
+  transfer argument (the HONEST GAP / TRANSFER ARGUMENT paragraph above), or a brief, honest
+  de-emphasis that names the gap without dwelling on it. Silence is never one of the options
+  for a hard requirement. Fold whichever response applies into the SAME single honest-gap
+  paragraph — never a litany of separate gap admissions.
 """
 
 
@@ -128,6 +142,8 @@ def build_cover_letter_prompt(
     company_name: str | None = None,
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
+    scoped_boundary_block: str | None = None,
+    unaddressed_requirements_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -168,6 +184,16 @@ def build_cover_letter_prompt(
         BOTH the deterministic concurrent-roles detector fired AND matching testimony exists
         in the vault (:func:`applire.services.cover_letter_positioning`); otherwise None, and
         no availability/commitment claim beyond PRE-GENERATION INPUTS is made.
+    scoped_boundary_block: rendered SCOPED BOUNDARIES text (#270,
+        :func:`applire.services.cross_document.render_scoped_boundary_block`) — claimable
+        ledger concepts the vault also states an explicit limit on. Optional so legacy/
+        degraded callers do not break; omitted/empty → adds nothing.
+    unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
+        :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
+        called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
+        honest gaps the first draft must give an explicit positioning decision to (a
+        transfer argument or a brief de-emphasis), never silence. Optional so legacy/
+        degraded callers do not break; omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -264,6 +290,20 @@ def build_cover_letter_prompt(
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     if ledger_block:
         lines += ["", ledger_block]
+
+    # #270 (Fix D): scoped-boundary concepts — the vault holds BOTH a positive
+    # contribution and an explicit stated limit. Threaded ONLY when genuinely found
+    # (services.cross_document.find_scoped_boundaries); absent → adds nothing.
+    if scoped_boundary_block:
+        lines += ["", scoped_boundary_block]
+
+    # #270(c): unmet JD hard requirements (claimable: false, "required") that
+    # need an explicit positioning decision (transfer argument or a brief,
+    # honest de-emphasis) — never silence. Threaded ONLY when genuinely found
+    # (services.cross_document.find_unaddressed_hard_requirements); absent →
+    # adds nothing.
+    if unaddressed_requirements_block:
+        lines += ["", unaddressed_requirements_block]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #2 blocker — the letter never
     # argued the candidate's OWN transfer story for the one true (Category C) gap, even

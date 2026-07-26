@@ -632,11 +632,23 @@ async def _render_cover_letter_background(
                 find_gap_testimony,
             )
             from applire.services.gap import askable_gap_inputs
+            from applire.services.cross_document import exclude_claimable_concepts
 
             profile_json = profile.profile_json if profile is not None else {}
             signature_stories = profile_json.get("signature_stories") or []
+            # #270 Fix A (the run-5 regression): askable_gap_inputs() deliberately
+            # folds #260 keyword LIABILITIES (claimable, required, no narrative
+            # depth) into the clusterable gap list so they stay reachable via
+            # resolve_gap — correct for clustering, but a CLAIMABLE concept must
+            # never be positioned as THIS letter's honest gap (the ledger already
+            # says the vault positively supports it). Filter at this call site
+            # only; askable_gap_inputs itself is untouched (other callers depend
+            # on the #260 fold).
             gap_testimony = (
-                find_gap_testimony(askable_gap_inputs(gap), signature_stories)
+                find_gap_testimony(
+                    exclude_claimable_concepts(askable_gap_inputs(gap), keyword_ledger),
+                    signature_stories,
+                )
                 if gap is not None
                 else None
             )
@@ -664,6 +676,35 @@ async def _render_cover_letter_background(
                         cl_id,
                     )
 
+            # #270 Fix B/D: SCOPED BOUNDARIES — a claimable ledger concept the vault
+            # ALSO carries an explicit candidate-stated limit for (ADR-059 denial floor
+            # + a textually-related persisted denial). Deterministic, no LLM. Threaded
+            # into the writer prompt (below) AND positioning_requested (so the
+            # reviewer/corrector never mistake it for a DO-NOT-CLAIM concept and never
+            # instruct the writer to name it as an absence — the exact run-5 defect).
+            from applire.services.cross_document import (
+                find_scoped_boundaries,
+                find_unaddressed_hard_requirements,
+                render_scoped_boundary_block,
+                render_unaddressed_hard_requirements_block,
+                unaddressed_hard_requirements_positioning,
+            )
+            denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
+            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
+            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+
+            # #270(c): unmet JD hard requirements (claimable: false, required) that need
+            # an explicit positioning decision. Computed with letter_data=None — no draft
+            # exists yet, so every required honest gap is trivially "unaddressed" and the
+            # FIRST draft gets a chance to address it (never relies solely on the
+            # gap-transfer-argument slot above, which only fires when a signature story
+            # happens to token-overlap the gap label — this is the deterministic
+            # backstop for when it does not).
+            unaddressed_requirements = find_unaddressed_hard_requirements(keyword_ledger, None)
+            unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
+                unaddressed_requirements
+            )
+
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
             # received all three POSITIONING blocks (and engaged the domain) but the
             # ADR-021 reviewer/corrector loop never did — so it could not tell a legitimate,
@@ -673,6 +714,29 @@ async def _render_cover_letter_background(
             # and thread it into grounding_source below, so every review_and_refine call in
             # this render (including the condense pass) carries it too.
             positioning_requested: dict = {}
+            if scoped_boundaries:
+                positioning_requested["scoped_boundaries"] = {
+                    "boundaries": [
+                        {
+                            "concept": b.concept,
+                            "evidence": b.evidence,
+                            "limit": b.denial_statement or b.denial_concept,
+                        }
+                        for b in scoped_boundaries
+                    ],
+                    "instruction": (
+                        "For each concept above, the vault holds BOTH a positive "
+                        "contribution AND an explicit candidate-stated limit. These "
+                        "concepts are CLAIMABLE, never a do-not-claim gap. Render the "
+                        "SCOPED claim naming both halves — never a bare denial that "
+                        "discards the positive half, and never an unqualified claim "
+                        "that ignores the limit."
+                    ),
+                }
+            if unaddressed_requirements:
+                positioning_requested["unaddressed_hard_requirements"] = (
+                    unaddressed_hard_requirements_positioning(unaddressed_requirements)
+                )
             if job.company_name:
                 positioning_requested["company_domain_engagement"] = {
                     "target_company": job.company_name,
@@ -735,6 +799,8 @@ async def _render_cover_letter_background(
                 company_name=job.company_name,
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
+                scoped_boundary_block=scoped_boundary_block,
+                unaddressed_requirements_block=unaddressed_requirements_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -783,14 +849,24 @@ async def _render_cover_letter_background(
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
+            # #270 Fix D: compose (never replace) coverage_reviewer_prompt_fn with a
+            # SECOND deterministic wrapper — each reviewer iteration also carries the
+            # CURRENT draft's cross-document conflicts (bare-denial-of-claimable /
+            # assert-vs-deny against cv_data), recomputed fresh every pass exactly like
+            # the verified-coverage check above. No new LLM pass, no new loop.
+            from applire.services.cross_document import cross_document_reviewer_prompt_fn
+            reviewer_prompt_fn = cross_document_reviewer_prompt_fn(
+                coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
+                cv_data=cv_data,
+                keyword_ledger=keyword_ledger,
+                denied_concepts=denied_concepts,
+            )
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
                 generator_prompt_fn=build_retry_prompt,
                 generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    build_review_prompt, keyword_ledger
-                ),
+                reviewer_prompt_fn=reviewer_prompt_fn,
                 reviewer_system=REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
@@ -890,14 +966,15 @@ async def _render_cover_letter_background(
                             system=SYSTEM_PROMPT,
                             max_tokens=CV_GENERATION_MAX_TOKENS,
                         )
+                        # #270 Fix D: same composed reviewer wrapper as the primary loop
+                        # above — the condense pass is a fresh rewrite and must be
+                        # re-checked for cross-document conflicts against cv_data too.
                         condensed = await review_and_refine(
                             source=grounding_source,
                             draft=condensed,
                             generator_prompt_fn=build_retry_prompt,
                             generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                            reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                                build_review_prompt, keyword_ledger
-                            ),
+                            reviewer_prompt_fn=reviewer_prompt_fn,
                             reviewer_system=REVIEW_SYSTEM_PROMPT,
                             provider=provider,
                             max_retries=LLM_REVIEW_MAX_RETRIES,

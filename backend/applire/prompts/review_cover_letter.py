@@ -124,6 +124,23 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    is otherwise true — flag it exactly like an invented achievement (check 3). NEVER instruct
    the writer, in your own feedback, to add a number that is not already verbatim in the
    source; when the evidence lacks a figure, instruct a qualitative surfacing instead.
+9. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
+   and letter jointly misled a hiring panel, because a KEYWORD LEDGER CLAIMABLE concept
+   ("retrieval systems") was positioned as the letter's honest gap and then bare-denied — "I
+   have not worked hands-on with retrieval systems" — directly contradicting the CV's own
+   claim). When a CROSS-DOCUMENT CONSISTENCY CHECK block is appended to the source below, its
+   findings are DETERMINISTIC ground truth — do not re-derive them and do not second-guess
+   them. The hard rule, stated plainly because getting it backwards is exactly what caused the
+   run-5 blocker: a concept the KEYWORD LEDGER marks CLAIMABLE is NEVER a DO-NOT-CLAIM term,
+   and you must NEVER instruct the writer to name it as an absence — not in your issues, not in
+   your feedback. Where the vault holds BOTH a positive contribution AND an explicit stated
+   limit for the same concept (a SCOPED BOUNDARY — the source's ``positioning_requested.
+   scoped_boundaries``, or a CROSS-DOCUMENT finding), the ONLY correct output is the scoped
+   claim naming both halves — never a bare denial that discards the positive half, and never
+   an unqualified claim that discards the limit. Flag a ``bare_denial_of_claimable`` or
+   ``assert_vs_deny`` finding exactly like an ungrounded claim (checks 1-3), and instruct the
+   writer to render the scoped claim from the finding's own remedy — never to add, soften, or
+   remove a denial on your own initiative.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
@@ -183,6 +200,13 @@ Rules:
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
   verbatim there. If the evidence carries no figure, describe the experience qualitatively
   instead of inventing one.
+- NEVER DEMOTE A SCOPED CLAIM TO A BARE DENIAL (#270): when the CANDIDATE SOURCE names a
+  SCOPED BOUNDARY for a concept (``positioning_requested.scoped_boundaries``, or a
+  CROSS-DOCUMENT CONSISTENCY CHECK finding) — the vault holding BOTH a positive contribution
+  AND an explicit stated limit — your correction must keep BOTH halves. Never rewrite it into
+  a bare denial (dropping the positive half) or an unqualified claim (dropping the limit)
+  while fixing an unrelated issue; that concept is CLAIMABLE, never a do-not-claim gap, and
+  must never be moved into the honest-gap/transfer-argument paragraph.
 - Preserve the language, tone, structure, and every part the reviewer did not flag.
 - Leave recipient.date as null — the system inserts the letter date after generation.
 - Output ONLY the corrected cover letter JSON in the same schema as the input — no markdown,
