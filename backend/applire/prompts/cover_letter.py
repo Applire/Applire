@@ -143,6 +143,7 @@ def build_cover_letter_prompt(
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
     scoped_boundary_block: str | None = None,
+    unaddressed_requirements_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -186,6 +187,12 @@ def build_cover_letter_prompt(
     scoped_boundary_block: rendered SCOPED BOUNDARIES text (#270,
         :func:`applire.services.cross_document.render_scoped_boundary_block`) — claimable
         ledger concepts the vault also states an explicit limit on. Optional so legacy/
+        degraded callers do not break; omitted/empty → adds nothing.
+    unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
+        :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
+        called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
+        honest gaps the first draft must give an explicit positioning decision to (a
+        transfer argument or a brief de-emphasis), never silence. Optional so legacy/
         degraded callers do not break; omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
@@ -289,6 +296,14 @@ def build_cover_letter_prompt(
     # (services.cross_document.find_scoped_boundaries); absent → adds nothing.
     if scoped_boundary_block:
         lines += ["", scoped_boundary_block]
+
+    # #270(c): unmet JD hard requirements (claimable: false, "required") that
+    # need an explicit positioning decision (transfer argument or a brief,
+    # honest de-emphasis) — never silence. Threaded ONLY when genuinely found
+    # (services.cross_document.find_unaddressed_hard_requirements); absent →
+    # adds nothing.
+    if unaddressed_requirements_block:
+        lines += ["", unaddressed_requirements_block]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #2 blocker — the letter never
     # argued the candidate's OWN transfer story for the one true (Category C) gap, even

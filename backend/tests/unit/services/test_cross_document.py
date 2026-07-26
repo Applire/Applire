@@ -27,12 +27,15 @@ from __future__ import annotations
 from applire.services.cross_document import (
     Conflict,
     ScopedBoundary,
+    cross_document_reviewer_prompt_fn,
     exclude_claimable_concepts,
     find_cross_document_conflicts,
     find_scoped_boundaries,
     find_unaddressed_hard_requirements,
     render_cross_document_conflicts_block,
     render_scoped_boundary_block,
+    render_unaddressed_hard_requirements_block,
+    unaddressed_hard_requirements_positioning,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,6 +100,57 @@ RUN5_LETTER_DATA = {
         ]
     }
 }
+
+# Coordinator follow-up (#270(c) — the hole left by Fix A): the FULL run-5
+# ledger, standing in for the real 6-entry ledger. "retrieval systems" is the
+# only entry the original ground truth quoted verbatim; embeddings/ranking/
+# observability are the genuine (claimable: false, required) honest gaps left
+# once Fix A correctly removes "retrieval systems" from gap-testimony
+# selection — the ones #270(c) requires an explicit positioning decision for.
+# Two more claimable entries pad the ledger to 6, exercising that claimable
+# concepts are never reported as unaddressed regardless of letter content.
+RUN5_LEDGER_FULL = RUN5_LEDGER + [
+    {
+        "concept": "embeddings",
+        "claimable": False,
+        "sources": ["required"],
+        "fit_weight": 0.9,
+        "surface_forms": ["embeddings", "embedding models"],
+        "evidence": "",
+    },
+    {
+        "concept": "ranking",
+        "claimable": False,
+        "sources": ["required"],
+        "fit_weight": 0.8,
+        "surface_forms": ["ranking", "rerankers"],
+        "evidence": "",
+    },
+    {
+        "concept": "observability",
+        "claimable": False,
+        "sources": ["required"],
+        "fit_weight": 0.7,
+        "surface_forms": ["observability", "tracing"],
+        "evidence": "",
+    },
+    {
+        "concept": "Databricks",
+        "claimable": True,
+        "sources": ["required"],
+        "fit_weight": 0.6,
+        "surface_forms": ["Databricks"],
+        "evidence": "Deployed the RAG system on Databricks.",
+    },
+    {
+        "concept": "Python",
+        "claimable": True,
+        "sources": ["nice_to_have"],
+        "fit_weight": 0.3,
+        "surface_forms": ["Python"],
+        "evidence": "Used Python throughout.",
+    },
+]
 
 
 # ---------------------------------------------------------------------------
@@ -442,3 +496,114 @@ def test_render_scoped_boundary_block_names_both_halves():
     block = render_scoped_boundary_block(boundaries)
     assert "Built and owned the RAG pipeline data layer." in block
     assert "I did not configure the embedding models myself." in block
+
+
+# ---------------------------------------------------------------------------
+# #270(c) follow-up — find_unaddressed_hard_requirements wired into the
+# reviewer + writer (previously implemented and unit-tested but wired
+# nowhere: dead code, and a real hole given Fix A — see module docstring
+# addendum above and RUN5_LEDGER_FULL).
+# ---------------------------------------------------------------------------
+
+
+def test_render_unaddressed_hard_requirements_block_empty():
+    assert render_unaddressed_hard_requirements_block([]) == ""
+
+
+def test_render_unaddressed_hard_requirements_block_names_concepts_and_forbids_assertion():
+    entries = [
+        {"concept": "embeddings", "evidence": ""},
+        {"concept": "ranking", "evidence": ""},
+    ]
+    block = render_unaddressed_hard_requirements_block(entries)
+    assert "embeddings" in block
+    assert "ranking" in block
+    assert "claimable: false" in block
+    assert "never" in block.lower()
+    assert "litany" in block.lower()
+    assert "silence" in block.lower()
+
+
+def test_unaddressed_hard_requirements_positioning_shape():
+    entries = [{"concept": "observability", "evidence": "some context"}]
+    positioning = unaddressed_hard_requirements_positioning(entries)
+    assert positioning["required"] is True
+    assert positioning["concepts"] == [{"concept": "observability", "evidence": "some context"}]
+    assert "litany" in positioning["instruction"].lower()
+
+
+def test_unaddressed_hard_requirements_positioning_empty_is_empty_dict():
+    assert unaddressed_hard_requirements_positioning([]) == {}
+
+
+def _noop_base_fn(source: str, draft: dict) -> str:
+    return "BASE PROMPT"
+
+
+def test_reviewer_prompt_fn_flags_unaddressed_requirements_on_run5_full_ledger():
+    """The coordinator's trace: with 'retrieval systems' correctly excluded by
+    Fix A, embeddings/ranking/observability are the genuine honest gaps left —
+    and the letter (run-5 verbatim body) never addresses any of them at all.
+    The reviewer must be told so, regardless of whether find_gap_testimony
+    happened to find a signature-story match for one of them."""
+    reviewer_fn = cross_document_reviewer_prompt_fn(
+        _noop_base_fn,
+        cv_data=RUN5_CV_DATA,
+        keyword_ledger=RUN5_LEDGER_FULL,
+        denied_concepts=RUN5_DENIED_CONCEPTS,
+    )
+    prompt = reviewer_fn("source", RUN5_LETTER_DATA)
+    assert "embeddings" in prompt
+    assert "ranking" in prompt
+    assert "observability" in prompt
+    # Claimable concepts must never appear in this block.
+    assert "UNADDRESSED HARD REQUIREMENTS" in prompt
+    unaddressed_section = prompt.split("UNADDRESSED HARD REQUIREMENTS")[1]
+    assert "Databricks" not in unaddressed_section
+    assert "Python" not in unaddressed_section
+
+
+def test_reviewer_prompt_fn_omits_block_when_letter_addresses_all_three():
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "I have not directly configured embeddings or reranking models "
+                "myself, and observability tooling sits outside my own remit, "
+                "though I have owned the surrounding architecture end to end.",
+            ]
+        }
+    }
+    reviewer_fn = cross_document_reviewer_prompt_fn(
+        _noop_base_fn,
+        cv_data=RUN5_CV_DATA,
+        keyword_ledger=RUN5_LEDGER_FULL,
+        denied_concepts=RUN5_DENIED_CONCEPTS,
+    )
+    prompt = reviewer_fn("source", letter_data)
+    assert "UNADDRESSED HARD REQUIREMENTS" not in prompt
+
+
+def test_reviewer_prompt_fn_caps_unaddressed_at_three_and_logs_drop(caplog):
+    ledger = [
+        {"concept": f"Gap{i}", "claimable": False, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        for i, w in enumerate([0.9, 0.8, 0.7, 0.6], start=1)
+    ]
+    reviewer_fn = cross_document_reviewer_prompt_fn(
+        _noop_base_fn, cv_data={}, keyword_ledger=ledger, denied_concepts=[],
+    )
+    with caplog.at_level("INFO"):
+        prompt = reviewer_fn("source", {"body": {"paragraphs": []}})
+    assert "Gap1" in prompt and "Gap2" in prompt and "Gap3" in prompt
+    assert "Gap4" not in prompt
+    assert any("dropped" in r.message.lower() for r in caplog.records)
+
+
+def test_writer_gets_the_same_unaddressed_list_before_any_draft_exists():
+    """The writer prompt is built BEFORE a letter_data draft exists — passing
+    letter_data=None means every required honest gap is trivially
+    'unaddressed', which is exactly the pre-draft input the writer needs."""
+    pre_draft = find_unaddressed_hard_requirements(RUN5_LEDGER_FULL, None)
+    concepts = {e["concept"] for e in pre_draft}
+    assert concepts == {"embeddings", "ranking", "observability"}
+    block = render_unaddressed_hard_requirements_block(pre_draft)
+    assert "embeddings" in block and "ranking" in block and "observability" in block

@@ -684,11 +684,26 @@ async def _render_cover_letter_background(
             # instruct the writer to name it as an absence — the exact run-5 defect).
             from applire.services.cross_document import (
                 find_scoped_boundaries,
+                find_unaddressed_hard_requirements,
                 render_scoped_boundary_block,
+                render_unaddressed_hard_requirements_block,
+                unaddressed_hard_requirements_positioning,
             )
             denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
             scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
             scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+
+            # #270(c): unmet JD hard requirements (claimable: false, required) that need
+            # an explicit positioning decision. Computed with letter_data=None — no draft
+            # exists yet, so every required honest gap is trivially "unaddressed" and the
+            # FIRST draft gets a chance to address it (never relies solely on the
+            # gap-transfer-argument slot above, which only fires when a signature story
+            # happens to token-overlap the gap label — this is the deterministic
+            # backstop for when it does not).
+            unaddressed_requirements = find_unaddressed_hard_requirements(keyword_ledger, None)
+            unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
+                unaddressed_requirements
+            )
 
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
             # received all three POSITIONING blocks (and engaged the domain) but the
@@ -718,6 +733,10 @@ async def _render_cover_letter_background(
                         "that ignores the limit."
                     ),
                 }
+            if unaddressed_requirements:
+                positioning_requested["unaddressed_hard_requirements"] = (
+                    unaddressed_hard_requirements_positioning(unaddressed_requirements)
+                )
             if job.company_name:
                 positioning_requested["company_domain_engagement"] = {
                     "target_company": job.company_name,
@@ -781,6 +800,7 @@ async def _render_cover_letter_background(
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
                 scoped_boundary_block=scoped_boundary_block,
+                unaddressed_requirements_block=unaddressed_requirements_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).

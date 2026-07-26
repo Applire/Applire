@@ -465,6 +465,79 @@ def find_unaddressed_hard_requirements(
     return unaddressed
 
 
+# ── shared wording — #270(c): every unmet hard requirement gets a decision ──
+# The permitted responses are EXACTLY two — a transfer argument grounded in
+# the candidate's OWN testimony, or a brief, honest de-emphasis that names
+# the gap without dwelling on it. Never an assertion (these concepts are
+# ``claimable: false`` by construction — find_unaddressed_hard_requirements
+# only ever selects honest gaps), never a softened/vaguer denial, and never
+# a litany — every response folds into the SAME single honest-gap paragraph.
+_UNADDRESSED_INSTRUCTION = (
+    "These are honest gaps (claimable: false per the Keyword Ledger) — JD hard "
+    "requirements the letter does not address anywhere. This concept must NEVER "
+    "be asserted or presented as something the candidate has, has done, or "
+    "knows. For each, give an explicit positioning decision: a transfer "
+    "argument grounded in the candidate's own testimony, or a brief, honest "
+    "de-emphasis that names the gap without dwelling on it or suggesting a "
+    "JD-critical requirement is negligible. Silence is not one of the options "
+    "for a hard requirement. Fold whichever response applies into the SAME "
+    "single honest-gap paragraph — never a litany of separate gap admissions."
+)
+
+
+def render_unaddressed_hard_requirements_block(entries: list[dict[str, Any]]) -> str:
+    """Render unmet JD hard requirements (#270(c)) as a deterministic block.
+
+    Dual use, same rendering both times:
+      * WRITER (pre-draft): the caller passes ``find_unaddressed_hard_
+        requirements(keyword_ledger, None)`` — before any letter exists every
+        required honest gap is trivially "unaddressed", so the writer gets
+        the same top-``cap`` list its first draft will later be re-checked
+        against (a chance to get it right without a correction round).
+      * REVIEWER (post-draft, via :func:`cross_document_reviewer_prompt_fn`):
+        recomputed against the CURRENT draft each iteration — the block
+        disappears once the writer/corrector has given each concept its
+        positioning decision, the same convergence signal
+        ``keyword_ledger.coverage_reviewer_prompt_fn`` already uses.
+
+    Returns ``""`` when ``entries`` is empty so a fully-addressed draft (or a
+    JD with no unmet hard requirements) adds nothing.
+    """
+    if not entries:
+        return ""
+    lines = [
+        "=== UNADDRESSED HARD REQUIREMENTS (deterministic — #270(c)) ===",
+        _UNADDRESSED_INSTRUCTION,
+    ]
+    for e in entries:
+        evidence = e.get("evidence", "") or "(none — a pure keyword gap, no vault context)"
+        lines.append(f"  - {e.get('concept', '')} — context: {evidence}")
+    return "\n".join(lines)
+
+
+def unaddressed_hard_requirements_positioning(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """The ``positioning_requested['unaddressed_hard_requirements']`` shape
+    (#270(c), the established #255 pattern) — threaded to the reviewer AND
+    corrector so each concept's positioning sentence is REQUIRED content,
+    never stripped as unrequested/unrelated to the letter (the #255 lesson:
+    a corrector that never received a positioning input could not tell a
+    requested addition apart from an invented one).
+
+    Returns ``{}`` when ``entries`` is empty — a legacy/degraded caller adds
+    nothing to ``positioning_requested``.
+    """
+    if not entries:
+        return {}
+    return {
+        "concepts": [
+            {"concept": e.get("concept", ""), "evidence": e.get("evidence", "") or ""}
+            for e in entries
+        ],
+        "required": True,
+        "instruction": _UNADDRESSED_INSTRUCTION,
+    }
+
+
 # ── render helpers ───────────────────────────────────────────────────────────
 
 
@@ -545,6 +618,21 @@ def cross_document_reviewer_prompt_fn(
                 len(conflicts), [c.concept for c in conflicts],
             )
             prompt = f"{prompt}\n\n{block}"
+
+        # #270(c): the deterministic backstop for "every unmet JD hard
+        # requirement gets an explicit positioning decision" — computed
+        # against the CURRENT draft each iteration so it disappears the
+        # moment the writer/corrector addresses a concept (same convergence
+        # signal as the verified-coverage check / the conflicts block above).
+        unaddressed = find_unaddressed_hard_requirements(keyword_ledger, draft)
+        unaddressed_block = render_unaddressed_hard_requirements_block(unaddressed)
+        if unaddressed_block:
+            logger.info(
+                "unaddressed hard requirements: %d concept(s) missing from "
+                "current letter draft: %s",
+                len(unaddressed), [e.get("concept", "") for e in unaddressed],
+            )
+            prompt = f"{prompt}\n\n{unaddressed_block}"
         return prompt
 
     return fn

@@ -58,3 +58,31 @@ def test_build_cover_letter_prompt_omits_scoped_boundary_block_when_absent():
         detected_language="en",
     )
     assert "SCOPED BOUNDARIES" not in prompt
+
+
+def test_build_cover_letter_prompt_threads_unaddressed_requirements_block():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={},
+        jd_text="We need a backend engineer.",
+        pre_gen_inputs={},
+        detected_language="en",
+        unaddressed_requirements_block=(
+            "=== UNADDRESSED HARD REQUIREMENTS (deterministic — #270(c)) ===\n"
+            "SOME UNADDRESSED MARKER"
+        ),
+    )
+    assert "SOME UNADDRESSED MARKER" in prompt
+
+
+def test_build_cover_letter_prompt_omits_unaddressed_requirements_block_when_absent():
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+
+    prompt = build_cover_letter_prompt(
+        cv_data={},
+        jd_text="We need a backend engineer.",
+        pre_gen_inputs={},
+        detected_language="en",
+    )
+    assert "UNADDRESSED HARD REQUIREMENTS" not in prompt
