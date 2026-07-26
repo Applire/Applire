@@ -65,10 +65,12 @@ from typing import Any, Literal
 
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
+from applire.services.cover_letter_positioning import _AVAILABILITY_PATTERNS
 from applire.services.oracle.extract import (
     extract_claims_from_letter,
     extract_claims_from_tailored,
     split_clauses,
+    split_sentences,
 )
 
 logger = logging.getLogger(__name__)
@@ -465,6 +467,95 @@ def find_unaddressed_hard_requirements(
     return unaddressed
 
 
+# ── Fix B.3b (#270(c) follow-up, wave-6) — denial transfer-argument bridges ─
+#
+# find_unaddressed_hard_requirements tells the writer three concepts (a real
+# run-5 vault: embeddings, ranking, observability) need an explicit
+# positioning decision, but supplies no candidate testimony to argue a
+# transfer from — the writer is left with only the weakest permitted option
+# (brief de-emphasis). The transfer arguments exist: each persisted denial
+# (``profile_json.metadata.denied_concepts[].statement``) is the candidate's
+# OWN verbatim words, and a denial statement routinely carries the honest
+# "what I do bring instead" bridge alongside the denial itself. Nothing read
+# that until now.
+
+
+def find_denial_transfer_bridge(
+    ledger_entry: dict[str, Any], denied_concepts: list[Any] | None
+) -> str | None:
+    """The candidate's own transfer-argument SENTENCE for one unmet hard-
+    requirement ledger entry, found inside a persisted denial — or ``None``.
+
+    Relates ``ledger_entry`` to a denial the SAME direction
+    :func:`find_scoped_boundaries` already uses: one of the entry's own
+    surface forms (:func:`_ledger_forms`) must be ``surface_present`` in the
+    denial's own ``concept``/``statement`` text (never a second matcher).
+
+    For each related denial, in persisted order, the candidate bridge is
+    that denial statement's own LAST sentence (deterministic split via
+    :func:`applire.services.oracle.extract.split_sentences`), returned
+    VERBATIM ONLY when ALL of the following hold — every guard exists to
+    keep a false positive out of a signed letter, never to widen recall:
+
+    * the statement carries at least one genuinely negated sentence
+      somewhere (:func:`_is_negated_clause`) — proof the record is an
+      actual denial, not unrelated prose that happened to share a token;
+    * the LAST sentence itself is NOT negated — a statement that ends on
+      its own denial, with nothing after it, has no bridge to give;
+    * the LAST sentence does not match an availability/concurrent-
+      commitment phrase (the same ``_AVAILABILITY_PATTERNS`` phrase list
+      :func:`applire.services.cover_letter_positioning.find_availability_
+      testimony` already searches denials for) — that sentence is already
+      the dedicated availability-positioning slot's own testimony, never a
+      transfer argument for an unrelated gap.
+
+    This is deliberately POSITION-based (the statement's own last sentence),
+    not a "first non-negated sentence" search: the run-5 RAG/embeddings
+    denial OPENS with several sentences of unrelated positive/scoped content
+    ("My contribution was architecture, database design and product
+    ownership") before ever denying anything — that content describes a
+    DIFFERENT, CLAIMABLE concept :func:`find_scoped_boundaries` already
+    surfaces, and a "first non-negated sentence" rule would wrongly re-serve
+    it here as if it were this gap's bridge. Reading only the statement's
+    OWN final sentence, gated on it being neither the denial itself nor an
+    already-claimed availability tail, is the conservative reading that
+    still surfaces the true observability bridge — "What I do bring from
+    regulated environments is the discipline around it: ..." — while leaving
+    the RAG/embeddings and RAG/ranking case at ``None``.
+
+    The first related denial with a qualifying last sentence wins. Returns
+    ``None`` when no related denial exists, or none qualifies — a false
+    negative is safe; a false positive is not. Pure; ``None``/empty/
+    malformed-shape tolerant.
+    """
+    forms = _ledger_forms(ledger_entry)
+    if not forms:
+        return None
+    for denial in denied_concepts or []:
+        if isinstance(denial, str):
+            continue
+        statement = _get(denial, "statement", "") or ""
+        if not statement:
+            continue
+        d_concept = _get(denial, "concept", "") or ""
+        denial_text_norm = ats_norm(f"{d_concept} {statement}")
+        related = any(surface_present(f, denial_text_norm) for f in forms if f)
+        if not related:
+            continue
+        sentences = split_sentences(statement)
+        if not sentences:
+            continue
+        if not any(_is_negated_clause(s) for s in sentences):
+            continue  # no actual denial detected in this statement
+        last = sentences[-1]
+        if _is_negated_clause(last):
+            continue  # the statement ends on the denial itself — no bridge
+        if any(pattern.search(last) for pattern in _AVAILABILITY_PATTERNS):
+            continue  # already the dedicated availability-testimony slot's own content
+        return last
+    return None
+
+
 # ── shared wording — #270(c): every unmet hard requirement gets a decision ──
 # The permitted responses are EXACTLY two — a transfer argument grounded in
 # the candidate's OWN testimony, or a brief, honest de-emphasis that names
@@ -479,13 +570,23 @@ _UNADDRESSED_INSTRUCTION = (
     "knows. For each, give an explicit positioning decision: a transfer "
     "argument grounded in the candidate's own testimony, or a brief, honest "
     "de-emphasis that names the gap without dwelling on it or suggesting a "
-    "JD-critical requirement is negligible. Silence is not one of the options "
-    "for a hard requirement. Fold whichever response applies into the SAME "
-    "single honest-gap paragraph — never a litany of separate gap admissions."
+    "JD-critical requirement is negligible. When a concept below carries its "
+    "own CANDIDATE'S OWN TRANSFER-ARGUMENT TESTIMONY (verbatim, quoted from a "
+    "persisted denial), the permitted response upgrades: give the transfer "
+    "argument grounded VERBATIM in that testimony, stated strictly AFTER the "
+    "honest acknowledgement of the gap, never instead of it — brief "
+    "de-emphasis is no longer the only reasonable choice for that concept. "
+    "Where no such testimony is given, the brief de-emphasis wording stands "
+    "unchanged. Silence is not one of the options for a hard requirement. "
+    "Fold whichever response applies into the SAME single honest-gap "
+    "paragraph — never a litany of separate gap admissions."
 )
 
 
-def render_unaddressed_hard_requirements_block(entries: list[dict[str, Any]]) -> str:
+def render_unaddressed_hard_requirements_block(
+    entries: list[dict[str, Any]],
+    denied_concepts: list[Any] | None = None,
+) -> str:
     """Render unmet JD hard requirements (#270(c)) as a deterministic block.
 
     Dual use, same rendering both times:
@@ -500,6 +601,13 @@ def render_unaddressed_hard_requirements_block(entries: list[dict[str, Any]]) ->
         positioning decision, the same convergence signal
         ``keyword_ledger.coverage_reviewer_prompt_fn`` already uses.
 
+    ``denied_concepts`` (wave-6 #270(c) follow-up): when given, each entry is
+    additionally checked against :func:`find_denial_transfer_bridge` — a
+    concept with a found bridge carries its own verbatim transfer-argument
+    testimony line, upgrading its permitted response (see
+    ``_UNADDRESSED_INSTRUCTION``). Optional and defaults to ``None`` so
+    legacy callers keep the unchanged de-emphasis-only wording.
+
     Returns ``""`` when ``entries`` is empty so a fully-addressed draft (or a
     JD with no unmet hard requirements) adds nothing.
     """
@@ -512,10 +620,19 @@ def render_unaddressed_hard_requirements_block(entries: list[dict[str, Any]]) ->
     for e in entries:
         evidence = e.get("evidence", "") or "(none — a pure keyword gap, no vault context)"
         lines.append(f"  - {e.get('concept', '')} — context: {evidence}")
+        bridge = find_denial_transfer_bridge(e, denied_concepts)
+        if bridge:
+            lines.append(
+                "    CANDIDATE'S OWN TRANSFER-ARGUMENT TESTIMONY (verbatim, from a "
+                f'persisted denial): "{bridge}"'
+            )
     return "\n".join(lines)
 
 
-def unaddressed_hard_requirements_positioning(entries: list[dict[str, Any]]) -> dict[str, Any]:
+def unaddressed_hard_requirements_positioning(
+    entries: list[dict[str, Any]],
+    denied_concepts: list[Any] | None = None,
+) -> dict[str, Any]:
     """The ``positioning_requested['unaddressed_hard_requirements']`` shape
     (#270(c), the established #255 pattern) — threaded to the reviewer AND
     corrector so each concept's positioning sentence is REQUIRED content,
@@ -523,16 +640,29 @@ def unaddressed_hard_requirements_positioning(entries: list[dict[str, Any]]) -> 
     a corrector that never received a positioning input could not tell a
     requested addition apart from an invented one).
 
+    ``denied_concepts`` (wave-6 #270(c) follow-up): when given, each concept
+    dict additionally carries a ``"transfer_bridge"`` key (the verbatim
+    :func:`find_denial_transfer_bridge` result) whenever one was found —
+    omitted entirely when there is none, so a degraded/legacy reader sees no
+    shape change. Optional, defaults to ``None``.
+
     Returns ``{}`` when ``entries`` is empty — a legacy/degraded caller adds
     nothing to ``positioning_requested``.
     """
     if not entries:
         return {}
+    concepts: list[dict[str, Any]] = []
+    for e in entries:
+        concept: dict[str, Any] = {
+            "concept": e.get("concept", ""),
+            "evidence": e.get("evidence", "") or "",
+        }
+        bridge = find_denial_transfer_bridge(e, denied_concepts)
+        if bridge:
+            concept["transfer_bridge"] = bridge
+        concepts.append(concept)
     return {
-        "concepts": [
-            {"concept": e.get("concept", ""), "evidence": e.get("evidence", "") or ""}
-            for e in entries
-        ],
+        "concepts": concepts,
         "required": True,
         "instruction": _UNADDRESSED_INSTRUCTION,
     }
@@ -625,7 +755,9 @@ def cross_document_reviewer_prompt_fn(
         # moment the writer/corrector addresses a concept (same convergence
         # signal as the verified-coverage check / the conflicts block above).
         unaddressed = find_unaddressed_hard_requirements(keyword_ledger, draft)
-        unaddressed_block = render_unaddressed_hard_requirements_block(unaddressed)
+        unaddressed_block = render_unaddressed_hard_requirements_block(
+            unaddressed, denied_concepts
+        )
         if unaddressed_block:
             logger.info(
                 "unaddressed hard requirements: %d concept(s) missing from "

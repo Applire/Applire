@@ -30,6 +30,7 @@ from applire.services.cross_document import (
     cross_document_reviewer_prompt_fn,
     exclude_claimable_concepts,
     find_cross_document_conflicts,
+    find_denial_transfer_bridge,
     find_scoped_boundaries,
     find_unaddressed_hard_requirements,
     render_cross_document_conflicts_block,
@@ -607,3 +608,207 @@ def test_writer_gets_the_same_unaddressed_list_before_any_draft_exists():
     assert concepts == {"embeddings", "ranking", "observability"}
     block = render_unaddressed_hard_requirements_block(pre_draft)
     assert "embeddings" in block and "ranking" in block and "observability" in block
+
+
+# ---------------------------------------------------------------------------
+# #270(c) wave-6 follow-up — find_denial_transfer_bridge
+#
+# Wave 6 already excludes claimable concepts from gap positioning (Fix A) and
+# tells the writer embeddings/ranking/observability need an explicit
+# positioning decision (find_unaddressed_hard_requirements) — but supplies no
+# candidate testimony to argue a transfer from. The argument sits verbatim in
+# denied_concepts[].statement; nothing read it. Fixtures below: the
+# observability statement is quoted verbatim from the run-5 vault ground
+# truth (approved for test use); the RAG/embeddings statement is a synthetic
+# stand-in with the SAME SHAPE as the real one (leading positive/scoped
+# content about a DIFFERENT claimable concept, then the denial, then an
+# availability tail) — never a verbatim copy of personal vault data.
+# ---------------------------------------------------------------------------
+
+RUN5_OBSERVABILITY_STATEMENT = (
+    "No - I have not set up or worked hands-on with Prometheus, Grafana or "
+    "ELK stacks, and I would not claim production logging or tracing work. "
+    "That is a genuine gap for me. What I do bring from regulated "
+    "environments is the discipline around it: planning, searching for "
+    "risks, tracking and mitigating them, and defining the architecture and "
+    "ways of working so teams can own their domains."
+)
+
+RUN5_OBSERVABILITY_BRIDGE = (
+    "What I do bring from regulated environments is the discipline around "
+    "it: planning, searching for risks, tracking and mitigating them, and "
+    "defining the architecture and ways of working so teams can own their "
+    "domains."
+)
+
+OBSERVABILITY_ENTRY = {
+    "concept": "observability",
+    "claimable": False,
+    "sources": ["required"],
+    "fit_weight": 0.7,
+    "surface_forms": [
+        "observability", "Prometheus", "Grafana", "ELK",
+        "production logging", "tracing",
+    ],
+    "evidence": "",
+}
+
+OBSERVABILITY_DENIED_CONCEPTS = [
+    {"concept": c, "statement": RUN5_OBSERVABILITY_STATEMENT, "source": "interview"}
+    for c in ("Prometheus", "Grafana", "ELK stacks", "production logging", "tracing")
+]
+
+# Synthetic (never a verbatim vault copy): same SHAPE as the real RAG/
+# embeddings denial — a claimable concept's positive/scoped content leads,
+# the denial follows, an availability-style tail closes the statement.
+RAG_SHAPED_STATEMENT = (
+    "The database was designed by me. The actual configuration - embedding "
+    "models, vector store, reranking - was done by our system engineer. My "
+    "contribution was architecture, database design and product ownership. "
+    "So I have not configured embedding models, vector stores or rerankers "
+    "myself, and I would not claim hands-on ranking or embedding work. "
+    "Availability for a start date is something we can discuss separately."
+)
+
+EMBEDDINGS_ENTRY = {
+    "concept": "embeddings",
+    "claimable": False,
+    "sources": ["required"],
+    "fit_weight": 0.9,
+    "surface_forms": ["embeddings", "embedding models", "embedding work"],
+    "evidence": "",
+}
+
+RANKING_ENTRY = {
+    "concept": "ranking",
+    "claimable": False,
+    "sources": ["required"],
+    "fit_weight": 0.8,
+    "surface_forms": ["ranking", "rerankers"],
+    "evidence": "",
+}
+
+RAG_SHAPED_DENIED_CONCEPTS = [
+    {"concept": "embedding models", "statement": RAG_SHAPED_STATEMENT, "source": "interview"},
+]
+
+
+def test_find_denial_transfer_bridge_run5_observability_shape():
+    """Run-5 shaped: the observability denial statement yields exactly the
+    'What I do bring…' sentence — not the denial sentence, not the whole
+    statement, and not the transitional 'That is a genuine gap for me.'"""
+    bridge = find_denial_transfer_bridge(OBSERVABILITY_ENTRY, OBSERVABILITY_DENIED_CONCEPTS)
+    assert bridge == RUN5_OBSERVABILITY_BRIDGE
+    assert "have not set up" not in bridge
+    assert bridge != "That is a genuine gap for me."
+
+
+def test_find_denial_transfer_bridge_rejects_rag_scope_prose_for_embeddings():
+    """The RAG-shaped denial statement must NOT yield its RAG-scope prose
+    ("My contribution was architecture, database design and product
+    ownership") as a transfer argument for 'embeddings' — that sentence
+    precedes the denial and describes a DIFFERENT, CLAIMABLE concept
+    (already surfaced by find_scoped_boundaries), never this gap's bridge.
+
+    This function is deliberately position-based (the statement's OWN last
+    sentence, gated on it being neither the denial itself nor an
+    already-claimed availability tail) rather than "first non-negated
+    sentence" — the latter would wrongly re-serve the RAG-scope sentence
+    here. In THIS fixture the statement's last sentence is itself an
+    availability remark, which the availability-pattern guard also rejects
+    (a second, independent reason this must stay None) — see the module
+    docstring on find_denial_transfer_bridge for the full reasoning.
+    """
+    bridge = find_denial_transfer_bridge(EMBEDDINGS_ENTRY, RAG_SHAPED_DENIED_CONCEPTS)
+    assert bridge is None
+    assert "architecture, database design and product ownership" not in (bridge or "")
+
+
+def test_find_denial_transfer_bridge_rejects_rag_scope_prose_for_ranking():
+    bridge = find_denial_transfer_bridge(RANKING_ENTRY, RAG_SHAPED_DENIED_CONCEPTS)
+    assert bridge is None
+
+
+def test_find_denial_transfer_bridge_no_related_denial_returns_none():
+    unrelated_entry = {"concept": "Kubernetes", "surface_forms": ["Kubernetes", "k8s"]}
+    assert find_denial_transfer_bridge(unrelated_entry, OBSERVABILITY_DENIED_CONCEPTS) is None
+    assert find_denial_transfer_bridge(unrelated_entry, []) is None
+    assert find_denial_transfer_bridge(unrelated_entry, None) is None
+
+
+def test_find_denial_transfer_bridge_empty_ledger_entry_returns_none():
+    assert find_denial_transfer_bridge({}, OBSERVABILITY_DENIED_CONCEPTS) is None
+
+
+def test_find_denial_transfer_bridge_statement_that_ends_on_its_own_denial_is_none():
+    """A statement with no trailing sentence at all after the denial has no
+    bridge to give — the last sentence IS the denial itself."""
+    entry = {"concept": "Kubernetes", "surface_forms": ["Kubernetes"]}
+    denied = [{"concept": "Kubernetes", "statement": "I have not worked with Kubernetes."}]
+    assert find_denial_transfer_bridge(entry, denied) is None
+
+
+def test_render_unaddressed_hard_requirements_block_threads_bridge_when_present():
+    block = render_unaddressed_hard_requirements_block(
+        [OBSERVABILITY_ENTRY], OBSERVABILITY_DENIED_CONCEPTS,
+    )
+    assert _BRIDGE_LINE_MARKER in block
+    assert RUN5_OBSERVABILITY_BRIDGE in block
+    # The upgraded-response wording must be present in the shared instruction.
+    assert "upgrades" in block.lower()
+
+
+_BRIDGE_LINE_MARKER = "CANDIDATE'S OWN TRANSFER-ARGUMENT TESTIMONY (verbatim, from a"
+
+
+def test_render_unaddressed_hard_requirements_block_no_bridge_keeps_deemphasis_wording():
+    block = render_unaddressed_hard_requirements_block(
+        [EMBEDDINGS_ENTRY], RAG_SHAPED_DENIED_CONCEPTS,
+    )
+    assert _BRIDGE_LINE_MARKER not in block
+    assert "de-emphasis" in block.lower()
+
+
+def test_render_unaddressed_hard_requirements_block_omits_denied_concepts_by_default():
+    """Backward compatible: no denied_concepts arg -> no bridge threaded,
+    matching the pre-wave-6-follow-up call signature/behaviour."""
+    block = render_unaddressed_hard_requirements_block([OBSERVABILITY_ENTRY])
+    assert _BRIDGE_LINE_MARKER not in block
+
+
+def test_unaddressed_hard_requirements_positioning_threads_transfer_bridge():
+    positioning = unaddressed_hard_requirements_positioning(
+        [OBSERVABILITY_ENTRY], OBSERVABILITY_DENIED_CONCEPTS,
+    )
+    assert positioning["concepts"] == [
+        {
+            "concept": "observability",
+            "evidence": "",
+            "transfer_bridge": RUN5_OBSERVABILITY_BRIDGE,
+        }
+    ]
+    assert "upgrades" in positioning["instruction"].lower()
+
+
+def test_unaddressed_hard_requirements_positioning_no_bridge_omits_key():
+    positioning = unaddressed_hard_requirements_positioning(
+        [EMBEDDINGS_ENTRY], RAG_SHAPED_DENIED_CONCEPTS,
+    )
+    assert positioning["concepts"] == [{"concept": "embeddings", "evidence": ""}]
+    assert "transfer_bridge" not in positioning["concepts"][0]
+
+
+def test_reviewer_prompt_fn_threads_denial_transfer_bridge_for_observability():
+    """End-to-end through cross_document_reviewer_prompt_fn: the reviewer
+    (and, via the same rendering, the writer) sees the candidate's own
+    transfer-argument testimony for 'observability' when the run-5-shaped
+    denied_concepts are supplied."""
+    ledger = RUN5_LEDGER_FULL  # already claimable:False/required for observability
+    reviewer_fn = cross_document_reviewer_prompt_fn(
+        _noop_base_fn,
+        cv_data=RUN5_CV_DATA,
+        keyword_ledger=ledger,
+        denied_concepts=OBSERVABILITY_DENIED_CONCEPTS,
+    )
+    prompt = reviewer_fn("source", RUN5_LETTER_DATA)
+    assert RUN5_OBSERVABILITY_BRIDGE in prompt

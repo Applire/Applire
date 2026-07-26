@@ -708,7 +708,7 @@ async def _render_cover_letter_background(
             # backstop for when it does not).
             unaddressed_requirements = find_unaddressed_hard_requirements(keyword_ledger, None)
             unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
-                unaddressed_requirements
+                unaddressed_requirements, denied_concepts
             )
 
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
@@ -758,7 +758,9 @@ async def _render_cover_letter_background(
                 }
             if unaddressed_requirements:
                 positioning_requested["unaddressed_hard_requirements"] = (
-                    unaddressed_hard_requirements_positioning(unaddressed_requirements)
+                    unaddressed_hard_requirements_positioning(
+                        unaddressed_requirements, denied_concepts
+                    )
                 )
             if job.company_name:
                 positioning_requested["company_domain_engagement"] = {
