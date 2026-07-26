@@ -1717,3 +1717,79 @@ def test_letter_html_render_en_signoff_and_backfilled_name():
     assert "Mit freundlichen Grüßen" not in html
     # sender-name div must be non-empty (the bug rendered an empty <div>)
     assert "Catherine O&#39;Brien" in html or "Catherine O'Brien" in html
+
+
+# ---------------------------------------------------------------------------
+# #271 Task 3 — the CANDIDATE PROFILE block no longer starves on the
+# tailored CV: a vault-only fact absent from cv_data must still reach the
+# full writer prompt via the new vault_evidence_block kwarg.
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+_RUN5_FIXTURE_DIR = Path(__file__).parents[2] / ".run5fixture"
+
+
+@pytest.mark.skipif(
+    not _RUN5_FIXTURE_DIR.exists(), reason="run-5 charter fixture not present in this checkout"
+)
+def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
+    """Ground truth (#271): work_experience[0].achievements[3] — "Human-
+    authored documents usually need two to three review rounds, while the
+    right LLMs pass the first round" — is present in the vault but ABSENT
+    from the run-5 tailored CV (the BioNTech entry survived tailoring with
+    only 3 bullets). It must reach the full writer prompt only once the
+    Task 2 digest is threaded in via ``vault_evidence_block`` — never via
+    ``cv_data`` alone."""
+    from applire.prompts.cover_letter import build_cover_letter_prompt
+    from applire.services.jd_excerpt import build_jd_excerpt
+    from applire.services.letter_evidence import (
+        render_letter_evidence_block,
+        select_letter_evidence,
+    )
+
+    profile = _json.loads((_RUN5_FIXTURE_DIR / "profile.json").read_text(encoding="utf-8"))
+    ledger = _json.loads((_RUN5_FIXTURE_DIR / "ledger.json").read_text(encoding="utf-8"))
+    cv_data = _json.loads((_RUN5_FIXTURE_DIR / "cv.json").read_text(encoding="utf-8"))
+    jd_raw = (_RUN5_FIXTURE_DIR / "jd.txt").read_text(encoding="utf-8")
+
+    review_rounds_sentence = (
+        "Human-authored documents usually need two to three review rounds, "
+        "while the right LLMs pass the first round"
+    )
+
+    # Ground truth precondition: the tailored CV's own condensed bullets
+    # (work_history[:6] x bullets[:6], the exact slice build_cover_letter_prompt
+    # renders) never carry this sentence.
+    work_snippet_bullets = [
+        b for entry in cv_data.get("work_history", [])[:6] for b in entry.get("bullets", [])[:6]
+    ]
+    assert not any(review_rounds_sentence in b for b in work_snippet_bullets), (
+        "precondition failed: the run-5 tailored CV unexpectedly already carries "
+        "the review-rounds sentence — the digest would not be proving anything"
+    )
+
+    jd_excerpt = build_jd_excerpt(jd_raw)
+    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_letter_evidence_block(digest_items)
+
+    # Without the digest, the fact is absent from the prompt (the CV alone starves it).
+    prompt_without_digest = build_cover_letter_prompt(
+        cv_data=cv_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+    )
+    assert review_rounds_sentence not in prompt_without_digest
+
+    # With the digest threaded in, the vault-only fact reaches the prompt.
+    prompt_with_digest = build_cover_letter_prompt(
+        cv_data=cv_data,
+        jd_text=jd_raw,
+        pre_gen_inputs={"tone": "formal"},
+        detected_language="en",
+        keyword_ledger=ledger,
+        vault_evidence_block=vault_evidence_block,
+    )
+    assert review_rounds_sentence in prompt_with_digest

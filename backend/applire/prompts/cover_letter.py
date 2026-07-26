@@ -144,6 +144,7 @@ def build_cover_letter_prompt(
     availability_testimony: str | None = None,
     scoped_boundary_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
+    vault_evidence_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -194,6 +195,16 @@ def build_cover_letter_prompt(
         honest gaps the first draft must give an explicit positioning decision to (a
         transfer argument or a brief de-emphasis), never silence. Optional so legacy/
         degraded callers do not break; omitted/empty → adds nothing.
+    vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
+        :func:`applire.services.letter_evidence.render_letter_evidence_block`) — the
+        vault's strongest JD-relevant material, selected independently of what
+        ``cv_data``'s tailoring condensation kept, so a fact present in the vault but
+        absent from the tailored CV can still reach this prompt (Task 3, the run-5
+        regression: the CANDIDATE PROFILE below is built from ``cv_data`` alone, which
+        had compressed the BioNTech work entry down to 3 bullets). Additional evidence
+        to choose from, never content the writer must all use, and never a licence to
+        exceed the GROUNDING CONTRACT above. Optional so legacy/degraded callers do not
+        break; omitted/empty → adds nothing.
     """
     salary = pre_gen_inputs.get("salary", "")
     availability = pre_gen_inputs.get("availability", "")
@@ -262,10 +273,19 @@ def build_cover_letter_prompt(
             )
         lines += ["", budget_line]
 
+    # #271 Task 1: a deterministic, de-chromed excerpt — replaces the old
+    # raw_text[:2000] slice, which on a real LinkedIn-scraped JD landed
+    # entirely on repeated sign-in boilerplate and never reached the JD's
+    # actual leadership-weighting/requirements content. Callers MUST build
+    # the reviewer's grounding_source["job_description"] from this SAME
+    # function so the writer and reviewer can never disagree about what the
+    # JD says (see applire.services.jd_excerpt module docstring).
+    from applire.services.jd_excerpt import build_jd_excerpt
+
     lines += [
         "",
         "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
-        jd_text[:2000],  # trimmed (E037 PQ #1): rebalance profile-vs-JD so achievements come from history
+        build_jd_excerpt(jd_text),
     ]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #1 blocker — the letter never
@@ -304,6 +324,15 @@ def build_cover_letter_prompt(
     # adds nothing.
     if unaddressed_requirements_block:
         lines += ["", unaddressed_requirements_block]
+
+    # #271 Tasks 2/3: the vault's strongest JD-relevant evidence, selected
+    # independently of what cv_data's tailoring condensation kept above —
+    # additional material to choose from, never required, never a licence
+    # to exceed the grounding contract. Threaded ONLY when genuinely found
+    # (services.letter_evidence.select_letter_evidence); absent → adds
+    # nothing.
+    if vault_evidence_block:
+        lines += ["", vault_evidence_block]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #2 blocker — the letter never
     # argued the candidate's OWN transfer story for the one true (Category C) gap, even
