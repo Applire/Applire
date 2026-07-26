@@ -329,23 +329,40 @@ _COVER_LETTER_RESPONSE: dict[str, Any] = {
         "address": "Unter den Linden 1, 10117 Berlin",
         "date": "02. Mai 2026",
     },
+    # The body deliberately sits inside the DACH norm band (REGION_NORMS["DACH"]:
+    # floor 200, budget 300 words). #272 Task 6 added the lower bound, and a mock
+    # that mirrors the real contract must satisfy it — otherwise every mock-stack
+    # E2E letter trips the word-floor reviewer block and the mock tier stops
+    # reflecting the production path (the ADR-047 "mock mirrors the shape"
+    # discipline).
     "body": {
         "paragraphs": [
             (
                 "Sehr geehrter Herr Dr. Müller, mit großem Interesse habe ich Ihre "
                 "Stellenausschreibung als Senior Software Engineer gelesen und bewerbe "
-                "mich hiermit auf diese Position."
+                "mich hiermit auf diese Position. Dass Sie Ihre Backend-Plattform "
+                "konsequent auf Microservices und automatisierte Auslieferung "
+                "ausrichten, deckt sich unmittelbar mit dem, woran ich in den "
+                "vergangenen Jahren am liebsten gearbeitet habe."
             ),
             (
                 "Als erfahrene Software-Ingenieurin mit über sechs Jahren Praxis in "
                 "Python und FastAPI bringe ich die gesuchten Kernkompetenzen vollständig "
                 "mit. Bei TechVision GmbH habe ich skalierbare REST-APIs entwickelt und "
-                "CI/CD-Prozesse eingeführt, die die Deployment-Zeit um 40 % reduzierten."
+                "CI/CD-Prozesse eingeführt, die die Deployment-Zeit um 40 % reduzierten. "
+                "Darüber hinaus habe ich Microservices in Docker containerisiert und "
+                "mit PostgreSQL als zentralem Datenspeicher betrieben. In diesem Umfeld "
+                "habe ich Code-Reviews als festen Bestandteil der Entwicklung etabliert "
+                "und jüngere Kolleginnen und Kollegen fachlich begleitet."
             ),
             (
                 "Ihr Fokus auf Microservice-Architekturen und agile Entwicklungsmethoden "
                 "spricht mich besonders an, da ich in diesem Umfeld bereits erfolgreich "
-                "gearbeitet habe und weitere Impulse setzen möchte."
+                "gearbeitet habe und weitere Impulse setzen möchte. Besonders reizt mich "
+                "daran, technische Standards aktiv mitzugestalten und Verantwortung für "
+                "die Qualität ganzer Systeme zu übernehmen. Aus der Arbeit an verteilten "
+                "Systemen weiß ich, wie sehr belastbare Schnittstellen und automatisierte "
+                "Tests über die Geschwindigkeit eines wachsenden Produkts entscheiden."
             ),
             (
                 "Über die Möglichkeit, mich in einem persönlichen Gespräch vorzustellen, "
