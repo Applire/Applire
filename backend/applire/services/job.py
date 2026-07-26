@@ -176,6 +176,10 @@ async def analyze_jd(
         max_retries=LLM_REVIEW_MAX_RETRIES,
         generator_max_tokens=JD_ANALYSIS_MAX_TOKENS,
         chain_id="job_analysis",
+        # Wave-6 Task 2: company_name/role_title were observed being dropped entirely
+        # by a false-positive reviewer round and never recovered (#264 follow-up) —
+        # once either field is populated in any round, it must never ship absent.
+        required_fields=("company_name", "role_title"),
     )
 
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER

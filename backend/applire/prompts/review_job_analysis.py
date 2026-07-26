@@ -46,6 +46,23 @@ English skill name, tidying wording) is NOT a defect — do not flag it. Populat
 ONLY with material defects. If a clean extraction has nothing wrong, APPROVE with an
 empty issues list on the first review.
 
+VERBATIM GROUNDING RULE (read before flagging anything as unsupported): if an extracted
+value — a company name, a role title, a skill, a keyword — appears VERBATIM (or as an
+exact substring, case-insensitive) anywhere in the source posting text, it is grounded,
+full stop. Never call a value "not explicitly stated" or "not stated in the source" when
+that value's own text is sitting right there in the posting — that is a false positive,
+not a quality finding. This rule only shields values actually present in the source text;
+it never protects a value that appears NOWHERE in the posting — those remain exactly as
+flaggable as before under the FABRICATED / INVENTED checks below.
+
+ANTI-OSCILLATION RULE: never raise an issue that reverses a correction you (the reviewer,
+across review rounds of this same extraction) previously asked the corrector to make. If
+you find yourself about to flag a field for being absent/null after an earlier round of
+this same review asked for it to be removed or nulled — or flag a field as present/wrong
+after an earlier round asked for it to be added back — do not raise that issue; the
+corrector already did what a prior round of your own critique asked for, and asking for
+the opposite now only flips the field back and forth without ever converging.
+
 Check for these defects:
 1. FABRICATED REQUIREMENT: a required_skill or nice_to_have_skill not stated or clearly
    implied anywhere in the source posting (e.g. adding "Kubernetes" to a posting that
