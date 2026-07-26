@@ -520,7 +520,11 @@ async def test_retain_if_substitutes_earlier_draft_when_final_fails_predicate(mo
     returned instead — no new LLM call, just choosing among drafts the bounded
     loop already produced (ADR-058 freeze)."""
     original = {"body": {"paragraphs": ["opening", "closing paragraph that is long enough to pass"]}}
-    retry1 = {"body": {"paragraphs": ["opening", "closing paragraph that is long enough to pass"]}}
+    # retry1 must NOT be byte-identical to `original` — an identical draft is itself a
+    # cycle (wave-6 Task 1) and would legitimately stop the loop there, before this
+    # test's retain_if-substitution scenario (which needs a THIRD, worse draft) ever
+    # develops. A distinct-but-still-passing draft isolates the retain_if behaviour.
+    retry1 = {"body": {"paragraphs": ["opening (revised)", "closing paragraph that is long enough to pass"]}}
     retry2 = {"body": {"paragraphs": ["opening", "short stub"]}}  # fails predicate
 
     def has_long_closing(draft: dict) -> bool:
@@ -636,3 +640,349 @@ async def test_retain_if_checked_on_reviewer_call_failure_path(mock_provider, ca
         retain_if=has_long_closing,
     )
     assert result == good_draft
+
+
+# ---------------------------------------------------------------------------
+# Wave 6 Task 1 — deterministic cycle detection (loop oscillation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cycle_detection_stops_early_instead_of_exhausting_retries(mock_provider, caplog):
+    """Synthetic reproduction of the pinned seniority_level 2-cycle: the reviewer
+    alternates two critiques and the generator alternates two drafts (draft A -> draft
+    B -> draft A -> ...). Draft 3 is byte-identical to draft 1 (a cycle by definition),
+    so the loop must stop at that point rather than burning the remaining retries."""
+    draft_a = {"seniority_level": "Mid-Senior level"}
+    draft_b = {"seniority_level": None}
+
+    mock_provider.aparse_json.side_effect = [
+        # attempt 1: reviewer rejects A ("not stated") -> generator produces B
+        {"approved": False, "issues": ["seniority not stated"], "feedback": "null it out"},
+        draft_b,
+        # attempt 2: reviewer rejects B ("explicitly stated but null") -> generator
+        # reverts to A — this is the repeat that closes the cycle.
+        {"approved": False, "issues": ["seniority explicitly stated but extracted as null"], "feedback": "restore it"},
+        draft_a,
+        # attempts 3-5 would continue oscillating forever if the loop didn't stop here.
+        {"approved": False, "issues": ["not stated"], "feedback": "null it"},
+        draft_b,
+        {"approved": False, "issues": ["stated"], "feedback": "restore it"},
+        draft_a,
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        result = await review_and_refine(
+            source="... Mid-Senior level ...",
+            draft=draft_a,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=5,
+            chain_id="cycle_chain",
+        )
+
+    assert result == draft_a
+    # Cycle detected right after the 2nd generator retry reproduces draft_a: reviewer
+    # attempt 1 + generator 1 + reviewer attempt 2 + generator 2 = 4 calls, then stop.
+    assert mock_provider.aparse_json.call_count == 4
+    cycle_lines = [
+        r.getMessage() for r in caplog.records if "CYCLE" in r.getMessage().upper()
+    ]
+    assert cycle_lines, "expected a distinguishable cycle-detected log line"
+    assert any("cycle_chain" in line for line in cycle_lines)
+    # Must read distinctly from ordinary exhaustion — never say "exhausted".
+    assert not any("exhausted" in line.lower() for line in cycle_lines)
+
+
+@pytest.mark.asyncio
+async def test_cycle_detection_compares_against_the_initial_draft_too(mock_provider, caplog):
+    """A generator retry that reproduces the ORIGINAL draft (not just a prior retry)
+    is also a cycle — the initial draft must be part of the comparison set."""
+    original = {"company_name": "Connect-AI"}
+    dropped = {"company_name": None}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["not stated"], "feedback": "drop it"},
+        dropped,
+        {"approved": False, "issues": ["should be Connect-AI"], "feedback": "restore it"},
+        original,  # identical to the very first draft passed in
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        result = await review_and_refine(
+            source="... Connect-AI ...",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=5,
+            chain_id="cycle_vs_initial",
+        )
+
+    assert result == original
+    assert mock_provider.aparse_json.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_cycle_detected_emits_a_stable_review_cycle_detected_line(mock_provider, caplog):
+    """Mirrors #264's REVIEW_EXHAUSTED contract: a cycle-stop must emit its own
+    stable, always-on, PII-free line via the applire.llm.review logger, distinct from
+    REVIEW_EXHAUSTED, so cycle-stops are countable after the fact just like
+    exhaustion is."""
+    draft_a = {"k": "A"}
+    draft_b = {"k": "B"}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "y"},
+        draft_b,
+        {"approved": False, "issues": ["x2"], "feedback": "y2"},
+        draft_a,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft=draft_a,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=5,
+            chain_id="stable_cycle_chain",
+        )
+
+    cycle_records = [r for r in caplog.records if "REVIEW_CYCLE_DETECTED" in r.getMessage()]
+    assert len(cycle_records) == 1
+    assert cycle_records[0].levelname == "WARNING"
+    assert "chain=stable_cycle_chain" in cycle_records[0].getMessage()
+    exhausted_records = [r for r in caplog.records if "REVIEW_EXHAUSTED" in r.getMessage()]
+    assert not exhausted_records
+
+
+@pytest.mark.asyncio
+async def test_no_cycle_when_every_draft_is_distinct(mock_provider):
+    """Sanity check: genuinely distinct drafts across retries must NOT be flagged as a
+    cycle and must run to normal exhaustion/approval."""
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        {"d": 2},
+        {"approved": False, "issues": ["y"], "feedback": "fix y"},
+        {"d": 3},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft={"d": 1},
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=3,
+    )
+
+    assert result == {"d": 3}
+    assert mock_provider.aparse_json.call_count == 5
+
+
+# ---------------------------------------------------------------------------
+# Wave 6 Task 2 — required_fields no-regression floor
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_required_fields_default_none_is_bit_identical_on_field_loss(mock_provider, caplog):
+    """required_fields omitted (default None) must reproduce today's behaviour EXACTLY
+    even when a field is dropped and never recovers — no-op proof."""
+    original = {"company_name": "Connect-AI", "role_title": "Lead AI Engineer"}
+    dropped1 = {"company_name": None, "role_title": ""}
+    dropped2 = {"company_name": None, "role_title": ""}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["not stated"], "feedback": "drop both"},
+        dropped1,
+        {"approved": False, "issues": ["still wrong"], "feedback": "try again"},
+        dropped2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="Connect-AI Lead AI Engineer ...",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+        )
+
+    # required_fields not passed at all: today's plain exhaustion behaviour.
+    assert result == dropped2
+    assert not any("required_fields" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_required_fields_ships_the_earlier_value_when_dropped(mock_provider, caplog):
+    """A synthetic field-loss case: draft 1 has company_name, draft 2 drops it and the
+    reviewer never approves again — the loop must ship draft 1's value for the
+    declared required field rather than the emptied final draft."""
+    original = {"company_name": "Connect-AI", "role_title": "Lead AI Engineer"}
+    dropped = {"company_name": None, "role_title": ""}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["not stated"], "feedback": "drop both"},
+        dropped,
+        {"approved": False, "issues": ["still wrong"], "feedback": "try again"},
+        dropped,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="Connect-AI Lead AI Engineer ...",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            required_fields=("company_name", "role_title"),
+        )
+
+    assert result["company_name"] == "Connect-AI"
+    assert result["role_title"] == "Lead AI Engineer"
+    assert any("required_fields" in r.getMessage() or "regression" in r.getMessage()
+               for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_required_fields_does_not_treat_a_legitimate_change_as_regression(mock_provider, caplog):
+    """A field the reviewer legitimately changed (still present, just different) must
+    NOT be treated as a loss — no substitution, no warning."""
+    original = {"company_name": "Connect AI GmbH", "role_title": "AI Engineer"}
+    corrected = {"company_name": "Connect-AI", "role_title": "Lead AI Engineer"}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["title normalisation"], "feedback": "tidy the name/title"},
+        corrected,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            required_fields=("company_name", "role_title"),
+        )
+
+    assert result == corrected
+    assert not any("required_fields" in r.getMessage() or "regression" in r.getMessage()
+                   for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_required_fields_absent_key_counts_as_missing(mock_provider):
+    """'Missing' includes a key that is entirely absent, not just None/''."""
+    original = {"company_name": "Connect-AI"}
+    dropped_key = {}  # company_name key entirely absent
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "drop it"},
+        dropped_key,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        required_fields=("company_name",),
+    )
+
+    assert result["company_name"] == "Connect-AI"
+
+
+@pytest.mark.asyncio
+async def test_required_fields_fail_open_when_no_draft_ever_had_the_field(mock_provider):
+    """If the declared field was never present in ANY draft (e.g. a JD that genuinely
+    never named a company), there is nothing to restore — ship the final draft as-is,
+    never fabricate a value."""
+    original = {"company_name": None}
+    still_none = {"company_name": None}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "y"},
+        still_none,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        required_fields=("company_name",),
+    )
+
+    assert result["company_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_required_fields_candidate_must_also_satisfy_retain_if(mock_provider, caplog):
+    """When both retain_if and required_fields are supplied, a candidate draft used to
+    restore a lost required field must ALSO satisfy retain_if — never reintroduce a
+    draft the retention predicate would itself reject."""
+    # draft 1 has company_name but fails retain_if (closing too short);
+    # draft 2 has neither company_name nor a passing retain_if;
+    # there is no draft that has BOTH — nothing eligible to restore from.
+    draft1 = {"company_name": "Connect-AI", "body": "short"}
+    draft2 = {"company_name": None, "body": "short"}
+
+    def retain_if(d: dict) -> bool:
+        return len(d.get("body", "")) > 20
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "y"},
+        draft2,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft1,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        required_fields=("company_name",),
+        retain_if=retain_if,
+    )
+
+    # No eligible candidate (draft1 fails retain_if, draft2 lacks the field) —
+    # fail open rather than reintroducing a retain_if-failing draft.
+    assert result["company_name"] is None

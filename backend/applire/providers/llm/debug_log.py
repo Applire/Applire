@@ -125,6 +125,25 @@ def log_review_exhausted(chain_id: str, max_retries: int, issues_count: int) -> 
     )
 
 
+def log_review_cycle_detected(chain_id: str, attempt: int, max_retries: int) -> None:
+    """A review loop's generator retry reproduced a draft already seen earlier in the
+    SAME loop (#272 wave-6 oscillation fix) — a cycle by definition, since a repeated
+    draft cannot converge on further rounds. Stopped early rather than burning the
+    remaining retries.
+
+    Deliberately a DIFFERENT stable prefix from ``REVIEW_EXHAUSTED``: exhaustion means
+    the loop used up every retry without approval; a cycle-stop means the loop noticed
+    it was going in circles and quit early. Conflating the two would hide that a
+    document shipped via early-stop, not via the ordinary retry budget — this keeps
+    both countable, distinctly, after the fact (mirrors #264)."""
+    _review_logger.warning(
+        "REVIEW_CYCLE_DETECTED chain=%s attempt=%d/%d — generator retry reproduced an "
+        "earlier draft in this loop; stopping early instead of burning remaining "
+        "retries",
+        chain_id, attempt, max_retries,
+    )
+
+
 def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: str) -> None:
     """A reviewer or refiner call itself failed (truncated/timed out) mid-loop —
     distinct from exhaustion: the loop could not even complete this attempt (#264)."""

@@ -86,6 +86,72 @@ class TestJobAnalysisReviewPromptBuilder:
 
 
 # ---------------------------------------------------------------------------
+# Wave 6 Task 3 — narrow the two reviewer false-positive classes (wording only)
+# ---------------------------------------------------------------------------
+
+
+class TestJobAnalysisReviewPromptWave6Wording:
+    """Pinned failure: 'Connect-AI' and 'Lead AI Engineer' were BOTH present
+    verbatim in the source JD text, yet the reviewer called them 'not explicitly
+    stated' and the corrector dropped them entirely. The prompt must foreclose that
+    specific false-positive class, and must also forbid reversing a change it asked
+    for in an earlier round (the seniority_level null/non-null 2-cycle) — stated as
+    a rule about the reviewer's OWN output, with no history fed into the prompt
+    (ADR-058 freeze: memoryless prompt)."""
+
+    def test_verbatim_source_text_is_grounded_full_stop(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT.lower()
+        assert "verbatim" in prompt
+        # The rule must connect "verbatim" to the "not explicitly stated" failure
+        # mode it forecloses.
+        assert "explicitly stated" in prompt
+
+    def test_anti_oscillation_rule_present_and_memoryless(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT.lower()
+        # A rule about the reviewer's own output reversing a prior request.
+        assert "reverse" in prompt or "reversing" in prompt
+        assert "earlier round" in prompt or "previous round" in prompt or "prior round" in prompt
+        # The rule must NOT be implemented by feeding the reviewer any history —
+        # the prompt stays memoryless. build_job_analysis_review_prompt only ever
+        # takes (jd_text, extracted_json); no history/previous-issues parameter.
+        import inspect
+
+        sig = inspect.signature(build_job_analysis_review_prompt)
+        assert list(sig.parameters) == ["jd_text", "extracted_json"]
+
+    def test_genuine_checks_are_not_weakened(self):
+        """The original defect classes must still be flagged after the wording
+        change — fabrication, misclassification, invented title/company, and
+        seniority/language overreach all remain named."""
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        for marker in (
+            "FABRICATED REQUIREMENT",
+            "MISCLASSIFICATION",
+            "FABRICATED KEYWORDS",
+            "INVENTED TITLE OR COMPANY",
+            "SENIORITY/LANGUAGE OVERREACH",
+        ):
+            assert marker in prompt
+
+    def test_hallucinated_field_still_reads_as_flagged_by_wording(self):
+        """A field with NO basis anywhere in the source text is not protected by
+        the new verbatim-grounding rule (which only shields text that IS present).
+        This is a wording-level assertion, not a live-LLM call: it demonstrates the
+        prompt's own approval bar language keys off source-text presence, so a
+        value absent from the source falls outside the "verbatim ⇒ grounded"
+        exemption and stays inside the fabrication-check language."""
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        # The verbatim-grounding carve-out must be phrased conditionally on the
+        # value actually appearing in the source — not as a blanket "never flag".
+        lowered = prompt.lower()
+        verbatim_idx = lowered.index("verbatim")
+        # The word "source" must appear near the verbatim rule, tying groundedness
+        # to actual presence in the posting text (so absence is still flaggable).
+        window = lowered[max(0, verbatim_idx - 300) : verbatim_idx + 300]
+        assert "source" in window
+
+
+# ---------------------------------------------------------------------------
 # Wiring: analyze_jd() now routes its draft through review_and_refine
 # ---------------------------------------------------------------------------
 
@@ -191,6 +257,69 @@ async def test_reviewer_rejection_drops_a_fabricated_requirement(db):
 
     assert result.required_skills == ["Python", "PostgreSQL"]
     assert "Kubernetes" not in result.required_skills
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_declares_required_fields_for_company_and_title(db, monkeypatch):
+    """Wave-6 Task 2: analyze_jd's review_and_refine call site must declare
+    company_name/role_title as required_fields — the pinned defect dropped both
+    entirely after a false-positive reviewer round and never recovered them."""
+    import applire.services.job as job_svc
+
+    captured: dict = {}
+    real_review_and_refine = job_svc.review_and_refine
+
+    async def _spy(*args, **kwargs):
+        captured.update(kwargs)
+        return await real_review_and_refine(*args, **kwargs)
+
+    monkeypatch.setattr(job_svc, "review_and_refine", _spy)
+
+    provider = _make_provider(
+        generation=_VALID_RESPONSE,
+        review_responses=[{"approved": True, "issues": [], "feedback": ""}],
+    )
+
+    await job_svc.analyze_jd("full JD text", db, provider)
+
+    assert captured.get("required_fields") == ("company_name", "role_title")
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_recovers_dropped_company_and_title_end_to_end(db):
+    """End-to-end reproduction (synthetic data) of the pinned #264-follow-up defect:
+    a false-positive reviewer round drops company_name/role_title entirely and never
+    recovers them. analyze_jd must persist the ORIGINAL values, not the empty ones."""
+    from applire.services.job import analyze_jd
+
+    original = dict(_VALID_RESPONSE)
+    dropped = {**_VALID_RESPONSE, "company_name": None, "role_title": ""}
+
+    provider = _make_provider(
+        generation=original,
+        review_responses=[
+            {
+                "approved": False,
+                "issues": [
+                    "company_name: 'Acme GmbH' is not explicitly stated as the hiring company",
+                    "role_title: 'Senior Backend Engineer' is not explicitly stated",
+                ],
+                "feedback": "Drop company_name and role_title — not grounded",
+            },
+            dropped,
+            {"approved": False, "issues": ["still wrong"], "feedback": "try again"},
+            dropped,
+        ],
+    )
+
+    result = await analyze_jd(
+        "Senior Backend Engineer at Acme GmbH. Python and PostgreSQL required.",
+        db,
+        provider,
+    )
+
+    assert result.company_name == "Acme GmbH"
+    assert result.role_title == "Senior Backend Engineer"
 
 
 @pytest.mark.asyncio
