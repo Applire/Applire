@@ -48,6 +48,16 @@ def test_region_norm_carries_letter_word_budget():
     assert REGION_NORMS["DACH"].letter_body_word_budget == 300
 
 
+def test_region_norm_carries_letter_word_floor():
+    """#272 Task 6: ADR-051 §1 previously set an upper bound only (letter_body_
+    word_budget), so a thin letter passed silently. The lower bound lives in the
+    norm registry too — never a hard-coded number in a prompt or service — and
+    must sit strictly below the upper budget."""
+    dach = REGION_NORMS["DACH"]
+    assert isinstance(dach.letter_body_word_floor, int)
+    assert 0 < dach.letter_body_word_floor < dach.letter_body_word_budget
+
+
 def test_default_region_is_dach():
     assert DEFAULT_REGION == "DACH"
 

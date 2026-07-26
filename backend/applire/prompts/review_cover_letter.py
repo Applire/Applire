@@ -58,12 +58,16 @@ but any company product, market, or achievement NOT stated there is still an inv
 ungrounded claim (ADR-057 amended 2026-07-24 / US264).
 
 The CANDIDATE SOURCE may also carry a ``positioning_requested`` block (ADR-057 amended
-2026-07-24 / US264/#255) naming up to three REQUIRED-content instructions the writer was
-given: ``company_domain_engagement``, ``gap_transfer_argument``, and ``availability``.
-Each entry states its own grounding (the ``job_description`` text, or the candidate's OWN
-verbatim testimony) plus an explicit instruction. Treat each present entry as REQUIRED
-content, not optional color — its absence from the letter body is itself a review issue
-(check 7 below).
+2026-07-24 / US264/#255, ``closing`` added #272) naming REQUIRED-content instructions the
+writer was given: ``company_domain_engagement``, ``gap_transfer_argument``,
+``availability``, and ``closing``. Each entry states its own grounding (the
+``job_description`` text, or the candidate's OWN verbatim testimony) plus an explicit
+instruction. Treat each present entry as REQUIRED content, not optional color — its
+absence from the letter body is itself a review issue (check 7 below). ``closing`` is
+always present (#272 Task 2): every letter must end with a genuine closing paragraph
+(interest + call to action, availability folded in when present) — a bare, standalone
+availability line (e.g. "Notice period can be discussed.") with no real closing around it
+is itself the check-7 failure.
 
 Check the body paragraphs for ALL of the following ungrounded/invented content:
 1. INVENTED DATES OR TENURE: any date, duration, or length-of-experience claim not
@@ -108,22 +112,37 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    invented candidate fact. A claim that DOES appear in ``job_description`` is grounded and
    fine — including when it happens to use a term that also appears in the DO NOT CLAIM list
    (see check 5(b): that list only ever forbids a CANDIDATE competence claim).
-7. MISSING REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
-   source's ``positioning_requested`` block names a company/domain engagement, a gap/transfer
-   argument, or an availability address as REQUIRED, and the letter body does NOT deliver it,
-   that absence IS an issue — name which required block is missing and instruct the writer to
-   add it using ONLY the grounding given for that block (the ``job_description`` text for
-   company/domain; the candidate's own verbatim ``testimony`` for the gap/transfer argument
-   and availability). Do not approve a letter that silently drops content the candidate's own
-   vault testimony supports and that was explicitly requested of the writer.
+7. MISSING REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255; ``closing``
+   added #272): when the source's ``positioning_requested`` block names a company/domain
+   engagement, a gap/transfer argument, an availability address, or the REQUIRED closing
+   paragraph, and the letter body does NOT deliver it, that absence IS an issue — name which
+   required block is missing and instruct the writer to add it using ONLY the grounding given
+   for that block (the ``job_description`` text for company/domain; the candidate's own
+   verbatim ``testimony`` for the gap/transfer argument and availability; for ``closing``, a
+   genuine interest + call-to-action paragraph, folding in availability rather than leaving it
+   as a standalone terminal line). Do not approve a letter that silently drops content the
+   candidate's own vault testimony supports and that was explicitly requested of the writer,
+   and do not approve a letter whose final paragraph is a bare stub instead of a real closing.
 8. MINTED FIGURES (US264/#255 — a prior run's corrector invented "mentoring teams of 5+" while
    chasing a keyword-coverage push): a number, team size, budget, or metric is grounded ONLY
-   when it appears VERBATIM somewhere in the source (the candidate profile, a claimable
-   ledger entry's own ``evidence`` field, or a positioning ``testimony``). A figure that does
-   not appear verbatim anywhere in the source is fabricated even if the surrounding sentence
-   is otherwise true — flag it exactly like an invented achievement (check 3). NEVER instruct
-   the writer, in your own feedback, to add a number that is not already verbatim in the
-   source; when the evidence lacks a figure, instruct a qualitative surfacing instead.
+   when some NUMERICALLY-EQUIVALENT form of it appears somewhere in the source (the candidate
+   profile, a claimable ledger entry's own ``evidence`` field, or a positioning ``testimony``).
+   NUMERICALLY-EQUIVALENT means the SAME figure regardless of surface form — a number spelled
+   out in words and the same number in digits are the same figure, never a form difference:
+   "seven months" and "7 months" are numerically-equivalent, and so are "€19bn" and its digit
+   form. NEVER flag a word-vs-digit (or spacing/symbol-placement) difference as a minted
+   figure, and never instruct the writer to change one already-grounded form into another.
+   Non-numeric quantifiers — "multiple", "several", "various", "a number of" — are NOT figures
+   at all and must never be treated as one (a source stating "several different LLMs" makes
+   "multiple LLMs" fine — neither phrase is a figure to verify). A figure is minted ONLY when
+   NO numerically-equivalent form of it appears anywhere in the source — flag that exactly
+   like an invented achievement (check 3). NEVER instruct the writer, in your own feedback, to
+   add a number that is not already verbatim (in any equivalent form) in the source; when the
+   evidence lacks a figure, instruct a qualitative surfacing instead. GENERAL ANTI-OSCILLATION
+   RULE (applies to every check in this list, not just figures): never raise the same issue in
+   a form that simply reverses a change you yourself requested in an earlier round — if round
+   N asked the writer to change "7 months" to "seven months", do not then flag "seven months"
+   as unverbatim and ask for "7 months" back; that is oscillation, not a real finding.
 9. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
    and letter jointly misled a hiring panel, because a KEYWORD LEDGER CLAIMABLE concept
    ("retrieval systems") was positioned as the letter's honest gap and then bare-denied — "I
@@ -195,6 +214,15 @@ Rules:
   OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
   reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate
   competence claim; never delete an entire required paragraph to make a word disappear.
+- NEVER DELETE OR REDUCE THE CLOSING PARAGRAPH (#272 — the run-5 regression: a corrector round
+  deleted the letter's entire closing paragraph — "I would welcome the opportunity to discuss
+  how my experience aligns with your needs. My notice period can be discussed." — while fixing
+  an unrelated flag elsewhere in the letter, leaving the bare stub "Notice period can be
+  discussed." as the whole ending): the closing paragraph (interest + call to action) is
+  REQUIRED content exactly like the other ``positioning_requested`` entries above. Fixing an
+  issue located in the closing paragraph means correcting the specific flagged text IN PLACE —
+  never deleting or shrinking the paragraph itself, and never leaving availability/notice-
+  period content standing alone as the letter's entire final line.
 - NEVER MINT A FIGURE: when correcting an absent-claimable coverage issue, use only wording
   already present verbatim in the CANDIDATE SOURCE (the profile, or a ledger entry's own
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not

@@ -440,3 +440,199 @@ async def test_reviewer_truncation_ships_current_draft(mock_provider, caplog):
 
     assert result == good_draft
     assert mock_provider.aparse_json.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# #272 Task 3 — optional, opt-in deterministic retention predicate (retain_if)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retain_if_default_none_is_bit_identical_on_exhaustion(mock_provider, caplog):
+    """retain_if omitted (default None) must produce EXACTLY today's behaviour —
+    even when the final draft would fail an arbitrary predicate. Proven by
+    reusing the exact exhaustion scenario from
+    test_exhausts_retries_returns_last_draft_and_logs_warning with retain_if
+    simply not passed."""
+    original = {"work_history": [{"company": "Bad Co"}]}
+    retry1 = {"work_history": [{"company": "Still Bad Co"}]}
+    retry2 = {"work_history": [{"company": "Final Co"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fabricated entry"], "feedback": "Remove fabricated entry"},
+        retry1,
+        {"approved": False, "issues": ["still fabricated"], "feedback": "Try harder"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="original cv text",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: f"retry: {f}",
+            generator_system="gen system",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev system",
+            provider=mock_provider,
+            max_retries=2,
+        )
+
+    # Bit-identical to the pre-#272 test: no retain_if kwarg passed at all.
+    assert result == retry2
+    assert mock_provider.aparse_json.call_count == 4
+    assert "exhausted" in caplog.text
+    assert not any("retain_if" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_retain_if_none_ignores_a_failing_predicate_semantics(mock_provider):
+    """A second, explicit proof that retain_if=None never even consults a
+    predicate: pass a predicate that would ALWAYS reject via a side channel we
+    assert was never called."""
+    calls: list[dict] = []
+
+    def never_call_me(d):
+        calls.append(d)
+        return False
+
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    draft = {"work_history": []}
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=1,
+        # retain_if intentionally omitted — never call `never_call_me`
+    )
+    assert result == draft
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_retain_if_substitutes_earlier_draft_when_final_fails_predicate(mock_provider, caplog):
+    """When supplied, retain_if is checked against the settled (returned) draft.
+    If it fails but an EARLIER round's draft satisfied it, that earlier draft is
+    returned instead — no new LLM call, just choosing among drafts the bounded
+    loop already produced (ADR-058 freeze)."""
+    original = {"body": {"paragraphs": ["opening", "closing paragraph that is long enough to pass"]}}
+    retry1 = {"body": {"paragraphs": ["opening", "closing paragraph that is long enough to pass"]}}
+    retry2 = {"body": {"paragraphs": ["opening", "short stub"]}}  # fails predicate
+
+    def has_long_closing(draft: dict) -> bool:
+        paragraphs = draft.get("body", {}).get("paragraphs", [])
+        return bool(paragraphs) and len(paragraphs[-1].split()) >= 5
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": False, "issues": ["y"], "feedback": "fix y"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            retain_if=has_long_closing,
+        )
+
+    # retry2 (the exhausted final draft) fails the predicate; retry1 (identical
+    # to original, which passes) must be substituted in.
+    assert result == retry1
+    assert any("retain_if" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_retain_if_returns_final_when_it_already_satisfies_predicate(mock_provider, caplog):
+    """No substitution — and no substitution warning — when the settled draft
+    already satisfies retain_if."""
+    draft = {"body": {"paragraphs": ["opening", "a properly long closing paragraph indeed"]}}
+
+    def has_long_closing(d: dict) -> bool:
+        paragraphs = d.get("body", {}).get("paragraphs", [])
+        return bool(paragraphs) and len(paragraphs[-1].split()) >= 5
+
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=1,
+            retain_if=has_long_closing,
+        )
+
+    assert result == draft
+    assert not any("retain_if" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_retain_if_ships_final_when_no_draft_ever_satisfies_it(mock_provider, caplog):
+    """Fail-open, honestly: if NO draft in the whole history satisfies retain_if,
+    the settled (final) draft ships anyway — never crash, never fabricate."""
+    original = {"body": {"paragraphs": ["short"]}}
+    retry1 = {"body": {"paragraphs": ["still short"]}}
+
+    def impossible(d: dict) -> bool:
+        return False
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        retain_if=impossible,
+    )
+    assert result == retry1
+
+
+@pytest.mark.asyncio
+async def test_retain_if_checked_on_reviewer_call_failure_path(mock_provider, caplog):
+    """The reviewer-call-failure early-return path must also route through
+    retain_if (trivially — only one draft exists in history, so it just checks
+    that single draft and ships it either way)."""
+    good_draft = {"body": {"paragraphs": ["opening", "a properly long closing paragraph indeed"]}}
+    mock_provider.aparse_json.side_effect = LLMTruncatedError("reviewer blew cap")
+
+    def has_long_closing(d: dict) -> bool:
+        paragraphs = d.get("body", {}).get("paragraphs", [])
+        return bool(paragraphs) and len(paragraphs[-1].split()) >= 5
+
+    result = await review_and_refine(
+        source="src",
+        draft=good_draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review prompt",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        retain_if=has_long_closing,
+    )
+    assert result == good_draft

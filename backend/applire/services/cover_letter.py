@@ -657,10 +657,16 @@ async def _render_cover_letter_background(
             enrichment_history = (
                 (profile_json.get("metadata") or {}).get("enrichment_history") or []
             )
+            # #272 Task 1: hoisted above the availability block (was computed further
+            # below, after this call site) so find_availability_testimony can search
+            # denied_concepts[].statement too — the run-5 ground truth showed the
+            # candidate's real availability testimony living as the TAIL of a denial
+            # statement, a source this call never searched before.
+            denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
             availability_testimony: str | None = None
             if detect_concurrent_roles(work_experience):
                 availability_testimony = find_availability_testimony(
-                    signature_stories, enrichment_history
+                    signature_stories, enrichment_history, denied_concepts
                 )
                 if availability_testimony is None:
                     logger.info(
@@ -689,7 +695,7 @@ async def _render_cover_letter_background(
                 render_unaddressed_hard_requirements_block,
                 unaddressed_hard_requirements_positioning,
             )
-            denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
+            # denied_concepts already resolved above (#272 Task 1 hoist).
             scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
             scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
 
@@ -714,6 +720,23 @@ async def _render_cover_letter_background(
             # and thread it into grounding_source below, so every review_and_refine call in
             # this render (including the condense pass) carries it too.
             positioning_requested: dict = {}
+            # #272 Task 2: UNCONDITIONAL — unlike the other positioning entries, every
+            # letter needs a genuine closing paragraph, so this is never gated on a
+            # deterministic condition. Plugs into the SAME machinery: reviewer check 7
+            # already flags missing required positioning content, and the corrector
+            # prompt already has a PRESERVE REQUIRED POSITIONING CONTENT rule.
+            positioning_requested["closing"] = {
+                "required": True,
+                "instruction": (
+                    "REQUIRED content: the letter must end with a genuine closing "
+                    "paragraph expressing interest and a call to action (e.g. inviting "
+                    "further discussion or an interview). Availability/notice-period "
+                    "content, when present, is folded INTO this closing paragraph — "
+                    "never left as a bare, standalone terminal line. Deleting or "
+                    "shrinking this closing paragraph to fix an unrelated issue is "
+                    "itself a review issue."
+                ),
+            }
             if scoped_boundaries:
                 positioning_requested["scoped_boundaries"] = {
                     "boundaries": [
@@ -861,6 +884,18 @@ async def _render_cover_letter_background(
                 keyword_ledger=keyword_ledger,
                 denied_concepts=denied_concepts,
             )
+            # #272 Task 6: a THIRD deterministic wrapper — each reviewer iteration also
+            # carries a WORD FLOOR check against the CURRENT draft's body (ADR-051 norm
+            # registry; a thin letter previously passed silently since only an upper
+            # bound existed). Composes on top of the two wrappers above exactly like
+            # they compose with each other — no new LLM call, no new loop.
+            from applire.services.cover_letter_positioning import (
+                has_closing_paragraph,
+                word_floor_reviewer_prompt_fn,
+            )
+            reviewer_prompt_fn = word_floor_reviewer_prompt_fn(
+                reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
+            )
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
@@ -871,6 +906,13 @@ async def _render_cover_letter_background(
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 chain_id="cover_letter",
+                # #272 Task 3: the ADR-021 loop has no no-regression invariant — a
+                # reviewer mistake (RC-C/RC-E) can erode content a prior round had
+                # right (RC-D: the real closing paragraph, eroded to a bare stub).
+                # retain_if is opt-in and structural-only (never a quality score);
+                # when the settled draft fails it, an earlier round's draft that
+                # passed is substituted instead — no new LLM call.
+                retain_if=has_closing_paragraph,
             )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
@@ -979,6 +1021,11 @@ async def _render_cover_letter_background(
                             provider=provider,
                             max_retries=LLM_REVIEW_MAX_RETRIES,
                             chain_id="cover_letter_condense",
+                            # #272 Task 3: same structural retention guard as the
+                            # primary loop — the condense pass is a fresh rewrite
+                            # under length pressure and must not lose the closing
+                            # paragraph either.
+                            retain_if=has_closing_paragraph,
                         )
                         # #254 — same generation-path guard as the primary loop
                         # above: the condense pass is itself a fresh corrector-

@@ -38,11 +38,17 @@ class RegionNorm:
     # template (ADR-051 §6 amended, #177: enforcement, not just detection, for
     # letters — the CV's guarantee shape, extended to cover letters).
     letter_body_word_budget: int
+    # #272 Task 6: the LOWER bound ADR-051 §1 never set — a thin letter body
+    # (insufficient selected evidence) previously passed silently since only an
+    # upper bound existed. Read by the deterministic reviewer wrapper
+    # (services/cover_letter_positioning.word_floor_reviewer_prompt_fn); never
+    # a hard-coded word number outside this registry (ADR-051 §1).
+    letter_body_word_floor: int
 
 
 REGION_NORMS: dict[str, RegionNorm] = {
     "DACH": RegionNorm(cv_standard_pages=2, cv_max_pages=3, letter_pages=1,
-                        letter_body_word_budget=300),
+                        letter_body_word_budget=300, letter_body_word_floor=120),
 }
 
 DEFAULT_REGION = "DACH"
