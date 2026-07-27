@@ -385,20 +385,59 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
         for entry in claimable:
             forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
             evidence = entry.get("evidence", "") or "(no extra evidence given)"
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}] — evidence: {evidence}")
+            concept = entry.get("concept", "")
+            adjacent = entry.get("adjacent_evidence")
+            if adjacent:
+                # ADR-048 am. 2026-07-27: the candidate does NOT have this one.
+                # Naming the substitute is the only actionable instruction here;
+                # without it the writer is simply told to "surface TOGAF".
+                lines.append(
+                    f"  - {concept} [forms: {forms}] — the candidate does NOT have "
+                    f"{concept} itself; the profile's adjacent capability is "
+                    f"{adjacent}. Give {adjacent} prominence in its own right and "
+                    f"NEVER present {concept} as something the candidate has. "
+                    f"evidence: {evidence}"
+                )
+            else:
+                lines.append(f"  - {concept} [forms: {forms}] — evidence: {evidence}")
     else:
         lines.append("  (none)")
+
+    # A denial and an unknown are both unclaimable, but they are not the same
+    # thing and the document cannot treat them the same way (ADR-059 amended
+    # 2026-07-27). An unknown is simply absent. A denial is a position the
+    # CANDIDATE took, in their own words — which is exactly what makes it
+    # positionable rather than merely forbidden.
+    denied = [
+        e.get("concept", "")
+        for e in (keyword_ledger or [])
+        if e.get("status") == "denied" and e.get("concept")
+    ]
+    denied_norms = {_norm(c) for c in denied}
+    unknown = [c for c in forbidden if _norm(c) not in denied_norms]
 
     lines += [
         "",
         "DO NOT CLAIM (honest gaps — NOT in the profile; never present these as something "
         "the candidate has, has done, or knows):",
     ]
-    if forbidden:
-        for concept in forbidden:
+    if unknown:
+        for concept in unknown:
             lines.append(f"  - {concept}")
     else:
         lines.append("  (none)")
+
+    if denied:
+        lines += [
+            "",
+            "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
+            "have these). Never claim them, and never soften or walk back the denial. "
+            "Unlike the list above these are the candidate's OWN stated position, so a "
+            "cover letter MAY name one honestly and follow it with what they do bring "
+            "instead — a CV simply omits them:",
+        ]
+        for concept in denied:
+            lines.append(f"  - {concept}")
 
     return "\n".join(lines)
 
@@ -532,10 +571,21 @@ def verified_missing_claimable(
     serialised draft text — the same instrument the ATS panel grades with, so the
     pipeline can no longer ship a document its own panel will flag. Deterministic,
     no LLM. Honest-gap entries are never reported (they must stay absent).
+
+    An ADJACENT ``partial`` is never reported either (ADR-048 amended
+    2026-07-27). Such an entry means the candidate does NOT have the named
+    thing and has something else that stands in for it, so demanding its JD
+    term appear literally is a demand to over-claim — the adjacent capability
+    belongs on the page instead. Charter run #7 exhausted the CV reviewer's
+    entire retry budget on exactly this pressure (`Payments platform`,
+    `Settlement pipeline`, `Payout flows`). A below-the-bar ``partial`` carries
+    no pointer and is still demanded: the candidate really does have that
+    skill, just less of it than the JD asked for.
     """
     from applire.services.ats_audit import _norm as ats_norm, surface_present
 
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    claimable = [e for e in claimable if not e.get("adjacent_evidence")]
     if not claimable:
         return []
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
@@ -1166,17 +1216,27 @@ def build_keyword_ledger(
             status = "gap"
         claimable = status in {"direct", "partial"}
 
-        ledger.append(
-            {
-                "concept": concept,
-                "surface_forms": list(surface_forms),
-                "sources": sorted(sources),
-                "fit_weight": _fit_weight(sources),
-                "status": status,
-                "evidence": (item.get("evidence", "") if claimable else ""),
-                "claimable": claimable,
-            }
-        )
+        entry = {
+            "concept": concept,
+            "surface_forms": list(surface_forms),
+            "sources": sorted(sources),
+            "fit_weight": _fit_weight(sources),
+            "status": status,
+            "evidence": (item.get("evidence", "") if claimable else ""),
+            "claimable": claimable,
+        }
+        # ADR-048 amended 2026-07-27: WHAT makes this partial. `partial` covers
+        # two different situations — "the candidate has an adjacent capability"
+        # (JD wants TOGAF, candidate has arc42) and "the right capability below a
+        # stated bar" — and only the first has something to promote. Carried
+        # ONLY on a partial entry: on a direct entry it would invite the writer
+        # to lead with a substitute over the real thing, and on gap/denied there
+        # is nothing to point at. Absent (not empty) when the classifier gives
+        # none, so "below the bar" stays distinguishable from "adjacent".
+        adjacent = str(item.get("adjacent_evidence") or "").strip()
+        if status == "partial" and adjacent:
+            entry["adjacent_evidence"] = adjacent
+        ledger.append(entry)
 
     # Any JD expectation the LLM did not classify defaults to a gap entry —
     # never silent credit (mirrors ADR-035's unclassified-defaults-to-gap rule).

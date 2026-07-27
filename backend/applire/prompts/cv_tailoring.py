@@ -63,6 +63,19 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
 3. Filter and reorder the skills list to lead with skills explicitly required in the job description.
    Keyword gaps may ONLY be incorporated if they are explicitly demonstrated in the candidate's
    work history or skills list. If a keyword gap has no explicit basis in CANDIDATE PROFILE, omit it.
+3a. UNMET AND PARTLY-MET REQUIREMENTS — what the CV actually does about them (ADR-048 §6, amended
+   2026-07-27). "Do not claim it" is not a complete instruction; each kind gets a different action:
+   - ADJACENT (the KEYWORD LEDGER names an adjacent capability for a required concept — e.g. the JD
+     asks for TOGAF and the profile has arc42): give the ADJACENT capability real prominence — a
+     skills-list position and, where the profile supports one, a work_history bullet that shows it
+     in use. Present it as itself, on its own merits. NEVER write the JD's own term as though the
+     candidate held it, and never pair the two as equivalents.
+   - EXPLICITLY DENIED (the candidate was asked and said no): simply OMIT it. A CV is not the place
+     to disclose a gap — that is the cover letter's job. Never claim it, and never gesture at it
+     with a hedge like "familiar with" or "exposure to".
+   - UNKNOWN (a plain honest gap): omit it too. Do not manufacture adjacency the ledger did not name.
+   Never let coverage pressure override this rule: an absent required keyword is a truthful outcome,
+   an asserted one the candidate cannot back is a fabrication and the worst failure mode.
 4. Write a concise professional summary (2–3 sentences, third person) tailored to the role.
    When a KEYWORD LEDGER block is present below, LEAD the summary with the JD's top CLAIMABLE
    concepts (the terms the profile evidence backs) — the summary is the first thing a reviewer

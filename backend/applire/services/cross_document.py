@@ -705,9 +705,20 @@ def find_unaddressed_hard_requirements(
     *,
     cap: int = _MAX_UNADDRESSED_REPORTED,
 ) -> list[dict[str, Any]]:
-    """JD hard requirements (``"required" in sources``) the ledger marks
-    ``claimable: false`` (a genuine, honest gap) whose surface forms appear
-    NOWHERE in the letter body.
+    """JD hard requirements (``"required" in sources``) that need an explicit
+    positioning decision and whose surface forms appear NOWHERE in the letter
+    body.
+
+    Two kinds qualify (ADR-048 amended 2026-07-27, clause 6):
+
+      * ``claimable: false`` — a genuine honest gap, whether ``gap`` (nobody
+        knows) or ``denied`` (the candidate said no in their own words);
+      * an ADJACENT ``partial`` — claimable, but only because the candidate has
+        a *different* capability standing in for the named one. It reads as
+        "covered" to every other mechanism while the JD's actual requirement is
+        unmet, so it needs positioning just as much: promote the adjacent
+        capability, never assert the JD's term. A below-the-bar ``partial``
+        (no pointer) is genuinely the named skill and is deliberately excluded.
 
     Capped at the ``cap`` (default 3) highest ``fit_weight`` entries — this
     never silently truncates: every dropped entry is logged at ``info``
@@ -721,7 +732,7 @@ def find_unaddressed_hard_requirements(
     for entry in keyword_ledger or []:
         if not isinstance(entry, dict):
             continue
-        if entry.get("claimable"):
+        if entry.get("claimable") and not entry.get("adjacent_evidence"):
             continue
         if "required" not in (entry.get("sources") or []):
             continue
@@ -895,6 +906,20 @@ def render_unaddressed_hard_requirements_block(
     for e in entries:
         evidence = e.get("evidence", "") or "(none — a pure keyword gap, no vault context)"
         lines.append(f"  - {e.get('concept', '')} — context: {evidence}")
+        if e.get("status") == "denied":
+            lines.append(
+                "    THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS. It is "
+                "their own position, not an unknown — name it plainly if you name it "
+                "at all, and never soften or walk it back."
+            )
+        if e.get("adjacent_evidence"):
+            lines.append(
+                "    ADJACENT CAPABILITY IN THE VAULT: "
+                f"{e['adjacent_evidence']} — the candidate does NOT have "
+                f"{e.get('concept', '')} itself. Give "
+                f"{e['adjacent_evidence']} prominence on its own merits; never "
+                "assert the requirement's own term as something they have."
+            )
         bridge = find_denial_transfer_bridge(e, denied_concepts)
         if bridge:
             lines.append(
