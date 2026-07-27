@@ -43,6 +43,63 @@ class TestSkillWorkEntryRefs:
 
 
 # ---------------------------------------------------------------------------
+# German CV proficiency tiers (ADR-061 clause 5, #304/#317, PO follow-up
+# 2026-07-27) — _PROFICIENCY_ALIASES was entirely English/LinkedIn. "Anwender"
+# and "Grundkenntnisse" are the EXACT two words #304's own case used and are
+# the words clause 5 names as declarations that must be honoured as a
+# ceiling — before this fix they fell through the unknown-string fallback to
+# "intermediate", one layer upstream of every site #317 already fixed, so the
+# declared word never survived long enough to BE the ceiling.
+# ---------------------------------------------------------------------------
+
+class TestGermanProficiencyAliases:
+    @pytest.mark.parametrize("word,expected", [
+        ("Anwender", "basic"),
+        ("anwender", "basic"),  # case-insensitivity
+        ("Grundkenntnisse", "basic"),
+        ("Grundlagen", "basic"),
+        ("Fortgeschritten", "advanced"),
+        ("Erfahren", "advanced"),
+        ("Verhandlungssicher", "advanced"),
+        ("Fließend", "advanced"),
+        ("Fliessend", "advanced"),  # ASCII ß->ss transliteration (#213/#214 precedent)
+        ("Muttersprache", "expert"),
+    ])
+    def test_german_tier_word_normalizes_to_declared_level(self, word, expected):
+        from applire.schemas.profile import Skill
+        skill = Skill(name="SAP", category="technical", proficiency=word)
+        assert skill.proficiency == expected
+
+    def test_sap_anwender_reaches_the_vault_at_basic_end_to_end(self):
+        """The #304 shape, closed at BOTH layers: the schema no longer silently
+        upgrades the German self-declaration to "intermediate", and the
+        deterministic enrichment ladder (#317) no longer raises it further from
+        elapsed time. "SAP (Anwender)" must reach "basic" — not "intermediate"
+        (the old schema default) and not "expert" (the old ladder ratchet)."""
+        from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
+        from applire.services.skill_enrichment import _match_and_enrich
+
+        profile = MasterProfileData(
+            skills=[Skill(name="SAP", category="technical", proficiency="Anwender")],
+            work_experience=[
+                WorkEntry(company="Weberit", role="Schichtleiter",
+                          start_date="2011-08", end_date="2015-01", technologies=["SAP"]),
+                WorkEntry(company="Rheinwerk", role="Leiter Operations",
+                          start_date="2015-02", end_date=None, technologies=["SAP"]),
+            ],
+        )
+        # The schema validator already normalized "Anwender" -> "basic" at
+        # construction time — assert that before enrichment runs at all.
+        assert profile.skills[0].proficiency == "basic"
+
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        assert skill.years_experience == 15  # old ladder would have said "expert"
+        assert skill.proficiency == "basic"  # declared ceiling survives both layers
+
+
+# ---------------------------------------------------------------------------
 # Task 2: Date parsing and range calculation
 # ---------------------------------------------------------------------------
 

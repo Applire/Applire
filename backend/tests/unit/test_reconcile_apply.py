@@ -341,6 +341,26 @@ def test_upsert_skill_fills_an_unrecognised_existing_proficiency():
     assert _merge_declared_proficiency("not-a-real-tier", "expert") == "expert"
 
 
+def test_sap_anwender_survives_a_second_import_end_to_end():
+    """ADR-061 clause 5 (#304/#317, PO follow-up 2026-07-27) — the #304 shape,
+    through BOTH layers: the Skill schema normalizes the German declaration
+    "Anwender" to "basic" at construction (schemas/profile.py
+    _PROFICIENCY_ALIASES), and this module's ceiling merge then refuses to
+    raise it even when a second import proposes "expert" for the same skill —
+    exactly the "next import" scenario #317's issue named."""
+    existing = Skill(name="SAP", proficiency="Anwender", experience_refs=["Weberit"])
+    assert existing.proficiency == "basic"  # schema-level German alias
+    profile = MasterProfileData(skills=[existing])
+
+    # A second import's op — e.g. the LLM path over-reading "SAP" without the
+    # qualifier attached to the token this time.
+    ops = [UpsertSkill(name="SAP", proficiency="expert", evidence=[])]
+    result = apply_ops(profile, ops, SOURCE)
+
+    assert len(result.profile.skills) == 1
+    assert result.profile.skills[0].proficiency == "basic"  # declared ceiling — not raised
+
+
 def test_upsert_skill_new():
     profile = MasterProfileData()
     ops = [UpsertSkill(name="Rust", category="technical", proficiency="advanced")]
