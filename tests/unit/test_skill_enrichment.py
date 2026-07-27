@@ -43,6 +43,63 @@ class TestSkillWorkEntryRefs:
 
 
 # ---------------------------------------------------------------------------
+# German CV proficiency tiers (ADR-061 clause 5, #304/#317, PO follow-up
+# 2026-07-27) — _PROFICIENCY_ALIASES was entirely English/LinkedIn. "Anwender"
+# and "Grundkenntnisse" are the EXACT two words #304's own case used and are
+# the words clause 5 names as declarations that must be honoured as a
+# ceiling — before this fix they fell through the unknown-string fallback to
+# "intermediate", one layer upstream of every site #317 already fixed, so the
+# declared word never survived long enough to BE the ceiling.
+# ---------------------------------------------------------------------------
+
+class TestGermanProficiencyAliases:
+    @pytest.mark.parametrize("word,expected", [
+        ("Anwender", "basic"),
+        ("anwender", "basic"),  # case-insensitivity
+        ("Grundkenntnisse", "basic"),
+        ("Grundlagen", "basic"),
+        ("Fortgeschritten", "advanced"),
+        ("Erfahren", "advanced"),
+        ("Verhandlungssicher", "advanced"),
+        ("Fließend", "advanced"),
+        ("Fliessend", "advanced"),  # ASCII ß->ss transliteration (#213/#214 precedent)
+        ("Muttersprache", "expert"),
+    ])
+    def test_german_tier_word_normalizes_to_declared_level(self, word, expected):
+        from applire.schemas.profile import Skill
+        skill = Skill(name="SAP", category="technical", proficiency=word)
+        assert skill.proficiency == expected
+
+    def test_sap_anwender_reaches_the_vault_at_basic_end_to_end(self):
+        """The #304 shape, closed at BOTH layers: the schema no longer silently
+        upgrades the German self-declaration to "intermediate", and the
+        deterministic enrichment ladder (#317) no longer raises it further from
+        elapsed time. "SAP (Anwender)" must reach "basic" — not "intermediate"
+        (the old schema default) and not "expert" (the old ladder ratchet)."""
+        from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
+        from applire.services.skill_enrichment import _match_and_enrich
+
+        profile = MasterProfileData(
+            skills=[Skill(name="SAP", category="technical", proficiency="Anwender")],
+            work_experience=[
+                WorkEntry(company="Weberit", role="Schichtleiter",
+                          start_date="2011-08", end_date="2015-01", technologies=["SAP"]),
+                WorkEntry(company="Rheinwerk", role="Leiter Operations",
+                          start_date="2015-02", end_date=None, technologies=["SAP"]),
+            ],
+        )
+        # The schema validator already normalized "Anwender" -> "basic" at
+        # construction time — assert that before enrichment runs at all.
+        assert profile.skills[0].proficiency == "basic"
+
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        skill = enriched[0]
+        assert skill.years_experience == 15  # old ladder would have said "expert"
+        assert skill.proficiency == "basic"  # declared ceiling survives both layers
+
+
+# ---------------------------------------------------------------------------
 # Task 2: Date parsing and range calculation
 # ---------------------------------------------------------------------------
 
@@ -155,28 +212,17 @@ class TestYearsToProficiency:
         assert _years_to_proficiency(10) == "expert"
 
 
-class TestApplyFloor:
-    def test_calculated_higher_than_existing(self):
-        from applire.services.skill_enrichment import _apply_floor
-        # calculated=advanced (rank 2) > existing=basic (rank 0) → use advanced
-        assert _apply_floor("advanced", "basic") == "advanced"
+class TestApplyFloorRetired:
+    """ADR-061 clauses 5 & 6 (#304/#317): the old `_apply_floor` helper — whose
+    own docstring said "the LLM-extracted proficiency is never lowered by the
+    calculation" — is the named defect (#304) and has been removed outright,
+    not merely relabelled. It had no callers left once skill_enrichment.py
+    stopped deriving `proficiency` from elapsed time. This test documents the
+    removal rather than the old (inverted) behaviour."""
 
-    def test_existing_higher_than_calculated(self):
-        from applire.services.skill_enrichment import _apply_floor
-        # calculated=basic (rank 0) < existing=expert (rank 3) → keep expert
-        assert _apply_floor("basic", "expert") == "expert"
-
-    def test_equal_levels_returns_either(self):
-        from applire.services.skill_enrichment import _apply_floor
-        assert _apply_floor("intermediate", "intermediate") == "intermediate"
-
-    def test_calculated_expert_upgrades_intermediate(self):
-        from applire.services.skill_enrichment import _apply_floor
-        assert _apply_floor("expert", "intermediate") == "expert"
-
-    def test_never_downgrades_expert_to_advanced(self):
-        from applire.services.skill_enrichment import _apply_floor
-        assert _apply_floor("advanced", "expert") == "expert"
+    def test_apply_floor_no_longer_exists(self):
+        import applire.services.skill_enrichment as mod
+        assert not hasattr(mod, "_apply_floor")
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +254,10 @@ class TestMatchAndEnrich:
         assert len(unmatched) == 0
         skill = enriched[0]
         assert skill.experience_refs == ["Siemens AG"]
-        assert skill.source == "deterministic"
+        # ADR-061 clause 7: renamed from "deterministic" — this provenance
+        # labels years_experience/experience_refs as code-computed, not the
+        # declared proficiency (which this pass never touches).
+        assert skill.source == "computed"
         assert skill.years_experience == 1
 
     def test_no_match_goes_to_unmatched(self):
@@ -254,9 +303,33 @@ class TestMatchAndEnrich:
         skill = enriched[0]
         assert set(skill.experience_refs) == {"Siemens AG", "BMW Group"}
         assert skill.years_experience == 5  # 2 + 3 non-overlapping
-        assert skill.proficiency == "advanced"  # 5 years → advanced
+        # ADR-061 clause 6: years_experience is computed; proficiency is not
+        # derived from it — the declared "intermediate" passes through as-is.
+        assert skill.proficiency == "intermediate"
 
-    def test_floor_rule_preserves_higher_existing_proficiency(self):
+    def test_declared_proficiency_never_raised_by_years(self):
+        """ADR-061 clause 5/6 (#304): a declared LOW proficiency stays exactly as
+        declared even when many matched years would previously have computed a
+        much higher tier — this is the SAP (Anwender) regression case."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._make_profile(
+            skills=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
+            work_experience=[{
+                "company": "Startup",
+                "role": "Dev",
+                "start_date": "2011-01",
+                "end_date": None,
+                "technologies": ["Python"],
+            }],
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        skill = enriched[0]
+        assert skill.years_experience >= 6  # old ladder would have said "expert"
+        assert skill.proficiency == "basic"  # declared tier is a ceiling — untouched
+
+    def test_declared_proficiency_never_lowered_either(self):
+        """The service never WRITES proficiency at all in either direction —
+        an existing "expert" declaration is equally untouched by a short span."""
         from applire.services.skill_enrichment import _match_and_enrich
         profile = self._make_profile(
             skills=[{"name": "Python", "category": "technical", "proficiency": "expert"}],
@@ -271,7 +344,6 @@ class TestMatchAndEnrich:
         enriched, unmatched = _match_and_enrich(profile)
         skill = enriched[0]
         assert skill.years_experience == 1
-        # Calculated would be intermediate (1 yr) but existing is expert — floor keeps expert
         assert skill.proficiency == "expert"
 
     def test_null_end_date_treated_as_current(self):
@@ -291,7 +363,7 @@ class TestMatchAndEnrich:
         skill = enriched[0]
         # years since 2020 — should be >= 5 at time of writing (2026-04-16)
         assert skill.years_experience >= 5
-        assert skill.source == "deterministic"
+        assert skill.source == "computed"
 
     def test_language_skills_passed_through_unchanged(self):
         from applire.services.skill_enrichment import _match_and_enrich
@@ -386,7 +458,7 @@ class TestCrossKindSkillAccrual:
         skill = enriched[0]
         assert skill.years_experience > 0
         assert "Code for Good e.V." in skill.experience_refs
-        assert skill.source == "deterministic"
+        assert skill.source == "computed"
 
     def test_skill_only_in_project_entry_accrues(self):
         """Skill used ONLY in a ProjectEntry must accrue years and reference the project name."""
@@ -406,7 +478,7 @@ class TestCrossKindSkillAccrual:
         skill = enriched[0]
         assert skill.years_experience > 0
         assert "OpenPerfMon" in skill.experience_refs
-        assert skill.source == "deterministic"
+        assert skill.source == "computed"
 
     def test_skill_across_work_and_volunteer_combines_non_overlapping_years(self):
         """Skill in both WorkEntry and VolunteerActivity: ranges merged, org_labels from both."""
@@ -454,7 +526,7 @@ class TestCrossKindSkillAccrual:
         skill = enriched[0]
         assert skill.years_experience == 3
         assert skill.experience_refs == ["BMW Group"]
-        assert skill.source == "deterministic"
+        assert skill.source == "computed"
 
     def test_skill_not_in_any_kind_goes_to_unmatched(self):
         """Skill not found in work, projects, or volunteering → still goes to unmatched."""
@@ -559,12 +631,18 @@ async def test_enrich_skills_unmatched_calls_llm_estimation():
     assert skill.name == "Agile"
     assert skill.years_experience == 4
     assert skill.source == "llm_estimated"
-    assert skill.proficiency == "advanced"  # 4 years → advanced
+    # ADR-061 clauses 5 & 6 (#304/#317): the LLM estimates years only; the
+    # declared "intermediate" proficiency is never derived from that estimate.
+    assert skill.proficiency == "intermediate"
     assert skill.experience_refs == []
 
 
 @pytest.mark.asyncio
-async def test_enrich_skills_floor_applied_to_llm_estimate():
+async def test_enrich_skills_llm_estimate_never_touches_declared_proficiency():
+    """ADR-061 clauses 5 & 6 (#304): renamed from
+    test_enrich_skills_floor_applied_to_llm_estimate — there is no floor/ceiling
+    merge left to apply; the LLM-estimated duration simply never writes
+    proficiency, in either direction."""
     from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
     from applire.services.skill_enrichment import enrich_skills
 
@@ -579,14 +657,14 @@ async def test_enrich_skills_floor_applied_to_llm_estimate():
         ],
     )
     mock_provider = AsyncMock()
-    # LLM estimates only 1 year — should not downgrade existing expert
+    # LLM estimates only 1 year — must not touch the declared "expert" tier
     mock_provider.aparse_json.return_value = {"Leadership": 1}
 
     result = await enrich_skills(profile, mock_provider)
 
     skill = result.skills[0]
     assert skill.years_experience == 1
-    assert skill.proficiency == "expert"  # floor preserved
+    assert skill.proficiency == "expert"  # declared tier untouched
 
 
 @pytest.mark.asyncio

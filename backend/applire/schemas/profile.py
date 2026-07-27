@@ -226,6 +226,25 @@ _PROFICIENCY_ALIASES: dict[str, str] = {
     "native or bilingual proficiency": "expert",
     "native or bilingual": "expert",
     "bilingual": "expert",
+    # German CV proficiency tiers (DACH-native first — ADR-061 clause 5, #304/#317).
+    # These are the exact self-declaration words a German CV uses. Before this
+    # they fell through to the unknown-string default ("intermediate"), which
+    # silently RAISED "Anwender"/"Grundkenntnisse"/"Grundlagen" (all mean the
+    # candidate's WEAKEST tier) and silently LOWERED "Verhandlungssicher" /
+    # "Fließend"/"Muttersprache" (near the STRONGEST tier) — wrong in both
+    # directions, and #304's own case ("SAP (Anwender)") went through exactly
+    # this path. Both the German ß and its ASCII "ss" transliteration are
+    # listed — a prior incident (#213/#214, U+2019) had a Unicode variant
+    # defeat a matcher; do not assume only one spelling reaches this code.
+    "anwender": "basic",
+    "grundkenntnisse": "basic",
+    "grundlagen": "basic",
+    "fortgeschritten": "advanced",
+    "erfahren": "advanced",
+    "verhandlungssicher": "advanced",
+    "fließend": "advanced",
+    "fliessend": "advanced",
+    "muttersprache": "expert",
 }
 
 
