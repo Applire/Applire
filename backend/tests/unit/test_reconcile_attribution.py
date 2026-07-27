@@ -21,7 +21,7 @@ Ground truth (live-reproduced 2026-07-24, founder charter re-run, main @
 53ffa85): a single multi-employer interview answer —
 
     "At NordPharm I led an agentic GenAI system that automated
-    computer-system-validation documentation... For production-grade rigor
+    regulatory submission documentation... For production-grade rigor
     specifically, my clearest example is Applire: I built a deterministic
     verification layer, the Truthfulness Oracle, that audits every LLM output
     against the source data, backed by full LLM exchange observability
@@ -32,12 +32,13 @@ Ground truth (live-reproduced 2026-07-24, founder charter re-run, main @
 add_bullets ops the mock provider below reproduces) into FOUR add_bullets ops,
 two of which wrongly targeted NordPharm entities with Applire-only clauses:
 
-* target=NordPharm's "Associate Director E2E..." role, achievements=["Built
+* target=NordPharm's "Associate Director Platform..." role, achievements=["Built
   deterministic verification layer (Truthfulness Oracle) auditing every LLM
   output against source data"] — WRONG, this is the Applire clause.
-* target=NordPharm's "Agentic GenAI System for CSV Documentation" project,
-  achievements=["Backed by full LLM exchange observability logging and over
-  2,600 tests gating CI"] — WRONG (the reported #243 vault mutation).
+* target=NordPharm's "Agentic GenAI System for Regulatory Submission
+  Documentation" project, achievements=["Backed by full LLM exchange
+  observability logging and over 2,600 tests gating CI"] — WRONG (the
+  reported #243 vault mutation).
 
 Both bullets are prompt-side (model-emitted) misattributions: the applier
 (apply.py) faithfully applied exactly the ops the model handed it, and the
@@ -69,8 +70,8 @@ NORDPHARM_PROJECT_ID = "ca10ed5e-5acc-4171-b728-5c04517ff6ea"
 # The verbatim live turn (logs/llm/2026-07-24.jsonl denied_concepts entry).
 _LIVE_ANSWER = (
     "At NordPharm I led an agentic GenAI system that automated "
-    "computer-system-validation documentation, built with LangGraph and "
-    "LangChain plus RAG over our gold-standard docs and SOPs, running on "
+    "regulatory submission documentation, built with LangGraph and "
+    "LangChain plus RAG over our reference docs and SOPs, running on "
     "Databricks — targeting roughly a 70% reduction in manual "
     "authoring/review effort. My contribution there was the architecture, "
     "database design, and product ownership; our system engineer handled "
@@ -89,13 +90,13 @@ def _live_profile() -> MasterProfileData:
     return MasterProfileData(
         work_experience=[
             WorkEntry(id=NORDPHARM_ROLE_ID, company="NordPharm SE",
-                      role="Associate Director E2E Supply Chain Systems"),
+                      role="Associate Director Platform Systems"),
             WorkEntry(id=APPLIRE_ID, company="Applire", role="Founder & Lead Developer"),
         ],
         projects=[
             ProjectEntry(
                 id=NORDPHARM_PROJECT_ID,
-                name="Agentic GenAI System for CSV Documentation",
+                name="Agentic GenAI System for Regulatory Submission Documentation",
                 associated_experience=NORDPHARM_ROLE_ID,
             ),
         ],

@@ -79,7 +79,7 @@ PROFILE = {
         {
             "id": "w-e2e",
             "company": "Nordvance SE",
-            "role": "Associate Director E2E Supply Chain Systems",
+            "role": "Associate Director Platform Systems",
             "is_current": True,
             "start_date": "2024-12",
             "end_date": None,
@@ -92,16 +92,16 @@ PROFILE = {
             ],
             "achievements": [
                 "Initiated and led an agentic GenAI system that automates "
-                "the authoring and review of computer system validation "
-                "(CSV) documentation, built with LangGraph/LangChain and "
-                "RAG over gold-standard documents, targeting an estimated "
+                "the authoring and review of regulatory submission "
+                "documentation, built with LangGraph/LangChain and "
+                "RAG over reference documents, targeting an estimated "
                 "70% reduction in manual effort.",
             ],
         },
         {
             "id": "w-quality-architecture",
             "company": "Nordvance SE",
-            "role": "Associate Director Digital Solutions Quality Systems "
+            "role": "Associate Director Digital Quality Systems "
             "Architecture",
             "is_current": False,
             "start_date": "2021-05",
@@ -136,8 +136,8 @@ LETTER = {
             "I am excited to apply for the Lead AI Engineer role at "
             "Connect-AI.",
             "At Nordvance, I led a team to develop an agentic GenAI system "
-            "using LangGraph/LangChain to automate computer system "
-            "validation (CSV) documentation, targeting a 70% reduction in "
+            "using LangGraph/LangChain to automate regulatory submission "
+            "documentation, targeting a 70% reduction in "
             "manual effort. This initiative demonstrates my hands-on "
             "experience in production AI and cross-functional "
             "collaboration. Additionally, as Founder of Vaultwright, I "

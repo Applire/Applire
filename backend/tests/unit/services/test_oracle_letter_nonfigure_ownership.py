@@ -7,9 +7,9 @@ Live-reproduced 2026-07-24 (generated_cover_letters 37ee8f77-4ca8-4859-9fb1-
 60d481ce49ac, founder charter run 3): the generated letter read —
 
     "In my recent role at NordPharm, I initiated and led an agentic GenAI
-    system automating the authoring and review of computer system
-    validation documentation, built with LangGraph/LangChain and RAG over
-    gold-standard documents. This system, running on Databricks,
+    system automating the authoring and review of regulatory submission
+    documentation, built with LangGraph/LangChain and RAG over
+    reference documents. This system, running on Databricks,
     demonstrated my hands-on expertise in LLM applications, retrieval
     systems, AI evaluation, AI reliability, and AI observability, with a
     deterministic verification layer ensuring trustworthiness. As Founder
@@ -78,7 +78,7 @@ PROFILE = {
                 "Initiated and led an agentic GenAI system automating the "
                 "authoring and review of regulatory submission "
                 "documentation, built with LangGraph/LangChain and RAG "
-                "over gold-standard documents.",
+                "over reference documents.",
             ],
         },
         {
@@ -101,7 +101,7 @@ BLEND_LETTER = {
             "In my recent role at NordPharm, I initiated and led an agentic "
             "GenAI system automating the authoring and review of regulatory "
             "submission documentation, built with LangGraph/"
-            "LangChain and RAG over gold-standard documents.",
+            "LangChain and RAG over reference documents.",
             "This system, running on Databricks, demonstrated my hands-on "
             "expertise in LLM applications and AI reliability, with a "
             "deterministic verification layer ensuring trustworthiness.",

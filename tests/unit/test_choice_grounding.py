@@ -115,10 +115,11 @@ class TestFilterUngroundedChoices:
 # Fixture mirrors the REAL vault entry from the live trace (backend/logs/llm/
 # 2026-07-23.jsonl, the interview_question call that produced the F5 chip):
 # NordPharm legitimately carries LangGraph/LangChain/RAG — an agentic GenAI
-# system automating CSV validation documentation on Databricks. The Q4 chip's
-# fabrication was NOT the tech (NordPharm genuinely has LangGraph/RAG) but the
-# invented narrative context ("clinical data workflows under tight timelines"),
-# conflated from an unrelated bullet ("clinical orders") plus invented urgency.
+# system automating regulatory submission documentation on Databricks. The
+# Q4 chip's fabrication was NOT the tech (NordPharm genuinely has
+# LangGraph/RAG) but the invented narrative context ("clinical data
+# workflows under tight timelines"), conflated from an unrelated bullet
+# ("clinical orders") plus invented urgency.
 AI_CLUSTER = {
     "id": "cluster-ai-product",
     "label": "AI Product Development",
@@ -130,22 +131,22 @@ AI_CLUSTER = {
 NORDPHARM_WORK_ENTRY = {
     "id": "845079fb-7564-4c77-a035-9be3ce618def",
     "company": "NordPharm SE",
-    "role": "Associate Director E2E Supply Chain Systems",
+    "role": "Associate Director Platform Systems",
     "industry_context": "Biotechnology, Pharmaceuticals, GxP (GCLP/GMP)",
     "responsibilities": [
         "Lead cross-functional teams establishing cross domain data flows for clinical "
         "orders, chain of Identity (COI) and chain of Custody (COC) compliance.",
         "Establish critical cross domain data flows between GCLP and GCP areas, integrating "
-        "data from clinic facing systems like IRT and EDC systems into the iNest process.",
+        "data from clinic facing systems like IRT and EDC systems into the Vantum process.",
         "IT business partner for CTSM, working closely with IMP-Management and patient operations.",
         "Manage AI automation project using Databricks and large language models to "
         "streamline validation document generation, aiming for over 80% efficiency improvement.",
     ],
     "achievements": [
         "Initiated and lead — as architect and product owner — an agentic GenAI system that "
-        "automates the authoring and review of computer system validation (CSV) documentation. "
+        "automates the authoring and review of regulatory submission documentation. "
         "Built with LangGraph/LangChain and retrieval-augmented generation (RAG) over "
-        "gold-standard documents and the SOPs relevant to each workflow, running on Databricks. "
+        "reference documents and the SOPs relevant to each workflow, running on Databricks. "
         "The system performs internal reviews and approvals, so documents typically need human "
         "review only once.",
         "Recruited a cross-team group of volunteers to build the prototype, which was selected "
@@ -153,7 +154,7 @@ NORDPHARM_WORK_ENTRY = {
         "effort for both authoring and reviewing validation documents.",
     ],
     "technologies": [
-        "Databricks", "Large Language Models", "IRT", "EDC", "iNest",
+        "Databricks", "Large Language Models", "IRT", "EDC", "Vantum",
         "LangGraph", "LangChain", "Retrieval-Augmented Generation (RAG)",
     ],
 }

@@ -73,7 +73,7 @@ _RAG_TURN = {
 
 # Verbatim gap/question/answer of the 22:11:18Z blind-PQ turn (fabrication).
 _CHURN_TURN = {
-    "gap": "team_size: Associate Director E2E Supply Chain Systems @ NordPharm SE",
+    "gap": "team_size: Associate Director Platform Systems @ NordPharm SE",
     "question": (
         "Can you describe a specific project where you implemented CI/CD "
         "pipelines and explain the tools and processes you used?"
