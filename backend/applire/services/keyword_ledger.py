@@ -41,7 +41,21 @@ REQUIRED_WEIGHT = 1.0
 NICE_TO_HAVE_WEIGHT = 0.5
 KEYWORD_ONLY_WEIGHT = 0.0
 
-_VALID_STATUS = {"direct", "partial", "gap"}
+# ADR-048 amended 2026-07-27 (driven by ADR-059's amendment of the same date):
+# four values, not three. ``gap`` narrowed to mean UNKNOWN — no signal, never
+# asked, or asked and unanswered; ``denied`` means the candidate was asked and
+# stated they do not have it. ``claimable`` is unchanged (``status in {direct,
+# partial}``) so a denial is still never claimable — but "we do not know" and
+# "they told us no" stop being the same value, which is what the interview, the
+# writers and the ADR-060 critic each need in order to behave differently.
+#
+# NOTE the wire name: ``gap`` now means "unknown". The clearer rename was
+# deliberately not taken mid-flavour (recorded as debt in the ADR).
+_VALID_STATUS = {"direct", "partial", "gap", "denied"}
+
+# The one place the honest marker is spelled, so the floor and every write seam
+# that records a denial cite identical evidence text.
+DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
 
 
 def _norm(s: str) -> str:
@@ -307,9 +321,13 @@ def _enforce_denial_stance(
         result.append(
             {
                 **entry,
-                "status": "gap",
+                # ADR-059 amended 2026-07-27: the floor writes the STATUS, not
+                # merely the flag. Forcing "gap" here discarded the reason the
+                # concept is unclaimable — downstream could no longer tell a
+                # requirement nobody asked about from one the candidate refused.
+                "status": "denied",
                 "claimable": False,
-                "evidence": "Candidate explicitly stated a limit here (interview).",
+                "evidence": DENIED_EVIDENCE,
             }
         )
     return result
@@ -593,6 +611,7 @@ def upgrade_ledger_for_concepts(
     evidence: str,
     *,
     status: str = "direct",
+    denied_concepts: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -614,6 +633,23 @@ def upgrade_ledger_for_concepts(
       * the honest-gap ``evidence`` (stripped to "" by the builder) is replaced with
         the answer text so the generator has something to ground the surfacing on.
 
+    POLARITY (ADR-059 amended 2026-07-27 — the run-#7 blocker). "The cluster was
+    addressed" is NOT "the candidate has it": an interview turn addresses a gap
+    just as much by denying it. Charter run #7 persisted eight denied concepts at
+    ``status="direct", claimable=True`` **with the candidate's own denial sentence
+    as their backing evidence**, because this function had no notion of polarity
+    and the ADR-059 floor (:func:`_enforce_denial_stance`) runs only inside
+    ``build_keyword_ledger`` — never at this in-place seam. Two floors close it:
+
+      * an entry already at ``status == "denied"`` is never touched, whatever the
+        caller passes — the persisted status is authoritative on its own;
+      * ``denied_concepts`` (the candidate's live ``ProfileMetadata.denied_concepts``)
+        is consulted through the SAME predicate the same-turn reconciler guard and
+        the durable floor use (``is_denied_concept``), so the three can never
+        disagree. A matching concept is **recorded as denied** rather than merely
+        skipped — a denial is a real answer and must move the requirement's status,
+        which is the whole point of the amendment.
+
     Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
     the JSONB write. Pure; tolerant of ``None``/empty.
     """
@@ -625,22 +661,52 @@ def upgrade_ledger_for_concepts(
 
     upgrade_status = status if status in {"direct", "partial"} else "direct"
     ev = (evidence or "").strip()
+    denials = [d for d in (denied_concepts or []) if _norm(d)]
 
     new_ledger: list[dict[str, Any]] = []
     changed = False
     for entry in keyword_ledger:
         e = dict(entry)
         concept_norm = _norm(e.get("concept", ""))
-        if (
-            not e.get("claimable")
-            and concept_norm
+        matched = (
+            concept_norm
+            and not e.get("claimable")
             and any(_matches(concept_norm, cn) for cn in concept_norms)
+        )
+        if not matched:
+            new_ledger.append(e)
+            continue
+
+        # Floor 1 — the persisted status is authoritative.
+        if e.get("status") == "denied":
+            new_ledger.append(e)
+            continue
+
+        concept = e.get("concept", "")
+        forms = e.get("surface_forms") or [concept]
+        # Floor 2 — the candidate's live denials, via the shared predicate.
+        if denials and (
+            is_denied_concept(concept, denials)
+            or any(is_denied_concept(f, denials) for f in forms)
         ):
-            e["claimable"] = True
-            e["status"] = upgrade_status
-            if ev:
-                e["evidence"] = ev
-            changed = True
+            if e.get("status") != "denied":
+                logger.info(
+                    "upgrade_ledger_for_concepts: recorded %r as denied — the turn "
+                    "ADDRESSED this requirement by denying it (ADR-059 clause 2)",
+                    concept,
+                )
+                e["status"] = "denied"
+                e["claimable"] = False
+                e["evidence"] = DENIED_EVIDENCE
+                changed = True
+            new_ledger.append(e)
+            continue
+
+        e["claimable"] = True
+        e["status"] = upgrade_status
+        if ev:
+            e["evidence"] = ev
+        changed = True
         new_ledger.append(e)
     return new_ledger, changed
 

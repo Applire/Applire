@@ -27,7 +27,7 @@ from applire.schemas.gap_cluster import GapClusterSchema
 class RequirementBreakdownItem(BaseModel):
     requirement: str
     source: str  # "required" | "nice_to_have"
-    status: str  # "direct" | "partial" | "gap"
+    status: str  # "direct" | "partial" | "gap" (=unknown) | "denied" (ADR-048 am. 2026-07-27)
     slot: float
     earned: float
     reason: str = ""
@@ -40,7 +40,7 @@ class KeywordLedgerEntry(BaseModel):
     surface_forms: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)  # required | nice_to_have | keyword
     fit_weight: float  # 1.0 required / 0.5 nice_to_have / 0.0 keyword-only
-    status: str  # "direct" | "partial" | "gap"
+    status: str  # "direct" | "partial" | "gap" (=unknown) | "denied" (ADR-048 am. 2026-07-27)
     evidence: str = ""
     claimable: bool
     # #260 — pre-generation keyword-liability check: is this concept

@@ -636,7 +636,7 @@ def test_denied_concept_overrides_claimable_classification_to_gap():
         denied_concepts=["embeddings"],
     )
     e = _by_concept(ledger)["Embeddings"]
-    assert e["status"] == "gap"
+    assert e["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert e["claimable"] is False
     assert "explicit" in e["evidence"].lower() or "limit" in e["evidence"].lower()
     assert "typically involves embeddings" not in e["evidence"]  # adjacency rationale gone
@@ -655,7 +655,7 @@ def test_denied_concept_matches_via_alias_group():
         denied_concepts=["k8s"],
     )
     e = _by_concept(ledger)["Kubernetes"]
-    assert e["status"] == "gap"
+    assert e["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert e["claimable"] is False
 
 
@@ -722,7 +722,7 @@ def test_denial_with_unicode_apostrophe_statement_still_matches_on_concept():
         denied_concepts=[denied["concept"]],
     )
     e = _by_concept(ledger)["Embeddings"]
-    assert e["status"] == "gap"
+    assert e["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert e["claimable"] is False
 
 
@@ -758,7 +758,7 @@ def test_word_boundary_regression_ai_ml_survives_ml_training_denial():
     assert ai_ml["claimable"] is True
 
     ml = by_concept["Machine learning"]
-    assert ml["status"] == "gap"
+    assert ml["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert ml["claimable"] is False
 
 
@@ -782,7 +782,7 @@ def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
         denied_concepts=["LegalTech"],
     )
     e = _by_concept(ledger)["LegalTech"]
-    assert e["status"] == "gap"
+    assert e["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert e["claimable"] is False
     assert "LegalTech" not in claimable_surface_forms(ledger)
 
@@ -858,7 +858,7 @@ def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
         profile_json=profile_json,
     )
     rag = _by_concept(ledger)["RAG"]
-    assert rag["status"] == "gap"
+    assert rag["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert rag["claimable"] is False
 
 
@@ -1059,5 +1059,5 @@ def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable
         profile_json=profile_json,
     )
     entry = _by_concept(ledger)["Embeddings"]
-    assert entry["status"] == "gap"
+    assert entry["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert entry["claimable"] is False
