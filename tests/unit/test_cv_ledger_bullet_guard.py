@@ -493,6 +493,130 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
             "keyword satisfying the whole-document coverage check"
         )
 
+    def test_restores_load_bearing_bullet_when_role_is_already_at_ceiling_with_all_hits(self):
+        """Coordinator follow-up: the REAL charter run #7 shape. Weberit shipped
+        at EXACTLY its 5-bullet tier-top ceiling, every surviving bullet a hit.
+        The naive `existing_hits + restored` ordering let the ceiling cap
+        silently cancel the restoration in that shape -- reproduced here
+        directly, not in a fixture that happens to have spare room."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        profile_json, ledger, _other_bullets, vault_bullet = self._fixture()
+        # 5 pre-existing hit bullets (every one contains "Lean", also a
+        # claimable form) -- the role is AT its ceiling before restoration,
+        # and none of them is the missing load-bearing bullet.
+        five_hit_bullets = [f"Lean-Initiative Nummer {i} umgesetzt." for i in range(1, 6)]
+        profile_json["work_experience"][0]["responsibilities"] = (
+            five_hit_bullets + [vault_bullet]
+        )
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Stefan Brandt"},
+            "summary": "... und Budgetverantwortung.",  # bare keyword only
+            "skills": ["Budget- und Investitionsverantwortung"],
+            "work_history": [{
+                "id": "w1", "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter", "start_date": "2017-04", "end_date": None,
+                "bullets": list(five_hit_bullets),
+            }],
+        })
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4)}, target_pages=2, region="DACH",
+            claimable_forms=(
+                "Lean", "Budget- und Investitionsverantwortung", "Budgetverantwortung",
+            ),
+        )
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 5
+        assert vault_bullet in final_bullets, (
+            "load-bearing restoration was cancelled by the ceiling cap even though "
+            "the role was already exactly at max_bullets with all-hit bullets"
+        )
+        # Room was made by evicting the LAST-listed pre-existing hit, not by
+        # ever dropping the number itself.
+        assert five_hit_bullets[-1] not in final_bullets
+
+    def test_logs_loudly_when_a_load_bearing_restore_still_cannot_fit(self, caplog):
+        """ADR-061 clause 8 ("every drop is diagnosable from the log alone"):
+        if the ceiling is so tight that even front-ordered load-bearing
+        restorations do not all fit, the cancellation must be a loud,
+        greppable log line -- never silent success."""
+        import logging
+
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        concept_a = "Budget- und Investitionsverantwortung"
+        concept_b = "Arbeitssicherheit"
+        vault_bullet_a = (
+            "Budgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung, "
+            "Material-Gemeinkosten)."
+        )
+        vault_bullet_b = "Arbeitssicherheit: LTIF von 8,2 auf 3,1 gesenkt."
+        ledger = [
+            _load_bearing_ledger_entry(
+                concept_a,
+                evidence="work experience (Budget- und Investitionsverantwortung für 6 Mio. €).",
+            ),
+            {
+                "concept": concept_b,
+                "surface_forms": [concept_b],
+                "claimable": True,
+                "status": "direct",
+                "sources": ["required"],
+                "fit_weight": 1.0,
+                "evidence": "Senkung der Unfallquote (LTIF) von 8,2 auf 3,1 %.",
+            },
+        ]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter", "start_date": "2017-04", "end_date": None,
+                "is_current": True,
+                "responsibilities": [vault_bullet_a, vault_bullet_b],
+                "achievements": [],
+            }],
+            "projects": [],
+        }
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Stefan Brandt"},
+            "summary": "... Budgetverantwortung und Arbeitssicherheit.",
+            "skills": [concept_a, concept_b],
+            "work_history": [{
+                "id": "w1", "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter", "start_date": "2017-04", "end_date": None,
+                "bullets": [],
+            }],
+        })
+        # Ceiling of 1 -- both concepts are load-bearing and missing, but only
+        # one restored bullet can possibly fit.
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="bottom", max_bullets=1)},
+            tiers={"bottom": BulletTier("bottom", 1, 0)}, target_pages=2, region="DACH",
+            claimable_forms=(concept_a, "Budgetverantwortung", concept_b),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="applire.services.cv"):
+            result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 1
+        # One of the two load-bearing bullets necessarily lost the ceiling --
+        # the point is that THIS must never be silent.
+        dropped = {vault_bullet_a, vault_bullet_b} - set(final_bullets)
+        assert len(dropped) == 1
+
+        warnings = [r for r in caplog.records if "LOAD_BEARING_RESTORE_DROPPED" in r.message]
+        assert warnings, "no loud, greppable log line for a cancelled load-bearing restore"
+        assert "#315" in warnings[0].message
+        assert next(iter(dropped)) in warnings[0].message
+
     def test_no_new_figure_is_ever_minted(self):
         """Guardrail (#315 acceptance): restoration only ever copies a vault
         bullet VERBATIM, so every figure in the result must already have been

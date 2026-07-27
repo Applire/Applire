@@ -711,10 +711,25 @@ def is_load_bearing(entry: dict[str, Any]) -> bool:
     a plain digit-count check has no way to tell apart from a real budget,
     percentage improvement, or headcount-with-currency claim.
 
-    ``partial``/adjacent entries are excluded (``status != "direct"``) --
-    ADR-048's positioning-only exemption already governs those; a
-    substitute capability's own quantified evidence does not make the JD's
-    unheld term load-bearing.
+    Every ``partial`` entry is excluded (``status != "direct"``), but for
+    two DIFFERENT reasons that must not be conflated (checked against
+    ADR-048's 2026-07-27 amendment, clause 2/3/4b/4c):
+
+    * An ADJACENT ``partial`` (``is_positioning_only`` -- carries
+      ``adjacent_evidence``) IS actually exempted by ADR-048 itself: the
+      candidate does not hold the JD's own term at all, so demanding it
+      appear literally is a demand to over-claim, and the substitute
+      capability's own quantified evidence does not make the unheld term
+      load-bearing. This half of the exclusion is ADR-048-mandated.
+    * A below-the-bar ``partial`` (no ``adjacent_evidence`` -- "the
+      candidate has the right capability below a stated bar") is NOT
+      exempted by ADR-048; clause 2 says such a term "is still demanded:
+      the candidate really does have that skill, just less of it than the
+      JD asked for". Excluding it here is a #315 SCOPE decision, not an
+      ADR-048 one -- the issue's own acceptance criterion is written for
+      ``direct`` concepts only. Whether a quantified below-the-bar partial
+      should ALSO be load-bearing is left open for a future amendment,
+      not settled by this function's name.
     """
     if not entry.get("claimable") or entry.get("status") != "direct":
         return False
