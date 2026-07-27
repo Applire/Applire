@@ -812,3 +812,305 @@ def test_reviewer_prompt_fn_threads_denial_transfer_bridge_for_observability():
     )
     prompt = reviewer_fn("source", RUN5_LETTER_DATA)
     assert RUN5_OBSERVABILITY_BRIDGE in prompt
+
+
+# ---------------------------------------------------------------------------
+# Wave-7 (#278) — negation misattribution: co-occurrence is not attribution.
+#
+# Charter run #6 ground truth (``backend/logs/llm/2026-07-26.jsonl``, pinned,
+# never copied verbatim — reproduced here as an invented fixture of the SAME
+# shape): a CV bullet reads "...taught a curriculum of three
+# software-engineering courses ... to a team of engineers from
+# natural-science backgrounds with no prior IT/software experience". The
+# claimable concept 'Software engineering' surface-matches the EARLY, POSITIVE
+# "software-engineering courses" text; the negation "no" many words later
+# belongs to a DIFFERENT noun phrase (the trainees' own background) and must
+# never be attributed to the concept's own occurrence. The second real
+# defect ('AI', surface_forms ['AI', 'Artificial Intelligence']) is a bare
+# substring collision: 'ai' is a literal substring of 'domain' and of
+# 'claim' — ``surface_present``'s plain ``.find()`` search matches both,
+# with zero relation to the word 'AI'.
+# ---------------------------------------------------------------------------
+
+
+def test_distant_negation_in_same_clause_is_not_attributed_to_earlier_positive_mention():
+    """#278 — run-6 shaped: the concept's own occurrence is early and
+    POSITIVE; an unrelated negation modifying a different noun phrase sits
+    many words later in the same (unsplit) clause. Must NOT be flagged."""
+    ledger = [
+        {
+            "concept": "Software engineering",
+            "claimable": True,
+            "surface_forms": ["Software engineering"],
+            "evidence": "Taught software engineering courses to a cross-functional team.",
+        }
+    ]
+    cv_data = {
+        "work_history": [
+            {
+                "id": "w1",
+                "role": "Staff Engineer",
+                "company": "Acme",
+                "bullets": [
+                    "Defined new processes and taught a curriculum of three "
+                    "software-engineering courses (including clean code and "
+                    "architecture) to a team of engineers from natural-science "
+                    "backgrounds with no prior IT/software experience.",
+                ],
+            }
+        ]
+    }
+    conflicts = find_cross_document_conflicts(
+        cv_data, {}, keyword_ledger=ledger, denied_concepts=[],
+    )
+    assert conflicts == []
+
+
+def test_substring_collision_inside_unrelated_word_is_never_a_match():
+    """#278 — the sharpest real case: a ledger concept literally named 'AI'
+    collides via bare substring with 'domain' and 'claim'. Neither clause
+    contains the word 'AI' at all — must never be flagged."""
+    ledger = [
+        {
+            "concept": "AI",
+            "claimable": True,
+            "surface_forms": ["AI", "Artificial Intelligence"],
+            "evidence": "Built and shipped AI-powered features end to end.",
+        }
+    ]
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "I have no direct LegalTech domain experience.",
+                "I would not claim production logging or tracing work.",
+            ]
+        }
+    }
+    conflicts = find_cross_document_conflicts(
+        {}, letter_data, keyword_ledger=ledger, denied_concepts=[],
+    )
+    assert conflicts == []
+
+
+def test_genuine_bare_denial_of_claimable_concept_still_fires():
+    """#278 guard rail — the fix must stay directional, not merely quieter:
+    a REAL bare denial, with the negation genuinely local to the concept's
+    own occurrence, must still be flagged."""
+    ledger = [
+        {
+            "concept": "Kubernetes orchestration",
+            "claimable": True,
+            "surface_forms": ["Kubernetes orchestration"],
+            "evidence": "Ran production Kubernetes clusters end to end.",
+        }
+    ]
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "I have not worked hands-on with Kubernetes orchestration.",
+            ]
+        }
+    }
+    conflicts = find_cross_document_conflicts(
+        {}, letter_data, keyword_ledger=ledger, denied_concepts=[],
+    )
+    bare = [c for c in conflicts if c.kind == "bare_denial_of_claimable"]
+    assert bare, "a genuine, locally-attached denial must still be flagged"
+    assert bare[0].concept == "Kubernetes orchestration"
+
+
+def test_minimum_specificity_floor_blocks_short_generic_concept_alone():
+    """#278 — a very short/generic single-token concept must never produce a
+    ``bare_denial_of_claimable`` finding on its own, even when the word-
+    boundary match AND the negation proximity are both genuine (defense in
+    depth beyond the word-boundary fix above)."""
+    ledger = [
+        {
+            "concept": "AI",
+            "claimable": True,
+            "surface_forms": ["AI"],
+            "evidence": "Built and shipped AI-powered features end to end.",
+        }
+    ]
+    letter_data = {
+        "body": {"paragraphs": ["I have never touched AI in this role."]},
+    }
+    conflicts = find_cross_document_conflicts(
+        {}, letter_data, keyword_ledger=ledger, denied_concepts=[],
+    )
+    assert [c for c in conflicts if c.kind == "bare_denial_of_claimable"] == []
+
+
+def test_minimum_specificity_floor_does_not_suppress_assert_vs_deny():
+    """The floor is scoped to the SAME-clause ``bare_denial_of_claimable``
+    finding only (per #278) — it must never suppress the cross-document
+    ``assert_vs_deny`` triangulated signal for the same short concept."""
+    ledger = [
+        {
+            "concept": "AI",
+            "claimable": True,
+            "surface_forms": ["AI"],
+            "evidence": "Built and shipped AI-powered features at Acme.",
+        }
+    ]
+    cv_data = {
+        "work_history": [
+            {"id": "w1", "role": "Engineer", "company": "Acme", "bullets": ["Built AI-powered search."]}
+        ]
+    }
+    letter_data = {
+        "body": {"paragraphs": ["I have never touched AI in this role."]},
+    }
+    conflicts = find_cross_document_conflicts(
+        cv_data, letter_data, keyword_ledger=ledger, denied_concepts=[],
+    )
+    assert any(c.kind == "assert_vs_deny" for c in conflicts)
+
+
+# ---------------------------------------------------------------------------
+# Wave-7 (#277) — CV over-claims what the letter honestly scopes (#270
+# inverted). A third conflict kind over ``ScopedBoundary``: a claimable
+# concept the vault holds an explicit limit on, asserted UNQUALIFIED as a
+# bare CV tag, while the CURRENT letter draft scopes it — with NO negation
+# token at all (the honest-scoping sentence is never a denial).
+# ---------------------------------------------------------------------------
+
+RAG_BOUNDARY_LEDGER = [
+    {
+        "concept": "RAG pipelines",
+        "claimable": True,
+        "surface_forms": ["RAG pipelines", "RAG"],
+        "evidence": "Built and owned the RAG pipeline data layer end to end.",
+    }
+]
+
+RAG_BOUNDARY_DENIED_CONCEPTS = [
+    {
+        "concept": "embedding models",
+        "statement": (
+            "I designed the database for the RAG pipeline but did not "
+            "configure the embedding models myself."
+        ),
+        "source": "interview",
+    }
+]
+
+
+def test_unqualified_cv_tag_vs_scoped_letter_is_flagged():
+    """#277 — the CV lists the concept as a bare, unqualified skill tag; the
+    letter (no negation at all) explains the actual configuration was
+    handled by someone else. Must be flagged as the NEW conflict kind."""
+    cv_data = {"skills": ["RAG"]}
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "The actual configuration of embedding models was handled by "
+                "our system engineer.",
+            ]
+        }
+    }
+    conflicts = find_cross_document_conflicts(
+        cv_data, letter_data,
+        keyword_ledger=RAG_BOUNDARY_LEDGER,
+        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
+    )
+    hits = [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"]
+    assert hits, "an unqualified CV tag against a vault-scoped, letter-echoed limit must be flagged"
+    hit = hits[0]
+    assert hit.concept == "RAG pipelines"
+    assert "embedding models" in hit.remedy
+    # The remedy must never instruct touching the letter's own honest scoping.
+    assert "letter" in hit.remedy.lower()
+
+
+def test_cv_tag_with_no_vault_boundary_is_not_flagged():
+    """#277 guard — a CV tag for a concept the vault never scoped (no
+    persisted denial relates to it) must NOT produce the new conflict kind,
+    even if the letter happens to discuss something similar."""
+    ledger = [
+        {
+            "concept": "Kubernetes",
+            "claimable": True,
+            "surface_forms": ["Kubernetes"],
+            "evidence": "Ran production Kubernetes clusters.",
+        }
+    ]
+    cv_data = {"skills": ["Kubernetes"]}
+    letter_data = {
+        "body": {"paragraphs": ["I enjoy working with distributed systems generally."]},
+    }
+    conflicts = find_cross_document_conflicts(
+        cv_data, letter_data, keyword_ledger=ledger, denied_concepts=[],
+    )
+    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
+
+
+def test_cv_tag_already_scoped_inline_is_not_flagged():
+    """#277 guard — when the CV bullet ITSELF already carries the limiting
+    language, the CV is not 'unqualified' — must NOT be flagged."""
+    cv_data = {
+        "work_history": [
+            {
+                "id": "w1",
+                "role": "Engineer",
+                "company": "Acme",
+                "bullets": [
+                    "Designed the RAG pipeline database architecture; embedding "
+                    "models were configured by our system engineer.",
+                ],
+            }
+        ]
+    }
+    letter_data = {
+        "body": {
+            "paragraphs": [
+                "The actual configuration of embedding models was handled by "
+                "our system engineer.",
+            ]
+        }
+    }
+    conflicts = find_cross_document_conflicts(
+        cv_data, letter_data,
+        keyword_ledger=RAG_BOUNDARY_LEDGER,
+        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
+    )
+    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
+
+
+def test_unqualified_cv_tag_with_no_letter_scoping_yet_is_not_flagged():
+    """#277 guard — a bare CV tag alone (no letter, or a letter that never
+    echoes the boundary) must not be flagged; there is nothing to compare
+    against yet."""
+    cv_data = {"skills": ["RAG"]}
+    conflicts = find_cross_document_conflicts(
+        cv_data, {},
+        keyword_ledger=RAG_BOUNDARY_LEDGER,
+        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
+    )
+    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
+
+
+def test_render_block_never_instructs_softening_the_letters_honest_scoping():
+    """Standing guardrail: the remedy for the new conflict kind must instruct
+    precision on the CV side, never softening/removing the letter's honest
+    disclosure."""
+    conflicts = find_cross_document_conflicts(
+        {"skills": ["RAG"]},
+        {
+            "body": {
+                "paragraphs": [
+                    "The actual configuration of embedding models was handled "
+                    "by our system engineer.",
+                ]
+            }
+        },
+        keyword_ledger=RAG_BOUNDARY_LEDGER,
+        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
+    )
+    hits = [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"]
+    assert hits
+    block = render_cross_document_conflicts_block(hits)
+    assert "never" in block.lower()
+    remedy = hits[0].remedy.lower()
+    assert "cv" in remedy
+    assert "remove" not in remedy.split("never")[0]  # never phrased as "remove the letter's..."

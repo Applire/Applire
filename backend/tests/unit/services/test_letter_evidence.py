@@ -6,7 +6,7 @@ Ground truth (charter run #5, ``.run5fixture/`` — git-excluded, read at
 runtime, never copied verbatim beyond the short quotes the issue brief itself
 gives): the letter's CANDIDATE PROFILE block is built from the TAILORED CV
 (``cv_data``), condensed to ``work_history[:6]`` x ``bullets[:6]``. The
-run-5 BioNTech entry survived tailoring with only 3 bullets, so
+run-5 NordPharm entry survived tailoring with only 3 bullets, so
 ``work_experience[0].achievements[3]`` — "Human-authored documents usually
 need two to three review rounds, while the right LLMs pass the first
 round" — never reached the CV or the letter, even though both run-4 blind
@@ -340,6 +340,197 @@ def test_cap_is_enforced_and_drop_is_logged_not_silent(caplog):
         items = select_letter_evidence(ledger, "", profile, cap=5)
     assert len(items) == 5
     assert any("capped digest" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #271 run-6 follow-up — the measured-outcome QUALIFIER for a non-target
+# anchor is crowded out by the global cap before it ever reaches the digest.
+#
+# Ground truth (run-6, dev DB, 2026-07-26 — verified against the real vault/
+# ledger/JD, never copied verbatim into this file): a claimable concept's
+# anchor lives under ``responsibilities[]`` and is NOT itself a target phrase
+# (rule 2's swap never fires), so it is left in place — correctly. But the
+# SAME work entry also carries a bare headline achievement (a figure with no
+# justification) AND a separate achievement that is the figure's measured
+# justification/qualifier (``find_paired_outcome(anchor.text, ...)`` resolves
+# to it directly — #261's own pairing function, reused unchanged). The
+# same-initiative extension (channel 2) DOES compute this qualifier as a
+# candidate, but only in path-sort order alongside the bare headline and
+# behind every other claimable concept's own anchor already in the flat
+# list — so when enough concepts/candidates compete for a bounded ``cap``,
+# the qualifier (not the headline it explains) is the one silently dropped.
+# Real-world verdict: BOTH blind run-4 panel reviewers named exactly this
+# fact as what would change their minds — losing it to cap arithmetic is the
+# #271 defect, even though ``select_letter_evidence`` in principle already
+# "knows" the two achievements are linked.
+# ---------------------------------------------------------------------------
+
+
+def test_measured_outcome_qualifier_survives_cap_crowding_ahead_of_its_own_headline():
+    """Minimal reproduction of the run-6 shape: a non-target anchor
+    (``responsibilities[0]``) whose work entry ALSO carries a bare headline
+    figure (``achievements[0]``) and that headline's measured justification
+    (``achievements[1]``). Under a tight cap, the qualifier — not the bare
+    headline — must be the one that survives, because it is the fact that
+    makes the headline credible, never the reverse."""
+    ledger = [
+        {
+            "concept": "filler capability",
+            "claimable": True,
+            "surface_forms": ["filler capability"],
+        },
+        {
+            "concept": "workflow automation",
+            "claimable": True,
+            "surface_forms": ["workflow-automation", "workflow automation"],
+        },
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w-filler",
+                "role": "Support Eng",
+                "company": "Northwind Labs",
+                "achievements": ["Delivered filler capability improvements for the support desk."],
+            },
+            {
+                "id": "w1",
+                "role": "Automation Eng",
+                "company": "Northwind Labs",
+                "responsibilities": [
+                    "Pioneered a self-service workflow-automation approach for onboarding, "
+                    "replacing manual scripts across the team."
+                ],
+                "achievements": [
+                    "Automated the onboarding pipeline, cutting manual setup time by an "
+                    "estimated 80%.",
+                    "Manual sign-off usually needs two to three review passes per onboarding "
+                    "change, while the self-service workflow passes automated checks on the "
+                    "first attempt, confirming the estimate is conservative.",
+                ],
+            },
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile, cap=3)
+    paths = {i.path for i in items}
+    assert len(items) == 3
+    qualifier_path = "work_experience[1].achievements[1]"
+    headline_path = "work_experience[1].achievements[0]"
+    assert qualifier_path in paths, (
+        "the measured-outcome qualifier must survive the cap ahead of the bare "
+        f"headline it explains — got {sorted(paths)}"
+    )
+    assert headline_path not in paths, (
+        "the bare headline should be the one dropped under budget pressure, not "
+        "the fact that makes it credible"
+    )
+    qualifier_item = next(i for i in items if i.path == qualifier_path)
+    assert qualifier_item.reason == "measured-outcome-qualifier"
+    assert qualifier_item.concept == "workflow automation"
+    # Verbatim, never paraphrased.
+    assert qualifier_item.text == (
+        "Manual sign-off usually needs two to three review passes per onboarding "
+        "change, while the self-service workflow passes automated checks on the "
+        "first attempt, confirming the estimate is conservative."
+    )
+
+
+def test_measured_outcome_qualifier_never_added_when_no_pairing_exists():
+    """No-regression / no-minting guard: when the anchor's work entry has no
+    genuine measured-outcome pairing available at all, nothing is invented —
+    the digest is exactly what channel 1 + the (empty) same-initiative
+    extension would have produced without this fix."""
+    ledger = [
+        {
+            "concept": "workflow automation",
+            "claimable": True,
+            "surface_forms": ["workflow-automation", "workflow automation"],
+        },
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Automation Eng",
+                "company": "Northwind Labs",
+                "responsibilities": [
+                    "Pioneered a self-service workflow-automation approach for onboarding."
+                ],
+                # No achievements at all — no possible pairing.
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    assert len(items) == 1
+    assert items[0].path == "work_experience[0].responsibilities[0]"
+    assert items[0].reason == "claimable-concept"
+
+
+def test_measured_outcome_qualifier_never_duplicates_an_already_swapped_target_anchor():
+    """When rule 2's own swap already fired (the anchor itself read as a bare
+    target and was replaced by its paired outcome), the qualifier lookup must
+    not run a second time against the (already-swapped) anchor text — no
+    double-dip, no duplicate item, exactly one item for that concept."""
+    ledger = [
+        {
+            "concept": "cost reduction",
+            "claimable": True,
+            "surface_forms": ["cost reduction", "cost savings"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "Ops Lead",
+                "company": "Northwind Labs",
+                "achievements": [
+                    "Targeting a 30% cost reduction in cloud spend across the whole "
+                    "platform organisation this fiscal year, agreed with finance.",
+                    "Achieved a 32% cost reduction in cloud spend, confirmed Q3.",
+                ],
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    matching = [i for i in items if i.concept == "cost reduction"]
+    assert len(matching) == 1
+    assert matching[0].reason == "measured-outcome-preferred"
+    assert matching[0].path == "work_experience[0].achievements[1]"
+
+
+def test_measured_outcome_qualifier_skips_self_match_when_anchor_is_itself_an_achievement():
+    """Regression guard for the sibling hermetic same-initiative test above:
+    when the anchor itself lives at an ``achievements[]`` path (so
+    ``find_paired_outcome`` would trivially "pair" it with itself at 100%
+    coverage), the qualifier lookup must recognise the self-match and skip
+    it — never mint a self-referential qualifier — leaving channel 2's own
+    same-initiative scan to surface the real sibling achievement exactly as
+    before (unchanged behaviour, not a duplicate)."""
+    ledger = [
+        {
+            "concept": "RAG pipelines",
+            "claimable": True,
+            "surface_forms": ["RAG pipelines", "RAG"],
+        }
+    ]
+    profile = _profile(
+        work_experience=[
+            {
+                "id": "w1",
+                "role": "ML Engineer",
+                "company": "Northwind Labs",
+                "achievements": [
+                    "Built RAG pipelines for the internal search platform.",
+                    "Reduced query latency by 42% across the retrieval stack.",
+                ],
+            }
+        ]
+    )
+    items = select_letter_evidence(ledger, "", profile)
+    matching = [i for i in items if i.path == "work_experience[0].achievements[1]"]
+    assert len(matching) == 1, "must appear exactly once, never duplicated"
+    assert matching[0].reason == "same-initiative-evidence"
 
 
 def test_render_letter_evidence_block_empty_for_no_items():

@@ -368,6 +368,21 @@ def test_build_condense_prompt_names_required_content_that_must_survive():
     assert "availability" in low or "notice" in low
 
 
+def test_build_condense_prompt_preserves_employer_anchors_on_achievements():
+    """#283 — condense must not be the thing that strips (or fails to add) the
+    employer anchor a position-owned achievement/figure needs. The REQUIRED
+    CONTENT list must name the anchor explicitly as content that must survive
+    the shortening, exactly like the closing paragraph and company engagement."""
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter_data = {"body": {"paragraphs": ["Hello there."]}}
+    prompt = build_condense_prompt(letter_data, word_budget=300, page_count=2, letter_pages=1)
+    low = prompt.lower()
+
+    assert "anchor" in low
+    assert "same sentence" in low
+
+
 def test_build_cover_letter_prompt_returns_system_and_user():
     from applire.prompts.cover_letter import build_cover_letter_prompt, SYSTEM_PROMPT
     prompt = build_cover_letter_prompt(
@@ -422,6 +437,34 @@ def test_system_prompt_forbids_claiming_gaps_in_possessive_framing():
     assert "do-not-claim" in low or "do not claim" in low
     # the only permitted framing for a non-evidenced requirement is motivation/eagerness
     assert "motivation" in low or "grow into" in low or "eager" in low
+
+
+def test_system_prompt_requires_anchoring_position_owned_achievements():
+    """#283 — run-6 ground truth: a corrector folded NordPharm's "record-
+    breaking QC LIMS implementation in 7 months across 3 sites" into a
+    sentence that named no employer, in a letter that separately named a
+    DIFFERENT employer (Applire) elsewhere. The deterministic #254 figure
+    guard could not resolve ownership and correctly dropped '7' and '3',
+    leaving the clause vaguer than the truth ("in months across sites").
+    The writer's own SYSTEM_PROMPT must require naming the employer in the
+    SAME sentence as any position-owned achievement or figure."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    assert "anchor" in low
+    assert "same sentence" in low
+    assert "figure" in low or "achievement" in low
+
+
+def test_system_prompt_requires_specificity_outranking_coverage():
+    """#282 — both blind reviewers flagged keyword-stuffed prose (a flat list
+    of claimable terms rendered as one sentence). Grounding already outranks
+    coverage (ADR-048); specificity must outrank raw coverage too."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT
+
+    low = SYSTEM_PROMPT.lower()
+    assert "specificity" in low
+    assert "list" in low
 
 
 # ---------------------------------------------------------------------------
@@ -1819,7 +1862,7 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     """Ground truth (#271): work_experience[0].achievements[3] — "Human-
     authored documents usually need two to three review rounds, while the
     right LLMs pass the first round" — is present in the vault but ABSENT
-    from the run-5 tailored CV (the BioNTech entry survived tailoring with
+    from the run-5 tailored CV (the NordPharm entry survived tailoring with
     only 3 bullets). It must reach the full writer prompt only once the
     Task 2 digest is threaded in via ``vault_evidence_block`` — never via
     ``cv_data`` alone."""
@@ -1930,7 +1973,7 @@ def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
 
     # The tailored CV's own condensation kept only the anchor bullet — the
     # distinctive sentence never survived to cv_data, exactly like run-5's
-    # BioNTech entry surviving tailoring with only 3 of its real bullets.
+    # NordPharm entry surviving tailoring with only 3 of its real bullets.
     tailored_data = {
         "work_history": [
             {

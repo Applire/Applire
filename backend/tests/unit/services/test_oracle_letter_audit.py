@@ -4,7 +4,7 @@
 
 Before this fix, a cover letter scored {grounded: 1, unverifiable: 8} on the
 same profile the CV path scored 39/42 grounded on — near-zero discriminating
-power — and the one real writer error (a BioNTech achievement blended with
+power — and the one real writer error (a NordPharm achievement blended with
 unrelated interview evidence) filed as merely "unverifiable" instead of
 "misattributed". This is the realistic multi-paragraph reproduction: a
 truthful letter should ground substantially at clause granularity, and the
@@ -35,8 +35,8 @@ PROFILE = {
             ],
         },
         {
-            "id": "w-biontech",
-            "company": "BioNTech",
+            "id": "w-nordpharm",
+            "company": "NordPharm",
             "role": "Automation Lead",
             "start_date": "2022-01",
             "end_date": None,
@@ -69,9 +69,9 @@ LETTER = {
         "paragraphs": [
             "I am excited to apply for the Senior Automation Engineer role "
             "at your company.",
-            # The F14 blend: a real BioNTech achievement, bolted onto
+            # The F14 blend: a real NordPharm achievement, bolted onto
             # unrelated (foreign-owned) practice-area evidence.
-            "At BioNTech, I led AI automation projects that reduced manual "
+            "At NordPharm, I led AI automation projects that reduced manual "
             "QA effort by 40%, with comprehensive testing, observability, "
             "and reliability practices.",
             # A truthful, clause-checkable paragraph about the OTHER role.
@@ -89,7 +89,7 @@ async def test_letter_audit_discriminates_and_flags_the_blend():
     report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
     by_loc = {r.claim.location: r for r in report.claims}
 
-    # (1) the BioNTech-anchored clause whose evidence lives in a foreign-owned
+    # (1) the NordPharm-anchored clause whose evidence lives in a foreign-owned
     # story verdicts misattributed, not unverifiable.
     blend_results = [
         r
@@ -112,13 +112,13 @@ async def test_letter_audit_discriminates_and_flags_the_blend():
         (r.claim.text, r.verdict.verdict) for r in acme_results
     ]
 
-    biontech_figure_results = [
+    nordpharm_figure_results = [
         r
         for loc, r in by_loc.items()
         if loc.startswith("body.paragraphs[1]") and "40%" in r.claim.text
     ]
-    assert biontech_figure_results
-    assert all(r.verdict.verdict == "grounded" for r in biontech_figure_results)
+    assert nordpharm_figure_results
+    assert all(r.verdict.verdict == "grounded" for r in nordpharm_figure_results)
 
     # (3) formulaic sentences stay unverifiable but do not dominate the report.
     formulaic = [
@@ -145,7 +145,7 @@ async def test_letter_blend_clause_misattributed_in_isolation():
             ),
             location="body.paragraphs[1][0].clauses[1]",
             kind="clause",
-            source_experience_id="w-biontech",
+            source_experience_id="w-nordpharm",
         ),
         PROFILE,
     )

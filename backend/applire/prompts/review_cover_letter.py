@@ -94,6 +94,35 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
        stretch beyond its stated evidence, waive it (name term + reason in feedback) — a waived
        term does not block approval. Grounding strictly OUTRANKS coverage; NEVER ask the writer
        to fabricate or force a term that does not genuinely fit.
+       DEMAND CAP — bound the coverage pressure you put on the writer, not just its wording
+       (#282/#283 wave-7 follow-up: the run-6 reviewer surfaced SIX absent claimable terms in one
+       round — "Technical leadership, Team management, Production ownership, Cross-functional
+       collaboration, Engineering standards, Technical best practices" — and the corrector's only
+       ways to satisfy six terms in a single revision were to enumerate them (#282's flat list) or
+       invent one sentence broad enough to carry all six (#283's fabricated cross-employer
+       fusion). Coverage is a suggestion, not a quota the corrector must clear in one pass, and a
+       demand it can only satisfy by listing or inventing is a defect in the demand, not a
+       demand the corrector failed to meet). Per round, DEMAND AT MOST TWO absent claimable
+       terms: when the VERIFIED COVERAGE CHECK block names more than two un-waived terms, rank
+       them by fit weight / JD importance — how central each term is to THIS target role — and
+       name only the top two in your issues/feedback. For EACH of the (at most two) terms you
+       demand, cite the specific profile evidence from the block that supports it inline in your
+       issue text — a demand naming no evidence is not a valid demand. A term you cannot tie to
+       concrete evidence is WAIVED under the mechanism above, never demanded anyway just to fill
+       the two slots. Terms beyond the cap are not dropped and not approved-around — they remain
+       un-waived, so approved stays false exactly as it already does while any un-waived term
+       exists — you are only bounding what you ask the writer to add THIS round; a term that is
+       still absent and still un-waived next round is eligible again then.
+       SPECIFICITY (#282 — two blind hiring-panel reviewers flagged keyword-stuffed prose: a
+       paragraph that rendered claimable terms as a FLAT, ENUMERATED list — "team management,
+       mentoring, cross-functional collaboration, engineering standards, technical best
+       practices, and production ownership"): a flat list of three or more claimable terms
+       strung together is itself a review issue, exactly like an ungrounded claim — flag it and
+       instruct the writer to fold at most one or two terms per sentence into a concrete,
+       specific statement of what was actually built, owned, or delegated, at the SAME level of
+       specificity the rest of the letter uses. Specificity OUTRANKS raw coverage: a term better
+       left unsurfaced (or waived) than jammed into a list is the correct call, never the
+       fabrication of a false choice between "list it" and "drop it".
    (b) FORBIDDEN CLAIM — SCOPED TO POSSESSIVE/COMPETENCE FRAMING ONLY (amended 2026-07-24 /
        US264/#255): if any DO NOT CLAIM (honest-gap) concept appears in the body presented as
        something the CANDIDATE has, has done, or knows, flag it — that is a fabrication. This
@@ -129,7 +158,7 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    profile, a claimable ledger entry's own ``evidence`` field, or a positioning ``testimony``).
    NUMERICALLY-EQUIVALENT means the SAME figure regardless of surface form — a number spelled
    out in words and the same number in digits are the same figure, never a form difference:
-   "seven months" and "7 months" are numerically-equivalent, and so are "€19bn" and its digit
+   "seven months" and "7 months" are numerically-equivalent, and so are "€4bn" and its digit
    form. NEVER flag a word-vs-digit (or spacing/symbol-placement) difference as a minted
    figure, and never instruct the writer to change one already-grounded form into another.
    Non-numeric quantifiers — "multiple", "several", "various", "a number of" — are NOT figures
@@ -143,7 +172,22 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    a form that simply reverses a change you yourself requested in an earlier round — if round
    N asked the writer to change "7 months" to "seven months", do not then flag "seven months"
    as unverbatim and ask for "7 months" back; that is oscillation, not a real finding.
-9. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
+9. UNANCHORED POSITION-OWNED CONTENT (#283 — a run-6 letter folded one employer's
+   "record-breaking systems rollout (9 months, 4 sites)" into a sentence naming no employer, in
+   a letter that separately named a DIFFERENT employer elsewhere; the deterministic #254 figure
+   guard could not resolve ownership and silently dropped both figures downstream, leaving
+   "delivered ... in months across sites" — vaguer than the truth, reading as evasive padding):
+   when a
+   sentence states an achievement, responsibility, or figure/metric that belongs to ONE
+   specific employer or position, that employer must be named within the SAME sentence — not
+   left for an earlier sentence or paragraph to imply. Flag any sentence that carries a
+   position-owned achievement or figure/metric but names no employer of its own, ESPECIALLY
+   when the letter names more than one employer overall (the single-employer escape cannot
+   save it) — name the paragraph and instruct the writer to add the employer anchor IN PLACE,
+   in the same sentence, never to drop the achievement/figure to make the issue disappear. A
+   figure silently dropped by the downstream guard for lack of an anchor is a review miss, not
+   a safe outcome — restoring the figure WITH its correct anchor is the goal.
+10. CROSS-DOCUMENT CONSISTENCY & ALTITUDE (#270 — the run-5 blocker: an individually-honest CV
    and letter jointly misled a hiring panel, because a KEYWORD LEDGER CLAIMABLE concept
    ("retrieval systems") was positioned as the letter's honest gap and then bare-denied — "I
    have not worked hands-on with retrieval systems" — directly contradicting the CV's own
@@ -160,6 +204,26 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    ``assert_vs_deny`` finding exactly like an ungrounded claim (checks 1-3), and instruct the
    writer to render the scoped claim from the finding's own remedy — never to add, soften, or
    remove a denial on your own initiative.
+11. UNSUPPORTED GENERALIZATIONS / FILLER (wave-7 — a run-6 Oracle audit found roughly a third of
+   the letter's unverifiable claims were soft padding that asserts nothing checkable about the
+   CANDIDATE — shapes like "My career applies this rigor end-to-end" or "Regulated industries
+   share the same discipline: planning, risk identification, tracking, and mitigation." These
+   are not fabrications — nothing false is stated — but they occupy space while claiming nothing
+   about this candidate, diluting the letter and dragging down its grounding signal). Flag any
+   body sentence that is an industry truism, aspirational framing, or generic statement about
+   the field/role rather than a claim that traces to something in the source about THIS
+   candidate. EXPLICITLY NOT THIS CHECK — do not flag: the greeting and closing courtesy lines;
+   the availability/notice-period line; the honest-gap/transfer-argument paragraph (check 7); or
+   a short connective clause that introduces a grounded claim (e.g. "In my most recent role,"
+   before a specific, sourced sentence is connective tissue, not filler).
+   WHEN IN DOUBT, DO NOT FLAG — a false positive here instructs the writer to cut or replace a
+   sentence that may be quietly grounded, which is worse than leaving some padding in; only flag
+   a sentence you are confident asserts NOTHING about the candidate. NEVER use this check to
+   soften, narrow, or
+   remove an honest gap disclosure or a scoped-boundary limit (checks 7/10) — cutting padding
+   must never read as cutting honesty. Flag it exactly like an ungrounded claim and instruct the
+   writer to cut the sentence or replace it with a specific, sourced claim — never to keep the
+   same generic sentence with different words.
 
 Respond ONLY with a valid JSON object — no markdown, no explanations:
 {
@@ -228,6 +292,32 @@ Rules:
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
   verbatim there. If the evidence carries no figure, describe the experience qualitatively
   instead of inventing one.
+- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE (#283): when you add, keep, or patch a
+  sentence that states an achievement, responsibility, or figure/metric belonging to ONE
+  specific employer or position, name that employer within the SAME sentence — e.g. "At
+  Northwind Labs, I delivered the lab-systems rollout in 9 months across 4 sites" — never leave
+  the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
+  content to satisfy a coverage issue. A downstream truthfulness guard silently DROPS any
+  figure it cannot attribute to a named employer, which only makes the letter vaguer and
+  weaker, not safer — never let an achievement/figure ship unanchored and never quietly delete
+  it to sidestep this rule; restore it WITH its correct anchor instead.
+- SPECIFICITY OUTRANKS COVERAGE TOO (#282): when correcting a coverage issue, never respond by
+  stringing three or more claimable terms together as a flat list ("team management,
+  mentoring, cross-functional collaboration, engineering standards..."). Fold at most one or
+  two terms per sentence into a concrete, specific statement of what was actually built,
+  owned, or delegated — a term that does not fit a specific sentence this way is better left
+  qualitative, or for the next round's grounding waiver, than jammed into a list.
+- CUT OR REPLACE UNSUPPORTED GENERALIZATIONS (wave-7): when the reviewer flags a body sentence
+  as an unsupported generalization / filler (industry truism, aspirational framing, a generic
+  statement about the field that asserts nothing about THIS candidate), either cut it or replace
+  it with a specific, sourced claim from the CANDIDATE SOURCE — never keep the same generic
+  sentence reworded. Do NOT apply this to the greeting/closing courtesy lines, the
+  availability/notice-period line, the honest-gap/transfer-argument paragraph, or a short
+  connective clause introducing a grounded claim — those are not filler even if the reviewer's
+  feedback is terse; when a flagged sentence turns out to be one of these, leave it rather than
+  guess. NEVER let this rule shrink, soften, or remove an honest gap disclosure or a
+  scoped-boundary limit while "cutting padding" — removing honesty is worse than leaving a
+  padding sentence in place, so a doubtful case stays untouched.
 - NEVER DEMOTE A SCOPED CLAIM TO A BARE DENIAL (#270): when the CANDIDATE SOURCE names a
   SCOPED BOUNDARY for a concept (``positioning_requested.scoped_boundaries``, or a
   CROSS-DOCUMENT CONSISTENCY CHECK finding) — the vault holding BOTH a positive contribution

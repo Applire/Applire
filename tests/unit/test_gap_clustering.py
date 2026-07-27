@@ -204,6 +204,226 @@ def test_gap_detector_priority_does_not_cross_category_boundary():
 
 
 # ---------------------------------------------------------------------------
+# #273/#274/#284 (PO reframing 2026-07-26) — filter_answered_concepts
+# ---------------------------------------------------------------------------
+# gap_analysis.gap_clusters is a clustering-LLM SNAPSHOT that is never
+# recomputed when the ledger is later upgraded. Run-6 ground truth:
+# cluster-technical-leadership's five concepts were ALL already status ==
+# "direct" in the SAME GapAnalysis row the interview loaded — the snapshot
+# alone was stale, and three questions were still burned drilling it.
+
+
+def _fac_cluster(cid, label, category, gaps):
+    return {
+        "id": cid, "label": label, "category": category, "gaps": gaps,
+        "jd_skills": gaps, "jd_context": f"context for {label}",
+    }
+
+
+def test_filter_answered_concepts_drops_cluster_whose_concepts_are_all_direct():
+    """The run-6 shape: every concept in a cluster is already status=='direct'
+    in the ledger (evidence arrived via testimony, an earlier session, or the
+    reevaluation pass run at session start) — the whole cluster is dropped,
+    never re-asked."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-leadership", "cluster-ai-core"]
+    cluster_categories = {"cluster-leadership": "C", "cluster-ai-core": "C"}
+    clusters_by_id = {
+        "cluster-leadership": _fac_cluster(
+            "cluster-leadership", "Technical Leadership", "C",
+            ["Team management", "Mentoring"],
+        ),
+        "cluster-ai-core": _fac_cluster(
+            "cluster-ai-core", "AI Core Systems", "C", ["Embeddings"]
+        ),
+    }
+    ledger = [
+        {"concept": "Team management", "status": "direct", "claimable": True},
+        {"concept": "Mentoring", "status": "direct", "claimable": True},
+        {"concept": "Embeddings", "status": "gap", "claimable": False},
+    ]
+
+    ids, cats, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-ai-core"]
+    assert "cluster-leadership" not in by_id
+    assert "cluster-leadership" not in cats
+    assert by_id["cluster-ai-core"]["gaps"] == ["Embeddings"]
+
+
+def test_filter_answered_concepts_narrows_a_mixed_cluster():
+    """A cluster with SOME concepts already 'direct' keeps only its still-open
+    ones — the cluster survives (still askable), label/category/jd_context
+    unchanged, just a narrower `gaps` list."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-leadership"]
+    cluster_categories = {"cluster-leadership": "C"}
+    clusters_by_id = {
+        "cluster-leadership": _fac_cluster(
+            "cluster-leadership", "Technical Leadership", "C",
+            ["Team management", "Engineering standards"],
+        ),
+    }
+    ledger = [
+        {"concept": "Team management", "status": "direct", "claimable": True},
+        {"concept": "Engineering standards", "status": "gap", "claimable": False},
+    ]
+
+    ids, cats, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-leadership"]
+    assert cats == {"cluster-leadership": "C"}
+    assert by_id["cluster-leadership"]["gaps"] == ["Engineering standards"]
+    # Everything else on the cluster dict is untouched.
+    assert by_id["cluster-leadership"]["label"] == "Technical Leadership"
+    assert by_id["cluster-leadership"]["jd_context"] == "context for Technical Leadership"
+
+
+def test_filter_answered_concepts_leaves_partial_clusters_askable():
+    """'partial' concepts stay exactly as askable as today — asking may firm
+    a partial into a direct; that is legitimate interview work, not the bug
+    being fixed."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-observability"]
+    cluster_categories = {"cluster-observability": "B"}
+    clusters_by_id = {
+        "cluster-observability": _fac_cluster(
+            "cluster-observability", "Observability", "B", ["Observability"]
+        ),
+    }
+    ledger = [{"concept": "Observability", "status": "partial", "claimable": True}]
+
+    ids, cats, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-observability"]
+    assert by_id["cluster-observability"]["gaps"] == ["Observability"]
+
+
+def test_filter_answered_concepts_concept_absent_from_ledger_fails_open():
+    """A concept with NO matching ledger entry is never dropped on absence of
+    information — fail-open, not fail-closed."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-x"]
+    cluster_categories = {"cluster-x": "C"}
+    clusters_by_id = {
+        "cluster-x": _fac_cluster("cluster-x", "X", "C", ["Some Untracked Concept"]),
+    }
+    ledger = [{"concept": "Unrelated concept", "status": "direct", "claimable": True}]
+
+    ids, _, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-x"]
+    assert by_id["cluster-x"]["gaps"] == ["Some Untracked Concept"]
+
+
+def test_filter_answered_concepts_never_drops_a_concept_the_ledger_calls_a_gap():
+    """A narrower concept that carries its OWN ``status: "gap"`` entry must
+    survive, even when a BROADER concept is ``direct``.
+
+    Pinned from mock-stack PQ ground truth (2026-07-26): the ledger held
+    ``Python -> direct`` AND ``5+ years Python experience -> gap``. Matching
+    the gap string against the direct set with the bidirectional-substring
+    ``_matches`` dropped the whole ``cluster-python-experience`` cluster — the
+    interview silently skipped a concept the ledger itself still called open.
+    Presence of a broader token never satisfies a depth/duration requirement
+    (#207 over-fire family). A non-direct match VETOES the drop.
+    """
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-python-experience"]
+    cluster_categories = {"cluster-python-experience": "C"}
+    clusters_by_id = {
+        "cluster-python-experience": _fac_cluster(
+            "cluster-python-experience",
+            "Python Experience Depth",
+            "C",
+            ["5+ years Python experience"],
+        ),
+    }
+    ledger = [
+        {"concept": "Python", "status": "direct", "claimable": True},
+        {"concept": "5+ years Python experience", "status": "gap", "claimable": False},
+    ]
+
+    ids, _, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-python-experience"]
+    assert by_id["cluster-python-experience"]["gaps"] == ["5+ years Python experience"]
+
+
+def test_filter_answered_concepts_partial_own_entry_vetoes_broader_direct():
+    """Same veto for ``partial`` — asking may still firm it into ``direct``."""
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-k8s"]
+    cluster_categories = {"cluster-k8s": "B"}
+    clusters_by_id = {
+        "cluster-k8s": _fac_cluster(
+            "cluster-k8s", "Cloud", "B", ["Kubernetes at production scale"]
+        ),
+    }
+    ledger = [
+        {"concept": "Kubernetes", "status": "direct", "claimable": True},
+        {
+            "concept": "Kubernetes at production scale",
+            "status": "partial",
+            "claimable": False,
+        },
+    ]
+
+    ids, _, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, ledger
+    )
+
+    assert ids == ["cluster-k8s"]
+    assert by_id["cluster-k8s"]["gaps"] == ["Kubernetes at production scale"]
+
+
+def test_filter_answered_concepts_tolerates_none_and_empty_ledger():
+    from applire.services.interview_graph import filter_answered_concepts
+
+    cluster_ids = ["cluster-x"]
+    cluster_categories = {"cluster-x": "C"}
+    clusters_by_id = {"cluster-x": _fac_cluster("cluster-x", "X", "C", ["Concept"])}
+
+    ids, cats, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, None
+    )
+    assert (ids, cats, by_id) == (cluster_ids, cluster_categories, clusters_by_id)
+
+    ids, cats, by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, []
+    )
+    assert (ids, cats, by_id) == (cluster_ids, cluster_categories, clusters_by_id)
+
+
+def test_filter_answered_concepts_makes_no_llm_call():
+    """Deterministic: no provider/LLM argument on the signature."""
+    import inspect
+
+    from applire.services.interview_graph import filter_answered_concepts
+
+    sig = inspect.signature(filter_answered_concepts)
+    assert list(sig.parameters) == [
+        "cluster_ids", "cluster_categories", "clusters_by_id", "keyword_ledger",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # #166: clustering payload must survive JSON-object mode (every real provider
 # forces a top-level object; a compliant model can NEVER emit a bare array).
 # Before the fix, gap.py demanded a bare list and silently produced [] for the

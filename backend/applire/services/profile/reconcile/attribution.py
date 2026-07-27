@@ -19,10 +19,10 @@
 
 Ground truth (live-reproduced 2026-07-24, founder charter re-run, main @
 53ffa85 — see ``tests/unit/test_reconcile_attribution.py``): a single
-multi-employer interview answer named BOTH BioNTech and Applire in one turn.
+multi-employer interview answer named BOTH NordPharm and Applire in one turn.
 The reconciler LLM correctly split the answer into several ``add_bullets``
 ops, but two of them carried an Applire-only clause's text while TARGETING a
-BioNTech entity (a WorkEntry and a nested ProjectEntry). This is a
+NordPharm entity (a WorkEntry and a nested ProjectEntry). This is a
 model-emitted wrong-target op (prompt-side): the deterministic applier
 (``apply.py``) faithfully applies whatever ``target`` the op names — by
 design (ADR-046: "the applier never re-decides whether two entities are the
@@ -48,7 +48,7 @@ Design (belt AND braces, per #243):
   already established).
 * Anchoring is at COMPANY-NAME granularity, not per-entity-id: a candidate
   who held several roles at the same employer (the live profile has three
-  BioNTech stints) must not make "BioNTech" read as an ambiguous anchor
+  NordPharm stints) must not make "NordPharm" read as an ambiguous anchor
   merely because it maps to multiple entity ids — every WorkEntry sharing a
   company name collapses to ONE candidate (see ``_company_candidates``).
 * A bullet's own text rarely repeats the employer name (the live bug's
@@ -130,8 +130,8 @@ def _split_sentences(text: str) -> list[str]:
 
 # ── company-name anchoring ───────────────────────────────────────────────────
 
-# Common DE/EN legal-form suffixes, stripped so "BioNTech SE" and a spoken
-# "BioNTech" (or "bei BioNTech") anchor to the SAME candidate (#243 test:
+# Common DE/EN legal-form suffixes, stripped so "NordPharm SE" and a spoken
+# "NordPharm" (or "bei NordPharm") anchor to the SAME candidate (#243 test:
 # legal-form variants).
 _LEGAL_FORM_RE = re.compile(
     r"\s+(?:SE|AG|GmbH(?:\s*&\s*Co\.?\s*KG)?|gGmbH|mbH|KG|OHG|GbR|"
@@ -148,7 +148,7 @@ def _core_company_name(name: str) -> str:
 
 def _company_candidates(profile: MasterProfileData) -> dict[str, str]:
     """core name -> display name, deduped so multiple roles at the SAME
-    employer (the live profile has three BioNTech stints) collapse to ONE
+    employer (the live profile has three NordPharm stints) collapse to ONE
     anchor candidate rather than reading as an ambiguous multi-entity match.
     """
     candidates: dict[str, str] = {}

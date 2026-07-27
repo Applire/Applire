@@ -31,7 +31,7 @@ chips that deny direct experience — may name the term; denying is the point.
 
 #236 (founder-acceptance F5): the whole-profile evidence pool above is too
 permissive once a chip names a specific employer. The live trace showed a chip
-naming BioNTech that was truthful about the TECH (LangGraph/RAG — BioNTech
+naming NordPharm that was truthful about the TECH (LangGraph/RAG — NordPharm
 really does have both) but fabricated the NARRATIVE CONTEXT ("clinical data
 workflows under tight timelines" — conflated from an unrelated bullet, plus
 invented urgency). Whole-profile evidence checking never catches this because
@@ -221,8 +221,8 @@ def _fold_quotes(text: str) -> str:
 
 
 # Corporate suffixes stripped from a profile company name before it is
-# searched for in a chip — "BioNTech SE" must be found by a chip that only
-# says "BioNTech" (founder-acceptance F5, issue #236).
+# searched for in a chip — "NordPharm SE" must be found by a chip that only
+# says "NordPharm" (founder-acceptance F5, issue #236).
 _LEGAL_SUFFIX_RE = re.compile(
     r"\s*,?\s*\b("
     r"gmbh\s*&\s*co\.?\s*kg|gmbh|mbh|ag|se|kg|ug|e\.?v\.?|"
@@ -258,7 +258,7 @@ _FUZZY_PREFIX_LEN = 6
 # named employer's OWN evidence, once cluster/JD terms are cleared. Tuned
 # against the #236 fixtures: the verbatim fabricated trace chip ("...clinical
 # data workflows under tight timelines") scores 0.60 (EN) / 0.30 (DE) — some
-# of its tokens are real BioNTech vocabulary lifted from an unrelated bullet,
+# of its tokens are real NordPharm vocabulary lifted from an unrelated bullet,
 # which is exactly the conflation this guard exists to catch. A faithful
 # paraphrase of the real bullet scores 0.78-0.89 (EN) / 0.86 (DE). 0.65 sits
 # in the gap and separates every fixture correctly. Erring low is deliberate —

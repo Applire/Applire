@@ -51,7 +51,7 @@ def test_pure_courtesy_formula_detected(text):
     "text",
     [
         # A genuine narrative sentence, no formula seed at all.
-        "At BioNTech, I led AI automation projects that reduced manual QA "
+        "At NordPharm, I led AI automation projects that reduced manual QA "
         "effort by 40%.",
         # Multi-skill enumeration clauses (#237 follow-up) — never formulas.
         "My experience includes designing and implementing RESTful APIs "

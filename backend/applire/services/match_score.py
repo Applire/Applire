@@ -34,7 +34,10 @@ REQUIRED_SLOT = 1.0
 NICE_TO_HAVE_SLOT = 0.5
 
 # Earning factors by classification status
-_FACTOR: dict[str, float] = {"direct": 1.0, "partial": 0.5, "gap": 0.0}
+# "denied" earns exactly what "gap" earned (ADR-048 amended 2026-07-27), so the
+# four-value vocabulary leaves the ADR-035 headline number undrifted — a denial
+# was already unclaimable, it is now merely distinguishable from "unknown".
+_FACTOR: dict[str, float] = {"direct": 1.0, "partial": 0.5, "gap": 0.0, "denied": 0.0}
 
 
 def _norm(s: str) -> str:

@@ -437,6 +437,10 @@ async def _run_analysis(
                 "status": c.get("status", "gap"),
                 "evidence": c.get("reason", ""),
                 "surface_forms": c.get("surface_forms"),
+                # ADR-048 am. 2026-07-27 — on a "partial", the vault item that
+                # IS the adjacent capability, so the writers can promote arc42
+                # rather than being told to surface the JD's word "TOGAF".
+                "adjacent_evidence": c.get("adjacent_evidence"),
             }
             for c in classifications
         ],

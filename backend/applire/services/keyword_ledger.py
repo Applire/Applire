@@ -41,7 +41,21 @@ REQUIRED_WEIGHT = 1.0
 NICE_TO_HAVE_WEIGHT = 0.5
 KEYWORD_ONLY_WEIGHT = 0.0
 
-_VALID_STATUS = {"direct", "partial", "gap"}
+# ADR-048 amended 2026-07-27 (driven by ADR-059's amendment of the same date):
+# four values, not three. ``gap`` narrowed to mean UNKNOWN — no signal, never
+# asked, or asked and unanswered; ``denied`` means the candidate was asked and
+# stated they do not have it. ``claimable`` is unchanged (``status in {direct,
+# partial}``) so a denial is still never claimable — but "we do not know" and
+# "they told us no" stop being the same value, which is what the interview, the
+# writers and the ADR-060 critic each need in order to behave differently.
+#
+# NOTE the wire name: ``gap`` now means "unknown". The clearer rename was
+# deliberately not taken mid-flavour (recorded as debt in the ADR).
+_VALID_STATUS = {"direct", "partial", "gap", "denied"}
+
+# The one place the honest marker is spelled, so the floor and every write seam
+# that records a denial cite identical evidence text.
+DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
 
 
 def _norm(s: str) -> str:
@@ -307,9 +321,13 @@ def _enforce_denial_stance(
         result.append(
             {
                 **entry,
-                "status": "gap",
+                # ADR-059 amended 2026-07-27: the floor writes the STATUS, not
+                # merely the flag. Forcing "gap" here discarded the reason the
+                # concept is unclaimable — downstream could no longer tell a
+                # requirement nobody asked about from one the candidate refused.
+                "status": "denied",
                 "claimable": False,
-                "evidence": "Candidate explicitly stated a limit here (interview).",
+                "evidence": DENIED_EVIDENCE,
             }
         )
     return result
@@ -342,6 +360,44 @@ def split_ledger_for_prompt(
     return claimable, forbidden
 
 
+def is_positioning_only(entry: dict[str, Any] | None) -> bool:
+    """True for a claimable entry the candidate does NOT actually hold (ADR-048
+    amended 2026-07-27): an ADJACENT ``partial`` whose ``adjacent_evidence``
+    names the capability that stands in for the JD's term.
+
+    THE single definition of that exemption. Three instruments have to agree on
+    it or they pull the document apart: the coverage reviewer must not demand
+    the term (that is a demand to over-claim), the ATS panel must not grade its
+    absence as a surfacing miss, and the page budget must protect the
+    SUBSTITUTE rather than the term. Charter run #7 is what happens when only
+    the first of the three knows (#122's "the loop that grades is the loop that
+    heals", stated the other way round).
+    """
+    return bool((entry or {}).get("adjacent_evidence"))
+
+
+def retention_forms(entry: dict[str, Any]) -> list[str]:
+    """The surface forms that mark a CV bullet as carrying this entry's evidence.
+
+    ``surface_forms ∪ {concept}`` for a normal entry. For a positioning-only
+    entry the JD's own term is REPLACED by ``adjacent_evidence``: the candidate
+    has no bullet containing "TOGAF", so retaining that form protects nothing,
+    while the arc42 bullet it is meant to promote would otherwise score as a
+    no-hit and be cut first by ``condense_to_budget`` (ADR-051 §3).
+
+    Never widens what may be CLAIMED — this feeds bullet RETENTION only. The
+    adjacent term deliberately stays out of ``surface_forms`` so it can never
+    make the JD's term read as present (:func:`claimable_surface_forms`).
+    """
+    if is_positioning_only(entry):
+        return [str(entry["adjacent_evidence"])]
+    forms = [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)]
+    concept = entry.get("concept")
+    if concept:
+        forms.append(str(concept))
+    return forms
+
+
 def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
@@ -367,20 +423,59 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
         for entry in claimable:
             forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
             evidence = entry.get("evidence", "") or "(no extra evidence given)"
-            lines.append(f"  - {entry.get('concept', '')} [forms: {forms}] — evidence: {evidence}")
+            concept = entry.get("concept", "")
+            adjacent = entry.get("adjacent_evidence")
+            if adjacent:
+                # ADR-048 am. 2026-07-27: the candidate does NOT have this one.
+                # Naming the substitute is the only actionable instruction here;
+                # without it the writer is simply told to "surface TOGAF".
+                lines.append(
+                    f"  - {concept} [forms: {forms}] — the candidate does NOT have "
+                    f"{concept} itself; the profile's adjacent capability is "
+                    f"{adjacent}. Give {adjacent} prominence in its own right and "
+                    f"NEVER present {concept} as something the candidate has. "
+                    f"evidence: {evidence}"
+                )
+            else:
+                lines.append(f"  - {concept} [forms: {forms}] — evidence: {evidence}")
     else:
         lines.append("  (none)")
+
+    # A denial and an unknown are both unclaimable, but they are not the same
+    # thing and the document cannot treat them the same way (ADR-059 amended
+    # 2026-07-27). An unknown is simply absent. A denial is a position the
+    # CANDIDATE took, in their own words — which is exactly what makes it
+    # positionable rather than merely forbidden.
+    denied = [
+        e.get("concept", "")
+        for e in (keyword_ledger or [])
+        if e.get("status") == "denied" and e.get("concept")
+    ]
+    denied_norms = {_norm(c) for c in denied}
+    unknown = [c for c in forbidden if _norm(c) not in denied_norms]
 
     lines += [
         "",
         "DO NOT CLAIM (honest gaps — NOT in the profile; never present these as something "
         "the candidate has, has done, or knows):",
     ]
-    if forbidden:
-        for concept in forbidden:
+    if unknown:
+        for concept in unknown:
             lines.append(f"  - {concept}")
     else:
         lines.append("  (none)")
+
+    if denied:
+        lines += [
+            "",
+            "EXPLICITLY DENIED BY THE CANDIDATE (they were asked and stated they do NOT "
+            "have these). Never claim them, and never soften or walk back the denial. "
+            "Unlike the list above these are the candidate's OWN stated position, so a "
+            "cover letter MAY name one honestly and follow it with what they do bring "
+            "instead — a CV simply omits them:",
+        ]
+        for concept in denied:
+            lines.append(f"  - {concept}")
 
     return "\n".join(lines)
 
@@ -394,11 +489,18 @@ def claimable_surface_forms(
     (the candidate supports it per the ledger, so it should have been surfaced) or a
     *missing-honest-gap* (not in the profile — honestly absent). De-duplicated, order
     preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+
+    A positioning-only entry is excluded (ADR-048 amended 2026-07-27,
+    :func:`is_positioning_only`) — the candidate does NOT have that term, so its
+    absence is an honest gap, not a surfacing miss. Without this the ATS panel
+    renders the amber "structure OK, N keywords missing" state naming a term the
+    coverage reviewer (:func:`verified_missing_claimable`) has already, correctly,
+    decided not to write.
     """
     forms: list[str] = []
     seen: set[str] = set()
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    for entry in claimable:
+    for entry in [e for e in claimable if not is_positioning_only(e)]:
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
             if key and key not in seen:
@@ -407,20 +509,38 @@ def claimable_surface_forms(
     return forms
 
 
-def unclaimable_surface_forms(
+def unsupported_claim_surface_forms(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[str]:
-    """Flatten every surface form of every NON-claimable (honest-gap) ledger entry.
+    """Flatten every surface form of every UNKNOWN-gap ledger entry.
 
     Used by the ATS audit's fourth quadrant (ADR-048 amended 2026-07-03, #117): a
     keyword PRESENT in the document whose only ledger backing is an honest gap is
     an unsupported claim and gets a truthfulness warning. De-duplicated, order
     preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+
+    ``denied`` entries are EXCLUDED (ADR-048/059 amended 2026-07-27, PO decision).
+    The quadrant matches by normalised substring, and a substring cannot see
+    negation — so "I have not worked in BaFin supervision", the honest positioning
+    sentence the amended prompts now ASK for, is indistinguishable here from a
+    claim to have it. Every instrument in the pipeline that reads for MEANING
+    already exempts a denial clause: the Oracle verdict path
+    (``oracle/audit.py``, ``claim.is_denial``), the Oracle's own clause splitter
+    (``oracle/extract.py::_is_pure_denial_clause``), the choice-grounding
+    denial→affirmation pivot, and ``cross_document``'s ``bare_denial_of_claimable``
+    (scoped to CLAIMABLE concepts). This quadrant was the sole outlier, and the
+    only one of the five that cannot tell direction.
+
+    Nothing is lost by the exclusion: ``_is_pure_denial_clause`` is scoped to a
+    CLAUSE, so a document that positively claims a denied concept — or smuggles an
+    affirmation alongside the denial — is still audited by the Oracle, which reads
+    direction. The four-status split is what makes the exclusion expressible at
+    all; before it, ``denied`` and ``gap`` were the same row.
     """
     forms: list[str] = []
     seen: set[str] = set()
     for entry in keyword_ledger or []:
-        if entry.get("claimable"):
+        if entry.get("claimable") or entry.get("status") == "denied":
             continue
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
@@ -514,10 +634,21 @@ def verified_missing_claimable(
     serialised draft text — the same instrument the ATS panel grades with, so the
     pipeline can no longer ship a document its own panel will flag. Deterministic,
     no LLM. Honest-gap entries are never reported (they must stay absent).
+
+    An ADJACENT ``partial`` is never reported either (ADR-048 amended
+    2026-07-27). Such an entry means the candidate does NOT have the named
+    thing and has something else that stands in for it, so demanding its JD
+    term appear literally is a demand to over-claim — the adjacent capability
+    belongs on the page instead. Charter run #7 exhausted the CV reviewer's
+    entire retry budget on exactly this pressure (`Payments platform`,
+    `Settlement pipeline`, `Payout flows`). A below-the-bar ``partial`` carries
+    no pointer and is still demanded: the candidate really does have that
+    skill, just less of it than the JD asked for.
     """
     from applire.services.ats_audit import _norm as ats_norm, surface_present
 
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    claimable = [e for e in claimable if not is_positioning_only(e)]
     if not claimable:
         return []
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
@@ -593,6 +724,7 @@ def upgrade_ledger_for_concepts(
     evidence: str,
     *,
     status: str = "direct",
+    denied_concepts: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -614,6 +746,23 @@ def upgrade_ledger_for_concepts(
       * the honest-gap ``evidence`` (stripped to "" by the builder) is replaced with
         the answer text so the generator has something to ground the surfacing on.
 
+    POLARITY (ADR-059 amended 2026-07-27 — the run-#7 blocker). "The cluster was
+    addressed" is NOT "the candidate has it": an interview turn addresses a gap
+    just as much by denying it. Charter run #7 persisted eight denied concepts at
+    ``status="direct", claimable=True`` **with the candidate's own denial sentence
+    as their backing evidence**, because this function had no notion of polarity
+    and the ADR-059 floor (:func:`_enforce_denial_stance`) runs only inside
+    ``build_keyword_ledger`` — never at this in-place seam. Two floors close it:
+
+      * an entry already at ``status == "denied"`` is never touched, whatever the
+        caller passes — the persisted status is authoritative on its own;
+      * ``denied_concepts`` (the candidate's live ``ProfileMetadata.denied_concepts``)
+        is consulted through the SAME predicate the same-turn reconciler guard and
+        the durable floor use (``is_denied_concept``), so the three can never
+        disagree. A matching concept is **recorded as denied** rather than merely
+        skipped — a denial is a real answer and must move the requirement's status,
+        which is the whole point of the amendment.
+
     Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
     the JSONB write. Pure; tolerant of ``None``/empty.
     """
@@ -625,24 +774,158 @@ def upgrade_ledger_for_concepts(
 
     upgrade_status = status if status in {"direct", "partial"} else "direct"
     ev = (evidence or "").strip()
+    denials = [d for d in (denied_concepts or []) if _norm(d)]
 
     new_ledger: list[dict[str, Any]] = []
     changed = False
     for entry in keyword_ledger:
         e = dict(entry)
         concept_norm = _norm(e.get("concept", ""))
-        if (
-            not e.get("claimable")
-            and concept_norm
+        matched = (
+            concept_norm
+            and not e.get("claimable")
             and any(_matches(concept_norm, cn) for cn in concept_norms)
+        )
+        if not matched:
+            new_ledger.append(e)
+            continue
+
+        # Floor 1 — the persisted status is authoritative.
+        if e.get("status") == "denied":
+            new_ledger.append(e)
+            continue
+
+        concept = e.get("concept", "")
+        forms = e.get("surface_forms") or [concept]
+        # Floor 2 — the candidate's live denials, via the shared predicate.
+        if denials and (
+            is_denied_concept(concept, denials)
+            or any(is_denied_concept(f, denials) for f in forms)
         ):
-            e["claimable"] = True
-            e["status"] = upgrade_status
-            if ev:
-                e["evidence"] = ev
-            changed = True
+            if e.get("status") != "denied":
+                logger.info(
+                    "upgrade_ledger_for_concepts: recorded %r as denied — the turn "
+                    "ADDRESSED this requirement by denying it (ADR-059 clause 2)",
+                    concept,
+                )
+                e["status"] = "denied"
+                e["claimable"] = False
+                e["evidence"] = DENIED_EVIDENCE
+                changed = True
+            new_ledger.append(e)
+            continue
+
+        e["claimable"] = True
+        e["status"] = upgrade_status
+        if ev:
+            e["evidence"] = ev
+        changed = True
         new_ledger.append(e)
     return new_ledger, changed
+
+
+def reevaluate_gap_ledger_against_vault(
+    keyword_ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Deterministically re-check every still-open (``status == "gap"``,
+    ``claimable`` False) ledger entry against the CURRENT vault (#274/#284/
+    #273, PO reframing 2026-07-26).
+
+    A requirement's status must reflect whether the VAULT answers it, not
+    whether one particular interview turn happened to write something.
+    ``upgrade_ledger_for_concepts`` (#188) already covers the "this turn
+    addressed it" case; this covers every OTHER door the evidence could have
+    arrived through — CV import, testimony intake, an earlier interview
+    session, ``submit_claims`` (agent_bridge.py) — none of which run the
+    interview's own addressed-gate.
+
+    Reuses the two instruments this touches ALWAYS have to agree with:
+
+    * :func:`applire.services.ats_audit.surface_present` — THE shared
+      presence predicate (#122, US212). The loop that grades a document
+      (the ATS panel, :func:`verified_missing_claimable`) and the loop that
+      heals a ledger entry here must never disagree on "present".
+    * :func:`upgrade_ledger_for_concepts` — the ONE write path (#188) that
+      flips a ledger entry to claimable. This function only decides WHICH
+      concepts qualify and what real evidence to cite; it never duplicates
+      the flip logic itself.
+
+    Truthfulness floor (ADR-059): a concept the candidate explicitly denied
+    (``ProfileMetadata.denied_concepts``) is NEVER upgraded, however the
+    vault or the denial's own statement phrases it. The presence corpus is
+    built from :func:`profile_literal_corpus`'s own flattening
+    (``_strip_denial_text`` + ``_draft_strings``) — denial-testimony text is
+    stripped BEFORE flattening, so a denial's own receipt can never satisfy
+    this presence check and defeat the floor it is supposed to respect (the
+    same class of trap ``_enforce_denial_stance``/``profile_literal_corpus``
+    already close for the classifier's adjacency inference — see that
+    docstring). ``is_denied_concept`` is checked independently as a second,
+    belt-and-braces floor on top of the stripped corpus.
+
+    Conservative by construction (at least as conservative as #188):
+
+    * only ``status == "gap"`` entries are eligible — a ``partial`` entry is
+      already claimable and stays exactly as classified; this function never
+      upgrades partial evidence to "fully answered" on a bare substring hit,
+      which would be LESS conservative than the original LLM classification
+      that assigned "partial" rather than "direct" in the first place;
+    * a concept only upgrades when a REAL vault text node contains a surface
+      form (the node itself becomes the ``evidence`` — never a synthesized
+      marker, never fabricated);
+    * an entry with no concept, or whose forms match nothing in the corpus,
+      passes through untouched (fail-closed — never invents evidence).
+
+    Deterministic, no LLM call. Pure; tolerant of ``None``/empty.
+    """
+    if not keyword_ledger:
+        return list(keyword_ledger or []), False
+
+    from applire.services.ats_audit import _norm as ats_norm
+    from applire.services.ats_audit import surface_present
+
+    stripped_profile = _strip_denial_text(profile_json or {})
+    strings = [s for s in _draft_strings(stripped_profile) if s and s.strip()]
+    corpus = ats_norm(" ".join(strings))
+
+    denials = [
+        d.get("concept", "")
+        for d in (((profile_json or {}).get("metadata") or {}).get("denied_concepts") or [])
+        if isinstance(d, dict) and _norm(d.get("concept", ""))
+    ]
+
+    ledger = list(keyword_ledger)
+    changed = False
+    for entry in keyword_ledger:
+        if entry.get("claimable") or entry.get("status") != "gap":
+            continue
+        concept = entry.get("concept", "")
+        if not _norm(concept):
+            continue
+        forms = [f for f in (entry.get("surface_forms") or [concept]) if f]
+        probes = list(dict.fromkeys(forms + [concept]))  # dedupe, keep order
+
+        # ADR-059 floor: never upgrade a denied concept, however the vault or
+        # its own denial statement phrases it (corpus already denial-stripped
+        # above — this is the belt-and-braces second check).
+        if denials and any(is_denied_concept(p, denials, corpus) for p in probes):
+            continue
+
+        if not any(surface_present(p, corpus) for p in probes):
+            continue
+
+        # Cite the REAL vault text node the form was actually found in —
+        # never a synthesized marker.
+        evidence = next(
+            (s for p in probes for s in strings if surface_present(p, ats_norm(s))),
+            None,
+        )
+        if not evidence:
+            continue  # presence only at a join seam between two strings — fail closed
+
+        ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
+        changed = changed or did_change
+    return ledger, changed
 
 
 # ── #260 — pre-generation keyword-liability check ───────────────────────────
@@ -996,17 +1279,27 @@ def build_keyword_ledger(
             status = "gap"
         claimable = status in {"direct", "partial"}
 
-        ledger.append(
-            {
-                "concept": concept,
-                "surface_forms": list(surface_forms),
-                "sources": sorted(sources),
-                "fit_weight": _fit_weight(sources),
-                "status": status,
-                "evidence": (item.get("evidence", "") if claimable else ""),
-                "claimable": claimable,
-            }
-        )
+        entry = {
+            "concept": concept,
+            "surface_forms": list(surface_forms),
+            "sources": sorted(sources),
+            "fit_weight": _fit_weight(sources),
+            "status": status,
+            "evidence": (item.get("evidence", "") if claimable else ""),
+            "claimable": claimable,
+        }
+        # ADR-048 amended 2026-07-27: WHAT makes this partial. `partial` covers
+        # two different situations — "the candidate has an adjacent capability"
+        # (JD wants TOGAF, candidate has arc42) and "the right capability below a
+        # stated bar" — and only the first has something to promote. Carried
+        # ONLY on a partial entry: on a direct entry it would invite the writer
+        # to lead with a substitute over the real thing, and on gap/denied there
+        # is nothing to point at. Absent (not empty) when the classifier gives
+        # none, so "below the bar" stays distinguishable from "adjacent".
+        adjacent = str(item.get("adjacent_evidence") or "").strip()
+        if status == "partial" and adjacent:
+            entry["adjacent_evidence"] = adjacent
+        ledger.append(entry)
 
     # Any JD expectation the LLM did not classify defaults to a gap entry —
     # never silent credit (mirrors ADR-035's unclassified-defaults-to-gap rule).

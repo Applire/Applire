@@ -14,7 +14,7 @@ role (work_experience[1]) — the SAME employer, a different internal tenure.
 A company-level anchor must own the UNION of that company's roles: sibling
 roles of the same employer are never "foreign" for attribution purposes.
 
-Cross-EMPLOYER blends must still flag (the BioNTech/Applire shape,
+Cross-EMPLOYER blends must still flag (the NordPharm/Applire shape,
 ``test_oracle_letter_audit.py`` / ``test_oracle_misattribution.py``) — this
 module pins the SAME test shape once more, explicitly under the new
 same-employer union rule, to prove it did not over-relax.

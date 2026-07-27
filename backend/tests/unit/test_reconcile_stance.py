@@ -60,7 +60,7 @@ _RAG_TURN = {
         "technical challenge?"
     ),
     "answer": (
-        "Ja: Bei BioNTech leite ich aktuell ein KI-Automatisierungsprojekt auf "
+        "Ja: Bei NordPharm leite ich aktuell ein KI-Automatisierungsprojekt auf "
         "Basis von Databricks und Large Language Models, das die Erstellung "
         "regulatorischer Dokumente automatisiert — Ziel ist eine "
         "Effizienzsteigerung von über 60%. Dabei baue ich zugleich "
@@ -73,7 +73,7 @@ _RAG_TURN = {
 
 # Verbatim gap/question/answer of the 22:11:18Z blind-PQ turn (fabrication).
 _CHURN_TURN = {
-    "gap": "team_size: Associate Director E2E Supply Chain Systems @ BioNTech SE",
+    "gap": "team_size: Associate Director Platform Systems @ NordPharm SE",
     "question": (
         "Can you describe a specific project where you implemented CI/CD "
         "pipelines and explain the tools and processes you used?"
@@ -211,7 +211,7 @@ def test_grounding_not_applied_to_non_interview_sources() -> None:
 def test_entity_ops_are_not_grounding_checked() -> None:
     # Work/project/volunteer upserts legitimately echo profile knowledge
     # (target merges, alternate titles — rule 7); they stay out of scope.
-    ops = [UpsertWork(ref="w1", company="BioNTech SE", role="Associate Director")]
+    ops = [UpsertWork(ref="w1", company="NordPharm SE", role="Associate Director")]
     out = enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
     assert len(out) == 1
 

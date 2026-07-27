@@ -43,9 +43,26 @@ INTERVIEW_TARGET_MIN_GUIDED: int = 5
 
 # Per-gap question ceiling (Sprint 15): max questions asked for a single gap
 # before force-advancing to the next one. Includes the initial question.
+#
+# #274/#284 (2026-07-26): tightened 3 -> 2 — i.e. the initial question plus AT
+# MOST one retry. `denial_recorded` (#259) is the advance trigger for "no";
+# this ceiling is the one for "neither yes nor no" — a turn that reconciles to
+# zero ops AND zero denials, whether because the candidate genuinely cannot
+# elaborate further (#274) or gave a substantive, honestly unquantified answer
+# the reconciler found no new distinct field to write for (#284). Both charter
+# runs show the SAME shape: the reconciler correctly declines to fabricate a
+# profile field, so `addressed` stays False turn after turn, and nothing but
+# this counter ever moves the interview on. At 3, a cluster could burn a THIRD
+# question before force-advancing (run 6: two honest, unquantified answers on
+# cluster-technical-leadership, no advance, a third question already queued
+# when the candidate gave up and ended the interview manually). Repeated
+# non-elaboration/non-quantification past one retry is a terminal signal for
+# the cluster, not an invitation to rephrase — see services/session.py's
+# advance-decision block, and NOT a quality judgement: addressed/denied turns
+# always advance immediately regardless of this counter.
 # Set INTERVIEW_MAX_QUESTIONS_PER_GAP in environment to override (e.g. in docker-compose.yml).
 INTERVIEW_MAX_QUESTIONS_PER_GAP: int = int(
-    os.environ.get("INTERVIEW_MAX_QUESTIONS_PER_GAP", "3")
+    os.environ.get("INTERVIEW_MAX_QUESTIONS_PER_GAP", "2")
 )
 
 # LLM review layer — retry ceiling (ADR-021, Sprint 20)

@@ -149,6 +149,96 @@ def _prioritize_clusters(
     )
 
 
+def filter_answered_concepts(
+    cluster_ids: list[str],
+    cluster_categories: dict[str, str],
+    clusters_by_id: dict[str, dict],
+    keyword_ledger: list[dict] | None,
+) -> tuple[list[str], dict[str, str], dict[str, dict]]:
+    """Narrow ``gap_detector``'s output to concepts the ledger does NOT
+    already show ``status == "direct"`` for (#273/#274/#284, PO reframing
+    2026-07-26).
+
+    ``gap_analysis.gap_clusters`` is a clustering-LLM SNAPSHOT
+    (``services/gap.py::cluster_gaps()``) taken once and never recomputed
+    when the ledger is later upgraded — through this session's own #188
+    write path, ``submit_claims`` (agent_bridge.py), or
+    ``reevaluate_gap_ledger_against_vault`` run at session start — so a
+    cluster can go on naming a concept the ledger has since moved to
+    "direct". Run-6 ground truth: ``cluster-technical-leadership``'s five
+    concepts were ALL already ``status: "direct"`` in the SAME
+    ``GapAnalysis`` row the interview loaded (``category_a`` already listed
+    them) — the clustering snapshot alone was stale; three questions were
+    still burned drilling it.
+
+    Scope is deliberately ``status == "direct"`` only — a "partial" concept
+    stays exactly as askable as it is today (asking may firm it into
+    "direct"; that is legitimate interview work, not the bug). A concept
+    with NO matching ledger entry is left in place (fail-open: absence of
+    ledger information is never read as "already answered").
+
+    A cluster whose concepts are ALL now "direct" is dropped entirely; a
+    cluster with a MIX keeps only its still-open concepts (label/category/
+    jd_context/jd_skills pass through unchanged — never invents a narrower
+    framing). Gate clusters (US163) are never passed through this function
+    — they are prepended by the caller and are mandatory regardless of the
+    JD-derived ledger.
+
+    Deterministic, no LLM call. Pure; tolerant of ``None``/empty.
+    """
+    if not keyword_ledger:
+        return cluster_ids, cluster_categories, clusters_by_id
+
+    from applire.services.keyword_ledger import _matches, _norm
+
+    entries = [
+        (_norm(e.get("concept", "")), e.get("status"))
+        for e in keyword_ledger
+        if _norm(e.get("concept", ""))
+    ]
+    if not any(status == "direct" for _, status in entries):
+        return cluster_ids, cluster_categories, clusters_by_id
+
+    def _already_direct(concept: str) -> bool:
+        """True only when EVERY ledger entry matching ``concept`` is "direct".
+
+        ``_matches`` is bidirectional substring, so a broad concept matches
+        every narrower phrase containing it ("Python" matches "5+ years Python
+        experience"). Consulting the direct set alone therefore dropped
+        concepts the ledger itself still called ``gap`` — a depth/duration
+        requirement is NOT satisfied by presence of the bare token (#207
+        over-fire family; pinned from mock-stack PQ ground truth 2026-07-26,
+        where ``Python -> direct`` silently killed
+        ``5+ years Python experience -> gap``).
+
+        So a non-direct match VETOES: the narrower entry's own status is
+        authoritative over any broader entry that merely contains it. With no
+        match at all we still fail open (absence of ledger information is
+        never read as "already answered").
+        """
+        cn = _norm(concept)
+        if not cn:
+            return False
+        matched = [status for norm, status in entries if _matches(cn, norm)]
+        return bool(matched) and all(status == "direct" for status in matched)
+
+    new_ids: list[str] = []
+    new_categories: dict[str, str] = {}
+    new_by_id: dict[str, dict] = {}
+    for cid in cluster_ids:
+        cluster = clusters_by_id[cid]
+        gaps = cluster.get("gaps") or []
+        remaining = [g for g in gaps if not _already_direct(g)]
+        if not remaining:
+            continue  # every concept in this cluster is already answered
+        if len(remaining) != len(gaps):
+            cluster = {**cluster, "gaps": remaining}
+        new_ids.append(cid)
+        new_categories[cid] = cluster_categories[cid]
+        new_by_id[cid] = cluster
+    return new_ids, new_categories, new_by_id
+
+
 # ---------------------------------------------------------------------------
 # Node: GapDetector — MODE B
 # ---------------------------------------------------------------------------

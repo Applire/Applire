@@ -67,8 +67,8 @@ def _normalize_punct(text: str) -> str:
 # reconcile write path's OUTPUT, never the reverse, and neither module wants
 # a cross-package import for a few dozen lines of regex). Ground truth
 # (2026-07-24, generated_cover_letters 37ee8f77-...): the vault stores the
-# full legal entity name ("BioNTech SE"), but real-model letter prose almost
-# never repeats it ("at BioNTech") — used ONLY for the LOOSE, ambiguity-
+# full legal entity name ("NordPharm SE"), but real-model letter prose almost
+# never repeats it ("at NordPharm") — used ONLY for the LOOSE, ambiguity-
 # tolerant signals (``letter_named_experience_ids`` / ``Claim.
 # sentence_named_ids``), never for the STRICT per-claim anchor
 # (``_find_employer_anchor``), which keeps its existing exact-name, fail-
@@ -250,6 +250,103 @@ def _strip_formula_prefix(text: str) -> str:
     return text
 
 
+# ── #282 (wave 7) — honest gap disclaimer classification ────────────────────
+# A PURE denial or third-party delegation clause ("I have not configured X
+# myself"; "X was handled by our system engineer") has no positive claim to
+# ground — the vault holds no "evidence of absence". Marker list mirrors
+# ``choice_grounding.py``'s ``_HONESTY_MARKERS`` in SPIRIT (same "name the
+# denied term, don't claim it" shape), but is an independent copy: that
+# module classifies interview STARTING-POINT CHIPS (a different document
+# shape and marker set — "closest experience", no delegation phrasing at
+# all), and oracle/extract.py already keeps its own independent copies of
+# nearby primitives (module docstring, ``_core_company_name``) for the same
+# one-way-dependency reason. Deliberately EN+DE, matching every other
+# classifier in this module.
+_DENIAL_MARKERS: tuple[str, ...] = (
+    # EN — first-person negation
+    "have not", "haven't", "has not", "hasn't", "had not", "hadn't",
+    "do not have", "don't have", "does not have", "doesn't have",
+    "did not", "didn't",
+    "nor have i", "nor did i", "nor do i", "nor has",
+    "i lack", "lacking direct", "lacks direct",
+    "never worked", "never configured", "never led", "never managed",
+    "never set up",
+    "no direct experience", "not directly",
+    # EN — third-party delegation ("X was handled by someone else")
+    "was handled by", "were handled by", "is handled by", "are handled by",
+    "handled by our", "handled by the", "handled by a",
+    "was managed by", "were managed by", "was owned by", "were owned by",
+    # DE
+    "habe ich nicht", "hatte ich nicht", "keine direkte erfahrung",
+    "keine eigene erfahrung", "noch nie", "noch keine",
+    "wurde von", "wurde durch", "wurden von", "wurden durch",
+    "fehlt mir", "mir fehlt",
+)
+
+# A clause/comma-segment that STARTS with (an optional pivot word, then) a
+# first-person subject pronoun is a fresh, independent clause riding along
+# with the denial — the #207/#278 "attribute a negation to its own clause,
+# never a co-occurring sibling" lesson. Matched against a segment that does
+# NOT itself carry a denial marker (see ``_is_pure_denial_clause`` below) —
+# the denial clause's OWN leading pronoun ("I have not configured...") must
+# never be mistaken for a smuggled sibling.
+_DENIAL_PIVOT_THEN_PRONOUN_RE = re.compile(
+    r"^\s*(?:though|but|however|yet|still|nevertheless|nonetheless|while|"
+    r"aber|dennoch|jedoch|allerdings)?\s*"
+    r"(?:i|ich|we|wir)\b",
+    re.IGNORECASE,
+)
+
+_DENIAL_SEGMENT_SPLIT_RE = re.compile(r"[;,]\s+")
+
+# A delegation marker only distances the candidate when the work went to
+# SOMEBODY ELSE. The passive voice is equally at home in an OWNERSHIP claim —
+# "release planning was owned by me", "das Backend wurde von mir entwickelt" —
+# and misreading one of those as a denial would route a genuine positive claim
+# to ``not_applicable``, exempting it from verification entirely: a hole in the
+# Oracle, exactly what this module's conservatism exists to prevent. So a
+# delegation marker whose recipient is FIRST-PERSON is not a delegation at all.
+# First-person singular/possessive only ("by me", "by my team", "von mir"):
+# "handled by our system engineer" names a real second party and stays a
+# delegation, while the genuinely ambiguous "my team" falls to the safe side
+# and stays gradeable.
+_SELF_DELEGATION_RE = re.compile(
+    r"\b(?:by|von|durch)\s+(?:me|my|mir|mich|meine[mnrs]?|meiner)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_pure_denial_clause(text: str) -> bool:
+    """True when ``text`` is ENTIRELY a denial/delegation statement — no
+    smuggled positive claim riding along in the same clause (#282).
+
+    Conservative by construction, mirroring ``_is_pure_formula_clause``'s
+    shape: the clause must name at least one denial marker at all, must not
+    be a passive OWNERSHIP claim in disguise (``_SELF_DELEGATION_RE``), AND
+    none of its comma/semicolon-delimited segments may look like an
+    independent, non-negated first-person clause. A segment that itself
+    carries a denial marker is never treated as smuggled — including the
+    denial's own leading "I" ("I have not configured embedding models" is
+    one segment, not two). When in doubt this returns ``False`` (stay
+    gradeable) — a false ``not_applicable`` is a hole in the Oracle; a false
+    ``unverifiable`` is merely noise.
+    """
+    normalized = _normalize_punct(text).lower()
+    if not any(marker in normalized for marker in _DENIAL_MARKERS):
+        return False
+    if _SELF_DELEGATION_RE.search(normalized):
+        return False
+    for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized):
+        segment = segment.strip()
+        if not segment:
+            continue
+        if any(marker in segment for marker in _DENIAL_MARKERS):
+            continue
+        if _DENIAL_PIVOT_THEN_PRONOUN_RE.match(segment):
+            return False
+    return True
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it
@@ -279,7 +376,7 @@ _EM_DASH = "—"
 def split_clauses(text: str) -> list[str]:
     """Deterministic clause-level split for narrative sentences (#237).
 
-    A multi-fact sentence — "At BioNTech, I led AI automation projects …
+    A multi-fact sentence — "At NordPharm, I led AI automation projects …
     with comprehensive testing, observability, and reliability practices."
     — almost never clears ``GROUNDED_MIN_COVERAGE`` as a single claim: its
     content tokens span an employer, an activity, and several unrelated
@@ -407,7 +504,7 @@ def _find_employer_anchor(
     """The experience id a sentence anchors to, or ``None`` (fail open).
 
     A sentence naming EXACTLY one known employer/project stamps every claim
-    derived from it — "At BioNTech," / "bei BioNTech" (DE) alike, since
+    derived from it — "At NordPharm," / "bei NordPharm" (DE) alike, since
     matching is plain normalized substring containment, prefix-agnostic. A
     sentence naming two or more distinct known employers stays unanchored
     rather than risk mis-anchoring (adversarial-review lesson: fail open,
@@ -418,8 +515,8 @@ def _find_employer_anchor(
     ``test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_
     tiebreak``): live-reproduced 2026-07-24 (run-4 self-audit, 10/14
     unverifiable) — the exact-name-only strict anchor NEVER fires for a
-    company whose vault name carries a legal-form suffix ("BioNTech SE")
-    when the letter naturally drops it ("At BioNTech"), which is the
+    company whose vault name carries a legal-form suffix ("NordPharm SE")
+    when the letter naturally drops it ("At NordPharm"), which is the
     COMMON case, not the exception. That starves the attribution matcher of
     the anchor it exists to feed, and is the single largest reason a
     realistic multi-role-tenure letter scored near-zero discriminating
@@ -429,7 +526,7 @@ def _find_employer_anchor(
        ambiguous), retry against ``loose_candidates`` (legal-form-suffix
        tolerant) if provided.
     2. A long tenure at ONE company held across several internal roles
-       (e.g. three successive BioNTech positions) matches every one of them
+       (e.g. three successive NordPharm positions) matches every one of them
        by company name — genuinely ambiguous by name alone. When the
        ambiguity is PURELY "which era at the SAME company" (every found
        candidate shares one surface name) and EXACTLY one of them is
@@ -472,7 +569,7 @@ def letter_named_experience_ids(
     (legitimate — full per-clause attribution just isn't provable).
 
     Legal-form-suffix tolerant (``loose=True``, #248): the vault stores the
-    full legal entity name ("BioNTech SE"); real letter prose rarely repeats
+    full legal entity name ("NordPharm SE"); real letter prose rarely repeats
     it. A whole-document scan is where this matters most — missing it here
     silently mis-widens the "letter names exactly one employer" escape
     hatch below into treating a genuinely multi-employer letter as single-
@@ -583,7 +680,7 @@ def extract_claims_from_letter(
     #237 (F14): a whole narrative sentence almost never clears the grounding
     coverage floor, and letters structurally could not stamp
     ``source_experience_id`` at all — so a misattributed blend (real
-    BioNTech achievement + unrelated interview evidence, blended into one
+    NordPharm achievement + unrelated interview evidence, blended into one
     sentence) filed as merely "unverifiable". Additive steps fix this
     without touching the frozen writer:
 
@@ -672,10 +769,14 @@ def extract_claims_from_letter(
             sentence_is_employer_fact = not sentence_has_first_person and (
                 _mentions_company(sentence, recipient_company) or in_employer_fact_run
             )
-            in_employer_fact_run = sentence_is_employer_fact
             clauses = split_clauses(sentence)
             base = f"body.paragraphs[{pi}][{si}]"
             multi = len(clauses) > 1
+            # #282 (wave 7): the run carry, like the anchor carry, reflects
+            # this sentence's OWN tail state for the NEXT sentence — updated
+            # below as clauses are processed, defaulting to the sentence-
+            # level determination when every clause is filtered out.
+            run_state_for_next_sentence = sentence_is_employer_fact
             for ci, clause in enumerate(clauses):
                 if len(clause) < _MIN_CLAIM_CHARS:
                     continue
@@ -695,20 +796,53 @@ def extract_claims_from_letter(
                 clause_is_employer_fact = sentence_is_employer_fact and not (
                     multi and _FIRST_PERSON_RE.search(clause)
                 )
-                # #237 round-3: trim a recognized courtesy PREFIX (anchor/
-                # employer-fact detection above already ran against the
-                # FULL, untrimmed clause — only the stored claim TEXT
-                # changes here).
+                # #237 round-3: trim a recognized courtesy PREFIX (anchor
+                # detection above already ran against the FULL, untrimmed
+                # clause — the stored claim TEXT changes here).
+                final_text = _strip_formula_prefix(clause)
+                # #282 (wave 7): a courtesy PREFIX fused with a company-
+                # descriptive tail in ONE unsplit sentence ("I am writing to
+                # express my interest in X, a company whose platform serves
+                # customers.") wrongly failed the employer-fact check above
+                # — the "I" that disqualifies it lives entirely in the
+                # PREFIX that was just stripped away, not in the RETAINED
+                # claim text shown to the user. Re-classify against that
+                # retained text whenever a prefix was actually removed and
+                # the remainder itself carries no first-person pronoun of
+                # its own — narrower than the general check above, so every
+                # other path (no prefix stripped, or the remainder keeps its
+                # own "I") is unaffected.
+                if final_text != clause and not _FIRST_PERSON_RE.search(final_text):
+                    # The company mention itself may have lived INSIDE the
+                    # discarded prefix ("...interest in the ... position at
+                    # Connect-AI, a company whose platform..." -> only
+                    # "platform..." survives as the stored claim text, but
+                    # "Connect-AI" was real signal in the trimmed part) — so
+                    # check the ORIGINAL, pre-strip clause for the mention;
+                    # the retained remainder's own first-person-freedom
+                    # (checked above) is what actually gates this override.
+                    clause_is_employer_fact = (
+                        _mentions_company(clause, recipient_company)
+                        or in_employer_fact_run
+                    )
+                run_state_for_next_sentence = clause_is_employer_fact
+                # #282 (wave 7): honest gap disclaimer / third-party
+                # delegation — classified against the same RETAINED text
+                # (never the pre-strip clause, for the identical reason as
+                # the employer-fact re-check just above).
+                clause_is_denial = _is_pure_denial_clause(final_text)
                 claims.append(
                     Claim(
-                        text=_strip_formula_prefix(clause),
+                        text=final_text,
                         location=f"{base}.clauses[{ci}]" if multi else base,
                         kind="clause" if multi else "sentence",
                         source_experience_id=clause_anchor,
                         sentence_named_ids=sentence_named,
                         is_employer_fact=clause_is_employer_fact,
+                        is_denial=clause_is_denial,
                     )
                 )
+            in_employer_fact_run = run_state_for_next_sentence
     return claims
 
 

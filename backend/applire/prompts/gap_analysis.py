@@ -60,6 +60,15 @@ Rules:
   - Classify ONLY the requirements given. Do NOT add, rename, merge, or split requirements.
   - Use profile years_experience and the JD seniority_level to decide direct vs partial.
   - When a skill is present but its years cannot be confirmed against a stated bar, choose "partial".
+  - "partial" covers TWO different situations and you must distinguish them, because the document
+    writers act on them differently:
+      (a) ADJACENT — the candidate does not have the named thing but has a different capability that
+          genuinely stands in for it (JD asks for TOGAF; the profile has 5 years of arc42). Set
+          "adjacent_evidence" to the profile's own name for that capability ("arc42"). The writers
+          will give THAT prominence — they must never present the JD's own word as the candidate's.
+      (b) BELOW THE BAR — the candidate has exactly the named thing, just less of it than asked.
+          Omit "adjacent_evidence" entirely; there is nothing else to promote.
+    Never invent an adjacency to fill the field, and never set it on a "direct" entry.
   - STANCE: a denial or negative statement by the candidate ("I have no hands-on Azure
     experience", "AWS, not Azure") is evidence AGAINST that skill. Classify such a requirement
     "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.
@@ -80,6 +89,7 @@ Schema:
       "requirement": "exact requirement string from REQUIREMENTS",
       "status": "direct|partial|gap",
       "reason": "short justification grounded in the profile (this is the evidence)",
+      "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
       "surface_forms": ["literal aliases an ATS scans for, e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
     }
   ],

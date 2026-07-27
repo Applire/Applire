@@ -63,6 +63,19 @@ Your task is to rewrite a candidate's profile to maximise fit for a specific job
 3. Filter and reorder the skills list to lead with skills explicitly required in the job description.
    Keyword gaps may ONLY be incorporated if they are explicitly demonstrated in the candidate's
    work history or skills list. If a keyword gap has no explicit basis in CANDIDATE PROFILE, omit it.
+3a. UNMET AND PARTLY-MET REQUIREMENTS — what the CV actually does about them (ADR-048 §6, amended
+   2026-07-27). "Do not claim it" is not a complete instruction; each kind gets a different action:
+   - ADJACENT (the KEYWORD LEDGER names an adjacent capability for a required concept — e.g. the JD
+     asks for TOGAF and the profile has arc42): give the ADJACENT capability real prominence — a
+     skills-list position and, where the profile supports one, a work_history bullet that shows it
+     in use. Present it as itself, on its own merits. NEVER write the JD's own term as though the
+     candidate held it, and never pair the two as equivalents.
+   - EXPLICITLY DENIED (the candidate was asked and said no): simply OMIT it. A CV is not the place
+     to disclose a gap — that is the cover letter's job. Never claim it, and never gesture at it
+     with a hedge like "familiar with" or "exposure to".
+   - UNKNOWN (a plain honest gap): omit it too. Do not manufacture adjacency the ledger did not name.
+   Never let coverage pressure override this rule: an absent required keyword is a truthful outcome,
+   an asserted one the candidate cannot back is a fabrication and the worst failure mode.
 4. Write a concise professional summary (2–3 sentences, third person) tailored to the role.
    When a KEYWORD LEDGER block is present below, LEAD the summary with the JD's top CLAIMABLE
    concepts (the terms the profile evidence backs) — the summary is the first thing a reviewer
@@ -152,7 +165,20 @@ def build_user_prompt(
     output_language: str = "de",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
+    scoped_boundary_block: str | None = None,
 ) -> str:
+    """Build the single-call CV tailoring user prompt.
+
+    scoped_boundary_block: rendered SCOPED BOUNDARIES text (#277, #270 Fix D
+        inverted — :func:`applire.services.cross_document.render_scoped_boundary_block`
+        over :func:`applire.services.cross_document.find_scoped_boundaries`) —
+        claimable ledger concepts the vault ALSO states an explicit limit on,
+        derived from the vault (Keyword Ledger + persisted denials) alone, so it is
+        available at CV-generation time even though no letter exists yet. Threaded
+        so the skills list and summary render the SCOPED claim instead of a bare,
+        unqualified tag. Optional so legacy/degraded callers do not break;
+        omitted/empty → adds nothing (identical prompt to before #277).
+    """
     language_name = "GERMAN" if output_language == "de" else "ENGLISH"
     # ADR-048 §8 / US200: the Keyword Ledger splits the JD's expectations into claimable
     # terms (carry their profile evidence — surface where supported) and honest gaps
@@ -161,6 +187,11 @@ def build_user_prompt(
 
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     ledger_section = f"{ledger_block}\n\n" if ledger_block else ""
+    # #277 (#270 Fix D inverted): the vault-derived scoped-boundary block — a claimable
+    # concept the vault ALSO holds an explicit stated limit on. Never a bare denial,
+    # never an unqualified claim; render the scoped form naming both halves. Empty →
+    # adds nothing (back-compat).
+    scoped_boundary_section = f"{scoped_boundary_block}\n\n" if scoped_boundary_block else ""
     # E042/US237, ADR-051 §3: per-role bullet-count ceilings computed deterministically
     # BEFORE generation, so the model aims at the target page count directly rather than
     # relying on a post-hoc trim. Empty/None budget → adds nothing (back-compat).
@@ -176,6 +207,7 @@ def build_user_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
+        f"{scoped_boundary_section}"
         f"{budget_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"

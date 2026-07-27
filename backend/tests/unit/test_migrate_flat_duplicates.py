@@ -99,8 +99,8 @@ async def test_synonym_role_fold() -> None:
 @pytest.mark.asyncio
 async def test_project_under_position() -> None:
     """An orphan `Solution Architect / QC LIMS` becomes a ProjectEntry under
-    `Associate Director @ BioNTech`."""
-    job = WorkEntry(company="BioNTech", role="Associate Director")
+    `Associate Director @ NordPharm`."""
+    job = WorkEntry(company="NordPharm", role="Associate Director")
     profile = MasterProfileData(work_experience=[job])
 
     provider = _StubProvider(
@@ -232,7 +232,7 @@ async def test_no_invented_parent_link() -> None:
 
     A standalone project with NO parent op stays standalone — the engine must not
     auto-nest it under some nearby job."""
-    job = WorkEntry(company="BioNTech", role="Associate Director")
+    job = WorkEntry(company="NordPharm", role="Associate Director")
     standalone = ProjectEntry(name="Side Project", role="Maintainer")
     profile = MasterProfileData(work_experience=[job], projects=[standalone])
 

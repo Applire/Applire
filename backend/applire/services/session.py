@@ -65,15 +65,22 @@ from applire.schemas.session import (
     SessionMessageResponse,
     SessionStateResponse,
 )
+from applire.services.ats_audit import _norm as ats_norm
+from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
+from applire.services.profile.reconcile.stance import is_denied_concept
 from applire.services.interview.sufficiency import is_interview_sufficient
 from applire.services.interview_quant import should_ask_availability
-from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+from applire.services.keyword_ledger import (
+    reevaluate_gap_ledger_against_vault,
+    upgrade_ledger_for_concepts,
+)
 from applire.services.interview_graph import (
     build_confirmation_clusters,
     build_conflict_clusters,
     build_gate_clusters,
+    filter_answered_concepts,
     gap_detector,
     gap_detector_mode_b,
     interpret_conflict_answer,
@@ -969,11 +976,34 @@ async def _create_targeted_session(
         )
         gap_analysis = ga_result2.scalar_one()
 
+    # #274/#284/#273 (PO reframing 2026-07-26) — before building the question
+    # plan, re-check every still-open ledger entry against the CURRENT vault:
+    # evidence may have arrived through a door other than THIS turn (CV
+    # import, testimony intake, an earlier session, submit_claims) and #188's
+    # addressed-gate only ever fires for the turn that wrote it. Deterministic,
+    # no LLM call; reassign the whole attribute (plain _JSON column, not a
+    # MutableList — mirrors the #188 JSONB-tracking gotcha at line ~1371).
+    new_ledger, ledger_changed = reevaluate_gap_ledger_against_vault(
+        gap_analysis.keyword_ledger, profile_record.profile_json
+    )
+    if ledger_changed:
+        gap_analysis.keyword_ledger = new_ledger
+
     # #259 — pass the profile so gap_detector can promote a JD-required
     # keyword-only/unquantified concept ahead of nice-to-have breadth within
     # its C/B bucket (services/interview/sufficiency.cluster_needs_priority).
     cluster_ids, cluster_categories, clusters_by_id = gap_detector(
         gap_analysis, profile=profile_record.profile_json
+    )
+
+    # #273/#284 — gap_analysis.gap_clusters is a clustering-LLM snapshot that
+    # is never recomputed when the ledger is later upgraded (through the
+    # reevaluation just above, THIS session's own #188 write path on a
+    # resumed session, or submit_claims). Drop/narrow any cluster whose
+    # concepts the ledger now shows as genuinely "direct" — never re-ask a
+    # requirement the vault already answers.
+    cluster_ids, cluster_categories, clusters_by_id = filter_answered_concepts(
+        cluster_ids, cluster_categories, clusters_by_id, gap_analysis.keyword_ledger
     )
 
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
@@ -1359,8 +1389,63 @@ async def _upgrade_ledger_for_addressed_gap(
     if gap is None or not gap.keyword_ledger:
         return
 
+    # --- Polarity + per-concept evidence (ADR-059 amended 2026-07-27) ---------
+    # `addressed` is bool(applied.changes) — it says the turn CHANGED the vault,
+    # not that it confirmed any particular concept of the cluster. Charter run #7
+    # showed both ways that fails on a MIXED turn (a denial plus real positive
+    # content, which is the normal shape of an honest answer):
+    #   * the answer denied PSD2/BaFin while supplying genuine security content,
+    #     so `addressed` was True and every concept of the "Security and
+    #     Compliance" cluster flipped to direct+claimable — with the denial
+    #     sentence itself stored as the backing evidence;
+    #   * the payments answer closed its cluster and dragged
+    #     "Crypto/blockchain settlement rails" — a concept it never mentions and
+    #     the interview never asked about — to claimable along with it.
+    # So: denials are passed down (a denial is a real answer and must move the
+    # requirement's status), and a concept is only eligible to be UPGRADED when
+    # the answer literally evidences it, judged by `surface_present` — THE shared
+    # presence predicate (#122), never a second matcher that could disagree with
+    # the ATS panel. Conservative by construction: an answer that confirms a
+    # concept without naming it simply does not upgrade here, and the ordinary
+    # vault re-evaluation picks it up once the testimony lands.
+    profile_record = await _load_profile(state["profile_id"], db)
+    denied_concepts = [
+        d.get("concept", "")
+        for d in (
+            ((profile_record.profile_json if profile_record else None) or {}).get(
+                "metadata"
+            )
+            or {}
+        ).get("denied_concepts")
+        or []
+        if isinstance(d, dict) and d.get("concept")
+    ]
+
+    answer_norm = ats_norm(answer or "")
+    by_concept = {
+        str(e.get("concept", "")): (e.get("surface_forms") or [e.get("concept", "")])
+        for e in gap.keyword_ledger
+        if e.get("concept")
+    }
+
+    def _evidenced(concept: str) -> bool:
+        forms = by_concept.get(concept) or [concept]
+        return any(surface_present(f, answer_norm) for f in forms if f)
+
+    eligible = [c for c in concepts if _evidenced(c)]
+    # A denied concept stays in the list even when unevidenced: the point is to
+    # RECORD the denial on the requirement, not to upgrade it.
+    if denied_concepts:
+        eligible += [
+            c
+            for c in concepts
+            if c not in eligible and is_denied_concept(c, denied_concepts)
+        ]
+    if not eligible:
+        return
+
     new_ledger, changed = upgrade_ledger_for_concepts(
-        gap.keyword_ledger, concepts, answer
+        gap.keyword_ledger, eligible, answer, denied_concepts=denied_concepts
     )
     if changed:
         # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a

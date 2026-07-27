@@ -69,7 +69,7 @@ PROFILE = {
             "leads teams that build — AI-driven systems people can "
             "actually trust. For several years I've led teams at Nordvance: "
             "currently as Associate Director for the end-to-end "
-            "supply-chain systems behind individualized cancer therapies, "
+            "supply-chain systems behind specialty biologics, "
             "and before that heading an architecture team in regulated "
             "GxP environments. My focus is increasingly on AI — and it's "
             "hands-on, not just strategic."
@@ -79,7 +79,7 @@ PROFILE = {
         {
             "id": "w-e2e",
             "company": "Nordvance SE",
-            "role": "Associate Director E2E Supply Chain Systems",
+            "role": "Associate Director Platform Systems",
             "is_current": True,
             "start_date": "2024-12",
             "end_date": None,
@@ -88,20 +88,20 @@ PROFILE = {
                 "data flows for clinical orders.",
                 "Lead a team of five tech leads and system owners "
                 "responsible for the IT systems behind Nordvance's "
-                "individualized cancer therapies",
+                "specialty biologics",
             ],
             "achievements": [
                 "Initiated and led an agentic GenAI system that automates "
-                "the authoring and review of computer system validation "
-                "(CSV) documentation, built with LangGraph/LangChain and "
-                "RAG over gold-standard documents, targeting an estimated "
+                "the authoring and review of regulatory submission "
+                "documentation, built with LangGraph/LangChain and "
+                "RAG over reference documents, targeting an estimated "
                 "70% reduction in manual effort.",
             ],
         },
         {
             "id": "w-quality-architecture",
             "company": "Nordvance SE",
-            "role": "Associate Director Digital Solutions Quality Systems "
+            "role": "Associate Director Digital Quality Systems "
             "Architecture",
             "is_current": False,
             "start_date": "2021-05",
@@ -136,8 +136,8 @@ LETTER = {
             "I am excited to apply for the Lead AI Engineer role at "
             "Connect-AI.",
             "At Nordvance, I led a team to develop an agentic GenAI system "
-            "using LangGraph/LangChain to automate computer system "
-            "validation (CSV) documentation, targeting a 70% reduction in "
+            "using LangGraph/LangChain to automate regulatory submission "
+            "documentation, targeting a 70% reduction in "
             "manual effort. This initiative demonstrates my hands-on "
             "experience in production AI and cross-functional "
             "collaboration. Additionally, as Founder of Vaultwright, I "
@@ -185,7 +185,7 @@ async def test_run4_borrowed_figure_gets_a_negative_verdict_not_unverifiable():
 
 
 @pytest.mark.asyncio
-async def test_run4_honest_biontech_paragraph_grounds_at_clause_granularity():
+async def test_run4_honest_nordpharm_paragraph_grounds_at_clause_granularity():
     """Over-drop guard: the genuinely truthful Nordvance paragraph must not
     collapse into unverifiable just because the fabrication next to it is
     now caught — most of its clauses should ground."""
