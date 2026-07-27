@@ -717,13 +717,31 @@ def _restore_ledger_bullets(
         return tailored
 
     from applire.services.ats_audit import _norm, surface_present
-    from applire.services.keyword_ledger import verified_missing_claimable
+    from applire.services.keyword_ledger import (
+        is_load_bearing,
+        verified_missing_claimable,
+        verified_missing_load_bearing,
+    )
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
     # still be over its RoleBudget ceiling with nothing left to restore (the #122
     # coverage-review loop pushing an ADD with no ceiling awareness of its own),
     # and the per-entry loop below must run to enforce that ceiling regardless.
-    missing = verified_missing_claimable(tailored.model_dump(mode="json"), keyword_ledger)
+    draft_json = tailored.model_dump(mode="json")
+    missing = verified_missing_claimable(draft_json, keyword_ledger)
+    # #315: a LOAD-BEARING concept (a `direct`+`claimable` figure a hiring
+    # reviewer checks for by name) is missing its evidence even when a bare
+    # keyword mention elsewhere (skills list, summary) already satisfies the
+    # whole-document check above -- that check alone let charter run #7 ship
+    # "Budgetverantwortung" as a tag while its "6 Mio. €" bullet was silently
+    # dropped by the writer and never restored. Union in, deduped by concept
+    # (verified_missing_claimable already covers a concept absent everywhere;
+    # this only adds concepts present ONLY as a bare tag).
+    already = {e.get("concept") for e in missing}
+    for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
+        if entry.get("concept") not in already:
+            missing.append(entry)
+            already.add(entry.get("concept"))
 
     # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
     # this guard MUST run after it so tailored ids are populated.
@@ -758,7 +776,12 @@ def _restore_ledger_bullets(
         existing_norms = {_norm(b) for b in existing_bullets}
 
         vault_entry = vault_by_id.get(eid)
-        restored: list[str] = []
+        # #315 follow-up: a restored bullet answering a LOAD-BEARING concept is
+        # tracked separately from every other restoration, so it can be placed
+        # ahead of generic pre-existing hits before the ceiling cap below --
+        # see that cap's comment for why this split exists.
+        restored_load_bearing: list[str] = []
+        restored_other: list[str] = []
         if vault_entry is not None and remaining:
             vault_bullets = [
                 b for key in ("responsibilities", "achievements")
@@ -776,19 +799,54 @@ def _restore_ledger_bullets(
                 )
                 if hit_idx is None:
                     continue
-                restored.append(vb)
+                matched_entry = remaining[hit_idx]
+                if is_load_bearing(matched_entry):
+                    restored_load_bearing.append(vb)
+                else:
+                    restored_other.append(vb)
                 existing_norms.add(vb_norm)
                 remaining.pop(hit_idx)
 
         rb = budget.roles.get(eid) if budget is not None else None
+        restored = restored_load_bearing + restored_other
 
         if restored:
             changed = True
-            hits = [b for b in existing_bullets if _is_hit(b)] + restored
+            # #315 follow-up (coordinator finding): the naive `existing_hits +
+            # restored` order let the ceiling cap below silently cancel a
+            # restoration whenever a role's PRE-EXISTING hit bullets already
+            # filled max_bullets -- exactly the real charter run #7 shape
+            # (Weberit shipped at its 5-bullet ceiling). A restored
+            # LOAD-BEARING bullet is placed ahead of every generic
+            # pre-existing hit, because a generic hit is not entitled to bump
+            # a figure a hiring reviewer checks for by name. A restored
+            # NON-load-bearing bullet keeps the ORIGINAL ordering (after
+            # existing hits), so #234's established behaviour for the common
+            # case is unchanged -- only load-bearing restorations get the
+            # stronger placement.
+            existing_hits = [b for b in existing_bullets if _is_hit(b)]
             no_hits = [b for b in existing_bullets if not _is_hit(b)]
+            hits = restored_load_bearing + existing_hits + restored_other
             ordered = hits + no_hits
             if rb is not None and len(ordered) > rb.max_bullets:
                 ordered = ordered[: rb.max_bullets]
+            # ADR-061 clause 8 ("every drop is diagnosable from the log
+            # alone"): even front-ordered, a load-bearing restoration can
+            # still be cancelled if there are MORE load-bearing restorations
+            # than the ceiling has room for. That must never be silent --
+            # this is precisely the "guard runs, reports success internally,
+            # document unchanged" failure mode #315 was filed over.
+            surviving = set(ordered)
+            dropped_load_bearing = [b for b in restored_load_bearing if b not in surviving]
+            if dropped_load_bearing:
+                logger.warning(
+                    "LOAD_BEARING_RESTORE_DROPPED (#315): work entry id=%s ceiling "
+                    "max_bullets=%s could not fit %d load-bearing restored bullet(s) "
+                    "even after ordering them ahead of %d pre-existing hit bullet(s) "
+                    "-- dropped: %r",
+                    eid, rb.max_bullets if rb is not None else None,
+                    len(dropped_load_bearing), len(existing_hits), dropped_load_bearing,
+                )
             w_dict["bullets"] = ordered
             new_work.append(w_dict)
             continue
