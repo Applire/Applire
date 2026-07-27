@@ -549,8 +549,15 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
     called after the LLM tailoring step(s) in both the single-call and segmented
     generation paths, mirroring ``_nest_projects``. Returns a new TailoredCVData;
     the input is left unmutated.
+
+    ADR-061 clause 3: an ``unconfirmed`` certification is excluded — it cannot
+    back a CV line. Never fabricated as a drop either; the candidate's own
+    profile-confirmation action is what promotes it, not a CV render.
     """
-    source_certs = profile_json.get("certifications") or []
+    source_certs = [
+        c for c in (profile_json.get("certifications") or [])
+        if not (isinstance(c, dict) and c.get("status") == "unconfirmed")
+    ]
     if not source_certs:
         return tailored
     return tailored.model_copy(
@@ -1025,6 +1032,10 @@ def _tailor_skills_to_jd(
     # the profile's own spelling verbatim — never fabricated. Mirrors gap_inference/choice_grounding.
     profile_skills: list[str] = []
     for s in profile_json.get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line — never
+        # guarantee-restored, even when it maps to a JD-required term.
+        if isinstance(s, dict) and s.get("status") == "unconfirmed":
+            continue
         name = s.get("name") if isinstance(s, dict) else s
         if isinstance(name, str) and name.strip():
             profile_skills.append(name.strip())
@@ -1149,6 +1160,10 @@ def _drop_ungrounded_jd_echo_skills(
 
     profile_skills: list[str] = []
     for s in profile_json.get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill grants no "vault tie" either —
+        # a tag that only matches an unconfirmed entry is not backed.
+        if isinstance(s, dict) and s.get("status") == "unconfirmed":
+            continue
         name = s.get("name") if isinstance(s, dict) else s
         if isinstance(name, str) and name.strip():
             profile_skills.append(name.strip())
@@ -1313,6 +1328,11 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
 
     vault_skills: list[str] = []
     for entry in (profile_json or {}).get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill is not a restoration target —
+        # spelling a surviving tag toward an unclaimable entry still implies
+        # the vault backs it.
+        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
+            continue
         name = entry.get("name") if isinstance(entry, dict) else entry
         if isinstance(name, str) and name.strip():
             vault_skills.append(name.strip())
@@ -1747,6 +1767,13 @@ async def _render_cv_background(
                 profile_json["work_experience"] = [
                     e.model_dump() for e in _sort_work_by_date(we)
                 ]
+            # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
+            # below (certifications passthrough, skill-restoration pools) may see
+            # an unconfirmed vault entry — it cannot back a CV line. The
+            # candidate's own persisted profile is untouched; this is a filtered
+            # COPY used for generation only.
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+            profile_json = exclude_unconfirmed(profile_json)
 
             # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
             # BEFORE generation, from the profile + Keyword Ledger + this row's resolved

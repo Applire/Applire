@@ -128,6 +128,12 @@ CV_GENERATION_MAX_TOKENS: int = 16384
 # has no room to step up (budget == ceiling → immediate re-raise).
 RECONCILE_MAX_TOKENS: int = 32768
 
+# ADR-061 clause 2 — the stance-guard testimony adjudication call. A single
+# {"answer": "yes"|"no"|"unclear", "quote": "..."} object about ONE token
+# against ONE turn; small and bounded on purpose — this is the uncertain-band
+# fallback behind a deterministic accept path, not a generation call.
+STANCE_ADJUDICATION_MAX_TOKENS: int = 300
+
 # Per-call output budget for *segmented* large generations (ADR-047 / E036). When a
 # big generation (CV tailoring, profile reconciliation) is produced in pieces, each
 # segment call targets this conservative ceiling so it fits comfortably under the hard

@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""Deterministic stance guard for the ADR-046 reconciler (#127).
+"""Stance guard for the ADR-046 reconciler (#127), extended by ADR-061.
 
 Blind PQ 2026-07-04 showed the reconciler LLM (a) echoing an explicitly DENIED
 token into ``add_bullets.technologies`` ("produktionsreife RAG-Erfahrung fehlt
@@ -27,17 +27,56 @@ the model's own denial verdict outranks its ops — never-claim beats claim
 (ADR-040) — and interview-turn token claims must be grounded in the turn's
 gap+question+answer text.
 
-Matching reuses THE shared presence predicate (``surface_present``, US212) so
-the reconciler can never disagree with the ATS/coverage instruments on whether
-a token is present.
+Coverage matching reuses THE shared presence predicate (``surface_present``,
+US212) so the reconciler can never disagree with the ATS/coverage instruments
+on whether a token is present — and ``surface_present`` stays untouched by
+ADR-061 for exactly this reason (clause 1).
+
+**ADR-061 (2026-07-27, closes #305/#304).** Charter run #7 case 2 showed
+``surface_present``'s literal substring match silently dropping FIVE
+morphologically-distant-but-true German claims in one run ("PP" scoped by an
+earlier "SAP-Rollout" clause vs. op "SAP PP"; bare "OEE" vs. op "OEE (Overall
+Equipment Effectiveness)"; "Sauberraumbereich" vs. op "Sauberraum-Management").
+Coverage ("is this token present?") and testimony ("did the candidate say
+this?") are different questions — one predicate answering both was the root
+error. This module now answers them separately:
+
+* ``_grounded`` / ``surface_present`` — coverage, literal, unchanged, still the
+  ATS/ledger/ADR-051 §3 instrument.
+* ``_testimony_status`` — the NEW, explicitly-named testimony predicate: a
+  deterministic accept path (falls through to ``_grounded``, so every
+  literal/aliased match costs nothing extra), then LLM adjudication of the
+  uncertain band ONLY, with the citation verified deterministically
+  (``_citation_verified``) before an adjudication is ever trusted. Provider
+  outage, timeout, malformed JSON, or a failed citation check all fall back to
+  ``unconfirmed`` — never ``confirmed`` (asymmetric by design).
+
+``enforce_stance`` is now ``async`` to carry that adjudication call. Its verb
+is no longer only ``drop``: a same-turn ``UpsertSkill`` / ``UpsertLanguage`` /
+``UpsertCertification`` op is ALWAYS kept once past the denial check, carrying
+``status="confirmed"`` or ``status="unconfirmed"`` (clause 3) — the guard
+stops deleting testimony it cannot verify and instead writes it to the vault
+as a third, non-claimable, candidate-confirmable state. Free-text token lists
+(``AddBullets.technologies``) have no per-item status slot to carry that on,
+so they keep the old binary keep/drop (an unconfirmed technology tag is
+dropped, exactly as before ADR-061) — the fix there is that morphological
+misses now reach ``_testimony_status``'s LLM adjudication instead of dying on
+the deterministic check alone. Denials are unaffected by any of this: a
+denied token is still stripped outright everywhere (ADR-040, never-claim
+outranks claim).
 """
 from __future__ import annotations
 
 import logging
 import re
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from applire.constants import STANCE_ADJUDICATION_MAX_TOKENS
+from applire.prompts.stance_adjudication import (
+    STANCE_ADJUDICATION_SYSTEM_PROMPT,
+    build_stance_adjudication_prompt,
+)
 from applire.schemas.profile import DeniedConcept, FieldChange, ProfileMetadata
 from applire.services.ats_audit import _fold_variants, _norm, surface_present
 from applire.services.profile.reconcile.ops import (
@@ -49,7 +88,20 @@ from applire.services.profile.reconcile.ops import (
     UpsertStory,
 )
 
+if TYPE_CHECKING:
+    from applire.providers.llm.base import LLMProvider
+
 logger = logging.getLogger(__name__)
+
+# ADR-061 clause 8 — every drop/downgrade logs the turn text, bounded so one
+# oversized testimony (a pasted dossier) can't blow out a log line.
+_LOG_TURN_MAX = 500
+
+
+def _log_turn(raw_turn: str | None) -> str:
+    if not raw_turn:
+        return ""
+    return raw_turn if len(raw_turn) <= _LOG_TURN_MAX else raw_turn[:_LOG_TURN_MAX] + "…"
 
 
 # ── #207: same-skill-by-another-name aliases ─────────────────────────────────
@@ -290,8 +342,8 @@ def _text_claims_denied(text: str, denials: list[str]) -> bool:
     return any(_bounded_present(d, text_norm) for d in denials)
 
 
-def _grounding_corpus(new_info: Any, source: str) -> str | None:
-    """Normalised grounding text for interview turns; None otherwise.
+def _raw_grounding_text(new_info: Any, source: str) -> str | None:
+    """UN-normalised grounding text for interview turns; None otherwise.
 
     Grounding is an interview-turn instrument only (#127 scope decision): a CV
     import reconciles a whole staged extraction, where token presence is
@@ -302,16 +354,30 @@ def _grounding_corpus(new_info: Any, source: str) -> str | None:
     Agent interview (E045 submit_claims): the ANSWER (the claimant's statement)
     only — all fields are claimant-authored, and an agent could otherwise
     smuggle a token through its own question (#127 class, adversarial B3).
+
+    The raw (non-normalised) text is what ADR-061 clause 2's adjudication
+    prompt shows the model and what ``_citation_verified`` checks the
+    returned quote against — the candidate's own words, not the folded form.
     """
     if not isinstance(new_info, dict):
         return None
     if source == "interview":
         parts = [str(v) for v in new_info.values() if isinstance(v, str)]
-        return _norm(" ".join(parts))
+        return " ".join(parts)
     if source == "agent_interview":
         answer = new_info.get("answer")
-        return _norm(answer) if isinstance(answer, str) else _norm("")
+        return answer if isinstance(answer, str) else ""
     return None
+
+
+def _grounding_corpus(new_info: Any, source: str) -> str | None:
+    """Normalised grounding text for interview turns; None otherwise.
+
+    Thin wrapper over :func:`_raw_grounding_text` — the raw text is the single
+    source, normalised here ONLY, so the two can never drift apart.
+    """
+    raw = _raw_grounding_text(new_info, source)
+    return _norm(raw) if raw is not None else None
 
 
 _FIGURE_RE = re.compile(r"\d+(?:[.,]\d+)*")
@@ -429,7 +495,9 @@ def _corpus_figure_set(corpus_norm: str) -> set[str]:
     return grounded | _spelled_figures(corpus_norm)
 
 
-def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> bool:
+def _story_keeps(
+    op: UpsertStory, denials: list[str], corpus: str | None, raw_turn: str | None = None,
+) -> bool:
     """US261 (ADR-055 gap): stories bypass token grounding — prose paraphrase
     is the notary's job — but figures and denials cannot be paraphrased into
     existence. `outcome`/`benchmark` figures become citable Oracle number
@@ -441,7 +509,7 @@ def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> boo
     if denials and _text_claims_denied(prose, denials):
         logger.warning(
             "reconcile stance: dropped story %r restating a denied token "
-            "(US261/#127)", op.title,
+            "(US261/#127) — turn: %r", op.title, _log_turn(raw_turn),
         )
         return False
     if corpus is not None:
@@ -457,21 +525,138 @@ def _story_keeps(op: UpsertStory, denials: list[str], corpus: str | None) -> boo
             logger.warning(
                 "reconcile stance: dropped story %r — outcome/benchmark "
                 "figure(s) %s absent from the turn (Oracle number provenance, "
-                "US261/ADR-052)", op.title, sorted(ungrounded),
+                "US261/ADR-052) — turn: %r", op.title, sorted(ungrounded),
+                _log_turn(raw_turn),
             )
             return False
     return True
 
 
-def enforce_stance(
+# ── ADR-061 clause 2 — the testimony predicate ────────────────────────────────
+# Coverage ("is TOKEN present?") stays surface_present/_grounded, literal and
+# unchanged (clause 1). Testimony ("did the candidate SAY this?") is this
+# section: deterministic accept first (falls through to _grounded, so the
+# overwhelming majority of ops never reach the LLM), then a narrow LLM
+# adjudication of the uncertain band with a deterministically VERIFIED
+# citation. The model does the semantics; code checks the quote.
+
+
+def _citation_verified(quote: str, raw_turn: str) -> bool:
+    """Is ``quote`` LITERALLY present in the turn's own text?
+
+    Deliberately a bare, case-sensitive substring check — "literally present"
+    (ADR-061 clause 2) — not a folded/normalised one: the whole point is to
+    catch a model that answers "yes" with a plausible-but-fabricated quote
+    (#306, the same run, is this codebase's live evidence that an LLM in a
+    control path can go wrong). A genuine quote copied from the turn passes
+    trivially; anything else — paraphrase, translation, a fixed typo, invented
+    text — is rejected, and the caller falls back to ``unconfirmed``.
+    """
+    q = quote.strip()
+    if not q:
+        return False
+    return q in raw_turn
+
+
+async def _adjudicate_testimony(
+    provider: "LLMProvider", token: str, kind: str, raw_turn: str,
+) -> tuple[str, str] | None:
+    """One narrow yes/no/unclear question to the LLM, with a citation.
+
+    Returns ``(answer, quote)`` or ``None`` on ANY failure — provider outage,
+    timeout, malformed JSON, or a response missing/mistyping the expected
+    keys. ``None`` always means the caller falls back to ``unconfirmed``,
+    never ``confirmed`` (ADR-061 clause 2's asymmetric failure handling) — this
+    function never raises.
+    """
+    try:
+        data = await provider.aparse_json(
+            build_stance_adjudication_prompt(token, kind, raw_turn),
+            system=STANCE_ADJUDICATION_SYSTEM_PROMPT,
+            temperature=0.0,
+            max_tokens=STANCE_ADJUDICATION_MAX_TOKENS,
+        )
+    except Exception:  # noqa: BLE001 — provider/transport/parse noise, never confirmed
+        logger.warning(
+            "reconcile stance: testimony adjudication call failed for %s %r "
+            "— unconfirmed (ADR-061)", kind, token,
+        )
+        return None
+    if not isinstance(data, dict):
+        return None
+    answer = data.get("answer")
+    quote = data.get("quote")
+    if answer not in ("yes", "no", "unclear") or not isinstance(quote, str):
+        logger.warning(
+            "reconcile stance: malformed testimony adjudication response for "
+            "%s %r: %r — unconfirmed (ADR-061)", kind, token, data,
+        )
+        return None
+    return answer, quote
+
+
+async def _testimony_status(
+    token: str,
+    kind: str,
+    corpus: str,
+    raw_turn: str | None,
+    provider: "LLMProvider | None",
+) -> tuple[str, str | None]:
+    """ADR-061 clause 2: resolve whether the candidate testified to ``token``.
+
+    Returns ``("confirmed" | "unconfirmed", quote)``. Deterministic accept
+    (``_grounded``) is tried first and costs nothing extra for the
+    overwhelming majority of ops. Only the uncertain band reaches the LLM, and
+    only a "yes" answer whose quote passes ``_citation_verified`` is trusted —
+    every other outcome (no provider available, no turn text, "no", "unclear",
+    an unverifiable quote, or a failed call) is ``unconfirmed``.
+    """
+    if _grounded(token, corpus):
+        return "confirmed", None
+    if provider is None or not raw_turn:
+        return "unconfirmed", None
+    verdict = await _adjudicate_testimony(provider, token, kind, raw_turn)
+    if verdict is None:
+        return "unconfirmed", None
+    answer, quote = verdict
+    if answer == "yes" and _citation_verified(quote, raw_turn):
+        return "confirmed", quote
+    return "unconfirmed", (quote.strip() or None)
+
+
+async def _resolve_token(
+    token: str,
+    kind: str,
+    *,
+    denials: list[str],
+    corpus: str | None,
+    raw_turn: str | None,
+    provider: "LLMProvider | None",
+) -> str:
+    """One token's full stance verdict: ``"denied"``, ``"confirmed"``, or
+    ``"unconfirmed"``. Denial (ADR-040) is checked first and always wins —
+    never-claim outranks claim regardless of what the testimony predicate
+    would otherwise say. Non-interview sources (``corpus is None``) are
+    exempt from grounding entirely (unchanged #127 scope decision — CV import
+    reconciles a whole staged extraction, where paraphrase is legitimate)."""
+    if denials and _is_denied(token, denials, corpus):
+        return "denied"
+    if corpus is None:
+        return "confirmed"
+    status, _quote = await _testimony_status(token, kind, corpus, raw_turn, provider)
+    return status
+
+
+async def enforce_stance(
     ops: list[ReconcileOp],
     *,
     denials: list[str],
     new_info: Any,
     source: str,
+    provider: "LLMProvider | None" = None,
 ) -> list[ReconcileOp]:
-    """Strip op content that contradicts the model's own denials or, on
-    interview turns, claims tokens absent from the turn entirely.
+    """Strip op content that contradicts the model's own denials; resolve
+    interview-turn token claims via the ADR-061 testimony predicate.
 
     Scope: token-like claims (skill / technology / language / certification
     names) plus free-text bullets that restate a denied token, plus signature
@@ -479,40 +664,97 @@ def enforce_stance(
     US261, closing the ADR-055 entity-upsert gap). Other entity upserts
     (work/project/volunteer) stay out of scope — they legitimately echo profile
     knowledge (target merges, alternate titles, rule 7).
+
+    ``provider`` is optional: ``None`` (e.g. a caller with no LLM on hand)
+    means every ungrounded token falls straight to ``unconfirmed`` without an
+    adjudication attempt — a strict subset of the failure paths clause 2
+    already requires, never ``confirmed``.
+
+    Entity ops (UpsertSkill/UpsertLanguage/UpsertCertification) ALWAYS survive
+    a non-denial verdict now (ADR-061 clause 3): the op is kept with
+    ``status="confirmed"`` or ``status="unconfirmed"`` rather than dropped.
+    ``AddBullets.technologies`` has no per-item status field to carry that on,
+    so it keeps the pre-ADR-061 binary keep/drop — an unconfirmed technology
+    tag is still dropped, but morphological misses now reach the same
+    adjudication path first and are rescued exactly like a standalone skill.
     """
     corpus = _grounding_corpus(new_info, source)
+    raw_turn = _raw_grounding_text(new_info, source)
 
-    def keep_token(token: str, kind: str) -> bool:
-        if denials and _is_denied(token, denials, corpus):
+    async def keep_token(token: str, kind: str) -> bool:
+        """Binary gate for free-text token lists (AddBullets.technologies):
+        denied -> dropped (ADR-040); unconfirmed -> dropped (no status slot to
+        carry it on); confirmed -> kept."""
+        verdict = await _resolve_token(
+            token, kind, denials=denials, corpus=corpus, raw_turn=raw_turn,
+            provider=provider,
+        )
+        if verdict == "denied":
             logger.warning(
                 "reconcile stance: dropped DENIED %s %r (the model's own denial "
-                "verdict outranks its ops, ADR-040/#127)", kind, token,
+                "verdict outranks its ops, ADR-040/#127) — turn: %r",
+                kind, token, _log_turn(raw_turn),
             )
             return False
-        if corpus is not None and not _grounded(token, corpus):
+        if verdict == "unconfirmed":
             logger.warning(
-                "reconcile stance: dropped ungrounded %s %r — token absent from "
-                "the interview turn (#127)", kind, token,
+                "reconcile stance: dropped unconfirmed %s %r — the testimony "
+                "predicate could not confirm the token, and free-text tags "
+                "have no unconfirmed slot to carry it on (ADR-061) — turn: %r",
+                kind, token, _log_turn(raw_turn),
             )
             return False
         return True
 
+    async def entity_verdict(token: str, kind: str) -> tuple[bool, str]:
+        """Three-way gate for UpsertSkill/UpsertLanguage/UpsertCertification:
+        (keep, status). Only a denial drops the op; confirmed/unconfirmed are
+        both kept (ADR-061 clause 3 — the guard stops deleting testimony)."""
+        verdict = await _resolve_token(
+            token, kind, denials=denials, corpus=corpus, raw_turn=raw_turn,
+            provider=provider,
+        )
+        if verdict == "denied":
+            logger.warning(
+                "reconcile stance: dropped DENIED %s %r (the model's own denial "
+                "verdict outranks its ops, ADR-040/#127) — turn: %r",
+                kind, token, _log_turn(raw_turn),
+            )
+            return False, "confirmed"
+        if verdict == "unconfirmed":
+            logger.warning(
+                "reconcile stance: %s %r written unconfirmed — the testimony "
+                "predicate could not confirm the token; visible and "
+                "candidate-confirmable, never claimable (ADR-061 clauses 2/3) "
+                "— turn: %r", kind, token, _log_turn(raw_turn),
+            )
+        return True, verdict
+
     result: list[ReconcileOp] = []
     for op in ops:
         if isinstance(op, UpsertSkill):
-            if not keep_token(op.name, "skill"):
+            keep, status = await entity_verdict(op.name, "skill")
+            if not keep:
                 continue
+            if status != op.status:
+                op = op.model_copy(update={"status": status})
         elif isinstance(op, UpsertLanguage):
-            if not keep_token(op.language, "language"):
+            keep, status = await entity_verdict(op.language, "language")
+            if not keep:
                 continue
+            if status != op.status:
+                op = op.model_copy(update={"status": status})
         elif isinstance(op, UpsertCertification):
-            if not keep_token(op.name, "certification"):
+            keep, status = await entity_verdict(op.name, "certification")
+            if not keep:
                 continue
+            if status != op.status:
+                op = op.model_copy(update={"status": status})
         elif isinstance(op, UpsertStory):
-            if not _story_keeps(op, denials, corpus):
+            if not _story_keeps(op, denials, corpus, raw_turn):
                 continue
         elif isinstance(op, AddBullets):
-            technologies = [t for t in op.technologies if keep_token(t, "technology")]
+            technologies = [t for t in op.technologies if await keep_token(t, "technology")]
             responsibilities = list(op.responsibilities)
             achievements = list(op.achievements)
             if denials:
@@ -524,7 +766,7 @@ def enforce_stance(
                 for b in dropped:
                     logger.warning(
                         "reconcile stance: dropped bullet restating a denied "
-                        "token: %r (#127)", b,
+                        "token: %r (#127) — turn: %r", b, _log_turn(raw_turn),
                     )
                 responsibilities = [
                     b for b in responsibilities if not _text_claims_denied(b, denials)
@@ -543,3 +785,36 @@ def enforce_stance(
             )
         result.append(op)
     return result
+
+
+def exclude_unconfirmed(profile_json: dict[str, Any] | None) -> dict[str, Any]:
+    """A shallow COPY of ``profile_json`` with every ``status="unconfirmed"``
+    skill/language/certification entry removed (ADR-061 clause 3).
+
+    Consumer-facing filter for anything that hands the vault to a document
+    generator — an LLM prompt (the CV/cover-letter "CANDIDATE PROFILE" block)
+    or a deterministic passthrough (``cv.py::_apply_certifications``) — an
+    unconfirmed entry must never reach a generated document as though it were
+    established fact: it cannot back a CV bullet or a letter sentence
+    (ADR-061 clause 3). Never mutates the input and never touches the
+    persisted profile — callers pass this filtered copy downstream only, so
+    the candidate's own unconfirmed entries stay intact in the vault and
+    remain visible/promotable via the profile UI.
+
+    Deliberately narrow: only the three entity lists clause 3 names are
+    filtered. Everything else (work/project history, denied_concepts,
+    metadata) passes through untouched — this is not a general profile
+    sanitiser, and the Keyword Ledger's own `direct`-status classification is
+    a separate seam (#318, sequenced behind this clause).
+    """
+    if not isinstance(profile_json, dict):
+        return {}
+    out = dict(profile_json)
+    for field in ("skills", "languages", "certifications"):
+        entries = out.get(field)
+        if isinstance(entries, list):
+            out[field] = [
+                e for e in entries
+                if not (isinstance(e, dict) and e.get("status") == "unconfirmed")
+            ]
+    return out

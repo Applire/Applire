@@ -693,6 +693,11 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 existing.proficiency = _merge_declared_proficiency(
                     existing.proficiency, op.proficiency.lower()
                 )
+            # ADR-061 clause 3: a merge only ever PROMOTES an existing skill to
+            # confirmed, never demotes one — never lets a later, weaker mention
+            # erase an already-established vault fact.
+            if op.status == "confirmed" and existing.status != "confirmed":
+                existing.status = "confirmed"
             # Keep the more-specific/longer name only when the incoming strictly
             # contains the existing tokens (mirrors the near==1 auto-merge below).
             if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -700,7 +705,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             changes.append(_merged("skills", "name", None, existing.name))
             return
         # "distinct", or "merge" with nothing to merge into: append a new skill.
-        skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+        skill_kwargs: dict[str, Any] = {
+            "name": op.name, "experience_refs": evidence_ids, "status": op.status,
+        }
         if op.category:
             skill_kwargs["category"] = op.category
         if op.proficiency:
@@ -771,6 +778,10 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing.proficiency = _merge_declared_proficiency(
                 existing.proficiency, op.proficiency.lower()
             )
+        # ADR-061 clause 3: promote-only (see the user_confirmed=="merge" branch
+        # above for the full rationale).
+        if op.status == "confirmed" and existing.status != "confirmed":
+            existing.status = "confirmed"
         # Keep the more-specific/longer name ONLY when the incoming strictly
         # contains the existing tokens; otherwise the existing name stays.
         if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -778,7 +789,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         changes.append(_merged("skills", "name", None, existing.name))
         return
 
-    skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+    skill_kwargs: dict[str, Any] = {
+        "name": op.name, "experience_refs": evidence_ids, "status": op.status,
+    }
     if op.category:
         skill_kwargs["category"] = op.category
     if op.proficiency:
@@ -809,6 +822,12 @@ def _apply_upsert_certification(op, profile, changes, pending):
             "credential_id": op.credential_id,
             "credential_url": op.credential_url,
         })
+        # ADR-061 clause 3: a merge only ever PROMOTES to confirmed, never
+        # demotes an already-confirmed entry — mirrors the near-dupe skill
+        # merge's own one-directional trust rule (see _apply_upsert_skill).
+        if op.status == "confirmed" and verdict.match.status != "confirmed":
+            verdict.match.status = "confirmed"
+            changed = True
         if changed:
             changes.append(_merged("certifications", "name", None, verdict.match.name))
         return
@@ -833,6 +852,7 @@ def _apply_upsert_certification(op, profile, changes, pending):
         expiry_date=op.expiry_date,
         credential_id=op.credential_id,
         credential_url=op.credential_url,
+        status=op.status,  # ADR-061 clause 3
     ))
     changes.append(_added("certifications", "name", op.name))
 
@@ -846,10 +866,14 @@ def _apply_upsert_language(op, profile, changes, pending):
     )
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {"level": op.level})
+        # ADR-061 clause 3: promote-only, same rule as certifications.
+        if op.status == "confirmed" and verdict.match.status != "confirmed":
+            verdict.match.status = "confirmed"
+            changed = True
         if changed:
             changes.append(_merged("languages", "language", None, verdict.match.language))
         return
-    profile.languages.append(Language(language=op.language, level=op.level))
+    profile.languages.append(Language(language=op.language, level=op.level, status=op.status))
     changes.append(_added("languages", "language", op.language))
 
 
