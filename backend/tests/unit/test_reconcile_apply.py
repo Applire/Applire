@@ -298,7 +298,14 @@ def test_unknown_ref_skipped_no_crash():
     assert result.profile.projects[0].associated_experience is None
 
 
-def test_upsert_skill_unions_evidence_and_keeps_higher_proficiency():
+def test_upsert_skill_unions_evidence_but_declared_proficiency_is_a_ceiling():
+    """ADR-061 clause 5 (#304/#317): renamed from
+    test_upsert_skill_unions_evidence_and_keeps_higher_proficiency — a higher
+    incoming proficiency for an already-declared skill no longer wins. The
+    existing declared tier is the strongest evidence available and is never
+    raised by a later write (this merge path is exactly how #304's "SAP
+    (Anwender)" ratchet would recur on a second import even after the
+    enrichment-service fix)."""
     work = WorkEntry(company="Acme", role="Dev")
     existing = Skill(name="Python", proficiency="intermediate", experience_refs=["old-ref"])
     profile = MasterProfileData(work_experience=[work], skills=[existing])
@@ -308,17 +315,30 @@ def test_upsert_skill_unions_evidence_and_keeps_higher_proficiency():
 
     assert len(result.profile.skills) == 1
     sk = result.profile.skills[0]
-    assert sk.proficiency == "expert"
+    assert sk.proficiency == "intermediate"  # declared ceiling — not raised
     assert "old-ref" in sk.experience_refs
     assert work.id in sk.experience_refs
 
 
-def test_upsert_skill_does_not_downgrade_proficiency():
+def test_upsert_skill_never_touches_an_already_declared_proficiency():
+    """ADR-061 clause 5: this merge no longer 'floors' (never lowers) an
+    existing value — it never writes it at all once it is a recognised,
+    already-declared tier, in either direction."""
     existing = Skill(name="Python", proficiency="expert")
     profile = MasterProfileData(skills=[existing])
     ops = [UpsertSkill(name="Python", proficiency="basic")]
     result = apply_ops(profile, ops, SOURCE)
     assert result.profile.skills[0].proficiency == "expert"
+
+
+def test_upsert_skill_fills_an_unrecognised_existing_proficiency():
+    """ADR-061 clause 5's gap-filling half: when the existing value carries no
+    recognised declared tier at all, the incoming value may fill it — this is
+    the "unknown-value rank-1 default" site named in #317; the old code
+    treated an unrecognised existing value as at-least-intermediate."""
+    from applire.services.profile.reconcile.apply import _merge_declared_proficiency
+
+    assert _merge_declared_proficiency("not-a-real-tier", "expert") == "expert"
 
 
 def test_upsert_skill_new():
@@ -346,7 +366,8 @@ def test_upsert_skill_freetext_category_does_not_crash():
 def test_upsert_skill_near_dupe_merges_and_keeps_more_specific_name():
     """Incoming 'Team Leadership and Mentorship' strictly contains existing
     'Team Leadership' → merge (no second skill); the more-specific name wins;
-    refs union, higher proficiency kept."""
+    refs union. ADR-061 clause 5 (#317): the existing declared proficiency is
+    a ceiling and is NOT raised by the incoming value, even on a name-merge."""
     work = WorkEntry(company="Acme", role="Lead")
     existing = Skill(name="Team Leadership", proficiency="intermediate",
                      experience_refs=["ref-old"])
@@ -358,13 +379,15 @@ def test_upsert_skill_near_dupe_merges_and_keeps_more_specific_name():
     assert len(result.profile.skills) == 1
     sk = result.profile.skills[0]
     assert sk.name == "Team Leadership and Mentorship"
-    assert sk.proficiency == "advanced"
+    assert sk.proficiency == "intermediate"  # declared ceiling — not raised
     assert set(sk.experience_refs) == {"ref-old", work.id}
 
 
 def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
     """Incoming 'Team Leadership' is a subset of existing 'Team Leadership and
-    Mentorship' → merge but keep the existing (more specific) name."""
+    Mentorship' → merge but keep the existing (more specific) name. ADR-061
+    clause 5: the existing declared "advanced" is a ceiling — the incoming
+    "expert" does not raise it."""
     existing = Skill(name="Team Leadership and Mentorship", proficiency="advanced")
     profile = MasterProfileData(skills=[existing])
     ops = [UpsertSkill(name="Team Leadership", proficiency="expert")]
@@ -373,7 +396,7 @@ def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
     assert len(result.profile.skills) == 1
     sk = result.profile.skills[0]
     assert sk.name == "Team Leadership and Mentorship"
-    assert sk.proficiency == "expert"  # higher proficiency still wins
+    assert sk.proficiency == "advanced"  # declared ceiling — not raised
 
 
 def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
