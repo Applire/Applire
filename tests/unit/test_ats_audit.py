@@ -781,7 +781,7 @@ def test_empty_letter_paragraph_skipped():
 _LEDGER_122 = [
     {"concept": "code review practices", "surface_forms": ["Code reviews"], "claimable": True,
      "status": "direct", "sources": ["keyword"], "fit_weight": 0.0,
-     "evidence": "enforced code review standards at BioNTech"},
+     "evidence": "enforced code review standards at NordPharm"},
     {"concept": "education technology", "surface_forms": ["EdTech"], "claimable": True,
      "status": "partial", "sources": ["keyword"], "fit_weight": 0.0,
      "evidence": "educational games development at Provadis"},

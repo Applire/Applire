@@ -96,7 +96,7 @@ def test_synonym_role_fold():
 
 
 def test_project_under_position():
-    work = WorkEntry(company="BioNTech", role="Associate Director")
+    work = WorkEntry(company="NordPharm", role="Associate Director")
     profile = MasterProfileData(work_experience=[work])
 
     ops = [
@@ -143,7 +143,7 @@ def test_de_en_employer_semantic_match():
 
 
 def test_undated_bullets_at_known_employer():
-    work = WorkEntry(company="BioNTech", role="Engineer")
+    work = WorkEntry(company="NordPharm", role="Engineer")
     profile = MasterProfileData(work_experience=[work])
 
     ops = [AddBullets(target=work.id, responsibilities=["Mentored juniors"])]

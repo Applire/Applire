@@ -132,7 +132,7 @@ def test_ground_skill_claim_surface_and_near_dupe():
 # founder acceptance run, generated_cvs ed9234fe-1502-...) ───────────────────
 #
 # Ground truth pinned against the dev DB profile 63cc8964-8100-4ae7-9b3b-
-# 508ebea9414f: vault skill "Team Leadership and Mentorship" plus a BioNTech
+# 508ebea9414f: vault skill "Team Leadership and Mentorship" plus a NordPharm
 # responsibility "Provided strategic guidance and mentorship to the
 # architecture team..." back the CV skill "Mentoring", but the panel flagged
 # it unbacked because neither the literal-substring nor the strict
@@ -154,8 +154,8 @@ BUG244_PROFILE = {
     },
     "work_experience": [
         {
-            "id": "w-biontech",
-            "company": "BioNTech SE",
+            "id": "w-nordpharm",
+            "company": "NordPharm SE",
             "role": "Associate Director",
             "responsibilities": [
                 "Set strategic direction, roadmap and release planning for "

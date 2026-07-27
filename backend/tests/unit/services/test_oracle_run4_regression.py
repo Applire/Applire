@@ -185,7 +185,7 @@ async def test_run4_borrowed_figure_gets_a_negative_verdict_not_unverifiable():
 
 
 @pytest.mark.asyncio
-async def test_run4_honest_biontech_paragraph_grounds_at_clause_granularity():
+async def test_run4_honest_nordpharm_paragraph_grounds_at_clause_granularity():
     """Over-drop guard: the genuinely truthful Nordvance paragraph must not
     collapse into unverifiable just because the fabrication next to it is
     now caught — most of its clauses should ground."""

@@ -6,7 +6,7 @@ Ground truth (charter run #5, ``.run5fixture/`` — git-excluded, read at
 runtime, never copied verbatim beyond the short quotes the issue brief itself
 gives): the letter's CANDIDATE PROFILE block is built from the TAILORED CV
 (``cv_data``), condensed to ``work_history[:6]`` x ``bullets[:6]``. The
-run-5 BioNTech entry survived tailoring with only 3 bullets, so
+run-5 NordPharm entry survived tailoring with only 3 bullets, so
 ``work_experience[0].achievements[3]`` — "Human-authored documents usually
 need two to three review rounds, while the right LLMs pass the first
 round" — never reached the CV or the letter, even though both run-4 blind

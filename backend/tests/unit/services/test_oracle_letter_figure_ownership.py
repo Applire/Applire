@@ -8,8 +8,8 @@ Live-reproduced 2026-07-24 (generated_cover_letters 9f387766-...): the
 sentence "I also built a deterministic verification layer ... backed by full
 LLM exchange observability logging and over 2,600 tests gating CI." names NO
 employer at all — it is a bare continuation sentence following two anchored
-paragraphs (BioNTech, then Applire). The ONLY vault unit carrying the figure
-"2,600" is a project entry owned exclusively by the BioNTech role, while the
+paragraphs (NordPharm, then Applire). The ONLY vault unit carrying the figure
+"2,600" is a project entry owned exclusively by the NordPharm role, while the
 letter's surrounding context (and the claim itself, read narratively) is
 about Applire's Truthfulness Oracle. Because the claim is unanchored,
 ``source_experience_id`` is ``None``, and the existing per-figure attribution
@@ -41,8 +41,8 @@ PROFILE = {
     },
     "work_experience": [
         {
-            "id": "w-biontech",
-            "company": "BioNTech",
+            "id": "w-nordpharm",
+            "company": "NordPharm",
             "role": "Automation Lead",
         },
         {
@@ -55,7 +55,7 @@ PROFILE = {
         {
             "id": "p-genai",
             "name": "Agentic GenAI System",
-            "associated_experience": "w-biontech",
+            "associated_experience": "w-nordpharm",
             "achievements": [
                 "Backed by full LLM exchange observability logging and "
                 "over 2,600 tests gating CI.",
@@ -73,8 +73,8 @@ def _figure_result(report, needle="2,600"):
 
 @pytest.mark.asyncio
 async def test_unanchored_figure_never_named_elsewhere_is_not_grounded():
-    """The live bug: BioNTech is never named ANYWHERE in the letter, the
-    figure's only backing is BioNTech-owned, and the sentence itself is
+    """The live bug: NordPharm is never named ANYWHERE in the letter, the
+    figure's only backing is NordPharm-owned, and the sentence itself is
     unanchored — must NOT verdict grounded."""
     letter = {
         "body": {
@@ -98,14 +98,14 @@ async def test_unanchored_figure_never_named_elsewhere_is_not_grounded():
 
 @pytest.mark.asyncio
 async def test_unanchored_figure_named_elsewhere_stays_grounded():
-    """Legitimate case: the SAME unanchored figure sentence, but BioNTech is
+    """Legitimate case: the SAME unanchored figure sentence, but NordPharm is
     named in an EARLIER paragraph of the same letter — full attribution
     isn't provable at clause level, but the owning employer isn't a stranger
     to the document, so this must stay grounded (no over-firing)."""
     letter = {
         "body": {
             "paragraphs": [
-                "At BioNTech, I led automation projects that modernised "
+                "At NordPharm, I led automation projects that modernised "
                 "validation workflows.",
                 "I also built a deterministic verification layer auditing "
                 "every LLM output against source data, backed by full LLM "

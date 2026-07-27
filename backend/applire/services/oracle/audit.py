@@ -30,7 +30,7 @@ anchor matcher itself already applies.
 generated_cover_letters 37ee8f77-...): df78cac's fix above was scoped to
 FIGURES only (the per-figure loop in ``verify_claim`` §2). A figure-FREE
 clause — "a deterministic verification layer ensuring trustworthiness.",
-BioNTech-sentence-adjacent but exclusively Applire-owned — reaches
+NordPharm-sentence-adjacent but exclusively Applire-owned — reaches
 ``verify_claim``'s SEPARATE figure-free grounding branch (§3), which had no
 equivalent ownership check at all: an unanchored figure-free claim backed
 exclusively by owned evidence simply verdicted ``grounded``, full stop.
@@ -244,9 +244,9 @@ def _unattributable_evidence_flag(
         unattributable case, even when the letter overall names several
         employers. Checked BEFORE the letter-wide escape below because it is
         strictly more precise (ground truth: an honest "In my recent role at
-        BioNTech..." sentence must clear here even in a letter that also
+        NordPharm..." sentence must clear here even in a letter that also
         names Applire elsewhere — the letter-wide escape alone would wrongly
-        flag it once BioNTech is correctly counted as "named elsewhere",
+        flag it once NordPharm is correctly counted as "named elsewhere",
         #248), or
       * the letter names roles at EXACTLY ONE EMPLOYER overall (#237
         round-3: same-company siblings count as the same employer here too,
@@ -265,7 +265,7 @@ def _unattributable_evidence_flag(
 
     A letter naming TWO OR MORE employers/projects anywhere, with NEITHER
     escape clearing it — this is the live #243-adjacent / #248 shape
-    (BioNTech named in one sentence, Applire in the next, then a bare
+    (NordPharm named in one sentence, Applire in the next, then a bare
     unanchored continuation naming neither) where a human reader would infer
     the WRONG employer from local context even though the right one is
     technically "named somewhere" in the document. Mirrors

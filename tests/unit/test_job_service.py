@@ -70,7 +70,7 @@ def _make_provider(response: dict):
 
 
 _VALID_JD_RESPONSE = {
-    "company_name": "BioNTech SE",
+    "company_name": "NordPharm SE",
     "role_title": "Director QC Processes",
     "required_skills": ["GMP", "LIMS"],
     "nice_to_have_skills": ["SAP"],

@@ -208,7 +208,7 @@ _LEDGER_DE = [
 _DRAFT_DE_SYNONYM = {
     "summary": "IT-Führungskraft mit Fokus auf Effizienzsteigerung.",
     "work_history": [
-        {"company": "BioNTech SE", "role": "Associate Director",
+        {"company": "NordPharm SE", "role": "Associate Director",
          "bullets": ["KI-Projekt zur Effizienzsteigerung der Dokumentenerstellung"]},
     ],
     "skills": ["Produktivitätssteigerung"],
@@ -217,7 +217,7 @@ _DRAFT_DE_SYNONYM = {
 _DRAFT_DE_EXACT = {
     "summary": "IT-Führungskraft mit Fokus auf Produktivitätsgewinne.",
     "work_history": [
-        {"company": "BioNTech SE", "role": "Associate Director",
+        {"company": "NordPharm SE", "role": "Associate Director",
          "bullets": ["KI-Projekt zur Effizienzsteigerung der Dokumentenerstellung"]},
     ],
     "skills": ["Produktivitätsgewinne"],
@@ -284,7 +284,7 @@ class TestLanguagePassCoverage:
         draft_en_covered = {
             "summary": "IT leader focused on efficiency improvements.",
             "work_history": [
-                {"company": "BioNTech SE", "role": "Associate Director",
+                {"company": "NordPharm SE", "role": "Associate Director",
                  "bullets": ["AI project delivering a 60% efficiency improvement"]},
             ],
             "skills": ["Productivity Gains"],

@@ -20,7 +20,7 @@
 Ground truth (charter run #5): the letter's CANDIDATE PROFILE block is built
 from ``cv_data`` (the TAILORED CV's ``tailored_data``), condensed to
 ``work_history[:6]`` x ``bullets[:6]`` (``prompts.cover_letter.
-build_cover_letter_prompt``). The run-5 BioNTech work entry survived tailoring
+build_cover_letter_prompt``). The run-5 NordPharm work entry survived tailoring
 with only 3 bullets, so everything the CV's own condensation compressed away
 was invisible to the letter — including the exact sentence both run-4 blind
 panel reviewers named as the invite-flipping fact ("Human-authored documents

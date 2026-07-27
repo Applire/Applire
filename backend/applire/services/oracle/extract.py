@@ -67,8 +67,8 @@ def _normalize_punct(text: str) -> str:
 # reconcile write path's OUTPUT, never the reverse, and neither module wants
 # a cross-package import for a few dozen lines of regex). Ground truth
 # (2026-07-24, generated_cover_letters 37ee8f77-...): the vault stores the
-# full legal entity name ("BioNTech SE"), but real-model letter prose almost
-# never repeats it ("at BioNTech") — used ONLY for the LOOSE, ambiguity-
+# full legal entity name ("NordPharm SE"), but real-model letter prose almost
+# never repeats it ("at NordPharm") — used ONLY for the LOOSE, ambiguity-
 # tolerant signals (``letter_named_experience_ids`` / ``Claim.
 # sentence_named_ids``), never for the STRICT per-claim anchor
 # (``_find_employer_anchor``), which keeps its existing exact-name, fail-
@@ -376,7 +376,7 @@ _EM_DASH = "—"
 def split_clauses(text: str) -> list[str]:
     """Deterministic clause-level split for narrative sentences (#237).
 
-    A multi-fact sentence — "At BioNTech, I led AI automation projects …
+    A multi-fact sentence — "At NordPharm, I led AI automation projects …
     with comprehensive testing, observability, and reliability practices."
     — almost never clears ``GROUNDED_MIN_COVERAGE`` as a single claim: its
     content tokens span an employer, an activity, and several unrelated
@@ -504,7 +504,7 @@ def _find_employer_anchor(
     """The experience id a sentence anchors to, or ``None`` (fail open).
 
     A sentence naming EXACTLY one known employer/project stamps every claim
-    derived from it — "At BioNTech," / "bei BioNTech" (DE) alike, since
+    derived from it — "At NordPharm," / "bei NordPharm" (DE) alike, since
     matching is plain normalized substring containment, prefix-agnostic. A
     sentence naming two or more distinct known employers stays unanchored
     rather than risk mis-anchoring (adversarial-review lesson: fail open,
@@ -515,8 +515,8 @@ def _find_employer_anchor(
     ``test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_
     tiebreak``): live-reproduced 2026-07-24 (run-4 self-audit, 10/14
     unverifiable) — the exact-name-only strict anchor NEVER fires for a
-    company whose vault name carries a legal-form suffix ("BioNTech SE")
-    when the letter naturally drops it ("At BioNTech"), which is the
+    company whose vault name carries a legal-form suffix ("NordPharm SE")
+    when the letter naturally drops it ("At NordPharm"), which is the
     COMMON case, not the exception. That starves the attribution matcher of
     the anchor it exists to feed, and is the single largest reason a
     realistic multi-role-tenure letter scored near-zero discriminating
@@ -526,7 +526,7 @@ def _find_employer_anchor(
        ambiguous), retry against ``loose_candidates`` (legal-form-suffix
        tolerant) if provided.
     2. A long tenure at ONE company held across several internal roles
-       (e.g. three successive BioNTech positions) matches every one of them
+       (e.g. three successive NordPharm positions) matches every one of them
        by company name — genuinely ambiguous by name alone. When the
        ambiguity is PURELY "which era at the SAME company" (every found
        candidate shares one surface name) and EXACTLY one of them is
@@ -569,7 +569,7 @@ def letter_named_experience_ids(
     (legitimate — full per-clause attribution just isn't provable).
 
     Legal-form-suffix tolerant (``loose=True``, #248): the vault stores the
-    full legal entity name ("BioNTech SE"); real letter prose rarely repeats
+    full legal entity name ("NordPharm SE"); real letter prose rarely repeats
     it. A whole-document scan is where this matters most — missing it here
     silently mis-widens the "letter names exactly one employer" escape
     hatch below into treating a genuinely multi-employer letter as single-
@@ -680,7 +680,7 @@ def extract_claims_from_letter(
     #237 (F14): a whole narrative sentence almost never clears the grounding
     coverage floor, and letters structurally could not stamp
     ``source_experience_id`` at all — so a misattributed blend (real
-    BioNTech achievement + unrelated interview evidence, blended into one
+    NordPharm achievement + unrelated interview evidence, blended into one
     sentence) filed as merely "unverifiable". Additive steps fix this
     without touching the frozen writer:
 

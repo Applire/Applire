@@ -224,10 +224,10 @@ async def test_extract_from_text_llm_failure_degrades(monkeypatch):
     [
         # ", with" boundary — the exact F14 blend shape.
         (
-            "At BioNTech, I led AI automation projects, with comprehensive "
+            "At NordPharm, I led AI automation projects, with comprehensive "
             "testing, observability, and reliability practices.",
             [
-                "At BioNTech, I led AI automation projects",
+                "At NordPharm, I led AI automation projects",
                 "comprehensive testing, observability",
                 "reliability practices.",
             ],
@@ -319,7 +319,7 @@ def test_split_clauses_never_returns_empty_for_nonempty_text():
 
 PROFILE_WITH_TWO_EMPLOYERS = {
     "work_experience": [
-        {"id": "w-biontech", "company": "BioNTech", "role": "Automation Lead"},
+        {"id": "w-nordpharm", "company": "NordPharm", "role": "Automation Lead"},
         {"id": "w-acme", "company": "Acme GmbH", "role": "Engineer"},
     ],
 }
@@ -329,30 +329,30 @@ def test_extract_from_letter_anchors_en_employer_prefix():
     letter = {
         "body": {
             "paragraphs": [
-                "At BioNTech, I led AI automation projects, with comprehensive "
+                "At NordPharm, I led AI automation projects, with comprehensive "
                 "testing, observability, and reliability practices."
             ]
         }
     }
     claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
     assert claims  # sanity: decomposition produced something
-    assert all(c.source_experience_id == "w-biontech" for c in claims)
+    assert all(c.source_experience_id == "w-nordpharm" for c in claims)
 
 
 def test_extract_from_letter_anchors_de_employer_prefix():
     letter = {
-        "body": {"paragraphs": ["Bei BioNTech habe ich die Automatisierung geleitet."]}
+        "body": {"paragraphs": ["Bei NordPharm habe ich die Automatisierung geleitet."]}
     }
     claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
     assert claims
-    assert all(c.source_experience_id == "w-biontech" for c in claims)
+    assert all(c.source_experience_id == "w-nordpharm" for c in claims)
 
 
 def test_extract_from_letter_ambiguous_two_employers_stays_unanchored():
     letter = {
         "body": {
             "paragraphs": [
-                "I moved from BioNTech to Acme GmbH and grew in both roles."
+                "I moved from NordPharm to Acme GmbH and grew in both roles."
             ]
         }
     }
@@ -362,7 +362,7 @@ def test_extract_from_letter_ambiguous_two_employers_stays_unanchored():
 
 
 def test_extract_from_letter_no_profile_stays_unanchored():
-    letter = {"body": {"paragraphs": ["At BioNTech, I led automation projects."]}}
+    letter = {"body": {"paragraphs": ["At NordPharm, I led automation projects."]}}
     claims = extract_claims_from_letter(letter)
     assert all(c.source_experience_id is None for c in claims)
 
@@ -395,13 +395,13 @@ def test_extract_from_letter_multi_clause_sentence_uses_kind_clause():
 # ── #248 — legal-form-suffix tolerance + sentence_named_ids + clause anchors ──
 #
 # Live-reproduced 2026-07-24 (generated_cover_letters 37ee8f77-...): the vault
-# stores "BioNTech SE" (the legal entity name), but a real-model letter
-# naturally drops the legal-form suffix ("at BioNTech"). The OLD exact-name
+# stores "NordPharm SE" (the legal entity name), but a real-model letter
+# naturally drops the legal-form suffix ("at NordPharm"). The OLD exact-name
 # anchor match therefore treated the sentence as naming NO employer at all —
 # not just failing to anchor it (`source_experience_id` stays `None` by
 # design, matching #237's own "fail open, never guess" rule for the STRICT
 # anchor), but also making the letter-wide `letter_named_experience_ids` scan
-# blind to BioNTech entirely, which silently widened the #243-adjacent
+# blind to NordPharm entirely, which silently widened the #243-adjacent
 # ownership check's "letter names exactly one employer" escape hatch to fire
 # on a letter that, read narratively, names TWO. `Claim.sentence_named_ids`
 # (loose — ambiguity across same-company duplicate ids tolerated, unlike the
@@ -413,34 +413,34 @@ def test_extract_from_letter_multi_clause_sentence_uses_kind_clause():
 
 PROFILE_LEGAL_SUFFIX = {
     "work_experience": [
-        {"id": "w-biontech", "company": "BioNTech SE", "role": "Automation Lead"},
+        {"id": "w-nordpharm", "company": "NordPharm SE", "role": "Automation Lead"},
         {"id": "w-applire", "company": "Applire", "role": "Founder"},
     ],
 }
 
 
 def test_letter_named_experience_ids_tolerates_legal_form_suffix():
-    """The letter-wide scan finds BioNTech even though it never spells out
-    the legal-form suffix stored in the vault ("BioNTech SE")."""
+    """The letter-wide scan finds NordPharm even though it never spells out
+    the legal-form suffix stored in the vault ("NordPharm SE")."""
     letter = {
         "body": {
             "paragraphs": [
-                "In my recent role at BioNTech, I led automation projects.",
+                "In my recent role at NordPharm, I led automation projects.",
                 "As Founder of Applire, I built a platform.",
             ]
         }
     }
     ids = letter_named_experience_ids(letter, PROFILE_LEGAL_SUFFIX)
-    assert ids == {"w-biontech", "w-applire"}
+    assert ids == {"w-nordpharm", "w-applire"}
 
 
 def test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_tiebreak():
     """SUPERSEDES the #248-era pin that the STRICT anchor stayed ``None`` on
-    a bare "BioNTech" mention. #237 run-4 residual (live self-audit,
+    a bare "NordPharm" mention. #237 run-4 residual (live self-audit,
     2026-07-24): that exact-name-only behaviour was disproved by production
-    data — "BioNTech SE" vs. a letter that simply says "BioNTech" is the
+    data — "NordPharm SE" vs. a letter that simply says "NordPharm" is the
     COMMON case, not a rare edge, and starved the attribution matcher of an
-    anchor on almost every real BioNTech-mentioning sentence in a realistic
+    anchor on almost every real NordPharm-mentioning sentence in a realistic
     letter (10/14 claims unverifiable on an honest letter). The strict
     anchor now retries against the legal-form-suffix-tolerant candidate set
     when the exact set matches nothing at all (see
@@ -453,15 +453,15 @@ def test_strict_anchor_now_tolerates_legal_form_suffix_via_current_role_tiebreak
     letter = {
         "body": {
             "paragraphs": [
-                "In my recent role at BioNTech, I initiated an agentic GenAI "
+                "In my recent role at NordPharm, I initiated an agentic GenAI "
                 "system automating validation documentation."
             ]
         }
     }
     claims = extract_claims_from_letter(letter, PROFILE_LEGAL_SUFFIX)
     assert len(claims) == 1
-    assert claims[0].source_experience_id == "w-biontech"
-    assert claims[0].sentence_named_ids == frozenset({"w-biontech"})
+    assert claims[0].source_experience_id == "w-nordpharm"
+    assert claims[0].sentence_named_ids == frozenset({"w-nordpharm"})
 
 
 def test_strict_anchor_stays_unanchored_on_genuine_same_company_multi_role_ambiguity():
@@ -471,11 +471,11 @@ def test_strict_anchor_stays_unanchored_on_genuine_same_company_multi_role_ambig
     must still fail open, exactly as before."""
     profile = {
         "work_experience": [
-            {"id": "w-old1", "company": "BioNTech SE", "role": "System Engineer"},
-            {"id": "w-old2", "company": "BioNTech SE", "role": "Architect"},
+            {"id": "w-old1", "company": "NordPharm SE", "role": "System Engineer"},
+            {"id": "w-old2", "company": "NordPharm SE", "role": "Architect"},
         ],
     }
-    letter = {"body": {"paragraphs": ["At BioNTech, I led automation projects."]}}
+    letter = {"body": {"paragraphs": ["At NordPharm, I led automation projects."]}}
     claims = extract_claims_from_letter(letter, profile)
     assert all(c.source_experience_id is None for c in claims)
 
@@ -502,7 +502,7 @@ def test_sentence_named_ids_empty_when_sentence_names_no_employer():
 
 PROFILE_TWO_EMPLOYERS_CLAUSE = {
     "work_experience": [
-        {"id": "w-biontech", "company": "BioNTech", "role": "Automation Lead"},
+        {"id": "w-nordpharm", "company": "NordPharm", "role": "Automation Lead"},
         {"id": "w-acme", "company": "Acme GmbH", "role": "Engineer"},
     ],
 }
@@ -516,14 +516,14 @@ def test_two_employer_sentence_anchors_each_clause_independently_en():
     letter = {
         "body": {
             "paragraphs": [
-                "At BioNTech, I led automation, and at Acme GmbH, I "
+                "At NordPharm, I led automation, and at Acme GmbH, I "
                 "redesigned onboarding."
             ]
         }
     }
     claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
     assert len(claims) == 2
-    assert claims[0].source_experience_id == "w-biontech"
+    assert claims[0].source_experience_id == "w-nordpharm"
     assert claims[1].source_experience_id == "w-acme"
 
 
@@ -532,14 +532,14 @@ def test_two_employer_sentence_anchors_each_clause_independently_de():
     letter = {
         "body": {
             "paragraphs": [
-                "Bei BioNTech habe ich die Automatisierung geleitet, und "
+                "Bei NordPharm habe ich die Automatisierung geleitet, und "
                 "bei Acme GmbH habe ich das Onboarding neu gestaltet."
             ]
         }
     }
     claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
     assert len(claims) == 2
-    assert claims[0].source_experience_id == "w-biontech"
+    assert claims[0].source_experience_id == "w-nordpharm"
     assert claims[1].source_experience_id == "w-acme"
 
 
@@ -551,14 +551,14 @@ def test_single_employer_multi_clause_sentence_anchor_unchanged():
     letter = {
         "body": {
             "paragraphs": [
-                "At BioNTech, I led automation, with strong reliability "
+                "At NordPharm, I led automation, with strong reliability "
                 "practices."
             ]
         }
     }
     claims = extract_claims_from_letter(letter, PROFILE_TWO_EMPLOYERS_CLAUSE)
     assert len(claims) == 2
-    assert all(c.source_experience_id == "w-biontech" for c in claims)
+    assert all(c.source_experience_id == "w-nordpharm" for c in claims)
 
 
 def test_clause_naming_neither_employer_stays_unanchored_in_two_employer_sentence():
@@ -568,7 +568,7 @@ def test_clause_naming_neither_employer_stays_unanchored_in_two_employer_sentenc
     letter = {
         "body": {
             "paragraphs": [
-                "I have worked at both BioNTech and Acme GmbH, and it went "
+                "I have worked at both NordPharm and Acme GmbH, and it went "
                 "very well overall."
             ]
         }

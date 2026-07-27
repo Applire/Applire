@@ -1541,7 +1541,7 @@ class TestMintedFigureCheckWordingNarrowed:
 
 class TestPositionAnchoringRequirement:
     """#283 — the run-6 ground truth: a corrector chasing keyword coverage
-    folded an achievement (BioNTech's "record-breaking QC LIMS implementation
+    folded an achievement (NordPharm's "record-breaking QC LIMS implementation
     in 7 months across 3 sites") into a paragraph whose sentence never named
     the employer. The letter separately named a DIFFERENT employer (Applire)
     elsewhere, so neither the sentence-level anchor nor the whole-letter

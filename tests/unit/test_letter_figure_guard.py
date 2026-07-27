@@ -157,7 +157,7 @@ def test_headcount_survives_when_clause_actually_names_datacore():
 
 # ── required regression: legitimate figures must survive ────────────────────
 
-def test_bionTech_style_percent_survives_in_its_own_sentence():
+def test_grounded_percent_survives_in_its_own_sentence():
     letter = _letter(
         [
             "At Vector Analytics, I delivered a 70% reduction in checkout "
@@ -238,7 +238,7 @@ def test_unanchored_clause_dropped_when_letter_names_two_employers_and_neither_c
 
 
 # ── #283 shape: multi-employer letter, achievement paragraph unanchored ─────
-# Invented fixture mirroring the run-6 ground truth (BioNTech "record-breaking
+# Invented fixture mirroring the run-6 ground truth (NordPharm "record-breaking
 # QC LIMS implementation, 7 months, 3 sites" — belongs to an OLDER position at
 # the SAME employer the letter names in a DIFFERENT paragraph; the letter
 # separately names a second, unrelated employer too, so the "letter names

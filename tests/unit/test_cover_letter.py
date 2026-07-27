@@ -440,7 +440,7 @@ def test_system_prompt_forbids_claiming_gaps_in_possessive_framing():
 
 
 def test_system_prompt_requires_anchoring_position_owned_achievements():
-    """#283 — run-6 ground truth: a corrector folded BioNTech's "record-
+    """#283 — run-6 ground truth: a corrector folded NordPharm's "record-
     breaking QC LIMS implementation in 7 months across 3 sites" into a
     sentence that named no employer, in a letter that separately named a
     DIFFERENT employer (Applire) elsewhere. The deterministic #254 figure
@@ -1862,7 +1862,7 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     """Ground truth (#271): work_experience[0].achievements[3] — "Human-
     authored documents usually need two to three review rounds, while the
     right LLMs pass the first round" — is present in the vault but ABSENT
-    from the run-5 tailored CV (the BioNTech entry survived tailoring with
+    from the run-5 tailored CV (the NordPharm entry survived tailoring with
     only 3 bullets). It must reach the full writer prompt only once the
     Task 2 digest is threaded in via ``vault_evidence_block`` — never via
     ``cv_data`` alone."""
@@ -1973,7 +1973,7 @@ def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
 
     # The tailored CV's own condensation kept only the anchor bullet — the
     # distinctive sentence never survived to cv_data, exactly like run-5's
-    # BioNTech entry surviving tailoring with only 3 of its real bullets.
+    # NordPharm entry surviving tailoring with only 3 of its real bullets.
     tailored_data = {
         "work_history": [
             {

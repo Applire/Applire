@@ -20,7 +20,7 @@
 Ground truth (live-reproduced 2026-07-24, founder charter re-run, main @
 53ffa85): a single multi-employer interview answer —
 
-    "At BioNTech I led an agentic GenAI system that automated
+    "At NordPharm I led an agentic GenAI system that automated
     computer-system-validation documentation... For production-grade rigor
     specifically, my clearest example is Applire: I built a deterministic
     verification layer, the Truthfulness Oracle, that audits every LLM output
@@ -30,18 +30,18 @@ Ground truth (live-reproduced 2026-07-24, founder charter re-run, main @
 
 — was reconciled by the MODEL (logs/llm/2026-07-24.jsonl, line 467; the exact
 add_bullets ops the mock provider below reproduces) into FOUR add_bullets ops,
-two of which wrongly targeted BioNTech entities with Applire-only clauses:
+two of which wrongly targeted NordPharm entities with Applire-only clauses:
 
-* target=BioNTech's "Associate Director E2E..." role, achievements=["Built
+* target=NordPharm's "Associate Director E2E..." role, achievements=["Built
   deterministic verification layer (Truthfulness Oracle) auditing every LLM
   output against source data"] — WRONG, this is the Applire clause.
-* target=BioNTech's "Agentic GenAI System for CSV Documentation" project,
+* target=NordPharm's "Agentic GenAI System for CSV Documentation" project,
   achievements=["Backed by full LLM exchange observability logging and over
   2,600 tests gating CI"] — WRONG (the reported #243 vault mutation).
 
 Both bullets are prompt-side (model-emitted) misattributions: the applier
 (apply.py) faithfully applied exactly the ops the model handed it, and the
-model itself put the Applire clause's content on a BioNTech target. This is a
+model itself put the Applire clause's content on a NordPharm target. This is a
 belt-and-braces deterministic guard in the applier layer, mirroring
 ``services.oracle.extract``'s employer-anchoring pattern (kept as an
 independent copy, not a cross-package import — the reconcile layer is
@@ -63,12 +63,12 @@ from applire.services.profile.reconcile.ops import (
 )
 
 APPLIRE_ID = "29824d5a-c97f-47fc-9efc-84439244a34a"
-BIONTECH_ROLE_ID = "aafa340a-bab3-48af-8770-542fba56c5de"
-BIONTECH_PROJECT_ID = "ca10ed5e-5acc-4171-b728-5c04517ff6ea"
+NORDPHARM_ROLE_ID = "aafa340a-bab3-48af-8770-542fba56c5de"
+NORDPHARM_PROJECT_ID = "ca10ed5e-5acc-4171-b728-5c04517ff6ea"
 
 # The verbatim live turn (logs/llm/2026-07-24.jsonl denied_concepts entry).
 _LIVE_ANSWER = (
-    "At BioNTech I led an agentic GenAI system that automated "
+    "At NordPharm I led an agentic GenAI system that automated "
     "computer-system-validation documentation, built with LangGraph and "
     "LangChain plus RAG over our gold-standard docs and SOPs, running on "
     "Databricks — targeting roughly a 70% reduction in manual "
@@ -88,15 +88,15 @@ def _live_profile() -> MasterProfileData:
     """The profile shape from the live incident (trimmed to what the guard needs)."""
     return MasterProfileData(
         work_experience=[
-            WorkEntry(id=BIONTECH_ROLE_ID, company="BioNTech SE",
+            WorkEntry(id=NORDPHARM_ROLE_ID, company="NordPharm SE",
                       role="Associate Director E2E Supply Chain Systems"),
             WorkEntry(id=APPLIRE_ID, company="Applire", role="Founder & Lead Developer"),
         ],
         projects=[
             ProjectEntry(
-                id=BIONTECH_PROJECT_ID,
+                id=NORDPHARM_PROJECT_ID,
                 name="Agentic GenAI System for CSV Documentation",
-                associated_experience=BIONTECH_ROLE_ID,
+                associated_experience=NORDPHARM_ROLE_ID,
             ),
         ],
     )
@@ -116,7 +116,7 @@ _MODEL_OPS = {
     "ops": [
         {
             "op": "add_bullets",
-            "target": BIONTECH_ROLE_ID,
+            "target": NORDPHARM_ROLE_ID,
             "achievements": [
                 "Built deterministic verification layer (Truthfulness Oracle) "
                 "auditing every LLM output against source data"
@@ -132,7 +132,7 @@ _MODEL_OPS = {
         },
         {
             "op": "add_bullets",
-            "target": BIONTECH_PROJECT_ID,
+            "target": NORDPHARM_PROJECT_ID,
             "achievements": [
                 "Backed by full LLM exchange observability logging and over "
                 "2,600 tests gating CI"
@@ -146,7 +146,7 @@ _MODEL_OPS = {
 
 @pytest.mark.asyncio
 async def test_live_incident_misattributed_ops_route_to_pending_confirmation() -> None:
-    """Regression #243: both BioNTech-targeted Applire clauses are guarded."""
+    """Regression #243: both NordPharm-targeted Applire clauses are guarded."""
     profile = _live_profile()
     provider = _StubProvider(_MODEL_OPS)
     new_info = {"answer": _LIVE_ANSWER}
@@ -156,14 +156,14 @@ async def test_live_incident_misattributed_ops_route_to_pending_confirmation() -
     add_bullets_ops = [op for op in result.ops if isinstance(op, AddBullets)]
     confirmations = [op for op in result.ops if isinstance(op, RequestConfirmation)]
 
-    # The BioNTech-targeted ops carrying the Applire clause must NOT survive
-    # as an add_bullets op that would silently write it onto BioNTech.
+    # The NordPharm-targeted ops carrying the Applire clause must NOT survive
+    # as an add_bullets op that would silently write it onto NordPharm.
     for op in add_bullets_ops:
-        if op.target == BIONTECH_ROLE_ID:
+        if op.target == NORDPHARM_ROLE_ID:
             assert "Built deterministic verification layer" not in " ".join(
                 op.achievements + op.responsibilities
             )
-        if op.target == BIONTECH_PROJECT_ID:
+        if op.target == NORDPHARM_PROJECT_ID:
             assert "2,600 tests" not in " ".join(op.achievements + op.responsibilities)
 
     # The correctly-targeted Applire op must survive untouched.
@@ -176,7 +176,7 @@ async def test_live_incident_misattributed_ops_route_to_pending_confirmation() -
     assert len(confirmations) == 2
     flagged_texts = " ".join(c.question for c in confirmations)
     assert "Applire" in flagged_texts
-    assert "BioNTech" in flagged_texts
+    assert "NordPharm" in flagged_texts
 
 
 @pytest.mark.asyncio
@@ -219,7 +219,7 @@ class TestEnforceAttributionUnit:
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_ROLE_ID,
+                target=NORDPHARM_ROLE_ID,
                 responsibilities=["Mentored two junior engineers on CI/CD practices."],
             )
         ]
@@ -239,12 +239,12 @@ class TestEnforceAttributionUnit:
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_ROLE_ID,
+                target=NORDPHARM_ROLE_ID,
                 achievements=["Championed rigorous automated testing as a core practice."],
             )
         ]
         answer = (
-            "At both BioNTech and Applire, I championed rigorous automated "
+            "At both NordPharm and Applire, I championed rigorous automated "
             "testing as a core practice."
         )
         result = enforce_attribution(
@@ -252,13 +252,13 @@ class TestEnforceAttributionUnit:
         )
         assert result == ops
 
-    def test_legal_form_variant_biontech_se_vs_biontech(self) -> None:
-        """'BioNTech SE' (profile) vs 'BioNTech' (spoken form) must still
+    def test_legal_form_variant_nordpharm_se_vs_nordpharm(self) -> None:
+        """'NordPharm SE' (profile) vs 'NordPharm' (spoken form) must still
         anchor and mismatch correctly."""
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_PROJECT_ID,
+                target=NORDPHARM_PROJECT_ID,
                 achievements=[
                     "Backed by full LLM exchange observability logging and "
                     "over 2,600 tests gating CI"
@@ -288,7 +288,7 @@ class TestEnforceAttributionUnit:
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_PROJECT_ID,
+                target=NORDPHARM_PROJECT_ID,
                 achievements=["Backed by full LLM exchange observability logging."],
             )
         ]
@@ -309,7 +309,7 @@ class TestEnforceAttributionUnit:
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_PROJECT_ID,
+                target=NORDPHARM_PROJECT_ID,
                 achievements=["Backed by full LLM exchange observability logging."],
             )
         ]
@@ -330,7 +330,7 @@ class TestEnforceAttributionUnit:
         profile = _live_profile()
         ops = [
             AddBullets(
-                target=BIONTECH_ROLE_ID,
+                target=NORDPHARM_ROLE_ID,
                 achievements=[
                     "Backed by full LLM exchange observability logging and "
                     "over 2,600 tests gating CI"
