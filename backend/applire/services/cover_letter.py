@@ -66,6 +66,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import log_letter_over_budget
 from applire.services.letter_figure_guard import guard_letter_figures
 from applire.services.letter_outcome_guard import guard_letter_outcome_preference
+from applire.services.load_bearing import load_bearing_fn_from_ledger
 from applire.services.reviewer import review_and_refine
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
@@ -984,6 +985,15 @@ async def _render_cover_letter_background(
             def _within_budget(draft: dict) -> bool:
                 return within_word_budget(draft, norm.letter_body_word_budget)
 
+            # #306 (b): the retain_if/prefer_if substitution must not be
+            # evidence-blind — charter run #7 case 2 substituted an earlier
+            # round's draft that satisfied BOTH structural predicates but had
+            # silently dropped the case's OEE arc (61 % -> 73 %). load_bearing_fn
+            # is the SAME keyword_ledger already routed to the reviewer prompt
+            # above (coverage_reviewer_prompt_fn) — see services/load_bearing.py
+            # for the shared "load-bearing claim" definition.
+            load_bearing_fn = load_bearing_fn_from_ledger(keyword_ledger)
+
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
@@ -1002,6 +1012,7 @@ async def _render_cover_letter_background(
                 # passed is substituted instead — no new LLM call.
                 retain_if=has_closing_paragraph,
                 prefer_if=_within_budget,
+                load_bearing_fn=load_bearing_fn,
             )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
@@ -1126,6 +1137,11 @@ async def _render_cover_letter_background(
                             # the closing again is never selected just because it
                             # is shorter.
                             prefer_if=_within_budget,
+                            # #306 (b): same evidence-blind-substitution guard as
+                            # the primary loop above — the condense pass is a
+                            # fresh rewrite under length pressure and must not
+                            # trade load-bearing figures away for a shorter shape.
+                            load_bearing_fn=load_bearing_fn,
                         )
                         # #254 — same generation-path guard as the primary loop
                         # above: the condense pass is itself a fresh corrector-

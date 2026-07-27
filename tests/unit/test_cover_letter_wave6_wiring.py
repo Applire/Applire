@@ -463,3 +463,106 @@ async def test_reviewer_prompt_fn_omits_word_floor_block_when_at_or_above_floor(
     full_draft = {"body": {"paragraphs": [" ".join(["word"] * (floor + 20))]}}
     rendered = reviewer_prompt_fn(calls[0]["source"], full_draft)
     assert "WORD FLOOR" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_review_and_refine_receives_load_bearing_fn_from_keyword_ledger(seeded):
+    """#306 (b): both the primary AND the condense review_and_refine calls must
+    be wired with a load_bearing_fn built from the SAME keyword_ledger already
+    routed to the reviewer prompt — proven behaviourally: a draft carrying a
+    ledger-backed figure scores higher than one that doesn't."""
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+    from applire.models.gap import GapAnalysis
+
+    gap = GapAnalysis(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        keyword_ledger=[
+            {
+                "concept": "Budget- und Investitionsverantwortung",
+                "status": "direct",
+                "claimable": True,
+                "surface_forms": ["Budgetverantwortung"],
+                "evidence": "Budgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung).",
+            }
+        ],
+    )
+    db.add(gap)
+    await db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(return_value=_letter(["Dear team,", "Sincerely,"]))
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert calls, "review_and_refine was not called"
+    load_bearing_fn = calls[0].get("load_bearing_fn")
+    assert load_bearing_fn is not None, "load_bearing_fn was not wired into the primary review_and_refine call"
+
+    with_figure = {"body": {"paragraphs": ["Ich trage eine Budgetverantwortung von 6 Mio. €."]}}
+    without_figure = {"body": {"paragraphs": ["Ich trage Budgetverantwortung."]}}
+    assert len(load_bearing_fn(with_figure)) > len(load_bearing_fn(without_figure))
+
+
+@pytest.mark.asyncio
+async def test_condense_pass_also_receives_load_bearing_fn(seeded):
+    """The condense/refine loop must ALSO carry load_bearing_fn — mirroring
+    test_condense_pass_also_receives_retain_if / _prefer_if."""
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),  # initial writer call
+            _letter(["Dear team,", "condensed closing"]),  # build_condense_prompt call
+        ]
+    )
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),  # over the 1-page DACH letter norm — forces condense
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert len(calls) == 2, "expected primary + condense review_and_refine calls"
+    for call in calls:
+        assert call.get("load_bearing_fn") is not None
+    # Both calls share the SAME closure (built once, from the same ledger
+    # snapshot) — never re-derived per call.
+    assert calls[0]["load_bearing_fn"] is calls[1]["load_bearing_fn"]

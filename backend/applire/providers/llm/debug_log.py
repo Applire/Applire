@@ -153,6 +153,71 @@ def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: s
     )
 
 
+def log_review_precision(chain_id: str, attempt: int, *, raised: int, survived: int) -> None:
+    """#306 (a): how many of the issues a reviewer round RAISED survive the
+    deterministic sanity check (``services/review_issue_filter.py``) before
+    any of them is spent as a retry.
+
+    Charter run #7, case 2 pinned the failure this makes visible: the
+    cover-letter reviewer's LAST round raised 11 issues, most self-refuting
+    or self-annotated non-blocking — the retry budget was gone before the two
+    genuine ones got a fix attempt. Stable ``REVIEW_PRECISION`` prefix, always
+    on, PII-free (counts only) — so a chain's reviewer precision degrading
+    over time is visible without re-reading the (dev-only) debug log."""
+    _review_logger.info(
+        "REVIEW_PRECISION chain=%s attempt=%d raised=%d survived=%d discarded=%d",
+        chain_id, attempt, raised, survived, raised - survived,
+    )
+
+
+def log_review_issue_batch_all_discarded(chain_id: str, attempt: int, raised: int) -> None:
+    """#306 (a): every issue a reviewer round raised failed the deterministic
+    sanity check — the round is treated as approved (the loop does NOT spend
+    a retry regenerating a draft to satisfy noise). Distinct, stable prefix
+    (``REVIEW_ISSUES_ALL_DISCARDED``) so this degrades visibly rather than
+    silently looking identical to a normal approval."""
+    _review_logger.warning(
+        "REVIEW_ISSUES_ALL_DISCARDED chain=%s attempt=%d raised=%d — every issue this "
+        "round failed the deterministic sanity check (self-refuting, wrong count, or "
+        "self-annotated non-blocking); treating as approved rather than spending a "
+        "retry on noise",
+        chain_id, attempt, raised,
+    )
+
+
+def log_review_substitution_diff(
+    chain_id: str, *, retained: list[str], lost: list[str], gained: list[str]
+) -> None:
+    """#306 (b): a retain_if/prefer_if substitution just happened — log WHAT
+    load-bearing evidence (see ``services/load_bearing.py``) moved, not just
+    that a substitution occurred.
+
+    Charter run #7, case 2's substitution log line said only that a swap
+    happened; the causal chain to the 3 lost figures was only reconstructible
+    from the drafted-vs-delivered log DIFF, done by hand, after the fact. This
+    line makes that diff a first-class, always-on, PII-free (figures are
+    canonical kind:value tokens, never surrounding prose) signal. Stable
+    ``REVIEW_SUBSTITUTION_DIFF`` prefix."""
+    _review_logger.warning(
+        "REVIEW_SUBSTITUTION_DIFF chain=%s retained=%r lost=%r gained=%r",
+        chain_id, sorted(retained), sorted(lost), sorted(gained),
+    )
+
+
+def log_review_substitution_refused(chain_id: str, tier: str, would_lose: list[str]) -> None:
+    """#306 (b): a candidate draft satisfied the structural predicate(s) but
+    was STRICTLY evidence-poorer than the settled draft — the substitution
+    was refused rather than trading load-bearing figures away for a cleaner
+    structural shape (the settled draft's cosmetic complaint ships instead).
+    Stable ``REVIEW_SUBSTITUTION_REFUSED`` prefix."""
+    _review_logger.warning(
+        "REVIEW_SUBSTITUTION_REFUSED chain=%s tier=%s would_lose=%r — candidate draft "
+        "satisfied the structural predicate(s) but is evidence-poorer than the settled "
+        "draft; refusing this substitution (#306 — evidence beats a clean predicate match)",
+        chain_id, tier, sorted(would_lose),
+    )
+
+
 def log_letter_over_budget(chain_id: str, word_count: int, word_budget: int) -> None:
     """#272 wave-6 follow-up (charter run #6, Task 3): the letter that ships is still
     over the region's letter_body_word_budget norm after the bounded condense pass —
