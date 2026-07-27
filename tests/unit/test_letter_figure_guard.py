@@ -115,9 +115,17 @@ def test_unicode_apostrophe_does_not_break_matching():
 
 # ── the live #254 vector: misattributed headcount ────────────────────────────
 
-def test_borrowed_headcount_is_dropped_from_unrelated_clause():
+def test_borrowed_headcount_takes_its_whole_sentence_with_it():
     """The pinned bug: 'five' is a DataCore fact; a Vector Analytics clause
-    must never keep a '5+' borrowed from it."""
+    must never keep a '5+' borrowed from it.
+
+    #296 changed the REMOVAL UNIT from the figure's character span to the
+    sentence. The old pin here asserted 'mentoring teams of' survives — i.e.
+    it actively required the mutilated remainder that charter run #7 delivered
+    to a hiring manager. A figure is a noun-phrase argument; its neighbours are
+    grammatically load-bearing, so the sentence is the smallest unit that still
+    reads once the figure has to go.
+    """
     letter = _letter(
         [
             "Dear Hiring Team,",
@@ -127,12 +135,9 @@ def test_borrowed_headcount_is_dropped_from_unrelated_clause():
         ]
     )
     result = guard_letter_figures(letter, PROFILE)
-    body_text = " ".join(result["body"]["paragraphs"])
-    assert "5+" not in body_text
-    assert "5" not in body_text.replace("2019", "")  # no stray bare digit either
-    # the surrounding clause survives, figure-free
-    assert "mentoring teams of" in body_text
-    assert "Vector Analytics" in body_text
+    # Exact-equality, not substring absence: the point of #296 is WHAT REMAINS,
+    # and only a full comparison can catch a surviving fragment.
+    assert result["body"]["paragraphs"] == ["Dear Hiring Team,", "Sincerely,"]
 
 
 def test_headcount_survives_when_clause_actually_names_datacore():
@@ -288,11 +293,15 @@ def test_unanchored_achievement_paragraph_drops_the_figures_pinned_shape():
         ]
     )
     result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
-    body_text = " ".join(result["body"]["paragraphs"])
-    assert "7 months" not in body_text
-    assert "3 sites" not in body_text
-    # the clause survives, figure-free — never deleted wholesale
-    assert "delivered record-breaking projects" in body_text
+    # The whole achievement sentence goes (#296). Blanking its two figures in
+    # place produced exactly the run-#7 wreckage — "the LIMS rollout in months
+    # across sites" — and the old pin below it demanded that remainder survive.
+    assert result["body"]["paragraphs"] == [
+        "At Northwind Labs, I currently serve as Director of Platform "
+        "Engineering.",
+        "As founder of Riverstone, I also built an open-source developer "
+        "platform.",
+    ]
 
 
 def test_same_sentence_anchor_lets_the_figures_survive():
@@ -334,6 +343,127 @@ def test_cross_role_borrowed_figure_still_dropped_even_when_anchored_elsewhere()
     body_text = " ".join(result["body"]["paragraphs"])
     assert "7 months" not in body_text
     assert "3 sites" not in body_text
+
+
+# ── #296: the paragraph's running anchor ────────────────────────────────────
+# This is the part of #296 that stops most removals from being necessary at
+# all. Charter run #7's letter named two employers, so the whole-letter
+# single-employer escape could never fire, and every figure in every sentence
+# that did not itself restate the employer was dropped. Prose does not restate
+# it: "At Acme I owned the platform. I cut deploy time from 45 to 8 minutes."
+
+def test_running_anchor_carries_the_employer_to_the_next_sentence():
+    """A follow-on sentence in the SAME paragraph inherits the anchor, exactly
+    as a human reader resolves it — so a legitimately-owned figure survives
+    without the writer having to restate the employer in every sentence."""
+    letter = _letter(
+        [
+            "At Northwind Labs, I currently serve as Director of Platform "
+            "Engineering. I delivered record-breaking projects like the LIMS "
+            "rollout in 7 months across 3 sites.",
+            "As founder of Riverstone, I also built an open-source developer "
+            "platform.",
+        ]
+    )
+    result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "7 months" in body_text
+    assert "3 sites" in body_text
+
+
+def test_running_anchor_never_survives_a_topic_change():
+    """The carry-forward may only fill genuine silence. The moment a later
+    sentence anchors somewhere ELSE, the borrowed figure must still be caught —
+    otherwise the anchor becomes a laundering channel wider than the
+    whole-letter escape it sits in front of."""
+    letter = _letter(
+        [
+            "At Northwind Labs, I currently serve as Director of Platform "
+            "Engineering. As founder of Riverstone, I delivered the LIMS "
+            "rollout in 7 months across 3 sites.",
+        ]
+    )
+    result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "7 months" not in body_text
+    assert "3 sites" not in body_text
+
+
+# ── #296: what remains must be readable ─────────────────────────────────────
+
+def test_no_run7_wreckage_shape_can_survive_a_drop():
+    """The three shapes charter run #7 actually delivered to a hiring manager,
+    each produced by blanking the figure's own span: "deploy time from 45 to 8
+    minutes" -> "deploy time from to 8 minutes"; "EKS for 12 services" -> "EKS
+    for services"; "a 99.9% availability target" -> "a availability target".
+
+    Asserting the FIGURE is gone (which the old pins did) cannot catch any of
+    these — the mutilated remainder passes that check perfectly. Only looking
+    at what is left does.
+    """
+    profile = {
+        "personal_info": {"name": "Jordan Lee"},
+        "work_experience": [
+            {
+                "id": "w-northwind-current",
+                "company": "Northwind Labs",
+                "role": "Director of Platform Engineering",
+                "achievements": ["Set strategic direction for the platform org."],
+            },
+            {
+                "id": "w-founder",
+                "company": "Riverstone",
+                "role": "Founder",
+                "achievements": [
+                    "Cut deploy time from 45 to 8 minutes.",
+                    "Ran EKS for 12 services.",
+                    "Held a 99.9% availability target.",
+                ],
+            },
+        ],
+    }
+    letter = _letter(
+        [
+            "At Northwind Labs, I currently serve as Director of Platform "
+            "Engineering.",
+            "I reduced deploy time from 45 to 8 minutes. I ran EKS for 12 "
+            "services. I held a 99.9% availability target.",
+        ]
+    )
+    result = guard_letter_figures(letter, profile)
+    body_text = " ".join(result["body"]["paragraphs"])
+    for wreckage in ("from to", "EKS for services", "a availability"):
+        assert wreckage not in body_text, f"shipped run-#7 wreckage: {wreckage!r}"
+    # No half-sentence left behind either — the whole unattributable paragraph
+    # went, and the anchored one stands untouched.
+    assert result["body"]["paragraphs"] == [
+        "At Northwind Labs, I currently serve as Director of Platform "
+        "Engineering.",
+    ]
+
+
+def test_a_truthful_figure_in_the_same_sentence_is_collateral():
+    """The acknowledged cost of a sentence-sized removal unit, pinned so it
+    stays visible rather than being discovered again in a run report.
+
+    "At Vector Analytics, I mentored teams of 5+ engineers, having delivered a
+    70% reduction in checkout latency" mixes a BORROWED DataCore headcount with
+    a genuine Vector Analytics figure. Deterministic code cannot keep the
+    second without rebuilding the sentence around it, so the floor takes both.
+    Recovering the truthful half needs the writer, not the guard: the review
+    loop rewrites rather than the guard cutting (follow-up issue), at which
+    point this test's expectation changes on purpose.
+    """
+    letter = _letter(
+        [
+            "At Vector Analytics, I have experience mentoring teams of 5+ "
+            "engineers, having delivered a 70% reduction in checkout latency.",
+        ]
+    )
+    result = guard_letter_figures(letter, PROFILE)
+    body_text = " ".join(result["body"]["paragraphs"])
+    assert "5+" not in body_text
+    assert "70%" not in body_text  # collateral — the honest half goes too
 
 
 # ── no-op path ────────────────────────────────────────────────────────────

@@ -71,12 +71,22 @@ backing) a letter clause that renders it as "5+"). Years are exempt entirely
 and "since 20XX" phrasing are tenure-ambient and legitimately repeat across
 positions.
 
-A figure that IS vault-grounded but only under a foreign owner is DROPPED
-(blanked from the clause) rather than the whole claim rewritten by another
-LLM pass — deterministic, no new LLM call, mirroring the #207/US261
-word-boundary blanking idiom. Every drop is logged (house style forbids
-silent truncation) with the offending figure, its foreign owner(s), and the
-clause it was removed from.
+A figure that IS vault-grounded but only under a foreign owner causes its
+WHOLE SENTENCE to be removed, rather than the claim being rewritten by
+another LLM pass — deterministic, no new LLM call. Every drop is logged
+(house style forbids silent truncation) with the offending figure, its
+foreign owner(s), and the clause it was removed from.
+
+#296 (charter run #7) moved the removal unit from the figure's own character
+span to the sentence. Blanking the span shipped grammatical wreckage to a
+hiring manager — "deploy time from 45 to 8 minutes" was delivered as "deploy
+time from to 8 minutes", "EKS for 12 services" as "EKS for services", "a
+99.9% availability target" as "a availability target". A figure is a
+noun-phrase argument whose neighbours are load-bearing, so no whitespace
+tidying can repair the remainder; the sentence is the smallest unit that
+still reads after removal. The same issue widened attribution with a
+paragraph-level running anchor (:func:`_allowed_owner_ids`), which is what
+stops most of these removals from being necessary at all.
 """
 from __future__ import annotations
 
@@ -310,6 +320,7 @@ def _allowed_owner_ids(
     clause_anchor: str | None,
     sentence_named: frozenset[str],
     letter_named_ids: frozenset[str],
+    carried_owners: frozenset[str] = frozenset(),
 ) -> frozenset[str]:
     """Owners a figure in THIS clause may legitimately belong to.
 
@@ -317,18 +328,50 @@ def _allowed_owner_ids(
     strictly anchored clause (exactly one employer/project named in it, or in
     its sentence when the sentence itself is unambiguous) may only be
     substantiated by that position. An unanchored clause falls back to every
-    owner loosely named anywhere in its own sentence, then — only when the
-    WHOLE letter names exactly one employer/project — that one. Otherwise the
-    allowed set stays empty and only role-agnostic evidence (no owners at
-    all) can clear a figure here; per the issue's SAFE-action rule, genuinely
-    undecidable context strips the figure rather than keeping it.
+    owner loosely named anywhere in its own sentence, then to the **owners
+    carried forward from earlier in the paragraph**, then — only when the WHOLE
+    letter names exactly one employer/project — that one. Otherwise the allowed
+    set stays empty and only role-agnostic evidence (no owners at all) can clear
+    a figure here; per the issue's SAFE-action rule, genuinely undecidable
+    context strips the figure rather than keeping it.
+
+    ``carried_owners`` (#296): prose does not restate the employer in every
+    sentence. "At Acme I owned the platform. I cut deploy time from 45 to 8
+    minutes." anchors only its FIRST sentence, so the second fell through to the
+    ``len(letter_named_ids) == 1`` escape — which a letter naming two employers
+    never satisfies. Charter run #7's letter named two, so every figure in every
+    follow-on sentence was unattributable and every one was dropped.
+
+    What gets carried is exactly what the anchoring sentence NAMED — its anchor
+    plus the loose owner set the same sentence resolves to — not the anchor id
+    alone. Those differ whenever the candidate held two positions at one
+    employer: "At Northwind Labs, I serve as Director" anchors to the *current*
+    position, while the achievement it introduces may sit on the *earlier* one.
+    Carrying only the anchor would make the carry-forward stricter than an
+    explicit restatement of the very same words, which is incoherent — a reader
+    carrying "At Northwind Labs" forward carries the employer, not one role.
+    The caller stops carrying the moment a later sentence names anything of its
+    own, so this can never leak across a topic change.
     """
     if clause_anchor is not None:
         return frozenset({clause_anchor})
-    allowed = set(sentence_named)
+    allowed = set(sentence_named) | set(carried_owners)
     if len(letter_named_ids) == 1:
         allowed |= letter_named_ids
     return frozenset(allowed)
+
+
+def _distinct_owner_names(
+    ids: frozenset[str], candidates: list[tuple[str, str]]
+) -> frozenset[str]:
+    """The distinct employer/project NAMES behind a set of owner ids.
+
+    Two ids are not two employers when the candidate held two positions at the
+    same company — the exact distinction ``oracle.extract._find_employer_anchor``
+    already makes before its current-role tiebreak. Reused here so the #296
+    carry-forward keys on the employer a reader would carry, not on a position.
+    """
+    return frozenset({n for n, i in candidates if i in ids})
 
 
 def _collapse_whitespace(text: str) -> str:
@@ -337,43 +380,42 @@ def _collapse_whitespace(text: str) -> str:
     return cleaned
 
 
-def _strip_unattributable(
+def _unattributable_figures(
     text: str,
     allowed_ids: frozenset[str],
     vault_fig_map: dict[tuple[str, str], list[EvidenceUnit]],
-) -> tuple[str, list[dict[str, Any]]]:
-    """Blank every figure in ``text`` whose vault backing is EXCLUSIVELY
-    foreign to ``allowed_ids`` (mirrors
-    ``oracle.matchers.attribution.find_foreign_owner``'s "any role-agnostic or
-    allowed unit clears it" rule, generalized to a set of allowed owners). A
-    figure with no vault match anywhere is left untouched — not this guard's
-    job (module docstring)."""
-    figures = _extract_letter_figures(text)
-    to_blank: list[tuple[int, int]] = []
+) -> list[dict[str, Any]]:
+    """Every figure in ``text`` whose vault backing is EXCLUSIVELY foreign to
+    ``allowed_ids`` (mirrors ``oracle.matchers.attribution.find_foreign_owner``'s
+    "any role-agnostic or allowed unit clears it" rule, generalized to a set of
+    allowed owners). A figure with no vault match anywhere is left untouched —
+    not this guard's job (module docstring).
+
+    Detection only (#296). This used to excise the figure's own character span,
+    which is what produced run #7's mutilated prose — "deploy time from 45 to 8
+    minutes" shipped as "deploy time from to 8 minutes", "EKS for 12 services"
+    as "EKS for services", "a 99.9% availability target" as "a availability
+    target". A figure is a noun-phrase argument, not a removable modifier: the
+    surrounding words are grammatically load-bearing, so no amount of whitespace
+    tidying makes the remainder a sentence. The caller now removes the whole
+    sentence instead — the smallest unit that stands on its own.
+    """
     dropped: list[dict[str, Any]] = []
-    for fig in figures:
+    for fig in _extract_letter_figures(text):
         units = vault_fig_map.get((fig.kind, fig.value), [])
         if not units:
             continue
-        compatible = any((not u.owner_ids) or (u.owner_ids & allowed_ids) for u in units)
-        if compatible:
+        if any((not u.owner_ids) or (u.owner_ids & allowed_ids) for u in units):
             continue
-        to_blank.append((fig.start, fig.end))
-        foreign_owners = sorted({o for u in units for o in u.owner_ids})
         dropped.append(
             {
                 "raw": fig.raw,
                 "kind": fig.kind,
                 "clause": text.strip(),
-                "foreign_owners": foreign_owners,
+                "foreign_owners": sorted({o for u in units for o in u.owner_ids}),
             }
         )
-    if not to_blank:
-        return text, []
-    new_text = text
-    for start, end in sorted(to_blank, reverse=True):
-        new_text = new_text[:start] + new_text[end:]
-    return _collapse_whitespace(new_text), dropped
+    return dropped
 
 
 def _guard_paragraph(
@@ -383,18 +425,51 @@ def _guard_paragraph(
     letter_named_ids: frozenset[str],
     vault_fig_map: dict[tuple[str, str], list[EvidenceUnit]],
 ) -> tuple[str, list[dict[str, Any]]]:
+    """Drop every SENTENCE carrying a figure this context cannot attribute.
+
+    Two #296 changes over the per-clause blanking this used to do.
+
+    * The paragraph carries the **owners named by its last anchoring sentence**:
+      a sentence that resolved to exactly one employer/project stamps the
+      sentences that follow it, which is how a reader resolves "I cut deploy
+      time from 45 to 8 minutes" after "At Acme I owned the platform." It is
+      replaced the instant a later sentence anchors elsewhere, so it never
+      survives a topic change. A sentence that names owners of its own still
+      uses its own set — the carry-forward only fills genuine silence.
+    * The removal unit is the **sentence**, not the figure's character span.
+      Excising the span left grammatical wreckage in the delivered PDF ("from to
+      8 minutes"); a sentence is the smallest unit that reads correctly after
+      removal. Detection stays per-clause, so clause-level anchoring (#248) is
+      unchanged — only the consequence is coarser.
+    """
     dropped: list[dict[str, Any]] = []
     pieces: list[str] = []
     cursor = 0
+    carried_owners: frozenset[str] = frozenset()
     for start, end, sentence in _sentence_spans(paragraph):
-        pieces.append(paragraph[cursor:start])
         sentence_anchor = _find_employer_anchor(sentence, candidates)
         sentence_named = _match_ids(sentence, loose_candidates)
+        named = sentence_named | (
+            frozenset({sentence_anchor}) if sentence_anchor else frozenset()
+        )
+        # Only fill genuine silence: a sentence that names an owner of its own
+        # speaks for itself.
+        carried = frozenset() if named else carried_owners
+        if named:
+            # Carry forward only when this sentence resolved to exactly ONE
+            # employer — several positions at that employer are fine (the
+            # ``_find_employer_anchor`` one-name rule, reused verbatim), two
+            # different employers are not, and clear the carry rather than
+            # guessing between them.
+            carried_owners = (
+                named
+                if len(_distinct_owner_names(named, loose_candidates)) == 1
+                else frozenset()
+            )
         clause_spans = _clause_spans(sentence)
         multi = len(clause_spans) > 1
 
-        sent_pieces: list[str] = []
-        sc = 0
+        sentence_dropped: list[dict[str, Any]] = []
         for cs, ce in clause_spans:
             clause_text = sentence[cs:ce]
             clause_anchor = sentence_anchor
@@ -402,17 +477,21 @@ def _guard_paragraph(
                 # #248 direction 1: the sentence was ambiguous or named no
                 # employer — give this clause its own chance to anchor.
                 clause_anchor = _find_employer_anchor(clause_text, candidates)
-            allowed = _allowed_owner_ids(clause_anchor, sentence_named, letter_named_ids)
-            new_clause, clause_dropped = _strip_unattributable(clause_text, allowed, vault_fig_map)
-            sent_pieces.append(sentence[sc:cs])
-            sent_pieces.append(new_clause)
-            sc = ce
-            dropped.extend(clause_dropped)
-        sent_pieces.append(sentence[sc:])
-        pieces.append("".join(sent_pieces))
+            allowed = _allowed_owner_ids(
+                clause_anchor, sentence_named, letter_named_ids, carried
+            )
+            sentence_dropped.extend(
+                _unattributable_figures(clause_text, allowed, vault_fig_map)
+            )
+
+        if sentence_dropped:
+            dropped.extend(sentence_dropped)
+            cursor = end  # skip the sentence AND its leading separator
+            continue
+        pieces.append(paragraph[cursor:end])
         cursor = end
     pieces.append(paragraph[cursor:])
-    return "".join(pieces), dropped
+    return _collapse_whitespace("".join(pieces)).strip(), dropped
 
 
 def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str, Any]:
@@ -450,6 +529,10 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
             for d in para_dropped:
                 d["paragraph_index"] = pi
             all_dropped.extend(para_dropped)
+        if not new_para.strip():
+            # Every sentence went. An empty string would render as a blank gap
+            # between paragraphs, so the paragraph goes with them (#296).
+            continue
         new_paragraphs.append(new_para)
 
     if not changed:
@@ -457,9 +540,11 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
 
     for d in all_dropped:
         logger.warning(
-            "letter_figure_guard (#254): dropped figure %r from cover-letter "
-            "paragraph %d — backed only by evidence owned by %s, which this "
-            "clause's context does not name (%r). Rewritten figure-free.",
+            "letter_figure_guard (#254/#296): removed the sentence carrying "
+            "figure %r from cover-letter paragraph %d — backed only by evidence "
+            "owned by %s, which this clause's context does not name (%r). The "
+            "WHOLE sentence goes: excising the figure alone left ungrammatical "
+            "prose in the delivered PDF.",
             d["raw"], d["paragraph_index"], d["foreign_owners"], d["clause"],
         )
 

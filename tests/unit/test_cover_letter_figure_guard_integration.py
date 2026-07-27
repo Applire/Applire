@@ -69,7 +69,17 @@ PROFILE_JSON = {
 
 def _fabricated_letter():
     """Stand-in for the corrector's OWN output — the writer draft never had
-    this figure; only the reviewer-driven retry call does (ground truth)."""
+    this figure; only the reviewer-driven retry call does (ground truth).
+
+    The borrowed headcount and the honestly-grounded 70% sit in SEPARATE
+    sentences (#296). They used to share one, which stopped being a meaningful
+    fixture once the removal unit became the sentence: the honest figure would
+    then be collateral, and this tier would only be able to assert the loss.
+    Two sentences keep the assertion that actually matters end to end — the
+    borrowed figure is stripped before persist while the grounded one reaches
+    the database untouched. The collateral case is pinned on its own at the
+    unit tier (``test_a_truthful_figure_in_the_same_sentence_is_collateral``).
+    """
     return {
         "header": {"name": "Anna Bauer"},
         "recipient": {"name": None, "company": "Vector Analytics", "date": None},
@@ -77,8 +87,8 @@ def _fabricated_letter():
             "paragraphs": [
                 "Dear Hiring Team,",
                 "At Vector Analytics, I have experience mentoring teams of 5+ "
-                "engineers and driving delivery excellence, having delivered a "
-                "70% reduction in checkout latency.",
+                "engineers and driving delivery excellence. I delivered a 70% "
+                "reduction in checkout latency there.",
                 "Sincerely,",
             ]
         },
@@ -182,13 +192,21 @@ async def test_corrector_borrowed_figure_is_stripped_before_persist(seeded):
     assert cl.status == CoverLetterStatus.ready.value
     body_text = " ".join(cl.letter_data["body"]["paragraphs"])
 
-    # the fabricated, misattributed headcount must be gone
+    # the fabricated, misattributed headcount must be gone — and so must its
+    # whole sentence (#296): blanking the span alone shipped "mentoring teams
+    # of engineers" to a hiring manager in charter run #7
     assert "5+" not in body_text
-    # the honestly-grounded BioNTech-style figure in the SAME letter survives
+    assert "mentoring teams of" not in body_text
+    # The honestly-grounded figure in the SAME letter survives — and note it
+    # survives via the #296 carry-forward, since its own sentence names no
+    # employer at all: without that, this figure would have been dropped too.
     assert "70%" in body_text
-    # the surrounding clause survives, figure-free — not deleted wholesale
-    assert "mentoring teams of" in body_text
-    assert "Vector Analytics" in body_text
+    # Known limitation of a sentence-sized removal unit, pinned rather than
+    # hidden: the dropped sentence carried the only "At Vector Analytics", so
+    # the surviving sentence's "there" now points at nothing. Deterministic
+    # code cannot repair an anaphor; the review-loop remedy (follow-up issue)
+    # is what fixes this class, and this expectation flips when it lands.
+    assert "Vector Analytics" not in body_text
 
 
 @pytest.mark.asyncio
