@@ -419,13 +419,11 @@ ALL_TEMPLATES = [
 
 @pytest.fixture(scope="module")
 def jinja_env():
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from applire.templates.filters import build_template_env
 
     templates_dir = _backend / "applire" / "templates"
-    return Environment(
-        loader=FileSystemLoader(str(templates_dir)),
-        autoescape=select_autoescape(["html"]),
-    )
+    # #307: the ONE factory — a hand-rolled Environment misses shared filters.
+    return build_template_env(templates_dir)
 
 
 @pytest.fixture(scope="module")

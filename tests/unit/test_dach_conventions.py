@@ -33,7 +33,7 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from applire.templates.filters import month_year, register_filters  # noqa: E402
+from applire.templates.filters import month_year  # noqa: E402
 from applire.templates.labels import cover_letter_labels  # noqa: E402
 
 
@@ -81,24 +81,46 @@ def test_none_renders_empty_not_the_string_none():
     assert month_year(None) == ""
 
 
-def test_every_jinja_environment_registers_the_filter():
-    """The tree has FOUR independent Jinja environments and the section editor
-    plus the tests/ats harness borrow ``cv.py``'s. A filter registered on some
-    but not all of them is the render-site drift CLAUDE.md warns about — this is
-    the test that makes a missed site fail instead of silently rendering ISO."""
+def test_the_shipped_environments_carry_the_filter():
     from applire.services.cover_letter import _jinja_env as letter_env
     from applire.services.cv import _jinja_env as cv_env
 
     for env in (cv_env, letter_env):
         assert "month_year" in env.filters
 
-    # thumbnails.py builds its env inside the function; assert the registrar is
-    # applied there by exercising it the same way the module does.
-    from jinja2 import Environment
 
-    env = Environment()
-    register_filters(env)
+def test_the_factory_is_the_only_way_an_environment_is_built():
+    """The tree had SEVEN hand-rolled Jinja environments — three services and four
+    test harnesses — each with the same two arguments. Adding the first shared
+    filter broke all four harnesses at once, and patching them individually would
+    have left the eighth to be found the same way. Every site now goes through
+    ``build_template_env``; this test fails if a new one is hand-rolled."""
+    repo = Path(__file__).parent.parent.parent
+    scanned = list((repo / "backend" / "applire").rglob("*.py"))
+    scanned += list((repo / "tests").rglob("*.py"))
+    scanned += list((repo / "backend" / "tests").rglob("*.py"))
+
+    offenders = []
+    for path in scanned:
+        if path.name == "filters.py":  # the factory itself
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "Environment(" in line and "build_template_env" not in line:
+                offenders.append(f"{path.relative_to(repo)}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "hand-rolled Jinja Environment — use templates.filters.build_template_env:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_the_factory_returns_a_usable_environment():
+    from applire.templates.filters import build_template_env
+
+    env = build_template_env(
+        Path(__file__).parent.parent.parent / "backend" / "applire" / "templates"
+    )
     assert env.filters["month_year"]("2017-04") == "04/2017"
+    assert env.get_template("lebenslauf.html.j2") is not None
 
 
 def test_no_cv_template_renders_a_raw_date():

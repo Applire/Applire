@@ -24,8 +24,7 @@ Uses the same Playwright + Jinja2 stack as the PDF renderer.
 import logging
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from applire.templates.filters import register_filters
+from applire.templates.filters import build_template_env
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +116,7 @@ async def ensure_thumbnails(static_dir: Path) -> None:
 
     logger.info("Generating %d template thumbnail(s): %s", len(missing), [n for n, _ in missing])
 
-    jinja_env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=select_autoescape(["html"]),
-    )
-    register_filters(jinja_env)  # #307 — every env must register (see filters.py)
+    jinja_env = build_template_env(_TEMPLATES_DIR)
 
     from playwright.async_api import async_playwright
 

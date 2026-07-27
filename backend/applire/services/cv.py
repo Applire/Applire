@@ -51,8 +51,7 @@ if TYPE_CHECKING:
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from applire.templates.filters import register_filters
+from applire.templates.filters import build_template_env
 from playwright.async_api import async_playwright
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1308,11 +1307,7 @@ _TEMPLATE_FILES: dict[str, str] = {
 }
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_jinja_env = Environment(
-    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-    autoescape=select_autoescape(["html"]),
-)
-register_filters(_jinja_env)  # #307 — MM/YYYY dates; every env must register (see filters.py)
+_jinja_env = build_template_env(_TEMPLATES_DIR)
 
 _PHOTO_MIME: dict[str, str] = {
     "jpg": "image/jpeg",

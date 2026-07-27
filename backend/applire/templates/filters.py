@@ -17,16 +17,20 @@
 
 """Shared render-time Jinja filters for the CV and cover-letter templates (#307).
 
-Registered through :func:`register_filters` rather than exported as a bare dict,
-because there are FOUR independent Jinja environments in the tree (``cv.py``,
-``cover_letter.py``, ``thumbnails.py``, and the ``tests/ats`` harness; the section
-editor reuses ``cv.py``'s). A filter registered on some of them and not the others
-is the exact shape of the render-site drift ``CLAUDE.md`` warns about, so every
-site calls the same registrar.
+**Build every environment with :func:`build_template_env`.** The tree had SEVEN
+independent Jinja environments when this module was written — ``cv.py``,
+``cover_letter.py``, ``thumbnails.py``, and four test harnesses (the section editor
+and the ``tests/ats`` roundtrip borrow ``cv.py``'s) — each constructed by hand with
+the same two arguments. Adding the first shared filter broke all four test harnesses
+at once, precisely the render-site drift ``CLAUDE.md`` warns about, and patching each
+site would have left the eighth to be discovered the same way. A single factory means
+there is one way to get an environment and it is always correctly configured.
 """
 import re
 
-__all__ = ["month_year", "register_filters"]
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+__all__ = ["month_year", "register_filters", "build_template_env"]
 
 # "2017-04", "2017-04-01", "2017/04" — the shapes the extractor and the reconciler
 # actually produce. Anything else is passed through untouched (see month_year).
@@ -82,6 +86,21 @@ def month_year(value: object) -> str:
 def register_filters(env) -> None:
     """Install every shared template filter on a Jinja environment.
 
-    Call this at EVERY render site. See the module docstring for why.
+    Prefer :func:`build_template_env`; this exists for an environment that already
+    has to be constructed some other way.
     """
     env.filters["month_year"] = month_year
+
+
+def build_template_env(templates_dir) -> Environment:
+    """The one way to construct a Jinja environment for Applire's templates.
+
+    Production render sites and test harnesses alike — see the module docstring.
+    A test asserts no ``Environment(`` is constructed anywhere else.
+    """
+    env = Environment(
+        loader=FileSystemLoader(str(templates_dir)),
+        autoescape=select_autoescape(["html"]),
+    )
+    register_filters(env)
+    return env
