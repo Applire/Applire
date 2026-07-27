@@ -39,7 +39,7 @@ from datetime import date, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from applire.templates.filters import build_template_env
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,10 +89,7 @@ _TEMPLATE_FILES: dict[str, str] = {
 }
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_jinja_env = Environment(
-    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-    autoescape=select_autoescape(["html"]),
-)
+_jinja_env = build_template_env(_TEMPLATES_DIR)
 
 
 async def generate_cover_letter(
@@ -478,6 +475,61 @@ def _inject_salutation(letter_data: dict, language: str) -> dict:
     if not isinstance(paragraphs, list):
         paragraphs = []
     body["paragraphs"] = [salutation, *paragraphs]
+    return letter_data
+
+
+# A salutation is short in BOTH senses, and the word cap is the load-bearing one.
+# "Sehr geehrte Frau Prof. Dr. Müller-Lüdenscheidt," is 6 words / 48 chars; a
+# collective address like "Liebe Kolleginnen und Kollegen aus der Fertigung, der
+# Instandhaltung und ..." clears the character cap at its FIRST comma while being a
+# single continuing salutation — splitting there strands "der Instandhaltung ..." as
+# a body paragraph. Counting words catches that; counting characters does not.
+_MAX_SALUTATION_WORDS = 6
+_MAX_SALUTATION_CHARS = 60
+
+
+def _split_inline_salutation(letter_data: dict) -> dict:
+    """Give the Anrede its own paragraph when the model ran it into the opener (#307).
+
+    Charter run #7 delivered a German Anschreiben whose first body paragraph was
+    ``"Sehr geehrte Damen und Herren, mit großem Interesse habe ich Ihre
+    Stellenausschreibung ... gelesen. Als erfahrener Produktionsleiter ..."`` — one
+    justified block. In a German business letter (and an English one) the salutation
+    stands on its own line with a blank line after it; running it into the first
+    sentence is the most visible formal defect a reader meets on the page.
+
+    The deterministic twin of :func:`_inject_salutation`: that one supplies a missing
+    Anrede, this one un-glues a present-but-inline Anrede. Both doors need it — the
+    agent door because an agent may write the same shape, the pipeline because the
+    writer LLM demonstrably does.
+
+    Note the German casing works out: "Sehr geehrte Damen und Herren," is correctly
+    followed by a lowercase continuation, so the split yields conventional prose
+    without touching a single word.
+    """
+    body = letter_data.get("body")
+    if not isinstance(body, dict):
+        return letter_data
+    paragraphs = body.get("paragraphs")
+    if not isinstance(paragraphs, list) or not paragraphs:
+        return letter_data
+
+    for index, para in enumerate(paragraphs[:2]):
+        text = (para or "").strip()
+        if not text or not _salutation_norm(text).startswith(_SALUTATION_OPENERS):
+            continue
+        head, sep, tail = text.partition(",")
+        # No comma, nothing after it, or a "salutation" too long to be one: leave
+        # the paragraph exactly as the author wrote it. Failing closed here costs a
+        # cosmetic defect; failing open would cut a real sentence in half.
+        if not sep or not tail.strip():
+            continue
+        if len(head.split()) > _MAX_SALUTATION_WORDS or len(head) > _MAX_SALUTATION_CHARS:
+            continue
+        paragraphs[index : index + 1] = [f"{head}{sep}", tail.strip()]
+        break
+
+    body["paragraphs"] = paragraphs
     return letter_data
 
 
@@ -987,6 +1039,9 @@ async def _render_cover_letter_background(
             # path fed a blank name), so the letter is never unsigned.
             letter_data = _normalize_signature_closing(letter_data, detected_language)
             letter_data = _backfill_sender_name(letter_data, cv_data, profile)
+            # #307: the Anrede gets its own paragraph — the writer runs it into the
+            # opening sentence, which is the DACH letter's most visible formal defect.
+            letter_data = _split_inline_salutation(letter_data)
 
             # Store the letter body, but keep status 'generating' for now. E037 PQ #2
             # (ATS "not available" race): the ATS audit must be persisted BEFORE status
@@ -1090,6 +1145,8 @@ async def _render_cover_letter_background(
                         # deterministic chrome sign-off + sender-name backfill to it too.
                         condensed = _normalize_signature_closing(condensed, detected_language)
                         condensed = _backfill_sender_name(condensed, cv_data, profile)
+                        # #307: the condense pass is a fresh rewrite — re-split too.
+                        condensed = _split_inline_salutation(condensed)
                         letter_data = condensed
                         # Wave-6 follow-up (charter run #6, Task 3): the condense
                         # pass is bounded to exactly one round (ADR-051 §6) and
@@ -1396,6 +1453,8 @@ async def render_agent_letter(
     # the author didn't open with a salutation. Scoped to the agent door; the
     # generation pipeline's LLM reliably writes its own salutation.
     letter_data = _inject_salutation(letter_data, language)
+    # #307: an agent may write the Anrede inline just as the pipeline writer does.
+    letter_data = _split_inline_salutation(letter_data)
 
     cl = GeneratedCoverLetter(
         job_analysis_id=job_id,

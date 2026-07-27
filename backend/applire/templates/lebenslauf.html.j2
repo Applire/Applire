@@ -225,7 +225,7 @@
     {% for job in cv.work_history %}
     <div class="entry">
       <div class="entry-dates">
-        {{ job.start_date }}&nbsp;–&nbsp;{{ job.end_date if job.end_date else labels.present }}
+        {{ job.start_date | month_year }}&nbsp;–&nbsp;{{ job.end_date | month_year if job.end_date else labels.present }}
       </div>
       <div class="entry-body">
         <div class="entry-title">{{ job.role }}</div>
@@ -289,7 +289,7 @@
     {% for edu in cv.education %}
     <div class="entry">
       <div class="entry-dates">
-        {{ edu.start_date }}{% if edu.start_date %}&nbsp;–&nbsp;{% endif %}{{ edu.end_date if edu.end_date else (labels.present if edu.start_date else "") }}
+        {{ edu.start_date | month_year }}{% if edu.start_date %}&nbsp;–&nbsp;{% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}
       </div>
       <div class="entry-body">
         <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
@@ -306,7 +306,7 @@
     <h2 class="section-title">{{ labels.certifications }}</h2>
     {% for cert in cv.certifications %}
     <div class="entry">
-      <div class="entry-dates">{{ cert.date_obtained }}</div>
+      <div class="entry-dates">{{ cert.date_obtained | month_year }}</div>
       <div class="entry-body">
         <div class="entry-title">{{ cert.name }}</div>
         {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}

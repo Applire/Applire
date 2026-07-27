@@ -2632,7 +2632,10 @@ class TestThumbnails:
         mock_env.get_template = MagicMock(return_value=mock_template)
 
         with patch("playwright.async_api.async_playwright", return_value=mock_pw_cm):
-            with patch("applire.services.thumbnails.Environment", return_value=mock_env):
+            # #307: the module builds its env through the shared factory now, so the
+            # patch target moved with it (a hand-rolled Environment would miss
+            # every shared filter).
+            with patch("applire.services.thumbnails.build_template_env", return_value=mock_env):
                 await ensure_thumbnails(tmp_path)
 
         # Verify page.screenshot was called for each template
@@ -2671,7 +2674,10 @@ class TestThumbnails:
         mock_env.get_template = MagicMock(return_value=mock_template)
 
         with patch("playwright.async_api.async_playwright", return_value=mock_pw_cm):
-            with patch("applire.services.thumbnails.Environment", return_value=mock_env):
+            # #307: the module builds its env through the shared factory now, so the
+            # patch target moved with it (a hand-rolled Environment would miss
+            # every shared filter).
+            with patch("applire.services.thumbnails.build_template_env", return_value=mock_env):
                 # Should not raise despite the browser crash
                 await ensure_thumbnails(tmp_path)
 

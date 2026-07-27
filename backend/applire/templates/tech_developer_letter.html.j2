@@ -31,7 +31,7 @@
   <div class="date">{{ letter.recipient.date }}</div>
   <div class="subject">{{ subject }}{% if letter.recipient.company %} — {{ letter.recipient.company }}{% endif %}</div>
   <div class="body">{% for para in letter.body.paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
-  <div class="signature"><div class="closing">{{ letter.signature.closing }},</div><div>{{ letter.signature.name }}</div></div>
+  <div class="signature"><div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div><div>{{ letter.signature.name }}</div></div>
 </div>
 </body>
 </html>

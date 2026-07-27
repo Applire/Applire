@@ -42,7 +42,7 @@
   <div class="body">{% for para in letter.body.paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
 
   <div class="signature">
-    <div class="closing">{{ letter.signature.closing }},</div>
+    <div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div>
     <div>{{ letter.signature.name }}</div>
   </div>
 </div>
