@@ -691,54 +691,12 @@ def verified_missing_claimable(
 # private notions of load-bearing that drift apart.
 
 
-_LOAD_BEARING_FIGURE_KINDS = frozenset({"percent", "currency"})
-
-
-def is_load_bearing(entry: dict[str, Any]) -> bool:
-    """True for a claimable, ``direct`` ledger concept whose profile
-    EVIDENCE carries a percent or currency figure, via THE canonical figure
-    detector (``oracle.matchers.figures.extract_figures``, US244) already
-    shared by the Oracle and the letter figure-guard. This is the narrow "a
-    hiring reviewer checks for this number by name" class of claim (#303's
-    finding, #306/#315's fix): most claimable concepts are plain skill or
-    tool names with no number to lose, and are correctly left alone.
-
-    Deliberately narrower than ``extract_figures``'s own kind set: a bare
-    "number" or "year" figure is usually incidental to the EVIDENCE prose
-    (ledger evidence routinely reads "(expert, 15 years)" or "(seit 2021)"
-    for concepts that carry no achievement figure at all) and would make
-    almost every entry load-bearing if counted -- the false-positive floor
-    a plain digit-count check has no way to tell apart from a real budget,
-    percentage improvement, or headcount-with-currency claim.
-
-    Every ``partial`` entry is excluded (``status != "direct"``), but for
-    two DIFFERENT reasons that must not be conflated (checked against
-    ADR-048's 2026-07-27 amendment, clause 2/3/4b/4c):
-
-    * An ADJACENT ``partial`` (``is_positioning_only`` -- carries
-      ``adjacent_evidence``) IS actually exempted by ADR-048 itself: the
-      candidate does not hold the JD's own term at all, so demanding it
-      appear literally is a demand to over-claim, and the substitute
-      capability's own quantified evidence does not make the unheld term
-      load-bearing. This half of the exclusion is ADR-048-mandated.
-    * A below-the-bar ``partial`` (no ``adjacent_evidence`` -- "the
-      candidate has the right capability below a stated bar") is NOT
-      exempted by ADR-048; clause 2 says such a term "is still demanded:
-      the candidate really does have that skill, just less of it than the
-      JD asked for". Excluding it here is a #315 SCOPE decision, not an
-      ADR-048 one -- the issue's own acceptance criterion is written for
-      ``direct`` concepts only. Whether a quantified below-the-bar partial
-      should ALSO be load-bearing is left open for a future amendment,
-      not settled by this function's name.
-    """
-    if not entry.get("claimable") or entry.get("status") != "direct":
-        return False
-    from applire.services.oracle.matchers.figures import extract_figures
-
-    return any(
-        f.kind in _LOAD_BEARING_FIGURE_KINDS
-        for f in extract_figures(entry.get("evidence") or "")
-    )
+# THE shared load-bearing predicate lives in ``services/load_bearing.py`` so the
+# CV chain (#315, below) and the cover-letter chain (#306, the substitution
+# guard) can never grow two notions of "load-bearing" that drift apart. It is
+# re-exported here because every caller on this side already reasons in ledger
+# vocabulary; there is exactly ONE definition, in that module.
+from applire.services.load_bearing import is_load_bearing  # noqa: E402,F401
 
 
 def _tailored_narrative_texts(draft: dict[str, Any] | None) -> list[str]:
