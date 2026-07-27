@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from applire.templates.filters import register_filters
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ async def ensure_thumbnails(static_dir: Path) -> None:
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
     )
+    register_filters(jinja_env)  # #307 — every env must register (see filters.py)
 
     from playwright.async_api import async_playwright
 

@@ -53,9 +53,14 @@ _CV_LABELS: dict[str, dict[str, str]] = {
     },
 }
 
+# `closing_punctuation` (#307): German takes NO comma after the Grußformel; English
+# does after the complimentary close. Every letter template hardcoded a "," directly
+# after `signature.closing`, so charter run #7 delivered "Mit freundlichen Grüßen,"
+# to a German employer. Punctuation is chrome and follows the output language like
+# every other value here — it is not part of the stored `closing` string.
 _COVER_LETTER_LABELS: dict[str, dict[str, str]] = {
-    "de": {"subject_prefix": "Bewerbung", "subject_at": "bei", "email": "E-Mail", "phone": "Telefon", "address": "Adresse", "closing": "Mit freundlichen Grüßen", "salutation": "Sehr geehrte Damen und Herren,"},
-    "en": {"subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "salutation": "Dear Sir or Madam,"},
+    "de": {"subject_prefix": "Bewerbung", "subject_at": "bei", "email": "E-Mail", "phone": "Telefon", "address": "Adresse", "closing": "Mit freundlichen Grüßen", "closing_punctuation": "", "salutation": "Sehr geehrte Damen und Herren,"},
+    "en": {"subject_prefix": "Application", "subject_at": "at", "email": "Email", "phone": "Phone", "address": "Address", "closing": "Kind regards", "closing_punctuation": ",", "salutation": "Dear Sir or Madam,"},
 }
 
 # #261: the word framing a target bullet's paired measured outcome ("target X
