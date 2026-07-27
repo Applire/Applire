@@ -36,6 +36,7 @@ System prompt fingerprints:
   "tailored cv corrector"          → CV tailoring refinement    (aparse_json → dict)
   "answer parser corrector"        → response parser refinement (aparse_json → dict)
   "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
+  "verifying one narrow claim"     → ADR-061 stance adjudication (aparse_json → dict, prompt-keyed)
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
@@ -382,6 +383,66 @@ _INTERVIEW_QUESTION = (
     "and explain the tools and processes you used?"
 )
 
+# ADR-061 clause 2 — parses applire.prompts.stance_adjudication's exact
+# user-prompt shape: "TOKEN (kind): token\n\nTURN:\nturn_text\n\nDoes TURN...".
+_STANCE_ADJUDICATION_RE = re.compile(
+    r"TOKEN \([^)]*\): (?P<token>.*?)\n\nTURN:\n(?P<turn>.*?)\n\nDoes TURN state",
+    re.DOTALL,
+)
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _mock_stance_adjudication(prompt: str) -> dict[str, Any]:
+    """Deterministic stand-in for the real testimony adjudication call.
+
+    Real-shape response (``{"answer": ..., "quote": ...}``, ADR-047's "mock
+    mirrors the response shape" precedent) so the mock stack exercises the
+    SAME confirmed/unconfirmed branching a real provider drives, rather than
+    always falling back to unconfirmed via the generic ``{"mock": ...}``
+    fallback (2026-07-27 review finding — that silent difference makes the
+    mock IQ/OQ/PQ suites test a different product than production).
+
+    No randomness: "yes" is returned ONLY when a content word of TOKEN (the
+    longest word first — a rough "head noun" heuristic, case-insensitive,
+    word-boundary matched) appears literally in TURN, and the returned
+    "quote" is always a VERBATIM substring of TURN — sliced out around the
+    match, never paraphrased or invented — so it also passes the caller's own
+    deterministic citation check exactly as a correct real-provider answer
+    would. No match -> {"answer": "no", "quote": ""}, same as a real
+    provider correctly declining to confirm.
+    """
+    m = _STANCE_ADJUDICATION_RE.search(prompt)
+    if not m:
+        # Prompt shape changed underneath this parser — fail toward the
+        # caller's own safe default (malformed -> unconfirmed) rather than
+        # guessing.
+        return {"mock": True, "raw_prompt_length": len(prompt)}
+
+    token = m.group("token").strip()
+    turn = m.group("turn")
+    turn_lower = turn.lower()
+
+    words = sorted({w for w in _WORD_RE.findall(token) if len(w) >= 2}, key=len, reverse=True)
+    match_word: str | None = None
+    for w in words:
+        if re.search(rf"(?<!\w){re.escape(w.lower())}(?!\w)", turn_lower):
+            match_word = w
+            break
+
+    if match_word is None:
+        return {"answer": "no", "quote": ""}
+
+    # Slice a verbatim "sentence" around the match out of the ORIGINAL (not
+    # lower-cased) turn text, so the quote is a real substring of TURN.
+    idx = turn_lower.find(match_word.lower())
+    boundary_chars = ".!?;\n"
+    start = max((turn.rfind(c, 0, idx) for c in boundary_chars), default=-1) + 1
+    end_candidates = [turn.find(c, idx) for c in boundary_chars]
+    end_candidates = [e for e in end_candidates if e != -1]
+    end = (min(end_candidates) + 1) if end_candidates else len(turn)
+    quote = turn[start:end].strip() or turn.strip()
+    return {"answer": "yes", "quote": quote}
+
 
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
@@ -429,6 +490,23 @@ class MockLLMProvider(LLMProvider):
             if "docker compose" in prompt.lower():
                 return copy.deepcopy(_RECONCILE_DOCKER_COMPOSE_RESPONSE)
             return copy.deepcopy(_RECONCILE_RESPONSE)
+
+        # ADR-061 clause 2 — the stance-guard testimony adjudication call
+        # (applire/prompts/stance_adjudication.py). Must mirror the REAL
+        # provider's response shape (ADR-047 precedent: the mock mirrors the
+        # response shape of the real provider) — an unrecognised prompt would
+        # fall through to the generic {"mock": ...} fallback, which the caller
+        # correctly treats as malformed and resolves to `unconfirmed`. That is
+        # *safe* but WRONG as mock-stack behaviour: every uncertain-band token
+        # would silently land unconfirmed on every mock run, so the mock IQ/OQ/
+        # PQ suites would never exercise the confirmed-via-adjudication path at
+        # all (2026-07-27 review finding). Deterministic, not random: a real
+        # citation is only returned when it can be lifted verbatim from the
+        # turn text the caller supplied, so the mock's own quote always passes
+        # the caller's citation check honestly, exactly as a real provider's
+        # correct answer would.
+        if "verifying one narrow claim" in system_lower:
+            return _mock_stance_adjudication(prompt)
 
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)
