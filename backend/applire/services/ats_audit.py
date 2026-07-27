@@ -307,7 +307,7 @@ def _keyword_coverage(
     from applire.services.keyword_ledger import (
         claimable_surface_forms,
         keyword_liabilities,
-        unclaimable_surface_forms,
+        unsupported_claim_surface_forms,
     )
 
     claimable_concepts = claimable_surface_forms(ledger)
@@ -319,7 +319,10 @@ def _keyword_coverage(
     # marks unsupported (honest gap) is a truthfulness warning — it reached the document
     # without profile evidence (e.g. typed in via the section editor). Claimable always
     # wins on alias collisions; without a ledger we cannot judge, so nothing is flagged.
-    unclaimable_norm = {_norm(f) for f in unclaimable_surface_forms(ledger)}
+    # ADR-048/059 am. 2026-07-27: scoped to UNKNOWN gaps — a `denied` concept named
+    # in an honest negation is not an unsupported claim, and this predicate cannot
+    # see negation. The direction-aware check lives with the Oracle.
+    unclaimable_norm = {_norm(f) for f in unsupported_claim_surface_forms(ledger)}
     # #249 run-4 (2026-07-24): ONE shared presence predicate over BOTH
     # surfaces — a keyword that clears `surface_present` against the vault's
     # OWN literal text (the same instrument the Truthfulness Oracle's

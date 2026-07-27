@@ -224,16 +224,18 @@ def _entry_text_norm(entry: dict[str, Any]) -> str:
 
 
 def _flatten_claimable_forms(claimable_ledger: list[dict[str, Any]]) -> tuple[str, ...]:
-    """De-duplicated, order-preserving flat list of every claimable surface form
-    (surface_forms union {concept}). Stored on :class:`BudgetResult` so the condense
-    pass can recompute per-bullet hits with the SAME predicate (Task 1.3, pure)."""
+    """De-duplicated, order-preserving flat list of every claimable RETENTION form
+    (``keyword_ledger.retention_forms``). Stored on :class:`BudgetResult` so the
+    condense pass can recompute per-bullet hits with the SAME predicate (Task 1.3,
+    pure). A positioning-only entry contributes its adjacent capability, not the
+    JD term — the bullet worth protecting from the page budget is the one that
+    stands in for the requirement (ADR-048 amended 2026-07-27)."""
+    from applire.services.keyword_ledger import retention_forms
+
     seen: set[str] = set()
     flat: list[str] = []
     for led in claimable_ledger:
-        forms = list(led.get("surface_forms") or [])
-        if led.get("concept"):
-            forms.append(led["concept"])
-        for f in forms:
+        for f in retention_forms(led):
             if isinstance(f, str) and f not in seen:
                 seen.add(f)
                 flat.append(f)
@@ -241,16 +243,20 @@ def _flatten_claimable_forms(claimable_ledger: list[dict[str, Any]]) -> tuple[st
 
 
 def _hit_count(entry_text_norm: str, claimable_ledger: list[dict[str, Any]]) -> int:
-    """Count of claimable ledger entries whose surface_forms union {concept} are
-    present in ``entry_text_norm`` via the shared ATS presence predicate."""
+    """Count of claimable ledger entries whose retention forms are present in
+    ``entry_text_norm`` via the shared ATS presence predicate.
+
+    Forms come from ``keyword_ledger.retention_forms``, so a positioning-only
+    entry scores its role on the ADJACENT capability (arc42) rather than on the
+    JD term the candidate does not hold (TOGAF) — otherwise the role carrying the
+    substitute reads as irrelevant and gets the tightest bullet budget.
+    """
     from applire.services.ats_audit import surface_present
+    from applire.services.keyword_ledger import retention_forms
 
     hits = 0
     for led in claimable_ledger:
-        forms = list(led.get("surface_forms") or [])
-        if led.get("concept"):
-            forms.append(led["concept"])
-        if any(surface_present(f, entry_text_norm) for f in forms):
+        if any(surface_present(f, entry_text_norm) for f in retention_forms(led)):
             hits += 1
     return hits
 

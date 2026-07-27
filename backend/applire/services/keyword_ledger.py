@@ -360,6 +360,44 @@ def split_ledger_for_prompt(
     return claimable, forbidden
 
 
+def is_positioning_only(entry: dict[str, Any] | None) -> bool:
+    """True for a claimable entry the candidate does NOT actually hold (ADR-048
+    amended 2026-07-27): an ADJACENT ``partial`` whose ``adjacent_evidence``
+    names the capability that stands in for the JD's term.
+
+    THE single definition of that exemption. Three instruments have to agree on
+    it or they pull the document apart: the coverage reviewer must not demand
+    the term (that is a demand to over-claim), the ATS panel must not grade its
+    absence as a surfacing miss, and the page budget must protect the
+    SUBSTITUTE rather than the term. Charter run #7 is what happens when only
+    the first of the three knows (#122's "the loop that grades is the loop that
+    heals", stated the other way round).
+    """
+    return bool((entry or {}).get("adjacent_evidence"))
+
+
+def retention_forms(entry: dict[str, Any]) -> list[str]:
+    """The surface forms that mark a CV bullet as carrying this entry's evidence.
+
+    ``surface_forms ∪ {concept}`` for a normal entry. For a positioning-only
+    entry the JD's own term is REPLACED by ``adjacent_evidence``: the candidate
+    has no bullet containing "TOGAF", so retaining that form protects nothing,
+    while the arc42 bullet it is meant to promote would otherwise score as a
+    no-hit and be cut first by ``condense_to_budget`` (ADR-051 §3).
+
+    Never widens what may be CLAIMED — this feeds bullet RETENTION only. The
+    adjacent term deliberately stays out of ``surface_forms`` so it can never
+    make the JD's term read as present (:func:`claimable_surface_forms`).
+    """
+    if is_positioning_only(entry):
+        return [str(entry["adjacent_evidence"])]
+    forms = [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)]
+    concept = entry.get("concept")
+    if concept:
+        forms.append(str(concept))
+    return forms
+
+
 def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> str:
     """Render the Keyword Ledger as a prompt fragment shared by the CV and cover-letter
     generators (ADR-048 §8 / US200/US201).
@@ -451,11 +489,18 @@ def claimable_surface_forms(
     (the candidate supports it per the ledger, so it should have been surfaced) or a
     *missing-honest-gap* (not in the profile — honestly absent). De-duplicated, order
     preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+
+    A positioning-only entry is excluded (ADR-048 amended 2026-07-27,
+    :func:`is_positioning_only`) — the candidate does NOT have that term, so its
+    absence is an honest gap, not a surfacing miss. Without this the ATS panel
+    renders the amber "structure OK, N keywords missing" state naming a term the
+    coverage reviewer (:func:`verified_missing_claimable`) has already, correctly,
+    decided not to write.
     """
     forms: list[str] = []
     seen: set[str] = set()
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    for entry in claimable:
+    for entry in [e for e in claimable if not is_positioning_only(e)]:
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
             if key and key not in seen:
@@ -464,20 +509,38 @@ def claimable_surface_forms(
     return forms
 
 
-def unclaimable_surface_forms(
+def unsupported_claim_surface_forms(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[str]:
-    """Flatten every surface form of every NON-claimable (honest-gap) ledger entry.
+    """Flatten every surface form of every UNKNOWN-gap ledger entry.
 
     Used by the ATS audit's fourth quadrant (ADR-048 amended 2026-07-03, #117): a
     keyword PRESENT in the document whose only ledger backing is an honest gap is
     an unsupported claim and gets a truthfulness warning. De-duplicated, order
     preserved. ``None``/empty tolerant (legacy pre-E037 rows have no ledger).
+
+    ``denied`` entries are EXCLUDED (ADR-048/059 amended 2026-07-27, PO decision).
+    The quadrant matches by normalised substring, and a substring cannot see
+    negation — so "I have not worked in BaFin supervision", the honest positioning
+    sentence the amended prompts now ASK for, is indistinguishable here from a
+    claim to have it. Every instrument in the pipeline that reads for MEANING
+    already exempts a denial clause: the Oracle verdict path
+    (``oracle/audit.py``, ``claim.is_denial``), the Oracle's own clause splitter
+    (``oracle/extract.py::_is_pure_denial_clause``), the choice-grounding
+    denial→affirmation pivot, and ``cross_document``'s ``bare_denial_of_claimable``
+    (scoped to CLAIMABLE concepts). This quadrant was the sole outlier, and the
+    only one of the five that cannot tell direction.
+
+    Nothing is lost by the exclusion: ``_is_pure_denial_clause`` is scoped to a
+    CLAUSE, so a document that positively claims a denied concept — or smuggles an
+    affirmation alongside the denial — is still audited by the Oracle, which reads
+    direction. The four-status split is what makes the exclusion expressible at
+    all; before it, ``denied`` and ``gap`` were the same row.
     """
     forms: list[str] = []
     seen: set[str] = set()
     for entry in keyword_ledger or []:
-        if entry.get("claimable"):
+        if entry.get("claimable") or entry.get("status") == "denied":
             continue
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
@@ -585,7 +648,7 @@ def verified_missing_claimable(
     from applire.services.ats_audit import _norm as ats_norm, surface_present
 
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    claimable = [e for e in claimable if not e.get("adjacent_evidence")]
+    claimable = [e for e in claimable if not is_positioning_only(e)]
     if not claimable:
         return []
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
