@@ -662,6 +662,128 @@ def verified_missing_claimable(
     return missing
 
 
+# ── #315 — the shared "load-bearing claim" vocabulary ──────────────────────
+# Charter run #7 case 2 (operations_marcus_de, DE): the ledger concept
+# "Budget- und Investitionsverantwortung" (direct, claimable, fit_weight:
+# 1.0) reached the delivered CV as a bare keyword ("Budgetverantwortung" in
+# the summary sentence and the skills list), never as a narrative bullet
+# carrying its quantified evidence ("Budgetverantwortung ca. 6 Mio. €
+# (Personal, Instandhaltung, Material-Gemeinkosten)."). Two blind hiring
+# reviewers scored the requirement unmet for want of exactly that number.
+#
+# Root cause pinned against ground truth (backend/logs/llm/2026-07-27.jsonl,
+# 12:03-12:05 UTC): the CV reviewer's OWN round-1 issue named the missing
+# bullet by text; round-1's generator never added it; round-2 approved
+# anyway. Neither the deterministic coverage gate (``coverage_reviewer_
+# prompt_fn``) nor the #234 restoration guard (``services.cv._restore_
+# ledger_bullets``) ever flagged the drop, because both key on
+# ``verified_missing_claimable`` above, which scans the WHOLE serialised
+# draft -- including ``skills`` and ``summary`` -- for a bare surface-form
+# match. "Budgetverantwortung" satisfied that scan from the very first
+# draft onward. ``cv_budget.condense_to_budget`` never ran on this bullet
+# at all -- it never existed in ``tailored_data`` to condense; the
+# briefed "condense cut it" hypothesis is DISPROVED.
+#
+# ``is_load_bearing``/``verified_missing_load_bearing`` are THE shared
+# vocabulary for "a claim that must never be reduced to a bare keyword by
+# any cutting/trimming/restoring step" -- reused verbatim by the cover-
+# letter chain's own guard (#306) so the two document chains never grow two
+# private notions of load-bearing that drift apart.
+
+
+_LOAD_BEARING_FIGURE_KINDS = frozenset({"percent", "currency"})
+
+
+def is_load_bearing(entry: dict[str, Any]) -> bool:
+    """True for a claimable, ``direct`` ledger concept whose profile
+    EVIDENCE carries a percent or currency figure, via THE canonical figure
+    detector (``oracle.matchers.figures.extract_figures``, US244) already
+    shared by the Oracle and the letter figure-guard. This is the narrow "a
+    hiring reviewer checks for this number by name" class of claim (#303's
+    finding, #306/#315's fix): most claimable concepts are plain skill or
+    tool names with no number to lose, and are correctly left alone.
+
+    Deliberately narrower than ``extract_figures``'s own kind set: a bare
+    "number" or "year" figure is usually incidental to the EVIDENCE prose
+    (ledger evidence routinely reads "(expert, 15 years)" or "(seit 2021)"
+    for concepts that carry no achievement figure at all) and would make
+    almost every entry load-bearing if counted -- the false-positive floor
+    a plain digit-count check has no way to tell apart from a real budget,
+    percentage improvement, or headcount-with-currency claim.
+
+    ``partial``/adjacent entries are excluded (``status != "direct"``) --
+    ADR-048's positioning-only exemption already governs those; a
+    substitute capability's own quantified evidence does not make the JD's
+    unheld term load-bearing.
+    """
+    if not entry.get("claimable") or entry.get("status") != "direct":
+        return False
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    return any(
+        f.kind in _LOAD_BEARING_FIGURE_KINDS
+        for f in extract_figures(entry.get("evidence") or "")
+    )
+
+
+def _tailored_narrative_texts(draft: dict[str, Any] | None) -> list[str]:
+    """Every WORK-HISTORY narrative string in a tailored CV draft: role
+    bullets and nested project bullets ONLY. Deliberately excludes
+    ``skills``, ``summary``, contact, education, certifications, languages
+    -- a bare keyword tag or a one-line elevator pitch is not a story a
+    hiring reviewer will credit for a quantified claim (mirrors #260's
+    ``_narrative_texts`` vault-side scoping rule, applied here to the
+    DELIVERED draft instead of the vault).
+    """
+    if not draft:
+        return []
+    texts: list[str] = []
+    for entry in draft.get("work_history") or []:
+        if not isinstance(entry, dict):
+            continue
+        texts.extend(s for s in (entry.get("bullets") or []) if isinstance(s, str))
+        for proj in entry.get("projects") or []:
+            if not isinstance(proj, dict):
+                continue
+            texts.extend(s for s in (proj.get("bullets") or []) if isinstance(s, str))
+    return texts
+
+
+def tailored_narrative_corpus(draft: dict[str, Any] | None) -> str:
+    """The tailored draft's NARRATIVE-bearing text only, flattened +
+    normalised (#315) -- the DELIVERED-side twin of
+    :func:`profile_narrative_corpus`."""
+    if not draft:
+        return ""
+    from applire.services.ats_audit import _norm as ats_norm
+
+    return ats_norm(" ".join(_tailored_narrative_texts(draft)))
+
+
+def verified_missing_load_bearing(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Load-bearing (#315) ledger entries verifiably absent from the draft's
+    own NARRATIVE (work_history + nested project bullets) -- even when a
+    bare keyword mention elsewhere (skills list, summary) already satisfies
+    :func:`verified_missing_claimable`. Runs the SAME shared presence
+    predicate (``ats_audit.surface_present``), restricted to the narrower
+    narrative corpus so a tag can never stand in for the number.
+    """
+    load_bearing = [e for e in (keyword_ledger or []) if is_load_bearing(e)]
+    if not load_bearing:
+        return []
+    from applire.services.ats_audit import surface_present
+
+    corpus = tailored_narrative_corpus(draft)
+    missing: list[dict[str, Any]] = []
+    for entry in load_bearing:
+        if not any(surface_present(f, corpus) for f in retention_forms(entry)):
+            missing.append(entry)
+    return missing
+
+
 def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
 

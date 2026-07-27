@@ -717,13 +717,30 @@ def _restore_ledger_bullets(
         return tailored
 
     from applire.services.ats_audit import _norm, surface_present
-    from applire.services.keyword_ledger import verified_missing_claimable
+    from applire.services.keyword_ledger import (
+        verified_missing_claimable,
+        verified_missing_load_bearing,
+    )
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
     # still be over its RoleBudget ceiling with nothing left to restore (the #122
     # coverage-review loop pushing an ADD with no ceiling awareness of its own),
     # and the per-entry loop below must run to enforce that ceiling regardless.
-    missing = verified_missing_claimable(tailored.model_dump(mode="json"), keyword_ledger)
+    draft_json = tailored.model_dump(mode="json")
+    missing = verified_missing_claimable(draft_json, keyword_ledger)
+    # #315: a LOAD-BEARING concept (a `direct`+`claimable` figure a hiring
+    # reviewer checks for by name) is missing its evidence even when a bare
+    # keyword mention elsewhere (skills list, summary) already satisfies the
+    # whole-document check above -- that check alone let charter run #7 ship
+    # "Budgetverantwortung" as a tag while its "6 Mio. €" bullet was silently
+    # dropped by the writer and never restored. Union in, deduped by concept
+    # (verified_missing_claimable already covers a concept absent everywhere;
+    # this only adds concepts present ONLY as a bare tag).
+    already = {e.get("concept") for e in missing}
+    for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
+        if entry.get("concept") not in already:
+            missing.append(entry)
+            already.add(entry.get("concept"))
 
     # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
     # this guard MUST run after it so tailored ids are populated.

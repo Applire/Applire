@@ -398,6 +398,186 @@ class TestRestoreLedgerBullets:
         assert "Delivered Concept1 work elsewhere" not in w2.bullets
 
 
+def _load_bearing_ledger_entry(concept: str, *, evidence: str) -> dict:
+    return {
+        "concept": concept,
+        "surface_forms": [concept, "Budgetverantwortung"],
+        "claimable": True,
+        "status": "direct",
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "evidence": evidence,
+    }
+
+
+class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
+    """#315 — charter run #7 case 2 (operations_marcus_de, DE): a `direct` +
+    `claimable` + `fit_weight: 1.0` concept ("Budget- und
+    Investitionsverantwortung") reached the delivered CV as a bare keyword
+    ("Budgetverantwortung" in the summary + skills) while its quantified
+    vault bullet ("Budgetverantwortung ca. 6 Mio. € ...") never landed in a
+    narrative bullet. ``verified_missing_claimable``'s whole-document scan
+    found the bare keyword and called the concept "present", so this guard
+    never restored the vault's own quantified bullet. This is the exact
+    reproduction, using the real evidence text from the run's LLM log."""
+
+    def _fixture(self):
+        concept = "Budget- und Investitionsverantwortung"
+        vault_bullet = (
+            "Budgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung, "
+            "Material-Gemeinkosten)."
+        )
+        other_bullets = [
+            "Führung von 38 Mitarbeitenden in zwei Fertigungsbereichen.",
+            "Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain.",
+        ]
+        ledger = [
+            _load_bearing_ledger_entry(
+                concept,
+                evidence=(
+                    "Explicitly listed as a skill ('Budgetverantwortung', "
+                    "intermediate) and work experience (Budget- und "
+                    "Investitionsverantwortung für 6 Mio. €)."
+                ),
+            )
+        ]
+        profile_json = {
+            "work_experience": [
+                {
+                    "id": "w1",
+                    "company": "Weberit Kunststofftechnik GmbH",
+                    "role": "Produktionsleiter",
+                    "start_date": "2017-04",
+                    "end_date": None,
+                    "is_current": True,
+                    "responsibilities": other_bullets + [vault_bullet],
+                    "achievements": [],
+                }
+            ],
+            "projects": [],
+        }
+        return profile_json, ledger, other_bullets, vault_bullet
+
+    def test_restores_the_quantified_bullet_despite_bare_keyword_elsewhere(self):
+        """The bug: the concept is already 'present' (bare keyword in summary
+        + skills), so pre-#315 this guard found nothing missing and never
+        restored the number. Post-#315 it must restore the vault bullet
+        anyway, because the concept is load-bearing and its narrative is
+        absent."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        profile_json, ledger, other_bullets, vault_bullet = self._fixture()
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Stefan Brandt"},
+            "summary": "... und Budgetverantwortung.",
+            "skills": ["Budget- und Investitionsverantwortung"],
+            "work_history": [{
+                "id": "w1", "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter", "start_date": "2017-04", "end_date": None,
+                "bullets": list(other_bullets),
+            }],
+        })
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4)}, target_pages=2, region="DACH",
+            claimable_forms=("Budget- und Investitionsverantwortung", "Budgetverantwortung"),
+        )
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert vault_bullet in final_bullets, (
+            "load-bearing quantified bullet was not restored despite the bare "
+            "keyword satisfying the whole-document coverage check"
+        )
+
+    def test_no_new_figure_is_ever_minted(self):
+        """Guardrail (#315 acceptance): restoration only ever copies a vault
+        bullet VERBATIM, so every figure in the result must already have been
+        present, verbatim, in the vault's own narrative text -- never a
+        rephrased or invented number."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+        from applire.services.oracle.matchers.figures import extract_figures
+
+        profile_json, ledger, other_bullets, vault_bullet = self._fixture()
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Stefan Brandt"},
+            "summary": "... und Budgetverantwortung.",
+            "skills": ["Budget- und Investitionsverantwortung"],
+            "work_history": [{
+                "id": "w1", "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter", "start_date": "2017-04", "end_date": None,
+                "bullets": list(other_bullets),
+            }],
+        })
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4)}, target_pages=2, region="DACH",
+            claimable_forms=("Budget- und Investitionsverantwortung", "Budgetverantwortung"),
+        )
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        vault_text = " ".join(
+            profile_json["work_experience"][0]["responsibilities"]
+            + profile_json["work_experience"][0]["achievements"]
+        )
+        vault_values = {(f.kind, f.value) for f in extract_figures(vault_text)}
+        for bullet in result.work_history[0].bullets:
+            for fig in extract_figures(bullet):
+                assert (fig.kind, fig.value) in vault_values, (
+                    f"minted figure not present in vault: {fig.raw!r} in {bullet!r}"
+                )
+
+    def test_does_not_regress_non_load_bearing_bare_keyword_noop(self):
+        """A plain (non-quantified) claimable concept must keep the EXISTING
+        behaviour: a bare keyword mention elsewhere is still sufficient, and
+        this guard must not restore anything for it. Only load-bearing
+        concepts get the stronger narrative check."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        concept = "SAP (PP/MM)"
+        ledger = [{
+            "concept": concept, "surface_forms": [concept, "SAP"], "claimable": True,
+            "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+            "evidence": "Explicitly listed as a skill (SAP, expert, 15 years).",
+        }]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Acme", "role": "Engineer",
+                "start_date": "2020-01", "end_date": None, "is_current": True,
+                "responsibilities": ["Daily work with SAP PP and MM modules."],
+                "achievements": [],
+            }],
+            "projects": [],
+        }
+        other_bullets = ["Generic bullet with no ledger hit."]
+        tailored = TailoredCVData.model_validate({
+            "contact": {"name": "Max"},
+            "summary": "Experienced with SAP.",
+            "skills": [concept],
+            "work_history": [{
+                "id": "w1", "company": "Acme", "role": "Engineer",
+                "start_date": "2020-01", "end_date": None,
+                "bullets": list(other_bullets),
+            }],
+        })
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4)}, target_pages=2, region="DACH",
+            claimable_forms=(concept, "SAP"),
+        )
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        assert result.work_history[0].bullets == other_bullets
+
+
 class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
     """End-to-end: ``_render_cv_background`` must thread the guard so a founder-
     acceptance-shaped draft (4 generic bullets survive, 5 JD-matching vault
