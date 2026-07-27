@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from applire.schemas.profile import (
     EnrichmentRecord,
     FieldChange,
@@ -174,7 +176,8 @@ def test_apply_does_not_mutate_input_profile():
     assert p.signature_stories == []
 
 
-def test_stance_guards_stories_but_never_token_grounds_their_prose():
+@pytest.mark.asyncio
+async def test_stance_guards_stories_but_never_token_grounds_their_prose():
     """US261 superseded the E046 posture ("entity upserts are outside stance
     scope"): stories are now guarded — denials over the prose plus figure
     grounding on outcome/benchmark (both corpus-bearing sources, PO ruling
@@ -191,14 +194,14 @@ def test_stance_guards_stories_but_never_token_grounds_their_prose():
             "14 hours."
         )
     }
-    kept = enforce_stance(
+    kept = await enforce_stance(
         [story_op, skill_op], denials=["Kubernetes"], new_info=turn, source="interview"
     )
     assert story_op in kept
     assert skill_op not in kept
     # An ungrounded outcome figure now drops the story (ADR-055 gap closed).
     assert (
-        enforce_stance(
+        await enforce_stance(
             [story_op],
             denials=[],
             new_info={"answer": "I have never used Kubernetes."},

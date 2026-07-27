@@ -101,9 +101,14 @@ async def reconcile(
     ops = _parse_ops(data.get("ops"))
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
     denials = _parse_denials(data.get("denials"))
-    # Stance guard (#127): the model's own denials outrank its ops, and
-    # interview-turn token claims must be grounded in the turn's text.
-    ops = enforce_stance(ops, denials=denials, new_info=new_info, source=source)
+    # Stance guard (#127, ADR-061): the model's own denials outrank its ops;
+    # interview-turn token claims are resolved via the testimony predicate
+    # (deterministic accept + LLM adjudication of the uncertain band, citation
+    # verified in code). `provider` carries the adjudication call — same
+    # provider the reconcile call itself just used.
+    ops = await enforce_stance(
+        ops, denials=denials, new_info=new_info, source=source, provider=provider,
+    )
     # Attribution guard (#243): a multi-employer answer's clause must never
     # silently land on a DIFFERENT employer's entity — deterministic backstop
     # on top of the model's own (occasionally wrong) target choice.

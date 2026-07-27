@@ -97,6 +97,12 @@ class UpsertSkill(BaseModel):
     proficiency: str | None = None
     # Existing ids or local refs of experiences that demonstrate the skill.
     evidence: list[str] = Field(default_factory=list)
+    # ADR-061 clause 3 — set by ``enforce_stance``, never by the reconciler LLM
+    # itself. "confirmed": literal/alias grounding or a citation-verified LLM
+    # adjudication. "unconfirmed": the testimony predicate could not confirm the
+    # token (LLM said no/unclear, or adjudication failed) — the guard no longer
+    # drops the op outright; the vault entity is written but never claimable.
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"
 
 
 class UpsertCertification(BaseModel):
@@ -107,12 +113,14 @@ class UpsertCertification(BaseModel):
     expiry_date: str | None = None
     credential_id: str | None = None
     credential_url: str | None = None
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"  # ADR-061 clause 3
 
 
 class UpsertLanguage(BaseModel):
     op: Literal["upsert_language"] = "upsert_language"
     language: str
     level: str | None = None
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"  # ADR-061 clause 3
 
 
 class UpsertEducation(BaseModel):

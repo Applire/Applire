@@ -640,7 +640,11 @@ async def _render_cover_letter_background(
             )
             profile = profile_result.scalar_one_or_none()
             if profile is not None and not cv_data:
-                cv_data = profile.profile_json or {}
+                # ADR-061 clause 3: no CV exists yet, so this raw profile stands in
+                # as the writer's evidence — an unconfirmed skill/language/
+                # certification must not reach the letter as though established.
+                from applire.services.profile.reconcile.stance import exclude_unconfirmed
+                cv_data = exclude_unconfirmed(profile.profile_json or {})
 
             # Auto-extract recipient if not provided
             pre_gen = dict(cl.pre_gen_inputs or {})
@@ -880,9 +884,14 @@ async def _render_cover_letter_background(
                 render_letter_evidence_block,
                 select_letter_evidence,
             )
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
             vault_evidence_block = render_letter_evidence_block(
                 select_letter_evidence(
-                    keyword_ledger, jd_excerpt, profile.profile_json if profile else {}
+                    keyword_ledger,
+                    jd_excerpt,
+                    # ADR-061 clause 3: unconfirmed vault content is not evidence.
+                    exclude_unconfirmed(profile.profile_json) if profile else {},
                 )
             )
             user_prompt = build_cover_letter_prompt(
@@ -912,10 +921,14 @@ async def _render_cover_letter_background(
             # reviewer audits the body for invented dates/employers/achievements before the
             # letter is shown. Source of truth = the grounded CV data + profile + the
             # candidate's OWN inputs (so user-stated facts are not false-flagged).
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
             grounding_source = json.dumps(
                 {
                     "cv_data": cv_data,
-                    "profile": profile.profile_json if profile is not None else {},
+                    # ADR-061 clause 3: an unconfirmed vault entry must not count as
+                    # grounding for the reviewer — it cannot back a letter sentence.
+                    "profile": exclude_unconfirmed(profile.profile_json) if profile is not None else {},
                     "candidate_inputs": {
                         k: pre_gen.get(k)
                         for k in ("motivation", "salary", "availability")
