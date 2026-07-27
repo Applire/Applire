@@ -148,7 +148,7 @@ BUG244_PROFILE = {
     "professional_summary": {
         "en": (
             "Clinical-adjacent leadership includes GCLP team management, "
-            "establishing the clinical front end for individualized drug "
+            "establishing the clinical front end for specialty biologics "
             "production."
         )
     },

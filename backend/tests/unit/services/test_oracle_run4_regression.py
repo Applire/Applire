@@ -69,7 +69,7 @@ PROFILE = {
             "leads teams that build — AI-driven systems people can "
             "actually trust. For several years I've led teams at Nordvance: "
             "currently as Associate Director for the end-to-end "
-            "supply-chain systems behind individualized cancer therapies, "
+            "supply-chain systems behind specialty biologics, "
             "and before that heading an architecture team in regulated "
             "GxP environments. My focus is increasingly on AI — and it's "
             "hands-on, not just strategic."
@@ -88,7 +88,7 @@ PROFILE = {
                 "data flows for clinical orders.",
                 "Lead a team of five tech leads and system owners "
                 "responsible for the IT systems behind Nordvance's "
-                "individualized cancer therapies",
+                "specialty biologics",
             ],
             "achievements": [
                 "Initiated and led an agentic GenAI system that automates "
