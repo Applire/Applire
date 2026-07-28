@@ -59,7 +59,7 @@ Unlike generic CV builders, Applire:
 - 🧠 **Learns from you**: Builds a persistent Master Profile that gets smarter with every CV you upload — every claim traceable to where it came from
 - 💬 **Interviews you intelligently**: Asks targeted questions to fill gaps between your experience and job requirements
 - ✨ **Tailors with precision**: Generates culturally appropriate CVs optimized for DACH recruiters and ATS systems
-- ✅ **Keeps you truthful**: Every job-ad keyword is classified as backed, claimable, or an honest gap — the system never claims what your profile can't back (a full per-document truthfulness report is next on the [roadmap](#%EF%B8%8F-roadmap))
+- ✅ **Keeps you truthful**: Every job-ad keyword is classified as backed, claimable, or an honest gap — the system never claims what your profile can't back. Every generated document also ships a per-claim [truthfulness report](#-built-for-the-ai-agent-era) grading each statement against your profile
 - 🤖 **Agent-ready**: Your AI assistant can run the whole loop via the Model Context Protocol (MCP)
 - 🔒 **Privacy by design**: GDPR-compliant, self-hosted, full data sovereignty
 
@@ -105,9 +105,10 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 
 ### 💬 Conversational Interview Orchestrator
 
-- **Two Modes**:
-  - **Targeted Mode** (for experienced users): Focuses on filling specific gaps identified in your profile
-  - **Guided Mode** (for new users): Systematically builds your profile section by section
+- **Three Modes**:
+  - **Targeted** (for experienced users): Focuses on filling specific gaps identified in your profile
+  - **Guided** (for new users): Systematically builds your profile section by section
+  - **Profile enrichment** (no job ad needed): Improves your Master Profile on its own, outside any application
 - **Stateful Backend**: Pause and resume anytime — your progress is saved server-side
 - **Smart Completion**: Automatically detects when you're done or when all gaps are resolved
 - **Profile Updates**: Every answer enriches your Master Profile in real-time
@@ -130,13 +131,16 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 
 ### 🔒 Privacy & GDPR Compliance
 
-- **Privacy by Design** (GDPR Art. 25): Minimal data collection, encryption at rest
-- **Automated Retention**: Daily cron job enforces TTLs:
-  - Uploaded files: 7 days
-  - Interview sessions: 30 days
-  - Generated CVs and cover letters: 90 days
+- **Privacy by Design** (GDPR Art. 25): Data minimisation throughout — the LLM provider you choose is the only third party your data reaches, and Applire sends it the least it can
+- **Automated Retention**: A daily worker enforces TTLs, all configurable via environment variables:
+  - Uploaded files: 7 days (`UPLOAD_TTL_DAYS`)
+  - Interview sessions: 30 days (`INTERVIEW_SESSION_TTL_DAYS`)
+  - Generated CVs and cover letters: 90 days (`GENERATED_DOCUMENTS_TTL_DAYS`)
+  - Cancelled applications: 7 days (`CANCELLED_APPLICATION_TTL_DAYS`)
+  - Master Profile after inactivity: 730 days (`PROFILE_INACTIVITY_TTL_DAYS`)
 - **Right to Erasure** (GDPR Art. 17): One-click full data deletion
 - **Self-Hosted**: Your data never leaves your infrastructure
+- **Encryption at rest is yours to provide.** Applire adds no plaintext store of its own beyond PostgreSQL, and it does not encrypt the database for you — run it on an encrypted volume or a full-disk-encrypted host if your context requires it
 
 ---
 
@@ -145,7 +149,7 @@ Applire is **agent-ready**. Connect your AI agent — Claude, ChatGPT, or any MC
 Applire is the first CV tool built for **AI agents as first-class users** — under a simple doctrine: **bring your own intelligence**. Your agent is the strategist and, if it's strong, the writer; Applire supplies what an agent structurally cannot give itself:
 
 - **State that can't silently drift** — the Master Profile is a reconciled vault where every change is recorded with its source, not a lossy notes file
-- **Checks it can't fake** — deterministic keyword-coverage and ATS checks, plus `audit_document`: a per-claim document-vs-profile truthfulness audit (grounded / inflated / misattributed / unbacked / unverifiable, with profile evidence) that also accepts documents your agent wrote itself. Limit stated openly: it verifies document ↔ profile consistency; it cannot prove the profile itself
+- **Checks it can't fake** — deterministic keyword-coverage and ATS checks, plus `audit_document`: a per-claim document-vs-profile truthfulness audit (grounded / inflated / misattributed / unbacked / unverifiable / not applicable, with profile evidence) that also accepts documents your agent wrote itself. Limit stated openly: it verifies document ↔ profile consistency; it cannot prove the profile itself
 - **A renderer it doesn't have to fight** — `render_document`: your agent's structured content (public versioned schemas, served as MCP resources) through Applire's templates and DACH norms checks — PDF plus ATS and truthfulness reports out, and Applire never rewrites your content
 - **Rules it only half-remembers** — DACH application norms enforced as tested, reviewable data, not vague model recall
 - **A campaign, not one document** — applications, versions, staleness, and follow-ups tracked across the whole search
@@ -158,7 +162,7 @@ The weaker your agent's model, the more of Applire's built-in pipeline you can l
 - **Agent-supplied documents**: Agents can ingest CVs (base64-encoded PDF, with a plain-text fallback) and job descriptions (raw text **or** a URL scraped server-side) directly over stdio — no UI required
 - **Stateful Sessions**: Agents can pause, resume, and recover from interruptions via a stable `flow_id`
 - **Flow Orchestrator**: Guides agents through the correct sequence (JD analysis → CV import → gap analysis → interview → generation)
-- **Privacy-preserving**: The Master Profile is a black box — tools return extraction summaries, never raw profile data
+- **Data-minimal by default**: Write and ingest tools return summaries and receipts, not the profile — `import_cv` reports what it extracted rather than echoing the vault back. The full profile is available when an agent actually needs it, deliberately and by name: `get_profile()` and the `profile://current` resource
 - **Async Generation**: Non-blocking CV generation with polling-based status checks
 
 ### REST API
@@ -315,8 +319,10 @@ OPENROUTER_API_KEY=your-openrouter-api-key-here
 OPENROUTER_MODEL=mistralai/mistral-medium-3
 
 # Anthropic (Claude) — native API, BYO-API-key only (a Claude subscription cannot be used)
+# Model names move fast: take a current id from Anthropic's model list rather than
+# copying one from a README. See docs/llm-models.md for how to choose.
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
-#ANTHROPIC_MODEL=claude-sonnet-4-6
+#ANTHROPIC_MODEL=<current-claude-model-id>
 
 # OpenAI or any OpenAI-compatible server (e.g. LM Studio)
 OPENAI_API_KEY=your-openai-api-key-here
@@ -396,7 +402,9 @@ POST /api/session/{session_id}/message
 
 # Generate CV
 POST /api/cv/generate
-{ "job_id": "uuid", "theme": "classic_german" }
+{ "job_id": "uuid", "template": "classic_german", "target_pages": 2 }
+# template and target_pages are optional; target_pages falls back to your
+# settings, then the region standard
 
 # Check CV Generation Status
 GET /api/cv/{cv_id}/status
@@ -453,6 +461,7 @@ nginx/Caddy; the server logs a startup warning when it's unset. See
 | `analyze_gaps(job_id)` | Detect gaps between profile and JD |
 | `run_interview(job_id)` | Start a gap-fill interview; returns `session_id` + first question |
 | `send_message(session_id, message)` | Send a message in an active interview; returns next question or `{complete: true}` |
+| `resolve_gap(job_id, gap_id, answer)` | Resolve ONE gap cluster in a single call — the agent-channel form of the UI's targeted gap fill. Stateless: for agents that would rather ask their own questions than run a full interview session. `gap_id` comes from `analyze_gaps`' `gap_clusters` |
 
 **Built-in generation**
 
@@ -469,7 +478,8 @@ nginx/Caddy; the server logs a startup warning when it's unset. See
 
 | Tool | Description |
 |------|-------------|
-| `submit_claims(claims, job_id?)` | Submit facts your agent elicited from the candidate as free-text testimony; Applire reconciles them into the profile with agent-interview provenance (agent = interviewer, Applire = notary). Contract: `schema://claims` |
+| `submit_claims(claims, job_id?)` | Submit facts your agent elicited from the candidate as *itemized* claims; Applire reconciles them into the profile with agent-interview provenance (agent = interviewer, Applire = notary). Contract: `schema://claims` |
+| `submit_testimony(text)` | Reconcile ONE whole free-text testimony document into the profile with receipts — the unstructured counterpart to `submit_claims`. Contract: `schema://testimony` |
 | `audit_document(document_id?, document_text?)` | Truthfulness Oracle: per-claim truthfulness report — for a generated document by id, or raw text of a document your agent wrote itself |
 | `render_document(document_kind, content, job_id, template?, target_pages?)` | Render your agent-authored structured content (contracts: `schema://cv` / `schema://cover-letter`) into a norms-checked, templated PDF with ATS + truthfulness reports — never rewritten |
 
@@ -490,7 +500,8 @@ nginx/Caddy; the server logs a startup warning when it's unset. See
 - `flow://{flow_id}` — Flow session state
 - `schema://cv` — Versioned tailored-CV content contract for `render_document` (`{schema_version, json_schema}`)
 - `schema://cover-letter` — Versioned cover-letter content contract for `render_document`
-- `schema://claims` — Versioned agent-testimony contract for `submit_claims`
+- `schema://claims` — Versioned itemized-claims contract for `submit_claims`
+- `schema://testimony` — Versioned free-text testimony contract for `submit_testimony`
 - `guide://usage` — The agent-usage guide + honesty contract (same content as `get_guide`)
 
 ---
@@ -525,10 +536,14 @@ npm run test:e2e:ui
 
 ### CI/CD Pipeline
 
-GitHub Actions runs:
-1. Backend unit tests (pytest, ≥75% coverage)
-2. Backend integration tests (Docker stack)
-3. E2E tests (Playwright, Chromium + Firefox)
+GitHub Actions runs, against a mocked LLM provider throughout:
+1. ATS round-trip render guarantee (Playwright)
+2. Backend unit tests (pytest, ≥75% coverage)
+3. Backend integration tests (Docker stack)
+4. MCP stdio tests (the agent channel)
+5. Playwright IQ, OQ (desktop + mobile), and PQ suites — Chromium
+6. Frontend unit tests (Vitest), lint (ESLint + i18n parity), and a production build
+7. A module-system check
 
 All tiers must pass before merge.
 
@@ -606,12 +621,18 @@ Applire/
 
 Applire ships in dessert-named releases, each tracked as a public [milestone](https://github.com/Applire/Applire/milestones) — follow along on the [blog](https://applire.de/en/blog/):
 
-- [ ] **Spaghettieis** (July 2026) — Parallel applications become first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
-- [ ] **Tiramisu** (August 2026) — **Truthfulness Oracle v1**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself. Plus **`render_document`**: your agent's own content through Applire's norms-checked renderer — PDF and reports out, never rewritten
+> **`main` is ahead of the newest release.** The two flavours below are complete or well advanced in
+> `main`, but the newest published release is still v0.37.2-beta, and `docker-compose.yml` pins
+> `:latest`, which only moves when a non-prerelease Release is published. So a self-hoster following
+> the install instructions above is running the Chocolate line — the features marked complete here
+> arrive with the next release, not with today's `docker compose pull`.
+
+- [x] **Spaghettieis** — complete in `main` (milestone closed, 27 issues). Parallel applications became first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
+- [ ] **Tiramisu** (in progress) — **Truthfulness Oracle**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? Merged in `main`, in the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself; likewise **`render_document`** (your agent's own content through Applire's norms-checked renderer, never rewritten), **`submit_claims`** / **`submit_testimony`** (agent-run interviews landing in the profile with receipts) and **`resolve_gap`**. The flavour stays open for the work these exposed: evidence *selection* — making sure the strongest thing your profile can prove is what actually reaches the page
 - [ ] **Stracciatella** — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
 - [ ] **Strawberry** — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls
 
-Beyond that, without dates: further agent-door tools under the bring-your-own-intelligence doctrine (`submit_claims` — agent interviews landing in the profile with receipts), and **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
+Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 
 ### 🔭 Future Vision
 

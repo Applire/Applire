@@ -71,7 +71,7 @@ Anders als generische Lebenslauf-Baukästen:
 - 🧠 **Lernt von dir**: Baut ein dauerhaftes Master-Profil auf, das mit jedem hochgeladenen Lebenslauf klüger wird — jede Angabe bleibt auf ihre Quelle zurückführbar
 - 💬 **Befragt dich intelligent**: Stellt gezielte Fragen, um Lücken zwischen deiner Erfahrung und den Stellenanforderungen zu schließen
 - ✨ **Schneidet präzise zu**: Erzeugt kulturell passende Lebensläufe, optimiert für DACH-Recruiter und ATS-Systeme
-- ✅ **Hält dich wahrheitstreu**: Jedes Stichwort der Stellenanzeige wird als belegt, belegbar oder ehrliche Lücke eingestuft — das System behauptet nie, was dein Profil nicht trägt (ein vollständiger Wahrheits-Report pro Dokument steht als Nächstes auf der [Roadmap](#%EF%B8%8F-roadmap))
+- ✅ **Hält dich wahrheitstreu**: Jedes Stichwort der Stellenanzeige wird als belegt, belegbar oder ehrliche Lücke eingestuft — das System behauptet nie, was dein Profil nicht trägt. Zu jedem erzeugten Dokument gehört außerdem ein [Wahrheits-Report](#-für-das-zeitalter-der-ki-agenten-gebaut), der jede Aussage einzeln gegen dein Profil prüft
 - 🤖 **Agent-fähig**: Dein KI-Assistent kann die gesamte Schleife über das Model Context Protocol (MCP) steuern
 - 🔒 **Datenschutz by Design**: DSGVO-konform, selbst hostbar, volle Datenhoheit
 
@@ -117,9 +117,10 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 
 ### 💬 Dialogbasierter Interview-Orchestrator
 
-- **Zwei Modi**:
-  - **Gezielter Modus** (für erfahrene Nutzer:innen): Fokussiert auf das Schließen konkreter, im Profil erkannter Lücken
-  - **Geführter Modus** (für neue Nutzer:innen): Baut dein Profil systematisch Abschnitt für Abschnitt auf
+- **Drei Modi**:
+  - **Gezielt** (für erfahrene Nutzer:innen): Fokussiert auf das Schließen konkreter, im Profil erkannter Lücken
+  - **Geführt** (für neue Nutzer:innen): Baut dein Profil systematisch Abschnitt für Abschnitt auf
+  - **Profilanreicherung** (ohne Stellenanzeige): Verbessert dein Master-Profil für sich, außerhalb jeder Bewerbung
 - **Zustandsbehaftetes Backend**: Jederzeit pausieren und fortsetzen — dein Fortschritt wird serverseitig gespeichert
 - **Intelligentes Beenden**: Erkennt automatisch, wann du fertig bist oder alle Lücken geschlossen sind
 - **Profil-Aktualisierung**: Jede Antwort reichert dein Master-Profil in Echtzeit an
@@ -142,13 +143,16 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 
 ### 🔒 Datenschutz & DSGVO-Konformität
 
-- **Datenschutz by Design** (DSGVO Art. 25): Minimale Datenerhebung, Verschlüsselung im Ruhezustand
-- **Automatisierte Aufbewahrung**: Ein täglicher Cron-Job setzt TTLs durch:
-  - Hochgeladene Dateien: 7 Tage
-  - Interview-Sitzungen: 30 Tage
-  - Erzeugte Lebensläufe und Anschreiben: 90 Tage
+- **Datenschutz by Design** (DSGVO Art. 25): Datenminimierung durchgängig — der von dir gewählte LLM-Anbieter ist der einzige Dritte, den deine Daten erreichen, und Applire schickt ihm so wenig wie möglich
+- **Automatisierte Aufbewahrung**: Ein täglicher Worker setzt TTLs durch, alle über Umgebungsvariablen konfigurierbar:
+  - Hochgeladene Dateien: 7 Tage (`UPLOAD_TTL_DAYS`)
+  - Interview-Sitzungen: 30 Tage (`INTERVIEW_SESSION_TTL_DAYS`)
+  - Erzeugte Lebensläufe und Anschreiben: 90 Tage (`GENERATED_DOCUMENTS_TTL_DAYS`)
+  - Zurückgezogene Bewerbungen: 7 Tage (`CANCELLED_APPLICATION_TTL_DAYS`)
+  - Master-Profil nach Inaktivität: 730 Tage (`PROFILE_INACTIVITY_TTL_DAYS`)
 - **Recht auf Löschung** (DSGVO Art. 17): Vollständige Datenlöschung per Klick
 - **Selbst gehostet**: Deine Daten verlassen nie deine Infrastruktur
+- **Verschlüsselung im Ruhezustand liegt bei dir.** Applire legt außer PostgreSQL keinen eigenen Klartext-Speicher an und verschlüsselt die Datenbank *nicht* für dich — betreibe sie auf einem verschlüsselten Volume oder einem vollverschlüsselten Host, wenn dein Umfeld das erfordert
 
 ---
 
@@ -157,7 +161,7 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
 Applire ist das erste Lebenslauf-Tool, das **KI-Agenten als vollwertige Nutzer** behandelt — nach einem einfachen Prinzip: **Bring your own intelligence.** Dein Agent ist der Stratege und, wenn er stark ist, auch der Autor; Applire liefert, was ein Agent sich strukturell nicht selbst geben kann:
 
 - **Zustand, der nicht stillschweigend driftet** — das Master-Profil ist ein abgeglichener Tresor, in dem jede Änderung samt Quelle protokolliert wird — keine verlustanfällige Notizdatei
-- **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks, plus `audit_document`: ein Wahrheits-Audit jedes Dokuments gegen dein Profil, Aussage für Aussage (belegt / überhöht / nicht belegt / nicht prüfbar, mit Profil-Belegen) — auch für Dokumente, die dein Agent selbst geschrieben hat. Die Grenze steht offen dabei: Geprüft wird die Übereinstimmung von Dokument und Profil; das Profil selbst kann der Audit nicht beweisen
+- **Prüfungen, die er nicht vortäuschen kann** — deterministische Stichwort- und ATS-Checks, plus `audit_document`: ein Wahrheits-Audit jedes Dokuments gegen dein Profil, Aussage für Aussage (belegt / überhöht / falsch zugeordnet / nicht belegt / nicht prüfbar / nicht zutreffend, mit Profil-Belegen) — auch für Dokumente, die dein Agent selbst geschrieben hat. Die Grenze steht offen dabei: Geprüft wird die Übereinstimmung von Dokument und Profil; das Profil selbst kann der Audit nicht beweisen
 - **Ein Renderer, gegen den er nicht ankämpfen muss** — `render_document`: die strukturierten Inhalte deines Agenten (öffentliche, versionierte Schemas als MCP-Ressourcen) durch Applires Vorlagen und DACH-Norm-Checks — heraus kommen PDF plus ATS- und Wahrheits-Report, und Applire schreibt deine Inhalte niemals um
 - **Regeln, an die er sich nur halb erinnert** — DACH-Bewerbungsnormen als getestete, nachprüfbare Daten statt vager Modell-Erinnerung
 - **Eine Kampagne statt eines Dokuments** — Bewerbungen, Versionen, Aktualitätsstatus und Follow-ups über die gesamte Suche hinweg
@@ -170,7 +174,7 @@ Je schwächer das Modell deines Agenten, desto mehr von der eingebauten Pipeline
 - **Vom Agenten gelieferte Dokumente**: Agenten können Lebensläufe (base64-codiertes PDF, mit Klartext-Fallback) und Stellenbeschreibungen (Rohtext **oder** eine serverseitig ausgelesene URL) direkt über stdio einspeisen — ganz ohne Oberfläche
 - **Zustandsbehaftete Sitzungen**: Agenten können über eine stabile `flow_id` pausieren, fortsetzen und nach Unterbrechungen wieder aufsetzen
 - **Flow-Orchestrator**: Führt Agenten durch die richtige Reihenfolge (JD-Analyse → CV-Import → Lückenanalyse → Interview → Erzeugung)
-- **Datenschutzwahrend**: Das Master-Profil ist eine Blackbox — Tools liefern Extraktions-Zusammenfassungen, nie die Rohdaten des Profils
+- **Datenminimal als Standard**: Schreib- und Einlese-Tools liefern Zusammenfassungen und Belege, nicht das Profil — `import_cv` berichtet, was es extrahiert hat, statt den Tresor zurückzuspiegeln. Das vollständige Profil ist verfügbar, wenn ein Agent es wirklich braucht — bewusst und beim Namen: `get_profile()` und die Ressource `profile://current`
 - **Asynchrone Erzeugung**: Nicht-blockierende Lebenslauf-Erstellung mit Status-Abfrage per Polling
 
 ### REST-API
@@ -302,7 +306,9 @@ OPENROUTER_MODEL=mistralai/mistral-medium-3
 
 # Anthropic (Claude) — native API, nur mit eigenem API-Schlüssel (ein Claude-Abo ist nicht nutzbar)
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
-#ANTHROPIC_MODEL=claude-sonnet-4-6
+# Modellnamen ändern sich schnell: nimm eine aktuelle ID aus Anthropics Modell-Liste,
+# statt eine aus einer README zu kopieren. Zur Auswahl siehe docs/llm-models.md.
+#ANTHROPIC_MODEL=<aktuelle-claude-modell-id>
 
 # OpenAI oder ein OpenAI-kompatibler Server (z. B. LM Studio)
 OPENAI_API_KEY=your-openai-api-key-here
@@ -381,7 +387,9 @@ POST /api/session/{session_id}/message
 
 # Lebenslauf erzeugen
 POST /api/cv/generate
-{ "job_id": "uuid", "theme": "classic_german" }
+{ "job_id": "uuid", "template": "classic_german", "target_pages": 2 }
+# template und target_pages sind optional; target_pages fällt auf deine
+# Einstellungen und dann auf den Regionsstandard zurück
 
 # Status der Lebenslauf-Erzeugung prüfen
 GET /api/cv/{cv_id}/status
@@ -438,6 +446,7 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 | `analyze_gaps(job_id)` | Lücken zwischen Profil und JD erkennen |
 | `run_interview(job_id)` | Ein Lücken-Interview starten; liefert `session_id` + erste Frage |
 | `send_message(session_id, message)` | Eine Nachricht in einem aktiven Interview senden; liefert die nächste Frage oder `{complete: true}` |
+| `resolve_gap(job_id, gap_id, answer)` | EINE Lücken-Gruppe in einem einzigen Aufruf schließen — die Agenten-Variante des gezielten Lückenschlusses in der Oberfläche. Zustandslos: für Agenten, die ihre Fragen lieber selbst stellen. `gap_id` stammt aus den `gap_clusters` von `analyze_gaps` |
 
 **Eingebaute Generierung**
 
@@ -454,7 +463,8 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 
 | Tool | Beschreibung |
 |------|--------------|
-| `submit_claims(claims, job_id?)` | Vom Agenten beim Kandidaten erhobene Fakten als Freitext-Aussagen einreichen; Applire gleicht sie mit Agent-Interview-Provenienz ins Profil ab (Agent = Interviewer, Applire = Notar). Vertrag: `schema://claims` |
+| `submit_claims(claims, job_id?)` | Vom Agenten beim Kandidaten erhobene Fakten als *einzeln aufgeführte* Aussagen einreichen; Applire gleicht sie mit Agent-Interview-Provenienz ins Profil ab (Agent = Interviewer, Applire = Notar). Vertrag: `schema://claims` |
+| `submit_testimony(text)` | EIN vollständiges Freitext-Aussagedokument mit Belegen ins Profil abgleichen — das unstrukturierte Gegenstück zu `submit_claims`. Vertrag: `schema://testimony` |
 | `audit_document(document_id?, document_text?)` | Wahrheits-Orakel: Wahrheits-Report pro Aussage — für ein erzeugtes Dokument per ID oder für den Rohtext eines Dokuments, das dein Agent selbst geschrieben hat |
 | `render_document(document_kind, content, job_id, template?, target_pages?)` | Vom Agenten verfasste strukturierte Inhalte (Verträge: `schema://cv` / `schema://cover-letter`) in ein normgeprüftes, vorlagenbasiertes PDF rendern, mit ATS- + Wahrheits-Reports — niemals umgeschrieben |
 
@@ -475,7 +485,8 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 - `flow://{flow_id}` — Flow-Sitzungsstatus
 - `schema://cv` — Versionierter Inhaltsvertrag für maßgeschneiderte Lebensläufe via `render_document` (`{schema_version, json_schema}`)
 - `schema://cover-letter` — Versionierter Anschreiben-Inhaltsvertrag für `render_document`
-- `schema://claims` — Versionierter Agent-Aussagen-Vertrag für `submit_claims`
+- `schema://claims` — Versionierter Vertrag für einzeln aufgeführte Aussagen (`submit_claims`)
+- `schema://testimony` — Versionierter Freitext-Aussagen-Vertrag für `submit_testimony`
 - `guide://usage` — Der Agent-Nutzungsleitfaden + Ehrlichkeitsvertrag (gleicher Inhalt wie `get_guide`)
 
 ---
@@ -511,9 +522,13 @@ npm run test:e2e:ui
 ### CI/CD-Pipeline
 
 GitHub Actions führt aus:
-1. Backend-Unit-Tests (pytest, ≥75 % Coverage)
-2. Backend-Integrationstests (Docker-Stack)
-3. E2E-Tests (Playwright, Chromium + Firefox)
+1. ATS-Render-Roundtrip-Garantie (Playwright)
+2. Backend-Unit-Tests (pytest, ≥75 % Coverage)
+3. Backend-Integrationstests (Docker-Stack)
+4. MCP-stdio-Tests (der Agenten-Kanal)
+5. Playwright IQ, OQ (Desktop + Mobile) und PQ — Chromium
+6. Frontend-Unit-Tests (Vitest), Lint (ESLint + i18n-Parität) und ein Production-Build
+7. Ein Modulsystem-Check
 
 Alle Stufen müssen vor einem Merge bestehen.
 
@@ -591,12 +606,19 @@ Applire/
 
 Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milestone](https://github.com/Applire/Applire/milestones) — zum Mitlesen gibt es den [Blog](https://applire.de/blog/):
 
-- [ ] **Spaghettieis** (Juli 2026) — Parallele Bewerbungen werden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
-- [ ] **Tiramisu** (August 2026) — **Wahrheits-Orakel v1**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat. Dazu **`render_document`**: die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer — PDF und Reports heraus, niemals umgeschrieben
+> **`main` ist dem neuesten Release voraus.** Die beiden folgenden Flavours sind in `main` fertig
+> bzw. weit fortgeschritten, das neueste veröffentlichte Release ist aber weiterhin v0.37.2-beta —
+> und `docker-compose.yml` ist auf `:latest` gepinnt, das sich nur bewegt, wenn ein Release
+> *ohne* Pre-Release-Markierung veröffentlicht wird. Wer der Installationsanleitung oben folgt,
+> betreibt also die Chocolate-Linie: Was hier als fertig markiert ist, kommt mit dem nächsten
+> Release — nicht mit einem `docker compose pull` von heute.
+
+- [x] **Spaghettieis** — in `main` fertig (Milestone geschlossen, 27 Issues). Parallele Bewerbungen wurden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
+- [ ] **Tiramisu** (laufend) — **Wahrheits-Orakel**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In `main` gemerged, in der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat; ebenso **`render_document`** (die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer, niemals umgeschrieben), **`submit_claims`** / **`submit_testimony`** (Agent-Interviews landen mit Belegen im Profil) und **`resolve_gap`**. Der Flavour bleibt offen für die Arbeit, die diese Werkzeuge sichtbar gemacht haben: die *Auswahl* der Belege — dafür zu sorgen, dass das Stärkste, was dein Profil beweisen kann, tatsächlich auf der Seite landet
 - [ ] **Stracciatella** — Präzisionsarbeit an der Oberfläche: Überarbeitung der Master-Profil-Ansicht, erweiterte Vorlagen-Bibliothek, feineres Finetuning von Lebenslauf und Anschreiben, klarere Prüfung vor dem Download
 - [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen
 
-Darüber hinaus, ohne Termine: weitere Agent-Tools nach dem Bring-your-own-intelligence-Prinzip (`submit_claims` — Agent-Interviews landen mit Belegen im Profil) und **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
+Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 
 ### 🔭 Zukunftsvision
 

@@ -23,16 +23,22 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 QUESTION_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
 You are a language reviewer for AI-generated conversational interview questions.
 Your sole responsibility is to verify that a drafted question and every answer choice \
 are written entirely in the required language.
 Judge ONLY language — not quality, tone, or correctness of content.
-Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
-- approved: true only if the question and every choice are entirely in the required language
-- issues: list of specific language problems found (empty list if approved)
-- feedback: one concise instruction naming the required language and what to fix \
-(empty string if approved)
+
+WHAT IS BLOCKING IN THIS PASS: any text still in the wrong language. In this pass every
+genuine language mismatch is blocking — that is the one thing you are here to catch. Use
+"minor" for a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else.
+
+""" + review_output_schema(
+    issue_hint="specific language problem — empty array if nothing found",
+    feedback_hint="one concise instruction naming the required language and what to fix — empty string if there is nothing blocking",
+) + """
 """
 
 QUESTION_LANGUAGE_REFINEMENT_PROMPT = """\

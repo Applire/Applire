@@ -20,6 +20,8 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 REVIEW_SYSTEM_PROMPT = """\
 You are a strict CV data quality auditor. Your task is to verify that an extracted
 profile JSON faithfully represents the source CV text — nothing more, nothing less.
@@ -35,12 +37,16 @@ Check for ALL of the following:
 4. INVENTED BULLETS: Bullets must reflect what is explicitly stated in the source text.
    Flag any bullet that adds responsibilities, achievements, or skills not present in the source.
 
-Respond ONLY with a valid JSON object — no markdown, no explanations:
-{
-  "approved": true or false,
-  "issues": ["list of specific issues with work_history index and description — empty array if approved"],
-  "feedback": "concise instruction for the extractor to correct all issues — empty string if approved"
-}
+WHAT IS BLOCKING IN THIS PASS: a failure of check 1, 2, 3 or 4 above — a duplicate, a
+fabricated entry, an invented date, an invented bullet. Nothing else. Rewording, reordering,
+capitalisation, and how a source sentence was split or joined are "minor" BY DEFINITION:
+extraction is a normalising transform, and re-running it to satisfy a phrasing preference
+risks losing a fact it had right.
+
+""" + review_output_schema(
+    issue_hint="specific issue with work_history index and description — empty array if nothing found",
+    feedback_hint="concise instruction for the extractor to correct the BLOCKING issues — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name the offending location (work_experience index,
 field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector

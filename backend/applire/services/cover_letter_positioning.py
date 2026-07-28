@@ -303,7 +303,7 @@ def word_floor_reviewer_prompt_fn(base_fn, word_floor: int):
     ADR-051 sets an upper bound only (``letter_body_word_budget``), so a thin
     letter previously passed silently. This composes with (does not replace)
     the existing wrapper chain (``coverage_reviewer_prompt_fn``,
-    ``cross_document_reviewer_prompt_fn``) the same way they compose with each
+    ``unaddressed_requirements_reviewer_prompt_fn``) the same way they compose with each
     other: ``review_and_refine`` calls ``reviewer_prompt_fn(source, draft)``
     fresh each iteration, so the check is recomputed against the LATEST draft
     — deterministic, no new LLM call, no new loop (ADR-058 freeze). The

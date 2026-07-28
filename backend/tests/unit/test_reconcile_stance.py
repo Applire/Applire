@@ -85,7 +85,8 @@ _CHURN_TURN = {
 # ── Denial strip (all sources): the model's own denial verdict wins ───────────
 
 
-def test_denied_technology_stripped_from_add_bullets() -> None:
+@pytest.mark.asyncio
+async def test_denied_technology_stripped_from_add_bullets() -> None:
     # Exact 21:56:31Z op shape: the affirmed token survives, the denied one dies.
     ops = [
         AddBullets(
@@ -93,18 +94,20 @@ def test_denied_technology_stripped_from_add_bullets() -> None:
             technologies=["Large Language Models", "RAG"],
         )
     ]
-    out = enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
+    out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
     assert len(out) == 1
     assert out[0].technologies == ["Large Language Models"]
 
 
-def test_denied_skill_op_dropped_entirely() -> None:
+@pytest.mark.asyncio
+async def test_denied_skill_op_dropped_entirely() -> None:
     ops = [UpsertSkill(name="RAG", category="technical", proficiency="basic")]
-    out = enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
+    out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
     assert out == []
 
 
-def test_bullet_text_claiming_denied_token_dropped() -> None:
+@pytest.mark.asyncio
+async def test_bullet_text_claiming_denied_token_dropped() -> None:
     # A denial must not resurface as free-text achievement/responsibility either.
     ops = [
         AddBullets(
@@ -115,20 +118,21 @@ def test_bullet_text_claiming_denied_token_dropped() -> None:
             ],
         )
     ]
-    out = enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
+    out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
     assert len(out) == 1
     assert out[0].achievements == [
         "Automated regulatory document creation with LLMs"
     ]
 
 
-def test_denial_matching_uses_shared_normalisation() -> None:
+@pytest.mark.asyncio
+async def test_denial_matching_uses_shared_normalisation() -> None:
     # Case fold + containment both directions: "azure" denies "Microsoft Azure".
     ops = [
         UpsertSkill(name="Microsoft Azure"),
         AddBullets(target="w1", technologies=["AZURE", "AWS"]),
     ]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops,
         denials=["azure"],
         new_info={"gap": "cloud", "question": "Azure or AWS?", "answer": "AWS, not Azure"},
@@ -139,31 +143,39 @@ def test_denial_matching_uses_shared_normalisation() -> None:
     assert out[0].technologies == ["AWS"]
 
 
-def test_denial_strip_applies_to_cv_upload_source_too() -> None:
+@pytest.mark.asyncio
+async def test_denial_strip_applies_to_cv_upload_source_too() -> None:
     ops = [UpsertSkill(name="Kubernetes")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Kubernetes"], new_info="…full CV text…", source="cv_upload"
     )
     assert out == []
 
 
-def test_add_bullets_left_empty_by_strip_is_dropped() -> None:
+@pytest.mark.asyncio
+async def test_add_bullets_left_empty_by_strip_is_dropped() -> None:
     ops = [AddBullets(target="w1", technologies=["RAG"])]
-    out = enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
+    out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
     assert out == []
 
 
 # ── Interview grounding: token claims must appear in gap+question+answer ─────
 
 
-def test_ungrounded_interview_skill_dropped() -> None:
+@pytest.mark.asyncio
+async def test_ungrounded_interview_skill_dropped() -> None:
     # Exact 22:11:18Z shape: Python appears nowhere in the turn -> fabrication.
+    # ADR-061 clause 3: the guard stops deleting — with no provider on hand
+    # for adjudication, the op survives as unconfirmed (never claimable)
+    # rather than vanishing outright.
     ops = [UpsertSkill(name="Python", category="technical", proficiency="advanced")]
-    out = enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
-    assert out == []
+    out = await enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
 
 
-def test_skill_grounded_by_question_is_kept() -> None:
+@pytest.mark.asyncio
+async def test_skill_grounded_by_question_is_kept() -> None:
     # "Yes, six years, daily." affirms the question's token without repeating it.
     turn = {
         "gap": "Python experience",
@@ -171,11 +183,12 @@ def test_skill_grounded_by_question_is_kept() -> None:
         "answer": "Yes — six years, daily, in production.",
     }
     ops = [UpsertSkill(name="Python", category="technical")]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="interview")
     assert len(out) == 1
 
 
-def test_ungrounded_technology_stripped_from_interview_bullets() -> None:
+@pytest.mark.asyncio
+async def test_ungrounded_technology_stripped_from_interview_bullets() -> None:
     ops = [
         AddBullets(
             target="w1",
@@ -183,7 +196,7 @@ def test_ungrounded_technology_stripped_from_interview_bullets() -> None:
             achievements=["Led an AI automation project"],
         )
     ]
-    out = enforce_stance(ops, denials=[], new_info=_RAG_TURN, source="interview")
+    out = await enforce_stance(ops, denials=[], new_info=_RAG_TURN, source="interview")
     assert len(out) == 1
     # Databricks is in the answer; Terraform is not.
     assert out[0].technologies == ["Databricks"]
@@ -191,28 +204,33 @@ def test_ungrounded_technology_stripped_from_interview_bullets() -> None:
     assert out[0].achievements == ["Led an AI automation project"]
 
 
-def test_ungrounded_language_and_certification_dropped_on_interview() -> None:
+@pytest.mark.asyncio
+async def test_ungrounded_language_and_certification_dropped_on_interview() -> None:
+    # ADR-061 clause 3: both survive as unconfirmed, not dropped.
     ops = [
         UpsertLanguage(language="French", level="B2"),
         UpsertCertification(name="AWS Solutions Architect"),
     ]
-    out = enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
-    assert out == []
+    out = await enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
+    assert len(out) == 2
+    assert all(op.status == "unconfirmed" for op in out)
 
 
-def test_grounding_not_applied_to_non_interview_sources() -> None:
+@pytest.mark.asyncio
+async def test_grounding_not_applied_to_non_interview_sources() -> None:
     # CV import reconciles a whole staged extraction; token-presence grounding is
     # an interview-turn instrument only (scope decision, #127).
     ops = [UpsertSkill(name="Python")]
-    out = enforce_stance(ops, denials=[], new_info={"cv": "…"}, source="cv_upload")
+    out = await enforce_stance(ops, denials=[], new_info={"cv": "…"}, source="cv_upload")
     assert len(out) == 1
 
 
-def test_entity_ops_are_not_grounding_checked() -> None:
+@pytest.mark.asyncio
+async def test_entity_ops_are_not_grounding_checked() -> None:
     # Work/project/volunteer upserts legitimately echo profile knowledge
     # (target merges, alternate titles — rule 7); they stay out of scope.
     ops = [UpsertWork(ref="w1", company="NordPharm SE", role="Associate Director")]
-    out = enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
+    out = await enforce_stance(ops, denials=[], new_info=_CHURN_TURN, source="interview")
     assert len(out) == 1
 
 
@@ -231,37 +249,50 @@ _AGENT_TURN = {
 }
 
 
-def test_agent_interview_token_absent_from_statement_dropped() -> None:
+@pytest.mark.asyncio
+async def test_agent_interview_token_absent_from_statement_dropped() -> None:
+    # ADR-061 clause 3: survives as unconfirmed rather than vanishing.
     ops = [UpsertSkill(name="Terraform", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
     )
-    assert out == []
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
 
 
-def test_agent_interview_question_smuggle_dropped() -> None:
+@pytest.mark.asyncio
+async def test_agent_interview_question_smuggle_dropped() -> None:
     # "Kubernetes" appears only in the agent-authored question/gap — on the
-    # built-in interview this would ground; on the agent door it must NOT.
+    # built-in interview this would ground; on the agent door it must NOT
+    # (ADR-061 clause 3: unconfirmed rather than dropped, but still never
+    # claimable — the smuggle attempt still fails).
     ops = [UpsertSkill(name="Kubernetes", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_AGENT_TURN, source="agent_interview"
     )
-    assert out == []
-    # Sanity: the identical turn grounds on the built-in interview.
-    assert len(enforce_stance(ops, denials=[], new_info=_AGENT_TURN, source="interview")) == 1
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+    # Sanity: the identical turn grounds (confirmed) on the built-in interview.
+    interview_out = await enforce_stance(
+        ops, denials=[], new_info=_AGENT_TURN, source="interview"
+    )
+    assert len(interview_out) == 1
+    assert interview_out[0].status == "confirmed"
 
 
-def test_agent_interview_token_in_statement_kept() -> None:
+@pytest.mark.asyncio
+async def test_agent_interview_token_in_statement_kept() -> None:
     turn = dict(_AGENT_TURN, answer="Yes, I administered Kubernetes clusters.")
     ops = [UpsertSkill(name="Kubernetes", category="technical")]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
     assert len(out) == 1
 
 
-def test_agent_interview_denials_still_enforced() -> None:
+@pytest.mark.asyncio
+async def test_agent_interview_denials_still_enforced() -> None:
     ops = [UpsertSkill(name="Kubernetes", category="technical")]
     turn = dict(_AGENT_TURN, answer="I have used Kubernetes only in tutorials, no real experience.")
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Kubernetes"], new_info=turn, source="agent_interview"
     )
     assert out == []
@@ -301,31 +332,35 @@ def _story(**over: Any):
     return UpsertStory(**base)
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["interview", "agent_interview"])
-def test_grounded_story_passes(source: str) -> None:
-    out = enforce_stance([_story()], denials=[], new_info=_STORY_TURN, source=source)
+async def test_grounded_story_passes(source: str) -> None:
+    out = await enforce_stance([_story()], denials=[], new_info=_STORY_TURN, source=source)
     assert len(out) == 1
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["interview", "agent_interview"])
-def test_fabricated_outcome_figure_drops_story(source: str) -> None:
+async def test_fabricated_outcome_figure_drops_story(source: str) -> None:
     # "99.9%" appears nowhere in the turn — the whole op dies (no silent
     # figure-stripping: a benchmark-less mutation of the model's story would
     # be editorializing; the claim reports no_change and the caller restates).
     ops = [_story(outcome="Achieved 99.9% deploy success")]
-    out = enforce_stance(ops, denials=[], new_info=_STORY_TURN, source=source)
+    out = await enforce_stance(ops, denials=[], new_info=_STORY_TURN, source=source)
     assert out == []
 
 
-def test_fabricated_benchmark_figure_drops_story() -> None:
+@pytest.mark.asyncio
+async def test_fabricated_benchmark_figure_drops_story() -> None:
     ops = [_story(benchmark="Top 5 of 300 teams company-wide")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
     )
     assert out == []
 
 
-def test_story_prose_is_not_token_grounded() -> None:
+@pytest.mark.asyncio
+async def test_story_prose_is_not_token_grounded() -> None:
     # Paraphrase is legitimate: none of these exact words appear in the turn,
     # no figures involved -> passes.
     ops = [
@@ -337,30 +372,33 @@ def test_story_prose_is_not_token_grounded() -> None:
             benchmark=None,
         )
     ]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
     )
     assert len(out) == 1
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["interview", "agent_interview", "cv_upload"])
-def test_denied_token_in_story_prose_drops_story(source: str) -> None:
+async def test_denied_token_in_story_prose_drops_story(source: str) -> None:
     ops = [_story(mechanism="Introduced canary releases on Kubernetes")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Kubernetes"], new_info=_STORY_TURN, source=source
     )
     assert out == []
 
 
-def test_figure_check_inert_without_corpus_denials_still_active() -> None:
+@pytest.mark.asyncio
+async def test_figure_check_inert_without_corpus_denials_still_active() -> None:
     # cv_upload has no grounding corpus: figures pass (import-scope decision,
     # #127 parity), but denials still kill the op.
     ops = [_story(outcome="Improved uptime to 99.99%")]
-    out = enforce_stance(ops, denials=[], new_info={"cv": "…"}, source="cv_upload")
+    out = await enforce_stance(ops, denials=[], new_info={"cv": "…"}, source="cv_upload")
     assert len(out) == 1
 
 
-def test_figures_in_challenge_and_mechanism_not_checked() -> None:
+@pytest.mark.asyncio
+async def test_figures_in_challenge_and_mechanism_not_checked() -> None:
     # Only outcome/benchmark feed Oracle number provenance; scene-setting
     # figures in challenge/mechanism stay paraphrasable.
     ops = [
@@ -371,16 +409,17 @@ def test_figures_in_challenge_and_mechanism_not_checked() -> None:
             benchmark=None,
         )
     ]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_STORY_TURN, source="agent_interview"
     )
     assert len(out) == 1
 
 
-def test_decimal_separator_normalised() -> None:
+@pytest.mark.asyncio
+async def test_decimal_separator_normalised() -> None:
     turn = dict(_STORY_TURN, answer="We cut latency from 1,5 seconds to 300 ms.")
     ops = [_story(outcome="Cut latency from 1.5s to 300ms", benchmark=None)]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
     assert len(out) == 1
 
 
@@ -414,21 +453,23 @@ _TAILWIND_TURN = {
 }
 
 
-def test_affirmed_sibling_survives_denied_compound() -> None:
+@pytest.mark.asyncio
+async def test_affirmed_sibling_survives_denied_compound() -> None:
     # Exact 07:19:36Z op shape: "CSS" is affirmed in its own right ("in plain
     # CSS") while the compound "Tailwind CSS" is denied — the sibling lives.
     ops = [
         UpsertSkill(name="CSS", category="technical", proficiency="intermediate"),
         AddBullets(target="p1", technologies=["CSS"]),
     ]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Tailwind CSS"], new_info=_TAILWIND_TURN, source="interview"
     )
     assert len(out) == 2
     assert out[1].technologies == ["CSS"]
 
 
-def test_sibling_without_independent_affirmation_still_denied() -> None:
+@pytest.mark.asyncio
+async def test_sibling_without_independent_affirmation_still_denied() -> None:
     # The token appears ONLY inside the denied compound — that is not an
     # affirmation, and the guard stays fail-closed.
     turn = dict(
@@ -439,27 +480,29 @@ def test_sibling_without_independent_affirmation_still_denied() -> None:
         ),
     )
     ops = [UpsertSkill(name="CSS", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Tailwind CSS"], new_info=turn, source="interview"
     )
     assert out == []
 
 
-def test_sibling_stays_fail_closed_without_corpus() -> None:
+@pytest.mark.asyncio
+async def test_sibling_stays_fail_closed_without_corpus() -> None:
     # cv_upload has no grounding corpus to consult for independent affirmation,
     # so the strict-substring containment keeps its conservative verdict.
     ops = [UpsertSkill(name="CSS", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Tailwind CSS"], new_info="…full CV text…", source="cv_upload"
     )
     assert out == []
 
 
-def test_exact_denial_outranks_affirmation() -> None:
+@pytest.mark.asyncio
+async def test_exact_denial_outranks_affirmation() -> None:
     # A denial of the token ITSELF is never overridden by corpus presence —
     # the model's own denial verdict wins (ADR-040/#127, unchanged).
     ops = [UpsertSkill(name="CSS", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["CSS"], new_info=_TAILWIND_TURN, source="interview"
     )
     assert out == []
@@ -476,45 +519,51 @@ _POSTGRES_TURN = {
 }
 
 
-def test_canonicalized_claim_grounded_by_statement_surface_form() -> None:
+@pytest.mark.asyncio
+async def test_canonicalized_claim_grounded_by_statement_surface_form() -> None:
     # Exact 11:18:30Z op shape: the canonical form is grounded because the
     # statement carries a known surface alias ("Postgres").
     ops = [
         AddBullets(target="e1", technologies=["PostgreSQL"]),
         UpsertSkill(name="PostgreSQL", category="technical", proficiency="advanced"),
     ]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_POSTGRES_TURN, source="agent_interview"
     )
     assert len(out) == 2
     assert out[0].technologies == ["PostgreSQL"]
 
 
-def test_alias_does_not_ground_unrelated_token() -> None:
+@pytest.mark.asyncio
+async def test_alias_does_not_ground_unrelated_token() -> None:
+    # ADR-061 clause 3: unconfirmed (no provider on hand), never dropped.
     ops = [UpsertSkill(name="MySQL", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_POSTGRES_TURN, source="agent_interview"
     )
-    assert out == []
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
 
 
-def test_alias_grounding_is_word_boundary_aware() -> None:
+@pytest.mark.asyncio
+async def test_alias_grounding_is_word_boundary_aware() -> None:
     # "JSON" must not ground "JavaScript" via the "js" alias; a standalone
     # "JS" does.
     json_turn = {"answer": "I build JSON APIs all day.", "question": "Stack?"}
     js_turn = {"answer": "I write JS daily.", "question": "Stack?"}
     ops = [UpsertSkill(name="JavaScript", category="technical")]
-    assert (
-        enforce_stance(ops, denials=[], new_info=json_turn, source="agent_interview")
-        == []
+    json_out = await enforce_stance(
+        ops, denials=[], new_info=json_turn, source="agent_interview"
     )
-    assert (
-        len(enforce_stance(ops, denials=[], new_info=js_turn, source="agent_interview"))
-        == 1
-    )
+    assert len(json_out) == 1
+    assert json_out[0].status == "unconfirmed"  # ADR-061 clause 3
+    js_out = await enforce_stance(ops, denials=[], new_info=js_turn, source="agent_interview")
+    assert len(js_out) == 1
+    assert js_out[0].status == "confirmed"
 
 
-def test_denial_reaches_alias_forms() -> None:
+@pytest.mark.asyncio
+async def test_denial_reaches_alias_forms() -> None:
     # The mirror-image hole: denying "Kubernetes" must also kill a "K8s" op —
     # same-skill-by-another-name works in the fail-closed direction too.
     turn = {
@@ -522,7 +571,7 @@ def test_denial_reaches_alias_forms() -> None:
         "question": "Do you run Kubernetes in production?",
     }
     ops = [UpsertSkill(name="K8s", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Kubernetes"], new_info=turn, source="agent_interview"
     )
     assert out == []
@@ -547,9 +596,10 @@ _ML_TRAINING_DENIAL_TURN = {
 }
 
 
-def test_ml_training_denial_does_not_suppress_reaffirmed_ai_ml() -> None:
+@pytest.mark.asyncio
+async def test_ml_training_denial_does_not_suppress_reaffirmed_ai_ml() -> None:
     ops = [UpsertSkill(name="AI/ML", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops,
         denials=["machine learning model training"],
         new_info=_ML_TRAINING_DENIAL_TURN,
@@ -558,9 +608,10 @@ def test_ml_training_denial_does_not_suppress_reaffirmed_ai_ml() -> None:
     assert len(out) == 1
 
 
-def test_ml_training_denial_still_suppresses_machine_learning_itself() -> None:
+@pytest.mark.asyncio
+async def test_ml_training_denial_still_suppresses_machine_learning_itself() -> None:
     ops = [UpsertSkill(name="Machine Learning", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops,
         denials=["machine learning model training"],
         new_info=_ML_TRAINING_DENIAL_TURN,
@@ -608,17 +659,19 @@ def _helpdesk_story(**over: Any):
     return UpsertStory(**base)
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["interview", "agent_interview"])
-def test_spelled_out_figures_ground_numerals(source: str) -> None:
+async def test_spelled_out_figures_ground_numerals(source: str) -> None:
     # "forty percent" grounds "40%", "twenty minutes" grounds "20 minutes",
     # "two thousand" grounds "2,000" (thousands separator included).
-    out = enforce_stance(
+    out = await enforce_stance(
         [_helpdesk_story()], denials=[], new_info=_HELPDESK_TURN, source=source
     )
     assert len(out) == 1
 
 
-def test_spelled_out_german_figures_ground_numerals() -> None:
+@pytest.mark.asyncio
+async def test_spelled_out_german_figures_ground_numerals() -> None:
     # DACH testimony spells figures the German way: bare tens ("vierzig"),
     # unit+hundert compounds ("zweihundert"), unit+und+tens ("fünfundzwanzig").
     turn = {
@@ -634,20 +687,22 @@ def test_spelled_out_german_figures_ground_numerals() -> None:
             benchmark="From roughly 200 tickets per month down to 25",
         )
     ]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
     assert len(out) == 1
 
 
-def test_fabricated_figure_still_drops_story() -> None:
+@pytest.mark.asyncio
+async def test_fabricated_figure_still_drops_story() -> None:
     # The guard's teeth stay in: "60%" is spelled nowhere in the turn.
     ops = [_helpdesk_story(outcome="Cut wrong-team ticket assignments by 60%")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=[], new_info=_HELPDESK_TURN, source="interview"
     )
     assert out == []
 
 
-def test_article_number_words_do_not_ground() -> None:
+@pytest.mark.asyncio
+async def test_article_number_words_do_not_ground() -> None:
     # "ein"/"one" double as articles — parsing them would ground a fabricated
     # "1" from almost any sentence, so they stay excluded (fail-closed).
     for answer in (
@@ -659,7 +714,7 @@ def test_article_number_words_do_not_ground() -> None:
                 outcome="Delivered 1 automation project", benchmark=None
             )
         ]
-        out = enforce_stance(
+        out = await enforce_stance(
             ops,
             denials=[],
             new_info={"answer": answer, "question": "Projects?"},
@@ -671,7 +726,8 @@ def test_article_number_words_do_not_ground() -> None:
 # ── #207 adversarial-pass findings (real-LLM pass, 2026-07-19) ───────────────
 
 
-def test_denial_order_does_not_reopen_sibling_exemption() -> None:
+@pytest.mark.asyncio
+async def test_denial_order_does_not_reopen_sibling_exemption() -> None:
     # B1: blanking "Tailwind" before "Tailwind CSS" left an orphaned " css"
     # that read as an independent affirmation. The verdict must not depend on
     # the order the model lists its denials in.
@@ -681,13 +737,14 @@ def test_denial_order_does_not_reopen_sibling_exemption() -> None:
     }
     ops = [UpsertSkill(name="CSS", category="technical")]
     for denials in (["Tailwind", "Tailwind CSS"], ["Tailwind CSS", "Tailwind"]):
-        out = enforce_stance(
+        out = await enforce_stance(
             ops, denials=denials, new_info=turn, source="agent_interview"
         )
         assert out == [], denials
 
 
-def test_run_together_compound_does_not_affirm_sibling() -> None:
+@pytest.mark.asyncio
+async def test_run_together_compound_does_not_affirm_sibling() -> None:
     # B2: "TailwindCSS" written as one word must not count as an independent
     # "CSS" affirmation when the model denies the spaced compound.
     turn = {
@@ -695,24 +752,26 @@ def test_run_together_compound_does_not_affirm_sibling() -> None:
         "question": "Styling experience?",
     }
     ops = [UpsertSkill(name="CSS", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["Tailwind CSS"], new_info=turn, source="agent_interview"
     )
     assert out == []
 
 
-def test_denied_alias_does_not_kill_substring_sibling() -> None:
+@pytest.mark.asyncio
+async def test_denied_alias_does_not_kill_substring_sibling() -> None:
     # O3: denying "JavaScript" must not kill an affirmed "JSON" op just
     # because the "js" alias is a substring of "json".
     turn = {"answer": "I build JSON APIs all day.", "question": "Stack?"}
     ops = [UpsertSkill(name="JSON", category="technical")]
-    out = enforce_stance(
+    out = await enforce_stance(
         ops, denials=["JavaScript"], new_info=turn, source="agent_interview"
     )
     assert len(out) == 1
 
 
-def test_homonym_units_do_not_ground_expansions() -> None:
+@pytest.mark.asyncio
+async def test_homonym_units_do_not_ground_expansions() -> None:
     # N1: "500 ml" (milliliters) must not ground a fabricated "Machine
     # Learning"; ditto "ai" (domains, French "ai") for "Artificial
     # Intelligence" — those alias pairs are excluded as homonym-risky.
@@ -721,11 +780,15 @@ def test_homonym_units_do_not_ground_expansions() -> None:
         "question": "Lab automation?",
     }
     ops = [UpsertSkill(name="Machine Learning", category="technical")]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
-    assert out == []
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    # ADR-061 clause 3: unconfirmed rather than dropped — never claimable
+    # either way, so the homonym trap still cannot fabricate a claim.
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
 
 
-def test_multigroup_thousands_numeral_grounds() -> None:
+@pytest.mark.asyncio
+async def test_multigroup_thousands_numeral_grounds() -> None:
     # O1: "a million events" grounds 1000000, and the numeral "1,000,000"
     # must tokenize as ONE figure, not "1,000" + "000".
     turn = {
@@ -737,18 +800,19 @@ def test_multigroup_thousands_numeral_grounds() -> None:
             outcome="Handled 1,000,000 events per day", benchmark=None
         )
     ]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
     assert len(out) == 1
 
 
-def test_composed_spelled_thousands_ground() -> None:
+@pytest.mark.asyncio
+async def test_composed_spelled_thousands_ground() -> None:
     # O2: "twenty-five thousand" composes to 25000 and grounds "25,000".
     turn = {
         "answer": "We grew the platform to about twenty-five thousand users.",
         "question": "Growth?",
     }
     ops = [_helpdesk_story(outcome="Grew the platform to 25,000 users", benchmark=None)]
-    out = enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
+    out = await enforce_stance(ops, denials=[], new_info=turn, source="agent_interview")
     assert len(out) == 1
 
 
@@ -799,7 +863,12 @@ async def test_engine_defaults_and_garbage_denials() -> None:
 
 @pytest.mark.asyncio
 async def test_engine_drops_ungrounded_interview_claims() -> None:
-    # The 22:11:18Z fabrication as it should now resolve.
+    # The 22:11:18Z fabrication as it should now resolve. `_StubProvider`
+    # returns the SAME reconcile-shaped payload for the adjudication call
+    # too, which is missing "answer"/"quote" — a malformed adjudication
+    # response, so it falls back to unconfirmed (ADR-061 clause 2's
+    # asymmetric failure handling), never to confirmed, and the op is no
+    # longer dropped outright (clause 3).
     provider = _StubProvider(
         {
             "ops": [
@@ -815,7 +884,8 @@ async def test_engine_drops_ungrounded_interview_claims() -> None:
         }
     )
     result = await reconcile(MasterProfileData(), _CHURN_TURN, "interview", provider)
-    assert result.ops == []
+    assert len(result.ops) == 1
+    assert result.ops[0].status == "unconfirmed"
 
 
 # ── #231 — durable denial persistence + the public ledger-reuse predicate ───
@@ -968,7 +1038,8 @@ def test_system_prompt_carries_stance_rule() -> None:
     assert '"denials"' in RECONCILE_SYSTEM_PROMPT
 
 
-def test_bullet_with_substring_collision_word_is_not_dropped() -> None:
+@pytest.mark.asyncio
+async def test_bullet_with_substring_collision_word_is_not_dropped() -> None:
     # Adversarial-pass follow-up (2026-07-23): _text_claims_denied shared the
     # bare-substring hazard — a denial of "AI" must not drop a truthful bullet
     # whose only "match" is the substring inside "training"/"maintenance".
@@ -986,9 +1057,459 @@ def test_bullet_with_substring_collision_word_is_not_dropped() -> None:
         "question": "Do you have AI experience?",
         "answer": "I have not built AI systems myself; I led maintenance and training programs for the QC team.",
     }
-    out = enforce_stance(ops, denials=["AI"], new_info=turn, source="interview")
+    out = await enforce_stance(ops, denials=["AI"], new_info=turn, source="interview")
     assert len(out) == 1
     # The whole-word AI bullet dies; the training/maintenance bullet survives.
     assert out[0].achievements == [
         "Led maintenance and training programs for the QC team"
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ADR-061 (#316, closes #305) — the testimony predicate, LLM adjudication with
+# a deterministically verified citation, and `unconfirmed` as a third state.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _AdjudicationProvider:
+    """Scripted test double for the ADR-061 clause 2 adjudication call ONLY —
+    ``enforce_stance`` never calls ``aparse_json`` for anything else. Each
+    call pops the next scripted item; an ``Exception`` instance is raised
+    instead of returned, so provider-outage/timeout paths reuse the same
+    script mechanism as the (mal)formed-response paths."""
+
+    def __init__(self, *script: Any) -> None:
+        self._script = list(script)
+        self.calls: list[str] = []
+
+    async def aparse_json(self, prompt: str, **kwargs: Any) -> Any:
+        self.calls.append(prompt)
+        assert self._script, "adjudication called more times than scripted"
+        item = self._script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+# ── Clause 1: surface_present is byte-for-byte unchanged ────────────────────
+# This is the invariant clause 1 exists to protect — the coverage predicate
+# the ATS ring, ledger presence, and ADR-051 §3 retention scoring all share
+# must never be quietly made morphology-aware by this change. Source-hash
+# pinned so a future edit to this file cannot loosen it without this test
+# failing loudly (a plain "it still imports" check would not catch a body
+# edit).
+
+
+def test_surface_present_byte_for_byte_unchanged() -> None:
+    import hashlib
+    import inspect
+
+    from applire.services.ats_audit import surface_present
+
+    src = inspect.getsource(surface_present)
+    assert (
+        hashlib.sha256(src.encode()).hexdigest()
+        == "d7a9d039c67007d6fb069922566d909f1ba1286ad0da7092bcb14a6c0f79ff14"
+    ), (
+        "surface_present's body changed — ADR-061 clause 1 requires it stay "
+        "byte-for-byte unchanged (it stays the sole coverage predicate for "
+        "the ATS ring / ledger presence / ADR-051 §3 retention scoring); the "
+        "testimony predicate is a SEPARATE, explicitly-named instrument."
+    )
+
+
+# ── Clause 2: the three #305 morphological misses, verbatim from ground     ─
+# truth (backend/logs/llm/2026-07-27.jsonl, the operations_marcus_de run) —
+# the exact turn text and op shape the reconciler LLM actually produced.
+
+
+@pytest.mark.asyncio
+async def test_german_qualifier_prefix_confirmed_via_adjudication() -> None:
+    # "PP" scoped by an earlier "SAP-Rollout" clause; op says "SAP PP" — dies
+    # on the deterministic check (no contiguous "SAP PP" substring), rescued
+    # by adjudication with a verified citation.
+    turn = {
+        "gap": "Digital Transformation",
+        "question": (
+            "Können Sie uns Beispiele nennen, in denen Sie digitale "
+            "Initiativen vorangetrieben haben?"
+        ),
+        "answer": (
+            "Beim SAP-Rollout bei Rasselstein war ich Key-User für PP; bei "
+            "Weberit arbeite ich täglich mit PP und MM und habe die "
+            "Stammdatenbereinigung für die Arbeitspläne geleitet."
+        ),
+    }
+    provider = _AdjudicationProvider(
+        {"answer": "yes", "quote": "Key-User für PP"},
+    )
+    ops = [UpsertSkill(name="SAP PP", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "confirmed"
+    assert len(provider.calls) == 1  # deterministic accept never reaches here for SAP/PP alone
+
+
+@pytest.mark.asyncio
+async def test_german_parenthetical_gloss_confirmed_via_adjudication() -> None:
+    # Turn says bare "OEE"; op glosses it out to "OEE (Overall Equipment
+    # Effectiveness)" — the full phrase never appears literally.
+    turn = {
+        "gap": "Manufacturing Execution Systems",
+        "question": "Haben Sie bereits mit MES gearbeitet?",
+        "answer": (
+            "Ergebnis war OEE-Transparenz in Echtzeit direkt am "
+            "Shopfloor-Board; die OEE im Spritzguss ist in 18 Monaten von "
+            "61 % auf 73 % gestiegen."
+        ),
+    }
+    provider = _AdjudicationProvider(
+        {"answer": "yes", "quote": "die OEE im Spritzguss"},
+    )
+    ops = [UpsertSkill(name="OEE (Overall Equipment Effectiveness)", category="domain")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_german_compound_tail_confirmed_via_adjudication() -> None:
+    # Turn writes the compound "Sauberraumbereich"; op says "Sauberraum-
+    # Management" — no literal substring match either direction.
+    turn = {
+        "gap": "Packaging Industry",
+        "question": "Haben Sie Berührungspunkte mit Verpackungsprozessen gehabt?",
+        "answer": (
+            "Bei Weberit fertigen wir unter anderem Kosmetik-Verpackungen; "
+            "dafür haben wir seit 2021 einen Sauberraumbereich, den ich "
+            "verantworte."
+        ),
+    }
+    provider = _AdjudicationProvider(
+        {"answer": "yes", "quote": "einen Sauberraumbereich, den ich verantworte"},
+    )
+    ops = [UpsertSkill(name="Sauberraum-Management", category="domain")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "confirmed"
+
+
+# ── Clause 2: the citation check as a CONTROL, not a detail ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_adjudication_fabricated_quote_rejected() -> None:
+    """ADVERSARIAL (mandatory per #316's acceptance criteria): the model
+    answers "yes" with a plausible-but-fabricated quote — text that reads
+    like something the candidate could have said, but is not literally in
+    the turn. The deterministic citation check must reject it regardless of
+    how confident the model sounds; #306, from the same run, is this
+    codebase's own live evidence that an LLM in a control path can go wrong
+    this way."""
+    turn = dict(_CHURN_TURN)  # gap/question never mention "Selenium" literally
+    provider = _AdjudicationProvider(
+        {
+            "answer": "yes",
+            # Plausible, well-formed, and NOT a substring of the turn above.
+            "quote": "I have run our Selenium test suite in production for years.",
+        },
+    )
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_near_miss_quote_rejected() -> None:
+    # A quote that is almost right (paraphrased, not copied) must still fail
+    # the LITERAL substring check — "close" is not "verified".
+    turn = {"answer": "I led the rollout of PP at Rasselstein.", "question": "SAP?"}
+    provider = _AdjudicationProvider(
+        {"answer": "yes", "quote": "I led the PP rollout at Rasselstein"},  # reordered
+    )
+    ops = [UpsertSkill(name="SAP PP", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_yes_with_empty_quote_rejected() -> None:
+    turn = {"answer": "I mostly did QA testing this quarter.", "question": "Skills?"}
+    provider = _AdjudicationProvider({"answer": "yes", "quote": ""})
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_no_answer_never_confirmed() -> None:
+    # The model correctly reads the turn as NOT affirming the token — still
+    # unconfirmed, never a silent drop, even with a perfectly valid citation.
+    # Neither field names the token literally, so the deterministic accept
+    # path genuinely misses and adjudication is actually reached.
+    turn = {"answer": "I have no experience in that particular area.", "question": "Which languages do you know?"}
+    provider = _AdjudicationProvider(
+        {"answer": "no", "quote": "I have no experience in that particular area."},
+    )
+    ops = [UpsertSkill(name="Rust", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_unclear_answer_never_confirmed() -> None:
+    turn = {"answer": "Maybe, I'd have to check.", "question": "Which languages do you know?"}
+    provider = _AdjudicationProvider(
+        {"answer": "unclear", "quote": ""},
+    )
+    ops = [UpsertSkill(name="Rust", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+# ── Clause 2: failure handling is ASYMMETRIC — every path lands unconfirmed,
+# never confirmed. Each path asserted SEPARATELY (#316 requirement).
+
+
+@pytest.mark.asyncio
+async def test_adjudication_provider_outage_never_confirmed() -> None:
+    from applire.exceptions import LLMProviderUnavailableError
+
+    turn = {"answer": "I mostly did QA testing.", "question": "Skills?"}
+    provider = _AdjudicationProvider(LLMProviderUnavailableError("provider down"))
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_timeout_never_confirmed() -> None:
+    from applire.exceptions import LLMTimeoutError
+
+    turn = {"answer": "I mostly did QA testing.", "question": "Skills?"}
+    provider = _AdjudicationProvider(LLMTimeoutError("timed out"))
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_non_dict_response_never_confirmed() -> None:
+    # "Malformed JSON" as the caller sees it: aparse_json's own JSON-repair
+    # gave up and returned something that isn't a dict at all.
+    turn = {"answer": "I mostly did QA testing.", "question": "Skills?"}
+    provider = _AdjudicationProvider("not a dict")
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_missing_keys_never_confirmed() -> None:
+    turn = {"answer": "I mostly did QA testing.", "question": "Skills?"}
+    provider = _AdjudicationProvider({"unexpected": "shape"})
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_invalid_answer_enum_never_confirmed() -> None:
+    turn = {"answer": "I mostly did QA testing.", "question": "Skills?"}
+    provider = _AdjudicationProvider({"answer": "maybe", "quote": "QA testing"})
+    ops = [UpsertSkill(name="Selenium", category="technical")]
+    out = await enforce_stance(
+        ops, denials=[], new_info=turn, source="interview", provider=provider,
+    )
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+
+
+# ── Clause 3: denial still outranks — adjudication is never even attempted ─
+
+
+@pytest.mark.asyncio
+async def test_denial_short_circuits_before_any_adjudication_call() -> None:
+    turn = {
+        "answer": "I have never used Kubernetes, only read about it.",
+        "question": "Kubernetes?",
+    }
+    # Empty script: if the guard mistakenly called aparse_json, the stub's
+    # own assertion would fail the test before this one gets a chance to.
+    provider = _AdjudicationProvider()
+    ops = [UpsertSkill(name="Kubernetes", category="technical")]
+    out = await enforce_stance(
+        ops, denials=["Kubernetes"], new_info=turn, source="interview", provider=provider,
+    )
+    assert out == []
+    assert provider.calls == []
+
+
+# ── Clause 3: unconfirmed is never claimable at the concrete consumers ──────
+
+
+def test_apply_upsert_skill_creates_unconfirmed_entity() -> None:
+    from applire.services.profile.reconcile.apply import apply_ops
+
+    profile = MasterProfileData()
+    result = apply_ops(
+        profile,
+        [UpsertSkill(name="SAP PP", category="technical", status="unconfirmed")],
+        "interview",
+    )
+    assert len(result.profile.skills) == 1
+    assert result.profile.skills[0].status == "unconfirmed"
+
+
+def test_apply_upsert_skill_merge_never_downgrades_confirmed() -> None:
+    from applire.services.profile.reconcile.apply import apply_ops
+
+    profile = MasterProfileData()
+    first = apply_ops(
+        profile, [UpsertSkill(name="Python", category="technical", status="confirmed")],
+        "interview",
+    )
+    second = apply_ops(
+        first.profile,
+        [UpsertSkill(name="Python", category="technical", status="unconfirmed")],
+        "interview",
+    )
+    assert len(second.profile.skills) == 1
+    assert second.profile.skills[0].status == "confirmed"
+
+
+def test_apply_upsert_skill_merge_promotes_unconfirmed_to_confirmed() -> None:
+    from applire.services.profile.reconcile.apply import apply_ops
+
+    profile = MasterProfileData()
+    first = apply_ops(
+        profile, [UpsertSkill(name="Python", category="technical", status="unconfirmed")],
+        "interview",
+    )
+    assert first.profile.skills[0].status == "unconfirmed"
+    second = apply_ops(
+        first.profile,
+        [UpsertSkill(name="Python", category="technical", status="confirmed")],
+        "interview",
+    )
+    assert second.profile.skills[0].status == "confirmed"
+
+
+def test_unconfirmed_certification_excluded_from_cv_passthrough() -> None:
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _apply_certifications
+
+    profile_json = {
+        "certifications": [
+            {"name": "AWS Solutions Architect", "status": "unconfirmed"},
+            {"name": "PMP", "status": "confirmed"},
+        ]
+    }
+    tailored = TailoredCVData(contact={"name": "Test Candidate"})
+    out = _apply_certifications(tailored, profile_json)
+    names = [c.name for c in out.certifications]
+    assert names == ["PMP"]
+
+
+def test_unconfirmed_skill_excluded_from_jd_guarantee_restoration() -> None:
+    # A JD-required skill that only exists unconfirmed in the vault must NOT
+    # be guarantee-restored into the CV skills section (ADR-061 clause 3).
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _tailor_skills_to_jd
+
+    tailored = TailoredCVData(contact={"name": "Test Candidate"}, skills=["Communication"])
+    profile_json = {"skills": [{"name": "SAP PP", "status": "unconfirmed"}]}
+    job_dict = {
+        "role_title": "SAP Consultant",
+        "required_skills": ["SAP PP"],
+        "nice_to_have_skills": [],
+        "keywords": [],
+    }
+    out = _tailor_skills_to_jd(tailored, profile_json, job_dict, keyword_ledger=None)
+    assert "SAP PP" not in (out.skills or [])
+
+
+def test_exclude_unconfirmed_strips_only_the_three_entity_lists() -> None:
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+    profile_json = {
+        "skills": [
+            {"name": "SAP PP", "status": "unconfirmed"},
+            {"name": "Python", "status": "confirmed"},
+        ],
+        "languages": [{"language": "French", "status": "unconfirmed"}],
+        "certifications": [{"name": "PMP", "status": "confirmed"}],
+        "work_experience": [{"company": "Acme"}],  # untouched
+    }
+    out = exclude_unconfirmed(profile_json)
+    assert [s["name"] for s in out["skills"]] == ["Python"]
+    assert out["languages"] == []
+    assert [c["name"] for c in out["certifications"]] == ["PMP"]
+    assert out["work_experience"] == [{"company": "Acme"}]  # untouched
+    # Never mutates the input.
+    assert len(profile_json["skills"]) == 2
+
+
+def test_exclude_unconfirmed_tolerates_none_and_non_dict() -> None:
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+    assert exclude_unconfirmed(None) == {}
+    assert exclude_unconfirmed({}) == {}
+
+
+# ── Clause 8: every drop/downgrade logs the turn text ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_downgrade_logs_the_turn_text(caplog: Any) -> None:
+    turn = {"answer": "We reduced churn by 3% through quarterly reviews.", "question": "CI/CD?"}
+    ops = [UpsertSkill(name="Python", category="technical")]
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"):
+        out = await enforce_stance(ops, denials=[], new_info=turn, source="interview")
+    assert len(out) == 1
+    assert out[0].status == "unconfirmed"
+    assert any("churn by 3%" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_denial_drop_logs_the_turn_text(caplog: Any) -> None:
+    ops = [UpsertSkill(name="RAG", category="technical")]
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.stance"):
+        out = await enforce_stance(ops, denials=["RAG"], new_info=_RAG_TURN, source="interview")
+    assert out == []
+    # Near the START of the joined gap+question+answer corpus (the log line
+    # is bounded — see _LOG_TURN_MAX — so assert on text that survives it).
+    assert any("AI, LLMs & RAG Systems" in rec.message for rec in caplog.records)

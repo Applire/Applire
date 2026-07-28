@@ -194,7 +194,7 @@ async def generate_cv_segmented(
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
-    scoped_boundary_block: str | None = None,
+    stated_limits_block: str | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -212,10 +212,9 @@ async def generate_cv_segmented(
     budget (``SEGMENT_MAX_TOKENS``) below — deliberately named ``token_budget`` to avoid
     the collision.
 
-    ``scoped_boundary_block`` (#277, #270 Fix D inverted) — the rendered vault-derived
-    SCOPED BOUNDARIES block (:func:`applire.services.cross_document.render_scoped_boundary_block`),
-    threaded into the summary and skills section calls so those sections render the SCOPED
-    claim instead of a bare, unqualified tag.
+    ``stated_limits_block`` — the candidate's persisted denial statements rendered
+    verbatim (:func:`applire.services.cross_document.render_stated_limits_block`), threaded
+    into the summary and skills section calls so neither contradicts a stated limit.
     """
     from applire.prompts.cv_segmented import (
         EDUCATION_SECTION_SYSTEM_PROMPT,
@@ -274,14 +273,14 @@ async def generate_cv_segmented(
     summary_res = await provider.aparse_json(
         build_summary_prompt(
             directive, job_analysis, profile, critical_gaps, output_language, keyword_ledger,
-            scoped_boundary_block,
+            stated_limits_block,
         ),
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     skills_res = await provider.aparse_json(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger,
-            scoped_boundary_block,
+            stated_limits_block,
         ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
@@ -329,7 +328,7 @@ async def _tailor_cv_with_fallback(
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
-    scoped_boundary_block: str | None = None,
+    stated_limits_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
@@ -340,15 +339,14 @@ async def _tailor_cv_with_fallback(
     ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
     claimable-vs-forbidden keyword split. ``budget`` (E042/US237, ADR-051 §3) is the
     deterministic per-role bullet-count ceiling table, threaded into whichever path runs.
-    ``scoped_boundary_block`` (#277) is the rendered vault-derived SCOPED BOUNDARIES block,
-    threaded into whichever path runs so the skills/summary sections render the SCOPED
-    claim instead of a bare, unqualified tag."""
+    ``stated_limits_block`` is the candidate's persisted denial statements rendered
+    verbatim, threaded into whichever path runs."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
-            scoped_boundary_block=scoped_boundary_block,
+            stated_limits_block=stated_limits_block,
         )
     try:
         return await provider.aparse_json(
@@ -357,7 +355,7 @@ async def _tailor_cv_with_fallback(
                 output_language=output_language,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -372,7 +370,7 @@ async def _tailor_cv_with_fallback(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
-            scoped_boundary_block=scoped_boundary_block,
+            stated_limits_block=stated_limits_block,
         )
 
 
@@ -549,8 +547,15 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
     called after the LLM tailoring step(s) in both the single-call and segmented
     generation paths, mirroring ``_nest_projects``. Returns a new TailoredCVData;
     the input is left unmutated.
+
+    ADR-061 clause 3: an ``unconfirmed`` certification is excluded — it cannot
+    back a CV line. Never fabricated as a drop either; the candidate's own
+    profile-confirmation action is what promotes it, not a CV render.
     """
-    source_certs = profile_json.get("certifications") or []
+    source_certs = [
+        c for c in (profile_json.get("certifications") or [])
+        if not (isinstance(c, dict) and c.get("status") == "unconfirmed")
+    ]
     if not source_certs:
         return tailored
     return tailored.model_copy(
@@ -717,13 +722,31 @@ def _restore_ledger_bullets(
         return tailored
 
     from applire.services.ats_audit import _norm, surface_present
-    from applire.services.keyword_ledger import verified_missing_claimable
+    from applire.services.keyword_ledger import (
+        is_load_bearing,
+        verified_missing_claimable,
+        verified_missing_load_bearing,
+    )
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
     # still be over its RoleBudget ceiling with nothing left to restore (the #122
     # coverage-review loop pushing an ADD with no ceiling awareness of its own),
     # and the per-entry loop below must run to enforce that ceiling regardless.
-    missing = verified_missing_claimable(tailored.model_dump(mode="json"), keyword_ledger)
+    draft_json = tailored.model_dump(mode="json")
+    missing = verified_missing_claimable(draft_json, keyword_ledger)
+    # #315: a LOAD-BEARING concept (a `direct`+`claimable` figure a hiring
+    # reviewer checks for by name) is missing its evidence even when a bare
+    # keyword mention elsewhere (skills list, summary) already satisfies the
+    # whole-document check above -- that check alone let charter run #7 ship
+    # "Budgetverantwortung" as a tag while its "6 Mio. €" bullet was silently
+    # dropped by the writer and never restored. Union in, deduped by concept
+    # (verified_missing_claimable already covers a concept absent everywhere;
+    # this only adds concepts present ONLY as a bare tag).
+    already = {e.get("concept") for e in missing}
+    for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
+        if entry.get("concept") not in already:
+            missing.append(entry)
+            already.add(entry.get("concept"))
 
     # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
     # this guard MUST run after it so tailored ids are populated.
@@ -758,7 +781,12 @@ def _restore_ledger_bullets(
         existing_norms = {_norm(b) for b in existing_bullets}
 
         vault_entry = vault_by_id.get(eid)
-        restored: list[str] = []
+        # #315 follow-up: a restored bullet answering a LOAD-BEARING concept is
+        # tracked separately from every other restoration, so it can be placed
+        # ahead of generic pre-existing hits before the ceiling cap below --
+        # see that cap's comment for why this split exists.
+        restored_load_bearing: list[str] = []
+        restored_other: list[str] = []
         if vault_entry is not None and remaining:
             vault_bullets = [
                 b for key in ("responsibilities", "achievements")
@@ -776,19 +804,54 @@ def _restore_ledger_bullets(
                 )
                 if hit_idx is None:
                     continue
-                restored.append(vb)
+                matched_entry = remaining[hit_idx]
+                if is_load_bearing(matched_entry):
+                    restored_load_bearing.append(vb)
+                else:
+                    restored_other.append(vb)
                 existing_norms.add(vb_norm)
                 remaining.pop(hit_idx)
 
         rb = budget.roles.get(eid) if budget is not None else None
+        restored = restored_load_bearing + restored_other
 
         if restored:
             changed = True
-            hits = [b for b in existing_bullets if _is_hit(b)] + restored
+            # #315 follow-up (coordinator finding): the naive `existing_hits +
+            # restored` order let the ceiling cap below silently cancel a
+            # restoration whenever a role's PRE-EXISTING hit bullets already
+            # filled max_bullets -- exactly the real charter run #7 shape
+            # (Weberit shipped at its 5-bullet ceiling). A restored
+            # LOAD-BEARING bullet is placed ahead of every generic
+            # pre-existing hit, because a generic hit is not entitled to bump
+            # a figure a hiring reviewer checks for by name. A restored
+            # NON-load-bearing bullet keeps the ORIGINAL ordering (after
+            # existing hits), so #234's established behaviour for the common
+            # case is unchanged -- only load-bearing restorations get the
+            # stronger placement.
+            existing_hits = [b for b in existing_bullets if _is_hit(b)]
             no_hits = [b for b in existing_bullets if not _is_hit(b)]
+            hits = restored_load_bearing + existing_hits + restored_other
             ordered = hits + no_hits
             if rb is not None and len(ordered) > rb.max_bullets:
                 ordered = ordered[: rb.max_bullets]
+            # ADR-061 clause 8 ("every drop is diagnosable from the log
+            # alone"): even front-ordered, a load-bearing restoration can
+            # still be cancelled if there are MORE load-bearing restorations
+            # than the ceiling has room for. That must never be silent --
+            # this is precisely the "guard runs, reports success internally,
+            # document unchanged" failure mode #315 was filed over.
+            surviving = set(ordered)
+            dropped_load_bearing = [b for b in restored_load_bearing if b not in surviving]
+            if dropped_load_bearing:
+                logger.warning(
+                    "LOAD_BEARING_RESTORE_DROPPED (#315): work entry id=%s ceiling "
+                    "max_bullets=%s could not fit %d load-bearing restored bullet(s) "
+                    "even after ordering them ahead of %d pre-existing hit bullet(s) "
+                    "-- dropped: %r",
+                    eid, rb.max_bullets if rb is not None else None,
+                    len(dropped_load_bearing), len(existing_hits), dropped_load_bearing,
+                )
             w_dict["bullets"] = ordered
             new_work.append(w_dict)
             continue
@@ -967,6 +1030,10 @@ def _tailor_skills_to_jd(
     # the profile's own spelling verbatim — never fabricated. Mirrors gap_inference/choice_grounding.
     profile_skills: list[str] = []
     for s in profile_json.get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line — never
+        # guarantee-restored, even when it maps to a JD-required term.
+        if isinstance(s, dict) and s.get("status") == "unconfirmed":
+            continue
         name = s.get("name") if isinstance(s, dict) else s
         if isinstance(name, str) and name.strip():
             profile_skills.append(name.strip())
@@ -1091,6 +1158,10 @@ def _drop_ungrounded_jd_echo_skills(
 
     profile_skills: list[str] = []
     for s in profile_json.get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill grants no "vault tie" either —
+        # a tag that only matches an unconfirmed entry is not backed.
+        if isinstance(s, dict) and s.get("status") == "unconfirmed":
+            continue
         name = s.get("name") if isinstance(s, dict) else s
         if isinstance(name, str) and name.strip():
             profile_skills.append(name.strip())
@@ -1255,6 +1326,11 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
 
     vault_skills: list[str] = []
     for entry in (profile_json or {}).get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill is not a restoration target —
+        # spelling a surviving tag toward an unclaimable entry still implies
+        # the vault backs it.
+        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
+            continue
         name = entry.get("name") if isinstance(entry, dict) else entry
         if isinstance(name, str) and name.strip():
             vault_skills.append(name.strip())
@@ -1689,6 +1765,13 @@ async def _render_cv_background(
                 profile_json["work_experience"] = [
                     e.model_dump() for e in _sort_work_by_date(we)
                 ]
+            # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
+            # below (certifications passthrough, skill-restoration pools) may see
+            # an unconfirmed vault entry — it cannot back a CV line. The
+            # candidate's own persisted profile is untouched; this is a filtered
+            # COPY used for generation only.
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+            profile_json = exclude_unconfirmed(profile_json)
 
             # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
             # BEFORE generation, from the profile + Keyword Ledger + this row's resolved
@@ -1709,25 +1792,22 @@ async def _render_cv_background(
                 budget_work_entries, keyword_ledger, resolved_target_pages
             )
 
-            # #277 (#270 Fix D inverted): vault-derived SCOPED BOUNDARIES — a claimable
-            # ledger concept the vault ALSO holds an explicit stated limit on. Unlike the
-            # cross-document `unqualified_cv_vs_scoped_letter` conflict (which needs a
-            # letter to compare against and so can only reach the LETTER's reviewer after
-            # the CV is already final), find_scoped_boundaries derives entirely from the
-            # vault (this CV's OWN keyword_ledger + the profile's persisted
-            # ProfileMetadata.denied_concepts) — both inputs already exist here, before
-            # any letter is generated. Threaded into the writer prompt(s) below so the
-            # skills list / summary render the SCOPED claim instead of a bare, unqualified
-            # tag (the hiring-manager finding: a screener reading only the CV over-rated
-            # the candidate on the JD's most technical axis). Deterministic, no LLM.
+            # STATED LIMITS: the candidate's persisted denial statements, verbatim
+            # (ProfileMetadata.denied_concepts). Threaded into the writer prompt(s) below
+            # so a CV skill tag or summary line never contradicts something the candidate
+            # explicitly said they cannot claim. Facts only — this deliberately does NOT
+            # decide which claimable concept each limit bears on; that pairing used to be
+            # `find_scoped_boundaries` and it was wrong on real data in the one direction
+            # that matters (see services/cross_document.collect_stated_limits).
             from applire.services.cross_document import (
-                find_scoped_boundaries,
-                render_scoped_boundary_block,
+                collect_stated_limits,
+                render_stated_limits_block,
             )
 
             denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
-            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
-            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+            stated_limits_block = render_stated_limits_block(
+                collect_stated_limits(denied_concepts)
+            )
 
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
@@ -1741,7 +1821,7 @@ async def _render_cv_background(
                 provider=provider,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -1751,8 +1831,8 @@ async def _render_cv_background(
             # candidate's ground truth) has the vault's own scoped wording available to
             # correct a bare tag back to the scoped form, without adding a new reviewer
             # check or a new LLM pass.
-            if scoped_boundary_block:
-                source_material = f"{source_material}\n\n{scoped_boundary_block}"
+            if stated_limits_block:
+                source_material = f"{source_material}\n\n{stated_limits_block}"
             # ADR-048 / US202+US213 (#122): route the Keyword Ledger to the reviewer for the
             # forbidden-claim check, and wrap the reviewer prompt so each iteration carries
             # the DETERMINISTIC verified-coverage state of the current draft (the LLM no

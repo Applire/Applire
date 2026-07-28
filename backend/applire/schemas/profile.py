@@ -197,6 +197,15 @@ class Certification(BaseModel):
     expiry_date: date | None = None  # None means doesn't expire
     credential_id: str | None = None
     credential_url: str | None = None
+    # ADR-061 clause 3 — "confirmed" (literal/aliased grounding, or a
+    # citation-verified LLM adjudication) vs "unconfirmed" (the testimony
+    # predicate could not confirm it). An unconfirmed entry is visible and
+    # candidate-confirmable but never claimable — it cannot back a CV line, a
+    # letter sentence, or a `direct` ledger row. Denials are unaffected: a
+    # denied token is still stripped outright (ADR-040, never-claim outranks
+    # claim). Default "confirmed" preserves every non-interview write path
+    # (CV import, manual edit) exactly as before.
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"
 
     @field_validator("date_obtained", "expiry_date", mode="before")
     @classmethod
@@ -226,6 +235,25 @@ _PROFICIENCY_ALIASES: dict[str, str] = {
     "native or bilingual proficiency": "expert",
     "native or bilingual": "expert",
     "bilingual": "expert",
+    # German CV proficiency tiers (DACH-native first — ADR-061 clause 5, #304/#317).
+    # These are the exact self-declaration words a German CV uses. Before this
+    # they fell through to the unknown-string default ("intermediate"), which
+    # silently RAISED "Anwender"/"Grundkenntnisse"/"Grundlagen" (all mean the
+    # candidate's WEAKEST tier) and silently LOWERED "Verhandlungssicher" /
+    # "Fließend"/"Muttersprache" (near the STRONGEST tier) — wrong in both
+    # directions, and #304's own case ("SAP (Anwender)") went through exactly
+    # this path. Both the German ß and its ASCII "ss" transliteration are
+    # listed — a prior incident (#213/#214, U+2019) had a Unicode variant
+    # defeat a matcher; do not assume only one spelling reaches this code.
+    "anwender": "basic",
+    "grundkenntnisse": "basic",
+    "grundlagen": "basic",
+    "fortgeschritten": "advanced",
+    "erfahren": "advanced",
+    "verhandlungssicher": "advanced",
+    "fließend": "advanced",
+    "fliessend": "advanced",
+    "muttersprache": "expert",
 }
 
 
@@ -240,6 +268,10 @@ class Skill(BaseModel):
     # surfaced this skill. Renamed from work_entry_refs (US172 / ADR-044) now
     # that experiences are unified; legacy JSONB with the old key still loads.
     experience_refs: list[str] = Field(default_factory=list)
+    # ADR-061 clause 3 — see Certification.status for the full contract. Set
+    # by ``reconcile/stance.py::enforce_stance`` at the interview seam; every
+    # other write path (CV import, manual edit) defaults to "confirmed".
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"
 
     @model_validator(mode="before")
     @classmethod
@@ -314,6 +346,7 @@ class SignatureStory(BaseModel):
 class Language(BaseModel):
     language: str
     level: str | None = None
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"  # ADR-061 clause 3
 
 
 class Publication(BaseModel):

@@ -25,12 +25,26 @@ Pipeline:
      (WorkEntry, ProjectEntry, VolunteerActivity) via profile.all_experiences.
      Uses org_label() for provenance so project names and volunteer orgs are
      recorded in experience_refs alongside company names (ADR-044 / US172).
-     Calculate non-overlapping years from matched date ranges.
-     Derive proficiency from years, apply floor (never downgrade).
-     Record provenance in experience_refs.
+     Calculate non-overlapping years from matched date ranges and record them
+     in years_experience. Record provenance in experience_refs.
   2. For unmatched technical/soft skills, make a single batch LLM call with all
-     experience entries. Apply same floor rule. Source = "llm_estimated".
+     experience entries to estimate years_experience. Source = "llm_estimated".
   3. language/domain skills are passed through unchanged.
+
+ADR-061 (clauses 5 & 6, 2026-07-27): this service NEVER writes ``proficiency``.
+Both phases above only ever produce a *duration* (years_experience) and a
+*provenance trail* (experience_refs) — both computed/inferred quantities, not
+attributes read off the document. Whatever proficiency tier the candidate
+declared (extracted verbatim from the CV/LinkedIn text upstream of this
+module) passes through completely untouched: "SAP (Anwender)" stays at
+whatever tier the extractor read, never promoted because fifteen years have
+elapsed since the skill was first mentioned in some role's technologies list.
+Elapsed time is a fact about duration, not a judgement about skill level, and
+a judgement must trace to a statement (#304 / ADR-061). The historical
+years→proficiency ladder (``_years_to_proficiency`` + the old
+``_apply_floor``) is retired as a *writer* of proficiency; the former is kept
+as a pure, still-tested mapping (no production caller), the latter — whose own
+docstring stated the inverted rule this ADR overturns — has been removed.
 """
 from __future__ import annotations
 
@@ -48,13 +62,6 @@ from applire.prompts.skill_estimation import (
 logger = logging.getLogger(__name__)
 
 _ELIGIBLE_CATEGORIES = frozenset({"technical", "soft"})
-
-_PROFICIENCY_RANK: dict[str, int] = {
-    "basic": 0,
-    "intermediate": 1,
-    "advanced": 2,
-    "expert": 3,
-}
 
 
 def _parse_partial_date(s: str) -> date:
@@ -139,6 +146,16 @@ def _years_to_proficiency(years: int) -> str:
         1–2  → intermediate
         3–5  → advanced
         ≥ 6  → expert
+
+    RETIRED as a writer of ``Skill.proficiency`` (ADR-061 clause 6, #304/#317).
+    This was the arithmetic ladder both enrichment phases funnelled a
+    duration through to produce a proficiency tier — "years since a skill was
+    first mentioned anywhere" is not the same quantity as "how good the
+    candidate is at it", and a German CV's deliberately modest "Anwender"
+    self-declaration was silently promoted to "expert" this way. Duration is
+    a fact and keeps its own field (``years_experience``); skill level is a
+    judgement that must trace to a statement. No production code calls this
+    function any more — it is kept as a pure, still-tested mapping only.
     """
     if years < 1:
         return "basic"
@@ -147,17 +164,6 @@ def _years_to_proficiency(years: int) -> str:
     if years < 6:
         return "advanced"
     return "expert"
-
-
-def _apply_floor(calculated: str, existing: str) -> str:
-    """Return the higher of two proficiency levels.
-
-    The LLM-extracted proficiency is never lowered by the calculation.
-    Uses rank order: basic(0) < intermediate(1) < advanced(2) < expert(3).
-    """
-    calc_rank = _PROFICIENCY_RANK.get(calculated, 0)
-    exist_rank = _PROFICIENCY_RANK.get(existing, 1)  # default intermediate if unknown
-    return calculated if calc_rank > exist_rank else existing
 
 
 def _match_and_enrich(
@@ -213,13 +219,17 @@ def _match_and_enrich(
 
         if matched_ranges:
             years = _calculate_years(matched_ranges)
-            calculated_prof = _years_to_proficiency(years)
-            final_prof = _apply_floor(calculated_prof, skill.proficiency)
+            # ADR-061 clauses 5 & 6 (#304/#317): proficiency is NOT touched here.
+            # years_experience and experience_refs are code-computed from the
+            # extractor's own `technologies` co-occurrence — that inference is
+            # exactly what makes this provenance "computed", not "transcribed"
+            # (clause 7); whatever proficiency tier the candidate declared on
+            # the page passes through unchanged, and is never raised by how
+            # much time has elapsed since a role first mentioned the skill.
             enriched.append(skill.model_copy(update={
                 "years_experience": years,
-                "proficiency": final_prof,
                 "experience_refs": matched_orgs,
-                "source": "deterministic",
+                "source": "computed",
             }))
         else:
             unmatched.append(skill)
@@ -235,11 +245,15 @@ async def enrich_skills(
 
     Phase 1 (deterministic): Match each technical/soft skill against the
         technologies of every experience entry (jobs, projects, volunteering).
-        Calculate non-overlapping years from date ranges. Derive proficiency
-        from years, apply floor. Record experience_refs (org_label per entry).
+        Calculate non-overlapping years from date ranges into years_experience.
+        Record experience_refs (org_label per entry).
 
     Phase 2 (LLM): For unmatched technical/soft skills, make a single batch
-        LLM call with the full experience history. Apply same floor rule.
+        LLM call with the full experience history to estimate years_experience.
+
+    Neither phase writes ``proficiency`` (ADR-061 clauses 5 & 6, #304/#317) —
+    it is left exactly as declared/extracted, never raised by a computed or
+    estimated duration.
 
     language/domain skills are passed through unchanged in both phases.
 
@@ -285,11 +299,11 @@ async def enrich_skills(
                     years = max_years or None  # 0 span → no basis at all, drop the estimate
 
             if years is not None:
-                calc_prof = _years_to_proficiency(years)
-                final_prof = _apply_floor(calc_prof, skill.proficiency)
+                # ADR-061 clauses 5 & 6 (#304/#317): the estimate is a duration
+                # only — proficiency is never written from it, matching the
+                # deterministic phase above.
                 enriched_skills.append(skill.model_copy(update={
                     "years_experience": years,
-                    "proficiency": final_prof,
                     "experience_refs": [],
                     "source": "llm_estimated",
                 }))

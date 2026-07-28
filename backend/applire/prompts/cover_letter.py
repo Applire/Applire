@@ -154,13 +154,15 @@ Rules:
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
     address availability/commitment using ONLY that testimony, grounded verbatim. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
-- SCOPED BOUNDARIES (#270): when a SCOPED BOUNDARIES block appears in the user message, the
-  vault holds BOTH a positive contribution AND an explicit candidate-stated limit for that
-  concept — it is CLAIMABLE, never a do-not-claim gap, and it must NEVER be placed in the
-  honest-gap/transfer-argument paragraph. Render the SCOPED claim naming both halves (the
-  positive contribution AND the stated limit), grounded verbatim in the text given; never
-  reduce it to a bare denial that discards the positive half, and never an unqualified claim
-  that ignores the limit.
+- STATED LIMITS: when a STATED LIMITS block appears in the user message, it holds the
+  candidate's own words about what they cannot claim, and they are the ONLY limits that
+  exist. Never write a claim one of them contradicts. Equally: never invent a limit they do
+  not state. A concept named inside one of those statements as something the candidate DOES
+  have is a STRENGTH — an honest denial names the adjacent strengths that transfer — so
+  claim it plainly and without qualification. Everything the Keyword Ledger marks claimable
+  stays fully claimable unless a stated limit denies it, and never belongs in the
+  honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences costs
+  the candidate their best material and is as untrue as an inflated claim.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
   job-description concept the candidate's own material does not evidence (an honest gap),
   choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
@@ -183,7 +185,7 @@ def build_cover_letter_prompt(
     company_name: str | None = None,
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
-    scoped_boundary_block: str | None = None,
+    stated_limits_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
 ) -> str:
@@ -226,10 +228,11 @@ def build_cover_letter_prompt(
         BOTH the deterministic concurrent-roles detector fired AND matching testimony exists
         in the vault (:func:`applire.services.cover_letter_positioning`); otherwise None, and
         no availability/commitment claim beyond PRE-GENERATION INPUTS is made.
-    scoped_boundary_block: rendered SCOPED BOUNDARIES text (#270,
-        :func:`applire.services.cross_document.render_scoped_boundary_block`) — claimable
-        ledger concepts the vault also states an explicit limit on. Optional so legacy/
-        degraded callers do not break; omitted/empty → adds nothing.
+    stated_limits_block: the candidate's persisted denial statements rendered verbatim
+        (:func:`applire.services.cross_document.render_stated_limits_block`) — the
+        ONLY limits the vault holds. Facts, not pairings: which claimable concept a
+        given limit bears on is left to the model. Optional so legacy/degraded
+        callers do not break; omitted/empty → adds nothing.
     unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
         :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
         called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
@@ -352,11 +355,10 @@ def build_cover_letter_prompt(
     if ledger_block:
         lines += ["", ledger_block]
 
-    # #270 (Fix D): scoped-boundary concepts — the vault holds BOTH a positive
-    # contribution and an explicit stated limit. Threaded ONLY when genuinely found
-    # (services.cross_document.find_scoped_boundaries); absent → adds nothing.
-    if scoped_boundary_block:
-        lines += ["", scoped_boundary_block]
+    # The candidate's own words about what they cannot claim, verbatim
+    # (services.cross_document.collect_stated_limits); no denials → adds nothing.
+    if stated_limits_block:
+        lines += ["", stated_limits_block]
 
     # #270(c): unmet JD hard requirements (claimable: false, "required") that
     # need an explicit positioning decision (transfer argument or a brief,

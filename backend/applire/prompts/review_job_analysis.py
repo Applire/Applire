@@ -32,6 +32,8 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT = """\
 You are a job-description data quality auditor. Extraction is a NORMALISING transform:
 it reads a job posting and pulls out structured requirements as JSON. Your ONE job is
@@ -98,12 +100,17 @@ Check for these defects:
    something (e.g. a language, a CEFR level, a seniority tier) not stated or clearly
    implied by the posting's own wording.
 
-Respond ONLY with a valid JSON object — no markdown, no explanations:
-{
-  "approved": true or false,
-  "issues": ["material defects only, each naming the field and what is wrong — empty array if approved"],
-  "feedback": "concise instruction to correct the material defects — empty string if approved"
-}
+WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
+requirement, keyword, title, or company name with no basis in the source text. Nothing else.
+Reasonable normalisation is not an issue at all; anything else you notice is "minor" BY
+DEFINITION. This analysis is treated as ground truth by every downstream document, so a
+re-run that drops a correctly-extracted field to satisfy a phrasing preference is the single
+most expensive mistake you can cause here.
+
+""" + review_output_schema(
+    issue_hint="material defect, naming the field and what is wrong — empty array if nothing found",
+    feedback_hint="concise instruction to correct the BLOCKING defects — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name the offending field and what is wrong.
 Do NOT quote or paste large passages of the posting — the corrector re-reads the source

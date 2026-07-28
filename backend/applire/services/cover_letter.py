@@ -66,6 +66,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import log_letter_over_budget
 from applire.services.letter_figure_guard import guard_letter_figures
 from applire.services.letter_outcome_guard import guard_letter_outcome_preference
+from applire.services.load_bearing import load_bearing_fn_from_ledger
 from applire.services.reviewer import review_and_refine
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
@@ -639,7 +640,11 @@ async def _render_cover_letter_background(
             )
             profile = profile_result.scalar_one_or_none()
             if profile is not None and not cv_data:
-                cv_data = profile.profile_json or {}
+                # ADR-061 clause 3: no CV exists yet, so this raw profile stands in
+                # as the writer's evidence — an unconfirmed skill/language/
+                # certification must not reach the letter as though established.
+                from applire.services.profile.reconcile.stance import exclude_unconfirmed
+                cv_data = exclude_unconfirmed(profile.profile_json or {})
 
             # Auto-extract recipient if not provided
             pre_gen = dict(cl.pre_gen_inputs or {})
@@ -735,22 +740,23 @@ async def _render_cover_letter_background(
                         cl_id,
                     )
 
-            # #270 Fix B/D: SCOPED BOUNDARIES — a claimable ledger concept the vault
-            # ALSO carries an explicit candidate-stated limit for (ADR-059 denial floor
-            # + a textually-related persisted denial). Deterministic, no LLM. Threaded
-            # into the writer prompt (below) AND positioning_requested (so the
-            # reviewer/corrector never mistake it for a DO-NOT-CLAIM concept and never
-            # instruct the writer to name it as an absence — the exact run-5 defect).
+            # STATED LIMITS: the candidate's persisted denial statements, verbatim, so the
+            # writer never contradicts one. Facts only — which claimable concept a given
+            # limit bears on is a question about meaning and is left to the model. The
+            # deterministic pairing this replaces (`find_scoped_boundaries`) got that
+            # question backwards on real data and made the writer invent limits; see
+            # services/cross_document.collect_stated_limits for the run-8 ground truth.
             from applire.services.cross_document import (
-                find_scoped_boundaries,
+                collect_stated_limits,
                 find_unaddressed_hard_requirements,
-                render_scoped_boundary_block,
+                render_stated_limits_block,
                 render_unaddressed_hard_requirements_block,
                 unaddressed_hard_requirements_positioning,
             )
             # denied_concepts already resolved above (#272 Task 1 hoist).
-            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
-            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+            stated_limits_block = render_stated_limits_block(
+                collect_stated_limits(denied_concepts)
+            )
 
             # #270(c): unmet JD hard requirements (claimable: false, required) that need
             # an explicit positioning decision. Computed with letter_data=None — no draft
@@ -790,23 +796,18 @@ async def _render_cover_letter_background(
                     "itself a review issue."
                 ),
             }
-            if scoped_boundaries:
-                positioning_requested["scoped_boundaries"] = {
-                    "boundaries": [
-                        {
-                            "concept": b.concept,
-                            "evidence": b.evidence,
-                            "limit": b.denial_statement or b.denial_concept,
-                        }
-                        for b in scoped_boundaries
-                    ],
+            if stated_limits_block:
+                positioning_requested["stated_limits"] = {
+                    "limits": collect_stated_limits(denied_concepts),
                     "instruction": (
-                        "For each concept above, the vault holds BOTH a positive "
-                        "contribution AND an explicit candidate-stated limit. These "
-                        "concepts are CLAIMABLE, never a do-not-claim gap. Render the "
-                        "SCOPED claim naming both halves — never a bare denial that "
-                        "discards the positive half, and never an unqualified claim "
-                        "that ignores the limit."
+                        "These are the candidate's own words about what they cannot "
+                        "claim, and the ONLY limits the vault holds. A draft must not "
+                        "contradict one — and must not invent one either. A concept "
+                        "named inside a statement as something the candidate DOES have "
+                        "is a strength, not a limit: an honest denial names the "
+                        "adjacent strengths that transfer. Everything the Keyword "
+                        "Ledger marks claimable stays fully claimable unless a "
+                        "statement here denies it."
                     ),
                 }
             if unaddressed_requirements:
@@ -879,9 +880,14 @@ async def _render_cover_letter_background(
                 render_letter_evidence_block,
                 select_letter_evidence,
             )
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
             vault_evidence_block = render_letter_evidence_block(
                 select_letter_evidence(
-                    keyword_ledger, jd_excerpt, profile.profile_json if profile else {}
+                    keyword_ledger,
+                    jd_excerpt,
+                    # ADR-061 clause 3: unconfirmed vault content is not evidence.
+                    exclude_unconfirmed(profile.profile_json) if profile else {},
                 )
             )
             user_prompt = build_cover_letter_prompt(
@@ -896,7 +902,7 @@ async def _render_cover_letter_background(
                 company_name=job.company_name,
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
             )
@@ -911,10 +917,14 @@ async def _render_cover_letter_background(
             # reviewer audits the body for invented dates/employers/achievements before the
             # letter is shown. Source of truth = the grounded CV data + profile + the
             # candidate's OWN inputs (so user-stated facts are not false-flagged).
+            from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
             grounding_source = json.dumps(
                 {
                     "cv_data": cv_data,
-                    "profile": profile.profile_json if profile is not None else {},
+                    # ADR-061 clause 3: an unconfirmed vault entry must not count as
+                    # grounding for the reviewer — it cannot back a letter sentence.
+                    "profile": exclude_unconfirmed(profile.profile_json) if profile is not None else {},
                     "candidate_inputs": {
                         k: pre_gen.get(k)
                         for k in ("motivation", "salary", "availability")
@@ -949,15 +959,21 @@ async def _render_cover_letter_background(
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
-            # #270 Fix D: compose (never replace) coverage_reviewer_prompt_fn with a
-            # SECOND deterministic wrapper — each reviewer iteration also carries the
-            # CURRENT draft's cross-document conflicts (bare-denial-of-claimable /
-            # assert-vs-deny against cv_data), recomputed fresh every pass exactly like
-            # the verified-coverage check above. No new LLM pass, no new loop.
-            from applire.services.cross_document import cross_document_reviewer_prompt_fn
-            reviewer_prompt_fn = cross_document_reviewer_prompt_fn(
+            # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
+            # SECOND deterministic wrapper — each reviewer iteration also carries the JD
+            # hard requirements the CURRENT draft has not addressed, recomputed fresh
+            # every pass exactly like the verified-coverage check above. No new LLM pass,
+            # no new loop. This wrapper used to also append cross-document conflict
+            # findings derived from a negation-proximity matcher; ADR-062 deleted them
+            # (the matcher read contrastive transfer arguments — "X nicht, doch Y" — as
+            # denials, and the reviewer, told the flag was ground truth, could not
+            # approve any draft). The cross-document rule is now stated once in the
+            # reviewer prompt, which already holds both documents and the ledger.
+            from applire.services.cross_document import (
+                unaddressed_requirements_reviewer_prompt_fn,
+            )
+            reviewer_prompt_fn = unaddressed_requirements_reviewer_prompt_fn(
                 coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
-                cv_data=cv_data,
                 keyword_ledger=keyword_ledger,
                 denied_concepts=denied_concepts,
             )
@@ -984,6 +1000,15 @@ async def _render_cover_letter_background(
             def _within_budget(draft: dict) -> bool:
                 return within_word_budget(draft, norm.letter_body_word_budget)
 
+            # #306 (b): the retain_if/prefer_if substitution must not be
+            # evidence-blind — charter run #7 case 2 substituted an earlier
+            # round's draft that satisfied BOTH structural predicates but had
+            # silently dropped the case's OEE arc (61 % -> 73 %). load_bearing_fn
+            # is the SAME keyword_ledger already routed to the reviewer prompt
+            # above (coverage_reviewer_prompt_fn) — see services/load_bearing.py
+            # for the shared "load-bearing claim" definition.
+            load_bearing_fn = load_bearing_fn_from_ledger(keyword_ledger)
+
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
@@ -1002,6 +1027,7 @@ async def _render_cover_letter_background(
                 # passed is substituted instead — no new LLM call.
                 retain_if=has_closing_paragraph,
                 prefer_if=_within_budget,
+                load_bearing_fn=load_bearing_fn,
             )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
@@ -1126,6 +1152,11 @@ async def _render_cover_letter_background(
                             # the closing again is never selected just because it
                             # is shorter.
                             prefer_if=_within_budget,
+                            # #306 (b): same evidence-blind-substitution guard as
+                            # the primary loop above — the condense pass is a
+                            # fresh rewrite under length pressure and must not
+                            # trade load-bearing figures away for a shorter shape.
+                            load_bearing_fn=load_bearing_fn,
                         )
                         # #254 — same generation-path guard as the primary loop
                         # above: the condense pass is itself a fresh corrector-

@@ -15,12 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""#277 (#270 Fix D inverted) — ``_render_cv_background`` must derive vault SCOPED
-BOUNDARIES (a claimable Keyword Ledger concept the vault ALSO holds an explicit
-stated limit on, via ``ProfileMetadata.denied_concepts``) and thread the rendered
-block into ``_tailor_cv_with_fallback`` AND the review/retry ``source`` — entirely
-from data available at CV-generation time, independent of whether a cover letter
-exists yet. Mocks the LLM provider/DB session; no Docker, no LLM, no real network.
+"""``_render_cv_background`` must thread the vault's STATED LIMITS (the candidate's
+own persisted denial statements, ``ProfileMetadata.denied_concepts``) into
+``_tailor_cv_with_fallback`` AND the review/retry ``source``, so no CV section
+contradicts one. Mocks the LLM provider/DB session; no Docker, no LLM, no network.
+
+Replaces the #277 SCOPED BOUNDARIES wiring tests (charter run #8, 2026-07-28): that
+block also told the writer WHICH claimable concept each limit bounded, decided by
+text overlap, and on real data it named four of the candidate's strongest concepts
+as limited. The block now carries statements only.
 
 Fixture data is invented (never real personal data), mirroring the shape already
 used by backend/tests/unit/services/test_cross_document.py.
@@ -71,6 +74,9 @@ _LEDGER = [
         "evidence": "Built and owned the RAG pipeline data layer at Northwind Labs.",
     }
 ]
+# Shaped like a real honest denial: it names an adjacent STRENGTH ("designed the
+# database for the RAG pipeline") in the same breath as the limit. That is exactly
+# the shape the deleted boundary matcher read backwards.
 _DENIED_CONCEPTS = [
     {
         "concept": "hands-on embedding work",
@@ -142,36 +148,38 @@ async def _run_render_cv_background(*, profile_json: dict, ledger: list[dict]):
 
 
 # ---------------------------------------------------------------------------
-# Guard test 1: a vault-held scoped boundary reaches the CV generation prompt.
+# Guard test 1: the vault's stated limits reach the CV generation prompt.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_render_cv_background_threads_a_real_scoped_boundary_into_the_fallback_call():
+async def test_render_cv_background_threads_the_stated_limits_into_the_fallback_call():
     profile_json = _profile_json(metadata={"denied_concepts": _DENIED_CONCEPTS})
     fallback_kwargs, review_kwargs = await _run_render_cv_background(
         profile_json=profile_json, ledger=_LEDGER
     )
 
-    assert "scoped_boundary_block" in fallback_kwargs, (
-        "_tailor_cv_with_fallback was not given a scoped_boundary_block"
+    assert "stated_limits_block" in fallback_kwargs, (
+        "_tailor_cv_with_fallback was not given a stated_limits_block"
     )
-    block = fallback_kwargs["scoped_boundary_block"]
-    assert block, "expected a non-empty scoped boundary block"
-    assert "RAG pipelines" in block
-    assert "embedding models" in block
-    # Never deleted from the CV — the block instructs the SCOPED claim, not a denial.
-    assert "never a bare denial that discards" in block
+    block = fallback_kwargs["stated_limits_block"]
+    assert block, "expected a non-empty stated limits block"
+    # The candidate's own sentence, verbatim and whole.
+    assert "did not configure the embedding models myself" in block
+    # ...but never turned into a verdict about a specific claimable concept.
+    assert "POSITIVE (candidate's own vault evidence)" not in block
+    assert "both halves" not in block
+    # And the rule that stops the writer generalising from it.
+    assert "strength, not a limit" in block.lower()
 
     # Also folded into the review/retry source (US202+US213 precedent) so a retry can
     # ground its correction in the same vault wording.
     assert "source" in review_kwargs
-    assert "RAG pipelines" in review_kwargs["source"]
     assert "embedding models" in review_kwargs["source"]
 
 
 # ---------------------------------------------------------------------------
-# Guard test 2: no vault boundary -> unchanged (no regression) common-case behaviour.
+# Guard test 2: no persisted denial -> the prompt is unchanged (no regression).
 # ---------------------------------------------------------------------------
 
 
@@ -182,36 +190,33 @@ async def test_render_cv_background_omits_the_block_when_no_denied_concepts_exis
         profile_json=profile_json, ledger=_LEDGER
     )
 
-    assert "scoped_boundary_block" in fallback_kwargs
-    assert not fallback_kwargs["scoped_boundary_block"], (
-        "no persisted denial exists — the scoped boundary block must stay empty, "
-        "identical to pre-#277 behaviour"
+    assert "stated_limits_block" in fallback_kwargs
+    assert not fallback_kwargs["stated_limits_block"], (
+        "no persisted denial exists — the stated limits block must stay empty"
     )
 
 
 # ---------------------------------------------------------------------------
-# Guard test 3: a denied, non-claimable concept must never surface as a CV claim
-# (ADR-059) — even when denied_concepts is populated, an unrelated/non-claimable
-# concept produces no boundary and is not threaded as if it were claimable.
+# Guard test 3 (the run-8 regression): the block must not change with the ledger.
+#
+# The deleted `find_scoped_boundaries` cross-referenced the ledger against the
+# denials, so the same denial produced a different instruction depending on which
+# concepts happened to be claimable. That coupling IS the defect. The limits are a
+# property of the candidate's own statements and nothing else.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_render_cv_background_never_promotes_a_denied_non_claimable_concept():
-    non_claimable_ledger = [
-        {
-            "concept": "RAG pipelines",
-            "claimable": False,  # honest gap — the vault does NOT support this claim
-            "surface_forms": ["RAG pipelines", "RAG"],
-            "evidence": "",
-        }
-    ]
+async def test_the_stated_limits_block_is_independent_of_the_keyword_ledger():
     profile_json = _profile_json(metadata={"denied_concepts": _DENIED_CONCEPTS})
-    fallback_kwargs, _review_kwargs = await _run_render_cv_background(
-        profile_json=profile_json, ledger=non_claimable_ledger
-    )
 
-    assert "scoped_boundary_block" in fallback_kwargs
-    assert not fallback_kwargs["scoped_boundary_block"], (
-        "a non-claimable (denied) concept must never be rendered as a scoped CLAIM"
+    claimable, _ = await _run_render_cv_background(profile_json=profile_json, ledger=_LEDGER)
+    non_claimable, _ = await _run_render_cv_background(
+        profile_json=profile_json,
+        ledger=[{**_LEDGER[0], "claimable": False, "evidence": ""}],
     )
+    empty_ledger, _ = await _run_render_cv_background(profile_json=profile_json, ledger=[])
+
+    assert claimable["stated_limits_block"]
+    assert claimable["stated_limits_block"] == non_claimable["stated_limits_block"]
+    assert claimable["stated_limits_block"] == empty_ledger["stated_limits_block"]

@@ -79,6 +79,32 @@ from applire.services.profile.reconcile.ops import (
 _PROFICIENCY_ORDER = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
 
 
+def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
+    """ADR-061 clause 5 — a declared proficiency is a ceiling, not a floor.
+
+    ``existing`` is the tier already recorded on the profile's skill. A prior
+    incident (#304) had this merge keep-the-higher-of-two, which let a second
+    write (interview or import) silently ratchet a deliberately modest
+    self-declaration (e.g. ``"Anwender"`` → ``basic``) up to ``expert`` on the
+    next import. An explicit self-declaration is the strongest evidence this
+    system has about a claim's strength, so once ``existing`` carries a
+    recognised tier it is **never raised** by a later write — regardless of
+    what ``incoming`` says.
+
+    ``incoming`` only fills the slot when ``existing`` carries no recognised
+    tier at all (``_PROFICIENCY_ORDER.get(existing)`` is ``None``) — "the page
+    was silent" — which also closes the sibling defect named alongside this
+    one: the old code's ``.get(existing.proficiency, 1)`` fallback silently
+    asserted *at least intermediate* for an unrecognised value. That default
+    is gone; an unrecognised existing value is genuinely unknown, not a floor.
+    """
+    if incoming is None:
+        return existing
+    if _PROFICIENCY_ORDER.get(existing) is None:
+        return incoming
+    return existing
+
+
 class ApplyResult(BaseModel):
     """The outcome of applying a batch of ops (no persistence)."""
 
@@ -663,10 +689,15 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing = merge_targets[0]
             _append_dedup(existing.experience_refs, evidence_ids)
             if op.proficiency:
-                new_rank = _PROFICIENCY_ORDER.get(op.proficiency.lower())
-                cur_rank = _PROFICIENCY_ORDER.get(existing.proficiency, 1)
-                if new_rank is not None and new_rank > cur_rank:
-                    existing.proficiency = op.proficiency.lower()
+                # ADR-061 clause 5 — ceiling, not floor (see _merge_declared_proficiency).
+                existing.proficiency = _merge_declared_proficiency(
+                    existing.proficiency, op.proficiency.lower()
+                )
+            # ADR-061 clause 3: a merge only ever PROMOTES an existing skill to
+            # confirmed, never demotes one — never lets a later, weaker mention
+            # erase an already-established vault fact.
+            if op.status == "confirmed" and existing.status != "confirmed":
+                existing.status = "confirmed"
             # Keep the more-specific/longer name only when the incoming strictly
             # contains the existing tokens (mirrors the near==1 auto-merge below).
             if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -674,7 +705,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             changes.append(_merged("skills", "name", None, existing.name))
             return
         # "distinct", or "merge" with nothing to merge into: append a new skill.
-        skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+        skill_kwargs: dict[str, Any] = {
+            "name": op.name, "experience_refs": evidence_ids, "status": op.status,
+        }
         if op.category:
             skill_kwargs["category"] = op.category
         if op.proficiency:
@@ -741,10 +774,14 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         existing = near[0]
         _append_dedup(existing.experience_refs, evidence_ids)
         if op.proficiency:
-            new_rank = _PROFICIENCY_ORDER.get(op.proficiency.lower())
-            cur_rank = _PROFICIENCY_ORDER.get(existing.proficiency, 1)
-            if new_rank is not None and new_rank > cur_rank:
-                existing.proficiency = op.proficiency.lower()
+            # ADR-061 clause 5 — ceiling, not floor (see _merge_declared_proficiency).
+            existing.proficiency = _merge_declared_proficiency(
+                existing.proficiency, op.proficiency.lower()
+            )
+        # ADR-061 clause 3: promote-only (see the user_confirmed=="merge" branch
+        # above for the full rationale).
+        if op.status == "confirmed" and existing.status != "confirmed":
+            existing.status = "confirmed"
         # Keep the more-specific/longer name ONLY when the incoming strictly
         # contains the existing tokens; otherwise the existing name stays.
         if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -752,7 +789,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         changes.append(_merged("skills", "name", None, existing.name))
         return
 
-    skill_kwargs: dict[str, Any] = {"name": op.name, "experience_refs": evidence_ids}
+    skill_kwargs: dict[str, Any] = {
+        "name": op.name, "experience_refs": evidence_ids, "status": op.status,
+    }
     if op.category:
         skill_kwargs["category"] = op.category
     if op.proficiency:
@@ -783,6 +822,12 @@ def _apply_upsert_certification(op, profile, changes, pending):
             "credential_id": op.credential_id,
             "credential_url": op.credential_url,
         })
+        # ADR-061 clause 3: a merge only ever PROMOTES to confirmed, never
+        # demotes an already-confirmed entry — mirrors the near-dupe skill
+        # merge's own one-directional trust rule (see _apply_upsert_skill).
+        if op.status == "confirmed" and verdict.match.status != "confirmed":
+            verdict.match.status = "confirmed"
+            changed = True
         if changed:
             changes.append(_merged("certifications", "name", None, verdict.match.name))
         return
@@ -807,6 +852,7 @@ def _apply_upsert_certification(op, profile, changes, pending):
         expiry_date=op.expiry_date,
         credential_id=op.credential_id,
         credential_url=op.credential_url,
+        status=op.status,  # ADR-061 clause 3
     ))
     changes.append(_added("certifications", "name", op.name))
 
@@ -820,10 +866,14 @@ def _apply_upsert_language(op, profile, changes, pending):
     )
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {"level": op.level})
+        # ADR-061 clause 3: promote-only, same rule as certifications.
+        if op.status == "confirmed" and verdict.match.status != "confirmed":
+            verdict.match.status = "confirmed"
+            changed = True
         if changed:
             changes.append(_merged("languages", "language", None, verdict.match.language))
         return
-    profile.languages.append(Language(language=op.language, level=op.level))
+    profile.languages.append(Language(language=op.language, level=op.level, status=op.status))
     changes.append(_added("languages", "language", op.language))
 
 

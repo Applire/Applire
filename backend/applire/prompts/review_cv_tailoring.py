@@ -20,6 +20,8 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 REVIEW_SYSTEM_PROMPT = """\
 You are a strict CV quality auditor. Your task is to verify that a tailored CV JSON
 contains only claims that are grounded in the candidate's master profile.
@@ -58,12 +60,17 @@ Check for ALL of the following:
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
        something the candidate has, has done, or knows, flag it — this is a fabrication.
 
-Respond ONLY with a valid JSON object — no markdown, no explanations:
-{
-  "approved": true or false,
-  "issues": ["list of specific issues with work_history index and description — empty array if approved"],
-  "feedback": "concise instruction for the tailoring agent to correct all issues — empty string if approved"
-}
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above, and nothing
+else. Those checks are the whole of your mandate — they are the ways this CV can be untrue,
+misattributed, or incomplete against what the ledger required. Anything else you notice is
+"minor" BY DEFINITION: bullet wording, bullet order, which achievement leads an entry,
+summary phrasing, length, repetition. You are not the CV's editor. You are the check on
+whether it tells the truth.
+
+""" + review_output_schema(
+    issue_hint="specific issue with work_history index and description — empty array if nothing found",
+    feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name the offending location (work_history index,
 field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector

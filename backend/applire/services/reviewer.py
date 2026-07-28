@@ -22,6 +22,16 @@ review_and_refine() runs a reviewer LLM call after the initial generator output.
 If the reviewer rejects the draft it feeds the critique back to the generator
 and retries, up to max_retries times.
 
+Severity gate (ADR-021 amended 2026-07-28): a reviewer issue carries
+``severity: "blocking" | "minor"`` (see ``prompts/review_severity.py``), and **only a
+blocking issue makes the writer run again**. A round that rejects the draft while
+raising nothing but minor observations settles it instead — the wave-6 amendment
+established that each rewrite is a memoryless regeneration which can erode content an
+earlier round had right, so an unnecessary rewrite is a truthfulness risk, not just a
+latency one. Parsing is fail-safe in both directions: an issue whose severity cannot be
+read as explicitly minor is blocking, and a rejection that enumerates no issue at all
+still retries (see ``services/review_issues.py``).
+
 Cap-safety (ADR-021 amended / ADR-047 call-shape taxonomy):
   * The reviewer is **bounded-output-by-contract** — it reads the full draft +
     source (large INPUT is fine) but only ever emits a small {approved, issues,
@@ -119,10 +129,16 @@ from applire.providers.llm.debug_log import (
     log_review_call_failed,
     log_review_cycle_detected,
     log_review_exhausted,
+    log_review_minor_only,
+    log_review_precision,
+    log_review_substitution_diff,
+    log_review_substitution_refused,
     log_review_verdict,
     set_review_call_meta,
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
+from applire.services.load_bearing import stringify_draft
+from applire.services.review_issues import measure_reviewer_issues, normalize_issues
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +159,7 @@ async def review_and_refine(
     retain_if: Callable[[dict[str, Any]], bool] | None = None,
     required_fields: Sequence[str] | None = None,
     prefer_if: Callable[[dict[str, Any]], bool] | None = None,
+    load_bearing_fn: Callable[[dict[str, Any]], frozenset[str]] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -202,6 +219,26 @@ async def review_and_refine(
                   wins over this secondary preference). No new LLM call, never a
                   quality score. Default None reproduces today's ``retain_if``-only
                   behaviour bit-for-bit.
+        load_bearing_fn: Optional (#306 (b), charter run #7 case 2 — see
+                  ``services/load_bearing.py``) deterministic, STRUCTURAL-ONLY
+                  measure — never an LLM call, never a general quality score — of
+                  how much load-bearing evidence (quantified figures backed by a
+                  ``direct``+``claimable`` keyword-ledger concept) a draft
+                  retains. A no-op when ``retain_if`` is None (mirrors
+                  ``prefer_if``'s contract). When supplied, EVERY candidate the
+                  ``retain_if``/``prefer_if`` scan considers substituting in is
+                  additionally required not to be STRICTLY evidence-poorer (by
+                  count) than the settled draft — a candidate that satisfies the
+                  structural predicate(s) but would lose load-bearing figures the
+                  settled draft has is skipped (the scan keeps looking further
+                  back), and if NO eligible, non-poorer candidate exists the
+                  settled draft ships as-is (its structural complaint outstanding
+                  beats a clean draft that dropped the numbers). Every actual
+                  substitution is logged as a diff (retained/lost/gained), and
+                  every refused-for-evidence candidate is logged too — see
+                  ``providers/llm/debug_log.py``'s ``log_review_substitution_diff``
+                  / ``log_review_substitution_refused``. Default None reproduces
+                  today's ``retain_if``/``prefer_if`` behaviour bit-for-bit.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -260,16 +297,39 @@ async def review_and_refine(
             )
         return result
 
+    def _is_evidence_poorer(candidate_score: frozenset[str] | None, final_score: frozenset[str] | None) -> bool:
+        """#306 (b): STRICTLY poorer means fewer load-bearing figures retained,
+        by count — the cheapest deterministic reading of "poorer ... on that
+        measure". A no-op (never poorer) when load_bearing_fn is None."""
+        if load_bearing_fn is None or candidate_score is None or final_score is None:
+            return False
+        return len(candidate_score) < len(final_score)
+
     def _select_retained_draft(final: dict[str, Any]) -> dict[str, Any]:
-        """Choose which draft ships, subject to ``retain_if`` (non-negotiable) and,
-        when supplied, ``prefer_if`` (a secondary, tie-break-only preference — see
-        the wave-6 retention-design-v2 docstring above). ``retain_if`` alone
-        reproduces the exact pre-existing algorithm bit-for-bit; ``prefer_if`` only
-        ever narrows the choice among drafts ``retain_if`` already accepts."""
+        """Choose which draft ships, subject to ``retain_if`` (non-negotiable),
+        ``prefer_if`` (a secondary, tie-break-only preference — see the wave-6
+        retention-design-v2 docstring above), and ``load_bearing_fn`` (#306 (b) —
+        a candidate that satisfies the structural predicate(s) but is STRICTLY
+        evidence-poorer than ``final`` is skipped, not substituted). ``retain_if``
+        alone reproduces the exact pre-existing algorithm bit-for-bit;
+        ``prefer_if`` and ``load_bearing_fn`` only ever narrow the choice among
+        drafts ``retain_if`` already accepts."""
         final_retains = retain_if(final)
         final_prefers = prefer_if(final) if prefer_if is not None else True
         if final_retains and final_prefers:
             return final
+
+        final_score = load_bearing_fn(final) if load_bearing_fn is not None else None
+
+        def _log_diff(candidate_score: frozenset[str] | None) -> None:
+            if load_bearing_fn is None or candidate_score is None or final_score is None:
+                return
+            log_review_substitution_diff(
+                chain_id,
+                retained=list(final_score & candidate_score),
+                lost=list(final_score - candidate_score),
+                gained=list(candidate_score - final_score),
+            )
 
         # Earlier rounds only — mirrors the original single-predicate scan, most
         # recent first.
@@ -278,6 +338,12 @@ async def review_and_refine(
         if prefer_if is not None:
             for candidate in earlier:
                 if retain_if(candidate) and prefer_if(candidate):
+                    candidate_score = load_bearing_fn(candidate) if load_bearing_fn is not None else None
+                    if _is_evidence_poorer(candidate_score, final_score):
+                        log_review_substitution_refused(
+                            chain_id, "retain_if/prefer_if", list(final_score - candidate_score)
+                        )
+                        continue
                     logger.warning(
                         "review_and_refine: chain=%s retain_if/prefer_if: the "
                         "settled draft did not satisfy both; substituting an "
@@ -287,6 +353,7 @@ async def review_and_refine(
                         "drafts).",
                         chain_id,
                     )
+                    _log_diff(candidate_score)
                     return candidate
 
         if final_retains:
@@ -308,6 +375,12 @@ async def review_and_refine(
 
         for candidate in earlier:
             if retain_if(candidate):
+                candidate_score = load_bearing_fn(candidate) if load_bearing_fn is not None else None
+                if _is_evidence_poorer(candidate_score, final_score):
+                    log_review_substitution_refused(
+                        chain_id, "retain_if", list(final_score - candidate_score)
+                    )
+                    continue
                 if prefer_if is not None and not prefer_if(candidate):
                     logger.warning(
                         "review_and_refine: chain=%s retain_if rejected the "
@@ -326,6 +399,7 @@ async def review_and_refine(
                         "call, only a choice among already-produced drafts).",
                         chain_id,
                     )
+                _log_diff(candidate_score)
                 return candidate
 
         logger.warning(
@@ -388,14 +462,52 @@ async def review_and_refine(
                 return _settle(current_draft)
 
             approved = bool(review.get("approved", False))
-            last_issues = review.get("issues", [])
+            issues = normalize_issues(review.get("issues", []))
+            blocking = [i for i in issues if i.is_blocking]
+            last_issues = [i.text for i in issues]
             # #264: structured, always-on verdict line — every attempt, approved or
             # not, so retry-round distributions are countable without heuristic
             # prompt-matching over the (dev-only) debug log.
             log_review_verdict(
                 chain_id, attempt + 1, max_retries, approved=approved, issues_count=len(last_issues)
             )
+
+            # #306 (a), measurement only since 2026-07-28: how many of this round's
+            # issues are demonstrably unsound (self-refuting, or a checkable count
+            # claim that is simply wrong). Never an LLM call, and deliberately does
+            # NOT change what the loop does — see services/review_issues.py.
+            unsound, _verdicts = measure_reviewer_issues(issues, stringify_draft(current_draft))
+            log_review_precision(
+                chain_id, attempt + 1, raised=len(issues), survived=len(issues) - unsound
+            )
+
             if approved:
+                return _settle(current_draft)
+
+            if issues and not blocking:
+                # ADR-021 amended 2026-07-28: the writer runs again only for a
+                # BLOCKING issue. A round that rejected the draft over nothing but
+                # minor observations ships it instead — every rewrite is a memoryless
+                # regeneration that can erode content an earlier round had right, so
+                # it is a truthfulness risk, and one not worth taking to satisfy a
+                # wording preference.
+                #
+                # `issues and` is deliberate and fail-safe: a rejection that
+                # enumerates NOTHING (all the substance in `feedback`) is not a
+                # minor-only round — it is an unreadable one, and it retries exactly
+                # as it did before severity existed.
+                log_review_minor_only(chain_id, attempt + 1, minor=len(issues))
+                logger.info(
+                    "review_and_refine: chain=%s attempt=%d/%d — the reviewer "
+                    "rejected the draft but raised no blocking issue (%d minor); "
+                    "shipping it rather than spending a rewrite on polish "
+                    "(ADR-021 severity gate). Minor issues: %r",
+                    chain_id,
+                    attempt + 1,
+                    max_retries,
+                    len(issues),
+                    last_issues,
+                )
                 return _settle(current_draft)
 
             feedback = review.get("feedback", "")

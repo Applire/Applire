@@ -86,6 +86,101 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+# --- LLM payload type coercion (charter run #8) --------------------------------
+#
+# `analyze_jd` fed the LLM payload straight into the ORM with only `or ""` guards.
+# Those guard EMPTINESS, never TYPE — and a dict is truthy, so it sails through and
+# reaches a `Text` column. Charter run #8 crashed the endpoint with a 500 exactly
+# there: after the `job_analysis` review loop exhausted all five retries (it has never
+# converged on this JD — runs 6, 7 and 8 all ran to exhaustion), the fifth corrector
+# round returned
+#     "language_requirement": {"Deutsch": "sehr gut", "Englisch": "gut"}
+# where every earlier round had returned a string. Run 7 shipped an equally unreviewed
+# fifth-round draft and merely got a string that time.
+#
+# The lesson is the general one, so the guard is general: an unconverged review loop is
+# free to drift the payload's SHAPE, not just its content, and the boundary between
+# "whatever the model returned" and "our schema" has to be a real boundary. Coerce every
+# field to the type its column declares, and log it — a coercion is evidence the loop
+# drifted, so it must not be silent.
+_JD_TEXT_FIELDS = (
+    "company_name",
+    "role_title",
+    "seniority_level",
+    "language_requirement",
+    "berufsbild_code",
+    "berufsbild_label",
+)
+_JD_LIST_FIELDS = (
+    "required_skills",
+    "nice_to_have_skills",
+    "keywords",
+    "company_culture_signals",
+)
+
+
+def _as_text(value: object) -> object:
+    """Flatten a model-returned value into a string, preserving its information.
+
+    A dict becomes ``"key: value; key: value"`` rather than being dropped — the
+    run-#8 payload genuinely carried both language requirements, and discarding
+    them would trade a crash for silent data loss.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return "; ".join(f"{k}: {v}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
+def _as_str_list(value: object) -> object:
+    """Normalise a list-typed field to ``list[str]``.
+
+    These are JSONB columns, so a wrong shape does not crash the write — it breaks
+    `build_keyword_ledger` and everything downstream of it instead, which is worse
+    because it fails later and further away.
+    """
+    if value is None or isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return value
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        # `{"5S": "required", ...}` — the KEYS are the concepts; the values are the
+        # model editorialising about them.
+        return [str(k) for k in value]
+    if isinstance(value, (list, tuple)):
+        return [v if isinstance(v, str) else str(v) for v in value]
+    return [str(value)]
+
+
+def _coerce_jd_payload(data: dict) -> dict:
+    """Coerce an LLM job-analysis payload to the types the ORM columns declare."""
+    coerced = dict(data)
+    drifted: list[str] = []
+    for field in _JD_TEXT_FIELDS:
+        if field in coerced:
+            fixed = _as_text(coerced[field])
+            if fixed is not coerced[field]:
+                drifted.append(f"{field}({type(coerced[field]).__name__}→str)")
+                coerced[field] = fixed
+    for field in _JD_LIST_FIELDS:
+        if field in coerced:
+            fixed = _as_str_list(coerced[field])
+            if fixed is not coerced[field]:
+                drifted.append(f"{field}({type(coerced[field]).__name__}→list[str])")
+                coerced[field] = fixed
+    if drifted:
+        logger.warning(
+            "analyze_jd: LLM payload shape drift coerced before persistence — %s. "
+            "This is normal-looking output from an UNCONVERGED review loop; check "
+            "REVIEW_EXHAUSTED for chain=job_analysis.",
+            ", ".join(drifted),
+        )
+    return coerced
+
+
 async def _apply_title_overrides(
     record: JobAnalysis,
     role_title_override: str | None,
@@ -190,6 +285,11 @@ async def analyze_jd(
     # sentence-shaped entry when a concept-shaped equivalent is already
     # present; anything ambiguous is left alone and logged, never invented.
     data = apply_jd_shape_guard(data)
+
+    # Charter run #8: the boundary between "whatever the model returned" and our
+    # schema. Runs before every read of `data` below, so no field reaches the ORM
+    # (or the garbage check) with a shape the column cannot hold.
+    data = _coerce_jd_payload(data)
 
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
     try:

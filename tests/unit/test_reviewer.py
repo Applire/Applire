@@ -1199,3 +1199,437 @@ async def test_prefer_if_no_substitution_log_when_final_already_satisfies_both(m
     assert not any(
         "retain_if" in r.getMessage() or "prefer_if" in r.getMessage() for r in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# ADR-021 amended 2026-07-28 — the severity gate: the writer runs again ONLY
+# for a blocking issue. See prompts/review_severity.py (the contract) and
+# services/review_issues.py (parsing + the #306 measurement checks).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_minor_only_round_does_not_spend_a_rewrite(mock_provider, caplog):
+    """A reviewer round that rejects the draft but raises only MINOR issues
+    ships it — a rewrite is a memoryless regeneration that can erode a correct
+    fact, and that trade is never worth making for polish."""
+    draft = {"body": {"paragraphs": ["Wir stellen Verbundverpackungen her."]}}
+
+    mock_provider.aparse_json.return_value = {
+        "approved": False,
+        "issues": [
+            {"severity": "minor", "issue": "The employer name repeats across paragraphs."},
+            {"severity": "minor", "issue": "Opening sentence is a little flat."},
+        ],
+        "feedback": "tighten it",
+    }
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=5,
+            chain_id="cover_letter",
+        )
+
+    # Ships the ORIGINAL draft — no generator retry call was ever made, so
+    # only the single reviewer call happened.
+    assert result == draft
+    assert mock_provider.aparse_json.call_count == 1
+    minor_only = [r for r in caplog.records if "REVIEW_MINOR_ONLY" in r.getMessage()]
+    assert len(minor_only) == 1
+    assert "chain=cover_letter" in minor_only[0].getMessage()
+    assert "minor=2" in minor_only[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_one_blocking_issue_among_minor_ones_still_rewrites(mock_provider):
+    """The gate is ANY blocking issue, not a majority — one untrue claim
+    alongside three wording nits still costs a rewrite."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+
+    mock_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [
+                {"severity": "minor", "issue": "Repetitive employer naming."},
+                {"severity": "blocking", "issue": "Paragraph 2 invents a 40% figure."},
+                {"severity": "minor", "issue": "Closing is wordy."},
+            ],
+            "feedback": "remove the invented figure",
+        },
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_pre_severity_string_issues_still_rewrite(mock_provider):
+    """Fail-safe: a model (or mock, or older prompt) that emits plain issue
+    strings gets EXACTLY the pre-amendment behaviour — a rewrite. The gate must
+    never turn an unparsed verdict into a silent approval."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["Missing required closing paragraph."], "feedback": "fix"},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_rejection_naming_no_issue_at_all_still_rewrites(mock_provider):
+    """A rejection that enumerates NOTHING (all the substance in `feedback`) is
+    not a minor-only round — it is an unreadable one, and it must retry exactly
+    as it did before severity existed."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [], "feedback": "Paragraph 2 invents a figure."},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_unsound_blocking_issues_are_measured_but_no_longer_short_circuit(
+    mock_provider, caplog
+):
+    """#306 demoted to measurement (2026-07-28): an all-self-refuting round is
+    still COUNTED as imprecise, but it no longer changes what the loop does —
+    the issues were filed blocking, so the rewrite happens. Reviewer precision
+    is now a prompt/severity concern, not a pattern-matching one."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+    self_refuting_issue = (
+        "Invented employer fact — 'X' is not in the job_description text "
+        "(only 'X' appears)."
+    )
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [self_refuting_issue], "feedback": "fix"},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="cover_letter",
+        )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+    precision = [r for r in caplog.records if "REVIEW_PRECISION" in r.getMessage()]
+    assert "raised=1 survived=0 discarded=1" in precision[0].getMessage()
+    assert not any("REVIEW_MINOR_ONLY" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_precision_log_emitted_every_attempt(mock_provider, caplog):
+    """REVIEW_PRECISION is logged every reviewer attempt with raised/survived
+    counts, so a chain's reviewer noise ratio is countable after the fact."""
+    self_refuting_issue = (
+        "Invented employer fact — 'X' is not in the job_description text "
+        "(only 'X' appears)."
+    )
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [self_refuting_issue, "genuine issue"], "feedback": "f"},
+        {"body": {"paragraphs": ["retried"]}},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft={"body": {"paragraphs": ["draft"]}},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="job_analysis",
+        )
+
+    precision_lines = [r.getMessage() for r in caplog.records if "REVIEW_PRECISION" in r.getMessage()]
+    assert len(precision_lines) == 2
+    assert "chain=job_analysis attempt=1 raised=2 survived=1 discarded=1" in precision_lines[0]
+    assert "chain=job_analysis attempt=2 raised=0 survived=0 discarded=0" in precision_lines[1]
+
+
+@pytest.mark.asyncio
+async def test_plain_issues_are_unaffected_by_the_filter(mock_provider):
+    """Regression guard: ordinary short issue text (the existing fixtures
+    throughout this file use plain strings like 'x', 'a', 'b') must never be
+    treated as all-discardable — every existing caller's retry behaviour is
+    unaffected by #306 (a)."""
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        {"d": 2},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft={"d": 1},
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+    assert result == {"d": 2}
+    assert mock_provider.aparse_json.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# #306 (b) — load_bearing_fn: the retain_if/prefer_if substitution must not be
+# evidence-blind. Pinned against charter run #7 case 2's actual mechanism:
+# round 0 (pre-review) fits the word budget but is missing the OEE arc every
+# later round carried; the settled (final) round is over budget but keeps it.
+# ---------------------------------------------------------------------------
+
+
+def _figures(d: dict) -> frozenset:
+    """Minimal stand-in for load_bearing_fn_from_ledger in these tests — the
+    real factory is covered in test_load_bearing.py; here we only need SOME
+    deterministic per-draft figure-count function."""
+    return frozenset(d.get("figures", ()))
+
+
+@pytest.mark.asyncio
+async def test_load_bearing_fn_refuses_evidence_poorer_substitution(mock_provider, caplog):
+    """Given [round0: short+closing+NO figures, round1: long+closing+figures
+    (the settled/final draft, over budget)], the prefer_if scan would normally
+    substitute round0 (satisfies retain_if AND prefer_if) — but round0 is
+    evidence-poorer, so the substitution must be REFUSED and the final draft
+    (over budget, but with its figures intact) ships instead."""
+    round0 = {"closing": True, "words": 100, "figures": []}
+    round1 = {"closing": True, "words": 400, "figures": ["percent:61", "percent:73"]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        round1,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=round0,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            retain_if=_closing,
+            prefer_if=_within_budget,
+            load_bearing_fn=_figures,
+        )
+
+    # round1 (the final/settled draft) ships — round0 was refused despite
+    # satisfying BOTH structural predicates, because it would have lost both
+    # figures.
+    assert result == round1
+    refused = [r for r in caplog.records if "REVIEW_SUBSTITUTION_REFUSED" in r.getMessage()]
+    assert len(refused) == 1
+    assert "percent:61" in refused[0].getMessage()
+    assert "percent:73" in refused[0].getMessage()
+    # No substitution actually happened, so no substitution DIFF log either.
+    assert not any("REVIEW_SUBSTITUTION_DIFF" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_load_bearing_fn_allows_substitution_when_not_poorer(mock_provider, caplog):
+    """When the candidate draft satisfies retain_if+prefer_if and is NOT
+    evidence-poorer than the settled draft, the substitution proceeds exactly
+    as before, and the diff is logged (retained/lost/gained)."""
+    round0 = {"closing": True, "words": 100, "figures": ["percent:61"]}
+    round1 = {"closing": True, "words": 400, "figures": ["percent:61"]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        round1,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=round0,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            retain_if=_closing,
+            prefer_if=_within_budget,
+            load_bearing_fn=_figures,
+        )
+
+    assert result == round0
+    diffs = [r for r in caplog.records if "REVIEW_SUBSTITUTION_DIFF" in r.getMessage()]
+    assert len(diffs) == 1
+    assert "retained=['percent:61']" in diffs[0].getMessage()
+    assert "lost=[]" in diffs[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_load_bearing_fn_default_none_is_bit_identical(mock_provider):
+    """load_bearing_fn omitted (default None) must reproduce the EXACT
+    pre-#306 substitution algorithm — reusing the same scenario as
+    test_prefer_if_selects_draft_satisfying_both_over_retain_if_only, minus
+    load_bearing_fn."""
+    original = {"closing": True, "words": 250}
+    retry1 = {"closing": True, "words": 400}
+    retry2 = {"closing": False, "words": 200}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "fix x"},
+        retry1,
+        {"approved": False, "issues": ["y"], "feedback": "fix y"},
+        retry2,
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=original,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+        retain_if=_closing,
+        prefer_if=_within_budget,
+        # load_bearing_fn intentionally omitted
+    )
+
+    assert result == original
+
+
+@pytest.mark.asyncio
+async def test_load_bearing_fn_is_a_noop_when_retain_if_is_none(mock_provider):
+    """load_bearing_fn without retain_if must never even be consulted — like
+    prefer_if, it only ever narrows a choice retain_if already makes."""
+    calls: list[dict] = []
+
+    def never_call_me(d):
+        calls.append(d)
+        return frozenset()
+
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    draft = {"words": 999}
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=1,
+        load_bearing_fn=never_call_me,
+        # retain_if intentionally omitted
+    )
+    assert result == draft
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_load_bearing_fn_scans_further_back_for_a_non_poorer_candidate(mock_provider, caplog):
+    """When the MOST RECENT earlier candidate satisfying both predicates is
+    evidence-poorer, the scan must keep looking further back rather than
+    giving up immediately — an even-earlier draft that is BOTH structurally
+    eligible AND not evidence-poorer should still be found and used."""
+    round0 = {"closing": True, "words": 100, "figures": ["percent:61"]}  # eligible, NOT poorer
+    round1 = {"closing": False, "words": 500, "figures": []}  # fails retain_if
+    round2 = {"closing": True, "words": 120, "figures": []}  # eligible but POORER (most recent)
+    final = {"closing": True, "words": 999, "figures": ["percent:61"]}  # fails prefer_if
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["a"], "feedback": "a"},
+        round1,
+        {"approved": False, "issues": ["b"], "feedback": "b"},
+        round2,
+        {"approved": False, "issues": ["c"], "feedback": "c"},
+        final,
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=round0,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=3,
+        retain_if=_closing,
+        prefer_if=_within_budget,
+        load_bearing_fn=_figures,
+    )
+
+    assert result == round0
