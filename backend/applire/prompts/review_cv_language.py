@@ -38,6 +38,8 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 CV_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
 You are a language reviewer for an AI-generated, tailored CV represented as JSON.
 Your sole responsibility is to verify that ALL human-readable text is written entirely
@@ -72,13 +74,20 @@ Crucial boundary (this is where models slip):
   every required language; "Good Practice Compliance & Computer System Validation" is a
   language-pass defect, not a translation.
 
-Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
-- approved: true only if summary, all bullets (work AND project), and all skills are
-  entirely in the required language (proper nouns above excepted; project NAMES may
-  stay — they are often proper nouns)
-- issues: list each item still in the wrong language (empty list if approved)
-- feedback: one concise instruction naming the required language and what to translate
-  (empty string if approved)
+WHAT IS BLOCKING IN THIS PASS: any item still in the wrong language, and a VERBATIM LABEL
+that has been expanded or "corrected" out of its acronym. In this pass every genuine
+language defect is blocking — that is the one thing you are here to catch. Use "minor" for
+a preference BETWEEN TWO CORRECT-LANGUAGE WORDINGS, and for nothing else. A concept the
+coverage block lists but the document genuinely does not contain is not an issue at all —
+waive it in your feedback, as instructed above.
+
+""" + review_output_schema(
+    issue_hint="one item still in the wrong language, named exactly — empty array if nothing found",
+    feedback_hint="one concise instruction naming the required language and what to translate — empty string if there is nothing blocking",
+) + """
+Approve only if summary, all bullets (work AND project), and all skills are entirely in the
+required language (proper nouns above excepted; project NAMES may stay — they are often
+proper nouns).
 """
 
 CV_LANGUAGE_REFINEMENT_PROMPT = """\

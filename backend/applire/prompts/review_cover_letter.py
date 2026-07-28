@@ -43,6 +43,8 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 REVIEW_SYSTEM_PROMPT = """\
 You are a strict cover-letter quality auditor. The letter you are reviewing will be
 signed and sent to a real employer, so every factual claim in the body must be grounded
@@ -225,12 +227,18 @@ Check the body paragraphs for ALL of the following ungrounded/invented content:
    writer to cut the sentence or replace it with a specific, sourced claim — never to keep the
    same generic sentence with different words.
 
-Respond ONLY with a valid JSON object — no markdown, no explanations:
-{
-  "approved": true or false,
-  "issues": ["specific issue, naming the paragraph and the ungrounded claim — empty array if approved"],
-  "feedback": "concise instruction for the writer to correct all issues — empty string if approved"
-}
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks 1-11 above, and
+nothing else. Those eleven are the whole of your mandate — they are the ways this letter
+can be untrue, misattributed, or incomplete against what the source required. Anything
+else you notice is "minor" BY DEFINITION, however much it bothers you: repetition of a
+name or phrase, paragraph order, sentence length, an opening you find weak, a tone you
+would have pitched differently, a word you would have chosen instead. You are not the
+letter's editor. You are the check on whether it tells the truth.
+
+""" + review_output_schema(
+    issue_hint="specific issue, naming the paragraph and the ungrounded claim — empty array if nothing found",
+    feedback_hint="concise instruction for the writer to correct the BLOCKING issues — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name the offending location (paragraph, claim) and
 state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate

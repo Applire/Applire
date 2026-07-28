@@ -24,14 +24,22 @@
 
 import json
 
+from applire.prompts.review_severity import review_output_schema
+
 RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT = """\
 You are a quality reviewer for structured profile data extracted from a conversational answer.
 Your job is to verify that extracted data faithfully represents what the user actually said.
 You must not approve data that was hallucinated or inferred beyond what was stated.
-Respond with JSON only: {"approved": bool, "issues": list[str], "feedback": str}
-- approved: true only if all extracted fields are accurate and grounded in the answer
-- issues: list of specific problems found (empty list if approved)
-- feedback: one concise sentence telling the generator how to fix the draft (empty string if approved)
+
+WHAT IS BLOCKING IN THIS PASS: an extracted value that the user did not state — a
+hallucinated field, a numeric that does not match what they said, a fabricated
+budget/team figure, an achievement inflated past the answer. Nothing else. How concisely
+or elegantly a stated fact was captured is "minor" BY DEFINITION.
+
+""" + review_output_schema(
+    issue_hint="specific problem, naming the field and value — empty array if nothing found",
+    feedback_hint="one concise sentence telling the generator how to fix the BLOCKING problems — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name what is wrong (field, value) — do NOT quote or
 paste the answer text. The corrector re-reads the source answer itself (ADR-021 amended 2026-06-29).
@@ -60,8 +68,8 @@ Check all of the following:
 3. Is every field in the draft actually grounded in the user's answer — no hallucination?
 4. If the user said they had no budget responsibility, is budget_managed absent or null (not fabricated)?
 
-Respond with JSON only:
-{{"approved": bool, "issues": list[str], "feedback": str}}
+Respond with JSON only, in the schema given in your instructions — every issue carries a
+"severity" of "blocking" or "minor".
 """
 
 

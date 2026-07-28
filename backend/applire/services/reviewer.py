@@ -22,6 +22,16 @@ review_and_refine() runs a reviewer LLM call after the initial generator output.
 If the reviewer rejects the draft it feeds the critique back to the generator
 and retries, up to max_retries times.
 
+Severity gate (ADR-021 amended 2026-07-28): a reviewer issue carries
+``severity: "blocking" | "minor"`` (see ``prompts/review_severity.py``), and **only a
+blocking issue makes the writer run again**. A round that rejects the draft while
+raising nothing but minor observations settles it instead — the wave-6 amendment
+established that each rewrite is a memoryless regeneration which can erode content an
+earlier round had right, so an unnecessary rewrite is a truthfulness risk, not just a
+latency one. Parsing is fail-safe in both directions: an issue whose severity cannot be
+read as explicitly minor is blocking, and a rejection that enumerates no issue at all
+still retries (see ``services/review_issues.py``).
+
 Cap-safety (ADR-021 amended / ADR-047 call-shape taxonomy):
   * The reviewer is **bounded-output-by-contract** — it reads the full draft +
     source (large INPUT is fine) but only ever emits a small {approved, issues,
@@ -119,7 +129,7 @@ from applire.providers.llm.debug_log import (
     log_review_call_failed,
     log_review_cycle_detected,
     log_review_exhausted,
-    log_review_issue_batch_all_discarded,
+    log_review_minor_only,
     log_review_precision,
     log_review_substitution_diff,
     log_review_substitution_refused,
@@ -128,7 +138,7 @@ from applire.providers.llm.debug_log import (
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 from applire.services.load_bearing import stringify_draft
-from applire.services.review_issue_filter import filter_reviewer_issues
+from applire.services.review_issues import measure_reviewer_issues, normalize_issues
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +462,9 @@ async def review_and_refine(
                 return _settle(current_draft)
 
             approved = bool(review.get("approved", False))
-            last_issues = review.get("issues", [])
+            issues = normalize_issues(review.get("issues", []))
+            blocking = [i for i in issues if i.is_blocking]
+            last_issues = [i.text for i in issues]
             # #264: structured, always-on verdict line — every attempt, approved or
             # not, so retry-round distributions are countable without heuristic
             # prompt-matching over the (dev-only) debug log.
@@ -460,34 +472,41 @@ async def review_and_refine(
                 chain_id, attempt + 1, max_retries, approved=approved, issues_count=len(last_issues)
             )
 
-            # #306 (a): a deterministic sanity check on the REVIEWER's own output,
-            # run BEFORE any issue is spent as a retry (charter run #7 case 2 — the
-            # cover-letter reviewer burned all 5 retries on issues that were mostly
-            # self-refuting). Never an LLM call; only ever discards an issue that
-            # fails a cheap, checkable test — see services/review_issue_filter.py.
-            surviving_issues, _issue_verdicts = filter_reviewer_issues(
-                last_issues, stringify_draft(current_draft)
-            )
+            # #306 (a), measurement only since 2026-07-28: how many of this round's
+            # issues are demonstrably unsound (self-refuting, or a checkable count
+            # claim that is simply wrong). Never an LLM call, and deliberately does
+            # NOT change what the loop does — see services/review_issues.py.
+            unsound, _verdicts = measure_reviewer_issues(issues, stringify_draft(current_draft))
             log_review_precision(
-                chain_id, attempt + 1, raised=len(last_issues), survived=len(surviving_issues)
+                chain_id, attempt + 1, raised=len(issues), survived=len(issues) - unsound
             )
 
             if approved:
                 return _settle(current_draft)
 
-            if last_issues and not surviving_issues:
-                # Every issue THIS round raised failed the deterministic check —
-                # there is nothing genuine to spend a retry fixing. Ship the
-                # current draft rather than regenerate it to satisfy noise.
-                log_review_issue_batch_all_discarded(chain_id, attempt + 1, len(last_issues))
+            if issues and not blocking:
+                # ADR-021 amended 2026-07-28: the writer runs again only for a
+                # BLOCKING issue. A round that rejected the draft over nothing but
+                # minor observations ships it instead — every rewrite is a memoryless
+                # regeneration that can erode content an earlier round had right, so
+                # it is a truthfulness risk, and one not worth taking to satisfy a
+                # wording preference.
+                #
+                # `issues and` is deliberate and fail-safe: a rejection that
+                # enumerates NOTHING (all the substance in `feedback`) is not a
+                # minor-only round — it is an unreadable one, and it retries exactly
+                # as it did before severity existed.
+                log_review_minor_only(chain_id, attempt + 1, minor=len(issues))
                 logger.info(
-                    "review_and_refine: chain=%s attempt=%d/%d — every issue this "
-                    "round was deterministically discardable (self-refuting, wrong "
-                    "count, or self-annotated non-blocking); treating as approved "
-                    "rather than spending a retry on noise (#306).",
+                    "review_and_refine: chain=%s attempt=%d/%d — the reviewer "
+                    "rejected the draft but raised no blocking issue (%d minor); "
+                    "shipping it rather than spending a rewrite on polish "
+                    "(ADR-021 severity gate). Minor issues: %r",
                     chain_id,
                     attempt + 1,
                     max_retries,
+                    len(issues),
+                    last_issues,
                 )
                 return _settle(current_draft)
 

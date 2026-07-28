@@ -154,34 +154,41 @@ def log_review_call_failed(chain_id: str, role: str, attempt: int, error_type: s
 
 
 def log_review_precision(chain_id: str, attempt: int, *, raised: int, survived: int) -> None:
-    """#306 (a): how many of the issues a reviewer round RAISED survive the
-    deterministic sanity check (``services/review_issue_filter.py``) before
-    any of them is spent as a retry.
+    """#306 (a): how many of the issues a reviewer round RAISED are demonstrably
+    SOUND, per the deterministic checks in ``services/review_issues.py``.
 
     Charter run #7, case 2 pinned the failure this makes visible: the
     cover-letter reviewer's LAST round raised 11 issues, most self-refuting
     or self-annotated non-blocking — the retry budget was gone before the two
     genuine ones got a fix attempt. Stable ``REVIEW_PRECISION`` prefix, always
     on, PII-free (counts only) — so a chain's reviewer precision degrading
-    over time is visible without re-reading the (dev-only) debug log."""
+    over time is visible without re-reading the (dev-only) debug log.
+
+    Measurement only since 2026-07-28 — the loop no longer acts on these
+    verdicts. Reviewer precision is now managed through the prompt and the
+    severity field (ADR-021 amended), and this line is how we tell whether
+    that is working."""
     _review_logger.info(
         "REVIEW_PRECISION chain=%s attempt=%d raised=%d survived=%d discarded=%d",
         chain_id, attempt, raised, survived, raised - survived,
     )
 
 
-def log_review_issue_batch_all_discarded(chain_id: str, attempt: int, raised: int) -> None:
-    """#306 (a): every issue a reviewer round raised failed the deterministic
-    sanity check — the round is treated as approved (the loop does NOT spend
-    a retry regenerating a draft to satisfy noise). Distinct, stable prefix
-    (``REVIEW_ISSUES_ALL_DISCARDED``) so this degrades visibly rather than
-    silently looking identical to a normal approval."""
+def log_review_minor_only(chain_id: str, attempt: int, *, minor: int) -> None:
+    """ADR-021 amended 2026-07-28: the reviewer set ``approved=false`` but every
+    issue it raised was ``severity="minor"``, so the writer does NOT run again and
+    the draft ships as-is.
+
+    Distinct, stable prefix (``REVIEW_MINOR_ONLY``) so a document that shipped
+    through the severity gate stays countable after the fact — exactly as #264 made
+    exhaustion countable. Watch it for the failure mode this gate could cause: a
+    chain where genuine defects are being filed as minor shows up here as a rising
+    count rather than as a silent quality drop."""
     _review_logger.warning(
-        "REVIEW_ISSUES_ALL_DISCARDED chain=%s attempt=%d raised=%d — every issue this "
-        "round failed the deterministic sanity check (self-refuting, wrong count, or "
-        "self-annotated non-blocking); treating as approved rather than spending a "
-        "retry on noise",
-        chain_id, attempt, raised,
+        "REVIEW_MINOR_ONLY chain=%s attempt=%d minor=%d — reviewer rejected the draft "
+        "but raised no blocking issue; shipping it rather than spending a rewrite on "
+        "polish",
+        chain_id, attempt, minor,
     )
 
 

@@ -1202,28 +1202,26 @@ async def test_prefer_if_no_substitution_log_when_final_already_satisfies_both(m
 
 
 # ---------------------------------------------------------------------------
-# #306 (a) — deterministic reviewer-issue sanity check, run BEFORE an issue is
-# spent as a retry (see services/review_issue_filter.py for the full mechanism
-# and the charter run #7 case-2 verbatim examples this is pinned against).
+# ADR-021 amended 2026-07-28 — the severity gate: the writer runs again ONLY
+# for a blocking issue. See prompts/review_severity.py (the contract) and
+# services/review_issues.py (parsing + the #306 measurement checks).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_round_with_only_discardable_issues_does_not_spend_a_retry(mock_provider, caplog):
-    """A reviewer round that raises issues but EVERY one of them is
-    self-refuting must not trigger a generator retry — the round is treated
-    as approved instead of burning the retry budget on noise (#306 a)."""
+async def test_minor_only_round_does_not_spend_a_rewrite(mock_provider, caplog):
+    """A reviewer round that rejects the draft but raises only MINOR issues
+    ships it — a rewrite is a memoryless regeneration that can erode a correct
+    fact, and that trade is never worth making for polish."""
     draft = {"body": {"paragraphs": ["Wir stellen Verbundverpackungen her."]}}
-    self_refuting_issue = (
-        "Invented employer fact — 'Verbundverpackungen' is not in the "
-        "job_description text (only 'Kunststoff- und Verbundverpackungen' "
-        "appears)."
-    )
 
     mock_provider.aparse_json.return_value = {
         "approved": False,
-        "issues": [self_refuting_issue],
-        "feedback": "fix it",
+        "issues": [
+            {"severity": "minor", "issue": "The employer name repeats across paragraphs."},
+            {"severity": "minor", "issue": "Opening sentence is a little flat."},
+        ],
+        "feedback": "tighten it",
     }
 
     with caplog.at_level(logging.INFO, logger="applire.llm.review"):
@@ -1243,25 +1241,29 @@ async def test_round_with_only_discardable_issues_does_not_spend_a_retry(mock_pr
     # only the single reviewer call happened.
     assert result == draft
     assert mock_provider.aparse_json.call_count == 1
-    all_discarded = [r for r in caplog.records if "REVIEW_ISSUES_ALL_DISCARDED" in r.getMessage()]
-    assert len(all_discarded) == 1
-    assert "chain=cover_letter" in all_discarded[0].getMessage()
+    minor_only = [r for r in caplog.records if "REVIEW_MINOR_ONLY" in r.getMessage()]
+    assert len(minor_only) == 1
+    assert "chain=cover_letter" in minor_only[0].getMessage()
+    assert "minor=2" in minor_only[0].getMessage()
 
 
 @pytest.mark.asyncio
-async def test_round_with_one_genuine_issue_among_noise_still_retries(mock_provider):
-    """A round with a MIX of discardable and genuine issues must still spend
-    its retry — the filter only short-circuits an ALL-noise round."""
+async def test_one_blocking_issue_among_minor_ones_still_rewrites(mock_provider):
+    """The gate is ANY blocking issue, not a majority — one untrue claim
+    alongside three wording nits still costs a rewrite."""
     draft = {"body": {"paragraphs": ["draft"]}}
     retried = {"body": {"paragraphs": ["retried"]}}
-    self_refuting_issue = (
-        "Invented employer fact — 'X' is not in the job_description text "
-        "(only 'X' appears)."
-    )
-    genuine_issue = "Missing required closing paragraph."
 
     mock_provider.aparse_json.side_effect = [
-        {"approved": False, "issues": [self_refuting_issue, genuine_issue], "feedback": "fix"},
+        {
+            "approved": False,
+            "issues": [
+                {"severity": "minor", "issue": "Repetitive employer naming."},
+                {"severity": "blocking", "issue": "Paragraph 2 invents a 40% figure."},
+                {"severity": "minor", "issue": "Closing is wordy."},
+            ],
+            "feedback": "remove the invented figure",
+        },
         retried,
         {"approved": True, "issues": [], "feedback": ""},
     ]
@@ -1279,6 +1281,105 @@ async def test_round_with_one_genuine_issue_among_noise_still_retries(mock_provi
 
     assert result == retried
     assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_pre_severity_string_issues_still_rewrite(mock_provider):
+    """Fail-safe: a model (or mock, or older prompt) that emits plain issue
+    strings gets EXACTLY the pre-amendment behaviour — a rewrite. The gate must
+    never turn an unparsed verdict into a silent approval."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["Missing required closing paragraph."], "feedback": "fix"},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_rejection_naming_no_issue_at_all_still_rewrites(mock_provider):
+    """A rejection that enumerates NOTHING (all the substance in `feedback`) is
+    not a minor-only round — it is an unreadable one, and it must retry exactly
+    as it did before severity existed."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [], "feedback": "Paragraph 2 invents a figure."},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_unsound_blocking_issues_are_measured_but_no_longer_short_circuit(
+    mock_provider, caplog
+):
+    """#306 demoted to measurement (2026-07-28): an all-self-refuting round is
+    still COUNTED as imprecise, but it no longer changes what the loop does —
+    the issues were filed blocking, so the rewrite happens. Reviewer precision
+    is now a prompt/severity concern, not a pattern-matching one."""
+    draft = {"body": {"paragraphs": ["draft"]}}
+    retried = {"body": {"paragraphs": ["retried"]}}
+    self_refuting_issue = (
+        "Invented employer fact — 'X' is not in the job_description text "
+        "(only 'X' appears)."
+    )
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [self_refuting_issue], "feedback": "fix"},
+        retried,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="cover_letter",
+        )
+
+    assert result == retried
+    assert mock_provider.aparse_json.call_count == 3
+    precision = [r for r in caplog.records if "REVIEW_PRECISION" in r.getMessage()]
+    assert "raised=1 survived=0 discarded=1" in precision[0].getMessage()
+    assert not any("REVIEW_MINOR_ONLY" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,8 @@
 import json
 from typing import Any
 
+from applire.prompts.review_severity import review_output_schema
+
 CV_EXTRACTION_REVIEW_SYSTEM_PROMPT = """\
 You are a CV data quality auditor. Extraction is a NORMALISING transform: it cleans, reformats,
 restructures and de-duplicates the source CV into a strict schema. Your ONE job is to confirm the
@@ -108,12 +110,16 @@ checks to every project entry:
   lacking one. Only flag a project as empty if it also lacks a name, description, and all other
   substantive fields.
 
-Respond ONLY with a valid JSON object — no markdown, no explanations:
-{
-  "approved": true or false,
-  "issues": ["material defects only, each with the section + entry index + what is wrong — empty array if approved"],
-  "feedback": "concise instruction to correct the material defects — empty string if approved"
-}
+WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
+fabricated fact, a fact attached to the wrong entity, or a structurally invalid entry.
+Nothing else. The LEGITIMATE TRANSFORMATIONS listed above are not issues at all and must
+not be raised; anything else you notice is "minor" BY DEFINITION. Re-running a normalising
+transform to satisfy a surface-form preference risks losing a fact it had right.
+
+""" + review_output_schema(
+    issue_hint="material defect, with the section + entry index + what is wrong — empty array if nothing found",
+    feedback_hint="concise instruction to correct the BLOCKING defects — empty string if there are none",
+) + """
 
 Keep `feedback` concise and *referential*: name the offending location (section, index, field) and
 what is wrong. Do NOT quote or paste source passages — the corrector re-reads the source CV text
