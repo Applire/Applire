@@ -87,6 +87,35 @@ tidying can repair the remainder; the sentence is the smallest unit that
 still reads after removal. The same issue widened attribution with a
 paragraph-level running anchor (:func:`_allowed_owner_ids`), which is what
 stops most of these removals from being necessary at all.
+
+Charter run #8 (2026-07-28) found that widened attribution defeated by two
+wrongly-computed FACTS, and fixed both — six removals in one letter, every one
+of them a false positive:
+
+* Tenure was never actually exempt. "Years are exempt" was implemented as
+  ``_YEAR_RE``, which only matches CALENDAR years, so "meine 14-jährige
+  Expertise" collided with two unrelated vault counts that happen to contain
+  14 and lost its whole sentence — the letter's closing, delivered as a bare
+  "Mein Eintrittstermin kann flexibel vereinbart werden." ``_TENURE_RE`` now
+  exempts durations too, on both the digit and the spelled path.
+* The #296 carry-forward was cleared by the sentence that established it. It
+  counted NAMES behind the owner ids, and ``_employer_anchor_candidates``
+  lists a nested project under its parent's id — so one id at one employer
+  produced two names and read as two employers. Any candidate with a project
+  at their current employer lost the carry-forward, and with it every figure
+  in every follow-on sentence: four grounded achievement figures (4,1 % →
+  2,3 % Ausschussquote, 87 % → 96 % Termintreue) removed from one paragraph.
+  :func:`_distinct_employers` now keys on the employer, from work experience.
+
+Known ADR-062 tension, deliberately left standing: deciding *which employer a
+sentence is about* is a judgement about prose, computed here by four
+interlocking heuristics (anchor, loose name match, clause split, carry-forward)
+and acted on by silent deletion after the review loop has finished — so no
+reviewer ever sees the damage. The FACT this module owns is "figure N appears
+in the vault only under owners X, Y, Z"; handing that fact to the reviewer and
+letting it judge attribution is the structural fix, and it is filed, not done.
+The two corrections above are inside the existing design: both were facts the
+code got wrong, not judgements it should not have been making.
 """
 from __future__ import annotations
 
@@ -101,6 +130,7 @@ from applire.services.oracle.extract import (
     _employer_anchor_candidates,
     _find_employer_anchor,
     _match_ids,
+    _profile_get,
     letter_named_experience_ids,
     split_sentences,
 )
@@ -130,6 +160,31 @@ class LetterFigure:
 
 # ── figure extraction (digits, "N+", percent, years-exempt) ─────────────────
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
+
+# A number carrying a years-of-experience UNIT — "14 Jahren", "14-jährige",
+# "zehn Jahre", "11 years". Exempt for the same reason ``_YEAR_RE`` is: tenure
+# is ambient, spans every position at once, and is DERIVED from date spans
+# rather than stored as a literal (module docstring). Group 1 is the number
+# itself; the unit is only the evidence that it is a duration.
+#
+# ADR-062 classification: FACT. "Does the token immediately after this number
+# name a unit of years?" is settled by the two tokens alone — no reading for
+# meaning, no judgement about the surrounding claim.
+#
+# Charter run #8 (2026-07-28) is why this exists as well as ``_YEAR_RE``.
+# "Years are exempt" was only ever true of CALENDAR years, so "meine
+# 14-jährige Expertise in Lean-Methoden" was matched against two unrelated
+# vault counts — Rasselstein's "Schicht mit 14 Mitarbeitenden" and Weberit's
+# "Rollout auf 14 Spritzgussmaschinen" — declared foreign-owned, and its whole
+# sentence removed. That sentence was the letter's closing, so the delivered
+# PDF ended on the bare line "Mein Eintrittstermin kann flexibel vereinbart
+# werden." A tenure figure collides with an unrelated headcount whenever the
+# two happen to share a digit, which is a coincidence, not an attribution.
+_TENURE_UNIT = r"(?:jahr(?:e|en|es)?|jährig\w*|years?|yrs?)"
+_TENURE_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\s*[-–]?\s*" + _TENURE_UNIT + r"\b",
+    re.IGNORECASE,
+)
 _PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*%")
 _PLUS_RE = re.compile(r"\b(\d+)\+")
 _PLAIN_RE = re.compile(r"\b\d+(?:[.,]\d+)?\b")
@@ -261,9 +316,23 @@ def _spelled_figures(text: str) -> list[LetterFigure]:
 
 def _extract_letter_figures(text: str) -> list[LetterFigure]:
     """Every droppable figure in ``text``: digits, "N+" growth forms, percent,
-    and spelled-out EN/DE numbers. Years are exempt (never returned)."""
+    and spelled-out EN/DE numbers.
+
+    Years are exempt and never returned — both CALENDAR years (``_YEAR_RE``,
+    consumed inside ``_digit_figures``) and DURATIONS in years (``_TENURE_RE``,
+    filtered here so the exemption reaches the spelled-number path too: "zehn
+    Jahre ISO-9001-Audit-Praxis" is as tenure-ambient as "10 Jahre").
+    """
     folded = _fold_punct(text)
-    return _digit_figures(folded) + _spelled_figures(folded)
+    tenure = [m.span(1) for m in _TENURE_RE.finditer(folded)]
+    figures = _digit_figures(folded) + _spelled_figures(folded)
+    if not tenure:
+        return figures
+    return [
+        f
+        for f in figures
+        if not any(f.start < e and f.end > s for s, e in tenure)
+    ]
 
 
 # ── the vault side: an independent (kind, value) -> owners index ────────────
@@ -361,17 +430,52 @@ def _allowed_owner_ids(
     return frozenset(allowed)
 
 
-def _distinct_owner_names(
-    ids: frozenset[str], candidates: list[tuple[str, str]]
-) -> frozenset[str]:
-    """The distinct employer/project NAMES behind a set of owner ids.
+def _employer_of_id(profile: Any) -> dict[str, str]:
+    """``experience id -> employer name``, built from work experience ONLY.
+
+    The one instrument for "are these ids the same employer?" (#296's
+    carry-forward). It reads ``work_experience`` directly rather than filtering
+    ``_employer_anchor_candidates``, because that list deliberately mixes two
+    kinds of name: companies, and PROJECT names mapped onto their parent work id
+    by the US187 nesting rule. An id therefore appears in it under as many names
+    as the position has projects, and counting names counts projects.
+
+    ADR-062 classification: FACT. Which employer an id belongs to is settled by
+    the profile's own structure — one lookup, no prose read.
+    """
+    out: dict[str, str] = {}
+    for w in (_profile_get(profile, "work_experience") or []):
+        wid = _profile_get(w, "id")
+        company = _profile_get(w, "company")
+        if isinstance(wid, str) and wid.strip() and isinstance(company, str) and company.strip():
+            out[wid.strip()] = company.strip()
+    return out
+
+
+def _distinct_employers(ids: frozenset[str], employer_of: dict[str, str]) -> frozenset[str]:
+    """The distinct EMPLOYERS behind a set of owner ids.
 
     Two ids are not two employers when the candidate held two positions at the
     same company — the exact distinction ``oracle.extract._find_employer_anchor``
     already makes before its current-role tiebreak. Reused here so the #296
     carry-forward keys on the employer a reader would carry, not on a position.
+    An id with no work-experience entry (a standalone project) is its own
+    identity, keyed by the id so it can never collide with a company name.
+
+    Charter run #8 (2026-07-28) is why this replaced a name-set count. The
+    predecessor asked ``_employer_anchor_candidates`` for the names behind
+    ``{eb56ee08}`` — ONE id — and got two: "Weberit Kunststofftechnik" (the
+    employer) and "Einführung eines MES-Systems" (a project nested under it,
+    sharing its id). Two names read as two employers, so the carry-forward was
+    cleared by the very sentence that established it: "Bei der Weberit
+    Kunststofftechnik GmbH verantworte ich seit 2017 …". The next sentence —
+    "senkte ich die Ausschussquote von 4,1 % auf 2,3 %, während … die
+    Termintreue von 87 % auf 96 % steigerten" — then carried nothing, could not
+    reach the ``len(letter_named_ids) == 1`` escape either, and was removed
+    whole. Four grounded achievement figures, deleted because the candidate has
+    a project at their current employer.
     """
-    return frozenset({n for n, i in candidates if i in ids})
+    return frozenset({employer_of.get(i) or f"id:{i}" for i in ids})
 
 
 def _collapse_whitespace(text: str) -> str:
@@ -424,6 +528,7 @@ def _guard_paragraph(
     loose_candidates: list[tuple[str, str]],
     letter_named_ids: frozenset[str],
     vault_fig_map: dict[tuple[str, str], list[EvidenceUnit]],
+    employer_of: dict[str, str],
 ) -> tuple[str, list[dict[str, Any]]]:
     """Drop every SENTENCE carrying a figure this context cannot attribute.
 
@@ -462,9 +567,7 @@ def _guard_paragraph(
             # different employers are not, and clear the carry rather than
             # guessing between them.
             carried_owners = (
-                named
-                if len(_distinct_owner_names(named, loose_candidates)) == 1
-                else frozenset()
+                named if len(_distinct_employers(named, employer_of)) == 1 else frozenset()
             )
         clause_spans = _clause_spans(sentence)
         multi = len(clause_spans) > 1
@@ -513,6 +616,7 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
     letter_named_ids = letter_named_experience_ids(letter_data, profile)
     candidates = _employer_anchor_candidates(profile)
     loose_candidates = _employer_anchor_candidates(profile, loose=True)
+    employer_of = _employer_of_id(profile)
 
     new_paragraphs: list[Any] = []
     all_dropped: list[dict[str, Any]] = []
@@ -522,7 +626,7 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
             new_paragraphs.append(para)
             continue
         new_para, para_dropped = _guard_paragraph(
-            para, candidates, loose_candidates, letter_named_ids, vault_fig_map
+            para, candidates, loose_candidates, letter_named_ids, vault_fig_map, employer_of
         )
         if para_dropped:
             changed = True

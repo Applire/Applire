@@ -477,3 +477,123 @@ def test_letter_with_no_figures_is_returned_unchanged_object():
 def test_empty_body_is_tolerated():
     assert guard_letter_figures({}, PROFILE) == {}
     assert guard_letter_figures({"body": {}}, PROFILE) == {"body": {}}
+
+
+# ── charter run #8 (2026-07-28): two false-positive classes ──────────────────
+# Six removals in one German letter, all six wrong. Both causes were FACTS the
+# code computed incorrectly (ADR-062), not judgements it should have delegated:
+# tenure was never actually exempt, and the #296 carry-forward was cleared by
+# the sentence that established it.
+
+RUN8_PROFILE = {
+    "personal_info": {"name": "Stefan Brandt"},
+    "work_experience": [
+        {
+            "id": "w-weberit",
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "achievements": [
+                "Verantwortung für zwei Fertigungsbereiche (Spritzguss, Montage) "
+                "mit 38 Mitarbeitenden im Dreischichtbetrieb",
+                "Senkung der Ausschussquote von 4,1 % auf 2,3 % durch "
+                "Shopfloor-Management und KVP-Routinen",
+                "Steigerung der Termintreue von 87 % auf 96 % durch "
+                "SMED-Rüstworkshops und Feinplanung",
+            ],
+        },
+        {
+            "id": "w-rasselstein",
+            "company": "Rasselstein Umformtechnik GmbH",
+            "role": "Fertigungsmeister",
+            "achievements": ["Führung einer Schicht mit 14 Mitarbeitenden"],
+        },
+    ],
+    # The project that broke the carry-forward: nested under Weberit, so it
+    # shares w-weberit's id, so w-weberit had TWO names in the candidate list.
+    "projects": [
+        {
+            "id": "p-mes",
+            "name": "Einführung eines MES-Systems",
+            "associated_experience": "w-weberit",
+            "description": "Rollout auf 14 Spritzgussmaschinen in beide "
+            "Fertigungsbereiche",
+        }
+    ],
+}
+
+
+def test_a_tenure_figure_is_exempt_even_when_a_headcount_shares_its_digit():
+    """The run-8 closing. "meine 14-jährige Expertise" is a duration derived
+    from date spans; the 14s in the vault are a shift headcount and a machine
+    count. Sharing a digit is a coincidence, not a misattribution — and the
+    sentence it cost was the letter's closing, delivered as a bare
+    "Mein Eintrittstermin kann flexibel vereinbart werden."
+    """
+    closing = (
+        "Ich freue mich auf die Möglichkeit, meine 14-jährige Expertise in "
+        "Lean-Methoden und meine 11-jährige Führungserfahrung in Ihr Team "
+        "einzubringen, und stehe für ein persönliches Gespräch gerne zur "
+        "Verfügung. Mein Eintrittstermin kann flexibel vereinbart werden."
+    )
+    result = guard_letter_figures(_letter([closing]), RUN8_PROFILE)
+    assert result["body"]["paragraphs"] == [closing]
+
+
+def test_tenure_exemption_covers_spelled_and_english_forms():
+    """``value`` of the tenure number must not appear — other numbers in the
+    same text are none of the exemption's business (ISO-9001's "9001" is a
+    standard's identifier and is still extracted, as it was before)."""
+    for text, tenure_value in (
+        ("Als Produktionsleiter mit 14 Jahren Expertise in Lean-Management", "14"),
+        ("zehn Jahre ISO-9001-Audit-Praxis", "10"),
+        ("11 years of leadership experience", "11"),
+        ("meine 14-jährige Expertise", "14"),
+    ):
+        values = [f.value for f in _extract_letter_figures(text)]
+        assert tenure_value not in values, text
+
+
+def test_a_headcount_is_still_not_a_tenure_figure():
+    """The exemption keys on the UNIT, so it must not swallow a bare count in
+    the same sentence — otherwise it would disarm the #254 catch."""
+    figs = _extract_letter_figures(
+        "In 14 Jahren führte ich eine Schicht mit 14 Mitarbeitenden."
+    )
+    assert [(f.kind, f.value) for f in figs] == [("number", "14")]
+
+
+def test_a_project_at_the_employer_does_not_clear_the_carry_forward():
+    """The four grounded achievement figures run #8 deleted.
+
+    Sentence 1 names Weberit and resolves to exactly one id. Sentence 2 names
+    nobody and must inherit it. Before the fix the inheritance was cleared by
+    sentence 1 itself: w-weberit appeared in the candidate list twice — once as
+    the company, once as its nested MES project — so one employer counted as
+    two and the carry was dropped.
+    """
+    para = (
+        "Bei der Weberit Kunststofftechnik GmbH verantworte ich seit 2017 als "
+        "Produktionsleiter zwei Fertigungsbereiche mit 38 Mitarbeitenden im "
+        "Dreischichtbetrieb. Durch die Einführung von Shopfloor-Management und "
+        "KVP-Routinen senkte ich die Ausschussquote von 4,1 % auf 2,3 %, "
+        "während SMED-Rüstworkshops und Feinplanung die Termintreue von 87 % "
+        "auf 96 % steigerten."
+    )
+    result = guard_letter_figures(_letter([para]), RUN8_PROFILE)
+    body = " ".join(result["body"]["paragraphs"])
+    for figure in ("4,1 %", "2,3 %", "87 %", "96 %"):
+        assert figure in body, f"{figure} was removed"
+
+
+def test_the_carry_forward_still_stops_at_a_second_employer():
+    """The fix must not widen the carry beyond its purpose: a sentence naming
+    TWO employers still resolves nothing, so a following sentence inherits
+    nothing and a foreign figure is still caught."""
+    para = (
+        "Bei Weberit Kunststofftechnik GmbH und Rasselstein Umformtechnik GmbH "
+        "habe ich Fertigungsverantwortung getragen. Ich führte eine Schicht "
+        "mit 14 Mitarbeitenden."
+    )
+    result = guard_letter_figures(_letter([para]), RUN8_PROFILE)
+    body = " ".join(result["body"]["paragraphs"])
+    assert "14 Mitarbeitenden" not in body
