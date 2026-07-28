@@ -4,6 +4,112 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.38.0-beta] – 2026-07-28
+
+Two development cycles in one release — **Spaghettieis** (the returning-user
+journey: portfolio, mobile, application lifecycle) and **Tiramisu**
+(truthfulness and the agent channel). This is the largest release since the
+project opened: 295 commits, nine database migrations, and the completion of
+the bring-your-own-agent surface.
+
+The theme running through it is that Applire now **checks its own output**. The
+Truthfulness Oracle grades every generated document against the vault before it
+is delivered and reports what it cannot ground; the keyword ledger records what
+the candidate has explicitly said they *cannot* claim and treats that as a
+floor no generator may cross. Where earlier releases tried to write well, this
+one tries to be checkable.
+
+Migrations run automatically on backend startup — self-hosters update with
+`docker compose pull && docker compose up -d`. No `.env` changes are required.
+
+**Two things to know before updating:**
+
+- **Docker Engine 25 or newer is now required.** The shipped `docker-compose.yml`
+  uses healthcheck `start_interval`, which older engines reject.
+- **Uploaded files now persist across image updates.** A named `applire_uploads`
+  volume is mounted at `/app/data/uploads`; previously CV uploads and profile
+  photos lived inside the container and were lost on every `docker compose pull`.
+  The volume is deliberately scoped to the uploads directory rather than
+  `/app/data`, so read-only release content shipped in the image is not shadowed
+  by stale volume state.
+
+Container logs are now size-capped (10 MB × 3 files). Without rotation the
+json-file driver grows unbounded and can fill the host disk, which takes
+PostgreSQL down with it.
+
+### Added
+
+- **Truthfulness Oracle** — every generated CV and cover letter is audited
+  against the Master Profile before delivery, and the report is available in the
+  UI and over the agent channel (`audit_document`). Each claim is graded
+  `grounded`, `unverifiable`, `unbacked`, `inflated` or `misattributed`, with
+  the vault evidence that backs it — including which employer a figure belongs
+  to, so a number cannot silently migrate between roles.
+- **The agent channel is feature-complete** (ADR-054). `render_document`
+  produces a PDF from supplied data, `submit_claims` lets an external agent
+  contribute evidence through the same honesty checks as the UI, `resolve_gap`
+  closes a single gap statelessly, and `audit_document` exposes the Oracle.
+  An agent-usage guide and an explicit honesty contract ship with the server
+  (ADR-056), so a connecting agent is told the rules rather than guessing them.
+- **Signature Stories** are a first-class vault entity (ADR-055) — a
+  challenge/mechanism/outcome narrative the candidate owns, reusable across
+  applications instead of being re-invented per document.
+- **Application portfolio and dossier view** — applications are tracked through
+  their lifecycle, with a detail view per application, staleness signals when the
+  underlying CV has moved on, and cancellation with a short retention window.
+- **The mobile journey** — capture, triage and CV review work on a phone, with
+  a dedicated mobile end-to-end test lane.
+- **Length-aware tailoring** (ADR-051) — page targets are region-aware, bullets
+  are budgeted per role before drafting, and a bounded condense loop trims to fit
+  without discarding quantified evidence.
+- **Denials are a real ledger status** (ADR-059/ADR-061). "I have not done that"
+  is recorded as the candidate's own position with their verbatim wording, kept
+  distinct from "nobody knows yet", and enforced as a floor at every point where
+  something is written to the vault.
+
+### Changed
+
+- **Positioning** — Applire describes itself as the open-source, agent-ready job
+  application tool for Europe. README, public docs and `AGENTS.md` were rewritten
+  to match, and a condensed public architecture digest was added.
+- **DACH document conventions** are applied consistently: MM/YYYY dates, the
+  Anrede on its own line, and no comma after the Grußformel. One template factory
+  now backs every rendering path, so a convention fix reaches all of them.
+- **Deterministic rules no longer make judgement calls** (ADR-062). Several text
+  heuristics that decided questions of meaning — whether a denial limits a claim,
+  whether a negation attaches to a concept — were deleted rather than tuned. They
+  had been narrowed repeatedly after real-model incidents and were firing on
+  precisely the honest output the product exists to produce. Facts stay in code;
+  what a sentence *means* goes to the model with the evidence attached.
+
+### Fixed
+
+- Quantified evidence is retained through tailoring: a claim the vault backs with
+  a figure can no longer reach the page as a bare keyword without the guard
+  noticing (#315). See *Known issues* — the delivery half of this is not complete.
+- A cover-letter figure can no longer be attributed to the wrong employer, and the
+  guard that enforces this no longer deletes whole sentences over a tenure figure
+  or a nested project's employer count.
+- Interview answers no longer arrive as fabricated skills: an off-topic answer
+  cannot mint a claim, and a denied technology cannot become a work-entry tag.
+- Gap surfaces show grounded chips and canonical counts, long-running steps report
+  honest progress, and the follow-up flow scopes its gap view to the right context.
+- Numerous import-fidelity fixes across CV, LinkedIn and XING sources —
+  certifications, publications, current-position detection, and entity dedupe.
+
+### Known issues
+
+Recorded because they are visible in generated output and are being worked, not
+because they block use:
+
+- A claim the vault holds only inside a denial statement, or only in a typed field
+  such as `budget_managed`, can reach the cover letter and not the CV. Both
+  documents remain individually truthful; the pair can read as padded to a careful
+  reader (#322, #328, #326).
+- The Anschreiben can break to a second page carrying only the signature (#320).
+- The cover-letter review loop can exhaust its retries and ship the last draft
+  unreviewed (#306).
+
 ## [0.37.2-beta] – 2026-07-06
 
 Truthfulness patch for the Chocolate line. Two blockers surfaced by the

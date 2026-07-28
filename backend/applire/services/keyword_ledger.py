@@ -737,22 +737,54 @@ def verified_missing_load_bearing(
     draft: dict[str, Any],
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Load-bearing (#315) ledger entries verifiably absent from the draft's
-    own NARRATIVE (work_history + nested project bullets) -- even when a
-    bare keyword mention elsewhere (skills list, summary) already satisfies
-    :func:`verified_missing_claimable`. Runs the SAME shared presence
-    predicate (``ats_audit.surface_present``), restricted to the narrower
-    narrative corpus so a tag can never stand in for the number.
+    """Load-bearing (#315) ledger entries whose backing FIGURE is absent from
+    the draft's own NARRATIVE (work_history + nested project bullets).
+
+    An entry is load-bearing precisely because its vault evidence carries a
+    percent or currency figure (:func:`applire.services.load_bearing.is_load_bearing`),
+    so the figure is what must be shown to have survived. Reported when NONE of
+    the entry's backed figures appear in the narrative corpus -- deliberately
+    permissive about partial retention (an arc that keeps one of its two
+    endpoints is not the defect this guard exists for) and about phrasing (the
+    candidate's number in the writer's own words has retained the claim).
+
+    **Corrected 2026-07-28, charter run #9 -- the predicate, not just the corpus.**
+    #315 correctly diagnosed that a bare keyword in ``skills``/``summary`` was
+    satisfying :func:`verified_missing_claimable`, and narrowed the corpus to
+    narrative text. But it kept asking ``surface_present`` over
+    :func:`retention_forms`, which holds only the concept and its surface forms
+    and no figure at all. So a delivered bullet reading exactly
+    ``"Budgetverantwortung"`` -- with the ``6 Mio. €`` gone -- satisfied the
+    guard, and the run-#7 defect reproduced verbatim in run #9 with the guard
+    in place: ``is_load_bearing`` True, ``verified_missing_load_bearing`` empty.
+    Moving the corpus without changing the predicate left the
+    bare-token-satisfies-coverage mechanism intact one layer down. The reviewer
+    had named the missing figure at attempt 1; nothing downstream could see it.
+
+    Known limit, stated rather than hidden: :func:`figures_present` scans the
+    whole narrative corpus, so a coincidentally equal figure elsewhere in the
+    document (the ``14 Mitarbeitende`` / ``14 Jahre`` collision class of #214
+    and #299) can mask a genuine loss. That fails toward silence, which is the
+    safe direction here and strictly better than the unconditional silence it
+    replaces; attribution belongs to the guards that own it.
+
+    ADR-062 classification: **fact.** A figure is extracted by the canonical
+    detector and presence is set membership over canonical ``kind:value`` keys.
+    Nothing here reads prose for meaning.
     """
     load_bearing = [e for e in (keyword_ledger or []) if is_load_bearing(e)]
     if not load_bearing:
         return []
-    from applire.services.ats_audit import surface_present
+    from applire.services.load_bearing import (
+        figures_present,
+        load_bearing_universe_from_ledger,
+    )
 
-    corpus = tailored_narrative_corpus(draft)
+    present = figures_present(tailored_narrative_corpus(draft))
     missing: list[dict[str, Any]] = []
     for entry in load_bearing:
-        if not any(surface_present(f, corpus) for f in retention_forms(entry)):
+        universe = load_bearing_universe_from_ledger([entry])
+        if universe and not (universe & present):
             missing.append(entry)
     return missing
 
