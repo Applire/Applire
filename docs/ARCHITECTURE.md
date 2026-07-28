@@ -631,7 +631,11 @@ Removing that matcher was not enough, and the second finding is what made this a
 
 There is also a testing consequence worth stating plainly for contributors. CI mocks the LLM provider, and a mock cannot evaluate what an instruction *does*. A marker list passes its own unit tests by construction; the question it cannot answer is how a real model behaves when told to obey it. Every failure in this class was found by a real-provider end-to-end run, several after surviving multiple releases. Changes to prompt-facing rules are therefore evidenced by a real run, not by a green suite — CI keeps its job of pinning shape, wiring, and the facts.
 
-**Status:** The rule is in force for new code. Several existing sites are known violations and are being replaced incrementally rather than all at once.
+**A fourth supporting rule, added by amendment on the same day:** the fact/judgement line applies to a control's **remediation** as much as to its detection. The cover-letter figure guard removes an unattributable number by deleting the sentence that carries it — a decision that was right about every individual figure and wrong about the sentence. In one German letter it deleted the closing paragraph (a tenure figure, "14 years of Lean expertise", collided with two unrelated counts that happen to contain 14) and four genuine achievement figures from another paragraph. Both were facts computed wrongly and both are fixed; the judgement underneath — *which employer is this sentence about?* — is not, because that guard runs **after** the review loop finishes, so nothing downstream sees what it removed and it has no model-side replacement today. The disposition is the same as the rest of this ADR: give the reviewer the fact (which vault entries a figure appears under) and let it judge and rewrite, rather than deleting text behind everyone's back.
+
+The general lesson for contributors: a check that runs last is a check nothing else can catch. If you add a deterministic pass after the review loop, assume its mistakes ship.
+
+**Status:** The rule is in force for new code. Six existing sites are known violations and are being replaced incrementally rather than all at once.
 
 ---
 
