@@ -43,10 +43,18 @@
 #   * The mutual 5(b)/6 pair is replaced by the SUBJECT TEST — one exclusive question
 #     ("who is this sentence about?") that cannot contradict itself the way two
 #     cross-referencing checks could.
-#   * Literal string matching by the model. SF-WRITE.2/.4 both have deterministic
-#     producers (`verified_missing_load_bearing`, `find_cross_document_conflicts`) whose
-#     blocks are ground truth; asking the LLM to re-derive presence is what produced the
-#     run-7 self-refutations. The prompt now forbids it outright.
+#   * Literal string matching by the model. Presence facts have a deterministic producer
+#     (`verified_missing_load_bearing`) whose block is ground truth; asking the LLM to
+#     re-derive presence is what produced the run-7 self-refutations. Forbidden outright.
+#
+# ADR-062 (2026-07-28) moved SF-WRITE.4 the other way. Cross-document contradiction USED
+# to arrive as a block, from `find_cross_document_conflicts` over a negation-proximity
+# matcher. That matcher answered "does this clause deny this concept?" — a question about
+# meaning — with a 6-word-token distance, and it read contrastive transfer arguments
+# ("X nicht, doch Y") as denials: three of four, measured. In run #8 it labelled a
+# sentence AFFIRMING a concept as a bare denial of it, marked the label GROUND TRUTH, and
+# the loop ran ten rounds without approving. The block is gone. The reviewer already
+# holds both documents and the Keyword Ledger, so the rule is stated once, in check 5.
 #
 # NOT THIS REVIEWER'S JOB (SF-WRITE.6): whether the VAULT is accurate. A letter that
 # faithfully renders an inflated vault is a vault defect (SF-PROFILE.1 family, remedy
@@ -75,9 +83,10 @@ another:
   The candidate's own stated inputs are true by definition; never flag them.
 - ``job_description`` (inside the source) — the only basis for a claim about the
   EMPLOYER: their product, market, domain, or achievements.
-- Any DETERMINISTIC BLOCK appended to the source (VERIFIED COVERAGE CHECK,
-  CROSS-DOCUMENT CONSISTENCY CHECK) — computed before you ran, and GROUND TRUTH. Do not
-  re-derive, second-guess, or extend it.
+- Any DETERMINISTIC BLOCK appended to the source (VERIFIED COVERAGE CHECK, UNADDRESSED
+  HARD REQUIREMENTS) — computed before you ran, and GROUND TRUTH. Do not re-derive,
+  second-guess, or extend it. Each states a FACT: whether a string is present, what
+  status the ledger holds. None of them tells you what a sentence MEANS — that is yours.
 
 THE SUBJECT TEST — apply this before every other judgement. Every sentence is about
 someone. Ask only: WHO?
@@ -153,13 +162,19 @@ or incomplete; anything you notice outside them is `minor` by definition.
      slot. Terms beyond the cap stay un-waived and eligible next round. Never phrase a
      demand in a way the writer can only satisfy by listing terms: three or more claimable
      terms strung together as a flat enumeration is itself a failure of this check.
-   - CROSS-DOCUMENT CONSISTENCY CHECK — findings against the already-generated CV. A
-     concept the KEYWORD LEDGER marks CLAIMABLE is NEVER a DO-NOT-CLAIM term, and you must
-     never instruct the writer to name it as an absence. Where the vault holds both a
-     positive contribution AND a stated limit for one concept (a scoped boundary), the
-     only correct output names both halves — never a bare denial that discards the
-     positive, never an unqualified claim that discards the limit. Render the finding's
-     own remedy; never add, soften, or remove a denial on your own initiative.
+   - CROSS-DOCUMENT CONSISTENCY. You hold the already-generated CV as well as this
+     letter. They must not disagree about a concept the KEYWORD LEDGER marks CLAIMABLE.
+     Such a concept is never a DO-NOT-CLAIM term and must never be named as an absence
+     in either document — if the CV asserts it and the letter disclaims it, the LETTER
+     is what is wrong, because the ledger says the vault supports the claim. A concept
+     is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
+     the candidate's own words. Judge this by reading the two documents; there is no
+     block listing conflicts for you, because the rule below is what the block used to
+     approximate and got wrong.
+     A sentence that admits one thing and affirms another — "no IFS/BRC experience, but
+     ten years of ISO 9001 audit practice" — is an honest transfer argument, not a
+     denial of the second half. It is the correct shape for a gap. Never flag it, and
+     never ask the writer to remove, soften, or split it.
 
 NEVER REVERSE YOURSELF ACROSS ROUNDS. If an earlier round asked for a change, do not now
 flag the result of that change and ask for the original back. That is oscillation, not a

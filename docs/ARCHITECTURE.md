@@ -609,6 +609,30 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 
 **Amended (2026-07-27) — a denial changes the requirement's status.** ADR-059 always said a denial must never mark a gap addressed or upgrade the ledger, but that rule lived only in the build-time floor. The per-turn interview path, which upgrades a requirement the moment an answer changes the profile, had no notion of an answer's *polarity* — so an honest answer that denied one requirement while supplying real evidence for another could flip the denied concept to claimable, with the candidate's own denial sentence stored as its supporting evidence. Polarity is now consulted at every point the ledger is written, not only when it is built; a denial is recorded as the requirement's status rather than silently discarded; and a requirement's status is scoped to the job that asked for it, while the verbatim statement stays in the profile — not as a record of an absence, but because that sentence is already in the vault and must be marked as a limit so nothing reads it as evidence, and because the honest "what I do bring instead" half of it is what a cover letter argues from. Detecting that an answer *is* a denial remains a model judgement; a deterministic cross-language classifier was considered and rejected.
+
+---
+
+### ADR-062 — Facts are Deterministic, Judgements are the Model's (accepted 2026-07-28)
+
+**Decision:** Code in the generation path may compute a **fact** and hand it to a writer or reviewer prompt as ground truth. It may not compute a **judgement** and do the same.
+
+A *fact* is settled by the data structure alone — a keyword-ledger status, an enum, a count, a date, a page budget, a schema type, whether a document has a closing paragraph. A *judgement* requires reading prose for meaning: whether a stated limit bounds a particular claim, whether a sentence testifies to availability, whether prose demonstrates leadership, whether a bullet reports a target or a result, whether a negation attaches to the concept next to it. If a rule has to read prose to reach its verdict, it is judging, whatever its implementation.
+
+Judgements go to the model **with the facts and one rule**. The reference implementation: the vault hands the writer the candidate's persisted denial statements verbatim and unpaired, plus the single instruction *"a concept named inside a stated limit as something the candidate DOES have is a STRENGTH, not a limit."*
+
+Three supporting rules:
+- **Deletion over repair.** A heuristic of this class found wrong is removed, along with whatever was built on it — a tuned matcher keeps the defect and adds a constant.
+- **No prompt may carry two blocks that can contradict each other about one concept.** Overlapping deterministic blocks are reconciled before the prompt is built, and the keyword ledger arbitrates. A contradiction reaching the model is a defect in the caller, and it is how a review loop fails to terminate.
+- **Two exemptions**, both narrow: heuristics whose output is a *measurement* (a log or a metric, never an instruction), and fail-safe scrubbing — PII redaction and the ADR-040 never-claim floor stay deterministic and stay deliberately over-broad, because they fail toward *saying less* rather than toward *saying something untrue*.
+
+**Why:** A code rule that pattern-matches text to decide a question of meaning does not merely lose precision — it can be *anti-correlated* with the truth. The decision was forced by a real case. A matcher paired each vault denial to the claimable concepts it supposedly limited, by testing whether their text overlapped. But an honest denial names the adjacent strengths that transfer ("no IFS/BRC experience, but ten years of ISO 9001 audit practice"), so the concepts a denial overlaps hardest are exactly the ones it does *not* limit. It flagged four of one candidate's strongest qualifications as bounded — twice quoting the same clause as both the evidence and the limit — and the writer, told to name "both halves" for each, produced a letter denying experience the profile positively evidenced.
+
+Removing that matcher was not enough, and the second finding is what made this a decision rather than a bug fix. Three deterministic blocks reached the reviewer in one prompt, each labelled as ground truth, disagreeing about one concept: the ledger marked it claimable, an unmet-requirement check demanded a gap argument for it (while naming the supporting project in its own evidence field), and a consistency check forbade naming it as an absence. No draft can satisfy all three, so the loop ran to exhaustion.
+
+There is also a testing consequence worth stating plainly for contributors. CI mocks the LLM provider, and a mock cannot evaluate what an instruction *does*. A marker list passes its own unit tests by construction; the question it cannot answer is how a real model behaves when told to obey it. Every failure in this class was found by a real-provider end-to-end run, several after surviving multiple releases. Changes to prompt-facing rules are therefore evidenced by a real run, not by a green suite — CI keeps its job of pinning shape, wiring, and the facts.
+
+**Status:** The rule is in force for new code. Several existing sites are known violations and are being replaced incrementally rather than all at once.
+
 ---
 
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)

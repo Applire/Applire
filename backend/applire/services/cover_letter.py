@@ -959,15 +959,21 @@ async def _render_cover_letter_background(
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
-            # #270 Fix D: compose (never replace) coverage_reviewer_prompt_fn with a
-            # SECOND deterministic wrapper — each reviewer iteration also carries the
-            # CURRENT draft's cross-document conflicts (bare-denial-of-claimable /
-            # assert-vs-deny against cv_data), recomputed fresh every pass exactly like
-            # the verified-coverage check above. No new LLM pass, no new loop.
-            from applire.services.cross_document import cross_document_reviewer_prompt_fn
-            reviewer_prompt_fn = cross_document_reviewer_prompt_fn(
+            # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
+            # SECOND deterministic wrapper — each reviewer iteration also carries the JD
+            # hard requirements the CURRENT draft has not addressed, recomputed fresh
+            # every pass exactly like the verified-coverage check above. No new LLM pass,
+            # no new loop. This wrapper used to also append cross-document conflict
+            # findings derived from a negation-proximity matcher; ADR-062 deleted them
+            # (the matcher read contrastive transfer arguments — "X nicht, doch Y" — as
+            # denials, and the reviewer, told the flag was ground truth, could not
+            # approve any draft). The cross-document rule is now stated once in the
+            # reviewer prompt, which already holds both documents and the ledger.
+            from applire.services.cross_document import (
+                unaddressed_requirements_reviewer_prompt_fn,
+            )
+            reviewer_prompt_fn = unaddressed_requirements_reviewer_prompt_fn(
                 coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
-                cv_data=cv_data,
                 keyword_ledger=keyword_ledger,
                 denied_concepts=denied_concepts,
             )
