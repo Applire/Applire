@@ -201,6 +201,54 @@ class TestVerifiedMissingLoadBearing:
         }
         assert verified_missing_load_bearing(draft, [_BUDGET_ENTRY]) == []
 
+    def test_bare_keyword_in_a_narrative_bullet_is_still_missing_without_the_figure(self):
+        """Charter run #9 (2026-07-28, ``operations_marcus_de``) — the defect
+        #315 was written to close, reproducing with #315's own guard in place.
+
+        The delivered CV carried the bullet ``"Budgetverantwortung"`` and
+        nothing else: the concept word reached the narrative, the ``6 Mio. €``
+        that makes it checkable did not. The reviewer named the missing figure
+        at attempt 1 (``work_history[0] missing bullet: Budgetverantwortung
+        (6 Mio. €)``), the generator never produced it, and round 2 approved.
+
+        The guard stayed silent because it asked the wrong question. It scanned
+        the right (narrative-only) corpus but still keyed on
+        ``retention_forms`` -- ``['Budget- und Investitionsverantwortung',
+        'Budgetplanung', 'Budgetverantwortung']``, which carries no figure -- so
+        a bare surface form satisfied it exactly as the bare keyword in
+        ``skills``/``summary`` satisfied ``verified_missing_claimable`` before
+        #315. Moving the corpus without changing the predicate left the
+        mechanism intact one layer down.
+
+        An entry is load-bearing BECAUSE its evidence carries a number, so the
+        number is what must be shown to have survived.
+        """
+        draft = {
+            "summary": "",
+            "skills": [],
+            "work_history": [
+                {
+                    "id": "w1",
+                    "bullets": [
+                        "Budgetverantwortung",
+                        "Senkte die Ausschussquote von 4,1 % auf 2,3 %.",
+                    ],
+                }
+            ],
+        }
+        missing = verified_missing_load_bearing(draft, [_BUDGET_ENTRY])
+        assert [e["concept"] for e in missing] == ["Budget- und Investitionsverantwortung"]
+
+    def test_a_surviving_figure_is_not_missing_even_when_worded_differently(self):
+        """The check is on the FIGURE, not the phrasing — a bullet that carries
+        the vault's number in its own words has retained the claim."""
+        draft = {
+            "work_history": [
+                {"id": "w1", "bullets": ["Steuerung eines Kostenrahmens von 6 Mio. € jährlich."]}
+            ],
+        }
+        assert verified_missing_load_bearing(draft, [_BUDGET_ENTRY]) == []
+
     def test_plain_skill_concepts_are_never_flagged(self):
         """Only load-bearing entries are ever checked here -- a plain skill
         missing its own bullet is #303's territory (selection), not #315's."""
