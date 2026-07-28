@@ -17,6 +17,18 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 
+def _flat(text: str) -> str:
+    """Lowercase a prompt and collapse every run of whitespace to one space.
+
+    Prompts are hard-wrapped for human review, so a rule that reads as one
+    sentence is split across lines with leading indentation. Asserting against
+    the raw string makes the test sensitive to REFLOW — which is how prompt
+    tests end up freezing prose and forcing append-only edits (SF-WRITE.7).
+    Match on the sentence, not the line breaks.
+    """
+    return " ".join(text.split()).lower()
+
+
 _SAMPLE_PROFILE = {
     "work_history": [
         {
@@ -1394,31 +1406,46 @@ class TestReviewerPositioningThreading:
         assert "gap_transfer_argument" in p
 
     def test_review_system_prompt_flags_missing_required_positioning_content(self):
+        """v2 check 4 (SF-WRITE row: required content not delivered). Named
+        differently from v1's "MISSING REQUIRED POSITIONING CONTENT", so this
+        asserts the behaviour: a requested entry the body omits is an issue,
+        and the remedy is bounded to that entry's own grounding."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
 
-        low = p.lower()
-        assert "missing required positioning content" in low
-        assert "absence" in low and "issue" in low
+        low = _flat(p)
+        assert "required content not delivered" in low
+        assert "does not deliver is an issue" in low
+        assert "only that entry's own grounding" in low
 
     def test_review_system_prompt_scopes_forbidden_claim_to_possessive_framing(self):
         """The vocabulary collision (#255): 'LegalTech' sits in DO NOT CLAIM because the
         candidate denied having it — but the reviewer must not flag it as an employer-
-        domain fact or inside an honest transfer argument naming the gap."""
+        domain fact or inside an honest transfer argument naming the gap.
+
+        v2 resolves this with the SUBJECT TEST rather than v1's mutually
+        cross-referencing checks 5(b)/6 — see the v2 rebuild note. What must
+        hold is that the DO-NOT-CLAIM list is scoped to candidate claims only,
+        and that naming a concept as an absence is never a claim to it."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
 
-        low = p.lower()
-        assert "possessive" in low or "competence" in low
+        low = _flat(p)
+        assert "subject test" in low
+        assert "do not claim list applies here, and only here" in low
+        assert "do not claim list does not apply" in low
         assert "legaltech" in low  # the concrete #255 example is named
-        assert "not a claim" in low or "not the fabrication" in low or "honesty, not" in low
+        assert "is not a claim to it" in low
 
     def test_review_system_prompt_flags_minted_figures(self):
         """#255: the corrector previously minted 'mentoring teams of 5+' while chasing
-        a coverage push — the reviewer must never invite/accept an unverbatim figure."""
+        a coverage push — the reviewer must never invite or accept an ungrounded figure.
+        v2 folds this into check 1 (SF-WRITE.1) instead of a separate check 8."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
 
-        low = p.lower()
-        assert "minted figure" in low or "mint a figure" in low
-        assert "verbatim" in low
+        low = _flat(p)
+        assert "figures: grounded when a numerically-equivalent form appears" in low
+        # ...and the reviewer must never ASK for one either, which is how the
+        # figure got minted in the first place.
+        assert "never ask for a number that is not" in low
 
     def test_build_review_prompt_asks_about_positioning_completeness(self):
         from applire.prompts.review_cover_letter import build_review_prompt
@@ -1488,7 +1515,7 @@ class TestMintedFigureCheckWordingNarrowed:
     @property
     def _prompt(self):
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
-        return REVIEW_SYSTEM_PROMPT.lower()
+        return _flat(REVIEW_SYSTEM_PROMPT)
 
     def test_word_and_digit_forms_of_same_number_are_never_a_form_difference(self):
         """RC-E ground truth: round 3 wrote '7 months', round 4 changed it to
@@ -1508,9 +1535,9 @@ class TestMintedFigureCheckWordingNarrowed:
             assert word in low
         assert "not a figure" in low or "not figures" in low
 
-    def test_minted_only_when_no_equivalent_form_appears_anywhere(self):
+    def test_minted_only_when_an_equivalent_form_is_absent_from_the_source(self):
         low = self._prompt
-        assert "no numerically-equivalent form" in low or "no numerically equivalent form" in low
+        assert "numerically-equivalent form appears anywhere in the source" in low
 
     def test_never_reverse_a_previously_requested_change(self):
         """The general anti-oscillation rule: never raise the same issue in a
@@ -1518,25 +1545,14 @@ class TestMintedFigureCheckWordingNarrowed:
         low = self._prompt
         assert "oscillat" in low or "reverses a change" in low or "revers" in low
 
-    def test_check_8_still_catches_a_genuinely_invented_figure(self):
-        """US264/#255 regression guard: the check's real teeth must survive the
-        wording narrowing — an actually-invented 'teams of 5+' must still read
-        as something the reviewer is instructed to flag."""
+    def test_a_genuinely_invented_figure_is_still_caught(self):
+        """US264/#255 regression guard: v2 dropped the "teams of 5+" example
+        (an example is not a rule) but must keep the rule's teeth — an
+        unsupported team size / budget / metric is still an ungrounded claim."""
         low = self._prompt
-        assert "teams of 5+" in low
-        assert "fabricat" in low or "invented" in low
-
-    def test_checks_1_through_7_are_not_weakened(self):
-        """Sanity: the check-8 rewrite must not have deleted or diluted the
-        earlier checks' own key vocabulary."""
-        low = self._prompt
-        assert "invented dates" in low or "invented date" in low
-        assert "invented employers" in low or "invented employer" in low
-        assert "fabricated achievements" in low or "fabricated achievement" in low
-        assert "ungrounded requirement claims" in low or "ungrounded requirement claim" in low
-        assert "verified coverage" in low
-        assert "invented employer/company facts" in low
-        assert "missing required positioning content" in low
+        assert "ungrounded candidate claim" in low
+        for token in ("metric", "team size", "budget"):
+            assert token in low, token
 
 
 class TestPositionAnchoringRequirement:
@@ -1553,12 +1569,16 @@ class TestPositionAnchoringRequirement:
     """
 
     def test_review_system_prompt_flags_unanchored_position_owned_content(self):
+        """v2 check 2 (SF-WRITE.5) merges misattribution and missing-anchor into
+        one owner question, and keeps the guardrail that the remedy is always to
+        ADD the anchor — never to delete the achievement to silence the check."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
 
-        low = p.lower()
-        assert "anchor" in low
+        low = _flat(p)
+        assert "wrong or missing owner" in low
         assert "same sentence" in low
-        assert "#283" in p or "283" in p
+        assert "add the anchor in place" in low
+        assert "never instruct the writer to delete" in low
 
     def test_refinement_prompt_requires_naming_employer_in_same_sentence(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
@@ -1574,18 +1594,6 @@ class TestPositionAnchoringRequirement:
 
         low = p.lower()
         assert "vaguer" in low or "weaker" in low or "silently dropped" in low
-
-    def test_checks_1_through_8_are_not_weakened_by_the_anchor_check(self):
-        """Sanity: adding the anchor check must not have deleted or diluted
-        the earlier checks' key vocabulary."""
-        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-
-        low = p.lower()
-        assert "invented dates" in low or "invented date" in low
-        assert "invented employers" in low or "invented employer" in low
-        assert "fabricated achievements" in low or "fabricated achievement" in low
-        assert "minted figures" in low or "minted figure" in low
-        assert "cross-document consistency" in low
 
 
 class TestKeywordListSpecificityRequirement:
@@ -1607,11 +1615,14 @@ class TestKeywordListSpecificityRequirement:
         assert "#282" in p or "282" in p
 
     def test_review_system_prompt_flags_flat_keyword_lists(self):
+        """v2 keeps this as a clause of the coverage check rather than a
+        standalone rule, because keyword stuffing is caused BY that check —
+        the demand and the failure it can produce belong in one place."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
 
-        low = p.lower()
-        assert "flat" in low or "enumerat" in low
-        assert "specificity" in low
+        low = _flat(p)
+        assert "flat enumeration" in low
+        assert "never phrase a demand in a way the writer can only satisfy by listing" in low
 
     def test_refinement_prompt_requires_folding_terms_into_concrete_sentences(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
@@ -1898,50 +1909,40 @@ class TestCoverageDemandCap:
     @property
     def _prompt(self):
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
-        return REVIEW_SYSTEM_PROMPT.lower()
+        return _flat(REVIEW_SYSTEM_PROMPT)
 
     def test_caps_demand_at_two_terms_per_round(self):
         low = self._prompt
-        assert "at most two" in low
-        assert "per round" in low
+        assert "demand at most two terms per round" in low
 
-    def test_ranks_by_fit_weight_or_jd_importance(self):
+    def test_ranks_by_jd_importance(self):
         low = self._prompt
-        assert "fit weight" in low
-        assert "jd importance" in low or "importance" in low
+        assert "rank by how central each is to this role" in low
 
     def test_requires_evidence_cited_for_each_demanded_term(self):
         low = self._prompt
-        assert "cite the specific profile evidence" in low or "cite" in low
+        assert "cite that term's own evidence" in low
         assert "not a valid demand" in low
 
     def test_uncited_term_must_be_waived_not_demanded(self):
         low = self._prompt
         assert "waived" in low
-        assert "never demanded anyway" in low or "never demanded" in low
+        assert "never demanded to fill a slot" in low
 
     def test_cap_does_not_relax_the_existing_approval_gate(self):
         """The demand cap bounds what is ASKED for per round — it must not be
-        confused with a threshold/gating change: approved still stays false
-        while any un-waived term exists."""
+        confused with a gating change: a capped-out term is still outstanding,
+        not approved around."""
         low = self._prompt
-        assert "approved stays false" in low or "approved=false" in low
+        assert "terms beyond the cap stay un-waived and eligible next round" in low
 
-    def test_run6_six_term_dump_is_named_as_the_ground_truth(self):
-        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        assert "Cross-functional" in p or "cross-functional" in p.lower()
-        assert "six" in p.lower() or "SIX" in p
-
-    def test_checks_1_through_10_are_not_weakened_by_the_demand_cap(self):
-        """Sanity: the demand-cap insertion must not have deleted or diluted
-        earlier checks' key vocabulary."""
+    def test_grounding_still_outranks_coverage(self):
+        """The waiver is the reviewer's ONLY coverage judgement, and a term
+        that would stretch past its evidence is waived rather than demanded —
+        the rule that keeps this check from manufacturing fabrications."""
         low = self._prompt
-        assert "invented dates" in low or "invented date" in low
-        assert "invented employers" in low or "invented employer" in low
-        assert "fabricated achievements" in low or "fabricated achievement" in low
-        assert "minted figures" in low or "minted figure" in low
-        assert "anchor" in low
-        assert "cross-document consistency" in low
+        assert "grounding outranks coverage, always" in low
+        assert "grounding waiver" in low
 
 
 class TestUnsupportedGeneralizationCheck:
@@ -1969,31 +1970,30 @@ class TestUnsupportedGeneralizationCheck:
         assert "availability" in low
         assert "connective clause" in low
 
-    def test_reviewer_prompt_states_the_rule(self):
+    def test_reviewer_records_filler_as_minor_not_blocking(self):
+        """CHANGED in v2 (2026-07-28), deliberately. Filler has no SF-WRITE row
+        because nothing false is stated — it is a quality concern, and the
+        rebuild rule is that a check with no row belongs in the `minor`
+        severity channel, not in the blocking mandate. It is still named, so
+        the reviewer records it; it just no longer buys a regeneration, which
+        (per the ADR-021 2026-07-26 amendment) is itself a chance to lose a
+        grounded fact. The writer and corrector prompts still carry the
+        positive instruction to avoid producing filler in the first place —
+        that is where it is cheap. See the sibling tests in this class."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        low = p.lower()
-        assert "unsupported generalization" in low
+        low = _flat(p)
         assert "filler" in low
-
-    def test_reviewer_prompt_names_the_exemptions(self):
-        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        low = p.lower()
-        assert "explicitly not this check" in low
-        assert "greeting" in low
-        assert "connective clause" in low
+        assert "regulated industries share the same discipline" in low
+        assert "never justifies regenerating the letter" in low
+        assert "record it as `minor`" in low
 
     def test_reviewer_prompt_forbids_using_the_check_against_honesty(self):
+        """Unchanged invariant, restated for v2: trimming padding must never
+        become trimming an honest gap or a scoped limit."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        low = p.lower()
-        assert "never use this check" in low
-        assert "honest gap" in low or "honesty" in low
-
-    def test_reviewer_prompt_prefers_false_negatives(self):
-        """When in doubt, do not flag — a false positive removes honest
-        content, which the guardrails call worse than leaving padding in."""
-        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        low = p.lower()
-        assert "when in doubt, do not flag" in low
+        low = _flat(p)
+        assert "trimming padding must never become trimming honesty" in low
+        assert "honest gap" in low
 
     def test_corrector_prompt_states_the_rule(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
@@ -2006,14 +2006,90 @@ class TestUnsupportedGeneralizationCheck:
         assert "honest gap disclosure" in low or "honesty" in low
         assert "worse than leaving" in low
 
-    def test_checks_1_through_10_are_not_weakened_by_check_11(self):
-        """Sanity: adding check 11 must not have deleted or diluted the
-        earlier checks' key vocabulary."""
-        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
-        low = p.lower()
-        assert "invented dates" in low or "invented date" in low
-        assert "invented employers" in low or "invented employer" in low
-        assert "fabricated achievements" in low or "fabricated achievement" in low
-        assert "minted figures" in low or "minted figure" in low
-        assert "anchor" in low
-        assert "cross-document consistency" in low
+
+# ---------------------------------------------------------------------------
+# The cover-letter reviewer prompt, v2 (2026-07-28) — rebuilt from the System
+# FMEA's SF-WRITE rows (derived output 17). Replaces four near-identical
+# "checks 1..N are not weakened" ratchets that each pinned the previous
+# version's check NUMBERING and wording. Those ratchets were part of the
+# problem SF-WRITE.7 names: they made every incident's phrasing permanent, so
+# the only safe edit was to append, and the prompt grew to 18k characters of
+# overlapping checks that eventually contradicted each other.
+#
+# The replacement asserts the two things that actually matter — every FMEA row
+# the reviewer is responsible for is covered, and the prompt cannot silently
+# regrow — without freezing a single sentence of prose.
+# ---------------------------------------------------------------------------
+
+
+class TestCoverLetterReviewerPromptV2:
+    @property
+    def _prompt(self):
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+        return _flat(REVIEW_SYSTEM_PROMPT)
+
+    def test_every_reviewer_owned_fmea_row_is_covered(self):
+        """One assertion per SF-WRITE row this reviewer is the control for. A
+        row losing its check is the regression that matters; the words used to
+        express it are not."""
+        low = self._prompt
+        rows = {
+            "SF-WRITE.1 ungrounded candidate claim": "ungrounded candidate claim",
+            "SF-WRITE.5 wrong or missing owner": "wrong or missing owner",
+            "SF-WRITE.1 invented employer fact": "invented employer fact",
+            "required content not delivered": "required content not delivered",
+            "SF-WRITE.2/.4 deterministic block": "a deterministic block is unsatisfied",
+        }
+        for row, phrase in rows.items():
+            assert phrase in low, f"{row}: no check found for this FMEA row"
+
+    def test_the_mandate_is_exactly_five_blocking_checks(self):
+        """SF-WRITE.7's cause was ~10 overlapping checks. The count is the
+        control: adding a sixth requires adding an FMEA row first, which is a
+        deliberate act rather than an append."""
+        low = self._prompt
+        assert "blocking checks — these five, and nothing else" in low
+        import re
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+        numbered = re.findall(r"^(\d+)\. [A-Z]", REVIEW_SYSTEM_PROMPT, re.MULTILINE)
+        assert numbered == ["1", "2", "3", "4", "5"], numbered
+
+    def test_prompt_stays_within_its_size_budget(self):
+        """The failure mode was unbounded growth, so the budget is the guard.
+        v1 reached 18,242 characters. The ceiling is deliberately close to the
+        current size: hitting it should force the question "which row does this
+        belong to, and can it replace something?" rather than a silent append."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+        assert len(REVIEW_SYSTEM_PROMPT) < 11_000, (
+            f"reviewer prompt is {len(REVIEW_SYSTEM_PROMPT)} chars — it is regrowing. "
+            "Map the new content to an SF-WRITE row and replace, do not append."
+        )
+
+    def test_the_subject_test_replaces_the_mutually_referencing_pair(self):
+        """The specific run-7 defect: v1's check 5(b) and check 6 defined each
+        other by mutual cross-reference ("see check 6" / "see check 5(b)"), and
+        the reviewer resolved the ambiguity backwards. v2 answers the question
+        once, with exclusive branches, and no check may point at another for
+        its definition."""
+        low = self._prompt
+        assert "subject test" in low
+        assert "the three branches are exclusive" in low
+        assert "see check" not in low, "a check is defining itself by cross-reference again"
+
+    def test_reviewer_never_does_literal_string_matching(self):
+        """The run-7 self-refutations came from asking a model to decide
+        whether a phrase appeared verbatim in German compound-coordination
+        ellipsis. Deterministic producers exist for both such rows; the model
+        must defer to their blocks."""
+        low = self._prompt
+        assert "you never perform literal string matching" in low
+        assert "do not count occurrences" in low
+        assert "ground truth" in low
+
+    def test_vault_accuracy_is_not_this_reviewers_job(self):
+        """SF-WRITE.6: a letter faithfully rendering an inflated vault is a
+        vault defect, remedied upstream (ADR-061). The reviewer must not be
+        asked to second-guess the source's truthfulness — the FMEA names that
+        misplacement as part of why v1 was overloaded."""
+        low = self._prompt
+        assert "the candidate's own stated inputs are true by definition" in low

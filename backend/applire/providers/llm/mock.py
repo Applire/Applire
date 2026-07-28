@@ -585,7 +585,14 @@ class MockLLMProvider(LLMProvider):
         # Must be recognised: an unrecognised reviewer falls through to the fallback
         # ({"mock": ...}, approved=None), which fails review_and_refine and ships a
         # corrupt letter under the mock provider.
-        if "cover-letter quality auditor" in system_lower:
+        #
+        # The v1 fingerprint was "cover-letter quality auditor" — the prompt's opening
+        # line. v2 (2026-07-28) rewrote that line, and the whole mock stack silently
+        # stopped recognising the chain. Fingerprint on the SUBJECT TEST instead: it is
+        # the structural core of the rebuild (SF-WRITE.7) rather than an opening
+        # flourish, so a future reword is far less likely to move it. Both are matched,
+        # so a prompt rollback still works.
+        if "the subject test" in system_lower or "cover-letter quality auditor" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
         # US171 — CV grounding reviewers (review_cv_extraction + review_profile_extraction
