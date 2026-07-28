@@ -180,7 +180,7 @@ EU-resident options: `mistral` (EU-hosted) or `requesty` (EU endpoint, also an E
 - **Mock all LLM providers in tests** — unit and integration tests must never call real APIs.
 - Unit tests run without Docker (`tests/unit/conftest.py` sets up an in-memory SQLite DB).
 - Integration tests use a real Docker Compose stack — they spin it up automatically.
-- E2E tests run against Chromium AND Firefox.
+- E2E runs Chromium only (`chromium` + `mobile-chromium` projects). Firefox is installed in CI but no suite targets it, so there is no cross-browser gate.
 - All JavaScript/TypeScript uses ES modules (`"type": "module"`). Never `require()` in tests.
 
 ---
