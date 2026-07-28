@@ -49,6 +49,7 @@ from applire.services.profile.reconcile.dedupe import classify_dupe
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import RequestConfirmation
 from applire.services.profile.reconciliation import compute_merge_reconciliation
+from applire.services.skill_enrichment import enrich_skills_deterministic
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +200,44 @@ def _union_certifications(
         changes.append(_added("certifications", "name", cert.name))
 
 
+def _carry_skill_enrichment(
+    merged: MasterProfileData, incoming: MasterProfileData
+) -> None:
+    """#327 — carry a pre-merge ESTIMATE across the op round-trip.
+
+    ``enrich_skills_deterministic`` re-establishes every ``computed`` duration
+    from the merged profile's own dated evidence, which is the better number and
+    always wins. What it cannot recover is a phase-2 estimate: that came from an
+    LLM call made on ``incoming`` before reconciliation, and re-running the
+    estimator here would cost a second call on every merging import.
+
+    So for a merged skill the deterministic pass could not evidence, and only
+    when it still has no duration at all, the same-named incoming skill's
+    ``years_experience``/``source`` are copied over. Without this a second
+    import silently BLANKS durations the user already saw after the first one.
+    Name match is exact (post-``_norm``) — ``skills_near_dupe`` is the
+    reconciler's merge instrument, and guessing here could attach one skill's
+    tenure to another.
+    """
+    from applire.services.ats_audit import _norm
+
+    by_name = {
+        _norm(s.name): s
+        for s in incoming.skills
+        if s.years_experience is not None
+    }
+    if not by_name:
+        return
+    for skill in merged.skills:
+        if skill.years_experience is not None or skill.source == "computed":
+            continue
+        source_skill = by_name.get(_norm(skill.name))
+        if source_skill is None:
+            continue
+        skill.years_experience = source_skill.years_experience
+        skill.source = source_skill.source or skill.source
+
+
 async def reconcile_import(
     existing: MasterProfileData,
     incoming: MasterProfileData,
@@ -239,6 +278,19 @@ async def reconcile_import(
     # BOTH the fast path and the segmented fallback (both funnel through `applied`),
     # AFTER apply_ops, so no incoming cert is lost to an LLM misroute into skills.
     _union_certifications(applied.profile, incoming, applied.changes)
+    # #327 — deterministic skill-provenance recovery, at the same seam and for
+    # the same reason as the certification passthrough above. ``enrich_skills``
+    # runs on ``incoming`` BEFORE this call, but the merged profile is rebuilt
+    # from the ADR-046 op vocabulary and ``UpsertSkill`` carries no
+    # ``years_experience`` and no ``source`` — so every skill the reconciler
+    # minted reached the vault with a null provenance (33 of 67 skills on a
+    # three-document import). Adding those fields to the op is the wrong fix:
+    # the reconciler LLM would then be emitting computed provenance, which
+    # ADR-062 reserves for code.
+    #
+    # Both passes below are pure — this seam costs NO extra LLM call.
+    applied.profile = enrich_skills_deterministic(applied.profile)
+    _carry_skill_enrichment(applied.profile, incoming)
     # E037 PQ #4 — ambiguities ride the confirmation channel (question + options
     # intact); they are NO LONGER coerced into the 2-value Conflict shape, which
     # garbled the dialog. Real two-value disputes still come through `conflicts`.

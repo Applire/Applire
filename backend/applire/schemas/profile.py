@@ -262,7 +262,18 @@ class Skill(BaseModel):
     category: Literal["technical", "soft", "language", "domain"] = "technical"
     proficiency: Literal["basic", "intermediate", "advanced", "expert"] = "intermediate"
     years_experience: int | None = None
-    source: str | None = None  # which role/interview surfaced this
+    # Provenance of ``years_experience`` (ADR-061 clause 7 — transcribed vs
+    # computed), written only by services/skill_enrichment.py. Exactly one of:
+    #   "computed"      — derived from the dated roles whose own text evidences
+    #                     this skill
+    #   "llm_estimated" — the phase-2 estimator produced the number
+    #   "transcribed"   — read off the document; nothing was inferred (this is
+    #                     also the honest label when no duration is known)
+    # The old comment here read "which role/interview surfaced this"; no code
+    # ever wrote a role name into it, and a null was indistinguishable from a
+    # skill enrichment never visited (#327). The role/interview trail lives in
+    # ``experience_refs``.
+    source: str | None = None
     last_used: date | None = None
     # Provenance: ids/labels of the experiences (work, project, volunteer) that
     # surfaced this skill. Renamed from work_entry_refs (US172 / ADR-044) now
