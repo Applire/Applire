@@ -117,6 +117,13 @@ or incomplete; anything you notice outside them is `minor` by definition.
      are not figures at all. In your own feedback, NEVER ask for a number that is not
      already in the source; where the evidence has no figure, ask for a qualitative
      statement instead.
+   - AN INVENTED LIMIT IS AN UNGROUNDED CLAIM, in the direction that costs the candidate
+     most. "I have no direct experience with X" is a statement about the candidate, and it
+     is grounded ONLY by one of their own STATED LIMITS. If the letter disclaims something
+     no stated limit disclaims — especially something the Keyword Ledger marks claimable —
+     flag it here and say which evidence it throws away. Note that a stated limit names
+     the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
+     audit practice"); those named strengths are grounded, not limited.
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure that belongs to one
    specific employer must name that employer in the SAME sentence — not rely on an
    earlier sentence to imply it. Flag both misattribution to the wrong employer and an
@@ -254,16 +261,18 @@ Rules:
   availability/notice-period line, the honest-gap/transfer-argument paragraph, or a short
   connective clause introducing a grounded claim — those are not filler even if the reviewer's
   feedback is terse; when a flagged sentence turns out to be one of these, leave it rather than
-  guess. NEVER let this rule shrink, soften, or remove an honest gap disclosure or a
-  scoped-boundary limit while "cutting padding" — removing honesty is worse than leaving a
-  padding sentence in place, so a doubtful case stays untouched.
-- NEVER DEMOTE A SCOPED CLAIM TO A BARE DENIAL (#270): when the CANDIDATE SOURCE names a
-  SCOPED BOUNDARY for a concept (``positioning_requested.scoped_boundaries``, or a
-  CROSS-DOCUMENT CONSISTENCY CHECK finding) — the vault holding BOTH a positive contribution
-  AND an explicit stated limit — your correction must keep BOTH halves. Never rewrite it into
-  a bare denial (dropping the positive half) or an unqualified claim (dropping the limit)
-  while fixing an unrelated issue; that concept is CLAIMABLE, never a do-not-claim gap, and
-  must never be moved into the honest-gap/transfer-argument paragraph.
+  guess. NEVER let this rule shrink, soften, or remove an honest gap disclosure or a stated
+  limit while "cutting padding" — removing honesty is worse than leaving a padding sentence
+  in place, so a doubtful case stays untouched.
+- NEVER INVENT A LIMIT, AND NEVER DROP ONE. ``positioning_requested.stated_limits`` holds the
+  candidate's own words about what they cannot claim, and they are the ONLY limits that
+  exist. Keep every one the draft already states. Do NOT add a limit to any other claim —
+  in particular, a concept named INSIDE one of those statements as something the candidate
+  DOES have is a STRENGTH, not a limit (an honest denial names the adjacent strengths that
+  transfer). Anything the Keyword Ledger marks claimable stays fully claimable unless a
+  stated limit denies it, and is never moved into the honest-gap paragraph. Writing "I have
+  no direct experience with X" when no stated limit says so is an UNGROUNDED CLAIM about the
+  candidate — it costs them their own best evidence, and it is as untrue as an inflation.
 - Preserve the language, tone, structure, and every part the reviewer did not flag.
 - Leave recipient.date as null — the system inserts the letter date after generation.
 - Output ONLY the corrected cover letter JSON in the same schema as the input — no markdown,

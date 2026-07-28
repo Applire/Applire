@@ -740,22 +740,23 @@ async def _render_cover_letter_background(
                         cl_id,
                     )
 
-            # #270 Fix B/D: SCOPED BOUNDARIES — a claimable ledger concept the vault
-            # ALSO carries an explicit candidate-stated limit for (ADR-059 denial floor
-            # + a textually-related persisted denial). Deterministic, no LLM. Threaded
-            # into the writer prompt (below) AND positioning_requested (so the
-            # reviewer/corrector never mistake it for a DO-NOT-CLAIM concept and never
-            # instruct the writer to name it as an absence — the exact run-5 defect).
+            # STATED LIMITS: the candidate's persisted denial statements, verbatim, so the
+            # writer never contradicts one. Facts only — which claimable concept a given
+            # limit bears on is a question about meaning and is left to the model. The
+            # deterministic pairing this replaces (`find_scoped_boundaries`) got that
+            # question backwards on real data and made the writer invent limits; see
+            # services/cross_document.collect_stated_limits for the run-8 ground truth.
             from applire.services.cross_document import (
-                find_scoped_boundaries,
+                collect_stated_limits,
                 find_unaddressed_hard_requirements,
-                render_scoped_boundary_block,
+                render_stated_limits_block,
                 render_unaddressed_hard_requirements_block,
                 unaddressed_hard_requirements_positioning,
             )
             # denied_concepts already resolved above (#272 Task 1 hoist).
-            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
-            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+            stated_limits_block = render_stated_limits_block(
+                collect_stated_limits(denied_concepts)
+            )
 
             # #270(c): unmet JD hard requirements (claimable: false, required) that need
             # an explicit positioning decision. Computed with letter_data=None — no draft
@@ -795,23 +796,18 @@ async def _render_cover_letter_background(
                     "itself a review issue."
                 ),
             }
-            if scoped_boundaries:
-                positioning_requested["scoped_boundaries"] = {
-                    "boundaries": [
-                        {
-                            "concept": b.concept,
-                            "evidence": b.evidence,
-                            "limit": b.denial_statement or b.denial_concept,
-                        }
-                        for b in scoped_boundaries
-                    ],
+            if stated_limits_block:
+                positioning_requested["stated_limits"] = {
+                    "limits": collect_stated_limits(denied_concepts),
                     "instruction": (
-                        "For each concept above, the vault holds BOTH a positive "
-                        "contribution AND an explicit candidate-stated limit. These "
-                        "concepts are CLAIMABLE, never a do-not-claim gap. Render the "
-                        "SCOPED claim naming both halves — never a bare denial that "
-                        "discards the positive half, and never an unqualified claim "
-                        "that ignores the limit."
+                        "These are the candidate's own words about what they cannot "
+                        "claim, and the ONLY limits the vault holds. A draft must not "
+                        "contradict one — and must not invent one either. A concept "
+                        "named inside a statement as something the candidate DOES have "
+                        "is a strength, not a limit: an honest denial names the "
+                        "adjacent strengths that transfer. Everything the Keyword "
+                        "Ledger marks claimable stays fully claimable unless a "
+                        "statement here denies it."
                     ),
                 }
             if unaddressed_requirements:
@@ -906,7 +902,7 @@ async def _render_cover_letter_background(
                 company_name=job.company_name,
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
             )

@@ -194,7 +194,7 @@ async def generate_cv_segmented(
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
-    scoped_boundary_block: str | None = None,
+    stated_limits_block: str | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -212,10 +212,9 @@ async def generate_cv_segmented(
     budget (``SEGMENT_MAX_TOKENS``) below — deliberately named ``token_budget`` to avoid
     the collision.
 
-    ``scoped_boundary_block`` (#277, #270 Fix D inverted) — the rendered vault-derived
-    SCOPED BOUNDARIES block (:func:`applire.services.cross_document.render_scoped_boundary_block`),
-    threaded into the summary and skills section calls so those sections render the SCOPED
-    claim instead of a bare, unqualified tag.
+    ``stated_limits_block`` — the candidate's persisted denial statements rendered
+    verbatim (:func:`applire.services.cross_document.render_stated_limits_block`), threaded
+    into the summary and skills section calls so neither contradicts a stated limit.
     """
     from applire.prompts.cv_segmented import (
         EDUCATION_SECTION_SYSTEM_PROMPT,
@@ -274,14 +273,14 @@ async def generate_cv_segmented(
     summary_res = await provider.aparse_json(
         build_summary_prompt(
             directive, job_analysis, profile, critical_gaps, output_language, keyword_ledger,
-            scoped_boundary_block,
+            stated_limits_block,
         ),
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
     skills_res = await provider.aparse_json(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger,
-            scoped_boundary_block,
+            stated_limits_block,
         ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
@@ -329,7 +328,7 @@ async def _tailor_cv_with_fallback(
     provider: "LLMProvider",
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
-    scoped_boundary_block: str | None = None,
+    stated_limits_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV draft: single call on the fast path, segmented as the
     fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
@@ -340,15 +339,14 @@ async def _tailor_cv_with_fallback(
     ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
     claimable-vs-forbidden keyword split. ``budget`` (E042/US237, ADR-051 §3) is the
     deterministic per-role bullet-count ceiling table, threaded into whichever path runs.
-    ``scoped_boundary_block`` (#277) is the rendered vault-derived SCOPED BOUNDARIES block,
-    threaded into whichever path runs so the skills/summary sections render the SCOPED
-    claim instead of a bare, unqualified tag."""
+    ``stated_limits_block`` is the candidate's persisted denial statements rendered
+    verbatim, threaded into whichever path runs."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
-            scoped_boundary_block=scoped_boundary_block,
+            stated_limits_block=stated_limits_block,
         )
     try:
         return await provider.aparse_json(
@@ -357,7 +355,7 @@ async def _tailor_cv_with_fallback(
                 output_language=output_language,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -372,7 +370,7 @@ async def _tailor_cv_with_fallback(
             job_analysis, profile, keyword_gaps, critical_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
-            scoped_boundary_block=scoped_boundary_block,
+            stated_limits_block=stated_limits_block,
         )
 
 
@@ -1794,25 +1792,22 @@ async def _render_cv_background(
                 budget_work_entries, keyword_ledger, resolved_target_pages
             )
 
-            # #277 (#270 Fix D inverted): vault-derived SCOPED BOUNDARIES — a claimable
-            # ledger concept the vault ALSO holds an explicit stated limit on. Unlike the
-            # cross-document `unqualified_cv_vs_scoped_letter` conflict (which needs a
-            # letter to compare against and so can only reach the LETTER's reviewer after
-            # the CV is already final), find_scoped_boundaries derives entirely from the
-            # vault (this CV's OWN keyword_ledger + the profile's persisted
-            # ProfileMetadata.denied_concepts) — both inputs already exist here, before
-            # any letter is generated. Threaded into the writer prompt(s) below so the
-            # skills list / summary render the SCOPED claim instead of a bare, unqualified
-            # tag (the hiring-manager finding: a screener reading only the CV over-rated
-            # the candidate on the JD's most technical axis). Deterministic, no LLM.
+            # STATED LIMITS: the candidate's persisted denial statements, verbatim
+            # (ProfileMetadata.denied_concepts). Threaded into the writer prompt(s) below
+            # so a CV skill tag or summary line never contradicts something the candidate
+            # explicitly said they cannot claim. Facts only — this deliberately does NOT
+            # decide which claimable concept each limit bears on; that pairing used to be
+            # `find_scoped_boundaries` and it was wrong on real data in the one direction
+            # that matters (see services/cross_document.collect_stated_limits).
             from applire.services.cross_document import (
-                find_scoped_boundaries,
-                render_scoped_boundary_block,
+                collect_stated_limits,
+                render_stated_limits_block,
             )
 
             denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
-            scoped_boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
-            scoped_boundary_block = render_scoped_boundary_block(scoped_boundaries)
+            stated_limits_block = render_stated_limits_block(
+                collect_stated_limits(denied_concepts)
+            )
 
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
@@ -1826,7 +1821,7 @@ async def _render_cv_background(
                 provider=provider,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
-                scoped_boundary_block=scoped_boundary_block,
+                stated_limits_block=stated_limits_block,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -1836,8 +1831,8 @@ async def _render_cv_background(
             # candidate's ground truth) has the vault's own scoped wording available to
             # correct a bare tag back to the scoped form, without adding a new reviewer
             # check or a new LLM pass.
-            if scoped_boundary_block:
-                source_material = f"{source_material}\n\n{scoped_boundary_block}"
+            if stated_limits_block:
+                source_material = f"{source_material}\n\n{stated_limits_block}"
             # ADR-048 / US202+US213 (#122): route the Keyword Ledger to the reviewer for the
             # forbidden-claim check, and wrap the reviewer prompt so each iteration carries
             # the DETERMINISTIC verified-coverage state of the current draft (the LLM no

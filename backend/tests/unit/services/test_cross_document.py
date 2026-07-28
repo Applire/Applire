@@ -26,15 +26,14 @@ from __future__ import annotations
 
 from applire.services.cross_document import (
     Conflict,
-    ScopedBoundary,
+    collect_stated_limits,
     cross_document_reviewer_prompt_fn,
     exclude_claimable_concepts,
     find_cross_document_conflicts,
     find_denial_transfer_bridge,
-    find_scoped_boundaries,
     find_unaddressed_hard_requirements,
     render_cross_document_conflicts_block,
-    render_scoped_boundary_block,
+    render_stated_limits_block,
     render_unaddressed_hard_requirements_block,
     unaddressed_hard_requirements_positioning,
 )
@@ -274,21 +273,11 @@ def test_exclude_claimable_concepts_empty_ledger_is_noop():
 
 
 # ---------------------------------------------------------------------------
-# find_scoped_boundaries
+# collect_stated_limits — replaced find_scoped_boundaries (charter run #8)
 # ---------------------------------------------------------------------------
 
 
-def test_find_scoped_boundaries_fires_when_surface_form_in_denial_statement():
-    """A claimable concept whose surface form literally appears in a denial's
-    verbatim statement is a scoped boundary — the vault holds both halves."""
-    ledger = [
-        {
-            "concept": "RAG pipelines",
-            "claimable": True,
-            "surface_forms": ["RAG pipelines", "RAG"],
-            "evidence": "Built and owned the RAG pipeline data layer on Databricks.",
-        }
-    ]
+def test_collect_stated_limits_returns_the_candidates_own_words():
     denied_concepts = [
         {
             "concept": "hands-on embedding work",
@@ -299,41 +288,87 @@ def test_find_scoped_boundaries_fires_when_surface_form_in_denial_statement():
             "source": "interview",
         }
     ]
-    boundaries = find_scoped_boundaries(ledger, denied_concepts)
-    assert len(boundaries) == 1
-    b = boundaries[0]
-    assert isinstance(b, ScopedBoundary)
-    assert b.concept == "RAG pipelines"
-    assert "RAG pipeline data layer" in b.evidence
-    assert "embedding models" in b.denial_statement
+    assert collect_stated_limits(denied_concepts) == [
+        "I designed the database for the RAG pipeline but did not "
+        "configure the embedding models myself."
+    ]
 
 
-def test_find_scoped_boundaries_none_when_denial_unrelated():
+def test_collect_stated_limits_dedupes_one_answer_persisted_under_many_concepts():
+    """Run-8 ground truth: ONE interview answer is persisted once per concept it
+    denies — five records, one sentence. The writer must see it once, not five
+    times."""
+    statement = (
+        "Nein, mit IFS oder BRC habe ich keine Erfahrung. Ich habe auch nie "
+        "direkt fuer Lebensmittelkunden produziert."
+    )
+    denied_concepts = [
+        {"concept": c, "statement": statement, "source": "interview"}
+        for c in ("IFS", "BRC", "Lebensmittelindustrie", "Produktion fuer Lebensmittelkunden")
+    ]
+    assert collect_stated_limits(denied_concepts) == [statement]
+
+
+def test_collect_stated_limits_never_pairs_a_limit_with_a_concept():
+    """THE run-8 regression (charter run #8, operations_marcus_de).
+
+    ``find_scoped_boundaries`` decided which claimable concept a denial "limits"
+    by text overlap, and emitted four boundaries against this exact data — ISO
+    9001, Produktion, Supply Chain, Qualitaet — every one of them a load-bearing
+    STRENGTH the candidate names inside their own honest denial. The writer was
+    then told to render "both halves" for each, so it invented limits that do not
+    exist and the delivered letter disclaimed the candidate's best evidence.
+
+    The contract now: this function returns statements and NOTHING else. There is
+    no concept attached to a limit, so there is no false pairing to emit. Whether
+    a limit bears on a given sentence is the model's judgement, and the block in
+    :func:`render_stated_limits_block` tells it how to make that call.
+    """
     ledger = [
-        {
-            "concept": "Kubernetes",
-            "claimable": True,
-            "surface_forms": ["Kubernetes", "K8s"],
-            "evidence": "Ran production Kubernetes clusters.",
-        }
+        {"concept": c, "claimable": True, "surface_forms": [c], "evidence": f"{c} evidence"}
+        for c in ("ISO 9001", "Produktion", "Supply Chain", "Qualitaet")
     ]
     denied_concepts = [
-        {"concept": "Prometheus", "statement": "I have not used Prometheus.", "source": "interview"}
-    ]
-    assert find_scoped_boundaries(ledger, denied_concepts) == []
-
-
-def test_find_scoped_boundaries_skips_non_claimable_entries():
-    ledger = [
         {
-            "concept": "retrieval systems",
-            "claimable": False,
-            "surface_forms": ["retrieval systems"],
-            "evidence": "",
-        }
+            "concept": "IFS",
+            "statement": (
+                "Nein, mit IFS oder BRC habe ich keine Erfahrung. Was ich mitbringe: "
+                "Hygiene- und Dokumentationsdisziplin aus der Fertigung und zehn Jahre "
+                "ISO-9001-Audit-Praxis."
+            ),
+            "source": "interview",
+        },
+        {
+            "concept": "direkte Vertriebsverantwortung",
+            "statement": (
+                "Direkte Vertriebsverantwortung hatte ich nicht. Bei Weberit bin ich "
+                "aber die Schnittstelle zu Einkauf, Qualitaetssicherung und Supply Chain."
+            ),
+            "source": "interview",
+        },
     ]
-    denied_concepts = [{"concept": "retrieval", "statement": "no retrieval work", "source": "interview"}]
-    assert find_scoped_boundaries(ledger, denied_concepts) == []
+    limits = collect_stated_limits(denied_concepts)
+    assert len(limits) == 2
+
+    block = render_stated_limits_block(limits)
+    # Both statements reach the writer verbatim — nothing is dropped.
+    for text in limits:
+        assert text in block
+    # But no claimable concept is ever named as limited by them.
+    for entry in ledger:
+        assert f"- {entry['concept']}\n" not in block
+        assert entry["evidence"] not in block
+    assert "POSITIVE" not in block
+    assert "STATED LIMIT (candidate" not in block
+
+
+def test_render_stated_limits_block_forbids_inventing_a_limit():
+    """The one rule that does the job the matcher could not: a concept named
+    inside a denial as something the candidate HAS is a strength, not a limit."""
+    block = render_stated_limits_block(["Mit IFS habe ich keine Erfahrung."]).lower()
+    assert "strength" in block
+    assert "invent" in block
+    assert "claimable" in block
 
 
 # ---------------------------------------------------------------------------
@@ -413,9 +448,11 @@ def test_find_cross_document_conflicts_handles_none_and_empty_inputs():
     assert find_cross_document_conflicts({}, {"body": {}}, keyword_ledger=RUN5_LEDGER, denied_concepts=[]) == []
 
 
-def test_find_scoped_boundaries_handles_none_and_empty_inputs():
-    assert find_scoped_boundaries(None, None) == []
-    assert find_scoped_boundaries([], []) == []
+def test_collect_stated_limits_handles_none_and_empty_inputs():
+    assert collect_stated_limits(None) == []
+    assert collect_stated_limits([]) == []
+    assert collect_stated_limits([{"concept": "", "statement": ""}]) == []
+    assert collect_stated_limits(["a bare string denial"]) == ["a bare string denial"]
 
 
 def test_find_unaddressed_hard_requirements_handles_none_and_empty_inputs():
@@ -424,7 +461,7 @@ def test_find_unaddressed_hard_requirements_handles_none_and_empty_inputs():
 
 
 def test_render_helpers_handle_empty_input():
-    assert render_scoped_boundary_block([]) == ""
+    assert render_stated_limits_block([]) == ""
     assert render_cross_document_conflicts_block([]) == ""
 
 
@@ -482,21 +519,6 @@ def test_render_cross_document_conflicts_block_never_calls_concept_a_gap():
     block = render_cross_document_conflicts_block(conflicts)
     assert "CLAIMABLE" in block
     assert "never" in block.lower()
-
-
-def test_render_scoped_boundary_block_names_both_halves():
-    boundaries = [
-        ScopedBoundary(
-            concept="RAG pipelines",
-            surface_forms=("RAG pipelines", "RAG"),
-            evidence="Built and owned the RAG pipeline data layer.",
-            denial_concept="embedding models",
-            denial_statement="I did not configure the embedding models myself.",
-        )
-    ]
-    block = render_scoped_boundary_block(boundaries)
-    assert "Built and owned the RAG pipeline data layer." in block
-    assert "I did not configure the embedding models myself." in block
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +730,7 @@ def test_find_denial_transfer_bridge_rejects_rag_scope_prose_for_embeddings():
     ("My contribution was architecture, database design and product
     ownership") as a transfer argument for 'embeddings' — that sentence
     precedes the denial and describes a DIFFERENT, CLAIMABLE concept
-    (already surfaced by find_scoped_boundaries), never this gap's bridge.
+    (a claimable concept in its own right), never this gap's bridge.
 
     This function is deliberately position-based (the statement's OWN last
     sentence, gated on it being neither the denial itself nor an
@@ -967,150 +989,19 @@ def test_minimum_specificity_floor_does_not_suppress_assert_vs_deny():
     assert any(c.kind == "assert_vs_deny" for c in conflicts)
 
 
+
 # ---------------------------------------------------------------------------
-# Wave-7 (#277) — CV over-claims what the letter honestly scopes (#270
-# inverted). A third conflict kind over ``ScopedBoundary``: a claimable
-# concept the vault holds an explicit limit on, asserted UNQUALIFIED as a
-# bare CV tag, while the CURRENT letter draft scopes it — with NO negation
-# token at all (the honest-scoping sentence is never a denial).
+# Wave-7 (#277) — DELETED 2026-07-28 (charter run #8).
+#
+# The ``unqualified_cv_vs_scoped_letter`` conflict kind was built on
+# ``find_scoped_boundaries``, whose pairing of a denial to a claimable concept
+# was wrong on real data in the only direction that matters (an honest denial
+# names the adjacent strengths that transfer, so the concepts it overlaps
+# hardest are the ones it does NOT limit). The conflict kind inherited every
+# false boundary as a false instruction to the reviewer, so it went with it
+# rather than being repaired on a broken foundation. It never fired on any
+# charter run. See ``collect_stated_limits`` for what replaced the primitive.
+#
+# What it aimed at — "the CV over-claims what the letter honestly scopes" — is
+# real, and is now the reviewers' job on both sides, not a text matcher's.
 # ---------------------------------------------------------------------------
-
-RAG_BOUNDARY_LEDGER = [
-    {
-        "concept": "RAG pipelines",
-        "claimable": True,
-        "surface_forms": ["RAG pipelines", "RAG"],
-        "evidence": "Built and owned the RAG pipeline data layer end to end.",
-    }
-]
-
-RAG_BOUNDARY_DENIED_CONCEPTS = [
-    {
-        "concept": "embedding models",
-        "statement": (
-            "I designed the database for the RAG pipeline but did not "
-            "configure the embedding models myself."
-        ),
-        "source": "interview",
-    }
-]
-
-
-def test_unqualified_cv_tag_vs_scoped_letter_is_flagged():
-    """#277 — the CV lists the concept as a bare, unqualified skill tag; the
-    letter (no negation at all) explains the actual configuration was
-    handled by someone else. Must be flagged as the NEW conflict kind."""
-    cv_data = {"skills": ["RAG"]}
-    letter_data = {
-        "body": {
-            "paragraphs": [
-                "The actual configuration of embedding models was handled by "
-                "our system engineer.",
-            ]
-        }
-    }
-    conflicts = find_cross_document_conflicts(
-        cv_data, letter_data,
-        keyword_ledger=RAG_BOUNDARY_LEDGER,
-        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
-    )
-    hits = [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"]
-    assert hits, "an unqualified CV tag against a vault-scoped, letter-echoed limit must be flagged"
-    hit = hits[0]
-    assert hit.concept == "RAG pipelines"
-    assert "embedding models" in hit.remedy
-    # The remedy must never instruct touching the letter's own honest scoping.
-    assert "letter" in hit.remedy.lower()
-
-
-def test_cv_tag_with_no_vault_boundary_is_not_flagged():
-    """#277 guard — a CV tag for a concept the vault never scoped (no
-    persisted denial relates to it) must NOT produce the new conflict kind,
-    even if the letter happens to discuss something similar."""
-    ledger = [
-        {
-            "concept": "Kubernetes",
-            "claimable": True,
-            "surface_forms": ["Kubernetes"],
-            "evidence": "Ran production Kubernetes clusters.",
-        }
-    ]
-    cv_data = {"skills": ["Kubernetes"]}
-    letter_data = {
-        "body": {"paragraphs": ["I enjoy working with distributed systems generally."]},
-    }
-    conflicts = find_cross_document_conflicts(
-        cv_data, letter_data, keyword_ledger=ledger, denied_concepts=[],
-    )
-    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
-
-
-def test_cv_tag_already_scoped_inline_is_not_flagged():
-    """#277 guard — when the CV bullet ITSELF already carries the limiting
-    language, the CV is not 'unqualified' — must NOT be flagged."""
-    cv_data = {
-        "work_history": [
-            {
-                "id": "w1",
-                "role": "Engineer",
-                "company": "Acme",
-                "bullets": [
-                    "Designed the RAG pipeline database architecture; embedding "
-                    "models were configured by our system engineer.",
-                ],
-            }
-        ]
-    }
-    letter_data = {
-        "body": {
-            "paragraphs": [
-                "The actual configuration of embedding models was handled by "
-                "our system engineer.",
-            ]
-        }
-    }
-    conflicts = find_cross_document_conflicts(
-        cv_data, letter_data,
-        keyword_ledger=RAG_BOUNDARY_LEDGER,
-        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
-    )
-    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
-
-
-def test_unqualified_cv_tag_with_no_letter_scoping_yet_is_not_flagged():
-    """#277 guard — a bare CV tag alone (no letter, or a letter that never
-    echoes the boundary) must not be flagged; there is nothing to compare
-    against yet."""
-    cv_data = {"skills": ["RAG"]}
-    conflicts = find_cross_document_conflicts(
-        cv_data, {},
-        keyword_ledger=RAG_BOUNDARY_LEDGER,
-        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
-    )
-    assert [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"] == []
-
-
-def test_render_block_never_instructs_softening_the_letters_honest_scoping():
-    """Standing guardrail: the remedy for the new conflict kind must instruct
-    precision on the CV side, never softening/removing the letter's honest
-    disclosure."""
-    conflicts = find_cross_document_conflicts(
-        {"skills": ["RAG"]},
-        {
-            "body": {
-                "paragraphs": [
-                    "The actual configuration of embedding models was handled "
-                    "by our system engineer.",
-                ]
-            }
-        },
-        keyword_ledger=RAG_BOUNDARY_LEDGER,
-        denied_concepts=RAG_BOUNDARY_DENIED_CONCEPTS,
-    )
-    hits = [c for c in conflicts if c.kind == "unqualified_cv_vs_scoped_letter"]
-    assert hits
-    block = render_cross_document_conflicts_block(hits)
-    assert "never" in block.lower()
-    remedy = hits[0].remedy.lower()
-    assert "cv" in remedy
-    assert "remove" not in remedy.split("never")[0]  # never phrased as "remove the letter's..."

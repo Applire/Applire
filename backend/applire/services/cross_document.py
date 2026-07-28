@@ -39,9 +39,10 @@ toward a bare denial that directly contradicted the CV.
 This module is entirely deterministic (no LLM, no new chain — ADR-058
 exception (a)): it re-derives nothing the keyword ledger / denial floor
 haven't already decided, it only (a) filters ``askable_gap_inputs`` output at
-the cover-letter call site (Fix A — the regression fix), (b) finds genuine
-SCOPED BOUNDARIES (a claimable concept the vault also states an explicit
-limit on), (c) finds bare-denial / assert-vs-deny CONFLICTS across the CV and
+the cover-letter call site (Fix A — the regression fix), (b) hands the writer
+the candidate's STATED LIMITS verbatim (facts only — which claim a limit bears
+on is left to the model, see :func:`collect_stated_limits`), (c) finds
+bare-denial / assert-vs-deny CONFLICTS across the CV and
 letter text, and (d) finds hard requirements the letter never addresses at
 all. Every check flags and instructs — none of them rewrite prose (the
 guardrail: never make a gap sound smaller than it is, never make a claim
@@ -64,12 +65,16 @@ ATTRIBUTION; fixed by requiring a genuine WORD-BOUNDARY match
 (:func:`_bounded_spans`, the #207 lesson) with the negation token genuinely
 ATTACHED to that specific occurrence (:func:`_negation_attached_to_form`),
 plus a minimum-specificity floor (:func:`_is_specific_enough`) so a very
-short/generic concept can never trigger the finding alone. #277 — the CV can
-over-claim what the letter honestly scopes; the fix is a THIRD, additive
-conflict kind (``unqualified_cv_vs_scoped_letter``,
-:func:`_find_unqualified_cv_vs_scoped_letter_conflicts`) over the EXISTING
-:class:`ScopedBoundary` primitive, never a loosening of the #278 fix — see
-each function's own docstring.
+short/generic concept can never trigger the finding alone.
+
+2026-07-28 (charter run #8) — ``ScopedBoundary`` / ``find_scoped_boundaries``
+and the ``unqualified_cv_vs_scoped_letter`` conflict kind (#277) built on it
+were DELETED, not repaired. They decided which claimable concept a vault
+denial "limits" by testing text overlap between the two, and on real data that
+signal runs backwards: an honest denial names the adjacent strengths that
+transfer, so the concepts it overlaps hardest are precisely the ones it does
+not limit. See :func:`collect_stated_limits` for the run-8 ground truth and
+what replaced it.
 """
 from __future__ import annotations
 
@@ -297,87 +302,58 @@ def exclude_claimable_concepts(
     return [g for g in (gap_inputs or []) if ats_norm(g) not in claimable_norms]
 
 
-# ── Fix B.1 — scoped boundaries ──────────────────────────────────────────────
+# ── Fix B.1 — stated limits (was: scoped boundaries) ─────────────────────────
 
 
-@dataclass(frozen=True)
-class ScopedBoundary:
-    """A claimable concept the vault ALSO states an explicit limit on.
+def collect_stated_limits(denied_concepts: list[Any] | None) -> list[str]:
+    """The candidate's verbatim denial statements, deduped, order preserved.
 
-    Carries both halves so a renderer can produce the one honest output —
-    the scoped claim ("I designed the database that powers retrieval, but did
-    not configure the embedding models myself") — rather than either a bare
-    denial (discards ``evidence``) or an unqualified claim (discards
-    ``denial_statement``).
+    Replaces ``find_scoped_boundaries`` (deleted 2026-07-28, charter run #8).
+    That function tried to decide WHICH claimable concept each denial limits,
+    by testing whether the denial's text and the ledger entry's text share a
+    surface form. Text overlap cannot answer that question, and on real data
+    it answers it *backwards*:
+
+    An honest denial statement names the candidate's adjacent STRENGTHS,
+    because that is what an honest denial sounds like — "no IFS/BRC
+    experience, but ten years of ISO-9001 audit practice". So the strongest
+    overlap signal is produced by exactly the concepts the denial does NOT
+    limit. Run-8 ground truth (``backend/logs/llm/2026-07-28.jsonl``,
+    ``operations_marcus_de``): four boundaries emitted, all four false —
+    ``ISO 9001``, ``Produktion``, ``Supply Chain``, ``Qualität``, each one a
+    load-bearing strength. For ``Supply Chain`` and ``Qualität`` the rendered
+    "POSITIVE evidence" and "STATED LIMIT" were the *same clause quoted
+    twice*, and the writer was nonetheless instructed to name "both halves" —
+    so it manufactured a limit that does not exist, and the delivered letter
+    denied the candidate's own strongest evidence.
+
+    The vault knows two things for certain: which concepts are claimable (the
+    ledger) and what the candidate said they cannot claim (these statements).
+    The *relation* between the two is a question about meaning, so it belongs
+    to the model, not to a matcher — see :func:`render_stated_limits_block`,
+    which hands over both facts and one rule. Pure; ``None``/empty tolerant.
     """
-
-    concept: str
-    surface_forms: tuple[str, ...]
-    evidence: str
-    denial_concept: str
-    denial_statement: str
-
-
-def find_scoped_boundaries(
-    keyword_ledger: list[dict[str, Any]] | None,
-    denied_concepts: list[Any] | None,
-) -> list[ScopedBoundary]:
-    """Claimable ledger entries that are textually related to a persisted denial.
-
-    A concept is a scoped boundary when the ledger marks it ``claimable: true``
-    AND at least one persisted vault denial (``ProfileMetadata.denied_concepts``
-    — a list of ``{concept, statement, ...}`` records) mentions one of the
-    entry's surface forms in its own ``concept`` or verbatim ``statement``, or
-    vice versa (the denial's concept appears in the ledger entry's own
-    concept/evidence text). Both directions use THE shared presence predicate
-    (:func:`applire.services.ats_audit.surface_present`) so this can never
-    disagree with the ATS panel or the ledger about what counts as the same
-    concept.
-
-    ``denied_concepts`` entries may be plain dicts (the raw
-    ``profile_json.metadata.denied_concepts`` shape) or bare strings — both
-    are tolerated. Pure; ``None``/empty tolerant.
-    """
-    boundaries: list[ScopedBoundary] = []
-    denials = denied_concepts or []
-    for entry in _claimable_entries(keyword_ledger):
-        forms = _ledger_forms(entry)
-        if not forms:
+    seen: set[str] = set()
+    out: list[str] = []
+    for denial in denied_concepts or []:
+        if isinstance(denial, str):
+            text = denial
+        else:
+            text = _get(denial, "statement", "") or _get(denial, "concept", "") or ""
+        text = (text or "").strip()
+        if not text:
             continue
-        concept = entry.get("concept", "") or ""
-        evidence = entry.get("evidence", "") or ""
-        entry_text_norm = ats_norm(f"{concept} {evidence}")
-        for denial in denials:
-            if isinstance(denial, str):
-                d_concept, d_statement = denial, ""
-            else:
-                d_concept = _get(denial, "concept", "") or ""
-                d_statement = _get(denial, "statement", "") or ""
-            if not d_concept and not d_statement:
-                continue
-            denial_text_norm = ats_norm(f"{d_concept} {d_statement}")
-            related = any(surface_present(f, denial_text_norm) for f in forms if f)
-            if not related and d_concept:
-                related = surface_present(d_concept, entry_text_norm)
-            if related:
-                boundaries.append(
-                    ScopedBoundary(
-                        concept=concept,
-                        surface_forms=tuple(forms),
-                        evidence=evidence,
-                        denial_concept=d_concept,
-                        denial_statement=d_statement,
-                    )
-                )
-                break  # one boundary per claimable concept is enough
-    return boundaries
+        key = ats_norm(text)
+        if key in seen:
+            continue  # one interview answer is persisted once per concept it denies
+        seen.add(key)
+        out.append(text)
+    return out
 
 
 # ── Fix B.2 — cross-document conflicts ───────────────────────────────────────
 
-ConflictKind = Literal[
-    "bare_denial_of_claimable", "assert_vs_deny", "unqualified_cv_vs_scoped_letter"
-]
+ConflictKind = Literal["bare_denial_of_claimable", "assert_vs_deny"]
 
 
 @dataclass(frozen=True)
@@ -443,10 +419,9 @@ def find_cross_document_conflicts(
     keyword_ledger: list[dict[str, Any]] | None,
     denied_concepts: list[Any] | None = None,
 ) -> list[Conflict]:
-    """Deterministic bare-denial / assert-vs-deny / unqualified-vs-scoped
-    findings across CV + letter.
+    """Deterministic bare-denial / assert-vs-deny findings across CV + letter.
 
-    Three conflict kinds:
+    Two conflict kinds:
 
     * ``bare_denial_of_claimable`` — scoped to ledger-CLAIMABLE concepts
       only (a concept the ledger marks ``claimable: false`` being denied is
@@ -464,15 +439,9 @@ def find_cross_document_conflicts(
       the OTHER document. NOT gated by the specificity floor — a
       cross-document triangulation is a stronger signal than a single-clause
       co-occurrence.
-    * ``unqualified_cv_vs_scoped_letter`` (#277, #270 inverted) — a claimable
-      concept the vault ALSO holds an explicit limit on
-      (:func:`find_scoped_boundaries`) appears as an UNQUALIFIED bare
-      assertion in the CV (no negation, no inline scoping language of its
-      own), while the CURRENT letter draft independently echoes that same
-      vault-held limit — with NO negation token at all (an honest scoping
-      sentence is not a denial, so it can never reach ``denied_in``/
-      ``bare_denial_of_claimable``). The CV, read alone, over-claims what the
-      letter has already, honestly, bounded.
+    A third kind, ``unqualified_cv_vs_scoped_letter`` (#277), was deleted on
+    2026-07-28 with the ``ScopedBoundary`` primitive it was built on — see the
+    module docstring and :func:`collect_stated_limits`.
 
     Pure, deterministic; tolerates ``None``/malformed ``cv_data``/
     ``letter_data`` (returns ``[]`` rather than raising).
@@ -566,131 +535,6 @@ def find_cross_document_conflicts(
                     )
                 )
 
-    letter_units = [(loc, text) for doc, loc, text in units if doc == "letter"]
-    conflicts.extend(
-        _find_unqualified_cv_vs_scoped_letter_conflicts(
-            cv_claims, letter_units,
-            keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
-        )
-    )
-    return conflicts
-
-
-# ── #277 (#270 inverted) — CV over-claims what the letter honestly scopes ──
-
-
-def _unqualified_remedy(concept: str, denial_concept: str, denial_statement: str) -> str:
-    limit = denial_statement or denial_concept
-    return (
-        f"The CV asserts '{concept}' as an unqualified skill/claim while the letter "
-        f"already, honestly, scopes it (\"{limit}\"). Make the CV claim as PRECISE as "
-        f"the letter — add the SAME limiting language to the CV, grounded verbatim in "
-        f"the candidate's own words. This is a CV-side fix ONLY: the letter's own "
-        f"honest scoping is correct as written and must NEVER be edited, softened, or "
-        f"removed to resolve this finding."
-    )
-
-
-def _find_unqualified_cv_vs_scoped_letter_conflicts(
-    cv_claims: list[Any],
-    letter_units: list[tuple[str, str]],
-    *,
-    keyword_ledger: list[dict[str, Any]] | None,
-    denied_concepts: list[Any] | None,
-) -> list[Conflict]:
-    """#277 — a claimable concept the vault ALSO holds an explicit limit on
-    (:func:`find_scoped_boundaries`), asserted as an UNQUALIFIED bare tag in
-    the CV, while the CURRENT letter draft independently echoes that SAME
-    vault-held limit. The letter's honest-scoping sentence carries NO
-    negation token at all (it is not a denial), so it can never reach
-    ``denied_in``/``bare_denial_of_claimable`` above — a structurally
-    different signal, hence a third, separate conflict kind.
-
-    ``cv_claims`` are the UNSPLIT ``extract_claims_from_tailored`` claims
-    (whole bullet/sentence/skill-tag text) — deliberately NOT the
-    clause-split ``units`` the other two conflict kinds use: "already scoped
-    inline" must be judged against the CV bullet's own FULL sentence, never
-    a single sub-clause of it (a bullet reading "Designed the pipeline;
-    embeddings were configured by our system engineer." is honestly scoped
-    even though clause-splitting would separate the concept mention from its
-    own qualifier into two different clause units).
-
-    A CV occurrence is "unqualified" when:
-      * the concept's own surface form matches, word-boundary, somewhere in
-        the claim's full text;
-      * the SPECIFIC matched sub-clause carries no locally-attached negation
-        (a CV-side bare denial is the EXISTING ``bare_denial_of_claimable``
-        kind's problem, not this one);
-      * the claim's OWN FULL TEXT does not also mention the boundary's own
-        limiting text anywhere (already scoped inline — not a gap at all).
-
-    The letter "scopes" the boundary when some letter unit contains a
-    word-boundary occurrence of the boundary's own ``denial_concept`` —
-    deliberately negation-AGNOSTIC (an honest scoping sentence is not a
-    denial) and deliberately anchored to the SAME persisted-denial concept
-    text :func:`find_scoped_boundaries` already related to this ledger entry
-    — never a second, independent matcher.
-    """
-    boundaries = find_scoped_boundaries(keyword_ledger, denied_concepts)
-    if not boundaries:
-        return []
-
-    conflicts: list[Conflict] = []
-    for boundary in boundaries:
-        if not boundary.denial_concept:
-            continue  # nothing reliable to search the letter for (safe skip)
-        forms = sorted(boundary.surface_forms, key=lambda f: len(ats_norm(f)), reverse=True)
-        if not forms:
-            continue
-
-        cv_hit: tuple[str, str] | None = None
-        for claim in cv_claims:
-            full_text = getattr(claim, "text", "") or ""
-            if not full_text:
-                continue
-            full_text_norm = ats_norm(_normalize_punct(full_text))
-            if not any(f and _bounded_spans(f, full_text_norm) for f in forms):
-                continue
-            if _bounded_spans(boundary.denial_concept, full_text_norm):
-                continue  # already scoped inline, anywhere in this claim's own text
-            for sub_loc, clause_text in _clause_units([claim]):
-                clause_norm = ats_norm(_normalize_punct(clause_text))
-                matched_form = next((f for f in forms if f and _bounded_spans(f, clause_norm)), None)
-                if matched_form is None:
-                    continue
-                if _negation_attached_to_form(matched_form, clause_norm):
-                    continue  # a CV-side denial is bare_denial_of_claimable's problem
-                cv_hit = (sub_loc, clause_text)
-                break
-            if cv_hit is not None:
-                break
-        if cv_hit is None:
-            continue
-
-        letter_hit: tuple[str, str] | None = None
-        for loc, text in letter_units:
-            text_norm = ats_norm(_normalize_punct(text))
-            if _bounded_spans(boundary.denial_concept, text_norm):
-                letter_hit = (loc, text)
-                break
-        if letter_hit is None:
-            continue
-
-        cv_loc, cv_text = cv_hit
-        letter_loc, letter_text = letter_hit
-        conflicts.append(
-            Conflict(
-                kind="unqualified_cv_vs_scoped_letter",
-                concept=boundary.concept,
-                surface_form=forms[0],
-                document="cv+letter",
-                location=f"{cv_loc} vs {letter_loc}",
-                quote=f"CV (unqualified): {cv_text!r} | LETTER (scoped): {letter_text!r}",
-                remedy=_unqualified_remedy(
-                    boundary.concept, boundary.denial_concept, boundary.denial_statement
-                ),
-            )
-        )
     return conflicts
 
 
@@ -773,9 +617,13 @@ def find_denial_transfer_bridge(
     requirement ledger entry, found inside a persisted denial — or ``None``.
 
     Relates ``ledger_entry`` to a denial the SAME direction
-    :func:`find_scoped_boundaries` already uses: one of the entry's own
+    the deleted ``find_scoped_boundaries`` used: one of the entry's own
     surface forms (:func:`_ledger_forms`) must be ``surface_present`` in the
-    denial's own ``concept``/``statement`` text (never a second matcher).
+    denial's own ``concept``/``statement`` text (never a second matcher). The
+    direction is sound HERE and was not sound there: this function only ever
+    runs on an UNMET hard requirement (``claimable: false``), so a denial that
+    mentions it really is about it, and the sentence extracted is the
+    candidate's own transfer argument rather than an invented limit.
 
     For each related denial, in persisted order, the candidate bridge is
     that denial statement's own LAST sentence (deterministic split via
@@ -800,9 +648,8 @@ def find_denial_transfer_bridge(
     denial OPENS with several sentences of unrelated positive/scoped content
     ("My contribution was architecture, database design and product
     ownership") before ever denying anything — that content describes a
-    DIFFERENT, CLAIMABLE concept :func:`find_scoped_boundaries` already
-    surfaces, and a "first non-negated sentence" rule would wrongly re-serve
-    it here as if it were this gap's bridge. Reading only the statement's
+    DIFFERENT, CLAIMABLE concept, and a "first non-negated sentence" rule
+    would wrongly re-serve it here as if it were this gap's bridge. Reading only the statement's
     OWN final sentence, gated on it being neither the denial itself nor an
     already-claimed availability tail, is the conservative reading that
     still surfaces the true observability bridge — "What I do bring from
@@ -971,29 +818,31 @@ def unaddressed_hard_requirements_positioning(
 # ── render helpers ───────────────────────────────────────────────────────────
 
 
-def render_scoped_boundary_block(boundaries: list[ScopedBoundary]) -> str:
-    """Render scoped boundaries for the WRITER prompt (threaded via
-    ``build_cover_letter_prompt``'s new ``scoped_boundary_block`` kwarg).
+def render_stated_limits_block(limits: list[str]) -> str:
+    """Render the candidate's verbatim stated limits for a WRITER prompt.
 
-    Returns ``""`` when empty so legacy callers add nothing.
+    Facts, plus the one rule that keeps them from being over-read. Nothing here
+    pairs a limit with a concept — that judgement is the model's (see
+    :func:`collect_stated_limits` for why the deterministic pairing was removed).
+
+    Returns ``""`` when empty so a vault with no denials adds nothing.
     """
-    if not boundaries:
+    if not limits:
         return ""
     lines = [
-        "=== SCOPED BOUNDARIES (deterministic — #270) ===",
-        "For each concept below, the vault holds BOTH a positive contribution AND an "
-        "explicit candidate-stated limit. This concept IS claimable — render the "
-        "SCOPED claim naming both halves, grounded verbatim in the text given; never "
-        "a bare denial that discards the positive half, and never an unqualified "
-        "claim that ignores the limit. Never place this concept in the honest-gap/"
-        "transfer-argument paragraph — it is not a gap.",
+        "=== STATED LIMITS (the candidate's own words, verbatim) ===",
+        "In an interview the candidate said each of the following about what they "
+        "cannot claim. These are the ONLY limits the vault holds.",
+        "  1. Never write a claim one of these statements contradicts.",
+        "  2. Never manufacture a limit they do not state. A concept named INSIDE one "
+        "of these statements as something the candidate DOES have is a STRENGTH, not "
+        "a limit — an honest denial names the adjacent strengths that transfer.",
+        "Everything the Keyword Ledger marks claimable stays fully claimable unless a "
+        "statement below denies it. When in doubt, claim it plainly and without "
+        "qualification: an invented limit is exactly as untrue as an invented claim, "
+        "and it costs the candidate their own best evidence.",
     ]
-    for b in boundaries:
-        lines.append(f"  - {b.concept}")
-        lines.append(f"    POSITIVE (candidate's own vault evidence): {b.evidence}")
-        lines.append(
-            f"    STATED LIMIT (candidate's own words): {b.denial_statement or b.denial_concept}"
-        )
+    lines.extend(f"  - {text}" for text in limits)
     return "\n".join(lines)
 
 
@@ -1005,15 +854,13 @@ def render_cross_document_conflicts_block(conflicts: list[Conflict]) -> str:
     if not conflicts:
         return ""
     lines = [
-        "CROSS-DOCUMENT CONSISTENCY CHECK (#270/#277/#278, deterministic — this is "
+        "CROSS-DOCUMENT CONSISTENCY CHECK (#270/#278, deterministic — this is "
         "ground truth, do not re-derive it). Every concept named below is CLAIMABLE "
         "per the Keyword Ledger — it is NEVER a DO-NOT-CLAIM term, and you must NEVER "
         "instruct the writer to name it as an absence. Each finding must be resolved "
         "EXACTLY as its own REMEDY instructs — never by leaving or introducing a bare "
         "denial, and never by softening, shortening, or removing an honest disclosure "
-        "already present in either document (an 'unqualified_cv_vs_scoped_letter' "
-        "finding is a CV-side fix ONLY — the letter's own honest scoping is correct "
-        "as written):",
+        "already present in either document:",
     ]
     for c in conflicts:
         lines.append(f"  - [{c.kind}] '{c.concept}' — {c.document} @ {c.location}: {c.quote!r}")
