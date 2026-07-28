@@ -357,6 +357,19 @@ Re-rendering on section save uses Jinja2 only (fast, no Playwright). Playwright 
 
 **The reviewer prompt deliberately stays memoryless.** Showing the reviewer its own prior verdicts looks like the natural fix for oscillation; it was considered and rejected. This layer pays for a *second* model call precisely to escape the bias a generator has toward its own output — a reviewer anchored to defending its earlier judgement is no longer an independent read of the source, and its input would grow with every round. All cross-round memory is deterministic Python; every parameter above defaults to off and reproduces the previous behaviour exactly.
 
+**Amended (2026-07-28) — issues carry a severity, and only a blocking one causes a rewrite.** The original decision left severity out on purpose, to be revisited if minor issues turned out to cause unnecessary retries. They did, and for a worse reason than cost. The reviewer had no way to say *"I noticed this, but it is not worth regenerating the document"*, so every observation it made — a repeated word, a paragraph it would have ordered differently — arrived as a rejection. Testing a stronger model did not fix it: on identical inputs a frontier model filed far fewer bad issues but still filed non-blocking observations as rejections, because the gap is in the schema, not the model.
+
+An issue is now `{ "severity": "blocking" | "minor", "issue": "…" }`:
+
+- **blocking** — as it stands the draft would put something untrue, unsupported, or misattributed in front of a reader, or omits something the source explicitly required.
+- **minor** — the draft is truthful and complete; the reviewer would simply have written it differently. Recorded and logged, never acted on.
+
+A round that rejects a draft while raising only minor issues **ships it**. The justification is truthfulness rather than latency: as the 2026-07-26 amendment above establishes, each rewrite is a memoryless regeneration that can erode content an earlier round had right — so an unnecessary rewrite is a real chance of losing a grounded fact. Reviewers are therefore instructed to resolve doubt toward `minor`.
+
+Parsing fails safe in both directions. Anything not readable as an explicit `minor` — absent, misspelled, or a plain issue string from an older prompt — is treated as **blocking**, and a rejection that enumerates no issue at all (with all the substance in `feedback`) still retries. Neither degenerate case can turn into a silent approval.
+
+Every reviewer prompt composes one shared severity contract (`prompts/review_severity.py`) so the vocabulary and JSON shape cannot drift prompt by prompt, then adds a single line naming what is blocking **in its own pass** — a failure of its own numbered checks, and anything else it notices is minor by definition. When the gate ships a draft it logs `REVIEW_MINOR_ONLY`, which is also how the gate's own failure mode stays visible: a chain quietly filing genuine defects as minor shows up as a rising count rather than as a silent quality drop.
+
 ---
 
 ### ADR-027 — Cover Letter as a Parallel Document Artifact
