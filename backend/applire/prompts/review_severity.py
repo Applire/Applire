@@ -30,7 +30,7 @@ Every reviewer prompt in this package composes:
     per-prompt half of the contract and each prompt owns it.
 
 The loop side lives in ``services/reviewer.py`` (the gate) and
-``services/review_issue_filter.py`` (parsing + the measurement checks).
+``services/review_issues.py`` (parsing + the measurement checks).
 """
 from __future__ import annotations
 
