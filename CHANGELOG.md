@@ -20,8 +20,22 @@ floor no generator may cross. Where earlier releases tried to write well, this
 one tries to be checkable.
 
 Migrations run automatically on backend startup — self-hosters update with
-`docker compose pull && docker compose up -d`. No configuration changes are
-required; `docker-compose.yml` gained optional service definitions only.
+`docker compose pull && docker compose up -d`. No `.env` changes are required.
+
+**Two things to know before updating:**
+
+- **Docker Engine 25 or newer is now required.** The shipped `docker-compose.yml`
+  uses healthcheck `start_interval`, which older engines reject.
+- **Uploaded files now persist across image updates.** A named `applire_uploads`
+  volume is mounted at `/app/data/uploads`; previously CV uploads and profile
+  photos lived inside the container and were lost on every `docker compose pull`.
+  The volume is deliberately scoped to the uploads directory rather than
+  `/app/data`, so read-only release content shipped in the image is not shadowed
+  by stale volume state.
+
+Container logs are now size-capped (10 MB × 3 files). Without rotation the
+json-file driver grows unbounded and can fill the host disk, which takes
+PostgreSQL down with it.
 
 ### Added
 
