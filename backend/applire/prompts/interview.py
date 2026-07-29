@@ -78,6 +78,15 @@
 #   - prompts/review_question_language.py's schema/instructions were updated
 #     to match: preserve each choice's "level" verbatim (never translate or
 #     drop it), and "level" is metadata the language reviewer must not judge.
+#
+# ADR-064 Task 5 (2026-07-29) changes vs above:
+#   - Removed RESPONSE_PARSER_SYSTEM_PROMPT and build_response_parser_prompt
+#     (the "ResponseParser node" block, added in v4 above). Zero production
+#     call sites — denial/follow-up detection moved to a different component
+#     (services/session.py's deterministic denial handling) some time ago and
+#     this prompt, including its "do not keep probing a gap the candidate has
+#     explicitly ruled out" rule, was never wired back in. Do not resurrect
+#     it as the fix for a denial-follow-up bug; see services/session.py.
 
 import json
 
@@ -524,65 +533,3 @@ def build_field_gap_question_prompt(field: str, entry: dict, recent_messages: li
     )
 
 
-# ---------------------------------------------------------------------------
-# ResponseParser node
-# ---------------------------------------------------------------------------
-
-RESPONSE_PARSER_SYSTEM_PROMPT = """\
-You are an expert career coach extracting structured profile data from a candidate's free-text answer.
-Respond ONLY with a valid JSON object matching the schema below — no markdown, no explanations.
-
-Schema:
-{
-  "skills_to_add": ["list of concrete skills explicitly mentioned"],
-  "work_history_to_add": [
-    {
-      "company": "Company name or null",
-      "role": "Job title or null",
-      "start_date": "YYYY-MM or YYYY or null",
-      "end_date": "YYYY-MM or YYYY or null (null = current)",
-      "bullets": ["achievement or responsibility mentioned"]
-    }
-  ],
-  "certifications_to_add": [
-    {"name": "Certification name", "issuing_body": "Issuing body or null", "year": "YYYY or null"}
-  ],
-  "languages_to_add": [
-    {"language": "Language name", "level": "native|fluent|professional|basic"}
-  ],
-  "education_to_add": [
-    {
-      "institution": "Institution name",
-      "degree": "Degree title",
-      "field": "Field of study or null",
-      "graduation_year": "YYYY or null"
-    }
-  ],
-  "gap_resolution": "full or partial or declined or none",
-  "follow_up_hint": "Short suggestion for adjacent domain to probe, or null"
-}
-
-Rules:
-- Only include data EXPLICITLY stated in the answer — do not infer or fabricate
-- gap_resolution: "full" if the answer provides concrete, specific information about the gap;
-  "partial" if relevant but incomplete or vague;
-  "declined" if the candidate clearly states they have NO experience with this gap and offers
-  no transferable/adjacent experience either (e.g. "I've never worked with that", "no IoT experience");
-  "none" if off-topic or empty
-- follow_up_hint: when gap_resolution is "partial", suggest a related domain or context the
-  candidate might have experience in. Set to null for "full" and "declined" — do not keep probing
-  a gap the candidate has explicitly ruled out.
-- Omit work_history_to_add entries where role is null or empty"""
-
-
-def build_response_parser_prompt(
-    cluster_label: str,
-    question: str,
-    answer: str,
-) -> str:
-    return (
-        f"Gap cluster being addressed: {cluster_label}\n\n"
-        f"Question asked: {question}\n\n"
-        f"Candidate's answer: {answer}\n\n"
-        "Extract the structured profile data."
-    )

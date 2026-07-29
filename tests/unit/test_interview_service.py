@@ -3,7 +3,6 @@ Sprint 15 — Smart Gap Interview unit tests.
 
 Tests: question_generator_with_profile, send_message advance/follow-up/cross-gap
        logic, _next_valid_index, _count_remaining,
-       build_response_parser_prompt (prompt builder from applire.prompts.interview),
        build_follow_up_question_prompt.
 
 No Docker, no real LLM — async tests use mocked providers.
@@ -49,36 +48,6 @@ def test_max_questions_per_gap_env_override():
     assert c.INTERVIEW_MAX_QUESTIONS_PER_GAP == 5
     os.environ.pop("INTERVIEW_MAX_QUESTIONS_PER_GAP", None)
     importlib.reload(c)  # restore default for subsequent tests
-
-
-# ---------------------------------------------------------------------------
-# Task 2: ResponseParser
-# ---------------------------------------------------------------------------
-
-
-def test_build_response_parser_prompt_basic():
-    """build_response_parser_prompt uses 3-arg signature and includes all three inputs."""
-    from applire.prompts.interview import build_response_parser_prompt
-
-    prompt = build_response_parser_prompt(
-        "Python skills",
-        "What is your Python level?",
-        "5 years experience.",
-    )
-
-    assert "Python skills" in prompt
-    assert "5 years experience" in prompt
-    assert "What is your Python level?" in prompt
-
-
-def test_build_response_parser_prompt_includes_cluster_label():
-    """The cluster_label appears in the prompt."""
-    from applire.prompts.interview import build_response_parser_prompt
-
-    prompt = build_response_parser_prompt("GCP certification", "Tell me about GCP?", "I have GCP experience.")
-
-    assert "GCP certification" in prompt
-    assert "Tell me about GCP?" in prompt
 
 
 # ---------------------------------------------------------------------------
