@@ -235,6 +235,90 @@ class TestEnrichSessionResume:
         assert resp.done is False
 
     @pytest.mark.asyncio
+    async def test_denial_only_turn_is_persisted_but_does_not_advance_the_gap(
+        self, sqlite_session, monkeypatch
+    ):
+        """#338 — an honest "no" must reach the vault (ADR-059) without reading as answered.
+
+        The write was gated on `turn.addressed`, which is deliberately
+        `bool(applied.changes)` EXCLUDING denials (#231, so a denial never advances
+        the gap). The same flag therefore also suppressed persistence, so a
+        denial-only turn was reconciled, adjudicated by the LLM, written into the
+        in-memory profile — and then thrown away, leaving the concept `unknown`
+        rather than `denied` and re-askable. `session.py` never had the hole.
+        """
+        from applire.routers.profile_enrich import (
+            start_enrich_session,
+            respond_to_enrich,
+        )
+        from applire.schemas.enrich import EnrichStartRequest, EnrichRespondRequest
+        from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+        from applire.models.profile import MasterProfile
+        from applire.models.session import InterviewSession
+        import applire.routers.profile_enrich as pe
+
+        prof = _make_profile()
+        sqlite_session.add(prof)
+        await sqlite_session.commit()
+        provider = _mock_provider()
+
+        first = await start_enrich_session(
+            EnrichStartRequest(), sqlite_session, provider, None
+        )
+        gap_before = (
+            await sqlite_session.get(InterviewSession, first.session_id)
+        ).state["current_gap_index"]
+
+        # The denial receipt the reconciler produced, as it would reach the router.
+        denied_profile = {
+            **prof.profile_json,
+            "metadata": {
+                **(prof.profile_json.get("metadata") or {}),
+                "denials": [{"token": "Kubernetes", "statement": "Damit hatte ich nie zu tun."}],
+            },
+        }
+
+        async def _denial_only(**kwargs):
+            return InterviewTurnResult(
+                profile_dict=denied_profile,
+                changes=[],
+                addressed=False,          # correct: a denial is not "gap addressed"
+                denial_recorded=True,     # ...but it IS a vault effect
+            )
+
+        monkeypatch.setattr(pe, "reconcile_interview_turn", _denial_only)
+
+        await respond_to_enrich(
+            first.session_id,
+            EnrichRespondRequest(answer="Mit Kubernetes hatte ich nie zu tun."),
+            sqlite_session,
+            provider,
+            None,
+        )
+
+        stored = await sqlite_session.get(MasterProfile, prof.id)
+        denials = (stored.profile_json.get("metadata") or {}).get("denials") or []
+        assert denials, (
+            "a denial-only turn must be persisted — the reconcile + adjudication "
+            "was already paid for and ADR-059 makes denials first-class (#338)"
+        )
+        assert denials[0]["token"] == "Kubernetes"
+
+        # ...and it must NOT read as an ANSWERED gap (#231 — the reason `addressed`
+        # excludes denials in the first place). `addressed_gaps` drives the ledger
+        # upgrade, so a denial landing there would turn "I don't have this" into
+        # evidence that the gap was closed.
+        after = await sqlite_session.get(InterviewSession, first.session_id)
+        assert after.state.get("addressed_gaps", []) == [], (
+            "a denial must never enter addressed_gaps — that list drives the "
+            "ledger upgrade (#231)"
+        )
+        # The cursor DOES move on, and should: the candidate answered the question
+        # ("no"), so re-asking it would be the interview ignoring them. Advancing
+        # the cursor and marking the gap addressed are deliberately different things.
+        assert after.state["current_gap_index"] == gap_before + 1
+
+    @pytest.mark.asyncio
     async def test_fresh_session_when_none_open(self, sqlite_session):
         """A brand-new session IS created when nothing is in flight."""
         from applire.routers.profile_enrich import start_enrich_session

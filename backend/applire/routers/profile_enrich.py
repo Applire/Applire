@@ -332,11 +332,20 @@ async def respond_to_enrich(
     )
     updated_profile_data = turn.profile_dict
 
-    if turn.addressed:
+    # #338 — persist when the turn produced ANY vault effect. `addressed` is
+    # deliberately `bool(applied.changes)` EXCLUDING denials (#231, so a denial
+    # never reads as "this gap was resolved" to the ledger/gap-advance logic
+    # below) — but it was also gating the write, so a denial-only turn was
+    # reconciled, adjudicated and then discarded, losing an ADR-059 receipt the
+    # LLM call had already paid for. Two correct rules designed against each
+    # other; `session.py` writes unconditionally and never had the hole.
+    if turn.addressed or turn.denial_recorded:
         profile_record.profile_json = updated_profile_data
         await db.flush()
 
-    # Mark gap addressed if the reconciler applied at least one change
+    # Mark gap addressed if the reconciler applied at least one change.
+    # Deliberately NOT `or denial_recorded` — see above: a denial is persisted
+    # but must never advance the gap as though it had been answered.
     if turn.addressed:
         state["addressed_gaps"].append(current_gap)
 
