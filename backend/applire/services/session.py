@@ -73,6 +73,7 @@ from applire.services.profile.reconcile.stance import is_denied_concept, record_
 from applire.services.interview.sufficiency import concept_is_required, is_interview_sufficient
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
+    profile_literal_corpus,
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
@@ -1646,8 +1647,19 @@ async def _upgrade_ledger_for_addressed_gap(
     if not eligible:
         return
 
+    # ADR-064 amendment — thread the vault's own literal text through so the
+    # denial floor's per-probe carve-out (never the classifier's evidence
+    # prose, only real vault text) can clear an undenied sibling surface form
+    # here exactly as it does inside build_keyword_ledger.
+    vault_corpus = profile_literal_corpus(
+        profile_record.profile_json if profile_record else None
+    )
     new_ledger, changed = upgrade_ledger_for_concepts(
-        gap.keyword_ledger, eligible, answer, denied_concepts=denied_concepts
+        gap.keyword_ledger,
+        eligible,
+        answer,
+        denied_concepts=denied_concepts,
+        vault_corpus=vault_corpus or None,
     )
     if changed:
         # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a

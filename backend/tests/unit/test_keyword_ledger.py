@@ -1188,3 +1188,312 @@ def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable
     entry = _by_concept(ledger)["Embeddings"]
     assert entry["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert entry["claimable"] is False
+
+
+# ── ADR-064 (2026-07-29) — the F8 floor narrowed: block INFERENCE, admit ────
+# literal ATTESTATION, applied PER PROBE (concept, then each surface form
+# individually) instead of entry-wide. The mechanism is deterministic literal
+# attestation: a probe clears the floor only when it is literally present in
+# the vault's own text (profile_literal_corpus, denial statement already
+# stripped) OUTSIDE every denied compound — reusing is_denied_concept /
+# _independently_affirmed completely unchanged, just applied at finer scope.
+# The classifier's own adjacency-inference prose in `evidence` is never
+# vault text and can never satisfy this, so the pinned F8 regression above
+# stays exactly as forced as it was before this task.
+
+
+def test_adr064_denied_alias_stripped_leaves_undenied_sibling_form_claimable():
+    """A single-concept entry classified with TWO surface forms — one a
+    compound strictly containing the denied phrase, the other genuinely,
+    literally attested elsewhere in the vault — is not forced to `denied`
+    wholesale. The denied form is stripped; the entry survives on the other."""
+    profile_json = {
+        "work_experience": [
+            {
+                "role": "ML Engineer",
+                "technologies": ["Retrieval-Augmented Generation (RAG)"],
+            }
+        ]
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "RAG", "direct", ["RAG", "RAG pipeline"],
+                evidence="ran production RAG systems",
+            ),
+        ],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["RAG pipeline"],
+        profile_json=profile_json,
+    )
+    e = _by_concept(ledger)["RAG"]
+    assert e["status"] == "direct"
+    assert e["claimable"] is True
+    assert e["surface_forms"] == ["RAG"]
+    assert "RAG pipeline" not in e["surface_forms"]
+
+
+def test_adr064_denied_composite_concept_keeps_undenied_alias_and_its_evidence():
+    """The brief's own motivating case: the candidate denies TOGAF but
+    genuinely, literally has eight years of Zachman Framework work — a JD
+    compound requirement classified as ONE concept with both as surface
+    forms must not have the Zachman evidence barred by the TOGAF denial."""
+    profile_json = {
+        "work_experience": [
+            {
+                "role": "Enterprise Architect",
+                "technologies": ["Zachman Framework"],
+                "responsibilities": [
+                    "Owned enterprise architecture governance using the "
+                    "Zachman Framework for eight years."
+                ],
+            }
+        ]
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Enterprise Architecture framework", "direct",
+                ["TOGAF", "Zachman Framework"],
+                evidence="eight years of Zachman Framework governance",
+            ),
+        ],
+        required_skills=["Enterprise Architecture framework"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["TOGAF"],
+        profile_json=profile_json,
+    )
+    e = _by_concept(ledger)["Enterprise Architecture framework"]
+    assert e["status"] == "direct"
+    assert e["claimable"] is True
+    assert "TOGAF" not in e["surface_forms"]
+    assert "Zachman Framework" in e["surface_forms"]
+    assert e["evidence"] == "eight years of Zachman Framework governance"
+
+
+def test_adr064_denial_statement_own_wording_does_not_count_as_attestation():
+    """`_strip_denial_text` must actually be applied by the narrowed floor:
+    the denial's own persisted STATEMENT ("I have never used Kubernetes in
+    production...") names the concept's own word, and that must NOT itself
+    count as independent literal vault attestation — only a genuine mention
+    elsewhere in the vault would. Without the strip this would incorrectly
+    clear the floor."""
+    from applire.schemas.profile import DeniedConcept
+
+    denial = DeniedConcept(
+        concept="Kubernetes orchestration",
+        statement="I have never used Kubernetes in production, only in a sandbox.",
+        source="agent_interview",
+        date="2026-07-29",
+    ).model_dump(mode="json")
+    profile_json = {
+        "metadata": {"denied_concepts": [denial]},
+        "work_experience": [
+            {"role": "Backend Engineer", "technologies": ["Python", "Docker"]},
+        ],
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Kubernetes", "partial", ["Kubernetes"], evidence="adjacency guess"),
+        ],
+        required_skills=["Kubernetes"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=[denial["concept"]],
+        profile_json=profile_json,
+    )
+    e = _by_concept(ledger)["Kubernetes"]
+    assert e["status"] == "denied"
+    assert e["claimable"] is False
+
+
+def test_adr064_german_denial_statement_own_wording_does_not_count_as_attestation():
+    """DACH-native equivalent: the same guarantee for German testimony. The
+    denial's own STATEMENT ("Ich habe noch nie mit Kubernetes... gearbeitet")
+    must not itself count as literal vault attestation."""
+    from applire.schemas.profile import DeniedConcept
+
+    denial = DeniedConcept(
+        concept="Kubernetes-Orchestrierung",
+        statement=(
+            "Ich habe noch nie mit Kubernetes in der Produktion gearbeitet, "
+            "nur in einer Sandbox."
+        ),
+        source="agent_interview",
+        date="2026-07-29",
+    ).model_dump(mode="json")
+    profile_json = {
+        "metadata": {"denied_concepts": [denial]},
+        "work_experience": [
+            {"role": "Backend-Entwickler", "technologies": ["Python", "Docker"]},
+        ],
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Kubernetes", "partial", ["Kubernetes"], evidence="Adjazenz-Vermutung"),
+        ],
+        required_skills=["Kubernetes"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=[denial["concept"]],
+        profile_json=profile_json,
+    )
+    e = _by_concept(ledger)["Kubernetes"]
+    assert e["status"] == "denied"
+    assert e["claimable"] is False
+
+
+def test_adr064_restated_2026_07_23_shape_inference_prose_no_literal_vault_hit_still_forced_down():
+    """The pinned F8 incident shape, restated in this task's own fixture with
+    a live profile_json (rather than none passed at all): the classifier's
+    OWN adjacency-inference prose in `evidence` is not vault text, and the
+    vault carries nothing literal for the concept — the narrowed floor must
+    still fire exactly as it did before this task."""
+    profile_json = {
+        "work_experience": [
+            {"role": "ML Engineer", "technologies": ["Python", "LangChain"]},
+        ],
+    }
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                "Vector store configuration", "partial",
+                ["Vector store configuration"],
+                evidence="RAG experience typically involves vector store configuration",
+            ),
+        ],
+        required_skills=["Vector store configuration"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["Vector store configuration"],
+        profile_json=profile_json,
+    )
+    e = _by_concept(ledger)["Vector store configuration"]
+    assert e["status"] == "denied"
+    assert e["claimable"] is False
+    assert "typically involves" not in e["evidence"]
+
+
+def test_adr064_claimable_never_true_on_denied_path1_enforce_denial_stance():
+    """Global constraint 3, path 1 (build_keyword_ledger -> _enforce_denial_stance)."""
+    ledger = build_keyword_ledger(
+        classifications=[_cls("Terraform", "direct", ["Terraform"], evidence="ran terraform")],
+        required_skills=["Terraform"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["Terraform"],
+    )
+    e = _by_concept(ledger)["Terraform"]
+    assert e["status"] == "denied"
+    assert e["claimable"] is False
+
+
+def test_adr064_claimable_never_true_on_denied_path2_upgrade_ledger_for_concepts():
+    """Global constraint 3, path 2 (upgrade_ledger_for_concepts) — a concept
+    that exactly IS the denial is still recorded denied/unclaimable even
+    though the interview turn's own answer text literally names it."""
+    from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+    ledger = [
+        {
+            "concept": "Terraform", "surface_forms": ["Terraform"], "sources": ["required"],
+            "fit_weight": 1.0, "status": "gap", "evidence": "", "claimable": False,
+        },
+    ]
+    new_ledger, changed = upgrade_ledger_for_concepts(
+        ledger, ["Terraform"], "I have used Terraform extensively",
+        denied_concepts=["Terraform"],
+    )
+    e = new_ledger[0]
+    assert changed is True
+    assert e["status"] == "denied"
+    assert e["claimable"] is False
+
+
+def test_adr064_upgrade_ledger_for_concepts_strips_denied_form_upgrades_on_sibling():
+    """Path 2 positive case: an entry whose CONCEPT is clear but carries one
+    denied surface form and one undenied, literally-attested one is upgraded
+    on the surviving form, with the denied one stripped — never recorded
+    denied wholesale."""
+    from applire.services.keyword_ledger import upgrade_ledger_for_concepts
+
+    ledger = [
+        {
+            "concept": "Enterprise Architecture framework",
+            "surface_forms": ["TOGAF", "Zachman Framework"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "gap",
+            "evidence": "", "claimable": False,
+        },
+    ]
+    new_ledger, changed = upgrade_ledger_for_concepts(
+        ledger, ["Enterprise Architecture framework"],
+        "Eight years of Zachman Framework governance",
+        denied_concepts=["TOGAF"],
+        vault_corpus="enterprise architect zachman framework governance",
+    )
+    e = new_ledger[0]
+    assert changed is True
+    assert e["status"] == "direct"
+    assert e["claimable"] is True
+    assert "TOGAF" not in e["surface_forms"]
+    assert "Zachman Framework" in e["surface_forms"]
+
+
+def test_adr064_claimable_never_true_on_denied_path3_reevaluate_skips_exact_denied_even_with_literal_hit():
+    """Global constraint 3, path 3 (reevaluate_gap_ledger_against_vault) — an
+    exactly-denied concept is never upgraded even when the vault happens to
+    literally carry that same string (a stale-CV/denial contradiction sides
+    with the denial). This function only ever SKIPS; it never itself writes
+    status="denied" (that write path is _enforce_denial_stance), so the gap
+    entry is left exactly as it was."""
+    from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+    ledger = [
+        {
+            "concept": "Terraform", "surface_forms": ["Terraform"], "sources": ["required"],
+            "fit_weight": 1.0, "status": "gap", "evidence": "", "claimable": False,
+        },
+    ]
+    profile_json = {
+        "metadata": {"denied_concepts": [{"concept": "Terraform", "denial_level": "direct"}]},
+        "work_experience": [
+            {"role": "DevOps Engineer", "technologies": ["Terraform"]},
+        ],
+    }
+    new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile_json)
+    e = new_ledger[0]
+    assert changed is False
+    assert e["status"] == "gap"
+    assert e["claimable"] is False
+
+
+def test_adr064_reevaluate_upgrades_via_undenied_sibling_form_strips_denied_one():
+    """Path 3 positive case: the same TOGAF/Zachman shape, reached through
+    the vault re-evaluation door (CV import / earlier session) instead of a
+    same-turn interview answer."""
+    from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+    ledger = [
+        {
+            "concept": "Enterprise Architecture framework",
+            "surface_forms": ["TOGAF", "Zachman Framework"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "gap",
+            "evidence": "", "claimable": False,
+        },
+    ]
+    profile_json = {
+        "metadata": {"denied_concepts": [{"concept": "TOGAF", "denial_level": "direct"}]},
+        "work_experience": [
+            {"role": "Enterprise Architect", "technologies": ["Zachman Framework"]},
+        ],
+    }
+    new_ledger, changed = reevaluate_gap_ledger_against_vault(ledger, profile_json)
+    e = new_ledger[0]
+    assert changed is True
+    assert e["status"] == "direct"
+    assert e["claimable"] is True
+    assert "TOGAF" not in e["surface_forms"]
+    assert "Zachman Framework" in e["surface_forms"]

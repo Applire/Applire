@@ -290,6 +290,53 @@ def _denied_concept_entries(
     return out
 
 
+def _split_denied_probes(
+    concept: str,
+    forms: list[str],
+    denials: list[str],
+    vault_corpus: str | None,
+) -> tuple[bool, list[str]]:
+    """Apply :func:`is_denied_concept` PER PROBE — the entry's concept, then
+    each surface form individually — instead of OR-combining every probe
+    into one entry-wide verdict (ADR-064 amendment 2026-07-29, narrowing the
+    F8 floor from "nothing above gap on a denied concept" to "no adjacency
+    inference over a denied concept").
+
+    Before this, a single denied alias among several surface forms (a JD
+    compound like "Enterprise Architecture framework [forms: TOGAF, Zachman
+    Framework]") forced the WHOLE entry down, discarding an entirely
+    different, undenied form the classifier separately, correctly evidenced
+    — the candidate who denies TOGAF but has eight years of Zachman found
+    the Zachman evidence barred too.
+
+    Reuses ``is_denied_concept`` completely UNCHANGED — same joint denial
+    list every probe is checked against (never a per-denial singleton loop,
+    see commit 0b5694f), same literal-attestation carve-out its own
+    compound-containment branch already applies via
+    ``stance._independently_affirmed`` when ``vault_corpus`` is given. No new
+    matcher (per the task brief) — only the SCOPE of the existing predicate's
+    application changes, from "any probe" to "this specific probe".
+
+    Adjacency INFERENCE stays blocked: ``is_denied_concept``'s exact/alias-
+    match branch has no carve-out and is unconditional, so a probe that
+    literally IS (or aliases) the denied term is always blocked regardless of
+    vault content — never-claim-beats-claim wins (ADR-040) even when the
+    vault happens to also carry that exact string (a genuine self-
+    contradiction between stale CV data and a more recent, explicit denial
+    must side with the denial, not the CV). Only the CONTAINMENT branch's
+    existing carve-out — and now the "is this a DIFFERENT, unrelated probe"
+    case — can let a probe survive.
+
+    Returns ``(concept_denied, surviving_forms)``. The caller decides what
+    "nothing survives" means for its own write path.
+    """
+    concept_denied = bool(concept) and is_denied_concept(concept, denials, vault_corpus)
+    surviving_forms = [
+        f for f in forms if not is_denied_concept(f, denials, vault_corpus)
+    ]
+    return concept_denied, surviving_forms
+
+
 def _enforce_denial_stance(
     ledger: list[dict[str, Any]],
     denied_concepts: list[dict[str, Any]] | list[str] | None,
@@ -335,6 +382,22 @@ def _enforce_denial_stance(
     more than one denied concept matches the same ledger entry, ``"partial"``
     wins (the stronger signal — elicitation was exhausted on at least one of
     the matching denials).
+
+    **ADR-064 amendment (2026-07-29):** the floor is applied PER PROBE (the
+    entry's concept, then each surface form individually — see
+    :func:`_split_denied_probes`), not entry-wide. A ledger entry whose
+    concept itself is clear but carries one surface form that is denied AND
+    one that is not (a JD compound like "Enterprise Architecture framework
+    [forms: TOGAF, Zachman Framework]" where only "TOGAF" was denied) keeps
+    its original classification with the denied form(s) stripped out of
+    ``surface_forms`` — it is never forced to ``denied`` wholesale, and the
+    stripped form can never re-enter ``claimable_surface_forms`` because it
+    is simply gone from the entry. Only when the CONCEPT itself is denied, or
+    every surface form is, does the entry still force to ``status="denied"``,
+    exactly as before — this is what keeps the pinned F8 regression
+    (:func:`test_denied_concept_overrides_claimable_classification_to_gap`)
+    passing unchanged: a single-form entry whose concept IS the denied term
+    has nothing to strip down to, so it still forces.
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
@@ -346,22 +409,33 @@ def _enforce_denial_stance(
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
-        # "Is this entry denied AT ALL?" is decided with ONE call against the
-        # FULL joint list of denied concepts — that is what lets
-        # ``_independently_affirmed`` blank every denied phrase out of the
-        # vault corpus TOGETHER before checking for independent evidence.
-        # Looping this call per-concept over singleton lists (regression,
-        # 2026-07-29) silently fails OPEN: when two denied concepts share a
-        # substring that never appears standalone in the vault, each
-        # singleton call blanks only its own phrase, so the OTHER phrase's
-        # leftover text reads as "independent" affirmation and neither call
-        # fires — the floor stops firing at all for that entry.
-        is_denied = is_denied_concept(concept, all_denied_concepts, vault_corpus) or any(
-            is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
+        # Per-probe (ADR-064 amendment) — see _split_denied_probes. Still ONE
+        # call per probe against the FULL joint list of denied concepts (never
+        # a per-denial singleton loop — that regression, fixed in 0b5694f, is
+        # what let two denials sharing a substring defeat the corpus-blanking
+        # ``_independently_affirmed`` needs to see them together).
+        concept_denied, surviving_forms = _split_denied_probes(
+            concept, forms, all_denied_concepts, vault_corpus
         )
-        if not is_denied:
+        any_denied = concept_denied or len(surviving_forms) != len(forms)
+        if not any_denied:
             result.append(entry)
             continue
+
+        if not concept_denied and surviving_forms:
+            # Partial clear: the concept is fine and at least one OTHER
+            # surface form escapes every denial match. Strip the denied
+            # form(s) — never claimable — and leave the entry's own
+            # classification (status/claimable/evidence) untouched.
+            logger.info(
+                "_enforce_denial_stance: stripped denied surface form(s) from "
+                "%r, entry survives on %s (ADR-064 per-probe narrowing)",
+                concept,
+                surviving_forms,
+            )
+            result.append({**entry, "surface_forms": surviving_forms})
+            continue
+
         if entry.get("claimable"):
             logger.warning(
                 "_enforce_denial_stance: forced claimable concept %r to gap — "
@@ -921,6 +995,7 @@ def upgrade_ledger_for_concepts(
     *,
     status: str = "direct",
     denied_concepts: list[str] | None = None,
+    vault_corpus: str | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -959,6 +1034,23 @@ def upgrade_ledger_for_concepts(
         skipped — a denial is a real answer and must move the requirement's status,
         which is the whole point of the amendment.
 
+    **ADR-064 amendment (2026-07-29):** Floor 2 is applied PER PROBE — the
+    entry's concept, then each surface form individually
+    (:func:`_split_denied_probes`), exactly mirroring
+    :func:`_enforce_denial_stance`'s own narrowing so the two floors can never
+    disagree by call path (task-4 global constraint). An entry whose concept
+    is clear but carries one denied surface form and one that is not (a JD
+    compound "TOGAF/Zachman" where only "TOGAF" was denied, and the OTHER
+    form is what this very turn's answer evidences) is upgraded on the
+    surviving form with the denied one stripped, never recorded wholesale as
+    denied. ``vault_corpus`` (:func:`profile_literal_corpus`, denial-text
+    already stripped) is optional and threaded through to
+    ``is_denied_concept`` for its literal-attestation carve-out, exactly as
+    ``_enforce_denial_stance`` does — omitted (``None``, the default)
+    reproduces the pre-amendment fail-closed behaviour for any caller that
+    has no profile on hand (back-compat, e.g. the agent-channel
+    ``submit_claims`` call site, which never threads denials here at all).
+
     Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
     the JSONB write. Pure; tolerant of ``None``/empty.
     """
@@ -993,11 +1085,17 @@ def upgrade_ledger_for_concepts(
 
         concept = e.get("concept", "")
         forms = e.get("surface_forms") or [concept]
-        # Floor 2 — the candidate's live denials, via the shared predicate.
-        if denials and (
-            is_denied_concept(concept, denials)
-            or any(is_denied_concept(f, denials) for f in forms)
-        ):
+        # Floor 2 — the candidate's live denials, via the shared predicate,
+        # applied PER PROBE (ADR-064 amendment) — see _split_denied_probes.
+        if denials:
+            concept_denied, surviving_forms = _split_denied_probes(
+                concept, forms, denials, vault_corpus
+            )
+            any_denied = concept_denied or len(surviving_forms) != len(forms)
+        else:
+            concept_denied, surviving_forms, any_denied = False, forms, False
+
+        if any_denied and (concept_denied or not surviving_forms):
             if e.get("status") != "denied":
                 logger.info(
                     "upgrade_ledger_for_concepts: recorded %r as denied — the turn "
@@ -1010,6 +1108,18 @@ def upgrade_ledger_for_concepts(
                 changed = True
             new_ledger.append(e)
             continue
+
+        if any_denied:
+            # Partial clear: the concept is fine and at least one OTHER
+            # surface form escapes every denial match — strip the denied
+            # form(s) (never claimable) and upgrade on what survives.
+            logger.info(
+                "upgrade_ledger_for_concepts: stripped denied surface form(s) "
+                "from %r, upgrading on %s (ADR-064 per-probe narrowing)",
+                concept,
+                surviving_forms,
+            )
+            e["surface_forms"] = surviving_forms
 
         e["claimable"] = True
         e["status"] = upgrade_status
@@ -1058,6 +1168,16 @@ def reevaluate_gap_ledger_against_vault(
     already close for the classifier's adjacency inference — see that
     docstring). ``is_denied_concept`` is checked independently as a second,
     belt-and-braces floor on top of the stripped corpus.
+
+    **ADR-064 amendment (2026-07-29):** the denial screen is applied PER
+    PROBE, not "any probe denied skips the whole concept" — a probe that is
+    ITSELF denied is excluded from the evidence search, but a DIFFERENT,
+    undenied probe of the same entry (concept or sibling surface form) still
+    grounds an upgrade. The actual write — including stripping the denied
+    probe out of ``surface_forms`` — is delegated entirely to
+    :func:`upgrade_ledger_for_concepts` (``denied_concepts``/``vault_corpus``
+    threaded through), so there is exactly one place that decides the final
+    shape of a partially-denied entry, never two independent notions of it.
 
     Conservative by construction (at least as conservative as #188):
 
@@ -1108,25 +1228,40 @@ def reevaluate_gap_ledger_against_vault(
         forms = [f for f in (entry.get("surface_forms") or [concept]) if f]
         probes = list(dict.fromkeys(forms + [concept]))  # dedupe, keep order
 
-        # ADR-059 floor: never upgrade a denied concept, however the vault or
-        # its own denial statement phrases it (corpus already denial-stripped
-        # above — this is the belt-and-braces second check).
-        if denials and any(is_denied_concept(p, denials, corpus) for p in probes):
+        # ADR-059 floor, ADR-064 amendment: PER-PROBE, not "any probe denied
+        # skips the whole concept" — a probe that is itself denied (however
+        # the vault or its own denial statement phrases it; corpus already
+        # denial-stripped above) is excluded from the evidence search below,
+        # but a DIFFERENT, undenied probe of the same entry still qualifies.
+        # If every probe is denied, there is nothing left to ground an
+        # upgrade on at all.
+        surviving_probes = (
+            [p for p in probes if not is_denied_concept(p, denials, corpus)]
+            if denials
+            else probes
+        )
+        if not surviving_probes:
             continue
 
-        if not any(surface_present(p, corpus) for p in probes):
+        if not any(surface_present(p, corpus) for p in surviving_probes):
             continue
 
         # Cite the REAL vault text node the form was actually found in —
         # never a synthesized marker.
         evidence = next(
-            (s for p in probes for s in strings if surface_present(p, ats_norm(s))),
+            (s for p in surviving_probes for s in strings if surface_present(p, ats_norm(s))),
             None,
         )
         if not evidence:
             continue  # presence only at a join seam between two strings — fail closed
 
-        ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
+        # Delegate the write (including the ADR-064 per-probe strip) to the
+        # ONE flip path — pass denials/corpus through so a concept that is
+        # itself denied, or whose every surface form is, still lands on
+        # status="denied" rather than being upgraded here.
+        ledger, did_change = upgrade_ledger_for_concepts(
+            ledger, [concept], evidence, denied_concepts=denials, vault_corpus=corpus
+        )
         changed = changed or did_change
     return ledger, changed
 
