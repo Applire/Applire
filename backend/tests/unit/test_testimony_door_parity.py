@@ -96,6 +96,14 @@ def test_every_ledger_upgrade_call_site_passes_the_live_denials():
     deliberate — it fails on the new call site itself, not on the eventual
     truthfulness incident.
 
+    What it does NOT do (stated so nobody trusts it further than it goes): it
+    checks co-occurrence, not dataflow. A function that calls
+    `is_denied_concept` for some unrelated purpose and separately calls
+    `upgrade_ledger_for_concepts` reads as guarded here while being unguarded
+    at runtime. This catches the omission nobody thought about — which is what
+    actually happened on the agent door — not a call site engineered to look
+    compliant.
+
     The invariant is "denial-aware", not "passes the kwarg". A caller may
     instead filter denied concepts out BEFORE the call with the same shared
     predicate — `reevaluate_gap_ledger_against_vault` does exactly that, and
@@ -119,6 +127,19 @@ def test_every_ledger_upgrade_call_site_passes_the_live_denials():
 
     for path in package_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        # An aliased import (`import upgrade_ledger_for_concepts as _ulc`)
+        # renames every call site out of this guard's sight. Ban the alias
+        # rather than try to follow it.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    assert not (
+                        alias.name == "upgrade_ledger_for_concepts" and alias.asname
+                    ), (
+                        f"{path.relative_to(package_root)}:{node.lineno} imports "
+                        "upgrade_ledger_for_concepts under an alias, which hides its "
+                        "call sites from this guard — import it under its own name"
+                    )
         funcs = [
             n
             for n in ast.walk(tree)
