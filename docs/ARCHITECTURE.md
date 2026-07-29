@@ -635,7 +635,7 @@ There is also a testing consequence worth stating plainly for contributors. CI m
 
 The general lesson for contributors: a check that runs last is a check nothing else can catch. If you add a deterministic pass after the review loop, assume its mistakes ship.
 
-**Status:** The rule is in force for new code. Six existing sites are known violations and are being replaced incrementally rather than all at once.
+**Status:** The rule is in force for new code. Six existing sites are known violations (five from the original survey, a sixth found after it closed) and are being replaced incrementally rather than all at once. **One is now clear:** the interview's answer-choice filter used a phrase list to decide "is this text a denial?", and was found to be silently deleting honest denial choices as if they were unsupported claims. It was deleted rather than tuned — the generator now states each choice's level and the filter compares that fact. Five remain.
 
 ---
 
@@ -723,7 +723,9 @@ A hallucinated decomposition is caught by a **review pass, not a rule table** �
 
 **The main risk, stated up front:** the two decompositions have to agree on a label. If a job description yields "Enterprise Architecture" and the profile holds "IT-Architektur", the matching problem has moved up one level rather than been solved. The mitigation is *priming*, not matching: job analysis is given the skill labels already in the profile and told to reuse one where it fits. If measurement shows frequent disagreement, the decision gets revisited — not patched with a fuzzy label matcher, which would be precisely the mistake the fact/judgement rule exists to prevent.
 
-**Also settled here:** `work_experience[].technologies` is removed, along with the extraction rule that fed it. It was a bag of tool names attached to the wrong entity — rendered by none of the CV templates, absent from the tailored-CV schema, with no status slot, and duplicating the skill's own experience references in the opposite direction. The skill/specialisation pair replaces what it was reaching for, on the entity that already carries provenance, status and evidence.
+**Also settled here — decided, not yet built:** `work_experience[].technologies` is to be removed, along with the extraction rule that fed it. It is a bag of tool names attached to the wrong entity — rendered by none of the CV templates, absent from the tailored-CV schema, with no status slot, and duplicating the skill's own experience references in the opposite direction. The skill/specialisation pair replaces what it was reaching for, on the entity that already carries provenance, status and evidence.
+
+**Status:** decided, **not implemented**. Nothing on this page's ADR-065 section is in the code yet — `Skill.specialisation` does not exist and `work_experience[].technologies` is still present and in use.
 
 **Sequencing:** ADR-064 ships first and works alone — the interview asks the follow-up. This decision then makes most of those follow-ups unnecessary, and gets built with real data from 064 about how often a probe actually finds partial coverage.
 
