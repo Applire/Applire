@@ -477,6 +477,21 @@ class DeniedConcept(BaseModel):
     too, elicitation is exhausted. Default "direct" is correct for
     back-compat: every denial recorded before this field existed denied
     the named form and was never probed further.
+
+    ADR-064 finding-fix — ``probe_asked``: elicitation bookkeeping, NOT
+    testimony. Records that the one permitted transfer probe has been
+    *issued* for this concept, regardless of what the candidate then
+    answered (evidence, another denial, or an unproductive non-answer).
+    Only a genuine second denial may still move ``denial_level`` to
+    "partial" — that field stays reserved for what the candidate actually
+    stated. Gating the probe on ``denial_level == "direct" and not
+    probe_asked`` (rather than on ``denial_level`` alone) is what keeps the
+    probe terminal when its answer was unproductive: an unproductive answer
+    must never be written up as testimony the candidate never gave, but the
+    fact that we already asked still has to be durable so a later genuine
+    denial on the same gap cannot re-trigger it. Default ``False`` is
+    correct for back-compat: every denial recorded before this field
+    existed predates the transfer probe and was never issued one.
     """
 
     concept: str
@@ -484,6 +499,7 @@ class DeniedConcept(BaseModel):
     source: Literal["interview", "agent_interview", "testimony"]
     date: str  # ISO date (YYYY-MM-DD) — the day the denial was recorded
     denial_level: Literal["direct", "partial"] = "direct"
+    probe_asked: bool = False
 
 
 class PendingConfirmation(BaseModel):

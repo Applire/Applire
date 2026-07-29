@@ -937,6 +937,53 @@ def test_record_denials_redenial_updates_in_place_case_insensitively() -> None:
     assert changes2[0].action == "updated"
 
 
+def test_record_denials_redenial_never_clears_probe_asked() -> None:
+    """ADR-064 finding-fix — `probe_asked` is elicitation bookkeeping ("we
+    asked"), not testimony ("they denied"), and it is one-way: once the
+    transfer probe has been issued for a concept, a later re-denial of that
+    SAME concept must never clear it back to False. This is the same class
+    of bug as the `denial_level` no-downgrade rule: `record_denials`
+    mutates the existing `DeniedConcept` object's `statement`/`source`/
+    `date`/`denial_level` fields in place rather than replacing it, so any
+    field it does not explicitly touch — `probe_asked` included — survives
+    untouched across every re-denial call."""
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["GCP certification"], statement="No, I have never touched GCP.",
+        source="interview", when=datetime(2026, 7, 28, tzinfo=timezone.utc),
+    )
+    meta.denied_concepts[0].probe_asked = True  # the transfer probe was issued
+
+    # A later, genuine re-denial of the SAME concept — at either level.
+    record_denials(
+        meta, ["gcp certification"],  # case-insensitive match, mirrors production
+        statement="No, still nothing GCP-related, I checked again.",
+        source="interview", when=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+    assert len(meta.denied_concepts) == 1, "re-denial must update, never duplicate"
+    assert meta.denied_concepts[0].probe_asked is True, (
+        "probe_asked must survive a re-denial — it is not testimony to overwrite"
+    )
+    assert meta.denied_concepts[0].statement == (
+        "No, still nothing GCP-related, I checked again."
+    )
+
+    # And again on the "second denial -> partial" escalation path.
+    record_denials(
+        meta, ["GCP certification"],
+        statement="No, and no adjacent cloud experience either.",
+        source="interview", when=datetime(2026, 7, 29, tzinfo=timezone.utc),
+        denial_level="partial",
+    )
+    assert meta.denied_concepts[0].denial_level == "partial"
+    assert meta.denied_concepts[0].probe_asked is True
+
+
 def test_record_denials_empty_or_blank_is_a_noop() -> None:
     from applire.schemas.profile import ProfileMetadata
     from applire.services.profile.reconcile.stance import record_denials

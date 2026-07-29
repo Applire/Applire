@@ -2274,6 +2274,128 @@ class TestSendMessage:
         assert result.addressed_gap_ids == ["GCP certification"]
 
     @pytest.mark.asyncio
+    async def test_unproductive_probe_answer_never_lets_a_second_probe_fire(
+        self, sqlite_session, monkeypatch
+    ):
+        """ADR-064 finding-fix (Critical) — reproduces the reviewer's finding:
+        the "exactly one probe per denied concept, ever" bound only held at
+        the DEFAULT `INTERVIEW_MAX_QUESTIONS_PER_GAP = 2`. With the ceiling
+        raised — as the constant's own comment invites self-hosters to do —
+        a probe whose answer is UNPRODUCTIVE (neither evidence nor a denial)
+        never escalates `denial_level` to "partial" (that field is reserved
+        for testimony the candidate actually gave), so the one-shot
+        `probing_concept`/`probing_gap` InterviewState markers are consumed
+        on the next turn while the gap stays open. A LATER genuine denial of
+        the SAME still-open gap must not re-trigger the probe.
+        `DeniedConcept.probe_asked` is the durable bookkeeping fix — written
+        the instant the probe is ISSUED, independent of how the answer is
+        later classified."""
+        from applire.services.session import send_message
+        from applire.models.profile import MasterProfile
+        from sqlalchemy import select
+
+        # Self-hoster raises the ceiling above the default of 2 (docker-compose).
+        monkeypatch.setattr(
+            "applire.services.session.INTERVIEW_MAX_QUESTIONS_PER_GAP", 5
+        )
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _probe_gap_with_ledger(job, profile, required=True)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _make_active_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        # --- Turn 1: a direct denial of a JD-required concept fires the ONE
+        # permitted probe. The fixture mirrors what the SAME turn's
+        # reconcile_interview_turn (interview_bridge) would already have
+        # written into `metadata.denied_concepts` — exactly like the other
+        # ADR-064 tests above mirror it for a probe's answer turn. ---
+        turn1_profile = copy.deepcopy(profile.profile_json)
+        turn1_profile.setdefault("metadata", {})["denied_concepts"] = [
+            {"concept": "GCP certification", "statement": "No, I have never touched GCP.",
+             "source": "interview", "date": "2026-07-29", "denial_level": "direct"}
+        ]
+        first_turn = _denied_turn(turn1_profile, denied_concepts=["GCP certification"])
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=first_turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
+        ):
+            probe_result = await send_message(
+                session_record.id, "No, I have never touched GCP.",
+                sqlite_session, _mock_provider()
+            )
+        assert probe_result.current_gap_id == "GCP certification"  # probe issued, did not advance
+
+        # The probe was written DURABLY the moment it was issued — never when
+        # answered — so an abandoned session cannot lose it.
+        db_profile = (await sqlite_session.execute(
+            select(MasterProfile).where(MasterProfile.id == profile.id)
+        )).scalar_one()
+        entry = next(
+            d for d in db_profile.profile_json["metadata"]["denied_concepts"]
+            if d["concept"] == "GCP certification"
+        )
+        assert entry["probe_asked"] is True
+        assert entry["denial_level"] == "direct"  # unchanged — bookkeeping, not testimony
+
+        # --- Turn 2: the probe's answer is UNPRODUCTIVE — neither evidence nor
+        # a denial. `denial_level` stays "direct"; with the raised ceiling the
+        # gap stays open for a plain retry instead of advancing. ---
+        unproductive_turn = _unaddressed_turn(db_profile.profile_json)
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=unproductive_turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Could you be more specific?", "choices": None})),
+        ):
+            unproductive_result = await send_message(
+                session_record.id, "Hmm, not really sure what you mean.",
+                sqlite_session, _mock_provider()
+            )
+        assert unproductive_result.current_gap_id == "GCP certification"  # still open, plain retry
+
+        # --- Turn 3: a LATER, genuine denial on the same still-open gap. The
+        # reconciler refreshes statement/date on the existing DeniedConcept
+        # entry (record_denials) but must never clear `probe_asked` or
+        # `denial_level` — mirrored here exactly as record_denials behaves. ---
+        redenied_profile = copy.deepcopy(db_profile.profile_json)
+        redenied_entry = next(
+            d for d in redenied_profile["metadata"]["denied_concepts"]
+            if d["concept"] == "GCP certification"
+        )
+        redenied_entry["statement"] = "No, still nothing GCP-related, I checked again."
+        redenied_entry["date"] = "2026-07-29"
+        second_denial_turn = _denied_turn(redenied_profile, denied_concepts=["GCP certification"])
+        next_question_gen = AsyncMock(
+            return_value={"question": "Tell me about FastAPI.", "choices": None}
+        )
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=second_denial_turn)),
+            patch("applire.services.session.question_generator_with_profile", new=next_question_gen),
+        ):
+            result = await send_message(
+                session_record.id, "No, still nothing GCP-related, I checked again.",
+                sqlite_session, _mock_provider()
+            )
+
+        # A second probe must NEVER fire on this concept — the gap advances
+        # immediately instead, exactly like an already-probed denial today.
+        assert result.current_gap_id == "FastAPI experience"
+        assert result.addressed_gap_ids == ["GCP certification"]
+        _, kwargs = next_question_gen.call_args
+        assert not kwargs.get("follow_up_hint")  # advance path, not a probe follow-up
+
+    @pytest.mark.asyncio
     async def test_advance_response_carries_new_current_gap_id(self, sqlite_session):
         """issue #241 item 1 — the turn response exposes the honest server-side
         anchor for the frontend cluster tracker: current_gap_id advances to the

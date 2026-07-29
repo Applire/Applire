@@ -1346,25 +1346,63 @@ async def _create_micro_session(
 # ---------------------------------------------------------------------------
 
 
-def _denial_level_for(concept: str, denied_concepts: list[dict]) -> str | None:
-    """Case/whitespace-insensitive lookup of a concept's DURABLE
-    ``denial_level`` off a profile's ``metadata.denied_concepts`` — the
-    ``DeniedConcept`` record, never the ``keyword_ledger`` mirror (ADR-064:
+def _denied_concept_entry(concept: str, denied_concepts: list[dict]) -> dict | None:
+    """Case/whitespace-insensitive lookup of a concept's raw DURABLE entry
+    off a profile's ``metadata.denied_concepts`` — the ``DeniedConcept``
+    record, never the ``keyword_ledger`` mirror (ADR-064:
     ``KeywordLedgerEntry.denial_level`` is refreshed on every ledger rebuild,
     not durable, and a known second write path —
     ``upgrade_ledger_for_concepts`` in services/keyword_ledger.py — can leave
-    it ``None`` on a "denied" ledger row even after a real denial). Returns
-    ``None`` when the concept has no denied_concepts entry at all (should not
-    happen the same turn ``denial_recorded`` is True, but treated the same as
-    "direct"/unprobed by the caller — defensively, never as "already probed").
+    it ``None`` on a "denied" ledger row even after a real denial).
     """
     norm = concept.strip().casefold()
     for entry in denied_concepts:
         if not isinstance(entry, dict):
             continue
         if (entry.get("concept") or "").strip().casefold() == norm:
-            return entry.get("denial_level")
+            return entry
     return None
+
+
+def _denial_level_for(concept: str, denied_concepts: list[dict]) -> str | None:
+    """``denial_level`` half of :func:`_denied_concept_entry`. Returns
+    ``None`` when the concept has no denied_concepts entry at all (should not
+    happen the same turn ``denial_recorded`` is True, but treated the same as
+    "direct"/unprobed by the caller — defensively, never as "already probed").
+    """
+    entry = _denied_concept_entry(concept, denied_concepts)
+    return entry.get("denial_level") if entry else None
+
+
+def _probe_already_asked(concept: str, denied_concepts: list[dict]) -> bool:
+    """ADR-064 finding-fix — has the ONE permitted transfer probe already
+    been ISSUED for this concept (elicitation bookkeeping), regardless of
+    ``denial_level``? A concept with no durable entry yet has never been
+    probed — defensively ``False``, never "already probed".
+    """
+    entry = _denied_concept_entry(concept, denied_concepts)
+    return bool(entry.get("probe_asked")) if entry else False
+
+
+def _mark_probe_asked(profile_dict: dict, concept: str) -> dict:
+    """ADR-064 finding-fix — durably set ``DeniedConcept.probe_asked = True``
+    for ``concept`` the moment its transfer probe is ISSUED (never when it is
+    answered), so an abandoned session cannot lose it. This is bookkeeping
+    ("we asked"), never testimony ("they denied") — it must NOT touch
+    ``denial_level``, which only a genuine candidate denial may move.
+    Returns ``profile_dict`` unchanged if the concept has no durable entry
+    (should not happen — the probe is only ever selected off an entry that
+    already exists — but fails safe rather than raising mid-turn).
+    """
+    meta_model = ProfileMetadata.model_validate(profile_dict.get("metadata") or {})
+    norm = concept.strip().casefold()
+    for entry in meta_model.denied_concepts:
+        if entry.concept.strip().casefold() == norm:
+            entry.probe_asked = True
+            break
+    else:
+        return profile_dict
+    return {**profile_dict, "metadata": meta_model.model_dump(mode="json")}
 
 
 async def _select_denial_probe_concept(
@@ -1382,7 +1420,16 @@ async def _select_denial_probe_concept(
         never a hard-coded taxonomy of skills/frameworks/technologies, AND
       * not yet probed — its DURABLE ``denial_level`` (read off
         ``updated_profile``'s just-reconciled ``DeniedConcept`` record, which
-        already reflects the no-downgrade rule) is still ``"direct"``.
+        already reflects the no-downgrade rule) is still ``"direct"``, AND
+        its DURABLE ``probe_asked`` bookkeeping flag is still ``False``.
+
+    ADR-064 finding-fix: gating on ``denial_level`` alone let a probe whose
+    answer was unproductive (neither evidence nor a denial — so
+    ``denial_level`` never escalates to "partial") fire AGAIN on a later
+    genuine denial of the same concept. ``probe_asked`` is written the
+    instant the probe is ISSUED (see ``_ask_denial_probe``), independent of
+    how the answer is later classified, so it closes that gap without
+    writing an unanswered probe up as testimony the candidate never gave.
 
     Returns ``None`` (never probe) when the session has no ledger at all
     (guided / Mode-B — ``gap_analysis_id`` is unset, mirroring
@@ -1407,7 +1454,7 @@ async def _select_denial_probe_concept(
         if not concept or not concept_is_required(concept, keyword_ledger):
             continue
         level = _denial_level_for(concept, denied_meta)
-        if level in (None, "direct"):
+        if level in (None, "direct") and not _probe_already_asked(concept, denied_meta):
             return concept
     return None
 
@@ -1424,6 +1471,7 @@ async def _ask_denial_probe(
     turn,
     questions_for_gap: int,
     lang: str,
+    profile_record: MasterProfile,
 ) -> SessionMessageResponse:
     """ADR-064 — issue the ONE, terminal transfer-probe follow-up: a direct
     denial of a JD-critical concept earns exactly one more question aimed at
@@ -1445,7 +1493,22 @@ async def _ask_denial_probe(
     (``questions_per_gap``) — the caller only reaches here when that budget
     is not yet exhausted, so the probe can never push a gap past
     ``INTERVIEW_MAX_QUESTIONS_PER_GAP``.
+
+    ADR-064 finding-fix: ``probing_concept``/``probing_gap`` are one-shot
+    ``InterviewState`` markers, not durable — a raised
+    ``INTERVIEW_MAX_QUESTIONS_PER_GAP`` lets the SAME gap stay open past
+    this turn, and if the probe's answer is unproductive (neither evidence
+    nor a denial) ``denial_level`` never escalates to "partial", so those
+    markers alone can't keep a later genuine denial of the same concept from
+    re-triggering the probe. ``DeniedConcept.probe_asked`` is the durable
+    half: it is set to ``True`` HERE, the moment the probe is issued —
+    never when it is answered — and written into ``profile_record`` in the
+    SAME commit as the question, so an abandoned session cannot lose it.
     """
+    updated_profile = _mark_probe_asked(updated_profile, probe_concept)
+    profile_record.profile_json = updated_profile
+    profile_record.updated_at = datetime.now(timezone.utc)
+
     qpg = dict(state.get("questions_per_gap", {}))
     qpg[current_gap] = questions_for_gap + 1
     state["questions_per_gap"] = qpg
@@ -1797,6 +1860,7 @@ async def send_message(
             return await _ask_denial_probe(
                 record, state, db, provider, current_gap, current_idx,
                 probe_concept, updated_profile, turn, questions_for_gap, lang,
+                profile_record,
             )
 
     # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
