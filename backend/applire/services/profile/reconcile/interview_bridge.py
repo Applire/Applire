@@ -54,6 +54,11 @@ class InterviewTurnResult:
     # upgrade / gap-advance logic that `addressed` drives (F8 — denying a
     # skill must not read as "resolved this gap").
     denial_recorded: bool = False
+    # ADR-064 — the raw concept text(s) this turn's `record_denials` call
+    # touched (mirrors `result.denials`, stripped). The interview's denial
+    # transfer-probe trigger (session.py) reads this to find WHICH concept to
+    # check for JD-criticality / probed-state — never re-parses the answer.
+    denied_concepts: list[str] = field(default_factory=list)
 
 
 def _to_summary(conflict: Conflict) -> ConflictSummary:
@@ -117,4 +122,5 @@ async def reconcile_interview_turn(
         conflict_summaries=[_to_summary(c) for c in applied.conflicts],
         pending_confirmations=pending,
         denial_recorded=bool(denial_changes),
+        denied_concepts=[d.strip() for d in result.denials if d and d.strip()],
     )

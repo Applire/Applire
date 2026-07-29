@@ -126,6 +126,9 @@ async def test_denial_only_turn_is_recorded_not_dropped_as_no_op():
     assert history, "a denial-only turn must still leave a receipt"
     assert history[-1]["source"] == "interview"
     assert any(c["field"] == "denied_concepts" for c in history[-1]["changes"])
+    # ADR-064 — the raw denied-concept text is surfaced on the result itself,
+    # so session.py's transfer-probe trigger never has to re-derive it.
+    assert out.denied_concepts == ["LegalTech"]
 
 
 @pytest.mark.asyncio
@@ -145,6 +148,7 @@ async def test_no_denials_key_in_payload_is_still_a_clean_no_op():
     assert out.addressed is False
     assert out.denial_recorded is False
     assert out.profile_dict.get("metadata", {}).get("denied_concepts", []) == []
+    assert out.denied_concepts == []
 
 
 @pytest.mark.asyncio
