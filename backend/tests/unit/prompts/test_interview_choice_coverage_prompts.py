@@ -1,0 +1,138 @@
+# Copyright (C) 2024-2026 Tobias Rosenbaum
+#
+# This file is part of Applire.
+#
+# Applire is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Applire is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Applire. If not, see <https://www.gnu.org/licenses/>.
+
+"""ADR-064 Task 3 — text-contains pins for the interview prompt changes.
+
+These are TEXT-CONTAINS assertions only: they pin that the rule text is
+present in the system prompt strings. They prove nothing about how an LLM
+actually behaves when given the prompt — that is a real-LLM-run concern,
+out of scope here (see task-3-report.md).
+
+Two prompts are touched:
+
+1. QUESTION_SYSTEM_PROMPT (Mode-A generator) — carried four *truthfulness*
+   bullets and zero *coverage* bullets, so the model drafted 2-3 variations
+   of the single most plausible (usually affirmative) answer. This pins the
+   new "Choice coverage rules" block, including the interaction most likely
+   to be got wrong: on a genuine gap the spanning set is PARTIAL + DENIAL
+   only, never an invented DIRECT-level "yes" — the pre-existing
+   truthfulness rules are unchanged and still bind.
+
+2. FOLLOW_UP_QUESTION_SYSTEM_PROMPT (lateral-probe generator, reused by the
+   ADR-064 denial transfer probe via
+   ``question_generator_with_profile(..., follow_up_hint=...)``) — pins that
+   the model is told to generalise to the broader SKILL AREA instead of
+   re-asking about the same named form the candidate just denied.
+"""
+
+from applire.prompts.interview import (
+    FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
+    QUESTION_SYSTEM_PROMPT,
+)
+
+
+def _collapsed(text: str) -> str:
+    """Collapse line-wrapping/backslash-continuation whitespace for
+    substring assertions that would otherwise be defeated by the prompt's
+    hand-wrapped multi-line formatting."""
+    return " ".join(text.split())
+
+
+# ── QUESTION_SYSTEM_PROMPT — Choice coverage rules (3a) ──────────────────────
+
+
+def test_prompt_has_a_coverage_rules_block():
+    assert "Choice coverage rules" in QUESTION_SYSTEM_PROMPT
+
+
+def test_prompt_names_the_three_levels():
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert "direct" in low
+    assert "partial" in low
+    assert "denial" in low
+
+
+def test_prompt_denial_is_always_present_and_never_softened():
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert "always present" in low
+    assert "never softened into a hedge" in low
+
+
+def test_prompt_gives_the_denial_vs_hedge_example():
+    collapsed = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert "\"I haven't worked with X\" is a denial." in collapsed
+    assert "\"I have limited exposure to X\" is NOT a" in collapsed
+
+
+def test_prompt_states_the_truthfulness_interaction_explicitly():
+    # The interaction the brief calls out as most likely to be got wrong: a
+    # coverage rule read in isolation would fabricate a "yes" to fill the
+    # DIRECT slot on a genuine gap. The prompt must rule this out in words.
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert "does not relax the truthfulness rules" in low
+    assert "unchanged and still bind" in low
+    assert 'partial + denial only' in low
+    assert 'never invent a direct-level "yes"' in low
+
+
+def test_coverage_block_sits_after_the_truthfulness_rules():
+    # The interaction must be legible as an addition ON TOP of the
+    # (unmodified) truthfulness rules, not a replacement for them.
+    i_truth = QUESTION_SYSTEM_PROMPT.index("Choice truthfulness rules")
+    i_cov = QUESTION_SYSTEM_PROMPT.index("Choice coverage rules")
+    assert i_truth < i_cov
+
+
+def test_existing_truthfulness_rules_are_untouched():
+    # Pin the four pre-existing truthfulness bullets verbatim (constraint:
+    # "the existing truthfulness rules are unchanged and still bind").
+    assert (
+        "A choice may ASSERT experience only with skills, tools, or employers that appear in the "
+        "candidate profile summary below." in QUESTION_SYSTEM_PROMPT
+    )
+    assert "Never invent specific projects, systems, employers, or metrics." in QUESTION_SYSTEM_PROMPT
+    assert "Ground the NARRATIVE, not just the noun." in QUESTION_SYSTEM_PROMPT
+    assert (
+        "Never draft an affirmative claim for a concept the profile shows no evidence for."
+        in QUESTION_SYSTEM_PROMPT
+    )
+
+
+# ── FOLLOW_UP_QUESTION_SYSTEM_PROMPT — skill-area framing (3b) ───────────────
+
+
+def test_follow_up_prompt_instructs_generalising_to_the_skill_area():
+    low = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT).lower()
+    assert "skill area" in low
+    assert "do not ask about that same named form again" in low
+
+
+def test_follow_up_prompt_forbids_a_hard_coded_technology_list():
+    # The model must choose the framing/examples itself — no lookup table
+    # anywhere, per ADR-065 clause 2.
+    low = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT).lower()
+    assert "never rely on a fixed list of frameworks or technologies" in low
+
+
+def test_follow_up_prompt_illustrates_with_togaf_example_only():
+    # One illustrative example is fine (it teaches the PATTERN); it must not
+    # read as an enumerable taxonomy of skill areas.
+    collapsed = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT)
+    assert "TOGAF" in collapsed
+    assert "enterprise architecture frameworks" in collapsed
+    # No second worked example smuggled in alongside it.
+    assert collapsed.count("e.g.") == 1

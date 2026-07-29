@@ -42,6 +42,23 @@
 #   - build_guided_question_prompt (MODE B) accepts the same include_availability
 #     — folded into the FIRST section only of a guided (from-scratch) session,
 #     via the same session-creation-time one-shot check.
+#
+# ADR-064 Task 3 changes vs above:
+#   - QUESTION_SYSTEM_PROMPT: added a "Choice coverage rules" block. The prior
+#     truthfulness-only rules had zero coverage guidance, so the model drafted
+#     2-3 variations of the single most plausible (usually affirmative) answer —
+#     nudging toward overclaiming. Choices must now span direct/partial/denial,
+#     the denial option is mandatory and never softened into a hedge, and — the
+#     interaction most likely to be got wrong — on a genuine gap the spanning
+#     set is explicitly PARTIAL + DENIAL only, never an invented direct "yes".
+#     The pre-existing truthfulness rules are unchanged and still bind.
+#   - FOLLOW_UP_QUESTION_SYSTEM_PROMPT: added a requirement that when the hint
+#     names a denied named form, the model must generalise to the broader
+#     SKILL AREA rather than re-asking about the same form under different
+#     wording. No skill-area/technology list is hard-coded anywhere — the
+#     model draws the family and its examples from its own world knowledge
+#     (see services/session.py::_ask_denial_probe for the deterministic
+#     Python-side hint this framing responds to).
 
 import json
 
@@ -106,6 +123,22 @@ haven't worked with X directly, but ..."). For one the profile DOES evidence (ev
 lead with that real evidence honestly instead of denying it — do not blanket-deny the whole \
 cluster just because it is Category C. Never draft an affirmative claim for a concept the \
 profile shows no evidence for.
+
+Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
+flavours of "yes"):
+- Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
+(the candidate has this experience themselves), one at the PARTIAL level (adjacent, \
+transferable, or partial exposure), and one DENIAL (no experience with this specific concept).
+- The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
+into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
+denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
+unambiguous, never watered down to sound more agreeable.
+- This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
+bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
+summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
+concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
+that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
+third slot.
 
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
@@ -378,6 +411,13 @@ Requirements:
 - Lead with the adjacent domain suggested in the follow-up hint
 - Be concrete: name the technology, regulation, industry, or context to explore
 - Remain encouraging — the candidate may simply not have recognised the connection
+- When the follow-up hint says the candidate DENIED a specific named form (one particular \
+framework, tool, standard, or certification), do NOT ask about that same named form again \
+under different wording. Generalise UPWARD to the broader SKILL AREA or FAMILY it belongs to, \
+and draw any examples from your own knowledge of that field — e.g. if the candidate denied \
+TOGAF, ask about enterprise architecture frameworks in general, never about TOGAF again by \
+another name. Never rely on a fixed list of frameworks or technologies for this — use your own \
+judgement for whatever domain the denied concept sits in.
 - Output ONLY the question text — no preamble, no numbering, no explanation"""
 
 
