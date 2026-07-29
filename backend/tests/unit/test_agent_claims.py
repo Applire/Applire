@@ -34,6 +34,7 @@ from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.schemas.claims import ClaimItem, ClaimsSubmission
+from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.profile.reconcile.agent_bridge import submit_agent_claims
 
 
@@ -575,6 +576,132 @@ async def test_denial_only_claim_never_upgrades_the_ledger(async_db):
     )
     assert result.results[0].status == "denial_recorded"
     assert result.ledger_upgraded == []  # a denial must never flip the gate
+
+
+@pytest.mark.asyncio
+async def test_denial_in_the_same_claim_blocks_that_claims_own_upgrade(async_db):
+    """#341 — the sharp case, inside ONE call.
+
+    A mixed statement applies a real change (Terraform) AND denies the very
+    concept the claim is filed against (Kubernetes). `record_denials` runs
+    before the ledger upgrade, so the denial is already in the vault when the
+    upgrade fires — but this door passed no `denied_concepts`, so the upgrade
+    flipped Kubernetes to claimable with the DENIAL SENTENCE as its backing
+    evidence. That is the ADR-059 run-#7 blocker, one door over."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes"])
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [
+                    {"op": "upsert_skill", "name": "Terraform", "category": "technical"}
+                ],
+                "ambiguities": [],
+                "denials": ["Kubernetes"],
+            }
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="I run Terraform daily; Kubernetes I have never touched.",
+                    gap="Kubernetes",
+                )
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    entry = {e["concept"]: e for e in row.keyword_ledger}["Kubernetes"]
+    assert entry["claimable"] is False
+    assert entry["status"] == "denied"
+    assert entry["evidence"] == DENIED_EVIDENCE
+    assert "never touched" not in entry["evidence"]
+    # ...and the agent is not told its claim was accepted as a strength.
+    assert result.ledger_upgraded == []
+
+
+@pytest.mark.asyncio
+async def test_earlier_claims_denial_blocks_a_later_claims_upgrade(async_db):
+    """#341 — across claims in one batch. The first claim denies Kubernetes
+    (denial-only, so the ledger entry itself stays `missing` — floor 1 cannot
+    help). A later claim files an adjacent answer against the same gap; the
+    live-denial floor must stop it."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes"])
+    provider = _QueueProvider(
+        [
+            {"ops": [], "ambiguities": [], "denials": ["Kubernetes"]},
+            _skill_payload("Docker Swarm"),
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="Kubernetes I have never used.",
+                    gap="Kubernetes",
+                ),
+                ClaimItem(
+                    statement="I ran Docker Swarm in production for two years.",
+                    gap="Kubernetes",
+                ),
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    entry = {e["concept"]: e for e in row.keyword_ledger}["Kubernetes"]
+    assert entry["claimable"] is False
+    assert entry["status"] == "denied"
+    assert result.ledger_upgraded == []
+
+
+@pytest.mark.asyncio
+async def test_undenied_gap_still_upgrades(async_db):
+    """The floor must not swallow the feature: an unrelated denial in the same
+    batch leaves a genuinely-answered gap upgrading exactly as before."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes", "Terraform"])
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [
+                    {"op": "upsert_skill", "name": "Terraform", "category": "technical"}
+                ],
+                "ambiguities": [],
+                "denials": ["Kubernetes"],
+            }
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="I run Terraform daily; Kubernetes I have never touched.",
+                    gap="Terraform",
+                )
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    by_concept = {e["concept"]: e for e in row.keyword_ledger}
+    assert by_concept["Terraform"]["claimable"] is True
+    assert by_concept["Terraform"]["status"] == "direct"
+    assert result.ledger_upgraded == ["Terraform"]
+    # the denied sibling is untouched — nothing addressed it
+    assert by_concept["Kubernetes"]["status"] == "missing"
 
 
 @pytest.mark.asyncio
