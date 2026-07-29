@@ -79,6 +79,85 @@ def test_ui_router_and_mcp_tool_both_call_the_same_service_function():
     assert profile_router.submit_testimony is canonical_service
 
 
+def test_every_ledger_upgrade_call_site_passes_the_live_denials():
+    """#341 — structural parity guard over the denial floor.
+
+    `upgrade_ledger_for_concepts` has two floors, and the second one (the
+    candidate's LIVE denials, the only floor that can see a denial recorded in
+    the same call) exists only if the caller passes `denied_concepts`. The
+    interview door did; the agent door did not, and had not since it was
+    written — so the floor was structurally unreachable there while looking
+    perfectly present in the diff, in the tests and in the ADR.
+
+    Behavioural tests cover the two doors that exist today. This one covers the
+    door that does not exist yet: a THIRD caller added later is an omission the
+    author cannot see, because the parameter is optional and silently defaults
+    to no floor. Asserting over the AST rather than over behaviour is
+    deliberate — it fails on the new call site itself, not on the eventual
+    truthfulness incident.
+
+    The invariant is "denial-aware", not "passes the kwarg". A caller may
+    instead filter denied concepts out BEFORE the call with the same shared
+    predicate — `reevaluate_gap_ledger_against_vault` does exactly that, and
+    on purpose: it passes a corpus to `is_denied_concept` (so an independently
+    affirmed concept survives) and must never write `status="denied"` itself.
+    Both shapes satisfy the floor; neither-shape is the bug."""
+    import ast
+    from pathlib import Path
+
+    import applire
+
+    # `applire` is a NAMESPACE package (ADR-031 — `applire.cloud.*` shares it),
+    # so it has no `__file__`; `__path__` is the portion list.
+    package_root = Path(applire.__path__[0])
+    call_sites: list[str] = []
+    unguarded: list[str] = []
+
+    def _name(call: ast.Call) -> str | None:
+        f = call.func
+        return f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+
+    for path in package_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        funcs = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _name(node) != "upgrade_ledger_for_concepts":
+                continue
+            where = f"{path.relative_to(package_root)}:{node.lineno}"
+            call_sites.append(where)
+            if any(kw.arg == "denied_concepts" for kw in node.keywords):
+                continue
+            # Innermost enclosing function: the deepest-starting one whose span
+            # contains the call. Filtering in an OUTER function would not prove
+            # this call is covered.
+            enclosing = max(
+                (
+                    f
+                    for f in funcs
+                    if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)
+                ),
+                key=lambda f: f.lineno,
+                default=None,
+            )
+            pre_filtered = enclosing is not None and any(
+                isinstance(n, ast.Call) and _name(n) == "is_denied_concept"
+                for n in ast.walk(enclosing)
+            )
+            if not pre_filtered:
+                unguarded.append(where)
+
+    assert call_sites, "guard is inert — no call sites found (was the function renamed?)"
+    assert not unguarded, (
+        "these callers upgrade ledger entries without either passing the candidate's "
+        "live denials or filtering them out first, so the ADR-059 denial floor cannot "
+        f"fire for them: {unguarded}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_both_doors_produce_equivalent_receipts_for_identical_testimony(async_db):
     """Behavioural parity: the SAME testimony text, reconciled to the SAME op

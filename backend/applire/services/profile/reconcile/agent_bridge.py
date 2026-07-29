@@ -223,8 +223,26 @@ async def submit_agent_claims(
             # its (pre-validated, exact-member) concept. A denial-only receipt
             # must NEVER upgrade a ledger entry — gate stays on applied.changes.
             if applied.changes and claim.gap and gap_row is not None and gap_row.keyword_ledger:
+                # #341 — door parity (ADR-058 clause 2). The interview door
+                # (session.py) passes the candidate's live denials into this
+                # call; this door never did, so ``upgrade_ledger_for_concepts``'
+                # second floor — the live, same-session denial check — was
+                # structurally unreachable on the agent channel and only the
+                # persisted-status floor applied. The sharp case is INSIDE one
+                # claim: ``record_denials`` above has already written this
+                # turn's denials onto ``current.metadata``, so a mixed
+                # statement ("Docker ja, Kubernetes nie angefasst") would
+                # otherwise flip its own denied concept to claimable with the
+                # denial sentence as the backing evidence — the exact ADR-059
+                # run-#7 blocker, one door over.
+                denied_concepts = [
+                    d.concept for d in current.metadata.denied_concepts if d.concept
+                ]
                 new_ledger, changed = upgrade_ledger_for_concepts(
-                    gap_row.keyword_ledger, [claim.gap], claim.statement
+                    gap_row.keyword_ledger,
+                    [claim.gap],
+                    claim.statement,
+                    denied_concepts=denied_concepts,
                 )
                 if changed:
                     # Plain _JSON column — reassign the WHOLE attribute so
@@ -232,15 +250,25 @@ async def submit_agent_claims(
                     gap_row.keyword_ledger = new_ledger
                     # Echo the CANONICAL ledger concept, not the caller's
                     # casing (membership is normalized equality).
-                    canonical = next(
+                    entry = next(
                         (
-                            e.get("concept", "")
+                            e
                             for e in new_ledger
                             if _norm(e.get("concept", "")) == _norm(claim.gap)
                         ),
-                        claim.gap,
+                        None,
                     )
-                    ledger_upgraded.append(canonical)
+                    # ``changed`` is also True when the floor RECORDED the
+                    # concept as denied. That is a real ledger write worth
+                    # persisting, but it is the opposite of an upgrade —
+                    # reporting it in ``ledger_upgraded`` would tell the agent
+                    # its claim was accepted as a strength. The denial reaches
+                    # the caller honestly, as a receipt FieldChange in
+                    # ``changes``.
+                    if entry is None or entry.get("status") != "denied":
+                        ledger_upgraded.append(
+                            entry.get("concept", "") if entry else claim.gap
+                        )
 
         result = ClaimResult(
             index=index,
