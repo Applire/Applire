@@ -42,5 +42,8 @@ def build_field_expectations_prompt(entry: dict) -> str:
     into a semicolon-separated string for the LLM.
     """
     role = entry.get("role") or entry.get("title") or ""
-    responsibilities = "; ".join(entry.get("responsibilities", []) or [])
+    # Tolerate the pre-#229 flat shape ("bullets") so a legacy entry still gets
+    # judged on its duties rather than on the bare title.
+    bullets = entry.get("responsibilities") or entry.get("bullets") or []
+    responsibilities = "; ".join(bullets)
     return f"Role: {role}\nResponsibilities: {responsibilities}\n\nReturn the JSON."

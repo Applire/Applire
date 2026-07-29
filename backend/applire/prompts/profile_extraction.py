@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v2
+# Prompt version: v3 (#229 — work_history split into responsibilities/achievements/technologies)
 # Used by: services/profile.py → LLMProvider.aparse_json + reviewer.review_and_refine
 # Changes from v1: hardened SYSTEM_PROMPT with 4 strict extraction rules;
 #                  build_user_prompt adds grounding reminder;
@@ -49,6 +49,23 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    "Expert for Computersystemvalidation"): a named certificate is FACTUAL credential data and MUST land
    in "certifications", never be demoted to a "skills" entry or dropped. You MAY additionally record the
    underlying competency as a skill, but the certification entry itself is mandatory.
+6. RESPONSIBILITIES vs ACHIEVEMENTS: every role bullet in the source must be routed into one of the
+   two lists — do not put them all in "responsibilities". "responsibilities" holds ongoing duties and
+   the standing scope of the role (what the person was accountable for). "achievements" holds
+   OUTCOMES: any bullet carrying a number, a before/after delta, a percentage, a volume, a benchmark,
+   a record, a "first", or a stated business result (e.g. "cut p95 latency from 1.8s to 240ms",
+   "reduced manual effort by an estimated 70%", "first go-live across 3 sites in 7 months",
+   "processing ~200k invoices/month"). When one bullet states both a duty and its measured outcome,
+   it is an achievement. An empty "achievements" list is correct ONLY when the source genuinely
+   states no outcome for that role — it is not the safe default. Never invent a metric that the
+   source does not state, and never move an unquantified duty into "achievements" to fill it.
+7. TECHNOLOGIES vs PRACTICES: a "technologies" list holds ONLY concrete tools, programming languages,
+   frameworks, libraries, platforms and products (e.g. Python, Django, React, Docker, AWS, SAP,
+   PostgreSQL). Practices, standards, methodologies and processes are NOT technologies — do NOT put
+   them in any technologies list (e.g. Agile, Scrum, Kanban, ISO 9001, V-Model, GxP, code review,
+   test-driven development, incident management). When such a named standard or methodology is a
+   genuine competency, route it to "skills" instead, or omit it. Populate "technologies" per role
+   with the stack that role actually names, so a tailored CV can say which stack was used where.
 
 Schema:
 {
@@ -59,7 +76,9 @@ Schema:
       "start_date": "string — e.g. '2020-01' or '2020'",
       "end_date": "string or null — null means current position",
       "is_current": "boolean — true when the source marks the role as ongoing ('present', 'heute', 'seit ...'); keep end_date null for such roles",
-      "bullets": ["list of achievement/responsibility bullet points"]
+      "responsibilities": ["Day-to-day duties and standing scope of the role"],
+      "achievements": ["Outcomes, with the metric/benchmark exactly as stated in the source"],
+      "technologies": ["Concrete tools, languages, frameworks, platforms used in THIS role"]
     }
   ],
   "skills": ["list of technical and soft skills"],
@@ -102,7 +121,9 @@ def build_user_prompt(raw_text: str) -> str:
     return (
         "Extract the structured profile from the following CV / LinkedIn data.\n"
         "Remember: each position exactly once, only facts present in the source, "
-        "null for anything missing.\n\n"
+        "null for anything missing. Split each role's bullets into responsibilities "
+        "(duties) and achievements (outcomes with a metric or benchmark), and list "
+        "that role's concrete tools under technologies.\n\n"
         + raw_text
     )
 

@@ -66,7 +66,16 @@ async def annotate_expected_fields(profile: dict, provider: LLMProvider) -> dict
     """
     _cond_set: frozenset[str] = frozenset(CONDITIONAL_FIELDS)
 
-    for entry in profile.get("work_experience") or []:
+    # #229: callers hand us the RAW extraction dict, before MasterProfileData's
+    # legacy-key migration runs. The cv_extraction door emits "work_experience";
+    # the profile_extraction door (MCP import_cv / LinkedIn / paste) emits
+    # "work_history". Reading only the former made this pass a no-op on that
+    # entire door — real logs show zero field-analyst calls for those imports.
+    entries = profile.get("work_experience")
+    if not entries:
+        entries = profile.get("work_history")
+
+    for entry in entries or []:
         if entry.get("expected_fields") is not None:
             continue
         try:
