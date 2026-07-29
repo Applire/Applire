@@ -25,7 +25,14 @@ from pydantic import BaseModel, Field
 
 class SnapshotPosition(BaseModel):
     """One work history entry as stored in content_snapshot."""
-    id: str  # stable UUID string assigned at snapshot time
+    id: str  # stable UUID string assigned at snapshot time — NOT the profile work id
+    # #336 — the profile ``WorkEntry.id`` this position was tailored from, carried
+    # through so a "save to Master Profile" write can target the right entity.
+    # ``id`` above is minted fresh per snapshot (uuid4) and never traced back, which
+    # is why the profile write-back had to guess by lowercased company name and
+    # collided on two roles at the same employer. Optional: snapshots stored before
+    # this field existed have no value, and the caller falls back to the old match.
+    work_id: str | None = None
     index: int  # index in tailored_data.work_history — used for override application
     title: str
     company: str

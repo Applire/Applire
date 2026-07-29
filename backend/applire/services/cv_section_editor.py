@@ -66,6 +66,10 @@ def build_content_snapshot(tailored: TailoredCVData) -> dict:
         positions.append(
             SnapshotPosition(
                 id=str(uuid.uuid4()),
+                # #336 — carry the profile WorkEntry.id (back-filled onto tailored
+                # entries by cv._backfill_work_ids) so the profile write-back can
+                # target an entity instead of guessing by company name.
+                work_id=entry.id or None,
                 index=idx,
                 title=entry.role,
                 company=entry.company,
@@ -317,9 +321,16 @@ async def _save_section_to_profile(
 ) -> None:
     """Merge the edited section content into the Master Profile (ADR-013).
 
-    introduction: replaces professional_summary.de (user intent is replacement here)
-    skills: additive — only appends skills not already present
-    position::{uuid}: replaces responsibilities on the first matching work_experience entry
+    introduction: replaces professional_summary in the DOCUMENT's language
+    skills: additive — appends absent skills as ``unconfirmed`` (ADR-061 clause 3)
+    position::{uuid}: replaces responsibilities on the work entry the position was
+    tailored from (by ``work_id``; legacy snapshots fall back to a company match)
+
+    ⚠️ ADR-063: this is a direct vault write that bypasses reconcile/stance/
+    attribution and appends no ``EnrichmentRecord`` — see arc42 §5.3.19a row 12 and
+    FMEA SF-VAULT.4. The fixes below bound the damage (#336); the structural fix is
+    routing this through ``commit_ops`` as a ``FieldEdit`` intake, which needs the
+    op types listed in ADR-063's 2026-07-29 amendment (2).
     """
     from applire.schemas.profile import MasterProfileData
 
@@ -330,7 +341,21 @@ async def _save_section_to_profile(
     profile_data = MasterProfileData.model_validate(profile.profile_json)
 
     if section_id == "introduction":
-        profile_data.professional_summary.de = content
+        # #336 — was hardcoded to `.de`, so an English CV's edited summary landed
+        # in the German slot (and silently overwrote a real German summary).
+        # ProfessionalSummary is a genuine {de, en} model; write the language the
+        # document was actually generated in, resolved the same way the renderer
+        # resolves it (ADR-038).
+        from applire.models.job import JobAnalysis
+        from applire.utils.language_detection import resolve_jd_language
+
+        job = (
+            await db.get(JobAnalysis, record.job_analysis_id)
+            if record.job_analysis_id
+            else None
+        )
+        lang = resolve_jd_language(job) if job else "de"
+        setattr(profile_data.professional_summary, "en" if lang == "en" else "de", content)
 
     elif section_id == "skills":
         new_skills_raw = [s.strip() for s in content.split("\n") if s.strip()]
@@ -339,7 +364,14 @@ async def _save_section_to_profile(
         for skill_name in new_skills_raw:
             if skill_name.lower() not in existing:
                 profile_data.skills = list(profile_data.skills or []) + [
-                    Skill(name=skill_name)
+                    # #336 — was a bare ``Skill(name=…)``, which takes the schema
+                    # default ``status="confirmed"``: a skill typed into a tailored
+                    # CV became fully claimable vault evidence with no testimony
+                    # behind it, so a claim the Oracle had just rejected could be
+                    # laundered into ground truth. ``unconfirmed`` is ADR-061
+                    # clause 3's third state — visible, candidate-confirmable, and
+                    # never claimable — which is exactly this write's standing.
+                    Skill(name=skill_name, status="unconfirmed", source="transcribed")
                 ]
 
     elif section_id.startswith("position::") and record.content_snapshot:
@@ -350,10 +382,27 @@ async def _save_section_to_profile(
         )
         if snap_pos and profile_data.work_experience:
             new_bullets = [b.strip() for b in content.split("\n") if b.strip()]
-            for entry in profile_data.work_experience:
-                if entry.company.lower() == snap_pos.get("company", "").lower():
-                    entry.responsibilities = new_bullets
-                    break
+            # #336 — prefer the entity id carried from the tailored entry. The old
+            # code matched the FIRST entry whose lowercased company matched, so two
+            # roles at the same employer (a promotion, a re-hire) wrote the edited
+            # bullets onto whichever came first. ``work_id`` is absent on snapshots
+            # taken before it existed; those keep the legacy behaviour rather than
+            # silently doing nothing.
+            work_id = snap_pos.get("work_id")
+            target = None
+            if work_id:
+                target = next(
+                    (e for e in profile_data.work_experience if str(e.id) == str(work_id)),
+                    None,
+                )
+            if target is None:
+                company = snap_pos.get("company", "").lower()
+                target = next(
+                    (e for e in profile_data.work_experience if e.company.lower() == company),
+                    None,
+                )
+            if target is not None:
+                target.responsibilities = new_bullets
 
     profile.profile_json = profile_data.model_dump(mode="json")
     await db.commit()

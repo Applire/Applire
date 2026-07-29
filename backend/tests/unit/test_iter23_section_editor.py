@@ -458,6 +458,107 @@ async def db_with_dated_profile(db):
 
 
 @pytest.mark.asyncio
+async def test_saved_skill_is_unconfirmed_not_claimable_evidence(db_with_dated_profile):
+    """#336 — a skill typed into a tailored CV must not become claimable evidence.
+
+    `Skill.status` defaults to "confirmed", so a bare `Skill(name=…)` made an
+    editor-typed skill indistinguishable from one the candidate testified to.
+    Because the Oracle grounds claims against the vault, a claim it had just
+    rejected on the document could be typed into the editor, saved, and thereby
+    become "grounded" — the guard routed around by the person it protects.
+    ADR-061 clause 3's `unconfirmed` is the honest standing: visible and
+    candidate-confirmable, never claimable.
+    """
+    from applire.models.profile import MasterProfile
+    from applire.services.cv_section_editor import patch_cv_section
+
+    ctx = db_with_dated_profile
+    session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+
+    await patch_cv_section(cv_id, "skills", "Python\nKubernetes", True, session)
+
+    profile = await session.get(MasterProfile, profile_id)
+    by_name = {s["name"]: s for s in profile.profile_json["skills"]}
+
+    assert by_name["Kubernetes"]["status"] == "unconfirmed", (
+        "a skill minted by the CV section editor has no testimony behind it and "
+        "must not arrive claimable (#336)"
+    )
+    assert by_name["Kubernetes"]["source"] == "transcribed"
+    # Pre-existing skills are untouched — the write is additive, not a re-status.
+    assert by_name["Python"]["status"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_saved_position_targets_the_entity_not_the_first_company_match(db):
+    """#336 — two roles at one employer must not collide.
+
+    The write-back matched the FIRST work entry whose lowercased company matched
+    the snapshot's, because `build_content_snapshot` minted a fresh uuid4 per
+    position and threw away the profile `WorkEntry.id` that `_backfill_work_ids`
+    had put on the tailored entry. A promotion or a re-hire therefore wrote the
+    edited bullets onto whichever role happened to come first.
+    """
+    import uuid as _uuid
+    from applire.models.user import User
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv_section_editor import patch_cv_section
+
+    uid = _uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+    jid = _uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+    pid = _uuid.UUID("00000000-0000-0000-0000-0000000000b3")
+    cid = _uuid.UUID("00000000-0000-0000-0000-0000000000b5")
+    senior_id = "11111111-1111-1111-1111-111111111111"   # the SECOND entry
+    junior_id = "22222222-2222-2222-2222-222222222222"   # the FIRST entry
+
+    db.add(User(id=uid, email="section-editor-collision@applire.community"))
+    db.add(JobAnalysis(
+        id=jid, raw_text_hash="section-editor-collision", raw_text="jd",
+        role_title="Senior Engineer", required_skills=[], nice_to_have_skills=[],
+        keywords=[], seniority_level="senior", company_culture_signals=[],
+        language_requirement="de",
+    ))
+    db.add(MasterProfile(id=pid, profile_json={
+        "personal_info": {"name": "Max"},
+        "professional_summary": {"de": "", "en": ""},
+        "work_experience": [
+            {"id": junior_id, "company": "Acme GmbH", "role": "Junior Engineer",
+             "start_date": "2016-01", "end_date": "2019-12",
+             "responsibilities": ["Wartung"]},
+            {"id": senior_id, "company": "Acme GmbH", "role": "Senior Engineer",
+             "start_date": "2020-01", "responsibilities": ["Architektur"]},
+        ],
+        "education": [], "skills": [], "languages": [], "certifications": [],
+    }))
+    db.add(GeneratedCV(
+        id=cid, job_analysis_id=jid, profile_id=pid,
+        tailored_data={"contact": {"name": "Max"}, "summary": "s",
+                       "work_history": [], "skills": [], "education": []},
+        content_snapshot={"introduction": "s", "skills": [], "positions": [
+            {"id": "cccccccc-cccc-cccc-cccc-cccccccccccc", "work_id": senior_id,
+             "index": 0, "title": "Senior Engineer", "company": "Acme GmbH",
+             "period": "2020-01", "bullets": ["Architektur"]},
+        ]},
+    ))
+    await db.commit()
+
+    await patch_cv_section(
+        cid, "position::cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "Zielarchitektur verantwortet", True, db,
+    )
+
+    profile = await db.get(MasterProfile, pid)
+    by_id = {e["id"]: e for e in profile.profile_json["work_experience"]}
+    assert by_id[senior_id]["responsibilities"] == ["Zielarchitektur verantwortet"]
+    assert by_id[junior_id]["responsibilities"] == ["Wartung"], (
+        "the earlier role at the same employer must be untouched — the write "
+        "targets the entity carried on the snapshot, not the first name match (#336)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_save_section_to_profile_persists_json_serializable_dates(db_with_dated_profile):
     """Regression: saving a section edit to the Master Profile must leave
     profile_json fully JSON-serializable even when the profile contains a
