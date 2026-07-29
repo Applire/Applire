@@ -69,6 +69,18 @@ from applire.services.ats_audit import _norm, skill_tokens, surface_present
 # A chip containing one of these (casefolded) markers is an honesty frame:
 # it names a term to DENY or hedge direct experience, not to claim it.
 # UI languages are en/de (chips are generated in the user's language).
+#
+# ADR-064 Task 3c finding: "no experience" / "keine Erfahrung" are at least as
+# natural a denial phrasing as any marker already below (they are literally
+# the negation the coverage rule in prompts/interview.py asks the model to
+# draft), yet neither matched before this fix. Proven with a live probe: an
+# absent-concept denial phrased "I have no experience with TOGAF." (or the
+# German "Ich habe keine Erfahrung mit TOGAF.") fell through to the ordinary
+# assertion path, asserted the unevidenced term, and was DROPPED — the honest
+# option silently removed from the candidate's choices. Mirrors the prior-art
+# lesson (typographic-apostrophe over-drop, adversarial pass 2026-07-23): an
+# ASCII/fixed-phrase marker list is inherently incomplete, so treat any gap
+# found here as evidence there may be more, not as a closed list.
 _HONESTY_MARKERS: tuple[str, ...] = (
     # English
     "haven't",
@@ -76,6 +88,7 @@ _HONESTY_MARKERS: tuple[str, ...] = (
     "has not",
     "not directly",
     "no direct",
+    "no experience",
     "not yet",
     "never worked",
     "don't have",
@@ -84,10 +97,12 @@ _HONESTY_MARKERS: tuple[str, ...] = (
     # German
     "nicht direkt",
     "bisher nicht",
+    "bisher keine",
     "noch nicht",
     "noch keine",
     "noch nie",
     "keine direkte",
+    "keine erfahrung",
     "habe ich nicht",
 )
 

@@ -111,6 +111,67 @@ class TestFilterUngroundedChoices:
         assert filter_ungrounded_choices([], CLUSTER, PROFILE, "B") is None
 
 
+# ── ADR-064 Task 3c — "no experience" / "keine Erfahrung" denial coverage ────
+# The filter was built when every choice was an assertion. A live probe run
+# while investigating Task 3 found that "I have no experience with X." and
+# "Ich habe keine Erfahrung mit X." — both entirely ordinary denial phrasings,
+# and neither a hedge — were NOT recognised as honesty frames by the
+# pre-existing _HONESTY_MARKERS list (only "no direct"/"keine direkte" were
+# covered, not the plain "no experience"/"keine Erfahrung" form). Because they
+# name the unevidenced concept, they fell through to the ordinary assertion
+# check and were DROPPED — the honest option silently removed from the
+# candidate's choices. Fixed by extending _HONESTY_MARKERS; pinned below.
+TOGAF_CLUSTER = {
+    "id": "cluster-ea",
+    "label": "Enterprise architecture frameworks",
+    "gaps": ["TOGAF"],
+    "jd_skills": ["TOGAF"],
+    "jd_context": "Own the enterprise architecture governance model (TOGAF).",
+}
+
+EA_PROFILE = {
+    "skills": [{"name": "Enterprise Architecture", "category": "domain"}],
+    "work_experience": [
+        {
+            "company": "Acme GmbH",
+            "role": "Architect",
+            "technologies": ["ArchiMate"],
+            "responsibilities": ["Designed the EA governance model"],
+            "achievements": [],
+        }
+    ],
+}
+
+
+class TestNoExperienceDenialCoverage:
+    def test_plain_no_experience_denial_survives(self):
+        # Before the fix this was silently dropped — reproduce it directly.
+        chips = ["I have no experience with TOGAF."]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
+
+    def test_german_keine_erfahrung_denial_survives(self):
+        chips = ["Ich habe keine Erfahrung mit TOGAF."]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
+
+    def test_german_bisher_keine_denial_survives(self):
+        chips = ["Mit TOGAF habe ich bisher keine Berührungspunkte."]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
+
+    def test_overclaiming_choice_for_the_same_absent_concept_still_dropped(self):
+        # The fix must not turn the filter into a rubber stamp — an
+        # affirmative claim for the same unevidenced concept is still cut.
+        chips = ["I led our TOGAF adoption end to end."]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") is None
+
+    def test_mixed_list_keeps_the_denial_and_drops_the_overclaim(self):
+        chips = [
+            "I have no experience with TOGAF.",
+            "I led our TOGAF adoption end to end.",
+        ]
+        out = filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C")
+        assert out == [chips[0]]
+
+
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
 # Fixture mirrors the REAL vault entry from the live trace (backend/logs/llm/
 # 2026-07-23.jsonl, the interview_question call that produced the F5 chip):
