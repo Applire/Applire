@@ -340,17 +340,26 @@ def _enforce_denial_stance(
     if not entries:
         return ledger
 
+    all_denied_concepts = [d_concept for d_concept, _level in entries]
+
     result: list[dict[str, Any]] = []
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
-        matched_levels = [
-            level
-            for d_concept, level in entries
-            if is_denied_concept(concept, [d_concept], vault_corpus)
-            or any(is_denied_concept(f, [d_concept], vault_corpus) for f in forms)
-        ]
-        if not matched_levels:
+        # "Is this entry denied AT ALL?" is decided with ONE call against the
+        # FULL joint list of denied concepts — that is what lets
+        # ``_independently_affirmed`` blank every denied phrase out of the
+        # vault corpus TOGETHER before checking for independent evidence.
+        # Looping this call per-concept over singleton lists (regression,
+        # 2026-07-29) silently fails OPEN: when two denied concepts share a
+        # substring that never appears standalone in the vault, each
+        # singleton call blanks only its own phrase, so the OTHER phrase's
+        # leftover text reads as "independent" affirmation and neither call
+        # fires — the floor stops firing at all for that entry.
+        is_denied = is_denied_concept(concept, all_denied_concepts, vault_corpus) or any(
+            is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
+        )
+        if not is_denied:
             result.append(entry)
             continue
         if entry.get("claimable"):
@@ -360,6 +369,20 @@ def _enforce_denial_stance(
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
                 concept,
             )
+        # Second pass: which denied concept(s) contributed, for the sole
+        # purpose of picking ``denial_level`` (never to decide denial itself
+        # — that is already settled above). ``corpus`` is intentionally
+        # omitted here: without it, the compound-containment branch of
+        # ``is_denied_concept`` fail-closes to True on any containment match,
+        # so a per-concept singleton call can only find MORE matches than a
+        # corpus-aware one would, never fewer — safe for a tie-break whose
+        # input entry is already known to be denied.
+        matched_levels = [
+            level
+            for d_concept, level in entries
+            if is_denied_concept(concept, [d_concept], None)
+            or any(is_denied_concept(f, [d_concept], None) for f in forms)
+        ]
         result.append(
             {
                 **entry,

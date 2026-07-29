@@ -847,6 +847,73 @@ def test_enforce_denial_stance_dict_without_denial_level_key_defaults_direct():
     assert out[0]["denial_level"] == "direct"
 
 
+def test_two_denials_sharing_a_substring_still_force_the_floor():
+    """Regression (2026-07-29): the "is this entry denied at all?" check must
+    use ONE call against the FULL joint list of denied concepts, exactly as
+    it did before ADR-064 introduced denial_level. ``_independently_affirmed``
+    blanks every denied phrase out of the vault corpus TOGETHER before
+    checking for independent evidence; looping the check per denied-concept
+    SINGLETON defeats that blanking whenever two denials share a substring
+    that never appears standalone in the vault — each singleton call blanks
+    only its own phrase, so the OTHER phrase's leftover text reads as
+    "independent" affirmation and neither call fires. Concretely: the vault
+    literally carries "RAG pipeline design" and "RAG reranking improvements",
+    "RAG" never appears on its own, and the candidate denied BOTH "RAG
+    pipeline" and "RAG reranking" — the concept must still be forced to
+    denied/unclaimable, not left claimable (F8 / #231 / ADR-040)."""
+    profile_json = {
+        "work_experience": [
+            {
+                "role": "ML Engineer",
+                "technologies": ["RAG pipeline design", "RAG reranking improvements"],
+            }
+        ]
+    }
+    ledger = build_keyword_ledger(
+        classifications=[_cls("RAG", "direct", ["RAG"], evidence="built a RAG system")],
+        required_skills=["RAG"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=["RAG pipeline", "RAG reranking"],
+        profile_json=profile_json,
+    )
+    rag = _by_concept(ledger)["RAG"]
+    assert rag["status"] == "denied"
+    assert rag["claimable"] is False
+
+
+def test_enforce_denial_stance_partial_wins_the_level_tie_break():
+    """When a ledger entry matches several denied concepts at different
+    denial_levels, "partial" wins over "direct" — the product rule is
+    EXACTLY ONE PROBE PER CONCEPT, EVER, and it is terminal, so once ANY of
+    the matching denials was already probed to exhaustion (partial), the
+    concept as a whole must be treated as already-exhausted. Assuming
+    already-exhausted is the safe direction: it can only cost a follow-up
+    question that need not have been asked, never cause a re-ask of a
+    concept the candidate already sat through a full probe on."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
+    ledger = [
+        {
+            "concept": "RAG pipeline", "surface_forms": ["RAG pipeline"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+            "evidence": "", "claimable": True,
+        }
+    ]
+    out = _enforce_denial_stance(
+        ledger,
+        [
+            # Exact match — direct.
+            {"concept": "RAG pipeline", "denial_level": "direct"},
+            # Substring match ("RAG" strictly inside "RAG pipeline") — partial.
+            {"concept": "RAG", "denial_level": "partial"},
+        ],
+    )
+    assert out[0]["status"] == "denied"
+    assert out[0]["claimable"] is False
+    assert out[0]["denial_level"] == "partial"
+
+
 # ── #249 run-4 — a narrow denial must not tar a broader, independently ──────
 # evidenced concept (root cause of the ATS/Oracle contradiction, 2026-07-24).
 #

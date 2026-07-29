@@ -996,7 +996,7 @@ def test_record_denials_never_downgrades_partial_to_direct() -> None:
     # is still a legitimate refresh of statement/date, not necessarily a
     # level-change receipt — but it must never regress the level.
     assert len(meta.denied_concepts) == 1
-    assert changes == [] or changes[0].action == "updated"
+    assert changes[0].action == "updated"
 
 
 def test_record_denials_upgrades_direct_to_partial_and_receipt_records_it() -> None:
