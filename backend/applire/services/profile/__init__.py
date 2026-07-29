@@ -61,7 +61,7 @@ from applire.services.profile.extract_segmented import extract_with_fallback
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.snapshots import capture_pre_merge_snapshot
 from applire.services.reviewer import review_and_refine
-from applire.services.skill_enrichment import enrich_skills
+from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 from applire.schemas.profile import (
     CompletenessBlock,
     ConflictSummary,
@@ -476,9 +476,18 @@ async def patch_profile_section(
         updated_dict[section] = value
     validated = MasterProfileData.model_validate(updated_dict)
 
-    # Re-run enrichment when skills or work_experience are patched (keeps years fresh)
-    if section in {"work_experience", "skills"} and provider is not None:
-        validated = await enrich_skills(validated, provider)
+    # Re-run enrichment when skills or work_experience are patched (keeps years fresh).
+    # #337 / ADR-063 clause 4 — the DETERMINISTIC half runs unconditionally. A
+    # skill's duration and provenance must never depend on whether the caller
+    # happened to pass a provider: that made the same edit behave differently on
+    # the UI and agent doors, which ADR-058 clause 2 forbids. The LLM estimate
+    # stays an enhancement layered on top when a provider is available.
+    if section in {"work_experience", "skills"}:
+        validated = (
+            await enrich_skills(validated, provider)
+            if provider is not None
+            else enrich_skills_deterministic(validated)
+        )
 
     # Build enrichment record
     action = "updated" if old_value else "added"

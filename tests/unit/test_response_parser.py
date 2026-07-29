@@ -658,6 +658,51 @@ class TestNewProfileServiceDB:
         history = await get_enrichment_history(sqlite_session)
         assert len(history) >= 1
 
+    @pytest.mark.asyncio
+    async def test_patch_skills_enriches_provenance_even_without_a_provider(self, sqlite_session):
+        """#337 / ADR-063 clause 4 — enrichment must not depend on a caller argument.
+
+        `patch_profile_section` used to run enrichment only ``if provider is not
+        None``. The REST route passed one, the MCP tool did not, so the same edit
+        left different vault state per channel (ADR-058 clause 2). The provider is
+        now supplied on both doors — and, defence in depth, the DETERMINISTIC half
+        runs regardless, so duration/provenance can never again hinge on how the
+        caller was wired. Asserted with provider=None, the pre-fix broken case.
+        """
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import patch_profile_section
+
+        record = MasterProfile(profile_json=_minimal_profile_json())
+        record.profile_json = {
+            **record.profile_json,
+            "work_experience": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "company": "Weberit GmbH",
+                    "role": "Produktionsleiter",
+                    "start_date": "2015-01",
+                    "end_date": "2020-01",
+                    "responsibilities": ["Einführung von SAP im Werk"],
+                }
+            ],
+        }
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await patch_profile_section(
+            "skills", [{"name": "SAP"}], sqlite_session, provider=None
+        )
+
+        skill = next(s for s in result.profile.skills if s.name == "SAP")
+        assert skill.source == "computed", (
+            "the deterministic half must run without a provider (#337) — "
+            f"got source={skill.source!r}"
+        )
+        assert skill.years_experience == 5
+        # Phase-1 enrichment cites the org LABEL; entity ids are the reconciler's
+        # (UpsertSkill.evidence) and are preserved alongside, never replaced (#327).
+        assert "Weberit GmbH" in skill.experience_refs
+
     # ─── #178: merge-patch semantics for object-shaped sections ───────────────
 
     @pytest.mark.asyncio
