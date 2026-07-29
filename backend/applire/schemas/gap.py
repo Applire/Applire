@@ -49,6 +49,22 @@ class KeywordLedgerEntry(BaseModel):
     # skills list. Defaults True so a legacy row persisted before #260 (no
     # key at all) is never mistaken for a liability.
     narrative_backed: bool = True
+    # ADR-064 — mirrors DeniedConcept.denial_level (the durable home is
+    # ProfileMetadata.denied_concepts; this is the ledger's read-only mirror,
+    # rewritten by _enforce_denial_stance on every rebuild). None whenever
+    # status != "denied": a direct/partial/gap entry was never denied at any
+    # level. Never independently settable to a meaningful value on a
+    # non-denied entry — see the invariant enforced below.
+    denial_level: Literal["direct", "partial"] | None = None
+
+    @model_validator(mode="after")
+    def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":
+        if self.denial_level is not None and self.status != "denied":
+            raise ValueError(
+                "denial_level may only be set when status == 'denied' "
+                f"(got status={self.status!r}, denial_level={self.denial_level!r})"
+            )
+        return self
 
 
 class GapAnalysisResponse(BaseModel):

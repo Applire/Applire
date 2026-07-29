@@ -471,12 +471,19 @@ class DeniedConcept(BaseModel):
     receipt. Re-denying the same concept (case-insensitively) refreshes
     ``statement``/``date`` in place rather than duplicating the entry —
     matched by ``services.profile.reconcile.stance.record_denials``.
+
+    ADR-064 — ``denial_level``: "direct" = the named form is ruled out,
+    adjacent coverage is still unknown; "partial" = adjacent is ruled out
+    too, elicitation is exhausted. Default "direct" is correct for
+    back-compat: every denial recorded before this field existed denied
+    the named form and was never probed further.
     """
 
     concept: str
     statement: str
     source: Literal["interview", "agent_interview", "testimony"]
     date: str  # ISO date (YYYY-MM-DD) — the day the denial was recorded
+    denial_level: Literal["direct", "partial"] = "direct"
 
 
 class PendingConfirmation(BaseModel):
