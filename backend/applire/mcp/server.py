@@ -348,9 +348,16 @@ async def get_profile() -> dict:
     )
 )
 async def update_profile(section: str, data: dict | list) -> dict:
+    # #337 / ADR-058 clause 2 — the REST route passes a provider and this tool
+    # did not, so `patch_profile_section`'s `if provider is not None` gate meant
+    # a skills edit was enriched through the UI and silently not through the
+    # agent door. Same intake, different vault state, decided by entry path.
+    provider = get_provider()
     async with get_db() as db:
         try:
-            result = await profile_svc.patch_profile_section(section, data, db)
+            result = await profile_svc.patch_profile_section(
+                section, data, db, provider=provider
+            )
         except ValueError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:

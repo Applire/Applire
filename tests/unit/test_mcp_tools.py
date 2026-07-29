@@ -8,7 +8,7 @@ Run:
     pytest tests/unit/test_mcp_tools.py -v
 """
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, sentinel
 
 import pytest
 from mcp.shared.exceptions import McpError
@@ -207,6 +207,35 @@ async def test_update_profile_happy_path():
         result = await update_profile(section="skills", data=["Python", "FastAPI"])
 
     assert result["completeness"] == 90
+
+
+@pytest.mark.asyncio
+async def test_update_profile_passes_a_provider_so_the_agent_door_enriches_too():
+    """#337 / ADR-058 clause 2 — door parity on the skills edit.
+
+    `patch_profile_section` enriches skills only ``if provider is not None``.
+    The REST route passes one (`routers/profile.py`); this tool did not, so the
+    SAME edit produced a different vault state depending on the channel — an
+    accident of the entry path, which ADR-058 forbids. The assertion is on the
+    *argument*, not on enrichment output, because the argument is the seam.
+    """
+    from applire.mcp.server import update_profile
+
+    cm, _ = _mock_db()
+    mock_result = _mock_result(id=str(uuid.uuid4()), completeness=90)
+    patch_svc = AsyncMock(return_value=mock_result)
+
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.profile_svc.patch_profile_section", patch_svc),
+        patch("applire.mcp.server.get_provider", return_value=sentinel.provider),
+    ):
+        await update_profile(section="skills", data=["Python", "FastAPI"])
+
+    assert patch_svc.await_args.kwargs.get("provider") is sentinel.provider, (
+        "MCP update_profile must supply a provider like its sibling tools — "
+        "without it the agent door silently skips skill enrichment (#337)"
+    )
 
 
 @pytest.mark.asyncio

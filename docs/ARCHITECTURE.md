@@ -639,6 +639,39 @@ The general lesson for contributors: a check that runs last is a check nothing e
 
 ---
 
+### ADR-063 — One Write Path: Every Vault Mutation Is a Typed Op (accepted 2026-07-28)
+
+**Decision:** There is exactly one piece of code permitted to write the Master Profile. Everything that wants to change the vault produces a list of typed reconciliation ops and hands them to that committer, which owns the transaction and every invariant: pre-merge snapshot, stance and attribution guards, denial ledger, skill enrichment, the enrichment trail, and the completeness recompute.
+
+Three terms that had been used interchangeably are now distinct, because conflating them is what allowed the defects below:
+
+| Term | Means | How many |
+|---|---|---|
+| **Channel** | how a request arrives — the web UI (REST) or an agent (MCP) | 2, fixed |
+| **Intake** | *what* arrives — `Document`, `Statement`, `FieldEdit`, `Decision`, `Binary` | extensible |
+| **Write path** | the code turning an intake into committed vault state | **exactly 1** |
+
+Intake adapters are pure functions of the shape `(payload, profile) -> list[ReconcileOp]` — no database, no LLM, no async — so they are unit-testable in isolation. Adding a new intake adds one pure function. Adding a new channel adds none: a channel selects an adapter and supplies provenance, and may never vary the invariant set. Where behaviour legitimately differs it is a named parameter, per the door-parity invariant in ADR-058.
+
+Enforcement is structural rather than editorial: writes are guarded at the attribute itself, so the rule holds regardless of how the write is spelled. The first draft of this ADR specified a source grep instead, and an adversarial review killed it before implementation — three existing sites write the field as a constructor keyword argument (`MasterProfile(profile_json=…)`), which no assignment-pattern regex can see. That correction is worth more than the rule it fixed: **an enforcement mechanism that can be defeated by a change in call syntax is not enforcement**, and the only reason it was caught is that the decision was reviewed before any code was written against it.
+
+**Why:** An audit measured seven invariants across every code path that writes the profile. The architecture documentation described five such paths; the grep found sixteen assignment sites across nine modules — eleven distinct writers. The documentation was not *wrong* about any individual writer. It was **lossy**: eleven writers had been grouped into five narrative descriptions, and prose can be accurate about each one while making the comparison *between* them impossible. That is the general lesson, and it is worth more than the specific bugs — when a component has many similar-but-not-identical implementations of the same responsibility, the useful artefact is a matrix, not a description. Four defects had been sitting in plain sight in that description:
+
+- **Undo only ever worked for imports.** The pre-merge snapshot documented as unconditional had two call sites, both on the CV import path. Undo after a testimony submission or an interview restores a much older snapshot and discards everything since. The response does carry a `discarded_later_edits` warning — but it is derived from the enrichment trail, so the trail-less writers below make it silently under-report. And no UI control or MCP tool calls the endpoint at all, so the guarantee is currently unreachable through either door.
+- **Four writers left no audit trail**, making their changes invisible in the enrichment history — and, as a consequence, invisible to the undo warning above.
+- **The CV section editor bypassed every truthfulness guard.** Text edited in a generated CV and saved back to the profile skipped reconciliation, the stance and denial checks and the attribution guard. Since the Truthfulness Oracle treats the vault as ground truth, a claim the Oracle had rejected on the document could be entered through the editor and thereafter count as grounded — the guard could be routed around by the person it protects.
+- **One operation behaved differently depending on the channel.** A skills edit through the UI was enriched; the identical edit through the MCP tool was not, because the two call sites passed different arguments. This is precisely what ADR-058's parity invariant forbids, and it survived because that ADR's parity test suite had not been built yet.
+
+The remedy needed no *new abstraction*. ADR-046's typed op vocabulary was already the right one — the writers that used it were the ones holding the most invariants. It had simply never been made mandatory, so the others mutated the profile dictionary directly, and those were exactly the ones missing the guards. It does need some new **ops**: `SetField` is fill-only by design (a real change is meant to go through `FlagConflict`), so an authorised overwrite of a disputed field, a boolean flip such as closing a role, and a profile-level metadata write each need an op that does not exist yet. That is listed as work rather than assumed away — an earlier draft of this ADR claimed the vocabulary already reached that far, and it does not.
+
+One more correction worth knowing, because it changes what the committer is: **it flushes, it does not commit.** The interview path deliberately leaves persistence to a caller that writes interview-session state in the same transaction, so a committer that closed the transaction itself would split an atomic write in two. The committer owns the invariant set and the write; the caller owns the transaction boundary.
+
+**Consequence worth knowing as a contributor:** the contract test suite for the vault is eight assertions against the committer, plus the one-line structural gate proving there is nothing else to test — rather than eleven writers times eight invariants, a suite that grows with every writer and silently misses the twelfth.
+
+**Trade-offs accepted:** writing a single field now means constructing an op, which is more ceremony than assigning to a dict. The profile photo is an explicit non-participant — binary data fits an op vocabulary poorly — and is named as such rather than being silently absent. Bringing the existing eleven writers onto the single path is a real if bounded refactor, sequenced over several release cycles; the correctness fixes (the section editor, the channel asymmetry) land first and independently.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
