@@ -55,7 +55,7 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import MasterProfileData, ProfileMetadata
+from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
 from applire.schemas.session import (
     ConfirmationPrompt,
     ConflictSummary,
@@ -1491,6 +1491,14 @@ async def _select_denial_probe_concept(
     if not keyword_ledger:
         return None
 
+    # F6 (2026-07-29): a persisted session `state` predating `gap_clusters_by_id`
+    # (legacy JSONB — every in-code creation site populates this key; see
+    # `_make_active_session`-style state builders and `gap_detector`) falls
+    # through `.get(...) or {}` to an empty cluster with no "gaps" below, so
+    # `cluster_concepts` is empty and this function returns `None` — never
+    # probes. That is the correct, FAIL-SAFE direction for a legacy record:
+    # no behaviour change, just documenting why an old session can't reach
+    # the probe rather than raising or guessing a cluster.
     cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap) or {}
     cluster_concepts = [c for c in (cluster.get("gaps") or []) if c]
     if not cluster_concepts:
@@ -1500,7 +1508,23 @@ async def _select_denial_probe_concept(
     for concept in turn.denied_concepts:
         if not concept or not concept_is_required(concept, keyword_ledger):
             continue
-        if not any(_concept_matches_ledger_key(concept, cc) for cc in cluster_concepts):
+        # F3 finding-fix (2026-07-29): `_concept_matches_ledger_key` folds via
+        # its own `.strip().casefold()`, not `ats_norm` — it does NOT fold
+        # hyphens, so "GCP-certification" (cluster gap, clustering LLM) vs
+        # "GCP certification" (denied concept, classification LLM) compare
+        # unequal and this gate silently never fires. `_concept_matches_
+        # ledger_key` also drives `_ledger_entry_for`/`concept_is_required`/
+        # `cluster_needs_priority` in services/interview/sufficiency.py —
+        # changing its normaliser in place would ALSO change matching there
+        # (and casefold() vs ats_norm's `.lower()` differ on e.g. German
+        # "ß"), so the fold is applied here, at this call site, instead:
+        # pre-fold both sides with the SAME `ats_norm` the rest of this
+        # probe path already uses, then let the unchanged helper do its
+        # substring comparison on the already-folded text.
+        if not any(
+            _concept_matches_ledger_key(ats_norm(concept), ats_norm(cc))
+            for cc in cluster_concepts
+        ):
             continue  # off-cluster denial — advance as before, never probe it
         # M4 finding-fix: require a durable record (`level is not None`) —
         # never probe a concept `_mark_probe_asked` could not durably mark.
@@ -1852,7 +1876,7 @@ async def send_message(
         meta_model = ProfileMetadata.model_validate(
             profile_record.profile_json.get("metadata") or {}
         )
-        record_denials(
+        escalation_changes = record_denials(
             meta_model,
             [probing_concept],
             statement=message,
@@ -1861,6 +1885,20 @@ async def send_message(
             denial_level="partial",
             level_only=True,
         )
+        # F5 finding-fix (2026-07-29): fold the receipt into
+        # `enrichment_history` the same way every other write path does
+        # (interview_bridge.reconcile_interview_turn) — a durable
+        # denial_level escalation is a vault write and must leave a trail,
+        # not just the raw metadata mutation above.
+        if escalation_changes:
+            meta_model.enrichment_history.append(
+                EnrichmentRecord(
+                    timestamp=datetime.now(timezone.utc),
+                    source="interview",
+                    source_session_id=str(record.id),
+                    changes=escalation_changes,
+                )
+            )
         profile_record.profile_json = {
             **profile_record.profile_json,
             "metadata": meta_model.model_dump(mode="json"),

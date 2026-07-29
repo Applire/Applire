@@ -325,9 +325,13 @@ async def _review_question_language(
     )
 
 
+_VALID_CHOICE_LEVELS = {"direct", "partial", "denial"}
+
+
 def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> Any:
-    """Deterministic backstop for a choice's "level" tag surviving the
-    language-review/refinement pass (ADR-062 fix follow-up, 2026-07-29).
+    """Deterministic FILL-IN (never an override) for a choice's "level" tag
+    surviving the language-review/refinement pass (ADR-062 fix follow-up,
+    2026-07-29; F1 fix, 2026-07-29).
 
     ``_review_question_language`` above runs a full LLM refinement loop; its
     ONLY guarantee that a choice's "level" field survives unchanged is prompt
@@ -338,13 +342,23 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
     level) — the EXACT bug this branch fixed, reintroduced one prompt drift
     away.
 
-    When the reviewed draft has the SAME NUMBER of choices as the pre-review
-    draft, the review pass rewrites WORDING, not the number or order of
-    choices — so position is a safe key. Carry each choice's "level" over
-    from the pre-review draft by index, never trusting the reviewed output's
-    own "level" field in that case. When the counts differ (the reviewer
-    dropped or added a choice — rare, but then positional mapping is no
-    longer safe), fall back to the reviewed output exactly as before.
+    BUT: the "do not reorder choices" guarantee lives in the SAME prompt
+    sentence as "preserve level verbatim". A model that ignores one plausibly
+    ignores the other. Carrying a level over BY INDEX UNCONDITIONALLY — even
+    when the reviewed choice already has its own valid level — trades a
+    fail-safe defect (an unrecognised level merely over-drops, via the full
+    grounding check) for a fail-UNSAFE one (a reordered choice's correct
+    level gets silently overwritten with the WRONG level, e.g. a fabricated
+    claim inheriting "denial" and becoming grounding-exempt while an honest
+    denial inherits "direct" and gets deleted). Never trade fail-safe for
+    fail-unsafe.
+
+    So: only FILL IN a level when the reviewed choice's own level is missing
+    or unrecognised. A reviewed choice that already carries a valid level is
+    never touched — it rode with its own text and is trusted. When the
+    reviewed draft has a different NUMBER of choices than the pre-review
+    draft, positional mapping isn't safe at all (the reviewer dropped or
+    added a choice) — fall back to the reviewed output exactly as before.
     """
     if not isinstance(reviewed_choices, list) or not isinstance(pre_review_choices, list):
         return reviewed_choices
@@ -353,6 +367,10 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
 
     carried: list = []
     for reviewed, pre in zip(reviewed_choices, pre_review_choices):
+        if isinstance(reviewed, dict) and reviewed.get("level") in _VALID_CHOICE_LEVELS:
+            carried.append(reviewed)  # the level rode with its own text — trust it
+            continue
+
         pre_level = pre.get("level") if isinstance(pre, dict) else None
         if pre_level is None:
             carried.append(reviewed)  # nothing to carry — leave as reviewed produced it

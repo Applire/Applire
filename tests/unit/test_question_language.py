@@ -271,6 +271,85 @@ def test_carry_levels_by_index_falls_back_on_count_mismatch():
     assert out == reviewed
 
 
+def test_carry_levels_by_index_never_overrides_a_valid_reviewed_level_on_reorder():
+    """F1 regression: same count, choices REORDERED, reviewed levels intact.
+
+    The "do not reorder choices" guarantee lives in the SAME prompt sentence
+    as "preserve level verbatim" (prompts/review_question_language.py). A
+    model that drops one plausibly drops/ignores the other — so a positional
+    backstop that OVERRIDES an already-valid reviewed level silently swaps
+    the levels onto the wrong text. The backstop must only fill in a level
+    that is missing or unrecognised on the reviewed choice, never override
+    one that is already valid.
+    """
+    from applire.services.interview_graph import _carry_levels_by_index
+
+    pre = [
+        {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
+        {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+    ]
+    # Reviewer returned the SAME two choices, REORDERED, with correct levels
+    # attached to their own (now reordered) text.
+    reviewed = [
+        {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+        {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
+    ]
+
+    out = _carry_levels_by_index(pre, reviewed)
+
+    # Each choice must keep ITS OWN level, not the level of whatever sat at
+    # the same index in the pre-review draft.
+    by_text = {c["text"]: c["level"] for c in out}
+    assert by_text["No, I have never worked with Kubernetes."] == "denial"
+    assert by_text["Yes, hands-on Kubernetes experience."] == "direct"
+
+
+@pytest.mark.asyncio
+async def test_mode_a_denial_survives_and_fabrication_is_dropped_when_reviewer_reorders_with_levels_intact():
+    """F1 end-to-end regression: reviewer returns the SAME two choices,
+    REORDERED, with valid "level" tags already attached to their own text.
+
+    Before the fix, the positional backstop overwrote the reviewed (correct)
+    levels by index — the fabricated "direct" claim inherited "denial" (and
+    became grounding-exempt, shown as a clickable chip) while the honest
+    denial inherited "direct" (and was deleted for failing the term-evidence
+    check on "Kubernetes", which the zero-evidence profile cannot ground).
+    """
+    class _ReorderingReviewer(LLMProvider):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
+            return ""
+
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
+            sys_lower = (system or "").lower()
+            if "language reviewer" in sys_lower:
+                return {"approved": False, "issues": ["reorder"], "feedback": "Lead with the denial."}
+            if "rewrite" in sys_lower:
+                # Refinement: REORDERS the two choices, keeps levels intact
+                # and attached to their own (correct) text.
+                return {
+                    "question": "Have you worked with Kubernetes?",
+                    "choices": [
+                        {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                        {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
+                    ],
+                }
+            return {
+                "question": "Have you worked with Kubernetes?",
+                "choices": [
+                    {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
+                    {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                ],
+            }
+
+    out = await question_generator_with_profile(
+        _mode_a_state(), {}, _ReorderingReviewer(), lang="en",
+    )
+
+    assert out["choices"] is not None
+    assert "No, I have never worked with Kubernetes." in out["choices"]
+    assert "Yes, hands-on Kubernetes experience." not in out["choices"]
+
+
 @pytest.mark.asyncio
 async def test_mode_a_denial_choice_survives_a_reviewer_that_drops_the_level_field():
     """End-to-end: the refinement call rewrites wording and DROPS "level"

@@ -88,41 +88,46 @@ evidence, and the #236 employer-scoped guard when it names a known employer —
 on the remainder AFTER that pivot only. Everything BEFORE the pivot stays
 fully exempt (naming the denied term is the point).
 
-**F2 (2026-07-29): this protection is clause-ORDER-dependent, not
-order-independent.** ``_split_denial_choice`` has no way to tell WHICH side
-of the pivot is the denial and which is the affirmation — it only locates the
-pivot phrase (", but " / ", aber " / ...) and assumes the FIRST clause is
-always the denial. That holds for "I haven't used X, but I've worked with Y
-at Employer" (denial-clause-first). It does NOT hold for the equally natural
-reverse order in both English and German — "I've worked with Y at Employer,
-but I haven't used X" / "Ich habe Y bei Employer eingesetzt, aber X habe ich
-nicht benutzt" — where the fabricated, employer-misattributed clause is now
-the one BEFORE the pivot, and is therefore the one the split always exempts.
-The guard fires or not purely on which clause the model happened to write
-first; a mislabelled denial with a bridging affirmative clause is caught only
-in the denial-first ordering, not in the affirmative-first one. A pure denial
-with no pivot skips the term-evidence check entirely, but — because that
-check is the only thing a plain lexical mismatch on "TOGAF" vs. no evidence
-for "TOGAF" could ever have caught, whether the chip denies or claims it —
-still runs the employer-scoped guard over the WHOLE chip when it names a
-known employer, so a mislabelled, employer-naming denial with NO pivot at all
-is still caught deterministically regardless of ordering (see docstring on
-``filter_ungrounded_choices`` for the residual gap this narrower, no-pivot
-case leaves: a mislabelled denial naming NO employer and asserting only the
-same, entirely unevidenced concept it claims to deny is not
-fact-distinguishable from a genuine denial by any deterministic signal — that
-is exactly the judgement ADR-062 assigns to the model via the tag, not to
-this module). Widening the pivot-having case to check both clauses (or to
-scan the whole chip for employer names while still only checking the
-non-denial clause's terms) was evaluated and rejected: the SAME
-order-ambiguity that creates this gap means a deterministic rule cannot tell
-"the clause naming the JD-required term IS the legitimate denial" apart from
-"the clause naming the JD-required term is a fabricated claim smuggled past
-the guard" — checking both clauses' terms would drop the single most common
-LEGITIMATE denial shape (a chip denying the cluster's own JD term while
-bridging to a truthful adjacent claim) exactly as often as it would catch a
-fabrication. This is a real, currently-unclosed gap, not a regression this
-branch introduced — see ``filter_ungrounded_choices`` for the exact scope.
+**F2 (2026-07-29, fixed): term-evidence stays clause-ORDER-dependent by
+necessity; the #236 employer-scoped guard no longer is.**
+``_split_denial_choice`` has no way to tell WHICH side of the pivot is the
+denial and which is the affirmation — it only locates the pivot phrase
+(", but " / ", aber " / ...) and always treats the FIRST clause as the
+exempt denial. For the TERM-EVIDENCE check this is unavoidable: "I worked
+with Y at Employer" and "I haven't worked with Y at Employer" surface-match
+the term "Y" identically, so a deterministic rule genuinely cannot tell
+which clause is the legitimate denial by that check alone — checking both
+clauses' terms would drop the single most common LEGITIMATE denial shape
+(a chip denying the cluster's own JD term while bridging to a truthful
+adjacent claim) exactly as often as it would catch a fabrication. That half
+of the gap is real and stays open by design; term-evidence is applied to
+the designated post-pivot ("affirmative") clause only, exactly as before.
+
+The #236 employer-scoped guard, however, is TWO separate checks (see above):
+A.1 (tech×employer term evidence) is exactly as order-blind-*incapable* as
+the term-evidence check for the same reason. But A.2 (free-text content
+coverage against the named employer's own bullets — fabricated-*context*
+detection) never asks whether a term is claimed or denied; once the named
+employer and the cluster/JD terms themselves are stripped out of a clause,
+what's left is either nothing (a bare "I haven't used X at Employer" denial
+has no narrative content beyond term/employer/scaffolding, and clears A.2
+trivially) or genuine fabricated narrative that does or doesn't belong to
+the named employer's own bullets — a fact, not a judgement about which
+clause is honest. ``_passes_content_coverage_only`` (A.2 without A.1) now
+runs on WHICHEVER clause the pivot split put before it, whenever that clause
+names a known employer — so a fabricated, employer-misattributed clause is
+caught whether the model wrote the denial first (already covered by the
+affirmative-clause pipeline, which still runs the FULL A.1+A.2 guard there)
+or the bridging/affirmative clause first (previously invisible — see
+``filter_ungrounded_choices``). A pure denial with no pivot still runs the
+FULL employer-scoped guard (A.1+A.2) over the WHOLE chip when it names a
+known employer, unchanged from before F2 — see docstring on
+``filter_ungrounded_choices`` for the residual, by-design gap this narrower,
+no-pivot case leaves (a mislabelled denial naming NO employer and asserting
+only the same, entirely unevidenced concept it claims to deny — not
+fact-distinguishable from a genuine denial by any deterministic signal;
+that is the judgement ADR-062 assigns to the model via the tag, not to this
+module).
 """
 
 import logging
@@ -289,12 +294,24 @@ _CONTENT_STOPWORDS = frozenset({
     "i", "my", "our", "we", "at", "on", "under", "as", "is", "are", "was", "were",
     "be", "been", "that", "this", "these", "those", "such", "like", "including",
     "include", "included", "work", "worked", "working", "contributed", "involved",
+    "have", "has", "had", "having", "i've", "we've", "they've", "you've",
     "part", "role", "solution", "solutions", "using", "use", "used", "over",
     "an", "of", "for", "with", "the", "a", "to", "in", "and", "or", "&",
     # German
     "ich", "habe", "mein", "meine", "meinem", "meiner", "unser", "bei", "und",
     "im", "in", "der", "die", "das", "den", "dem", "eine", "einen", "einer",
     "fur", "für", "unter", "ein", "mit", "wie", "zur", "zum", "von", "auf",
+    # Negation particles (F2, 2026-07-29): scaffolding the same way — a bare
+    # "I haven't used X at Employer" denial clause has NOTHING left after
+    # employer + cluster-term + scaffolding stripping, and must clear
+    # ``_passes_content_coverage_only`` trivially rather than fail on the
+    # negation word itself. Function words, not skill/framework names.
+    "not", "no", "never", "n't",
+    "haven't", "hasn't", "hadn't", "isn't", "wasn't", "weren't", "aren't",
+    "don't", "doesn't", "didn't", "won't", "wouldn't", "can't", "cannot",
+    "couldn't", "shouldn't", "shan't",
+    "nicht", "kein", "keine", "keinen", "keiner", "keinem", "keines",
+    "nie", "niemals", "nichts",
 })
 
 # Shared-root cognate fallback: German/English career vocabulary is heavy on
@@ -442,6 +459,49 @@ def _passes_employer_scoped_guard(
     return (hits / len(content)) >= _CONTENT_COVERAGE_MIN
 
 
+def _passes_content_coverage_only(
+    clause_norm: str, terms: list[str], matched_entries: list[dict], profile: dict,
+) -> bool:
+    """F2 (2026-07-29): the order-blind half of the #236 guard — A.2 (free-
+    text content coverage) WITHOUT A.1 (tech×employer term evidence).
+
+    A.1 is polarity-sensitive: it only checks whether a cluster/JD term the
+    clause *names* is evidenced at the named employer, and "I worked with X
+    at Employer" surface-matches "X" identically to "I haven't worked with X
+    at Employer" — there is no deterministic way to tell a legitimate denial
+    clause from a fabricated claim by that check alone (this is exactly the
+    ordering ambiguity ``filter_ungrounded_choices``' docstring already
+    disclaims for the whole-choice term-evidence exemption). So this
+    function never runs A.1.
+
+    A.2 has no such problem: once the named employer AND the cluster/JD
+    terms themselves are stripped out of the clause, what's left is either
+    nothing (a bare denial — "I haven't used X at Employer" — or a bare
+    claim naming only the term and employer) or genuine extra narrative
+    content, and that content either belongs to the named employer's own
+    bullets or it doesn't, regardless of whether the clause was asserting or
+    denying the term. Used to close the F2 ordering hole: applied to
+    WHICHEVER clause a denial-tagged choice's pivot split put the pre-pivot
+    half in, so a fabricated, employer-misattributed clause is caught
+    whether the model wrote the denial first (already covered by the
+    affirmative-clause pipeline) or the bridging/affirmative clause first
+    (previously invisible — see ``filter_ungrounded_choices``).
+    """
+    scoped_evidence = _employer_scoped_evidence(matched_entries, profile)
+    strip_bases = {_employer_base(str(e.get("company") or "")) for e in matched_entries}
+    stripped = clause_norm
+    for term in terms:
+        term_norm = _norm(term)
+        if term_norm:
+            stripped = re.sub(r"\b" + re.escape(term_norm) + r"\b", " ", stripped)
+    content = _content_tokens(stripped, strip_bases)
+    if not content:
+        return True  # nothing left to falsify beyond the term/employer/scaffolding
+    corpus_tokens = frozenset(scoped_evidence.split())
+    hits = sum(1 for t in content if _fuzzy_present(t, scoped_evidence, corpus_tokens))
+    return (hits / len(content)) >= _CONTENT_COVERAGE_MIN
+
+
 def filter_ungrounded_choices(
     choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
@@ -473,33 +533,37 @@ def filter_ungrounded_choices(
       the term to deny it, there is nothing to ground. Split at its FIRST
       denial→affirmation pivot (``_split_denial_choice``, preserved from the
       2026-07-23 clause-scoping fix): the remainder AFTER that pivot (if any)
-      still runs the full pipeline, so a bridging claim like "... but I've
-      worked with React and Next.js at StartupXYZ" is checked — PROVIDED the
-      model wrote the denial clause first. ``_split_denial_choice`` cannot
-      tell which side of the pivot is the denial and which is the
-      affirmation; it assumes the first clause always is. **F2 (2026-07-29):
-      this is order-dependent, not a guarantee.** When the model writes the
-      bridging/affirmative clause FIRST instead — an equally natural ordering
-      in both English and German — the fabricated, misattributed content
-      lands in the clause BEFORE the pivot, which this branch always exempts,
-      and is never checked. See the module docstring's "F2" note for why
-      widening this to check both clauses was evaluated and rejected (it
-      would drop the single most common LEGITIMATE denial shape at least as
-      often as it would catch a fabrication) — this is a real, currently
-      order-dependent gap, not a claim that the guard closes it. A pure
-      denial with no pivot additionally still runs the #236 employer-scoped
-      guard, over the WHOLE chip, when it names a known employer — a
-      mislabelled "denial" that borrows a real employer's name for a
-      fabricated narrative is caught the same way a "direct"-tagged chip
-      would be, regardless of ordering (there is no clause split to be
-      order-dependent about). A pure denial naming NO employer and asserting
-      only the same, entirely unevidenced concept it claims to deny is
-      trusted: no deterministic, fact-only signal can tell "I have no
-      experience with X" apart from a claim about X when the profile has
-      zero evidence for X either way — that is the judgement ADR-062 assigns
-      to the model via the tag, not to this module. A mislabelling of that
-      shape is logged at WARNING when caught by the employer guard; the
-      untraceable case is a documented residual gap.
+      still runs the FULL pipeline (term-evidence + the #236 employer-scoped
+      guard), so a bridging claim like "... but I've worked with React and
+      Next.js at StartupXYZ" is checked — PROVIDED the model wrote the
+      denial clause first. ``_split_denial_choice`` cannot tell which side
+      of the pivot is the denial and which is the affirmation; it assumes
+      the first clause always is, and for TERM-EVIDENCE that assumption is
+      unavoidable (see the module docstring's "F2" note — a deterministic
+      rule cannot tell "the clause naming the term IS the legitimate denial"
+      from "... is a fabricated claim smuggled past the guard", and checking
+      both clauses' terms would drop the single most common LEGITIMATE
+      denial shape at least as often as it would catch a fabrication). **F2
+      (2026-07-29, fixed) for the #236 employer-scoped guard specifically:**
+      its content-coverage half (A.2 — free-text narrative fit against the
+      named employer's own bullets, order-blind by construction) now ALSO
+      runs on the pre-pivot clause, whichever clause that is, whenever it
+      names a known employer (``_passes_content_coverage_only``) — so the
+      identical StartupXYZ fabrication, reordered to put the bridging claim
+      BEFORE the pivot instead of after, is caught too. A pure denial with
+      no pivot still runs the FULL employer-scoped guard (A.1+A.2), over the
+      WHOLE chip, when it names a known employer — a mislabelled "denial"
+      that borrows a real employer's name for a fabricated narrative is
+      caught the same way a "direct"-tagged chip would be, regardless of
+      ordering (there is no clause split to be order-dependent about). A
+      pure denial naming NO employer and asserting only the same, entirely
+      unevidenced concept it claims to deny is trusted: no deterministic,
+      fact-only signal can tell "I have no experience with X" apart from a
+      claim about X when the profile has zero evidence for X either way —
+      that is the judgement ADR-062 assigns to the model via the tag, not to
+      this module. A mislabelling of that shape is logged at WARNING when
+      caught by the employer guard; the untraceable case is a documented
+      residual gap.
     """
     if not choices:
         return None
@@ -538,13 +602,40 @@ def filter_ungrounded_choices(
         if affirmative is not None:
             # Bridging denial: the affirmative remainder is a real assertion
             # and runs the full pipeline exactly like a "partial" choice.
-            if _run_pipeline(affirmative, require_asserted_for_content_check=True):
+            # Term-evidence exemption stays scoped to the designated
+            # affirmative (post-pivot) half only — a deterministic rule
+            # cannot tell which clause is the legitimate denial for THAT
+            # check (F2 module docstring: TERM-evidence is polarity-
+            # sensitive, "X at Employer" and "not X at Employer" surface-
+            # match the term identically).
+            #
+            # F2 (2026-07-29): the #236 fabricated-CONTEXT check (A.2 of
+            # ``_passes_employer_scoped_guard`` — free-text content coverage
+            # against a NAMED employer's own bullets, once the employer name
+            # and the cluster/JD terms themselves are stripped out) has no
+            # such polarity problem: it never asks whether a term is
+            # claimed or denied, only whether whatever narrative content
+            # remains actually belongs to the employer named. Run THAT half
+            # of the guard on the pre-pivot clause too, whichever clause it
+            # is — a genuine denial clause ("I haven't used X at Employer")
+            # has nothing left after that stripping and passes trivially; a
+            # fabricated clause smuggling unrelated narrative in ahead of
+            # the pivot (the reordered #236 shape) does not.
+            ok = _run_pipeline(affirmative, require_asserted_for_content_check=True)
+            if ok:
+                denial_norm = _norm(_fold_quotes(denial_clause))
+                denial_matched = _match_employers(denial_norm, work_experience)
+                if denial_matched and not _passes_content_coverage_only(
+                    denial_norm, terms, denial_matched, profile,
+                ):
+                    ok = False
+            if ok:
                 kept.append(text)
             else:
                 logger.warning(
                     "choice_grounding: dropped a 'denial'-tagged choice whose "
-                    "affirmative clause failed the grounding pipeline "
-                    "(mislabelled by the model): %r",
+                    "pre-pivot or affirmative clause failed the grounding "
+                    "pipeline (mislabelled by the model): %r",
                     text,
                 )
             continue

@@ -32,15 +32,24 @@ Two prompts are touched:
    only, never an invented DIRECT-level "yes" — the pre-existing
    truthfulness rules are unchanged and still bind.
 
-2. FOLLOW_UP_QUESTION_SYSTEM_PROMPT (lateral-probe generator, reused by the
-   ADR-064 denial transfer probe via
-   ``question_generator_with_profile(..., follow_up_hint=...)``) — pins that
-   the model is told to generalise to the broader SKILL AREA instead of
-   re-asking about the same named form the candidate just denied.
+2. DENIAL_PROBE_QUESTION_SYSTEM_PROMPT (F4 finding-fix, 2026-07-29 — was
+   FOLLOW_UP_QUESTION_SYSTEM_PROMPT until this fix) — pins that the model is
+   told to generalise to the broader SKILL AREA instead of re-asking about
+   the same named form the candidate just denied. The ADR-064 transfer probe
+   later split onto its own dedicated generator/prompt
+   (``question_generator_with_profile(..., denial_probe=True)`` ->
+   ``build_denial_probe_question_prompt`` /
+   ``DENIAL_PROBE_QUESTION_SYSTEM_PROMPT``); a "the candidate DENIED a
+   specific named form" ``follow_up_hint`` is issued EXCLUSIVELY through
+   that path now (services/session.py::_ask_denial_probe). These three tests
+   used to assert against FOLLOW_UP_QUESTION_SYSTEM_PROMPT, whose OWN hint
+   (the "be more specific" retry) never mentions a denial — the rule they
+   pinned could never fire on that prompt's actual call path. Re-pointed to
+   the prompt that actually generates this question.
 """
 
 from applire.prompts.interview import (
-    FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
+    DENIAL_PROBE_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
 )
 
@@ -112,23 +121,25 @@ def test_existing_truthfulness_rules_are_untouched():
     )
 
 
-# ── FOLLOW_UP_QUESTION_SYSTEM_PROMPT — skill-area framing (3b) ───────────────
+# ── DENIAL_PROBE_QUESTION_SYSTEM_PROMPT — skill-area framing (3b; F4
+# finding-fix, 2026-07-29: re-pointed here from FOLLOW_UP_QUESTION_SYSTEM_
+# PROMPT — see module docstring) ─────────────────────────────────────────────
 
 
-def test_follow_up_prompt_instructs_generalising_to_the_skill_area():
-    low = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT).lower()
+def test_denial_probe_prompt_instructs_generalising_to_the_skill_area():
+    low = _collapsed(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT).lower()
     assert "skill area" in low
     assert "do not ask about that same named form again" in low
 
 
-def test_follow_up_prompt_forbids_a_hard_coded_technology_list():
+def test_denial_probe_prompt_forbids_a_hard_coded_technology_list():
     # The model must choose the framing/examples itself — no lookup table
     # anywhere, per ADR-065 clause 2.
-    low = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT).lower()
+    low = _collapsed(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT).lower()
     assert "never rely on a fixed list of frameworks or technologies" in low
 
 
-def test_follow_up_prompt_illustrates_with_togaf_example_only():
+def test_denial_probe_prompt_illustrates_with_togaf_example_only():
     # One illustrative example is fine (it teaches the PATTERN); it must not
     # read as an enumerable taxonomy of skill areas. M7 finding-fix
     # (2026-07-29): pinned on the example's OWN content — TOGAF generalises
@@ -136,7 +147,7 @@ def test_follow_up_prompt_illustrates_with_togaf_example_only():
     # counting the filler phrase "e.g.", which could appear (or stop
     # appearing) anywhere else in the prompt without this guarantee changing
     # at all; the old assertion pinned prose style, not the rule.
-    collapsed = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT)
+    collapsed = _collapsed(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT)
     assert "TOGAF" in collapsed
     assert collapsed.count("enterprise architecture frameworks") == 1
 

@@ -59,6 +59,16 @@
 #     model draws the family and its examples from its own world knowledge
 #     (see services/session.py::_ask_denial_probe for the deterministic
 #     Python-side hint this framing responds to).
+#     F4 finding-fix (2026-07-29): this clause moved OUT of
+#     FOLLOW_UP_QUESTION_SYSTEM_PROMPT and into DENIAL_PROBE_QUESTION_SYSTEM_
+#     PROMPT below (see that prompt's own note) — the ADR-064 transfer probe
+#     later split onto its own dedicated generator/prompt, and the "candidate
+#     DENIED a specific named form" hint is now issued EXCLUSIVELY through
+#     that path (denial_probe=True in interview_graph.py); the follow-up path
+#     this prompt now serves exclusively is the "be more specific" retry,
+#     whose hint never mentions a denial. The clause was dead on this prompt
+#     and has been removed rather than left to describe behaviour this prompt
+#     can no longer produce.
 #
 # ADR-062 fix (2026-07-29) changes vs above:
 #   - QUESTION_SYSTEM_PROMPT: the "choices" schema now returns choice OBJECTS
@@ -458,13 +468,6 @@ Requirements:
 - Lead with the adjacent domain suggested in the follow-up hint
 - Be concrete: name the technology, regulation, industry, or context to explore
 - Remain encouraging — the candidate may simply not have recognised the connection
-- When the follow-up hint says the candidate DENIED a specific named form (one particular \
-framework, tool, standard, or certification), do NOT ask about that same named form again \
-under different wording. Generalise UPWARD to the broader SKILL AREA or FAMILY it belongs to, \
-and draw any examples from your own knowledge of that field — e.g. if the candidate denied \
-TOGAF, ask about enterprise architecture frameworks in general, never about TOGAF again by \
-another name. Never rely on a fixed list of frameworks or technologies for this — use your own \
-judgement for whatever domain the denied concept sits in.
 - Output ONLY the question text — no preamble, no numbering, no explanation"""
 
 
@@ -524,14 +527,29 @@ def build_follow_up_question_prompt(
 # follow-up (also routed through follow_up_hint, but WITHOUT this schema) is
 # UNCHANGED — it keeps choices=None via acomplete, see
 # build_follow_up_question_prompt above.
+#
+# F4 finding-fix (2026-07-29): the "generalise to the broader SKILL AREA, \
+# never the same named form again, no hard-coded taxonomy" rule — and its \
+# TOGAF illustration of the pattern — now live HERE, not on \
+# FOLLOW_UP_QUESTION_SYSTEM_PROMPT above. The transfer probe is the ONLY \
+# producer of a "the candidate DENIED a specific named form" follow_up_hint \
+# (services/session.py::_ask_denial_probe, always called with \
+# denial_probe=True — see interview_graph.py's routing); the "be more \
+# specific" retry's hint never mentions a denial. That conditional could \
+# never fire on the OTHER prompt, so the rule — and its test coverage \
+# (backend/tests/unit/prompts/test_interview_choice_coverage_prompts.py) — \
+# moved to the prompt that actually generates this question.
 
 DENIAL_PROBE_QUESTION_SYSTEM_PROMPT = ("""\
 You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
 The candidate has just DENIED direct experience with a specific named form (framework, tool, \
 standard, or certification). Your task is to generate ONE follow-up question probing the \
-broader SKILL AREA or FAMILY it belongs to — never the same named form again under different \
-wording, and never rely on a fixed, hard-coded list of frameworks or technologies — draw the \
-family and its examples from your own knowledge of that field.
+broader SKILL AREA or FAMILY it belongs to. Do NOT ask about that same named form again under \
+different wording — generalise UPWARD to the broader SKILL AREA or FAMILY, and draw any \
+examples from your own knowledge of that field — e.g. if the candidate denied TOGAF, ask about \
+enterprise architecture frameworks in general, never about TOGAF again by another name. Never \
+rely on a fixed list of frameworks or technologies for this — use your own judgement for \
+whatever domain the denied concept sits in.
 
 Generate 2-3 short answer choices covering this broader skill area. Choices are starting-point \
 options the candidate can select and expand; they are not exhaustive.

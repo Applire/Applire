@@ -2058,6 +2058,69 @@ class TestSendMessage:
         assert "GCP certification" in kwargs["follow_up_hint"]
 
     @pytest.mark.asyncio
+    async def test_hyphen_variant_cluster_gap_still_matches_the_denied_concept(
+        self, sqlite_session
+    ):
+        """F3 (2026-07-29): the cluster-membership gate in
+        `_select_denial_probe_concept` (session.py) matched the denied
+        concept against `state["gap_clusters_by_id"][current_gap]["gaps"]`
+        with `_concept_matches_ledger_key`'s OWN `.strip().casefold()`
+        normaliser — NOT `ats_audit._norm`, the hyphen-folding normaliser
+        M3 unified the rest of this probe path onto precisely because
+        "RAG-Pipeline" and "RAG pipeline" compare unequal otherwise. The
+        cluster text (clustering LLM) and the denied-concept text
+        (classification LLM) are independently generated — exactly where
+        spelling variation appears. Reproduced: cluster gaps carry the
+        hyphenated form "GCP-certification", the turn denies the
+        space-separated "GCP certification" (the ledger's own spelling) —
+        before the fix the cluster gate silently never fires and the probe
+        is skipped even though the SAME concept is JD-required and was just
+        denied."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _probe_gap_with_ledger(job, profile, required=True)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _make_active_session(job.id, profile.id, gap.id)
+        # Hyphenated cluster gap text — spelling variant of the ledger's
+        # "GCP certification" concept, from an independently generated LLM call.
+        session_record.state["gap_clusters_by_id"]["GCP certification"]["gaps"] = [
+            "GCP-certification"
+        ]
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _denied_turn(profile.profile_json, denied_concepts=["GCP certification"])
+        mock_gen = AsyncMock(
+            return_value={"question": "Any adjacent cloud platform experience?", "choices": None}
+        )
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile", new=mock_gen),
+        ):
+            result = await send_message(
+                session_record.id, "No, I have never touched GCP.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        # Did NOT advance — the probe fired despite the hyphen spelling variant.
+        assert result.current_gap_id == "GCP certification"
+        assert result.addressed_gap_ids == []
+        assert result.question == "Any adjacent cloud platform experience?"
+        _, kwargs = mock_gen.call_args
+        assert kwargs.get("follow_up_hint")
+        assert "GCP certification" in kwargs["follow_up_hint"]
+
+    @pytest.mark.asyncio
     async def test_denial_of_non_required_concept_advances_immediately(self, sqlite_session):
         """A denial of a concept the ledger does not mark 'required' is not
         JD-critical — unchanged behaviour: advances immediately, no probe."""
@@ -2159,6 +2222,23 @@ class TestSendMessage:
         denied = db_profile.profile_json["metadata"]["denied_concepts"]
         entry = next(d for d in denied if d["concept"] == "GCP certification")
         assert entry["denial_level"] == "partial"
+
+        # F5 (2026-07-29): the level-only escalation is a durable vault write
+        # and must leave a receipt in `enrichment_history` like every other
+        # write path (`record_denials`' return value was previously discarded
+        # here). One new entry, sourced "interview", carrying the
+        # denied_concepts FieldChange for THIS escalation.
+        history = db_profile.profile_json["metadata"]["enrichment_history"]
+        escalation_records = [
+            h for h in history
+            if any(
+                c.get("field") == "denied_concepts" and c.get("action") == "updated"
+                and "level only" in (c.get("rationale") or "")
+                for c in h.get("changes", [])
+            )
+        ]
+        assert len(escalation_records) == 1
+        assert escalation_records[0]["source"] == "interview"
 
     @pytest.mark.asyncio
     async def test_probe_answer_denying_a_different_concept_never_corrupts_original(

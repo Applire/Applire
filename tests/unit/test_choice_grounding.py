@@ -497,24 +497,42 @@ class TestDenialClauseScoping:
         text = "I haven't used GraphQL directly, but I've built with Next.js."
         assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
-    def test_affirmative_first_ordering_misattribution_is_a_documented_gap(self):
+    def test_affirmative_first_ordering_misattribution_is_now_caught(self):
         # F2 (2026-07-29): `_split_denial_choice` always treats the clause
-        # BEFORE the pivot as the exempt denial — an assumption that only
-        # holds when the model writes the denial FIRST. The identical
-        # misattributed claim from `test_verbatim_startupxyz_chip_is_dropped`
-        # above, with the two clauses simply reordered (bridge/affirmative
-        # first, denial second — an equally natural ordering), lands the
-        # fabricated content in the always-exempt pre-pivot half and is NOT
-        # caught. This is NOT a regression (the base branch behaves the
-        # same) and is NOT the fix this test pins — it documents the real,
-        # currently order-dependent guarantee (see choice_grounding.py's
-        # module docstring, "F2") so a future refactor doesn't silently
-        # assume this ordering is already covered.
+        # BEFORE the pivot as the exempt denial, so the term-evidence check
+        # (which only ever runs on the clause AFTER the pivot) cannot see
+        # this ordering — that half of the gap is real and stays open (a
+        # deterministic rule cannot tell which clause is the legitimate
+        # denial for term-evidence purposes). But the #236 employer-scoped
+        # guard is a content-coverage check against a NAMED employer's own
+        # bullets, which is order-blind — it does not need to know which
+        # clause is "the denial". Applying it PER CLAUSE (whichever names a
+        # known employer), not just to the designated affirmative half,
+        # closes this specific ordering hole: the identical misattributed
+        # claim from `test_verbatim_startupxyz_chip_is_dropped` above, with
+        # the two clauses simply reordered, is now caught too.
         text = (
             "I've worked with React and Next.js to create responsive "
             "applications at StartupXYZ, but I haven't used Tailwind CSS directly"
         )
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
+
+    def test_affirmative_first_correct_employer_is_kept(self):
+        # Companion to the above (over-drop discipline): the SAME reordering
+        # but with the TRUE employer named — must still survive.
+        text = (
+            "I've worked with React and Next.js to create responsive "
+            "applications at TechCorp, but I haven't used Tailwind CSS directly"
+        )
         assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+
+    def test_german_affirmative_first_fabricated_employer_is_dropped(self):
+        # German companion to test_affirmative_first_ordering_misattribution_is_now_caught.
+        text = (
+            "Ich habe React und Next.js bei StartupXYZ eingesetzt, aber mit "
+            "Tailwind CSS habe ich bisher nicht direkt gearbeitet."
+        )
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
 
 
 def _mode_a_state() -> dict:
