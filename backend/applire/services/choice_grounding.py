@@ -26,8 +26,8 @@ click away from an invented project.
 The prompt now instructs the model to ground chips in profile evidence; THIS
 module is the guarantee. A chip that *asserts* experience with a cluster/JD
 term survives only when the profile actually evidences that term (judged by
-``surface_present``, the shared US212 presence predicate). Honesty frames —
-chips that deny direct experience — may name the term; denying is the point.
+``surface_present``, the shared US212 presence predicate). Denial-level choices
+— chips that deny direct experience — may name the term; denying is the point.
 
 #236 (founder-acceptance F5): the whole-profile evidence pool above is too
 permissive once a chip names a specific employer. The live trace showed a chip
@@ -46,65 +46,72 @@ cluster-term check still applies.
 
 Truthfulness-critical: sits directly beside the honesty pipeline (ADR-040).
 
-Honesty-frame clause scoping (adversarial pass 2026-07-23): ``_is_honesty_frame``
-matches markers against the WHOLE chip, so a single "haven't" anywhere used to
-exempt the entire chip from every check above — including the #236
-employer-scoped guard. Live trace: "I haven't used Tailwind CSS directly, but
-I've worked with React and Next.js ... at StartupXYZ" — Next.js/React are real,
-but only at TechCorp GmbH, never StartupXYZ; the fabricated, misattributed
-AFFIRMATIVE clause rode along with the legitimate Tailwind denial.
-``filter_ungrounded_choices`` now splits an honesty frame at its denial→
-affirmation pivot (``_split_honesty_frame``) and runs the SAME checks — cluster/
-JD-term evidence, and the #236 employer-scoped guard when it names a known
-employer — on the affirmative remainder only. The denial clause itself stays
-fully exempt (naming the denied term is the point). A pure denial with no
-pivot keeps today's full-chip exemption.
+ADR-062 classification (declared per clause 6): this module computes FACTS
+only — token/substring presence of a named term against a text corpus, and
+company-name/legal-suffix matching. It never classifies what a chip *means*.
+
+Until 2026-07-29 that line was crossed: ``_is_honesty_frame`` matched a
+casefolded chip against ``_HONESTY_MARKERS``, a growing phrase list, to GUESS
+whether a chip was a denial or an assertion — exactly the "judgement disguised
+as a deterministic rule" ADR-062 names ``choice_grounding`` for. It was wrong
+in both directions the list was tuned against (typographic apostrophes,
+"no experience"/"keine Erfahrung") and reproducibly still wrong afterwards
+("I've never touched TOGAF.", "TOGAF kenne ich nicht.", an NBSP inside a
+marker phrase — none matched). Per ADR-062 clause 3 (deletion over repair)
+and clause 2 (judgements go to the model), the classification itself has been
+moved to the generator: ``prompts/interview.py`` now asks the model to tag
+every choice with its own ``level`` ("direct" | "partial" | "denial") as part
+of the coverage rule it already has to reason about. This module no longer
+GUESSES the level — it reads it off the choice and only ever *compares*
+(a fact), never *interprets* (a judgement). A choice with no level, or an
+unrecognised one, falls back to the pre-existing full grounding check — the
+safe direction, identical to the behaviour before levels existed.
+
+A "denial"-tagged choice is not trusted blindly, because the model can
+mislabel its own output: the chip's TEXT remains the authority for the
+company-attribution and content-coverage facts already checked here (#236),
+whether or not it is tagged "denial". Only the *term-evidence* requirement —
+"every cluster/JD term the chip names must appear in the profile" — is what a
+denial is exempt from, because a denial names the term to deny it; there is
+nothing to ground. See ``_level_of`` and the "denial" branch of
+``filter_ungrounded_choices`` for the exact scope of that exemption.
+
+Denial-clause scoping (adversarial pass 2026-07-23, preserved under the level
+tag): a chip can combine a denial with a bridging affirmative claim — "I
+haven't used Tailwind CSS directly, but I've worked with React and Next.js
+... at StartupXYZ." Live trace: Next.js/React are real, but only at TechCorp
+GmbH, never StartupXYZ; the fabricated, misattributed AFFIRMATIVE clause rode
+along with the legitimate Tailwind denial. For a "denial"-tagged choice,
+``filter_ungrounded_choices`` splits it at its denial→affirmation pivot
+(``_split_denial_choice``) and runs the SAME checks — cluster/JD-term
+evidence, and the #236 employer-scoped guard when it names a known employer —
+on the affirmative remainder only. The denial clause itself stays fully
+exempt (naming the denied term is the point). A pure denial with no pivot
+skips the term-evidence check entirely, but — because that check is the only
+thing a plain lexical mismatch on "TOGAF" vs. no evidence for "TOGAF" could
+ever have caught, whether the chip denies or claims it — still runs the
+employer-scoped guard when it names a known employer, so a mislabelled
+denial that borrows a real employer's name for a fabricated narrative is
+still caught deterministically (see docstring on ``filter_ungrounded_choices``
+for the residual gap this leaves: a mislabelled denial naming NO employer and
+asserting only the same, entirely unevidenced concept it claims to deny is
+not fact-distinguishable from a genuine denial by any deterministic signal —
+that is exactly the judgement ADR-062 assigns to the model via the tag, not
+to this module).
 """
 
+import logging
 import re
 from typing import Any
 
 from applire.services.ats_audit import _norm, skill_tokens, surface_present
 
-# A chip containing one of these (casefolded) markers is an honesty frame:
-# it names a term to DENY or hedge direct experience, not to claim it.
-# UI languages are en/de (chips are generated in the user's language).
-#
-# ADR-064 Task 3c finding: "no experience" / "keine Erfahrung" are at least as
-# natural a denial phrasing as any marker already below (they are literally
-# the negation the coverage rule in prompts/interview.py asks the model to
-# draft), yet neither matched before this fix. Proven with a live probe: an
-# absent-concept denial phrased "I have no experience with TOGAF." (or the
-# German "Ich habe keine Erfahrung mit TOGAF.") fell through to the ordinary
-# assertion path, asserted the unevidenced term, and was DROPPED — the honest
-# option silently removed from the candidate's choices. Mirrors the prior-art
-# lesson (typographic-apostrophe over-drop, adversarial pass 2026-07-23): an
-# ASCII/fixed-phrase marker list is inherently incomplete, so treat any gap
-# found here as evidence there may be more, not as a closed list.
-_HONESTY_MARKERS: tuple[str, ...] = (
-    # English
-    "haven't",
-    "have not",
-    "has not",
-    "not directly",
-    "no direct",
-    "no experience",
-    "not yet",
-    "never worked",
-    "don't have",
-    "do not have",
-    "closest experience",
-    # German
-    "nicht direkt",
-    "bisher nicht",
-    "bisher keine",
-    "noch nicht",
-    "noch keine",
-    "noch nie",
-    "keine direkte",
-    "keine erfahrung",
-    "habe ich nicht",
-)
+logger = logging.getLogger(__name__)
+
+# The three levels the generation prompt (ADR-064 + this fix) asks every
+# drafted choice to declare. A FACT read off the model's own output, not a
+# judgement this module makes — see the module docstring.
+_VALID_LEVELS = frozenset({"direct", "partial", "denial"})
 
 
 def _evidence_norm(profile: dict[str, Any]) -> str:
@@ -153,21 +160,35 @@ def _cluster_terms(cluster: dict[str, Any]) -> list[str]:
     return terms
 
 
-def _is_honesty_frame(choice: str) -> bool:
-    # Real models emit typographic apostrophes ("haven’t", U+2019/U+02BC) —
-    # normalise to ASCII before marker matching (blind agent probe 2026-07-11:
-    # the ASCII-only match over-dropped truthful frames).
-    folded = choice.casefold().replace("’", "'").replace("ʼ", "'")
-    return any(marker in folded for marker in _HONESTY_MARKERS)
+def _level_of(choice: Any) -> tuple[str, str | None]:
+    """Read a choice's text and declared level (FACT, per ADR-062 clause 6).
+
+    A choice is either the new shape — ``{"text": str, "level": str}`` — or a
+    bare string for backward compatibility (a caller that hasn't adopted
+    levels yet, or a model that ignored the schema). Returns
+    ``(text, level)`` where ``level`` is one of ``_VALID_LEVELS`` or ``None``.
+    ``None`` covers every defensive case at once: no "level" key, an empty/
+    null value, or a value that doesn't match one of the three known levels
+    (typo, translated word, hallucinated category) — all fall back to the
+    SAME safe default, the pre-existing full grounding check, identical to
+    behaviour before levels existed. This function never inspects the
+    choice's own wording to guess anything; it only reads a field.
+    """
+    if isinstance(choice, dict):
+        text = str(choice.get("text") or "").strip()
+        level_raw = choice.get("level")
+        level = str(level_raw).strip().lower() if level_raw else None
+        return text, (level if level in _VALID_LEVELS else None)
+    return str(choice).strip(), None
 
 
-# ── honesty-frame clause scoping — denial→affirmation pivot ─────────────────
+# ── denial-clause scoping — denial→affirmation pivot ─────────────────────────
 # Deterministic pivot phrases (EN + DE) that separate a denial clause from an
 # affirmative remainder in the "I haven't worked with X directly, but ..."
-# shape every real honesty-frame chip in this test suite uses. Matched
-# case-insensitively against a length-preserving fold (quotes only — NOT
-# casefold(), which can change string length for e.g. German "ß" and would
-# desync the position map back onto the original text).
+# shape a denial-level choice may take. Matched case-insensitively against a
+# length-preserving fold (quotes only — NOT casefold(), which can change
+# string length for e.g. German "ß" and would desync the position map back
+# onto the original text).
 _PIVOT_MARKERS: tuple[str, ...] = (
     ", but ", "; but ", ". but ",
     ", though ", ", however ",
@@ -178,41 +199,30 @@ _PIVOT_MARKERS: tuple[str, ...] = (
 
 
 def _fold_for_split(text: str) -> str:
-    """Length-preserving lower+quote-fold used only to locate marker/pivot
-    byte offsets that must map 1:1 back onto the original string."""
+    """Length-preserving lower+quote-fold used only to locate pivot byte
+    offsets that must map 1:1 back onto the original string."""
     return _fold_quotes(text).lower()
 
 
-def _split_honesty_frame(text: str) -> tuple[str, str | None]:
-    """Split an honesty-frame chip at its denial→affirmation pivot.
+def _split_denial_choice(text: str) -> tuple[str, str | None]:
+    """Split a "denial"-level choice at its denial→affirmation pivot.
 
-    Returns ``(text, None)`` for a pure denial with no pivot after its
-    honesty marker — today's full-chip exemption is unchanged. Otherwise
-    returns ``(denial, affirmative)`` split at the LAST pivot phrase that
-    occurs after the FIRST honesty marker in the chip. The denial half is
-    never checked (naming the denied term is the point); the affirmative
-    half goes through the normal grounding pipeline as its own chip.
+    Returns ``(text, None)`` for a pure denial with no pivot — nothing to
+    split, the whole chip is the denial. Otherwise returns
+    ``(denial, affirmative)`` split at the FIRST pivot phrase in the chip.
+    The denial half is never checked for term evidence (naming the denied
+    term is the point); the affirmative half goes through the normal
+    grounding pipeline as its own chip. Only called for choices the model
+    has already tagged "denial" — this function locates a clause boundary,
+    it does not decide whether the chip is a denial (see ``_level_of``).
     """
     folded = _fold_for_split(text)
 
-    marker_pos = -1
-    for marker in _HONESTY_MARKERS:
-        pos = folded.find(marker)
-        if pos != -1 and (marker_pos == -1 or pos < marker_pos):
-            marker_pos = pos
-    if marker_pos == -1:
-        return text, None  # caller only invokes this when _is_honesty_frame matched
-
     pivot_start, pivot_end = -1, -1
     for pivot in _PIVOT_MARKERS:
-        search_from = marker_pos
-        while True:
-            idx = folded.find(pivot, search_from)
-            if idx == -1:
-                break
-            if idx > pivot_start:
-                pivot_start, pivot_end = idx, idx + len(pivot)
-            search_from = idx + 1
+        idx = folded.find(pivot)
+        if idx != -1 and (pivot_start == -1 or idx < pivot_start):
+            pivot_start, pivot_end = idx, idx + len(pivot)
 
     if pivot_start == -1:
         return text, None  # pure denial — no affirmative clause to check
@@ -223,7 +233,7 @@ def _split_honesty_frame(text: str) -> tuple[str, str | None]:
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
 # _norm's NFKC pass already folds NBSP to a plain space, but typographic quotes
 # are a distinct codepoint (not a compatibility decomposition) — fold them
-# explicitly before matching, mirroring _is_honesty_frame's apostrophe fold.
+# explicitly before matching, mirroring _fold_for_split's apostrophe fold.
 _QUOTE_FOLD = str.maketrans({
     "’": "'", "‘": "'", "ʼ": "'",
     "“": '"', "”": '"',
@@ -408,7 +418,7 @@ def _passes_employer_scoped_guard(
 
 
 def filter_ungrounded_choices(
-    choices: list[str] | None,
+    choices: "list[str | dict[str, Any]] | None",
     cluster: dict[str, Any],
     profile: dict[str, Any],
     gap_category: str | None,  # noqa: ARG001 — one rule for all categories; kept for call-site clarity
@@ -417,7 +427,11 @@ def filter_ungrounded_choices(
 
     Keep a chip when every cluster/JD term it mentions is evidenced in the
     profile. Returns ``None`` when nothing survives (the UI then shows the
-    plain answer box — no scaffold beats a fabricated one).
+    plain answer box — no scaffold beats a fabricated one). Each item in
+    ``choices`` may be the new ``{"text": str, "level": str}`` shape or a
+    bare string; the return value is always ``list[str]`` regardless of
+    input shape — the API contract this feeds (``choices: list[str] | None``
+    in ``schemas/session.py``) does not change.
 
     #236: when a chip names a known employer, the check is scoped to THAT
     employer's own evidence (tech×employer attribution) and its remaining
@@ -425,12 +439,28 @@ def filter_ungrounded_choices(
     bullets (fabricated-context detection) — see ``_passes_employer_scoped_guard``.
     Chips naming no employer keep the original whole-profile cluster-term check.
 
-    Honesty-frame clause scoping (adversarial pass 2026-07-23): a chip that
-    denies direct experience ("I haven't worked with X directly, but ...") is
-    split at its denial→affirmation pivot (``_split_honesty_frame``) and the
-    checks above run on the AFFIRMATIVE remainder only. The denial clause
-    itself is always exempt — naming the denied term is the point. A pure
-    denial with no pivot keeps full-chip exemption, unchanged.
+    Level handling (this fix, 2026-07-29 — see module docstring for the
+    ADR-062 rationale): the model tags every choice with its own level.
+    - "direct" / "partial" / unrecognised or missing level: full existing
+      pipeline, unchanged — every cluster/JD term the chip asserts must be
+      evidenced.
+    - "denial": exempt from the term-evidence requirement — a denial names
+      the term to deny it, there is nothing to ground. Split at its
+      denial→affirmation pivot (``_split_denial_choice``, preserved from the
+      2026-07-23 clause-scoping fix): the affirmative remainder (if any)
+      still runs the full pipeline, so a bridging claim like "... but I've
+      worked with React and Next.js at StartupXYZ" is still checked. A pure
+      denial with no pivot additionally still runs the #236 employer-scoped
+      guard when it names a known employer — a mislabelled "denial" that
+      borrows a real employer's name for a fabricated narrative is caught
+      the same way a "direct"-tagged chip would be. A pure denial naming NO
+      employer and asserting only the same, entirely unevidenced concept it
+      claims to deny is trusted: no deterministic, fact-only signal can tell
+      "I have no experience with X" apart from a claim about X when the
+      profile has zero evidence for X either way — that is the judgement
+      ADR-062 assigns to the model via the tag, not to this module. A
+      mislabelling of that shape is logged at WARNING when caught by the
+      employer guard; the untraceable case is a documented residual gap.
     """
     if not choices:
         return None
@@ -439,36 +469,61 @@ def filter_ungrounded_choices(
     terms = _cluster_terms(cluster)
     work_experience = profile.get("work_experience") or []
 
+    def _run_pipeline(candidate_text: str, *, require_asserted_for_content_check: bool = False) -> bool:
+        """The pre-existing full grounding pipeline (unchanged): employer-scoped
+        guard when a known employer is named, else the whole-profile cluster-
+        term evidence check. Returns True when the text may be kept."""
+        candidate_norm = _norm(_fold_quotes(candidate_text))
+        matched_entries = _match_employers(candidate_norm, work_experience)
+        if matched_entries:
+            return _passes_employer_scoped_guard(
+                candidate_norm, terms, matched_entries, profile,
+                require_asserted_for_content_check=require_asserted_for_content_check,
+            )
+        asserted = [t for t in terms if surface_present(t, candidate_norm)]
+        return all(surface_present(t, evidence) for t in asserted)
+
     kept: list[str] = []
     for choice in choices:
-        text = str(choice).strip()
+        text, level = _level_of(choice)
         if not text:
             continue
-        if _is_honesty_frame(text):
-            _denial, affirmative = _split_honesty_frame(text)
-            if affirmative is None:
-                kept.append(text)  # pure denial, no pivot — full exemption
-                continue
-            aff_norm = _norm(_fold_quotes(affirmative))
-            matched_entries = _match_employers(aff_norm, work_experience)
-            if matched_entries:
-                if _passes_employer_scoped_guard(
-                    aff_norm, terms, matched_entries, profile,
-                    require_asserted_for_content_check=True,
-                ):
-                    kept.append(text)
-                continue
-            asserted = [t for t in terms if surface_present(t, aff_norm)]
-            if all(surface_present(t, evidence) for t in asserted):
+
+        if level != "denial":
+            # "direct" / "partial" / unknown — full pipeline, unchanged.
+            if _run_pipeline(text):
                 kept.append(text)
             continue
+
+        denial_clause, affirmative = _split_denial_choice(text)
+        if affirmative is not None:
+            # Bridging denial: the affirmative remainder is a real assertion
+            # and runs the full pipeline exactly like a "partial" choice.
+            if _run_pipeline(affirmative, require_asserted_for_content_check=True):
+                kept.append(text)
+            else:
+                logger.warning(
+                    "choice_grounding: dropped a 'denial'-tagged choice whose "
+                    "affirmative clause failed the grounding pipeline "
+                    "(mislabelled by the model): %r",
+                    text,
+                )
+            continue
+
+        # Pure denial, no pivot — exempt from term-evidence, but a
+        # mislabelled overclaim naming a real employer is still caught.
         choice_norm = _norm(_fold_quotes(text))
         matched_entries = _match_employers(choice_norm, work_experience)
         if matched_entries:
             if _passes_employer_scoped_guard(choice_norm, terms, matched_entries, profile):
                 kept.append(text)
+            else:
+                logger.warning(
+                    "choice_grounding: dropped a 'denial'-tagged choice that "
+                    "failed the employer-scoped guard (mislabelled by the "
+                    "model): %r",
+                    text,
+                )
             continue
-        asserted = [t for t in terms if surface_present(t, choice_norm)]
-        if all(surface_present(t, evidence) for t in asserted):
-            kept.append(text)
+        kept.append(text)  # trust the tag — nothing left to ground
     return kept or None

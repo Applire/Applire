@@ -436,7 +436,12 @@ async def question_generator_with_profile(
     reviewed["choices"] = rc if isinstance(rc, list) and rc else None
     # #110 (blind PQ F5): the code-level truthfulness guarantee — a chip that
     # asserts an un-evidenced JD/cluster term never reaches the user, no matter
-    # what the prompt produced. Honesty frames pass.
+    # what the prompt produced. Denial-level chips pass (ADR-062 fix,
+    # 2026-07-29): the prompt now asks the model to tag each choice's own
+    # "level" ({"text": ..., "level": "direct"|"partial"|"denial"}) instead of
+    # choice_grounding.py guessing it from a phrase-marker list. This call
+    # also flattens back to list[str] — the API contract in
+    # schemas/session.py (choices: list[str] | None) is unchanged.
     reviewed["choices"] = filter_ungrounded_choices(
         reviewed["choices"], cluster, profile, gap_category
     )

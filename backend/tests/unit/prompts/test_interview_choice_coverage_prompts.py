@@ -136,3 +136,33 @@ def test_follow_up_prompt_illustrates_with_togaf_example_only():
     assert "enterprise architecture frameworks" in collapsed
     # No second worked example smuggled in alongside it.
     assert collapsed.count("e.g.") == 1
+
+
+# ── ADR-062 fix (2026-07-29) — level-tagged choice schema, Findings 1 & 3 ────
+
+
+def test_choices_schema_asks_for_a_level_per_choice():
+    # Finding 1: the generator must STATE the level, not leave it to be
+    # guessed from wording downstream. Every choice in the schema example
+    # carries "level" alongside "text", enumerating the three known values.
+    collapsed = _collapsed(QUESTION_SYSTEM_PROMPT)
+    assert '"level"' in collapsed
+    assert '"direct" | "partial" | "denial"' in collapsed
+
+
+def test_direct_caveat_is_folded_into_the_first_coverage_bullet():
+    # Finding 3: the DIRECT-only-when-evidenced caveat must appear in the
+    # SAME bullet as "one at the DIRECT level" — not only two bullets later,
+    # where a model weighting the first, assertive instruction over a later
+    # correction could fabricate a direct-level claim to satisfy coverage.
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    i_direct = low.index("one at the direct level")
+    i_partial = low.index("one at the partial level")
+    i_caveat = low.index("evidences it", i_direct)
+    assert i_direct < i_caveat < i_partial
+
+
+def test_direct_caveat_still_present_later_too():
+    # Belt and braces: the pre-existing later bullet is kept, not replaced.
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert low.count("evidences it") >= 2

@@ -18,8 +18,9 @@
 """#110 — deterministic grounding filter for interview starting-point chips.
 
 An LLM-drafted chip may only ASSERT experience with a JD/cluster term when the
-profile actually evidences that term. Honesty frames (chips that deny direct
-experience) may name the term. The guarantee lives in code, not in the prompt.
+profile actually evidences that term. A "denial"-level chip (the model's own
+tag, ADR-062 fix 2026-07-29 — see choice_grounding.py's module docstring) may
+name the term to deny it. The guarantee lives in code, not in the prompt.
 """
 
 import pytest
@@ -51,6 +52,11 @@ PROFILE = {
 }
 
 
+def _denial(text: str) -> dict:
+    """Shorthand for the new generation-time choice shape."""
+    return {"text": text, "level": "denial"}
+
+
 class TestFilterUngroundedChoices:
     def test_affirmative_chip_with_evidenced_term_is_kept(self):
         chips = ["My AWS work included migrating our eQMS — happy to detail the validation."]
@@ -62,28 +68,30 @@ class TestFilterUngroundedChoices:
         chips = ["I qualified an Azure-hosted MES including IQ/OQ documentation."]
         assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") is None
 
-    def test_honesty_frame_may_name_the_unevidenced_term(self):
-        chips = ["I haven't worked with Azure directly, but my AWS migration covered similar controls."]
-        assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
+    def test_denial_level_choice_may_name_the_unevidenced_term(self):
+        text = "I haven't worked with Azure directly, but my AWS migration covered similar controls."
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
 
-    def test_typographic_apostrophe_honesty_frame_is_recognised(self):
-        # Blind agent probe 2026-07-11: real models emit "haven’t" (U+2019);
-        # the ASCII-only marker missed it and over-dropped truthful frames.
-        chips = ["I haven’t worked directly with Azure, but I’ve used Docker in CI/CD pipelines."]
-        assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
+    def test_typographic_apostrophe_denial_choice_is_kept(self):
+        # Blind agent probe 2026-07-11: real models emit "haven’t" (U+2019).
+        # Level is now a tag, not guessed from the apostrophe — this pins that
+        # the affirmative-clause pipeline still folds typographic quotes
+        # correctly on the split-off remainder.
+        text = "I haven’t worked directly with Azure, but I’ve used Docker in CI/CD pipelines."
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
 
-    def test_german_honesty_frame_is_recognised(self):
-        chips = ["Mit Azure habe ich bisher nicht direkt gearbeitet, aber meine AWS-Migration war vergleichbar."]
-        assert filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C") == chips
+    def test_german_denial_choice_is_recognised(self):
+        text = "Mit Azure habe ich bisher nicht direkt gearbeitet, aber meine AWS-Migration war vergleichbar."
+        assert filter_ungrounded_choices([_denial(text)], CLUSTER, PROFILE, "C") == [text]
 
-    def test_mixed_list_keeps_grounded_and_frames_drops_invented(self):
-        chips = [
-            "My AWS work included the eQMS migration at MedTech GmbH.",
-            "I qualified an Azure-hosted MES.",
-            "I haven't worked with Azure directly, but I know cloud validation from AWS.",
-        ]
+    def test_mixed_list_keeps_grounded_and_denial_drops_invented(self):
+        # Also exercises mixed bare-string / tagged-dict input in one list.
+        text0 = "My AWS work included the eQMS migration at MedTech GmbH."
+        text1 = "I qualified an Azure-hosted MES."
+        text2 = "I haven't worked with Azure directly, but I know cloud validation from AWS."
+        chips = [text0, text1, _denial(text2)]
         out = filter_ungrounded_choices(chips, CLUSTER, PROFILE, "C")
-        assert out == [chips[0], chips[2]]
+        assert out == [text0, text2]
 
     def test_all_dropped_returns_none(self):
         chips = ["I validated an Azure LIMS.", "My Azure experience spans five years."]
@@ -111,16 +119,14 @@ class TestFilterUngroundedChoices:
         assert filter_ungrounded_choices([], CLUSTER, PROFILE, "B") is None
 
 
-# ── ADR-064 Task 3c — "no experience" / "keine Erfahrung" denial coverage ────
-# The filter was built when every choice was an assertion. A live probe run
-# while investigating Task 3 found that "I have no experience with X." and
-# "Ich habe keine Erfahrung mit X." — both entirely ordinary denial phrasings,
-# and neither a hedge — were NOT recognised as honesty frames by the
-# pre-existing _HONESTY_MARKERS list (only "no direct"/"keine direkte" were
-# covered, not the plain "no experience"/"keine Erfahrung" form). Because they
-# name the unevidenced concept, they fell through to the ordinary assertion
-# check and were DROPPED — the honest option silently removed from the
-# candidate's choices. Fixed by extending _HONESTY_MARKERS; pinned below.
+# ── Finding 1 (2026-07-29) — denial coverage without a marker list ──────────
+# The pre-existing _HONESTY_MARKERS phrase list guessed whether a choice was a
+# denial from its wording, and stayed leaky no matter how often it was
+# extended (ADR-062: a tuned matcher keeps the defect and adds a constant).
+# The reviewer confirmed all seven ordinary denials below were STILL silently
+# dropped, in both product languages, even after the prior marker-list fix.
+# The fix moves the classification to the generator: the model tags each
+# choice's own "level", and this module only ever compares, never guesses.
 TOGAF_CLUSTER = {
     "id": "cluster-ea",
     "label": "Enterprise architecture frameworks",
@@ -142,34 +148,117 @@ EA_PROFILE = {
     ],
 }
 
+# The exact seven strings named in the finding — reproduced directly.
+_REPORTED_DENIALS_EN = [
+    "I've never touched TOGAF.",
+    "I'm not familiar with TOGAF.",
+    "TOGAF isn't something I've worked on.",
+    "I lack any TOGAF experience.",
+]
+_REPORTED_DENIALS_DE = [
+    "TOGAF kenne ich nicht.",
+    "TOGAF sagt mir nichts.",
+    "Mit TOGAF habe ich keinerlei Berührungspunkte.",
+]
 
-class TestNoExperienceDenialCoverage:
-    def test_plain_no_experience_denial_survives(self):
-        # Before the fix this was silently dropped — reproduce it directly.
-        chips = ["I have no experience with TOGAF."]
-        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
 
-    def test_german_keine_erfahrung_denial_survives(self):
-        chips = ["Ich habe keine Erfahrung mit TOGAF."]
-        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
+class TestDenialLevelCoverage:
+    @pytest.mark.parametrize("text", _REPORTED_DENIALS_EN)
+    def test_reported_english_denial_survives_when_tagged(self, text):
+        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
 
-    def test_german_bisher_keine_denial_survives(self):
-        chips = ["Mit TOGAF habe ich bisher keine Berührungspunkte."]
-        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == chips
+    @pytest.mark.parametrize("text", _REPORTED_DENIALS_DE)
+    def test_reported_german_denial_survives_when_tagged(self, text):
+        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
 
-    def test_overclaiming_choice_for_the_same_absent_concept_still_dropped(self):
-        # The fix must not turn the filter into a rubber stamp — an
-        # affirmative claim for the same unevidenced concept is still cut.
+    def test_overclaiming_untagged_choice_for_the_same_absent_concept_still_dropped(self):
+        # No level tag at all (unknown) — falls back to the pre-existing
+        # full check, unchanged: an affirmative claim for the same
+        # unevidenced concept is still cut.
         chips = ["I led our TOGAF adoption end to end."]
         assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") is None
 
+    def test_overclaiming_direct_tagged_choice_still_dropped(self):
+        # Required test: the original protection is intact for "direct".
+        chips = [{"text": "I led our TOGAF adoption end to end.", "level": "direct"}]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") is None
+
     def test_mixed_list_keeps_the_denial_and_drops_the_overclaim(self):
-        chips = [
-            "I have no experience with TOGAF.",
-            "I led our TOGAF adoption end to end.",
-        ]
+        denial_text = "I have no experience with TOGAF."
+        overclaim_text = "I led our TOGAF adoption end to end."
+        chips = [_denial(denial_text), {"text": overclaim_text, "level": "direct"}]
         out = filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C")
-        assert out == [chips[0]]
+        assert out == [denial_text]
+
+
+# ── Finding 2 (2026-07-29) — NBSP normalisation ──────────────────────────────
+# _is_honesty_frame's ad hoc apostrophe-only fold (`.casefold().replace(...)`)
+# is deleted along with the marker list it served (Finding 1's fix), so the
+# reported live failure — an ordinary non-breaking space inside a denial
+# defeating a marker — is MOOT: there is no longer any marker match on the
+# denial path at all. The case is reproduced here anyway, against the
+# surviving code path (a pure denial's term-evidence exemption), to prove the
+# NBSP no longer matters to whether the chip is kept.
+class TestNbspNormalisation:
+    def test_nbsp_inside_a_denial_choice_survives(self):
+        # applire.services.ats_audit._norm (already used throughout this
+        # module for evidence/employer matching) does full NFKC normalisation
+        # and folds NBSP — this exercises that path via the pivot-split
+        # affirmative remainder AND the pure-denial exemption.
+        text = "I have no\xa0experience with TOGAF."
+        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
+
+
+# ── Finding 1, item 3 — the "denial" tag is not trusted blindly ─────────────
+# A deterministic, fact-only backstop for a mislabelled "denial": the #236
+# employer-scoped guard (lexical/token matching against a NAMED employer's
+# own evidence) still runs even for a "denial"-tagged pure claim. A bare
+# conceptual overclaim with NO employer named and no other factual anchor is
+# NOT distinguishable from a genuine denial by any deterministic signal when
+# the profile has zero evidence for the concept either way — see
+# choice_grounding.py's module docstring for why that residual gap is by
+# design (ADR-062 assigns that judgement to the model, not to this module).
+class TestDenialTagNotTrustedBlindly:
+    def test_mislabelled_denial_naming_a_real_employer_is_still_dropped(self, caplog):
+        # Kubernetes is real at Applire, never at NordPharm (see the #236
+        # fixtures below) — a "denial"-tagged chip that actually claims it at
+        # the wrong employer must still be caught and logged.
+        cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
+        text = "At NordPharm, I deployed our services on Kubernetes clusters."
+        with caplog.at_level("WARNING"):
+            out = filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C")
+        assert out is None
+        assert "mislabelled" in caplog.text
+
+    def test_denial_naming_its_real_employer_is_kept(self):
+        # Sanity companion: the SAME shape but the correct employer — the
+        # backstop must not over-drop a truthful (if oddly-tagged) claim.
+        cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
+        text = "At Applire, I deployed our services on Kubernetes clusters."
+        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C") == [text]
+
+
+# ── missing / unrecognised level — safe fallback ─────────────────────────────
+class TestLevelFallback:
+    def test_missing_level_falls_back_to_existing_grounding_check_and_drops(self):
+        # No "level" key at all: unknown, falls back to the pre-existing full
+        # pipeline — the safe direction, identical to behaviour before levels
+        # existed. An honest denial with no level tag gets NO special
+        # treatment; this is the documented trade-off, not a regression.
+        chips = [{"text": "I have no experience with TOGAF."}]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") is None
+
+    def test_unrecognised_level_falls_back_to_existing_grounding_check_and_drops(self):
+        chips = [{"text": "I have no experience with TOGAF.", "level": "hedge"}]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") is None
+
+    def test_missing_level_grounded_choice_is_still_kept(self):
+        text = "I designed the EA governance model."
+        chips = [{"text": text}]
+        assert filter_ungrounded_choices(chips, TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
+
+    def test_empty_choices_list_and_blank_text_are_handled(self):
+        assert filter_ungrounded_choices([{"text": "  "}], TOGAF_CLUSTER, EA_PROFILE, "C") is None
 
 
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
@@ -280,13 +369,13 @@ class TestEmployerScopedAttributionGuard:
         chip = "At Applire, I deployed our services on Kubernetes clusters."
         assert filter_ungrounded_choices([chip], cluster, NORDPHARM_PROFILE, "C") == [chip]
 
-    def test_honesty_frame_naming_an_employer_to_deny_is_kept(self):
-        chip = (
+    def test_denial_naming_an_employer_to_deny_is_kept(self):
+        text = (
             "I haven’t worked with Kubernetes at NordPharm, but I’ve run it in "
             "production at Applire."
         )
         cluster = {"label": "Container Orchestration", "gaps": ["Kubernetes"], "jd_skills": ["Kubernetes"]}
-        assert filter_ungrounded_choices([chip], cluster, NORDPHARM_PROFILE, "C") == [chip]
+        assert filter_ungrounded_choices([_denial(text)], cluster, NORDPHARM_PROFILE, "C") == [text]
 
     def test_employer_free_scaffold_chip_still_passes(self):
         # No employer named — today's cluster-term-only behaviour is unchanged.
@@ -316,11 +405,12 @@ class TestEmployerScopedAttributionGuard:
         assert filter_ungrounded_choices([chip], AI_CLUSTER, NORDPHARM_PROFILE, "B") == [chip]
 
 
-# ── honesty-frame clause scoping (adversarial pass, 2026-07-23) ──────────────
+# ── denial-clause scoping (adversarial pass 2026-07-23, preserved under the
+# level tag instead of marker detection) ─────────────────────────────────────
 # Live-reproduced bypass: "I haven't used Tailwind CSS directly, but I've
 # worked with React and Next.js to create responsive applications at
 # StartupXYZ" — Next.js/React exist ONLY at TechCorp GmbH in the vault, never
-# at StartupXYZ. The whole-chip honesty exemption let the fabricated,
+# at StartupXYZ. A whole-chip denial exemption would let the fabricated,
 # employer-misattributed AFFIRMATIVE clause ride along with the legitimate
 # Tailwind denial, bypassing the #236 employer-scoped guard entirely.
 FRONTEND_CLUSTER = {
@@ -357,63 +447,63 @@ FRONTEND_PROFILE = {
 }
 
 
-class TestHonestyFrameClauseScoping:
+class TestDenialClauseScoping:
     def test_verbatim_startupxyz_chip_is_dropped(self):
         # The live-reproduced bug: Next.js/React misattributed to StartupXYZ.
-        chip = (
+        text = (
             "I haven't used Tailwind CSS directly, but I've worked with React "
             "and Next.js to create responsive applications at StartupXYZ"
         )
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
 
     def test_same_chip_with_employer_corrected_is_kept(self):
         # Identical claim, correct employer — the affirmative clause is truthful.
-        chip = (
+        text = (
             "I haven't used Tailwind CSS directly, but I've worked with React "
             "and Next.js to create responsive applications at TechCorp"
         )
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_truthful_affirmative_clause_with_correct_employer_is_kept(self):
-        # Over-drop discipline (#207 lesson): a truthful honesty-frame
+        # Over-drop discipline (#207 lesson): a truthful denial-clause
         # affirmation naming the RIGHT employer must survive.
-        chip = (
+        text = (
             "I haven't used Tailwind directly, but I've worked with React and "
             "Next.js at TechCorp."
         )
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_pure_denial_with_no_pivot_keeps_full_exemption(self):
-        chip = "I haven't used Tailwind CSS directly."
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        text = "I haven't used Tailwind CSS directly."
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_pure_denial_typographic_apostrophe_no_pivot_keeps_full_exemption(self):
-        chip = "I haven’t used Tailwind CSS directly."
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        text = "I haven’t used Tailwind CSS directly."
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_pure_denial_german_no_pivot_keeps_full_exemption(self):
-        chip = "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet."
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        text = "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet."
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_german_pivot_misattributed_affirmative_is_dropped(self):
-        chip = (
+        text = (
             "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet, aber ich "
             "habe React und Next.js bei StartupXYZ eingesetzt."
         )
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") is None
 
     def test_german_pivot_correct_employer_affirmative_is_kept(self):
-        chip = (
+        text = (
             "Mit Tailwind CSS habe ich bisher nicht direkt gearbeitet, aber ich "
             "habe React und Next.js bei TechCorp eingesetzt."
         )
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
     def test_affirmative_naming_no_employer_with_evidenced_term_is_kept(self):
         # No employer named in the affirmative — today's whole-profile
         # cluster-term check still applies (unchanged).
-        chip = "I haven't used GraphQL directly, but I've built with Next.js."
-        assert filter_ungrounded_choices([chip], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [chip]
+        text = "I haven't used GraphQL directly, but I've built with Next.js."
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
 
 def _mode_a_state() -> dict:
@@ -427,7 +517,10 @@ def _mode_a_state() -> dict:
 
 
 class _UngroundedChipsProvider(LLMProvider):
-    """Drafts one grounded chip and one fabricated Azure claim (blind-PQ F5)."""
+    """Drafts one grounded chip and one fabricated Azure claim (blind-PQ F5),
+    using the OLD plain-string choices shape — proves the pipeline still
+    tolerates a model that ignores the level-tagged schema (unknown level,
+    falls back to the existing check)."""
 
     async def acomplete(self, prompt, **kwargs):
         return ""
@@ -451,6 +544,55 @@ async def test_mode_a_generator_drops_ungrounded_chips():
     )
     assert out["question"]
     assert out["choices"] == ["My AWS work included migrating our eQMS."]
+
+
+class _LevelTaggedChoicesProvider(LLMProvider):
+    """Drafts the NEW {"text", "level"} choice shape: a direct claim, a
+    denial, and a "direct"-tagged overclaim — end-to-end proof that (a)
+    tagged choices flow through question_generator_with_profile, (b) the
+    RETURNED shape is still list[str] — the API/frontend contract in
+    schemas/session.py (choices: list[str] | None) is unchanged — and (c)
+    the direct/partial grounding check still runs unmodified."""
+
+    async def acomplete(self, prompt, **kwargs):
+        return ""
+
+    async def aparse_json(self, prompt, **kwargs):
+        if "language reviewer" in (kwargs.get("system") or "").lower():
+            return {"approved": True, "issues": [], "feedback": ""}
+        return {
+            "question": "How does your cloud experience map to this role?",
+            "choices": [
+                {
+                    "text": "My AWS work included migrating our eQMS.",
+                    "level": "direct",
+                },
+                {
+                    "text": "I have no experience with Azure.",
+                    "level": "denial",
+                },
+                {
+                    "text": "I led our Azure rollout end to end.",
+                    "level": "direct",  # unevidenced — must still be dropped
+                },
+            ],
+        }
+
+
+@pytest.mark.asyncio
+async def test_mode_a_generator_returns_flat_string_list_for_tagged_choices():
+    out = await question_generator_with_profile(
+        _mode_a_state(), PROFILE, _LevelTaggedChoicesProvider(), gap_category="C", lang="en"
+    )
+    assert out["question"]
+    # Every kept element is a bare str (no leaked {"text", "level"} dicts) —
+    # the frontend TS types (choices: string[] | null) and
+    # schemas/session.py (choices: list[str] | None) are untouched.
+    assert out["choices"] == [
+        "My AWS work included migrating our eQMS.",
+        "I have no experience with Azure.",
+    ]
+    assert all(isinstance(c, str) for c in out["choices"])
 
 
 def _nordpharm_mode_a_state() -> dict:

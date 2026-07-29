@@ -59,6 +59,25 @@
 #     model draws the family and its examples from its own world knowledge
 #     (see services/session.py::_ask_denial_probe for the deterministic
 #     Python-side hint this framing responds to).
+#
+# ADR-062 fix (2026-07-29) changes vs above:
+#   - QUESTION_SYSTEM_PROMPT: the "choices" schema now returns choice OBJECTS
+#     ({"text": ..., "level": "direct"|"partial"|"denial"}), not bare strings.
+#     services/choice_grounding.py used to GUESS a choice's level from its
+#     wording via a phrase-marker list (leaky — real denials like "I've never
+#     touched TOGAF." didn't match, and it's exactly the deterministic-
+#     judgement shape ADR-062 forbids). The coverage rule already asks the
+#     model to reason about direct/partial/denial when drafting; this change
+#     only asks it to STATE that reasoning per choice, so deterministic code
+#     can compare instead of guess. The coverage and truthfulness rules
+#     themselves are unchanged — only the output shape changed. The DIRECT-
+#     level caveat ("only when the profile evidences it") now also appears in
+#     the coverage rule's first bullet, not only two bullets later — a model
+#     weighting the first, assertive instruction over a later correction is
+#     exactly the failure the caveat exists to prevent.
+#   - prompts/review_question_language.py's schema/instructions were updated
+#     to match: preserve each choice's "level" verbatim (never translate or
+#     drop it), and "level" is metadata the language reviewer must not judge.
 
 import json
 
@@ -127,8 +146,10 @@ profile shows no evidence for.
 Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
 flavours of "yes"):
 - Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
-(the candidate has this experience themselves), one at the PARTIAL level (adjacent, \
-transferable, or partial exposure), and one DENIAL (no experience with this specific concept).
+— ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
+experience themselves); if it does not, omit DIRECT and offer PARTIAL + DENIAL only — one at \
+the PARTIAL level (adjacent, transferable, or partial exposure), and one DENIAL (no experience \
+with this specific concept).
 - The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
 into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
 denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
@@ -139,6 +160,9 @@ summary below actually evidences it. So on a genuine gap (the profile shows NO e
 concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
 that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
 third slot.
+- Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
+or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
+statement of fact about the choice you are drafting, not an extra rule: state it truthfully.
 
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
@@ -149,7 +173,10 @@ Requirements:
 Schema:
 {
   "question": "The question text",
-  "choices": ["Option A", "Option B"] or null
+  "choices": [
+    {"text": "Option A", "level": "direct" | "partial" | "denial"},
+    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+  ] or null
 }"""
 
 
