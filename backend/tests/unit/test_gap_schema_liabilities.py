@@ -68,6 +68,54 @@ def test_response_derives_keyword_liabilities_from_the_ledger():
     assert [e.concept for e in resp.keyword_liabilities] == ["RAG"]
 
 
+# ── ADR-064 — denial_level invariant + the Pydantic-drop regression ─────────
+
+
+def test_keyword_ledger_entry_drops_denial_level_when_not_denied(caplog):
+    """M2 finding-fix (2026-07-29): denial_level is meaningful ONLY when
+    status == "denied" — any other combination is a data anomaly, but this
+    schema validates a PERSISTED-READ path (GapAnalysis.keyword_ledger rows
+    coming back OUT of the database), so the anomaly must DEGRADE (drop the
+    inconsistent field, log a warning) rather than 500 every GET of that gap
+    analysis — matching every other back-compat concern in this schema
+    (narrative_backed defaults instead of raising)."""
+    with caplog.at_level("WARNING"):
+        e = KeywordLedgerEntry(
+            concept="Python", fit_weight=1.0, status="direct", claimable=True,
+            denial_level="direct",
+        )
+    assert e.denial_level is None
+    assert e.status == "direct"  # the rest of the row survives untouched
+    assert any(
+        "denial_level" in r.message and "Python" in r.message for r in caplog.records
+    )
+
+
+def test_keyword_ledger_entry_allows_denial_level_when_denied():
+    e = KeywordLedgerEntry(
+        concept="BaFin supervision", fit_weight=1.0, status="denied",
+        claimable=False, denial_level="partial",
+    )
+    assert e.denial_level == "partial"
+
+
+def test_ledger_row_roundtrips_denial_level_through_gap_analysis_response():
+    """The Pydantic-drop regression: GapAnalysisResponse validates every
+    ledger row through KeywordLedgerEntry(**e) (_derive_keyword_liabilities),
+    and Pydantic v2's default extra="ignore" would silently drop an
+    unmodelled key on every API response — denial_level must survive."""
+    ledger = [
+        {
+            "concept": "BaFin supervision", "surface_forms": ["BaFin supervision"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "denied",
+            "evidence": "Candidate explicitly stated a limit here (interview).",
+            "claimable": False, "denial_level": "partial",
+        },
+    ]
+    resp = GapAnalysisResponse.model_validate(_base_kwargs(keyword_ledger=ledger))
+    assert resp.keyword_ledger[0].denial_level == "partial"
+
+
 def test_response_keyword_liabilities_empty_when_no_ledger():
     resp = GapAnalysisResponse.model_validate(_base_kwargs())
     assert resp.keyword_liabilities == []

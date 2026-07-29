@@ -38,6 +38,8 @@ MODE B (Guided Build):
 State is persisted as JSONB in interview_sessions.state between HTTP calls.
 """
 
+from typing import Any
+
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.constants import (
@@ -45,9 +47,11 @@ from applire.constants import (
     INTERVIEW_QUESTION_MAX_TOKENS,
 )
 from applire.prompts.interview import (
+    DENIAL_PROBE_QUESTION_SYSTEM_PROMPT,
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
+    build_denial_probe_question_prompt,
     build_field_gap_question_prompt,
     build_follow_up_question_prompt,
     build_guided_question_prompt,
@@ -321,6 +325,68 @@ async def _review_question_language(
     )
 
 
+_VALID_CHOICE_LEVELS = {"direct", "partial", "denial"}
+
+
+def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> Any:
+    """Deterministic FILL-IN (never an override) for a choice's "level" tag
+    surviving the language-review/refinement pass (ADR-062 fix follow-up,
+    2026-07-29; F1 fix, 2026-07-29).
+
+    ``_review_question_language`` above runs a full LLM refinement loop; its
+    ONLY guarantee that a choice's "level" field survives unchanged is prompt
+    instruction ("preserve each choice's level verbatim"). If the reviewer
+    drops, translates, or renames the field, every honest denial choice
+    silently starts being filtered out again by ``filter_ungrounded_choices``
+    (which falls back to the full grounding check for an unrecognised/missing
+    level) — the EXACT bug this branch fixed, reintroduced one prompt drift
+    away.
+
+    BUT: the "do not reorder choices" guarantee lives in the SAME prompt
+    sentence as "preserve level verbatim". A model that ignores one plausibly
+    ignores the other. Carrying a level over BY INDEX UNCONDITIONALLY — even
+    when the reviewed choice already has its own valid level — trades a
+    fail-safe defect (an unrecognised level merely over-drops, via the full
+    grounding check) for a fail-UNSAFE one (a reordered choice's correct
+    level gets silently overwritten with the WRONG level, e.g. a fabricated
+    claim inheriting "denial" and becoming grounding-exempt while an honest
+    denial inherits "direct" and gets deleted). Never trade fail-safe for
+    fail-unsafe.
+
+    So: only FILL IN a level when the reviewed choice's own level is missing
+    or unrecognised. A reviewed choice that already carries a valid level is
+    never touched — it rode with its own text and is trusted. When the
+    reviewed draft has a different NUMBER of choices than the pre-review
+    draft, positional mapping isn't safe at all (the reviewer dropped or
+    added a choice) — fall back to the reviewed output exactly as before.
+    """
+    if not isinstance(reviewed_choices, list) or not isinstance(pre_review_choices, list):
+        return reviewed_choices
+    if len(reviewed_choices) != len(pre_review_choices):
+        return reviewed_choices
+
+    carried: list = []
+    for reviewed, pre in zip(reviewed_choices, pre_review_choices):
+        if isinstance(reviewed, dict) and reviewed.get("level") in _VALID_CHOICE_LEVELS:
+            carried.append(reviewed)  # the level rode with its own text — trust it
+            continue
+
+        pre_level = pre.get("level") if isinstance(pre, dict) else None
+        if pre_level is None:
+            carried.append(reviewed)  # nothing to carry — leave as reviewed produced it
+            continue
+        if isinstance(reviewed, dict):
+            merged = dict(reviewed)
+            merged["level"] = pre_level
+            carried.append(merged)
+        else:
+            # Reviewed choice came back as a bare string (schema drift) —
+            # reattach the pre-review level at this position rather than
+            # letting it fall back to the unrecognised-level safe default.
+            carried.append({"text": reviewed, "level": pre_level})
+    return carried
+
+
 async def question_generator_with_profile(
     state: InterviewState,
     profile: dict,
@@ -330,6 +396,7 @@ async def question_generator_with_profile(
     follow_up_hint: str | None = None,
     lang: str = "en",
     include_availability: bool = False,
+    denial_probe: bool = False,
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -338,7 +405,12 @@ async def question_generator_with_profile(
 
     MODE A: cluster-aware question with potential choices (uses aparse_json)
     MODE B: section-building question (uses acomplete, choices always None)
-    Follow-up: lateral-probe question (uses acomplete, choices always None)
+    Follow-up ("more specific" retry): lateral-probe question (uses acomplete,
+    choices always None)
+    Follow-up (ADR-064 denial transfer probe, ``denial_probe=True``, M8
+    finding-fix): lateral-probe question WITH choices, under the SAME
+    coverage/truthfulness rules and ``filter_ungrounded_choices`` guard as
+    MODE A (uses aparse_json)
 
     include_availability: US265 — set True only by the caller's one-shot check
     (JD availability marker + >=2 open profile roles); folded into the MODE A
@@ -353,8 +425,53 @@ async def question_generator_with_profile(
     if follow_up_hint:
         cluster_id = state["critical_gaps"][state["current_gap_index"]]
         clusters_by_id = state.get("gap_clusters_by_id") or {}
-        cluster = clusters_by_id.get(cluster_id, {"label": cluster_id, "gaps": []})
+        cluster = clusters_by_id.get(
+            cluster_id,
+            {"id": cluster_id, "label": cluster_id, "gaps": [], "jd_skills": [], "jd_context": ""},
+        )
         gap_label = cluster.get("label", cluster_id)
+
+        if denial_probe:
+            # M8 finding-fix (2026-07-29) — the ADR-064 transfer probe drafts
+            # choices under the SAME rules/schema as MODE A, so the branch's
+            # own coverage rule (and filter_ungrounded_choices) reaches the
+            # ONE question where partial-versus-denial is the entire point.
+            # The "more specific" retry follow-up below is UNCHANGED.
+            data: dict = await provider.aparse_json(
+                build_denial_probe_question_prompt(
+                    gap_label,
+                    follow_up_hint,
+                    profile,
+                    state["messages"],
+                    gap_category=gap_category,
+                ),
+                system=with_language(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT, lang),
+                temperature=0.4,
+                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
+            )
+            question = str(data.get("question", "")).strip()
+            raw_choices = data.get("choices")
+            draft = {
+                "question": question,
+                "choices": raw_choices if isinstance(raw_choices, list) and raw_choices else None,
+            }
+            reviewed = await _review_question_language(draft, lang, provider)
+            # Deterministic backstop (M8 finding-fix): never trust the
+            # reviewed output's own "level" tags when a positional carry-over
+            # from the pre-review draft is safe (see _carry_levels_by_index).
+            reviewed["choices"] = _carry_levels_by_index(draft.get("choices"), reviewed.get("choices"))
+            rc = reviewed.get("choices")
+            reviewed["choices"] = rc if isinstance(rc, list) and rc else None
+            # Same code-level truthfulness guarantee as MODE A (#110/ADR-062) —
+            # a chip that asserts an un-evidenced JD/cluster term, or
+            # misattributes one to the wrong employer, never reaches the user.
+            reviewed["choices"] = filter_ungrounded_choices(
+                reviewed["choices"], cluster, profile, gap_category
+            )
+            reviewed["question"] = str(reviewed.get("question", "")).strip()
+            return reviewed
+
         text = await provider.acomplete(
             build_follow_up_question_prompt(
                 gap_label,
@@ -432,11 +549,20 @@ async def question_generator_with_profile(
     raw_choices = data.get("choices")
     draft = {"question": question, "choices": raw_choices if isinstance(raw_choices, list) and raw_choices else None}
     reviewed = await _review_question_language(draft, lang, provider)
+    # Deterministic backstop (M8 finding-fix, 2026-07-29): never trust the
+    # reviewed output's own "level" tags when a positional carry-over from
+    # the pre-review draft is safe (see _carry_levels_by_index).
+    reviewed["choices"] = _carry_levels_by_index(draft.get("choices"), reviewed.get("choices"))
     rc = reviewed.get("choices")
     reviewed["choices"] = rc if isinstance(rc, list) and rc else None
     # #110 (blind PQ F5): the code-level truthfulness guarantee — a chip that
     # asserts an un-evidenced JD/cluster term never reaches the user, no matter
-    # what the prompt produced. Honesty frames pass.
+    # what the prompt produced. Denial-level chips pass (ADR-062 fix,
+    # 2026-07-29): the prompt now asks the model to tag each choice's own
+    # "level" ({"text": ..., "level": "direct"|"partial"|"denial"}) instead of
+    # choice_grounding.py guessing it from a phrase-marker list. This call
+    # also flattens back to list[str] — the API contract in
+    # schemas/session.py (choices: list[str] | None) is unchanged.
     reviewed["choices"] = filter_ungrounded_choices(
         reviewed["choices"], cluster, profile, gap_category
     )

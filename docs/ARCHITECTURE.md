@@ -635,7 +635,7 @@ There is also a testing consequence worth stating plainly for contributors. CI m
 
 The general lesson for contributors: a check that runs last is a check nothing else can catch. If you add a deterministic pass after the review loop, assume its mistakes ship.
 
-**Status:** The rule is in force for new code. Six existing sites are known violations and are being replaced incrementally rather than all at once.
+**Status:** The rule is in force for new code. Six existing sites are known violations (five from the original survey, a sixth found after it closed) and are being replaced incrementally rather than all at once. **One is now clear:** the interview's answer-choice filter used a phrase list to decide "is this text a denial?", and was found to be silently deleting honest denial choices as if they were unsupported claims. It was deleted rather than tuned — the generator now states each choice's level and the filter compares that fact. Five remain.
 
 ---
 
@@ -669,6 +669,65 @@ One more correction worth knowing, because it changes what the committer is: **i
 **Consequence worth knowing as a contributor:** the contract test suite for the vault is eight assertions against the committer, plus the one-line structural gate proving there is nothing else to test — rather than eleven writers times eight invariants, a suite that grows with every writer and silently misses the twelfth.
 
 **Trade-offs accepted:** writing a single field now means constructing an op, which is more ceremony than assigning to a dict. The profile photo is an explicit non-participant — binary data fits an op vocabulary poorly — and is named as such rather than being silently absent. Bringing the existing eleven writers onto the single path is a real if bounded refactor, sequenced over several release cycles; the correctness fixes (the section editor, the channel asymmetry) land first and independently.
+
+---
+
+### ADR-064 — A Denial Is Scoped to the Level It Denies (accepted 2026-07-29)
+
+**Decision:** A denial records *which level* it denies, as `denial_level: "direct" | "partial" | None`. It is stored on the denial record itself (`ProfileMetadata.denied_concepts[]`) and mirrored onto the Keyword Ledger entry, which is rebuilt from scratch on every gap analysis. The four-value `status` enum is unchanged.
+
+- `denied` + `direct` — the full match is ruled out, **adjacent coverage is still unknown**
+- `denied` + `partial` — adjacent is ruled out too, the question is exhausted
+
+On a direct-level denial of a JD-critical requirement, the interview asks **exactly one** follow-up about the *skill area* rather than the named form — "you don't have TOGAF; did you work with other architecture frameworks?" A second denial is terminal. The trigger is a deterministic read of the field; only the question's wording comes from the model.
+
+A probe can **never un-deny**. The original denial stands permanently and is never claimable. What a probe can produce is separate, directly attested evidence, which makes the *requirement* partial. Stated as the rule an implementation must satisfy: **partial by attested adjacent evidence, never partial by inference over a denial.**
+
+Answer choices gain a **coverage** rule alongside their truthfulness rules: where the question admits them, one option at each level, and the denial option is always present and never softened.
+
+**Why:** The ledger has had a `partial` state since the keyword-ledger work shipped, and the interview could never produce it. Trace one candidate: asked "5+ years of TOGAF?", holding eight years of Zachman, they answer "No". The reconciler records a denial, the interview's gap cursor advances on any denial, the denial persists, and a ledger floor bars the entry from ever rising above "gap". The Zachman question is never asked, and that evidence could not register even if it arrived by another route.
+
+Three surfaces caused it and they share one root: **everything that collects information was binary, while only the thing that stores it had three levels.** The status vocabulary could not say "direct ruled out, adjacent unknown". The code prohibited the probe — a denial cannot reach a follow-up at all, because the follow-up branch is only reachable when an answer was *neither* addressed nor a denial. And the suggested answer choices carried four rules about *truthfulness* and none about *coverage*, so the model drafted several variations of the single most plausible answer — flavours of "yes". Since those choices pre-fill the candidate's answer, that last one is an honesty defect in the interface itself.
+
+A note for anyone reading the code alongside this: `prompts/interview.py` still contains a `RESPONSE_PARSER_SYSTEM_PROMPT` with a three-way `gap_resolution` enum and a rule *"do not keep probing a gap the candidate has explicitly ruled out"*. **That prompt has no call sites** — denial detection moved to the reconciler and this was left behind. It is removed as part of implementing this decision. It is named here because the decision's own first draft blamed it, and a fix written there would not have run.
+
+The net effect is worth naming precisely, because it runs opposite to the usual concern: the system recorded a **broader denial than the candidate made**, suppressing true and relevant experience. On a product that competes on honesty, under-claiming is the more damaging failure, and it is much harder to notice than overclaiming.
+
+Two things the implementation changed about the decision, both worth knowing if you read this code:
+
+- **"Have we already asked?" is a separate field from "what did they say?"** `DeniedConcept.probe_asked` records that the one permitted probe was *issued*; `denial_level` records what the candidate actually stated. Tying the bound to `denial_level` alone let a second probe fire when a probe went unanswered — and the tempting repair (treat a vague answer as a denial of adjacency) would record a denial nobody made, which is the exact defect this decision removes. **A control's bookkeeping does not belong in a field that means something a person said.**
+- **Each answer choice is tagged with its level by the generator** (`{"text", "level"}`), and deterministic code compares that tag rather than guessing from the wording. This replaced a phrase-list matcher that was **silently deleting honest denial choices** as if they were unsupported claims — so the denial option was doubly unreachable: never drafted, and removed when it was. The public API still returns plain strings.
+
+**Status:** The ledger floor is **unchanged** — narrowing it is accepted in principle but not built. The attempt let a denied concept's own adjacency reasoning survive as claimable whenever an unrelated sibling term was present, which is the incident the floor exists to prevent. It also turned out not to be needed for the case that motivates this decision: the adjacent evidence a probe elicits becomes *its own* ledger entry, which the denial never matched, so the floor never blocked it. `denial_level: "partial"` closes further questioning, not the entry: a later CV import or testimony can still move it.
+
+---
+
+### ADR-065 — Skills Decompose into Skill and Specialisation (accepted 2026-07-29)
+
+**Decision:** A skill has two levels — the skill area and the **specialisation**, the named form of it. Job requirements decompose the same way, so a ledger entry holds the skill area, the specialisation and any threshold separately instead of one glued string like "5+ years TOGAF".
+
+| skill | specialisation |
+|---|---|
+| Projektmanagement | PRINCE2 · Scrum · IPMA |
+| Enterprise Architecture | TOGAF · Zachman · ArchiMate |
+| Qualitätsmanagement | ISO 9001 · IATF 16949 |
+| Rechnungslegung | IFRS · HGB |
+| Pflege | Intensivpflege · Anästhesiepflege |
+| Lean Management | SMED · 5S · Kanban |
+
+The point is that partial coverage becomes **computable rather than elicited**: same skill area, different specialisation, so the requirement is partially met — deterministically, with no interview turn. `specialisation` is the field name because it is the only word with coverage across occupations; "method" fails for AWS and Intensivpflege, "standard" fails for Scrum, and "technology" fails for everything outside IT.
+
+**There is no internal library, taxonomy, or lookup table, and the ADR forbids adding one later.** Deciding that PRINCE2 is a form of Project Management is a *judgement*, so under the fact/judgement rule it belongs to the model — derived from its world knowledge at extraction time and then stored as data. A curated hierarchy covering every European occupation would be permanently incomplete and is exactly the maintenance treadmill this project is built to avoid. Deterministic code **compares** the stored values; it never derives a hierarchy, widens a skill, or decides that two differently-named skill areas are the same.
+
+A hallucinated decomposition is caught by a **review pass, not a rule table** — detecting nonsense is also a judgement. A flagged decomposition is written `unconfirmed`: visible, confirmable by the candidate, never claimable. Nothing here gates document delivery.
+
+**The main risk, stated up front:** the two decompositions have to agree on a label. If a job description yields "Enterprise Architecture" and the profile holds "IT-Architektur", the matching problem has moved up one level rather than been solved. The mitigation is *priming*, not matching: job analysis is given the skill labels already in the profile and told to reuse one where it fits. If measurement shows frequent disagreement, the decision gets revisited — not patched with a fuzzy label matcher, which would be precisely the mistake the fact/judgement rule exists to prevent.
+
+**Also settled here — decided, not yet built:** `work_experience[].technologies` is to be removed, along with the extraction rule that fed it. It is a bag of tool names attached to the wrong entity — rendered by none of the CV templates, absent from the tailored-CV schema, with no status slot, and duplicating the skill's own experience references in the opposite direction. The skill/specialisation pair replaces what it was reaching for, on the entity that already carries provenance, status and evidence.
+
+**Status:** decided, **not implemented**. Nothing on this page's ADR-065 section is in the code yet — `Skill.specialisation` does not exist and `work_experience[].technologies` is still present and in use.
+
+**Sequencing:** ADR-064 ships first and works alone — the interview asks the follow-up. This decision then makes most of those follow-ups unnecessary, and gets built with real data from 064 about how often a probe actually finds partial coverage.
 
 ---
 

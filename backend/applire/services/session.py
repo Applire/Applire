@@ -55,7 +55,7 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
 from applire.schemas.session import (
     ConfirmationPrompt,
     ConflictSummary,
@@ -69,8 +69,12 @@ from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
-from applire.services.profile.reconcile.stance import is_denied_concept
-from applire.services.interview.sufficiency import is_interview_sufficient
+from applire.services.profile.reconcile.stance import is_denied_concept, record_denials
+from applire.services.interview.sufficiency import (
+    _concept_matches_ledger_key,
+    concept_is_required,
+    is_interview_sufficient,
+)
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
     reevaluate_gap_ledger_against_vault,
@@ -1346,6 +1350,294 @@ async def _create_micro_session(
 # ---------------------------------------------------------------------------
 
 
+def _denied_concept_entry(concept: str, denied_concepts: list[dict]) -> dict | None:
+    """Lookup of a concept's raw DURABLE entry off a profile's
+    ``metadata.denied_concepts`` — the ``DeniedConcept`` record, never the
+    ``keyword_ledger`` mirror (ADR-064: ``KeywordLedgerEntry.denial_level`` is
+    refreshed on every ledger rebuild, not durable, and a known second write
+    path — ``upgrade_ledger_for_concepts`` in services/keyword_ledger.py —
+    can leave it ``None`` on a "denied" ledger row even after a real denial).
+
+    Normalised with ``ats_audit._norm`` (M3 finding-fix, 2026-07-29) — the
+    SAME normaliser ``record_denials`` uses for its own dedupe, so a concept
+    that IS one durable record there (e.g. "RAG-Pipeline" == "RAG pipeline")
+    can never look like two different ones here. A plain ``.strip().casefold()``
+    doesn't fold the hyphen, so ``probe_asked``/``denial_level`` bookkeeping
+    written under one spelling could go invisible to a probe-gate lookup
+    under a variant spelling of the SAME concept.
+    """
+    norm = ats_norm(concept)
+    for entry in denied_concepts:
+        if not isinstance(entry, dict):
+            continue
+        if ats_norm(entry.get("concept") or "") == norm:
+            return entry
+    return None
+
+
+def _denial_level_for(concept: str, denied_concepts: list[dict]) -> str | None:
+    """``denial_level`` half of :func:`_denied_concept_entry`. Returns
+    ``None`` when the concept has no denied_concepts entry at all.
+    """
+    entry = _denied_concept_entry(concept, denied_concepts)
+    return entry.get("denial_level") if entry else None
+
+
+def _probe_already_asked(concept: str, denied_concepts: list[dict]) -> bool:
+    """ADR-064 finding-fix — has the ONE permitted transfer probe already
+    been ISSUED for this concept (elicitation bookkeeping), regardless of
+    ``denial_level``? A concept with no durable entry yet has never been
+    probed — defensively ``False``, never "already probed".
+    """
+    entry = _denied_concept_entry(concept, denied_concepts)
+    return bool(entry.get("probe_asked")) if entry else False
+
+
+def _mark_probe_asked(profile_dict: dict, concept: str) -> dict:
+    """ADR-064 finding-fix — durably set ``DeniedConcept.probe_asked = True``
+    for ``concept`` the moment its transfer probe is ISSUED (never when it is
+    answered), so an abandoned session cannot lose it. This is bookkeeping
+    ("we asked"), never testimony ("they denied") — it must NOT touch
+    ``denial_level``, which only a genuine candidate denial may move.
+
+    M4 finding-fix (2026-07-29): ``_select_denial_probe_concept`` now REQUIRES
+    a durable ``DeniedConcept`` record to exist before it will ever select a
+    concept to probe (it no longer treats "no record at all" the same as
+    "direct/unprobed") — so this function reaching "no durable entry" is now
+    a genuine contract violation by the caller, not a documented edge case.
+    We keep failing safe (return ``profile_dict`` unchanged) rather than
+    raising mid-turn or minting a fresh ``DeniedConcept`` from bookkeeping
+    alone — inventing a denial record here, with no candidate statement
+    behind it, would be worse than a probe whose "asked" bookkeeping is
+    merely unrecorded: it would durably attribute testimony the candidate
+    never gave. The safer half of the fix is requiring the record upstream.
+    """
+    meta_model = ProfileMetadata.model_validate(profile_dict.get("metadata") or {})
+    norm = ats_norm(concept)
+    for entry in meta_model.denied_concepts:
+        if ats_norm(entry.concept) == norm:
+            entry.probe_asked = True
+            break
+    else:
+        return profile_dict
+    return {**profile_dict, "metadata": meta_model.model_dump(mode="json")}
+
+
+async def _select_denial_probe_concept(
+    state: InterviewState,
+    turn,
+    updated_profile: dict,
+    db: AsyncSession,
+    current_gap: str,
+) -> str | None:
+    """ADR-064 — the ONE deterministic (pure Python, no LLM) trigger for the
+    denial transfer probe: the first concept denied on THIS turn
+    (``turn.denied_concepts``) that is ALL of
+
+      * JD-critical — ``concept_is_required`` reads ``"required" in
+        entry["sources"]`` off the persisted ``GapAnalysis.keyword_ledger``,
+        never a hard-coded taxonomy of skills/frameworks/technologies, AND
+      * a member of the CURRENT gap cluster (F3 finding-fix, 2026-07-29) —
+        matched against ``state["gap_clusters_by_id"][current_gap]["gaps"]``
+        with the SAME cross-generator matcher ``concept_is_required`` uses
+        for its own ledger lookup (``_concept_matches_ledger_key`` — cluster
+        labels and denied-concept text come from independently generated
+        LLM output, so byte-identical text can't be assumed). Without this,
+        a denial of an UNRELATED requirement (e.g. "FastAPI experience"
+        denied while the interview is on the "GCP certification" cluster)
+        could fire a probe carrying the wrong gap's label alongside a
+        follow-up hint naming a different concept, spend that wrong gap's
+        retry budget, and leave the actually-denied gap not advancing, AND
+
+      * backed by a DURABLE ``DeniedConcept`` record (M4 finding-fix,
+        2026-07-29) whose ``denial_level`` is still ``"direct"`` and whose
+        ``probe_asked`` bookkeeping flag is still ``False``. A concept with
+        NO durable record is never selected — ``reconcile_interview_turn``'s
+        ``record_denials`` call always writes one for every concept in
+        ``turn.denied_concepts`` in the same turn, so "no record" is not a
+        normal case to design a probe trigger around; probing without one
+        would leave ``_mark_probe_asked``'s bookkeeping with nothing to
+        attach to (it fails safe rather than minting a record from
+        bookkeeping alone — see its docstring), so the "asked" fact could be
+        lost to an abandoned session and a later genuine denial of the same
+        concept could re-trigger the probe. Requiring the record is the
+        safer half of that agreement.
+
+    ADR-064 finding-fix: gating on ``denial_level`` alone let a probe whose
+    answer was unproductive (neither evidence nor a denial — so
+    ``denial_level`` never escalates to "partial") fire AGAIN on a later
+    genuine denial of the same concept. ``probe_asked`` is written the
+    instant the probe is ISSUED (see ``_ask_denial_probe``), independent of
+    how the answer is later classified, so it closes that gap without
+    writing an unanswered probe up as testimony the candidate never gave.
+
+    Returns ``None`` (never probe) when the session has no ledger at all
+    (guided / Mode-B — ``gap_analysis_id`` is unset, mirroring
+    ``_upgrade_ledger_for_addressed_gap``'s own guard), the current cluster
+    has no constituent concepts (same conservative no-op as
+    ``_upgrade_ledger_for_addressed_gap``), or no denied concept qualifies.
+    Deciding WHETHER to probe is this function; deciding HOW to phrase it is
+    the model's, via the existing follow-up generation path
+    (``_ask_denial_probe`` below) — never the reverse.
+    """
+    gap_analysis_id = state.get("gap_analysis_id")
+    if not gap_analysis_id:
+        return None  # guided / Mode B sessions have no ledger — never probe
+    result = await db.execute(
+        select(GapAnalysis).where(GapAnalysis.id == uuid.UUID(str(gap_analysis_id)))
+    )
+    gap = result.scalar_one_or_none()
+    keyword_ledger = gap.keyword_ledger if gap else None
+    if not keyword_ledger:
+        return None
+
+    # F6 (2026-07-29): a persisted session `state` predating `gap_clusters_by_id`
+    # (legacy JSONB — every in-code creation site populates this key; see
+    # `_make_active_session`-style state builders and `gap_detector`) falls
+    # through `.get(...) or {}` to an empty cluster with no "gaps" below, so
+    # `cluster_concepts` is empty and this function returns `None` — never
+    # probes. That is the correct, FAIL-SAFE direction for a legacy record:
+    # no behaviour change, just documenting why an old session can't reach
+    # the probe rather than raising or guessing a cluster.
+    cluster = (state.get("gap_clusters_by_id") or {}).get(current_gap) or {}
+    cluster_concepts = [c for c in (cluster.get("gaps") or []) if c]
+    if not cluster_concepts:
+        return None  # no constituent concepts to match against — never guess
+
+    denied_meta = (updated_profile.get("metadata") or {}).get("denied_concepts") or []
+    for concept in turn.denied_concepts:
+        if not concept or not concept_is_required(concept, keyword_ledger):
+            continue
+        # F3 finding-fix (2026-07-29): `_concept_matches_ledger_key` folds via
+        # its own `.strip().casefold()`, not `ats_norm` — it does NOT fold
+        # hyphens, so "GCP-certification" (cluster gap, clustering LLM) vs
+        # "GCP certification" (denied concept, classification LLM) compare
+        # unequal and this gate silently never fires. `_concept_matches_
+        # ledger_key` also drives `_ledger_entry_for`/`concept_is_required`/
+        # `cluster_needs_priority` in services/interview/sufficiency.py —
+        # changing its normaliser in place would ALSO change matching there
+        # (and casefold() vs ats_norm's `.lower()` differ on e.g. German
+        # "ß"), so the fold is applied here, at this call site, instead:
+        # pre-fold both sides with the SAME `ats_norm` the rest of this
+        # probe path already uses, then let the unchanged helper do its
+        # substring comparison on the already-folded text.
+        if not any(
+            _concept_matches_ledger_key(ats_norm(concept), ats_norm(cc))
+            for cc in cluster_concepts
+        ):
+            continue  # off-cluster denial — advance as before, never probe it
+        # M4 finding-fix: require a durable record (`level is not None`) —
+        # never probe a concept `_mark_probe_asked` could not durably mark.
+        level = _denial_level_for(concept, denied_meta)
+        if level == "direct" and not _probe_already_asked(concept, denied_meta):
+            return concept
+    return None
+
+
+async def _ask_denial_probe(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    probe_concept: str,
+    updated_profile: dict,
+    turn,
+    questions_for_gap: int,
+    lang: str,
+    profile_record: MasterProfile,
+) -> SessionMessageResponse:
+    """ADR-064 — issue the ONE, terminal transfer-probe follow-up: a direct
+    denial of a JD-critical concept earns exactly one more question aimed at
+    the broader SKILL AREA the denied concept belongs to, never a repeat of
+    the same named form and never a second probe (enforced by the
+    ``probing_concept``/``probing_gap`` state markers this sets, consumed
+    unconditionally at the top of the NEXT ``send_message`` call, before that
+    turn is evaluated for anything else — see the ADR-064 block above the
+    hard-ceiling check).
+
+    Wired to the EXISTING follow-up generation path
+    (``question_generator_with_profile(..., follow_up_hint=...)``) — same
+    entry point as the "more specific example" retry follow-up below, a new
+    hint rather than a new generator. The hint names the concept the
+    candidate just denied so the model can aim at its skill area; it is
+    deliberately NOT elaborate wording — Task 3 owns refining that prompt.
+    ``denial_probe=True`` (M8 finding-fix, 2026-07-29) is the ONE difference
+    from that other follow-up: it routes through the choices-producing
+    schema/prompt (same coverage/truthfulness rules and
+    ``filter_ungrounded_choices`` guard as MODE A) instead of the plain
+    text-only path, so this ONE question — where partial-versus-denial IS
+    the point — gets the same level-tagged denial-choice guarantee every
+    other question does. The "more specific example" retry keeps
+    ``choices: None`` unchanged.
+
+    Counts against the SAME per-gap retry budget as an ordinary follow-up
+    (``questions_per_gap``) — the caller only reaches here when that budget
+    is not yet exhausted, so the probe can never push a gap past
+    ``INTERVIEW_MAX_QUESTIONS_PER_GAP``.
+
+    ADR-064 finding-fix: ``probing_concept``/``probing_gap`` are one-shot
+    ``InterviewState`` markers, not durable — a raised
+    ``INTERVIEW_MAX_QUESTIONS_PER_GAP`` lets the SAME gap stay open past
+    this turn, and if the probe's answer is unproductive (neither evidence
+    nor a denial) ``denial_level`` never escalates to "partial", so those
+    markers alone can't keep a later genuine denial of the same concept from
+    re-triggering the probe. ``DeniedConcept.probe_asked`` is the durable
+    half: it is set to ``True`` HERE, the moment the probe is issued —
+    never when it is answered — and written into ``profile_record`` in the
+    SAME commit as the question, so an abandoned session cannot lose it.
+    """
+    updated_profile = _mark_probe_asked(updated_profile, probe_concept)
+    profile_record.profile_json = updated_profile
+    profile_record.updated_at = datetime.now(timezone.utc)
+
+    qpg = dict(state.get("questions_per_gap", {}))
+    qpg[current_gap] = questions_for_gap + 1
+    state["questions_per_gap"] = qpg
+    state["probing_concept"] = probe_concept
+    state["probing_gap"] = current_gap
+
+    follow_up_hint = (
+        f'the candidate just denied direct experience with "{probe_concept}" — '
+        "ask ONE follow-up about the broader SKILL AREA it belongs to (not the "
+        "same named form again), to check for adjacent or transferable experience"
+    )
+    gap_category = (state.get("gap_categories") or {}).get(current_gap)
+
+    # M8 finding-fix (2026-07-29): `denial_probe=True` routes through the
+    # choices-producing schema/prompt (same coverage/truthfulness rules and
+    # `filter_ungrounded_choices` guard as MODE A) instead of the plain
+    # text-only follow-up path — the branch's own coverage rule must reach
+    # the ONE question where partial-versus-denial is the entire point.
+    probe_data = await question_generator_with_profile(
+        state, updated_profile, provider,
+        gap_category=gap_category, follow_up_hint=follow_up_hint, lang=lang,
+        denial_probe=True,
+    )
+    probe_question = probe_data["question"]
+    probe_choices = probe_data.get("choices")
+    state["current_question"] = probe_question
+    state["current_choices"] = probe_choices
+    state["messages"].append({"role": "assistant", "content": probe_question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", [])),
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=probe_question,
+        gaps_remaining=gaps_remaining,
+        pending_conflicts=turn.conflict_summaries if turn.conflict_summaries else None,
+        choices=probe_choices,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+    )
+
+
 async def _upgrade_ledger_for_addressed_gap(
     state: InterviewState,
     current_gap: str,
@@ -1548,6 +1840,71 @@ async def send_message(
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
 
+    # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
+    # early-return branch below (hard ceiling, US185 confirmation, ...) so the
+    # terminal "second denial -> partial" bump always lands, even when THIS
+    # turn's answer is also the one that trips the session's hard ceiling.
+    # `probing_concept`/`probing_gap` are popped UNCONDITIONALLY here — a
+    # transfer probe is asked at MOST ONCE per concept, ever, regardless of
+    # how its answer is later classified (evidence / another denial /
+    # unproductive). `probing_concept` (not None) also marks, for the
+    # advance-decision below, that THIS turn is itself a probe's answer — so
+    # it is never re-evaluated as a fresh probe trigger. ---
+    probing_concept: str | None = None
+    if state.get("probing_gap") == current_gap:
+        probing_concept = state.pop("probing_concept", None)
+        state.pop("probing_gap", None)
+    # F1 finding-fix (2026-07-29): escalate ONLY when the concept the probe
+    # was ABOUT is itself among the concepts denied on THIS turn — not merely
+    # "some denial happened" (`turn.denial_recorded` is turn-wide and says
+    # nothing about WHICH concept). Matched with the SAME normaliser
+    # `record_denials` uses for its own dedupe (`ats_audit._norm`, M3) so a
+    # spelling/hyphenation variant can't slip the match either way.
+    probe_concept_reaffirmed = probing_concept is not None and any(
+        ats_norm(c) == ats_norm(probing_concept) for c in turn.denied_concepts
+    )
+    if probe_concept_reaffirmed:
+        # A second, genuine denial of the PROBED concept: escalate its
+        # DURABLE denial_level to "partial" (elicitation exhausted). This is
+        # the ONLY thing that changes — the original denial (`denied`, still
+        # recorded) is never touched (Global Constraint 3 / ADR-059 /
+        # ADR-040): no `DeniedConcept` is deleted, no status flips off
+        # `denied`. `level_only=True` (F1) guarantees the escalation can
+        # NEVER rewrite `statement` — the candidate's verbatim words from the
+        # original denial stay immutable; the level is bookkeeping, not
+        # testimony content.
+        meta_model = ProfileMetadata.model_validate(
+            profile_record.profile_json.get("metadata") or {}
+        )
+        escalation_changes = record_denials(
+            meta_model,
+            [probing_concept],
+            statement=message,
+            source="interview",
+            when=datetime.now(timezone.utc),
+            denial_level="partial",
+            level_only=True,
+        )
+        # F5 finding-fix (2026-07-29): fold the receipt into
+        # `enrichment_history` the same way every other write path does
+        # (interview_bridge.reconcile_interview_turn) — a durable
+        # denial_level escalation is a vault write and must leave a trail,
+        # not just the raw metadata mutation above.
+        if escalation_changes:
+            meta_model.enrichment_history.append(
+                EnrichmentRecord(
+                    timestamp=datetime.now(timezone.utc),
+                    source="interview",
+                    source_session_id=str(record.id),
+                    changes=escalation_changes,
+                )
+            )
+        profile_record.profile_json = {
+            **profile_record.profile_json,
+            "metadata": meta_model.model_dump(mode="json"),
+        }
+        updated_profile = profile_record.profile_json
+
     # Increment questions_asked
     questions_asked = state.get("questions_asked", 1) + 1
     state["questions_asked"] = questions_asked
@@ -1598,6 +1955,33 @@ async def send_message(
     # ledger-upgrade guard immediately below is untouched by this.
     denial_recorded = turn.denial_recorded
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+
+    # --- ADR-064: the denial transfer probe. A DIRECT-level denial of a
+    # JD-critical concept gets exactly ONE follow-up aimed at the broader
+    # skill area instead of advancing immediately — but only on a genuine
+    # denial-only turn (`not addressed`; a turn that also produced real
+    # profile content elsewhere keeps advancing exactly as today), never on
+    # the probe's OWN answer turn (`probing_concept is None` — that turn was
+    # already resolved above, before the hard-ceiling check), never past the
+    # per-gap retry budget, and never when a US185 confirmation is already
+    # owed. `_select_denial_probe_concept` is the ONE deterministic (pure
+    # Python) trigger; only the follow-up's WORDING is the model's (Task 3). ---
+    if (
+        not addressed
+        and denial_recorded
+        and probing_concept is None
+        and not resolving_confirmation
+        and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
+    ):
+        probe_concept = await _select_denial_probe_concept(
+            state, turn, updated_profile, db, current_gap
+        )
+        if probe_concept is not None:
+            return await _ask_denial_probe(
+                record, state, db, provider, current_gap, current_idx,
+                probe_concept, updated_profile, turn, questions_for_gap, lang,
+                profile_record,
+            )
 
     # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
     # the matching keyword_ledger entry on the persisted GapAnalysis row IN PLACE,

@@ -66,18 +66,6 @@ def test_cv_tailoring_refinement_prompt_exists_and_is_distinct():
     assert len(CV_TAILORING_REFINEMENT_PROMPT) <= 1500
 
 
-def test_response_parser_refinement_prompt_exists_and_is_distinct():
-    from applire.prompts.review_interview_response import (
-        RESPONSE_PARSER_REFINEMENT_PROMPT,
-    )
-
-    assert isinstance(RESPONSE_PARSER_REFINEMENT_PROMPT, str)
-    assert "answer parser corrector" in RESPONSE_PARSER_REFINEMENT_PROMPT.lower()
-    assert "patch" in RESPONSE_PARSER_REFINEMENT_PROMPT.lower()
-    assert len(RESPONSE_PARSER_REFINEMENT_PROMPT) <= 1500
-    assert len(RESPONSE_PARSER_REFINEMENT_PROMPT) >= 100  # non-trivial
-
-
 def test_all_reviewer_prompts_use_referential_critique():
     """US193 / ADR-021 amended: a bounded reviewer must NOT quote source passages
     back (that re-emits bulk text and blows the cap on small-output models). Each
@@ -92,15 +80,11 @@ def test_all_reviewer_prompts_use_referential_critique():
     from applire.prompts.review_cv_tailoring import (
         REVIEW_SYSTEM_PROMPT as _TAILORING_REVIEW,
     )
-    from applire.prompts.review_interview_response import (
-        RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT,
-    )
 
     for name, prompt in [
         ("review_cv_extraction", CV_EXTRACTION_REVIEW_SYSTEM_PROMPT),
         ("review_profile_extraction", _PROFILE_REVIEW),
         ("review_cv_tailoring", _TAILORING_REVIEW),
-        ("review_interview_response", RESPONSE_PARSER_REVIEW_SYSTEM_PROMPT),
     ]:
         assert "referential" in prompt.lower(), f"{name} missing referential-critique rule"
         # The superseded verbatim-quote rule must be gone.
@@ -116,7 +100,6 @@ def test_mock_returns_schema_valid_response_for_each_refinement_prompt():
     from applire.prompts.cv_extraction import CV_EXTRACTION_REFINEMENT_PROMPT
     from applire.prompts.profile_extraction import PROFILE_EXTRACTION_REFINEMENT_PROMPT
     from applire.prompts.cv_tailoring import CV_TAILORING_REFINEMENT_PROMPT
-    from applire.prompts.review_interview_response import RESPONSE_PARSER_REFINEMENT_PROMPT
     from applire.providers.llm.mock import MockLLMProvider
 
     provider = MockLLMProvider()
@@ -128,7 +111,6 @@ def test_mock_returns_schema_valid_response_for_each_refinement_prompt():
                 CV_EXTRACTION_REFINEMENT_PROMPT,
                 PROFILE_EXTRACTION_REFINEMENT_PROMPT,
                 CV_TAILORING_REFINEMENT_PROMPT,
-                RESPONSE_PARSER_REFINEMENT_PROMPT,
             )
         ]
 

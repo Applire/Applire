@@ -260,9 +260,39 @@ def _enforce_gap_stance(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def _denied_concept_entries(
+    denied_concepts: list[dict[str, Any]] | list[str] | None,
+) -> list[tuple[str, str]]:
+    """Normalise the two accepted ``denied_concepts`` shapes into
+    ``(concept, denial_level)`` pairs (ADR-064).
+
+    ``dict`` items are the raw ``DeniedConcept`` shape (``ProfileMetadata.
+    denied_concepts``, #231): ``concept`` and ``denial_level`` are read off
+    it, with ``denial_level`` defaulting to ``"direct"`` when the key is
+    absent (a row persisted before ADR-064, or ``model_dump()``'d without the
+    field) or holds anything other than the two known levels. A bare ``str``
+    item (every caller/test before ADR-064) is treated as level ``"direct"``
+    — back-compat path so existing callers never have to change at once.
+    """
+    out: list[tuple[str, str]] = []
+    for d in denied_concepts or []:
+        if isinstance(d, dict):
+            concept = d.get("concept", "")
+            level = d.get("denial_level")
+        else:
+            concept = d
+            level = None
+        if not _norm(concept):
+            continue
+        if level not in ("direct", "partial"):
+            level = "direct"
+        out.append((concept, level))
+    return out
+
+
 def _enforce_denial_stance(
     ledger: list[dict[str, Any]],
-    denied_concepts: list[str] | None,
+    denied_concepts: list[dict[str, Any]] | list[str] | None,
     vault_corpus: str | None = None,
 ) -> list[dict[str, Any]]:
     """The candidate's PERSISTED denials (#231, ProfileMetadata.denied_concepts)
@@ -296,19 +326,40 @@ def _enforce_denial_stance(
     no independent literal vault evidence outside the denied compound —
     never both classified `direct`/technologies-backed AND presented as an
     unsupported claim by the ATS panel on the very same document.
+
+    ``denied_concepts`` accepts either the raw ``DeniedConcept`` dicts (which
+    carry ``denial_level``, ADR-064) or a plain ``list[str]`` (every caller
+    before ADR-064, treated as level ``"direct"``) — see
+    :func:`_denied_concept_entries`. Whichever denied concept matches an
+    entry, its level is mirrored onto ``denial_level`` on the forced row; when
+    more than one denied concept matches the same ledger entry, ``"partial"``
+    wins (the stronger signal — elicitation was exhausted on at least one of
+    the matching denials).
     """
-    denials = [d for d in (denied_concepts or []) if _norm(d)]
-    if not denials:
+    entries = _denied_concept_entries(denied_concepts)
+    if not entries:
         return ledger
+
+    all_denied_concepts = [d_concept for d_concept, _level in entries]
 
     result: list[dict[str, Any]] = []
     for entry in ledger:
         concept = entry.get("concept", "")
         forms = entry.get("surface_forms") or [concept]
-        denied = is_denied_concept(concept, denials, vault_corpus) or any(
-            is_denied_concept(f, denials, vault_corpus) for f in forms
+        # "Is this entry denied AT ALL?" is decided with ONE call against the
+        # FULL joint list of denied concepts — that is what lets
+        # ``_independently_affirmed`` blank every denied phrase out of the
+        # vault corpus TOGETHER before checking for independent evidence.
+        # Looping this call per-concept over singleton lists (regression,
+        # 2026-07-29) silently fails OPEN: when two denied concepts share a
+        # substring that never appears standalone in the vault, each
+        # singleton call blanks only its own phrase, so the OTHER phrase's
+        # leftover text reads as "independent" affirmation and neither call
+        # fires — the floor stops firing at all for that entry.
+        is_denied = is_denied_concept(concept, all_denied_concepts, vault_corpus) or any(
+            is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
         )
-        if not denied:
+        if not is_denied:
             result.append(entry)
             continue
         if entry.get("claimable"):
@@ -318,6 +369,20 @@ def _enforce_denial_stance(
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
                 concept,
             )
+        # Second pass: which denied concept(s) contributed, for the sole
+        # purpose of picking ``denial_level`` (never to decide denial itself
+        # — that is already settled above). ``corpus`` is intentionally
+        # omitted here: without it, the compound-containment branch of
+        # ``is_denied_concept`` fail-closes to True on any containment match,
+        # so a per-concept singleton call can only find MORE matches than a
+        # corpus-aware one would, never fewer — safe for a tie-break whose
+        # input entry is already known to be denied.
+        matched_levels = [
+            level
+            for d_concept, level in entries
+            if is_denied_concept(concept, [d_concept], None)
+            or any(is_denied_concept(f, [d_concept], None) for f in forms)
+        ]
         result.append(
             {
                 **entry,
@@ -328,6 +393,10 @@ def _enforce_denial_stance(
                 "status": "denied",
                 "claimable": False,
                 "evidence": DENIED_EVIDENCE,
+                # ADR-064 — mirror the durable denial's level onto the ledger
+                # (the ledger is rebuilt from scratch every run; the
+                # DeniedConcept is the durable home).
+                "denial_level": "partial" if "partial" in matched_levels else "direct",
             }
         )
     return result
@@ -1015,10 +1084,17 @@ def reevaluate_gap_ledger_against_vault(
     strings = [s for s in _draft_strings(stripped_profile) if s and s.strip()]
     corpus = ats_norm(" ".join(strings))
 
+    # ADR-064 — reuse the same dict-or-str normaliser _enforce_denial_stance
+    # uses, so this caller's extraction can never quietly diverge from that
+    # one's. This function only ever SKIPS a denied concept (never flips it
+    # to status="denied" itself — that write path is _enforce_denial_stance,
+    # inside build_keyword_ledger), so only the concept string is needed here;
+    # is_denied_concept has no notion of denial_level.
     denials = [
-        d.get("concept", "")
-        for d in (((profile_json or {}).get("metadata") or {}).get("denied_concepts") or [])
-        if isinstance(d, dict) and _norm(d.get("concept", ""))
+        concept
+        for concept, _level in _denied_concept_entries(
+            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+        )
     ]
 
     ledger = list(keyword_ledger)
@@ -1325,7 +1401,7 @@ def build_keyword_ledger(
     nice_to_have_skills: list[str],
     keywords: list[str],
     *,
-    denied_concepts: list[str] | None = None,
+    denied_concepts: list[dict[str, Any]] | list[str] | None = None,
     profile_json: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
@@ -1334,10 +1410,13 @@ def build_keyword_ledger(
         classifications: LLM output, one per concept:
             ``{concept, status, evidence, surface_forms?}``.
         required_skills / nice_to_have_skills / keywords: the JD's three lists.
-        denied_concepts: concept tokens the candidate's own testimony
-            explicitly denied (``ProfileMetadata.denied_concepts``, #231) —
-            applied as a final deterministic floor (``_enforce_denial_stance``)
-            that the classifier's adjacency inference can never override.
+        denied_concepts: the candidate's own testimony-denied concepts
+            (``ProfileMetadata.denied_concepts``, #231) — applied as a final
+            deterministic floor (``_enforce_denial_stance``) that the
+            classifier's adjacency inference can never override. Accepts
+            either the raw ``DeniedConcept`` dicts (carrying ``denial_level``,
+            ADR-064) or a plain ``list[str]`` of concept tokens (treated as
+            level ``"direct"``, back-compat).
         profile_json: the candidate's ``MasterProfile.profile_json`` (#249
             run-4) — flattened via :func:`profile_literal_corpus` and passed
             to the denial floor so a narrow denial cannot tar a broader term

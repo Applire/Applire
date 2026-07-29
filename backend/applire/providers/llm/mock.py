@@ -26,7 +26,6 @@ System prompt fingerprints:
   "HR analyst"                     → job analysis          (aparse_json → dict)
   "CV analyst"                     → profile parsing       (aparse_json → dict)
   "three-category gap analysis"    → gap analysis          (aparse_json → dict)
-  "extracting structured profile"  → response parser       (aparse_json → dict)
   "dach career consultant"         → CV tailoring          (aparse_json → dict)
   "expert career analyst"          → gap clustering        (aparse_json → list)
   "expert career coach"            → targeted question     (aparse_json → dict)
@@ -34,7 +33,6 @@ System prompt fingerprints:
   "cv profile corrector"           → CV extraction refinement   (aparse_json → dict)
   "profile data corrector"         → profile extraction refinement (aparse_json → dict)
   "tailored cv corrector"          → CV tailoring refinement    (aparse_json → dict)
-  "answer parser corrector"        → response parser refinement (aparse_json → dict)
   "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
   "verifying one narrow claim"     → ADR-061 stance adjudication (aparse_json → dict, prompt-keyed)
   (acomplete, any)                 → interview question    (acomplete → str)
@@ -62,8 +60,6 @@ _JOB_ANALYSIS_RESPONSE: dict[str, Any] = {
 _PROFILE_PARSE_RESPONSE: dict[str, Any] = {
     # Rich profile: completeness = personal_info (0.15) + work_experience (0.40)
     #               + languages (0.10) = 0.65 — passes the > 0.6 upload/import assertions.
-    # NOTE: _RESPONSE_PARSER_RESPONSE stays sparse so user_type stays "new" in
-    #       interview tests (those go through "extracting structured profile", not here).
     "personal_info": {
         "name": "Anna Bauer",
         "email": "anna.bauer@example.de",
@@ -272,16 +268,6 @@ _RECONCILE_DOCKER_COMPOSE_RESPONSE: dict[str, Any] = {
          "proficiency": "intermediate", "evidence": []},
     ],
     "ambiguities": [],
-}
-
-_RESPONSE_PARSER_RESPONSE: dict[str, Any] = {
-    # skills_to_add must include at least one of the skills named in _RICH_ANSWER
-    # (iter4 test_profile_updated_after_answer checks for "salesforce", "veeva vault", "crm").
-    "skills_to_add": ["Salesforce", "Veeva Vault", "CRM"],
-    "work_history_to_add": [],
-    "gap_addressed": True,
-    "gap_resolution": "full",
-    "gaps_also_addressed": [],
 }
 
 _CLUSTERING_RESPONSE: list[dict] = [
@@ -524,9 +510,6 @@ class MockLLMProvider(LLMProvider):
         if "three-category gap analysis" in system_lower:
             return dict(_GAP_ANALYSIS_RESPONSE)
 
-        if "extracting structured profile" in system_lower:
-            return dict(_RESPONSE_PARSER_RESPONSE)
-
         # ADR-047 / US195 — segmented CV extraction (outline → per-role detail → core).
         # Each slice mirrors _PROFILE_PARSE_RESPONSE so the assembled profile matches the
         # monolithic mock. Unrecognised → {"mock":...} fallback corrupts a capped-mock
@@ -621,9 +604,6 @@ class MockLLMProvider(LLMProvider):
 
         if "tailored cv corrector" in system_lower:
             return dict(_CV_TAILORING_RESPONSE)
-
-        if "answer parser corrector" in system_lower:
-            return dict(_RESPONSE_PARSER_RESPONSE)
 
         # US179 — role-conditional field expectation analysis.
         # Inspects the user *prompt* for management keywords so mock-stack PQ

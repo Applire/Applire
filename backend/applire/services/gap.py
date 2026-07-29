@@ -422,8 +422,11 @@ async def _run_analysis(
     # concept must never resurface as a claimable "supported by your profile"
     # ledger entry on a later run).
     profile_meta = (profile.profile_json or {}).get("metadata") or {}
+    # ADR-064 — pass the raw DeniedConcept dicts through (not just the bare
+    # concept string) so denial_level reaches build_keyword_ledger's floor
+    # (_enforce_denial_stance) and is mirrored onto the forced ledger entry.
     denied_concepts = [
-        d.get("concept", "")
+        d
         for d in (profile_meta.get("denied_concepts") or [])
         if isinstance(d, dict) and d.get("concept")
     ]

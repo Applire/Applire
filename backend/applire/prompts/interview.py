@@ -42,6 +42,61 @@
 #   - build_guided_question_prompt (MODE B) accepts the same include_availability
 #     — folded into the FIRST section only of a guided (from-scratch) session,
 #     via the same session-creation-time one-shot check.
+#
+# ADR-064 Task 3 changes vs above:
+#   - QUESTION_SYSTEM_PROMPT: added a "Choice coverage rules" block. The prior
+#     truthfulness-only rules had zero coverage guidance, so the model drafted
+#     2-3 variations of the single most plausible (usually affirmative) answer —
+#     nudging toward overclaiming. Choices must now span direct/partial/denial,
+#     the denial option is mandatory and never softened into a hedge, and — the
+#     interaction most likely to be got wrong — on a genuine gap the spanning
+#     set is explicitly PARTIAL + DENIAL only, never an invented direct "yes".
+#     The pre-existing truthfulness rules are unchanged and still bind.
+#   - FOLLOW_UP_QUESTION_SYSTEM_PROMPT: added a requirement that when the hint
+#     names a denied named form, the model must generalise to the broader
+#     SKILL AREA rather than re-asking about the same form under different
+#     wording. No skill-area/technology list is hard-coded anywhere — the
+#     model draws the family and its examples from its own world knowledge
+#     (see services/session.py::_ask_denial_probe for the deterministic
+#     Python-side hint this framing responds to).
+#     F4 finding-fix (2026-07-29): this clause moved OUT of
+#     FOLLOW_UP_QUESTION_SYSTEM_PROMPT and into DENIAL_PROBE_QUESTION_SYSTEM_
+#     PROMPT below (see that prompt's own note) — the ADR-064 transfer probe
+#     later split onto its own dedicated generator/prompt, and the "candidate
+#     DENIED a specific named form" hint is now issued EXCLUSIVELY through
+#     that path (denial_probe=True in interview_graph.py); the follow-up path
+#     this prompt now serves exclusively is the "be more specific" retry,
+#     whose hint never mentions a denial. The clause was dead on this prompt
+#     and has been removed rather than left to describe behaviour this prompt
+#     can no longer produce.
+#
+# ADR-062 fix (2026-07-29) changes vs above:
+#   - QUESTION_SYSTEM_PROMPT: the "choices" schema now returns choice OBJECTS
+#     ({"text": ..., "level": "direct"|"partial"|"denial"}), not bare strings.
+#     services/choice_grounding.py used to GUESS a choice's level from its
+#     wording via a phrase-marker list (leaky — real denials like "I've never
+#     touched TOGAF." didn't match, and it's exactly the deterministic-
+#     judgement shape ADR-062 forbids). The coverage rule already asks the
+#     model to reason about direct/partial/denial when drafting; this change
+#     only asks it to STATE that reasoning per choice, so deterministic code
+#     can compare instead of guess. The coverage and truthfulness rules
+#     themselves are unchanged — only the output shape changed. The DIRECT-
+#     level caveat ("only when the profile evidences it") now also appears in
+#     the coverage rule's first bullet, not only two bullets later — a model
+#     weighting the first, assertive instruction over a later correction is
+#     exactly the failure the caveat exists to prevent.
+#   - prompts/review_question_language.py's schema/instructions were updated
+#     to match: preserve each choice's "level" verbatim (never translate or
+#     drop it), and "level" is metadata the language reviewer must not judge.
+#
+# ADR-064 Task 5 (2026-07-29) changes vs above:
+#   - Removed RESPONSE_PARSER_SYSTEM_PROMPT and build_response_parser_prompt
+#     (the "ResponseParser node" block, added in v4 above). Zero production
+#     call sites — denial/follow-up detection moved to a different component
+#     (services/session.py's deterministic denial handling) some time ago and
+#     this prompt, including its "do not keep probing a gap the candidate has
+#     explicitly ruled out" rule, was never wired back in. Do not resurrect
+#     it as the fix for a denial-follow-up bug; see services/session.py.
 
 import json
 
@@ -72,6 +127,36 @@ def language_name(lang: str) -> str:
 # ---------------------------------------------------------------------------
 # QuestionGenerator node — MODE A (Targeted Gap-Fill)
 # ---------------------------------------------------------------------------
+
+# ADR-064 / M8 finding-fix (2026-07-29) — shared verbatim between
+# QUESTION_SYSTEM_PROMPT (MODE A) and DENIAL_PROBE_QUESTION_SYSTEM_PROMPT (the
+# transfer probe, below): the SAME coverage rule must govern both, so the
+# probe's choices get the SAME level-tagged denial-choice guarantee
+# (filter_ungrounded_choices) as an ordinary question — the one question
+# where partial-versus-denial is the entire point cannot have a subtly
+# different rule text. Extracted once so the two can never drift apart.
+_CHOICE_COVERAGE_RULES = """\
+Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
+flavours of "yes"):
+- Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
+— ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
+experience themselves); if it does not, omit DIRECT and offer PARTIAL + DENIAL only — one at \
+the PARTIAL level (adjacent, transferable, or partial exposure), and one DENIAL (no experience \
+with this specific concept).
+- The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
+into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
+denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
+unambiguous, never watered down to sound more agreeable.
+- This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
+bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
+summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
+concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
+that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
+third slot.
+- Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
+or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
+statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
+
 
 QUESTION_SYSTEM_PROMPT = """\
 You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
@@ -107,6 +192,8 @@ lead with that real evidence honestly instead of denying it — do not blanket-d
 cluster just because it is Category C. Never draft an affirmative claim for a concept the \
 profile shows no evidence for.
 
+""" + _CHOICE_COVERAGE_RULES + """
+
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
 - Be encouraging and conversational in tone
@@ -116,7 +203,10 @@ Requirements:
 Schema:
 {
   "question": "The question text",
-  "choices": ["Option A", "Option B"] or null
+  "choices": [
+    {"text": "Option A", "level": "direct" | "partial" | "denial"},
+    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+  ] or null
 }"""
 
 
@@ -422,6 +512,115 @@ def build_follow_up_question_prompt(
 
 
 # ---------------------------------------------------------------------------
+# QuestionGenerator node — ADR-064 denial transfer probe, WITH choices (M8
+# finding-fix, 2026-07-29)
+# ---------------------------------------------------------------------------
+#
+# The transfer probe previously reused FOLLOW_UP_QUESTION_SYSTEM_PROMPT above
+# via acomplete(), which always returns choices=None — so the branch's own
+# coverage rule (one option per level, denial always present) never applied
+# to the ONE question where partial-versus-denial is the entire point. This
+# prompt asks for choices under the SAME rules as MODE A
+# (_CHOICE_COVERAGE_RULES, shared verbatim) via aparse_json, so
+# filter_ungrounded_choices runs on the probe's own drafted choices exactly
+# like it does for every other question. The "be more specific" retry
+# follow-up (also routed through follow_up_hint, but WITHOUT this schema) is
+# UNCHANGED — it keeps choices=None via acomplete, see
+# build_follow_up_question_prompt above.
+#
+# F4 finding-fix (2026-07-29): the "generalise to the broader SKILL AREA, \
+# never the same named form again, no hard-coded taxonomy" rule — and its \
+# TOGAF illustration of the pattern — now live HERE, not on \
+# FOLLOW_UP_QUESTION_SYSTEM_PROMPT above. The transfer probe is the ONLY \
+# producer of a "the candidate DENIED a specific named form" follow_up_hint \
+# (services/session.py::_ask_denial_probe, always called with \
+# denial_probe=True — see interview_graph.py's routing); the "be more \
+# specific" retry's hint never mentions a denial. That conditional could \
+# never fire on the OTHER prompt, so the rule — and its test coverage \
+# (backend/tests/unit/prompts/test_interview_choice_coverage_prompts.py) — \
+# moved to the prompt that actually generates this question.
+
+DENIAL_PROBE_QUESTION_SYSTEM_PROMPT = ("""\
+You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
+The candidate has just DENIED direct experience with a specific named form (framework, tool, \
+standard, or certification). Your task is to generate ONE follow-up question probing the \
+broader SKILL AREA or FAMILY it belongs to. Do NOT ask about that same named form again under \
+different wording — generalise UPWARD to the broader SKILL AREA or FAMILY, and draw any \
+examples from your own knowledge of that field — e.g. if the candidate denied TOGAF, ask about \
+enterprise architecture frameworks in general, never about TOGAF again by another name. Never \
+rely on a fixed list of frameworks or technologies for this — use your own judgement for \
+whatever domain the denied concept sits in.
+
+Generate 2-3 short answer choices covering this broader skill area. Choices are starting-point \
+options the candidate can select and expand; they are not exhaustive.
+
+Choice truthfulness rules (critical — choices pre-fill the candidate's answer):
+- A choice may ASSERT experience only with skills, tools, or employers that appear in the \
+candidate profile summary below. Never attribute a JD technology to the candidate that the \
+profile does not show.
+- Never invent specific projects, systems, employers, or metrics.
+- A choice that names an employer may only describe work that employer's own responsibilities/ \
+achievements below actually state. Do not invent a task, context, industry detail, or urgency \
+for that employer that its bullets do not say — even when the underlying skill/tool IS real for \
+that employer. Ground the NARRATIVE, not just the noun.
+
+""" + _CHOICE_COVERAGE_RULES + """
+
+Requirements:
+- Lead with the broader skill area named in the follow-up direction below
+- Be concrete: name adjacent frameworks, tools, standards, or contexts to explore
+- Remain encouraging — the candidate may simply not have recognised the connection
+- Output ONLY a valid JSON object - no markdown, no explanations
+
+Schema:
+{
+  "question": "The question text",
+  "choices": [
+    {"text": "Option A", "level": "direct" | "partial" | "denial"},
+    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+  ] or null
+}""")
+
+
+def build_denial_probe_question_prompt(
+    gap: str,
+    follow_up_hint: str,
+    profile: dict,
+    recent_messages: list[dict],
+    gap_category: str | None = None,
+) -> str:
+    """Build the prompt for the ADR-064 denial transfer-probe follow-up, WITH
+    answer choices (M8 finding-fix). Context shape mirrors
+    ``build_follow_up_question_prompt`` exactly — only the closing
+    instruction and the paired system prompt differ, asking for choices
+    instead of question-text-only output.
+    """
+    history = ""
+    if recent_messages:
+        lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
+        history = "\n\nRecent conversation:\n" + "\n".join(lines)
+
+    profile_summary = json.dumps(
+        {
+            "skills": profile.get("skills", []),
+            "work_experience": [
+                {"company": e.get("company"), "role": e.get("role")}
+                for e in profile.get("work_experience", [])
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    return (
+        f"Gap not yet addressed: {gap}\n"
+        f"Follow-up direction: {follow_up_hint}\n\n"
+        f"Candidate profile summary:\n{profile_summary}"
+        f"{history}\n\n"
+        "Generate the follow-up question and answer choices probing the broader skill area."
+    )
+
+
+# ---------------------------------------------------------------------------
 # QuestionGenerator node — MODE C (Field-Gap, Profile Enrich)
 # ---------------------------------------------------------------------------
 
@@ -457,65 +656,3 @@ def build_field_gap_question_prompt(field: str, entry: dict, recent_messages: li
     )
 
 
-# ---------------------------------------------------------------------------
-# ResponseParser node
-# ---------------------------------------------------------------------------
-
-RESPONSE_PARSER_SYSTEM_PROMPT = """\
-You are an expert career coach extracting structured profile data from a candidate's free-text answer.
-Respond ONLY with a valid JSON object matching the schema below — no markdown, no explanations.
-
-Schema:
-{
-  "skills_to_add": ["list of concrete skills explicitly mentioned"],
-  "work_history_to_add": [
-    {
-      "company": "Company name or null",
-      "role": "Job title or null",
-      "start_date": "YYYY-MM or YYYY or null",
-      "end_date": "YYYY-MM or YYYY or null (null = current)",
-      "bullets": ["achievement or responsibility mentioned"]
-    }
-  ],
-  "certifications_to_add": [
-    {"name": "Certification name", "issuing_body": "Issuing body or null", "year": "YYYY or null"}
-  ],
-  "languages_to_add": [
-    {"language": "Language name", "level": "native|fluent|professional|basic"}
-  ],
-  "education_to_add": [
-    {
-      "institution": "Institution name",
-      "degree": "Degree title",
-      "field": "Field of study or null",
-      "graduation_year": "YYYY or null"
-    }
-  ],
-  "gap_resolution": "full or partial or declined or none",
-  "follow_up_hint": "Short suggestion for adjacent domain to probe, or null"
-}
-
-Rules:
-- Only include data EXPLICITLY stated in the answer — do not infer or fabricate
-- gap_resolution: "full" if the answer provides concrete, specific information about the gap;
-  "partial" if relevant but incomplete or vague;
-  "declined" if the candidate clearly states they have NO experience with this gap and offers
-  no transferable/adjacent experience either (e.g. "I've never worked with that", "no IoT experience");
-  "none" if off-topic or empty
-- follow_up_hint: when gap_resolution is "partial", suggest a related domain or context the
-  candidate might have experience in. Set to null for "full" and "declined" — do not keep probing
-  a gap the candidate has explicitly ruled out.
-- Omit work_history_to_add entries where role is null or empty"""
-
-
-def build_response_parser_prompt(
-    cluster_label: str,
-    question: str,
-    answer: str,
-) -> str:
-    return (
-        f"Gap cluster being addressed: {cluster_label}\n\n"
-        f"Question asked: {question}\n\n"
-        f"Candidate's answer: {answer}\n\n"
-        "Extract the structured profile data."
-    )
