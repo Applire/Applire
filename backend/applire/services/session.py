@@ -55,7 +55,7 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, ProfileMetadata
 from applire.schemas.session import (
     ConfirmationPrompt,
     ConflictSummary,
@@ -69,8 +69,8 @@ from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
-from applire.services.profile.reconcile.stance import is_denied_concept
-from applire.services.interview.sufficiency import is_interview_sufficient
+from applire.services.profile.reconcile.stance import is_denied_concept, record_denials
+from applire.services.interview.sufficiency import concept_is_required, is_interview_sufficient
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
     reevaluate_gap_ledger_against_vault,
@@ -1346,6 +1346,145 @@ async def _create_micro_session(
 # ---------------------------------------------------------------------------
 
 
+def _denial_level_for(concept: str, denied_concepts: list[dict]) -> str | None:
+    """Case/whitespace-insensitive lookup of a concept's DURABLE
+    ``denial_level`` off a profile's ``metadata.denied_concepts`` — the
+    ``DeniedConcept`` record, never the ``keyword_ledger`` mirror (ADR-064:
+    ``KeywordLedgerEntry.denial_level`` is refreshed on every ledger rebuild,
+    not durable, and a known second write path —
+    ``upgrade_ledger_for_concepts`` in services/keyword_ledger.py — can leave
+    it ``None`` on a "denied" ledger row even after a real denial). Returns
+    ``None`` when the concept has no denied_concepts entry at all (should not
+    happen the same turn ``denial_recorded`` is True, but treated the same as
+    "direct"/unprobed by the caller — defensively, never as "already probed").
+    """
+    norm = concept.strip().casefold()
+    for entry in denied_concepts:
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("concept") or "").strip().casefold() == norm:
+            return entry.get("denial_level")
+    return None
+
+
+async def _select_denial_probe_concept(
+    state: InterviewState,
+    turn,
+    updated_profile: dict,
+    db: AsyncSession,
+) -> str | None:
+    """ADR-064 — the ONE deterministic (pure Python, no LLM) trigger for the
+    denial transfer probe: the first concept denied on THIS turn
+    (``turn.denied_concepts``) that is BOTH
+
+      * JD-critical — ``concept_is_required`` reads ``"required" in
+        entry["sources"]`` off the persisted ``GapAnalysis.keyword_ledger``,
+        never a hard-coded taxonomy of skills/frameworks/technologies, AND
+      * not yet probed — its DURABLE ``denial_level`` (read off
+        ``updated_profile``'s just-reconciled ``DeniedConcept`` record, which
+        already reflects the no-downgrade rule) is still ``"direct"``.
+
+    Returns ``None`` (never probe) when the session has no ledger at all
+    (guided / Mode-B — ``gap_analysis_id`` is unset, mirroring
+    ``_upgrade_ledger_for_addressed_gap``'s own guard) or no denied concept
+    qualifies. Deciding WHETHER to probe is this function; deciding HOW to
+    phrase it is the model's, via the existing follow-up generation path
+    (``_ask_denial_probe`` below) — never the reverse.
+    """
+    gap_analysis_id = state.get("gap_analysis_id")
+    if not gap_analysis_id:
+        return None  # guided / Mode B sessions have no ledger — never probe
+    result = await db.execute(
+        select(GapAnalysis).where(GapAnalysis.id == uuid.UUID(str(gap_analysis_id)))
+    )
+    gap = result.scalar_one_or_none()
+    keyword_ledger = gap.keyword_ledger if gap else None
+    if not keyword_ledger:
+        return None
+
+    denied_meta = (updated_profile.get("metadata") or {}).get("denied_concepts") or []
+    for concept in turn.denied_concepts:
+        if not concept or not concept_is_required(concept, keyword_ledger):
+            continue
+        level = _denial_level_for(concept, denied_meta)
+        if level in (None, "direct"):
+            return concept
+    return None
+
+
+async def _ask_denial_probe(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    probe_concept: str,
+    updated_profile: dict,
+    turn,
+    questions_for_gap: int,
+    lang: str,
+) -> SessionMessageResponse:
+    """ADR-064 — issue the ONE, terminal transfer-probe follow-up: a direct
+    denial of a JD-critical concept earns exactly one more question aimed at
+    the broader SKILL AREA the denied concept belongs to, never a repeat of
+    the same named form and never a second probe (enforced by the
+    ``probing_concept``/``probing_gap`` state markers this sets, consumed
+    unconditionally at the top of the NEXT ``send_message`` call, before that
+    turn is evaluated for anything else — see the ADR-064 block above the
+    hard-ceiling check).
+
+    Wired to the EXISTING follow-up generation path
+    (``question_generator_with_profile(..., follow_up_hint=...)``) exactly
+    like the "more specific example" retry follow-up below — a new hint, not
+    a new generator. The hint names the concept the candidate just denied so
+    the model can aim at its skill area; it is deliberately NOT elaborate
+    wording — Task 3 owns refining that prompt.
+
+    Counts against the SAME per-gap retry budget as an ordinary follow-up
+    (``questions_per_gap``) — the caller only reaches here when that budget
+    is not yet exhausted, so the probe can never push a gap past
+    ``INTERVIEW_MAX_QUESTIONS_PER_GAP``.
+    """
+    qpg = dict(state.get("questions_per_gap", {}))
+    qpg[current_gap] = questions_for_gap + 1
+    state["questions_per_gap"] = qpg
+    state["probing_concept"] = probe_concept
+    state["probing_gap"] = current_gap
+
+    follow_up_hint = (
+        f'the candidate just denied direct experience with "{probe_concept}" — '
+        "ask ONE follow-up about the broader SKILL AREA it belongs to (not the "
+        "same named form again), to check for adjacent or transferable experience"
+    )
+    gap_category = (state.get("gap_categories") or {}).get(current_gap)
+
+    probe_data = await question_generator_with_profile(
+        state, updated_profile, provider,
+        gap_category=gap_category, follow_up_hint=follow_up_hint, lang=lang,
+    )
+    probe_question = probe_data["question"]
+    state["current_question"] = probe_question
+    state["current_choices"] = None
+    state["messages"].append({"role": "assistant", "content": probe_question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", [])),
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=probe_question,
+        gaps_remaining=gaps_remaining,
+        pending_conflicts=turn.conflict_summaries if turn.conflict_summaries else None,
+        choices=None,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+    )
+
+
 async def _upgrade_ledger_for_addressed_gap(
     state: InterviewState,
     current_gap: str,
@@ -1548,6 +1687,43 @@ async def send_message(
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
 
+    # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
+    # early-return branch below (hard ceiling, US185 confirmation, ...) so the
+    # terminal "second denial -> partial" bump always lands, even when THIS
+    # turn's answer is also the one that trips the session's hard ceiling.
+    # `probing_concept`/`probing_gap` are popped UNCONDITIONALLY here — a
+    # transfer probe is asked at MOST ONCE per concept, ever, regardless of
+    # how its answer is later classified (evidence / another denial /
+    # unproductive). `probing_concept` (not None) also marks, for the
+    # advance-decision below, that THIS turn is itself a probe's answer — so
+    # it is never re-evaluated as a fresh probe trigger. ---
+    probing_concept: str | None = None
+    if state.get("probing_gap") == current_gap:
+        probing_concept = state.pop("probing_concept", None)
+        state.pop("probing_gap", None)
+    if probing_concept is not None and turn.denial_recorded:
+        # A second denial on the probe turn: escalate the concept's DURABLE
+        # denial_level to "partial" (elicitation exhausted). This is the ONLY
+        # thing that changes — the original denial (`denied`, still recorded)
+        # is never touched (Global Constraint 3 / ADR-059 / ADR-040): no
+        # `DeniedConcept` is deleted, no status flips off `denied`.
+        meta_model = ProfileMetadata.model_validate(
+            profile_record.profile_json.get("metadata") or {}
+        )
+        record_denials(
+            meta_model,
+            [probing_concept],
+            statement=message,
+            source="interview",
+            when=datetime.now(timezone.utc),
+            denial_level="partial",
+        )
+        profile_record.profile_json = {
+            **profile_record.profile_json,
+            "metadata": meta_model.model_dump(mode="json"),
+        }
+        updated_profile = profile_record.profile_json
+
     # Increment questions_asked
     questions_asked = state.get("questions_asked", 1) + 1
     state["questions_asked"] = questions_asked
@@ -1598,6 +1774,30 @@ async def send_message(
     # ledger-upgrade guard immediately below is untouched by this.
     denial_recorded = turn.denial_recorded
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+
+    # --- ADR-064: the denial transfer probe. A DIRECT-level denial of a
+    # JD-critical concept gets exactly ONE follow-up aimed at the broader
+    # skill area instead of advancing immediately — but only on a genuine
+    # denial-only turn (`not addressed`; a turn that also produced real
+    # profile content elsewhere keeps advancing exactly as today), never on
+    # the probe's OWN answer turn (`probing_concept is None` — that turn was
+    # already resolved above, before the hard-ceiling check), never past the
+    # per-gap retry budget, and never when a US185 confirmation is already
+    # owed. `_select_denial_probe_concept` is the ONE deterministic (pure
+    # Python) trigger; only the follow-up's WORDING is the model's (Task 3). ---
+    if (
+        not addressed
+        and denial_recorded
+        and probing_concept is None
+        and not resolving_confirmation
+        and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
+    ):
+        probe_concept = await _select_denial_probe_concept(state, turn, updated_profile, db)
+        if probe_concept is not None:
+            return await _ask_denial_probe(
+                record, state, db, provider, current_gap, current_idx,
+                probe_concept, updated_profile, turn, questions_for_gap, lang,
+            )
 
     # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
     # the matching keyword_ledger entry on the persisted GapAnalysis row IN PLACE,
