@@ -82,22 +82,47 @@ haven't used Tailwind CSS directly, but I've worked with React and Next.js
 ... at StartupXYZ." Live trace: Next.js/React are real, but only at TechCorp
 GmbH, never StartupXYZ; the fabricated, misattributed AFFIRMATIVE clause rode
 along with the legitimate Tailwind denial. For a "denial"-tagged choice,
-``filter_ungrounded_choices`` splits it at its denial→affirmation pivot
+``filter_ungrounded_choices`` splits it at its FIRST denial→affirmation pivot
 (``_split_denial_choice``) and runs the SAME checks — cluster/JD-term
 evidence, and the #236 employer-scoped guard when it names a known employer —
-on the affirmative remainder only. The denial clause itself stays fully
-exempt (naming the denied term is the point). A pure denial with no pivot
-skips the term-evidence check entirely, but — because that check is the only
-thing a plain lexical mismatch on "TOGAF" vs. no evidence for "TOGAF" could
-ever have caught, whether the chip denies or claims it — still runs the
-employer-scoped guard when it names a known employer, so a mislabelled
-denial that borrows a real employer's name for a fabricated narrative is
-still caught deterministically (see docstring on ``filter_ungrounded_choices``
-for the residual gap this leaves: a mislabelled denial naming NO employer and
-asserting only the same, entirely unevidenced concept it claims to deny is
-not fact-distinguishable from a genuine denial by any deterministic signal —
-that is exactly the judgement ADR-062 assigns to the model via the tag, not
-to this module).
+on the remainder AFTER that pivot only. Everything BEFORE the pivot stays
+fully exempt (naming the denied term is the point).
+
+**F2 (2026-07-29): this protection is clause-ORDER-dependent, not
+order-independent.** ``_split_denial_choice`` has no way to tell WHICH side
+of the pivot is the denial and which is the affirmation — it only locates the
+pivot phrase (", but " / ", aber " / ...) and assumes the FIRST clause is
+always the denial. That holds for "I haven't used X, but I've worked with Y
+at Employer" (denial-clause-first). It does NOT hold for the equally natural
+reverse order in both English and German — "I've worked with Y at Employer,
+but I haven't used X" / "Ich habe Y bei Employer eingesetzt, aber X habe ich
+nicht benutzt" — where the fabricated, employer-misattributed clause is now
+the one BEFORE the pivot, and is therefore the one the split always exempts.
+The guard fires or not purely on which clause the model happened to write
+first; a mislabelled denial with a bridging affirmative clause is caught only
+in the denial-first ordering, not in the affirmative-first one. A pure denial
+with no pivot skips the term-evidence check entirely, but — because that
+check is the only thing a plain lexical mismatch on "TOGAF" vs. no evidence
+for "TOGAF" could ever have caught, whether the chip denies or claims it —
+still runs the employer-scoped guard over the WHOLE chip when it names a
+known employer, so a mislabelled, employer-naming denial with NO pivot at all
+is still caught deterministically regardless of ordering (see docstring on
+``filter_ungrounded_choices`` for the residual gap this narrower, no-pivot
+case leaves: a mislabelled denial naming NO employer and asserting only the
+same, entirely unevidenced concept it claims to deny is not
+fact-distinguishable from a genuine denial by any deterministic signal — that
+is exactly the judgement ADR-062 assigns to the model via the tag, not to
+this module). Widening the pivot-having case to check both clauses (or to
+scan the whole chip for employer names while still only checking the
+non-denial clause's terms) was evaluated and rejected: the SAME
+order-ambiguity that creates this gap means a deterministic rule cannot tell
+"the clause naming the JD-required term IS the legitimate denial" apart from
+"the clause naming the JD-required term is a fabricated claim smuggled past
+the guard" — checking both clauses' terms would drop the single most common
+LEGITIMATE denial shape (a chip denying the cluster's own JD term while
+bridging to a truthful adjacent claim) exactly as often as it would catch a
+fabrication. This is a real, currently-unclosed gap, not a regression this
+branch introduced — see ``filter_ungrounded_choices`` for the exact scope.
 """
 
 import logging
@@ -445,22 +470,36 @@ def filter_ungrounded_choices(
       pipeline, unchanged — every cluster/JD term the chip asserts must be
       evidenced.
     - "denial": exempt from the term-evidence requirement — a denial names
-      the term to deny it, there is nothing to ground. Split at its
+      the term to deny it, there is nothing to ground. Split at its FIRST
       denial→affirmation pivot (``_split_denial_choice``, preserved from the
-      2026-07-23 clause-scoping fix): the affirmative remainder (if any)
+      2026-07-23 clause-scoping fix): the remainder AFTER that pivot (if any)
       still runs the full pipeline, so a bridging claim like "... but I've
-      worked with React and Next.js at StartupXYZ" is still checked. A pure
+      worked with React and Next.js at StartupXYZ" is checked — PROVIDED the
+      model wrote the denial clause first. ``_split_denial_choice`` cannot
+      tell which side of the pivot is the denial and which is the
+      affirmation; it assumes the first clause always is. **F2 (2026-07-29):
+      this is order-dependent, not a guarantee.** When the model writes the
+      bridging/affirmative clause FIRST instead — an equally natural ordering
+      in both English and German — the fabricated, misattributed content
+      lands in the clause BEFORE the pivot, which this branch always exempts,
+      and is never checked. See the module docstring's "F2" note for why
+      widening this to check both clauses was evaluated and rejected (it
+      would drop the single most common LEGITIMATE denial shape at least as
+      often as it would catch a fabrication) — this is a real, currently
+      order-dependent gap, not a claim that the guard closes it. A pure
       denial with no pivot additionally still runs the #236 employer-scoped
-      guard when it names a known employer — a mislabelled "denial" that
-      borrows a real employer's name for a fabricated narrative is caught
-      the same way a "direct"-tagged chip would be. A pure denial naming NO
-      employer and asserting only the same, entirely unevidenced concept it
-      claims to deny is trusted: no deterministic, fact-only signal can tell
-      "I have no experience with X" apart from a claim about X when the
-      profile has zero evidence for X either way — that is the judgement
-      ADR-062 assigns to the model via the tag, not to this module. A
-      mislabelling of that shape is logged at WARNING when caught by the
-      employer guard; the untraceable case is a documented residual gap.
+      guard, over the WHOLE chip, when it names a known employer — a
+      mislabelled "denial" that borrows a real employer's name for a
+      fabricated narrative is caught the same way a "direct"-tagged chip
+      would be, regardless of ordering (there is no clause split to be
+      order-dependent about). A pure denial naming NO employer and asserting
+      only the same, entirely unevidenced concept it claims to deny is
+      trusted: no deterministic, fact-only signal can tell "I have no
+      experience with X" apart from a claim about X when the profile has
+      zero evidence for X either way — that is the judgement ADR-062 assigns
+      to the model via the tag, not to this module. A mislabelling of that
+      shape is logged at WARNING when caught by the employer guard; the
+      untraceable case is a documented residual gap.
     """
     if not choices:
         return None

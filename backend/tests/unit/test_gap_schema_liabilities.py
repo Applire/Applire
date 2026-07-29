@@ -71,18 +71,24 @@ def test_response_derives_keyword_liabilities_from_the_ledger():
 # ── ADR-064 — denial_level invariant + the Pydantic-drop regression ─────────
 
 
-def test_keyword_ledger_entry_rejects_denial_level_when_not_denied():
-    """denial_level is non-None ONLY when status == "denied" — any other
-    combination is a bug (a "direct"/"partial"/"gap" entry was never denied
-    at any level)."""
-    import pytest
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        KeywordLedgerEntry(
+def test_keyword_ledger_entry_drops_denial_level_when_not_denied(caplog):
+    """M2 finding-fix (2026-07-29): denial_level is meaningful ONLY when
+    status == "denied" — any other combination is a data anomaly, but this
+    schema validates a PERSISTED-READ path (GapAnalysis.keyword_ledger rows
+    coming back OUT of the database), so the anomaly must DEGRADE (drop the
+    inconsistent field, log a warning) rather than 500 every GET of that gap
+    analysis — matching every other back-compat concern in this schema
+    (narrative_backed defaults instead of raising)."""
+    with caplog.at_level("WARNING"):
+        e = KeywordLedgerEntry(
             concept="Python", fit_weight=1.0, status="direct", claimable=True,
             denial_level="direct",
         )
+    assert e.denial_level is None
+    assert e.status == "direct"  # the rest of the row survives untouched
+    assert any(
+        "denial_level" in r.message and "Python" in r.message for r in caplog.records
+    )
 
 
 def test_keyword_ledger_entry_allows_denial_level_when_denied():

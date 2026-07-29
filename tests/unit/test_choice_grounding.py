@@ -191,22 +191,14 @@ class TestDenialLevelCoverage:
         assert out == [denial_text]
 
 
-# ── Finding 2 (2026-07-29) — NBSP normalisation ──────────────────────────────
-# _is_honesty_frame's ad hoc apostrophe-only fold (`.casefold().replace(...)`)
-# is deleted along with the marker list it served (Finding 1's fix), so the
-# reported live failure — an ordinary non-breaking space inside a denial
-# defeating a marker — is MOOT: there is no longer any marker match on the
-# denial path at all. The case is reproduced here anyway, against the
-# surviving code path (a pure denial's term-evidence exemption), to prove the
-# NBSP no longer matters to whether the chip is kept.
-class TestNbspNormalisation:
-    def test_nbsp_inside_a_denial_choice_survives(self):
-        # applire.services.ats_audit._norm (already used throughout this
-        # module for evidence/employer matching) does full NFKC normalisation
-        # and folds NBSP — this exercises that path via the pivot-split
-        # affirmative remainder AND the pure-denial exemption.
-        text = "I have no\xa0experience with TOGAF."
-        assert filter_ungrounded_choices([_denial(text)], TOGAF_CLUSTER, EA_PROFILE, "C") == [text]
+# M7 finding-fix (2026-07-29): TestNbspNormalisation.test_nbsp_inside_a_
+# denial_choice_survives was DELETED — it pinned nothing. The same assertion
+# passes for "zzz" and for a completely unrelated denial-tagged string; its
+# own comment already conceded the case it was meant to guard (an ordinary
+# NBSP defeating a marker) is moot now that the marker list it served no
+# longer exists (Finding 1's fix, deleted _is_honesty_frame). A test whose
+# assertion doesn't discriminate between the code being right and being
+# irrelevant is worse than no test — it reads as coverage that isn't there.
 
 
 # ── Finding 1, item 3 — the "denial" tag is not trusted blindly ─────────────
@@ -503,6 +495,25 @@ class TestDenialClauseScoping:
         # No employer named in the affirmative — today's whole-profile
         # cluster-term check still applies (unchanged).
         text = "I haven't used GraphQL directly, but I've built with Next.js."
+        assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
+
+    def test_affirmative_first_ordering_misattribution_is_a_documented_gap(self):
+        # F2 (2026-07-29): `_split_denial_choice` always treats the clause
+        # BEFORE the pivot as the exempt denial — an assumption that only
+        # holds when the model writes the denial FIRST. The identical
+        # misattributed claim from `test_verbatim_startupxyz_chip_is_dropped`
+        # above, with the two clauses simply reordered (bridge/affirmative
+        # first, denial second — an equally natural ordering), lands the
+        # fabricated content in the always-exempt pre-pivot half and is NOT
+        # caught. This is NOT a regression (the base branch behaves the
+        # same) and is NOT the fix this test pins — it documents the real,
+        # currently order-dependent guarantee (see choice_grounding.py's
+        # module docstring, "F2") so a future refactor doesn't silently
+        # assume this ordering is already covered.
+        text = (
+            "I've worked with React and Next.js to create responsive "
+            "applications at StartupXYZ, but I haven't used Tailwind CSS directly"
+        )
         assert filter_ungrounded_choices([_denial(text)], FRONTEND_CLUSTER, FRONTEND_PROFILE, "C") == [text]
 
 

@@ -129,6 +129,20 @@ def _make_active_session(job_id, profile_id, gap_id=None, state=None):
         "profile_id": str(profile_id),
         "critical_gaps": ["GCP certification", "FastAPI experience"],
         "gap_categories": {"GCP certification": "C", "FastAPI experience": "C"},
+        # F3 finding-fix (2026-07-29): the denial transfer probe requires the
+        # denied concept to be a member of the CURRENT gap's cluster — mirrors
+        # production shape (`gap_detector`'s cluster_id -> {"gaps": [...]}
+        # mapping), one singleton-concept cluster per critical gap here.
+        "gap_clusters_by_id": {
+            "GCP certification": {
+                "id": "GCP certification", "label": "GCP certification",
+                "gaps": ["GCP certification"], "jd_skills": [], "jd_context": "",
+            },
+            "FastAPI experience": {
+                "id": "FastAPI experience", "label": "FastAPI experience",
+                "gaps": ["FastAPI experience"], "jd_skills": [], "jd_context": "",
+            },
+        },
         "addressed_gaps": [],
         "current_gap_index": 0,
         "current_question": "Tell me about your GCP experience.",
@@ -219,8 +233,35 @@ def _denied_turn(profile_dict, *, conflicts=None, denied_concepts=None):
     TERMINAL answer (#259 sufficiency criterion b): it must advance past the
     gap on this turn, never re-ask it. `denied_concepts` mirrors
     `InterviewTurnResult.denied_concepts` — the raw concept text(s) this turn
-    denied — which session.py's transfer-probe trigger reads."""
+    denied — which session.py's transfer-probe trigger reads.
+
+    M4 finding-fix (2026-07-29): the real `reconcile_interview_turn`
+    (interview_bridge.py) always writes a durable `metadata.denied_concepts`
+    entry for every concept in `denied_concepts`, in the SAME turn, via
+    `record_denials` — the probe now REQUIRES that durable record to exist
+    before it will select a concept. Mirror that here so the common case (a
+    fresh direct denial) stays realistic without every call site hand-rolling
+    it; a caller that needs a specific pre-existing entry (a different level,
+    `probe_asked`, ...) can still seed `profile_dict["metadata"]` itself
+    before calling — an already-present entry (by ``_norm``-equivalent
+    concept) is left untouched."""
+    from applire.services.ats_audit import _norm as _ats_norm
     from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    concepts = list(denied_concepts or [])
+    if concepts:
+        profile_dict = copy.deepcopy(profile_dict)
+        meta = profile_dict.setdefault("metadata", {})
+        existing = meta.setdefault("denied_concepts", [])
+        existing_norm = {
+            _ats_norm(e.get("concept") or "") for e in existing if isinstance(e, dict)
+        }
+        for concept in concepts:
+            if _ats_norm(concept) not in existing_norm:
+                existing.append({
+                    "concept": concept, "statement": f"No, I have never touched {concept}.",
+                    "source": "interview", "date": "2026-07-29", "denial_level": "direct",
+                })
 
     return InterviewTurnResult(
         profile_dict=profile_dict,
@@ -2118,6 +2159,143 @@ class TestSendMessage:
         denied = db_profile.profile_json["metadata"]["denied_concepts"]
         entry = next(d for d in denied if d["concept"] == "GCP certification")
         assert entry["denial_level"] == "partial"
+
+    @pytest.mark.asyncio
+    async def test_probe_answer_denying_a_different_concept_never_corrupts_original(
+        self, sqlite_session
+    ):
+        """F1 (CRITICAL) reproduction: a probe issued for 'GCP certification'
+        is answered with an AFFIRMATION of adjacent cloud experience plus an
+        unrelated DENIAL of 'Java' — a real denial happened this turn
+        (`turn.denial_recorded=True`), but not of the concept the probe was
+        about. Before the fix, `turn.denial_recorded` alone triggered the
+        escalation: it bumped GCP certification's durable `denial_level` to
+        'partial' ("adjacent coverage is also ruled out — candidate's own
+        testimony") and overwrote its verbatim `statement` with this turn's
+        UNRELATED answer text — the candidate's honest narrow denial replaced
+        by words about Java they never said in that context. Must be a
+        complete no-op on the GCP-certification record."""
+        from applire.services.session import send_message
+        from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+        from applire.models.profile import MasterProfile
+        from sqlalchemy import select
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _probe_gap_with_ledger(job, profile, required=True)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _make_active_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        original_statement = "No, I have never held a GCP certification."
+        first_turn_profile = copy.deepcopy(profile.profile_json)
+        first_turn_profile.setdefault("metadata", {})["denied_concepts"] = [
+            {"concept": "GCP certification", "statement": original_statement,
+             "source": "interview", "date": "2026-07-29", "denial_level": "direct"}
+        ]
+        first_turn = InterviewTurnResult(
+            profile_dict=first_turn_profile,
+            changes=[], addressed=False, denial_recorded=True,
+            denied_concepts=["GCP certification"],
+        )
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=first_turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
+        ):
+            probe_result = await send_message(
+                session_record.id, original_statement,
+                sqlite_session, _mock_provider()
+            )
+        assert probe_result.current_gap_id == "GCP certification"  # probe issued
+
+        # The probe's answer AFFIRMS adjacent cloud experience but DENIES an
+        # entirely unrelated concept ("Java") — a real denial happened this
+        # turn, but never of GCP certification.
+        probe_answer = (
+            "Yes — I ran our whole AWS estate for six years, though I have "
+            "never written any Java."
+        )
+        second_turn_profile = copy.deepcopy(first_turn_profile)
+        second_turn = InterviewTurnResult(
+            profile_dict=second_turn_profile,
+            changes=[], addressed=True, denial_recorded=True,
+            denied_concepts=["Java"],
+        )
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=second_turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            await send_message(
+                session_record.id, probe_answer, sqlite_session, _mock_provider()
+            )
+
+        db_profile = (await sqlite_session.execute(
+            select(MasterProfile).where(MasterProfile.id == profile.id)
+        )).scalar_one()
+        denied = db_profile.profile_json["metadata"]["denied_concepts"]
+        entry = next(d for d in denied if d["concept"] == "GCP certification")
+        # The candidate's own words and the "direct" level must survive
+        # UNTOUCHED — the second turn's denial was about Java, not GCP.
+        assert entry["statement"] == original_statement
+        assert entry["denial_level"] == "direct"
+
+    @pytest.mark.asyncio
+    async def test_denial_of_concept_outside_current_cluster_never_probes(
+        self, sqlite_session
+    ):
+        """F3 reproduction: the interview is on the 'GCP certification'
+        cluster; the turn denies 'FastAPI experience' instead — a DIFFERENT
+        JD-required concept belonging to a DIFFERENT cluster. Before the fix,
+        `_select_denial_probe_concept` filtered on JD-criticality only, so it
+        fired a probe carrying `probing_gap='GCP certification'` while the
+        follow-up hint named FastAPI — two contradicting concepts in one
+        generated prompt, the wrong gap's retry budget spent, and the
+        actually-denied gap not advancing. Must advance normally on the
+        denial instead, with no probe and no follow-up hint."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _probe_gap_with_ledger(job, profile, required=True)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _make_active_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        # Denies "FastAPI experience" while the CURRENT gap is "GCP certification".
+        turn = _denied_turn(profile.profile_json, denied_concepts=["FastAPI experience"])
+        mock_gen = AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile", new=mock_gen),
+        ):
+            result = await send_message(
+                session_record.id, "I've never touched FastAPI, only Django.",
+                sqlite_session, _mock_provider()
+            )
+
+        # Advanced past GCP certification — no probe fired for the off-cluster denial.
+        assert result.current_gap_id == "FastAPI experience"
+        assert result.addressed_gap_ids == ["GCP certification"]
+        _, kwargs = mock_gen.call_args
+        assert not kwargs.get("follow_up_hint")
 
     @pytest.mark.asyncio
     async def test_already_partial_concept_never_probed_again_fresh_session(

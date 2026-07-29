@@ -118,6 +118,36 @@ def language_name(lang: str) -> str:
 # QuestionGenerator node — MODE A (Targeted Gap-Fill)
 # ---------------------------------------------------------------------------
 
+# ADR-064 / M8 finding-fix (2026-07-29) — shared verbatim between
+# QUESTION_SYSTEM_PROMPT (MODE A) and DENIAL_PROBE_QUESTION_SYSTEM_PROMPT (the
+# transfer probe, below): the SAME coverage rule must govern both, so the
+# probe's choices get the SAME level-tagged denial-choice guarantee
+# (filter_ungrounded_choices) as an ordinary question — the one question
+# where partial-versus-denial is the entire point cannot have a subtly
+# different rule text. Extracted once so the two can never drift apart.
+_CHOICE_COVERAGE_RULES = """\
+Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
+flavours of "yes"):
+- Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
+— ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
+experience themselves); if it does not, omit DIRECT and offer PARTIAL + DENIAL only — one at \
+the PARTIAL level (adjacent, transferable, or partial exposure), and one DENIAL (no experience \
+with this specific concept).
+- The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
+into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
+denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
+unambiguous, never watered down to sound more agreeable.
+- This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
+bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
+summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
+concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
+that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
+third slot.
+- Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
+or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
+statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
+
+
 QUESTION_SYSTEM_PROMPT = """\
 You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
 Your task is to generate ONE targeted, open-ended question to help a job seeker articulate concrete \
@@ -152,26 +182,7 @@ lead with that real evidence honestly instead of denying it — do not blanket-d
 cluster just because it is Category C. Never draft an affirmative claim for a concept the \
 profile shows no evidence for.
 
-Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
-flavours of "yes"):
-- Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
-— ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
-experience themselves); if it does not, omit DIRECT and offer PARTIAL + DENIAL only — one at \
-the PARTIAL level (adjacent, transferable, or partial exposure), and one DENIAL (no experience \
-with this specific concept).
-- The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
-into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
-denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
-unambiguous, never watered down to sound more agreeable.
-- This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
-bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
-summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
-concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
-that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
-third slot.
-- Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
-or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
-statement of fact about the choice you are drafting, not an extra rule: state it truthfully.
+""" + _CHOICE_COVERAGE_RULES + """
 
 Requirements:
 - Ask about exactly ONE aspect related to the cluster
@@ -494,6 +505,100 @@ def build_follow_up_question_prompt(
         f"Candidate profile summary:\n{profile_summary}"
         f"{history}\n\n"
         "Generate the follow-up question probing the adjacent domain."
+    )
+
+
+# ---------------------------------------------------------------------------
+# QuestionGenerator node — ADR-064 denial transfer probe, WITH choices (M8
+# finding-fix, 2026-07-29)
+# ---------------------------------------------------------------------------
+#
+# The transfer probe previously reused FOLLOW_UP_QUESTION_SYSTEM_PROMPT above
+# via acomplete(), which always returns choices=None — so the branch's own
+# coverage rule (one option per level, denial always present) never applied
+# to the ONE question where partial-versus-denial is the entire point. This
+# prompt asks for choices under the SAME rules as MODE A
+# (_CHOICE_COVERAGE_RULES, shared verbatim) via aparse_json, so
+# filter_ungrounded_choices runs on the probe's own drafted choices exactly
+# like it does for every other question. The "be more specific" retry
+# follow-up (also routed through follow_up_hint, but WITHOUT this schema) is
+# UNCHANGED — it keeps choices=None via acomplete, see
+# build_follow_up_question_prompt above.
+
+DENIAL_PROBE_QUESTION_SYSTEM_PROMPT = ("""\
+You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
+The candidate has just DENIED direct experience with a specific named form (framework, tool, \
+standard, or certification). Your task is to generate ONE follow-up question probing the \
+broader SKILL AREA or FAMILY it belongs to — never the same named form again under different \
+wording, and never rely on a fixed, hard-coded list of frameworks or technologies — draw the \
+family and its examples from your own knowledge of that field.
+
+Generate 2-3 short answer choices covering this broader skill area. Choices are starting-point \
+options the candidate can select and expand; they are not exhaustive.
+
+Choice truthfulness rules (critical — choices pre-fill the candidate's answer):
+- A choice may ASSERT experience only with skills, tools, or employers that appear in the \
+candidate profile summary below. Never attribute a JD technology to the candidate that the \
+profile does not show.
+- Never invent specific projects, systems, employers, or metrics.
+- A choice that names an employer may only describe work that employer's own responsibilities/ \
+achievements below actually state. Do not invent a task, context, industry detail, or urgency \
+for that employer that its bullets do not say — even when the underlying skill/tool IS real for \
+that employer. Ground the NARRATIVE, not just the noun.
+
+""" + _CHOICE_COVERAGE_RULES + """
+
+Requirements:
+- Lead with the broader skill area named in the follow-up direction below
+- Be concrete: name adjacent frameworks, tools, standards, or contexts to explore
+- Remain encouraging — the candidate may simply not have recognised the connection
+- Output ONLY a valid JSON object - no markdown, no explanations
+
+Schema:
+{
+  "question": "The question text",
+  "choices": [
+    {"text": "Option A", "level": "direct" | "partial" | "denial"},
+    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+  ] or null
+}""")
+
+
+def build_denial_probe_question_prompt(
+    gap: str,
+    follow_up_hint: str,
+    profile: dict,
+    recent_messages: list[dict],
+    gap_category: str | None = None,
+) -> str:
+    """Build the prompt for the ADR-064 denial transfer-probe follow-up, WITH
+    answer choices (M8 finding-fix). Context shape mirrors
+    ``build_follow_up_question_prompt`` exactly — only the closing
+    instruction and the paired system prompt differ, asking for choices
+    instead of question-text-only output.
+    """
+    history = ""
+    if recent_messages:
+        lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
+        history = "\n\nRecent conversation:\n" + "\n".join(lines)
+
+    profile_summary = json.dumps(
+        {
+            "skills": profile.get("skills", []),
+            "work_experience": [
+                {"company": e.get("company"), "role": e.get("role")}
+                for e in profile.get("work_experience", [])
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    return (
+        f"Gap not yet addressed: {gap}\n"
+        f"Follow-up direction: {follow_up_hint}\n\n"
+        f"Candidate profile summary:\n{profile_summary}"
+        f"{history}\n\n"
+        "Generate the follow-up question and answer choices probing the broader skill area."
     )
 
 

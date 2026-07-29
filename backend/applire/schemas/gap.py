@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -22,6 +23,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.schemas.gap_cluster import GapClusterSchema
+
+logger = logging.getLogger(__name__)
 
 
 class RequirementBreakdownItem(BaseModel):
@@ -59,11 +62,24 @@ class KeywordLedgerEntry(BaseModel):
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":
+        """M2 finding-fix (2026-07-29): a raising validator on a
+        PERSISTED-READ path (this schema validates `GapAnalysis.keyword_ledger`
+        rows coming back OUT of the database) means any future write path that
+        ever produces this inconsistency takes down every GET of that gap
+        analysis with a 500 — no production path does today, but every OTHER
+        back-compat concern in this schema degrades instead (`narrative_backed`
+        defaults True for a legacy row with no key at all). Match that: drop
+        the inconsistent `denial_level` and log a warning so the anomaly is
+        observable without taking the endpoint down.
+        """
         if self.denial_level is not None and self.status != "denied":
-            raise ValueError(
-                "denial_level may only be set when status == 'denied' "
-                f"(got status={self.status!r}, denial_level={self.denial_level!r})"
+            logger.warning(
+                "KeywordLedgerEntry: dropping inconsistent denial_level=%r on "
+                "concept=%r — status=%r is not 'denied' (denial_level may only "
+                "be set alongside status == 'denied')",
+                self.denial_level, self.concept, self.status,
             )
+            self.denial_level = None
         return self
 
 

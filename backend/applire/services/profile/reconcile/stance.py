@@ -274,6 +274,7 @@ def record_denials(
     source: str,
     when: datetime | None = None,
     denial_level: Literal["direct", "partial"] = "direct",
+    level_only: bool = False,
 ) -> list[FieldChange]:
     """Persist explicit denials (#231) into ``metadata.denied_concepts`` and
     return the receipt ``FieldChange``s for a denial-only turn.
@@ -300,6 +301,21 @@ def record_denials(
     ``"direct"`` of a concept already at ``"partial"`` leaves it at
     ``"partial"``, and still refreshes ``statement``/``date`` like any other
     re-denial.
+
+    ``level_only`` (F1 finding-fix, 2026-07-29): the ADR-064 transfer-probe
+    escalation (a SECOND denial of the SAME probed concept bumps its durable
+    level to ``"partial"``) must never rewrite ``statement`` — the level is
+    elicitation bookkeeping, not testimony content, and the candidate's
+    verbatim words must stay immutable once written. When ``True``:
+      * only an EXISTING entry (matched by ``_norm``) is touched — there is
+        nothing to escalate FROM for a concept with no durable record, so a
+        not-found concept is a no-op (never mints a fresh entry as if it were
+        attested testimony);
+      * ``statement``/``source`` are NEVER written, regardless of whether
+        they differ from the existing record;
+      * only an actual ``direct -> partial`` upgrade produces a change (a
+        level-only call against an already-``"partial"`` or nonexistent
+        concept is a no-op, not a silent no-change "success").
     """
     when = when or datetime.now()
     date_str = when.date().isoformat()
@@ -313,6 +329,10 @@ def record_denials(
             (d for d in metadata.denied_concepts if _norm(d.concept) == norm), None
         )
         if existing is None:
+            if level_only:
+                # Nothing durable to escalate — fail safe rather than minting
+                # testimony the candidate never gave (mirrors _mark_probe_asked).
+                continue
             metadata.denied_concepts.append(
                 DeniedConcept(
                     concept=text, statement=statement, source=source, date=date_str,
@@ -333,6 +353,28 @@ def record_denials(
 
         # No-downgrade invariant (ADR-064): only ever move direct -> partial.
         level_upgraded = denial_level == "partial" and existing.denial_level == "direct"
+
+        if level_only:
+            if not level_upgraded:
+                continue  # nothing to escalate — never touch statement/source/date
+            existing.denial_level = "partial"
+            existing.date = date_str
+            changes.append(
+                FieldChange(
+                    section="metadata",
+                    field="denied_concepts",
+                    action="updated",
+                    old_value=text,
+                    new_value=text,
+                    rationale=(
+                        f"Escalated limit: no hands-on {text}, and adjacent "
+                        "coverage is also ruled out now (candidate's own "
+                        "testimony) — level only, statement unchanged"
+                    ),
+                )
+            )
+            continue
+
         content_changed = existing.statement != statement or existing.source != source
         if not content_changed and not level_upgraded:
             continue

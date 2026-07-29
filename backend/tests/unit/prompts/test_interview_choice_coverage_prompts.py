@@ -130,12 +130,15 @@ def test_follow_up_prompt_forbids_a_hard_coded_technology_list():
 
 def test_follow_up_prompt_illustrates_with_togaf_example_only():
     # One illustrative example is fine (it teaches the PATTERN); it must not
-    # read as an enumerable taxonomy of skill areas.
+    # read as an enumerable taxonomy of skill areas. M7 finding-fix
+    # (2026-07-29): pinned on the example's OWN content — TOGAF generalises
+    # to "enterprise architecture frameworks" exactly once — rather than
+    # counting the filler phrase "e.g.", which could appear (or stop
+    # appearing) anywhere else in the prompt without this guarantee changing
+    # at all; the old assertion pinned prose style, not the rule.
     collapsed = _collapsed(FOLLOW_UP_QUESTION_SYSTEM_PROMPT)
     assert "TOGAF" in collapsed
-    assert "enterprise architecture frameworks" in collapsed
-    # No second worked example smuggled in alongside it.
-    assert collapsed.count("e.g.") == 1
+    assert collapsed.count("enterprise architecture frameworks") == 1
 
 
 # ── ADR-062 fix (2026-07-29) — level-tagged choice schema, Findings 1 & 3 ────

@@ -221,6 +221,101 @@ async def test_mode_a_choices_survive_review_round_trip():
     assert out["choices"] == ["A", "B", "C"]
 
 
+# ---------------------------------------------------------------------------
+# M8 deterministic backstop (2026-07-29) — a choice's "level" tag must
+# survive the language-review/refinement pass even when the reviewer drops,
+# translates, or renames the field. Its only OTHER guarantee is prompt
+# instruction; without this backstop every honest denial choice silently
+# starts being deleted again (the exact bug this branch fixed).
+# ---------------------------------------------------------------------------
+
+
+def test_carry_levels_by_index_restores_dropped_level_on_count_match():
+    from applire.services.interview_graph import _carry_levels_by_index
+
+    pre = [
+        {"text": "Yes, I've used it.", "level": "direct"},
+        {"text": "Somewhat.", "level": "partial"},
+        {"text": "No, never.", "level": "denial"},
+    ]
+    # Reviewer rewrote the wording and DROPPED "level" entirely.
+    reviewed = [
+        {"text": "Yes, I have used it."},
+        {"text": "A little."},
+        {"text": "No, I never have."},
+    ]
+
+    out = _carry_levels_by_index(pre, reviewed)
+
+    assert [c["level"] for c in out] == ["direct", "partial", "denial"]
+    # Wording stays the REVIEWED text, not the pre-review text — only the
+    # level is carried, never the content the review pass rewrote.
+    assert [c["text"] for c in out] == [
+        "Yes, I have used it.", "A little.", "No, I never have.",
+    ]
+
+
+def test_carry_levels_by_index_falls_back_on_count_mismatch():
+    from applire.services.interview_graph import _carry_levels_by_index
+
+    pre = [
+        {"text": "Yes, I've used it.", "level": "direct"},
+        {"text": "No, never.", "level": "denial"},
+    ]
+    # Reviewer dropped one choice — positional mapping is no longer safe.
+    reviewed = [{"text": "No, I never have."}]
+
+    out = _carry_levels_by_index(pre, reviewed)
+
+    # Falls back to the reviewed output exactly as-is — no guessed level.
+    assert out == reviewed
+
+
+@pytest.mark.asyncio
+async def test_mode_a_denial_choice_survives_a_reviewer_that_drops_the_level_field():
+    """End-to-end: the refinement call rewrites wording and DROPS "level"
+    from every choice. Without the backstop, the denial choice would fall
+    back to the unrecognised-level full grounding check and be dropped for
+    naming the (profile-unevidenced) cluster term "Kubernetes" — exactly the
+    over-drop bug this branch fixed. With the backstop, its "denial" level
+    is carried over by position and it survives (term-evidence exempt)."""
+    class _LevelDroppingReviewer(LLMProvider):
+        async def acomplete(self, prompt, *, system=None, temperature=0.3, max_tokens=4096, disable_thinking=None):
+            return ""
+
+        async def aparse_json(self, prompt, *, system=None, temperature=0.1, max_tokens=4096, disable_thinking=None):
+            sys_lower = (system or "").lower()
+            if "language reviewer" in sys_lower:
+                return {"approved": False, "issues": ["reword"], "feedback": "Tighten the wording."}
+            if "rewrite" in sys_lower:
+                # Refinement: rewrites wording, DROPS "level" from every choice.
+                return {
+                    "question": "Have you worked with Kubernetes?",
+                    "choices": [
+                        {"text": "I have hands-on Kubernetes experience."},
+                        {"text": "I have never worked with Kubernetes."},
+                    ],
+                }
+            return {
+                "question": "Have you worked with Kubernetes?",
+                "choices": [
+                    {"text": "Yes, hands-on Kubernetes experience.", "level": "direct"},
+                    {"text": "No, I have never worked with Kubernetes.", "level": "denial"},
+                ],
+            }
+
+    out = await question_generator_with_profile(
+        _mode_a_state(), {}, _LevelDroppingReviewer(), lang="en",
+    )
+
+    assert out["choices"] is not None
+    assert "I have never worked with Kubernetes." in out["choices"]
+    # The DIRECT choice is correctly dropped regardless (profile={} has zero
+    # Kubernetes evidence) — proving the surviving denial choice isn't just
+    # "everything kept", but specifically the level-exempt one.
+    assert "I have hands-on Kubernetes experience." not in out["choices"]
+
+
 @pytest.mark.asyncio
 async def test_e2e_reject_then_regenerate_through_question_generator_with_profile():
     """Full round-trip: generation → reviewer rejects → refinement → corrected question returned.

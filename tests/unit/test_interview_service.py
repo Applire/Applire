@@ -152,6 +152,95 @@ async def test_question_generator_routes_to_standard_when_no_hint():
 
 
 # ---------------------------------------------------------------------------
+# M8 finding-fix (2026-07-29) — the ADR-064 denial transfer probe gets answer
+# choices under the SAME coverage/truthfulness rules as a normal question.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_denial_probe_follow_up_produces_choices_via_aparse_json():
+    """M8: `denial_probe=True` routes the follow-up through aparse_json with
+    the choices-producing schema, not the plain acomplete text-only path —
+    the ONE question where partial-versus-denial is the entire point must
+    reach the same coverage rule (and filter_ungrounded_choices guard) as
+    MODE A."""
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(side_effect=AssertionError("must not use acomplete"))
+    provider.aparse_json = AsyncMock(side_effect=[
+        {
+            "question": "Have you worked with other enterprise architecture frameworks?",
+            "choices": [
+                {"text": "Yes, I've used Zachman.", "level": "direct"},
+                {"text": "I've read about them but never applied one.", "level": "partial"},
+                {"text": "No, I haven't used any EA framework.", "level": "denial"},
+            ],
+        },
+        {"approved": True, "issues": [], "feedback": ""},  # language review verdict
+    ])
+
+    state = {
+        "mode": "targeted",
+        "critical_gaps": ["cluster-togaf"],
+        "current_gap_index": 0,
+        "messages": [],
+        "gap_clusters_by_id": {
+            "cluster-togaf": {
+                "id": "cluster-togaf", "label": "TOGAF", "category": "C",
+                "gaps": ["TOGAF"], "jd_skills": ["TOGAF"], "jd_context": "",
+            }
+        },
+    }
+    profile = {"skills": [{"name": "Zachman"}], "work_experience": []}
+
+    result = await question_generator_with_profile(
+        state, profile=profile, provider=provider,
+        follow_up_hint='the candidate just denied direct experience with "TOGAF"',
+        denial_probe=True,
+    )
+
+    assert result["question"] == "Have you worked with other enterprise architecture frameworks?"
+    assert result["choices"] == [
+        "Yes, I've used Zachman.",
+        "I've read about them but never applied one.",
+        "No, I haven't used any EA framework.",
+    ]
+    draft_call_kwargs = provider.aparse_json.call_args_list[0].kwargs
+    assert "denial" in draft_call_kwargs.get("system", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_non_probe_follow_up_still_never_produces_choices():
+    """The 'more specific example' retry follow-up (`denial_probe=False`,
+    the default) is UNCHANGED — plain acomplete, choices always None. M8
+    explicitly must not touch this path."""
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(return_value="Could you share a concrete example?")
+    provider.aparse_json = AsyncMock(return_value={"approved": True, "issues": [], "feedback": ""})
+
+    state = {
+        "mode": "targeted",
+        "critical_gaps": ["cluster-gcp"],
+        "current_gap_index": 0,
+        "messages": [],
+        "gap_clusters_by_id": {
+            "cluster-gcp": {"id": "cluster-gcp", "label": "GCP certification", "category": "C", "gaps": ["GCP certification"], "jd_skills": [], "jd_context": ""}
+        },
+    }
+
+    result = await question_generator_with_profile(
+        state, profile={}, provider=provider,
+        follow_up_hint="ask for a more specific or concrete example related to GCP certification",
+    )
+
+    assert result["choices"] is None
+    provider.acomplete.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # Task 5: _next_valid_index and _count_remaining
 # ---------------------------------------------------------------------------
 
