@@ -70,7 +70,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from applire.constants import STANCE_ADJUDICATION_MAX_TOKENS
 from applire.prompts.stance_adjudication import (
@@ -273,6 +273,7 @@ def record_denials(
     statement: str,
     source: str,
     when: datetime | None = None,
+    denial_level: Literal["direct", "partial"] = "direct",
 ) -> list[FieldChange]:
     """Persist explicit denials (#231) into ``metadata.denied_concepts`` and
     return the receipt ``FieldChange``s for a denial-only turn.
@@ -289,6 +290,16 @@ def record_denials(
     fold it into the turn's ``EnrichmentRecord`` receipt even when nothing
     else in the profile changed — a denial-only turn must not go silently
     unrecorded (#231a).
+
+    ADR-064 — ``denial_level``: applies to every concept in ``denials`` for
+    this call (a fresh concept is written at this level directly). On a
+    RE-denial of an existing concept the level may only ever move
+    ``direct -> partial``, never the reverse — a later, weaker probe (or a
+    caller that simply didn't run the follow-up) must never erase that
+    elicitation was already exhausted on an earlier turn. A re-denial at
+    ``"direct"`` of a concept already at ``"partial"`` leaves it at
+    ``"partial"``, and still refreshes ``statement``/``date`` like any other
+    re-denial.
     """
     when = when or datetime.now()
     date_str = when.date().isoformat()
@@ -304,7 +315,8 @@ def record_denials(
         if existing is None:
             metadata.denied_concepts.append(
                 DeniedConcept(
-                    concept=text, statement=statement, source=source, date=date_str
+                    concept=text, statement=statement, source=source, date=date_str,
+                    denial_level=denial_level,
                 )
             )
             changes.append(
@@ -317,20 +329,36 @@ def record_denials(
                     rationale=f"Noted limit: no hands-on {text} (candidate's own testimony)",
                 )
             )
-        elif existing.statement != statement or existing.source != source:
+            continue
+
+        # No-downgrade invariant (ADR-064): only ever move direct -> partial.
+        level_upgraded = denial_level == "partial" and existing.denial_level == "direct"
+        content_changed = existing.statement != statement or existing.source != source
+        if not content_changed and not level_upgraded:
+            continue
+
+        if content_changed:
             existing.statement = statement
             existing.source = source
-            existing.date = date_str
-            changes.append(
-                FieldChange(
-                    section="metadata",
-                    field="denied_concepts",
-                    action="updated",
-                    old_value=text,
-                    new_value=text,
-                    rationale=f"Re-confirmed limit: no hands-on {text} (candidate's own testimony)",
-                )
+        existing.date = date_str
+        if level_upgraded:
+            existing.denial_level = "partial"
+        rationale = (
+            f"Escalated limit: no hands-on {text}, and adjacent coverage is "
+            "also ruled out now (candidate's own testimony)"
+            if level_upgraded
+            else f"Re-confirmed limit: no hands-on {text} (candidate's own testimony)"
+        )
+        changes.append(
+            FieldChange(
+                section="metadata",
+                field="denied_concepts",
+                action="updated",
+                old_value=text,
+                new_value=text,
+                rationale=rationale,
             )
+        )
     return changes
 
 

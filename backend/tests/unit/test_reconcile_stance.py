@@ -947,6 +947,80 @@ def test_record_denials_empty_or_blank_is_a_noop() -> None:
     assert meta.denied_concepts == []
 
 
+# ── ADR-064 — denial_level (direct/partial), no-downgrade invariant ─────────
+
+
+def test_denied_concept_defaults_denial_level_direct_when_key_absent() -> None:
+    """Back-compat: every DeniedConcept persisted before ADR-064 has no
+    denial_level key in its JSONB row at all — it must load as "direct",
+    never crash."""
+    from applire.schemas.profile import DeniedConcept
+
+    d = DeniedConcept(
+        concept="Embeddings", statement="No embeddings work.",
+        source="agent_interview", date="2026-07-23",
+    )
+    assert d.denial_level == "direct"
+
+
+def test_record_denials_fresh_concept_writes_the_given_level() -> None:
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings, and no adjacent work either.",
+        source="agent_interview", denial_level="partial",
+    )
+    assert meta.denied_concepts[0].denial_level == "partial"
+
+
+def test_record_denials_never_downgrades_partial_to_direct() -> None:
+    """No-downgrade invariant (ADR-064): a concept at "partial" re-denied at
+    "direct" stays "partial" — a later, weaker probe must never erase that
+    elicitation was already exhausted."""
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings, nor adjacent work.",
+        source="agent_interview", denial_level="partial",
+    )
+    changes = record_denials(
+        meta, ["Embeddings"], statement="No embeddings work.",
+        source="agent_interview", denial_level="direct",
+    )
+    assert meta.denied_concepts[0].denial_level == "partial"
+    # A re-denial at direct that changes nothing else (level not upgraded)
+    # is still a legitimate refresh of statement/date, not necessarily a
+    # level-change receipt — but it must never regress the level.
+    assert len(meta.denied_concepts) == 1
+    assert changes == [] or changes[0].action == "updated"
+
+
+def test_record_denials_upgrades_direct_to_partial_and_receipt_records_it() -> None:
+    """Upgrade: a concept at "direct" re-denied at "partial" becomes
+    "partial", and the receipt records the level change (the trail shows the
+    probe outcome)."""
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings work.",
+        source="agent_interview", denial_level="direct",
+    )
+    changes = record_denials(
+        meta, ["Embeddings"], statement="No embeddings, nor adjacent work either.",
+        source="agent_interview", denial_level="partial",
+    )
+    assert meta.denied_concepts[0].denial_level == "partial"
+    assert len(changes) == 1
+    assert changes[0].action == "updated"
+    assert "partial" in changes[0].rationale.lower() or "adjacent" in changes[0].rationale.lower()
+
+
 def test_is_denied_concept_reuses_the_same_alias_and_boundary_machinery() -> None:
     from applire.services.profile.reconcile.stance import is_denied_concept
 
