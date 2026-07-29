@@ -787,6 +787,66 @@ def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
     assert "LegalTech" not in claimable_surface_forms(ledger)
 
 
+# ── ADR-064 — denial_level mirrored onto the forced ledger entry ────────────
+
+
+def test_enforce_denial_stance_mirrors_denial_level_from_dict_denied_concepts():
+    """_enforce_denial_stance accepts the raw DeniedConcept dict shape (the
+    #231 persisted shape) and mirrors its denial_level onto the ledger entry
+    it forces to "denied"."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
+    ledger = [
+        {
+            "concept": "BaFin supervision", "surface_forms": ["BaFin supervision"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+            "evidence": "", "claimable": True,
+        }
+    ]
+    out = _enforce_denial_stance(
+        ledger,
+        [{"concept": "BaFin supervision", "denial_level": "partial"}],
+    )
+    assert out[0]["status"] == "denied"
+    assert out[0]["claimable"] is False
+    assert out[0]["denial_level"] == "partial"
+
+
+def test_enforce_denial_stance_bare_strings_still_work_as_direct():
+    """Back-compat: a plain list[str] of denied concepts (every existing
+    caller/test) keeps working and mirrors denial_level "direct"."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
+    ledger = [
+        {
+            "concept": "BaFin supervision", "surface_forms": ["BaFin supervision"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+            "evidence": "", "claimable": True,
+        }
+    ]
+    out = _enforce_denial_stance(ledger, ["BaFin supervision"])
+    assert out[0]["status"] == "denied"
+    assert out[0]["denial_level"] == "direct"
+
+
+def test_enforce_denial_stance_dict_without_denial_level_key_defaults_direct():
+    """A DeniedConcept dict missing the denial_level key entirely (a row
+    persisted before ADR-064, model_dump()'d without the new field) mirrors
+    "direct" — the same back-compat default the schema itself uses."""
+    from applire.services.keyword_ledger import _enforce_denial_stance
+
+    ledger = [
+        {
+            "concept": "Kubernetes", "surface_forms": ["Kubernetes"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+            "evidence": "", "claimable": True,
+        }
+    ]
+    out = _enforce_denial_stance(ledger, [{"concept": "Kubernetes"}])
+    assert out[0]["status"] == "denied"
+    assert out[0]["denial_level"] == "direct"
+
+
 # ── #249 run-4 — a narrow denial must not tar a broader, independently ──────
 # evidenced concept (root cause of the ATS/Oracle contradiction, 2026-07-24).
 #
