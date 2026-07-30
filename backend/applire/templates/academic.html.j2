@@ -89,6 +89,14 @@
       margin-bottom: 2pt;
     }
 
+    /* Quantified role facts (#328) — deterministic furniture, never prose */
+    .entry-facts {
+      font-size: 9pt;
+      color: var(--muted);
+      margin-bottom: 2pt;
+      font-style: italic;
+    }
+
     .entry-bullets {
       padding-left: 12pt;
       list-style-type: disc;
@@ -154,6 +162,13 @@
       <div class="entry-content">
         <div class="entry-title">{{ job.role }}</div>
         <div class="entry-subtitle">{{ job.company }}</div>
+        {% set role_facts = [] %}
+        {% if job.team_size is not none %}{% set _ = role_facts.append(labels.role_team_size ~ ': ' ~ job.team_size) %}{% endif %}
+        {% if job.budget_managed %}{% set _ = role_facts.append(labels.role_budget ~ ': ' ~ job.budget_managed) %}{% endif %}
+        {% if job.industry_context %}{% set _ = role_facts.append(labels.role_industry ~ ': ' ~ job.industry_context) %}{% endif %}
+        {% if role_facts %}
+        <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
+        {% endif %}
         {% if job.bullets %}
         <ul class="entry-bullets">
           {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}

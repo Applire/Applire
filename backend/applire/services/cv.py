@@ -657,6 +657,82 @@ def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> Tailored
     return TailoredCVData.model_validate(data)
 
 
+def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """#328 (ADR-062 clause 1) — deterministically copy each work entry's
+    quantified role facts (``team_size`` / ``budget_managed`` /
+    ``industry_context``) from the vault ``WorkEntry`` onto the matching
+    tailored entry, so they can be rendered as document furniture (a per-role
+    sub-header line) independent of the writer LLM's prose.
+
+    These three fields were captured by the CV-import extractor, carried
+    through reconciliation, asked for by the interview and verified by the
+    response reviewer, and counted toward profile completeness — but had ZERO
+    readers on the generation side.
+
+    **This pass is the ONLY writer, and that is enforced structurally rather
+    than by instruction.** The three fields are written from the vault on every
+    tailored entry *unconditionally* — including as ``None`` when the vault is
+    silent, when no vault entry matches the tailored entry's id, and when the
+    profile carries no work history at all. Do not add an early return that
+    skips the write: that leaves whatever the draft happened to carry in place.
+
+    The reason this must fail safe rather than fail open: these values render as
+    document **furniture** (a labelled per-role sub-header), which presents them
+    to a recruiter as authoritative structured data rather than as prose a
+    reader discounts as authored — so a wrong value here costs more than a wrong
+    sentence. It is not sufficient that the writer prompt's schema omits these
+    fields: ``TailoredWorkEntry`` carries them, Pydantic's default ``extra``
+    policy accepts them, and #229 is this repository's own precedent for a
+    prompt schema acting as a dead control. An instruction is not a guarantee.
+
+    Matched by the SAME work-entry ``id`` identity ``_backfill_work_ids``
+    establishes and ``_restore_ledger_bullets`` relies on — MUST run after
+    ``_backfill_work_ids`` (never matched by company-name string, which risks
+    a wrong role's figures on a re-hire / same-employer-twice profile).
+    Mirrors ``_apply_certifications``: pure passthrough, no LLM, no I/O.
+    Returns a new TailoredCVData; the input is left unmutated.
+    """
+    vault_by_id: dict[str, dict] = {
+        str(w.get("id") or ""): w
+        for w in (profile_json.get("work_experience") or [])
+        if isinstance(w, dict) and w.get("id")
+    }
+    if not tailored.work_history:
+        return tailored
+
+    changed = False
+    new_work: list[TailoredWorkEntry] = []
+    for w in tailored.work_history:
+        # No match is NOT a reason to skip the write — an unmatched or re-keyed
+        # entry would otherwise be a laundering path for a drafted value.
+        vault_entry = (vault_by_id.get(w.id) if w.id else None) or {}
+
+        team_size = vault_entry.get("team_size")
+        # ``isinstance`` rather than truthiness: 0 is a real answer ("no direct
+        # reports"), and the vault is authoritative without being trusted to be
+        # well-typed. ``bool`` is an int subclass and is not a headcount.
+        team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
+        budget_managed = vault_entry.get("budget_managed") or None
+        industry_context = vault_entry.get("industry_context") or None
+
+        if (w.team_size, w.budget_managed, w.industry_context) == (
+            team_size, budget_managed, industry_context
+        ):
+            new_work.append(w)  # already correct — nothing to write
+            continue
+
+        changed = True
+        new_work.append(w.model_copy(update={
+            "team_size": team_size,
+            "budget_managed": budget_managed,
+            "industry_context": industry_context,
+        }))
+
+    if not changed:
+        return tailored
+    return tailored.model_copy(update={"work_history": new_work})
+
+
 def _cap_bullets(
     bullets: list[str], is_hit: Callable[[str], bool], max_bullets: int
 ) -> list[str]:
@@ -2028,6 +2104,16 @@ async def _render_cv_background(
             # reverse-chronological order. Uses the SORTED profile_json (still bound
             # here; the photo step below rebinds the name to the raw profile dict).
             tailored = _backfill_work_ids(tailored, profile_json)
+
+            # #328: deterministically copy each work entry's quantified role facts
+            # (team_size / budget_managed / industry_context) from the vault onto the
+            # matching tailored entry, for rendering as document furniture (ADR-062
+            # clause 1) — bypassing prose (and the writer LLM) entirely. MUST run
+            # after _backfill_work_ids — matched by the SAME WorkEntry.id identity,
+            # never by company-name string. Uses the SORTED profile_json (still
+            # bound here; the photo step below rebinds the name to the raw profile
+            # dict).
+            tailored = _apply_role_facts(tailored, profile_json)
 
             # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
             # verbatim vault bullet that carries a claimable Keyword Ledger concept the

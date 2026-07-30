@@ -74,6 +74,11 @@ Rules:
   in role_aliases, never as a new entry.
 - Every entry MUST have a non-empty company. Do not invent positions.
 - Praktikum/Werkstudent are work positions. Ausbildung is education — exclude it here.
+- QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context here are DERIVED
+  PROJECTIONS of a figure the source ALSO states in prose — never the only place that figure
+  lives. A later pass extracts this position's responsibility/achievement bullets from the SAME
+  source text; populating a field here is never a reason for that later bullet to drop or shorten
+  the figure it states.
 """
 
 
@@ -105,6 +110,13 @@ Rules:
   another position's bullets. Empty lists are fine if the source gives none.
 - Separate duties (responsibilities) from outcomes/metrics (achievements).
 - """ + _TECH_VS_PRACTICES + """
+- QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context (extracted for this
+  position by a separate outline pass) are DERIVED PROJECTIONS of a figure the source ALSO states
+  in prose — never the only place that figure lives. When a responsibility or achievement bullet
+  states a team size, budget amount, or industry, keep that figure IN the bullet verbatim (e.g.
+  keep "Budgetverantwortung ca. 6 Mio. EUR (Personal, Instandhaltung, Material-Gemeinkosten)" as
+  the bullet text) — never shorten it to a bare label such as "Budgetverantwortung" merely because
+  the number is also captured structurally elsewhere.
 - Preserve German umlauts and special characters exactly.
 """
 
