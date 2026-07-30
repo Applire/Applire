@@ -62,6 +62,12 @@ class GeneratedCoverLetter(Base):
     # (oracle error or pre-Tiramisu row). Written in the same commit as the
     # artifact/report so re-generation replaces it atomically. Never gates delivery.
     truthfulness_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-060 Pass B (amended 2026-07-30, #322): persisted cross-document
+    # coherence advisory. NULL = not yet computed (pre-Tiramisu row, disabled,
+    # or a precondition short-circuit — see OutcomeCriticReport.reason).
+    # Never gates delivery; a separate column from letter_data by construction
+    # (SF-CRITIC.5) — no code path writes advisory content into the document.
+    critic_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

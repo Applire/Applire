@@ -36,6 +36,7 @@ Tools:
   generate_cover_letter       — generate a cover letter for a job (#170)
   get_cover_letter_status     — poll cover letter generation status (#170)
   get_cover_letter_ats_report — ATS audit report for a generated cover letter (#170)
+  (get_cover_letter_status also carries critic_report — ADR-060 Pass B, #322)
   start_flow        — create or resume a flow session (US109)
   advance_flow      — advance a flow to the next step (US109)
   get_flow_state    — get current flow session state (US109)

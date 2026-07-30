@@ -89,7 +89,11 @@ Two ways through the surface — pick by your own model's strength:
 **Guided pipeline** (Applire writes; best when your model is weak or you want
 minimal work): `import_cv` → `analyze_jd` → `analyze_gaps` →
 `run_interview`/`send_message` → `generate_cv` / `generate_cover_letter` →
-`get_cv_ats_report` / `get_cover_letter_ats_report`. Use
+`get_cv_ats_report` / `get_cover_letter_ats_report`. `get_cover_letter_status`
+also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
+advisory when the letter states something your CV doesn't back at the same
+depth. Read-only, never mutates either document; null until the pass runs.
+Use
 `start_flow`/`advance_flow`/`get_flow_state` to track the state machine —
 `flow_id` is your stable recovery handle; steps that produce artifacts need
 the matching `artifact_id` when advancing.
