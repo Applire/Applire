@@ -75,6 +75,7 @@ from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.keyword_ledger import _draft_strings, is_positioning_only, split_ledger_for_prompt
 from applire.services.letter_figure_guard import _TENURE_RE
+from applire.services.oracle.extract import split_sentences
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +109,53 @@ def _concept_forms(entry: dict[str, Any]) -> list[str]:
     return [f for f in forms if f]
 
 
+def _narrow_to_sentence(unit: str, forms: list[str]) -> str:
+    """Narrow a matched document UNIT down to the SENTENCE that carries the
+    concept (adversarial pass 2026-07-30, finding 3 / SF-CRITIC.2/.6).
+
+    A CV unit is already one bullet; a letter unit is a whole paragraph
+    (``_document_units`` above). Two advisories about two different concepts
+    in the SAME paragraph therefore used to quote the ENTIRE paragraph
+    twice, byte-identical but for the concept name — the candidate sees the
+    same wall of text twice with no way to tell, at a glance, which fact
+    each advisory rests on.
+
+    Reuses ``oracle.extract.split_sentences`` (the Oracle's own deterministic
+    splitter — no independent copy) rather than a new one. Selecting *which
+    sentence contains a given literal string* is a FACT under ADR-062 clause
+    1 (settled by string containment alone, no reading for meaning) — this
+    function does no summarising or rewriting, and a concept spanning more
+    than one sentence still gets exactly the ONE sentence containing its
+    surface form, never a paraphrase. Falls back to the whole unit when it
+    doesn't split into more than one sentence (already the common case for a
+    CV bullet) or when no single sentence contains the match (never expected
+    given ``_scan_units`` only calls this on a unit it already matched, but
+    fail-open rather than return an empty snippet).
+    """
+    sentences = split_sentences(unit)
+    if len(sentences) <= 1:
+        return unit.strip()
+    for sentence in sentences:
+        sentence_norm = ats_norm(sentence)
+        if any(surface_present(f, sentence_norm) for f in forms):
+            return sentence.strip()
+    return unit.strip()
+
+
 def _scan_units(units: list[str], forms: list[str]) -> tuple[bool, bool, str | None]:
     """Presence + tenure-qualification of ANY of *forms* across *units*.
 
     Returns ``(present, qualified, snippet)``. ``snippet`` prefers a
     qualified unit (the one carrying the evidence a judgement would act on)
     over a merely-present one, so the persisted advisory always quotes the
-    most informative match.
+    most informative match — narrowed to the sentence containing the
+    concept (:func:`_narrow_to_sentence`), not the whole unit.
+
+    Tenure-qualification itself stays scored at UNIT granularity (does a
+    tenure figure sit ANYWHERE in the same paragraph as the concept) —
+    narrowing only changes what gets QUOTED, never what gets judged
+    ``qualified``, so #322's founding shape (tenure figure and concept in the
+    same sentence, in practice) is unaffected either way.
     """
     present = False
     qualified = False
@@ -126,7 +167,7 @@ def _scan_units(units: list[str], forms: list[str]) -> tuple[bool, bool, str | N
         present = True
         has_tenure = _TENURE_RE.search(unit) is not None
         if snippet is None or (has_tenure and not qualified):
-            snippet = unit.strip()
+            snippet = _narrow_to_sentence(unit, forms)
         if has_tenure:
             qualified = True
     return present, qualified, snippet
