@@ -858,6 +858,122 @@ def verified_missing_load_bearing(
     return missing
 
 
+def verified_missing_narrative_presence(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """#303 — high-fit claimable concepts verifiably absent from the draft's own
+    NARRATIVE (work-history + nested project bullets), even when a bare skills-
+    list tag already satisfies :func:`verified_missing_claimable`.
+
+    Ground truth (ADR-064 charter run, 2026-07-29): a ledger concept with
+    ``status == "direct"``, ``claimable is True`` and ``fit_weight == 1.0`` —
+    a genuine hard requirement, not merely adjacent or nice-to-have — shipped
+    as a bare skills tag with no work bullet or project entry ever mentioning
+    it. Two blind hiring reviewers scored this a risk; the hiring manager said
+    dropping the keyword entirely would have RAISED their confidence.
+
+    THE shared sibling of :func:`verified_missing_load_bearing`: same corpus
+    (:func:`tailored_narrative_corpus`), same presence predicate
+    (``ats_audit.surface_present``), but gated on the ledger's own STATUS/
+    WEIGHT facts instead of on whether the evidence happens to carry a
+    percent/currency figure. Deliberately does NOT widen
+    :func:`applire.services.load_bearing.is_load_bearing` — that predicate is
+    shared with the letter chain and its docstring pins a real case ("SAP,
+    expert, 15 years") that must stay NOT load-bearing; a false-positive floor
+    there would ripple into both document chains at once (#303's own
+    guardrail). Scope is deliberately narrow to the entries #303's acceptance
+    criterion names — a `direct`, `claimable`, `fit_weight == 1.0` concept —
+    so a `partial`/adjacent entry (which ADR-048 says must never be demanded
+    verbatim) or a lower-weight nice-to-have never trips this guard.
+
+    ADR-062 classification: **fact.** Status/claimable/fit_weight are enum and
+    numeric fields already computed by the ledger builder; presence is a
+    literal substring check over the flattened narrative text. Nothing here
+    reads prose for meaning.
+    """
+    candidates = [
+        e
+        for e in (keyword_ledger or [])
+        if e.get("status") == "direct"
+        and e.get("claimable")
+        and e.get("fit_weight") == 1.0
+    ]
+    if not candidates:
+        return []
+
+    from applire.services.ats_audit import surface_present
+
+    narrative_norm = tailored_narrative_corpus(draft)
+    missing: list[dict[str, Any]] = []
+    for entry in candidates:
+        forms = list(entry.get("surface_forms") or [])
+        if entry.get("concept"):
+            forms.append(entry["concept"])
+        if not any(surface_present(f, narrative_norm) for f in forms):
+            missing.append(entry)
+    return missing
+
+
+def render_verified_narrative_block(entries: list[dict[str, Any]]) -> str:
+    """Render the #303 verified-narrative-absent entries for the REVIEWER —
+    the narrative-presence twin of :func:`render_verified_coverage_block`.
+
+    Returns "" when empty.
+    """
+    if not entries:
+        return ""
+    lines = [
+        "VERIFIED NARRATIVE PRESENCE CHECK (deterministic literal scan — this is ground "
+        "truth, do not re-derive it). Each of the following is a HARD-REQUIREMENT concept "
+        "the candidate genuinely has (status=direct, fit_weight=1.0), but it appears ONLY "
+        "in the skills list or summary — never in any work-history or project bullet. A "
+        "bare tag with no story behind it reads as a risk to a hiring reviewer:",
+    ]
+    for entry in entries:
+        forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
+        evidence = entry.get("evidence", "")
+        lines.append(
+            f"  - {entry.get('concept', '')} [forms: {forms}] — profile evidence: {evidence}"
+        )
+    lines += [
+        "",
+        "You MUST set approved=false while any term above has no narrative bullet, and "
+        "name the terms in your issues so the writer gives it at least one role or project "
+        "bullet grounded in the evidence given. EXCEPTION — the grounding waiver: if the "
+        "evidence gives nothing to write a truthful bullet from, WAIVE it instead (name "
+        "the term and the reason in your feedback); a waived term does not block approval. "
+        "Grounding strictly outranks coverage — never ask the writer to fabricate a story.",
+    ]
+    return "\n".join(lines)
+
+
+def narrative_presence_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | None):
+    """Wrap a reviewer_prompt_fn so every review also sees the #303 verified
+    NARRATIVE-presence state of the CURRENT draft — composes with (never
+    replaces) :func:`coverage_reviewer_prompt_fn`, exactly the way
+    ``services/cover_letter.py`` already stacks multiple deterministic
+    reviewer-prompt wrappers on top of one another. No new LLM pass, no new
+    loop — recomputed fresh every ``review_and_refine`` iteration, riding the
+    existing bounded ADR-047 loop.
+    """
+
+    def fn(source: str, draft: dict[str, Any]) -> str:
+        prompt = base_fn(source, draft)
+        missing = verified_missing_narrative_presence(draft, keyword_ledger)
+        if missing:
+            logger.info(
+                "verified narrative presence check (#303): %d hard-requirement "
+                "concept(s) absent from the narrative: %s",
+                len(missing),
+                [e.get("concept", "") for e in missing],
+            )
+            prompt = f"{prompt}\n\n{render_verified_narrative_block(missing)}"
+        return prompt
+
+    return fn
+
+
 def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
 

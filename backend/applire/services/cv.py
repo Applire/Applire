@@ -386,18 +386,26 @@ async def _review_cv_language(
     so it can silently translate a covered surface form into an unlisted synonym. The
     same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
     exact required-language surface form), never inserting content.
+
+    #303: also composes the narrative-presence wrapper — this is the LAST writer in
+    the chain, so a high-fit claimable concept the tailoring loop already surfaced only
+    as a bare tag must keep being flagged here too, not silently drop off the radar.
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
-    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+    from applire.services.keyword_ledger import (
+        coverage_reviewer_prompt_fn,
+        narrative_presence_reviewer_prompt_fn,
+    )
 
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-            build_cv_language_review_prompt, keyword_ledger
+        reviewer_prompt_fn=narrative_presence_reviewer_prompt_fn(
+            coverage_reviewer_prompt_fn(build_cv_language_review_prompt, keyword_ledger),
+            keyword_ledger,
         ),
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
@@ -726,6 +734,7 @@ def _restore_ledger_bullets(
         is_load_bearing,
         verified_missing_claimable,
         verified_missing_load_bearing,
+        verified_missing_narrative_presence,
     )
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
@@ -744,6 +753,15 @@ def _restore_ledger_bullets(
     # this only adds concepts present ONLY as a bare tag).
     already = {e.get("concept") for e in missing}
     for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
+        if entry.get("concept") not in already:
+            missing.append(entry)
+            already.add(entry.get("concept"))
+    # #303: the SIBLING of #315 for a high-fit claimable concept with NO
+    # figure in its evidence -- #315's own guard is gated on is_load_bearing
+    # (percent/currency only) and never fires for a plain skill/tool name, so
+    # "Kubernetes" shipped as a bare skills tag with no bullet ever naming it.
+    # Same union pattern, same dedup by concept.
+    for entry in verified_missing_narrative_presence(draft_json, keyword_ledger):
         if entry.get("concept") not in already:
             missing.append(entry)
             already.add(entry.get("concept"))
@@ -1372,6 +1390,109 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
     return tailored.model_copy(update={"skills": restored})
 
 
+def _restore_narrative_named_skills(
+    tailored: TailoredCVData,
+    profile_json: dict | None,
+    keyword_ledger: list[dict] | None,
+) -> TailoredCVData:
+    """#376 — a skill named in a generated bullet must not be missing from the
+    generated skills list.
+
+    Ground truth (ADR-064 charter run, section 4 finding F3, 2026-07-29): a
+    tailored CV's own work-experience bullet reads "Tägliche Arbeit mit SAP PP
+    und SAP MM (Disposition und Bestellanforderungen)" — both module names
+    spelled out in full — while the Kenntnisse (skills) section lists only
+    "SAP PP". "SAP MM" is absent from the one field a recruiter and every ATS
+    keyword pass reads first, in the very document that names it twice.
+
+    STRUCTURAL fix only (ADR-062 clause 1: a fact, not a judgement): for a
+    name already KNOWN to be true of this candidate — a vault ``Skill`` row
+    (unconfirmed rows excluded, ADR-061 clause 3) or a CLAIMABLE Keyword
+    Ledger concept/surface form (never a gap/denied one — that would be a
+    truthfulness violation, not a correction) — literal presence in the
+    tailored NARRATIVE (:func:`keyword_ledger._tailored_narrative_texts`,
+    work-history + nested project bullets) is a plain substring fact. When a
+    known name is present there but absent from the skills list (no near-dupe
+    either, :func:`ats_audit.skills_near_dupe`), it is added.
+
+    Deliberately does NOT resolve an elided compound ("SAP PP und MM" implying
+    "SAP MM") — reading what an elided sentence MEANS is a judgement under
+    ADR-062 clause 1, and #376's own cover-letter instance is exactly that
+    shape ("Täglich arbeite ich mit SAP PP und MM"). The CV's own bullet in
+    the reported case spells both names out in full, so the literal-substring
+    fact is enough for THIS half; the elided form intentionally does not
+    trigger this guard and is left to a model-side follow-up (ADR-061
+    precedent: ``services/profile/reconcile/stance.py`` LLM stance
+    adjudication, not a matcher).
+
+    Never invents a name: a candidate that never appears anywhere in the
+    tailored document is never added (this guard fixes a self-contradiction,
+    it never re-adds a vault skill the writer legitimately chose to omit).
+    Appends in place — never reorders or removes an existing entry. Pure;
+    ``tailored`` is left unmutated. No-op (returns ``tailored`` unchanged,
+    same object) when nothing needs adding. Tolerates ``profile_json``/
+    ``keyword_ledger`` being ``None``/malformed.
+
+    Run LAST in the skills pipeline (after ``_restore_skill_spelling``), on
+    the FINAL skills list and the FINAL narrative text, so it never chases a
+    spelling a later pass would still change.
+    """
+    from applire.services.ats_audit import _norm, skills_near_dupe, surface_present
+    from applire.services.keyword_ledger import _tailored_narrative_texts, claimable_surface_forms
+
+    existing = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
+
+    candidates: list[str] = []
+    seen_norm: set[str] = set()
+
+    def _add_candidate(name: str) -> None:
+        n = _norm(name)
+        if n and n not in seen_norm:
+            seen_norm.add(n)
+            candidates.append(name)
+
+    for entry in (profile_json or {}).get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line.
+        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
+            continue
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.strip():
+            _add_candidate(name.strip())
+
+    for form in claimable_surface_forms(keyword_ledger):
+        if isinstance(form, str) and form.strip():
+            _add_candidate(form.strip())
+
+    if not candidates:
+        return tailored
+
+    narrative_norm = _norm(" ".join(_tailored_narrative_texts(tailored.model_dump(mode="json"))))
+    if not narrative_norm:
+        return tailored
+
+    def _already_covered(name: str) -> bool:
+        return any(_norm(name) == _norm(s) or skills_near_dupe(name, s) for s in existing)
+
+    to_add: list[str] = []
+    for name in candidates:
+        if _already_covered(name):
+            continue
+        if surface_present(name, narrative_norm):
+            to_add.append(name)
+            existing = existing + [name]  # so a later candidate sees this one as covered
+
+    if not to_add:
+        return tailored
+
+    for name in to_add:
+        logger.info(
+            "skills-list gap guard (#376): %r named in a narrative bullet but absent "
+            "from the skills list — added",
+            name,
+        )
+    return tailored.model_copy(update={"skills": list(tailored.skills or []) + to_add})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -1839,19 +1960,27 @@ async def _render_cv_background(
             # longer detects absent claimable terms — it only arbitrates grounding waivers).
             from applire.services.keyword_ledger import (
                 coverage_reviewer_prompt_fn,
+                narrative_presence_reviewer_prompt_fn,
                 render_ledger_reviewer_block,
             )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 source_material = f"{source_material}\n\n{ledger_block}"
 
+            # #303: composes (never replaces) coverage_reviewer_prompt_fn with a SECOND
+            # deterministic wrapper — each reviewer iteration also carries the current
+            # draft's verified NARRATIVE-presence state for high-fit claimable concepts
+            # (status=direct, fit_weight=1.0), the same composition idiom
+            # services/cover_letter.py already uses to stack multiple wrappers. No new
+            # LLM pass, no new loop.
             tailored_raw = await review_and_refine(
                 source=source_material,
                 draft=tailored_raw,
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    _build_cv_review_prompt, keyword_ledger
+                reviewer_prompt_fn=narrative_presence_reviewer_prompt_fn(
+                    coverage_reviewer_prompt_fn(_build_cv_review_prompt, keyword_ledger),
+                    keyword_ledger,
                 ),
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
@@ -1945,13 +2074,21 @@ async def _render_cv_background(
 
             # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
             # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
-            # "Good Practice") back to the vault's exact string. MUST run LAST in
-            # the skills pipeline -- after every selection/cap/drop pass above, and
-            # BEFORE tailored_data/the ATS audit are persisted below, so the audit
-            # (and the Oracle, and any human reader) sees the final, correctly
-            # spelled document. Only ever rewrites a name already present; never
-            # adds or removes an entry.
+            # "Good Practice") back to the vault's exact string. MUST run before the
+            # #376 guard just below, so that guard's near-dupe check compares against
+            # the FINAL corrected spelling, not an intermediate mangled one. Only ever
+            # rewrites a name already present; never adds or removes an entry.
             tailored = _restore_skill_spelling(tailored, profile_json)
+
+            # #376 (ADR-064 charter run, section 4 finding F3): a skill named in a
+            # generated bullet ("SAP PP und SAP MM") but missing from the generated
+            # skills list ("SAP PP" only) -- the document contradicting itself. MUST
+            # run LAST in the skills pipeline -- after every selection/cap/drop/
+            # spelling pass above, and BEFORE tailored_data/the ATS audit are
+            # persisted below, so the audit (and any human reader) sees the final,
+            # self-consistent document. Only ever ADDS a name already known-true and
+            # already narrated; never invents, reorders, or removes an entry.
+            tailored = _restore_narrative_named_skills(tailored, profile_json, keyword_ledger)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.
