@@ -386,18 +386,26 @@ async def _review_cv_language(
     so it can silently translate a covered surface form into an unlisted synonym. The
     same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
     exact required-language surface form), never inserting content.
+
+    #303: also composes the narrative-presence wrapper — this is the LAST writer in
+    the chain, so a high-fit claimable concept the tailoring loop already surfaced only
+    as a bare tag must keep being flagged here too, not silently drop off the radar.
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
-    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+    from applire.services.keyword_ledger import (
+        coverage_reviewer_prompt_fn,
+        narrative_presence_reviewer_prompt_fn,
+    )
 
     return await review_and_refine(
         source=language_name(output_language),
         draft=draft,
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-            build_cv_language_review_prompt, keyword_ledger
+        reviewer_prompt_fn=narrative_presence_reviewer_prompt_fn(
+            coverage_reviewer_prompt_fn(build_cv_language_review_prompt, keyword_ledger),
+            keyword_ledger,
         ),
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
@@ -726,6 +734,7 @@ def _restore_ledger_bullets(
         is_load_bearing,
         verified_missing_claimable,
         verified_missing_load_bearing,
+        verified_missing_narrative_presence,
     )
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
@@ -744,6 +753,15 @@ def _restore_ledger_bullets(
     # this only adds concepts present ONLY as a bare tag).
     already = {e.get("concept") for e in missing}
     for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
+        if entry.get("concept") not in already:
+            missing.append(entry)
+            already.add(entry.get("concept"))
+    # #303: the SIBLING of #315 for a high-fit claimable concept with NO
+    # figure in its evidence -- #315's own guard is gated on is_load_bearing
+    # (percent/currency only) and never fires for a plain skill/tool name, so
+    # "Kubernetes" shipped as a bare skills tag with no bullet ever naming it.
+    # Same union pattern, same dedup by concept.
+    for entry in verified_missing_narrative_presence(draft_json, keyword_ledger):
         if entry.get("concept") not in already:
             missing.append(entry)
             already.add(entry.get("concept"))
@@ -1839,19 +1857,27 @@ async def _render_cv_background(
             # longer detects absent claimable terms — it only arbitrates grounding waivers).
             from applire.services.keyword_ledger import (
                 coverage_reviewer_prompt_fn,
+                narrative_presence_reviewer_prompt_fn,
                 render_ledger_reviewer_block,
             )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 source_material = f"{source_material}\n\n{ledger_block}"
 
+            # #303: composes (never replaces) coverage_reviewer_prompt_fn with a SECOND
+            # deterministic wrapper — each reviewer iteration also carries the current
+            # draft's verified NARRATIVE-presence state for high-fit claimable concepts
+            # (status=direct, fit_weight=1.0), the same composition idiom
+            # services/cover_letter.py already uses to stack multiple wrappers. No new
+            # LLM pass, no new loop.
             tailored_raw = await review_and_refine(
                 source=source_material,
                 draft=tailored_raw,
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    _build_cv_review_prompt, keyword_ledger
+                reviewer_prompt_fn=narrative_presence_reviewer_prompt_fn(
+                    coverage_reviewer_prompt_fn(_build_cv_review_prompt, keyword_ledger),
+                    keyword_ledger,
                 ),
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
