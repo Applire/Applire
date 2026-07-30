@@ -209,6 +209,15 @@ Operations:
     with the EXISTING story's exact title and the new detail — the applier
     only fills gaps and never overwrites prose. Copy figures into `outcome`
     verbatim; the rule-4 truthfulness bar applies to every field.
+
+12. QUANTIFIED ROLE FACTS. `team_size` / `budget_managed` / `industry_context` on `upsert_work`
+    (or via `set_field`) are DERIVED PROJECTIONS of a figure the new information's own wording
+    ALSO states — never the only place that figure lives. When the new information's own
+    responsibility/achievement sentence states the underlying number (a team size, a budget
+    amount, an industry), emit or keep that bullet, WITH its figure, via `add_bullets` — do NOT
+    shorten it to a bare label (e.g. keep "Budgetverantwortung ca. 6 Mio. EUR" verbatim; never
+    demote it to just "Budgetverantwortung") merely because the same number is also being lifted
+    into `team_size` / `budget_managed` / `industry_context` structurally.
 """
 
 

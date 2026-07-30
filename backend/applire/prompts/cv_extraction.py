@@ -191,6 +191,13 @@ Rules:
   Role titles mentioned within bullet points or as sub-roles belong in role_aliases, not as new entries.
 - COUNT CHECK: Before emitting work_experience, count the distinct employer positions in the source.
   Your output must contain exactly that many entries — no shell entries, no duplicates.
+- QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context are DERIVED PROJECTIONS
+  of a figure the source ALSO states in prose — never the only place that figure lives. When you
+  populate one of these fields for a work_experience entry, the responsibility or achievement
+  bullet that states the underlying figure MUST keep it verbatim (e.g. keep "Budgetverantwortung
+  ca. 6 Mio. EUR (Personal, Instandhaltung, Material-Gemeinkosten)" as the bullet text) — never
+  shorten it to a bare label such as "Budgetverantwortung" merely because the number is also
+  captured structurally in the typed field.
 - PROJECTS: Extract items from a CV's "Projects" section as entries in `projects`, NOT folded into
   work_experience. A project done within a job or volunteer role should set `associated_experience`
   to the company/organisation name. Standalone projects set `associated_experience` to null.
