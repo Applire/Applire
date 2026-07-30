@@ -649,6 +649,82 @@ def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> Tailored
     return TailoredCVData.model_validate(data)
 
 
+def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+    """#328 (ADR-062 clause 1) — deterministically copy each work entry's
+    quantified role facts (``team_size`` / ``budget_managed`` /
+    ``industry_context``) from the vault ``WorkEntry`` onto the matching
+    tailored entry, so they can be rendered as document furniture (a per-role
+    sub-header line) independent of the writer LLM's prose.
+
+    These three fields were captured by the CV-import extractor, carried
+    through reconciliation, asked for by the interview and verified by the
+    response reviewer, and counted toward profile completeness — but had ZERO
+    readers on the generation side.
+
+    **This pass is the ONLY writer, and that is enforced structurally rather
+    than by instruction.** The three fields are written from the vault on every
+    tailored entry *unconditionally* — including as ``None`` when the vault is
+    silent, when no vault entry matches the tailored entry's id, and when the
+    profile carries no work history at all. Do not add an early return that
+    skips the write: that leaves whatever the draft happened to carry in place.
+
+    The reason this must fail safe rather than fail open: these values render as
+    document **furniture** (a labelled per-role sub-header), which presents them
+    to a recruiter as authoritative structured data rather than as prose a
+    reader discounts as authored — so a wrong value here costs more than a wrong
+    sentence. It is not sufficient that the writer prompt's schema omits these
+    fields: ``TailoredWorkEntry`` carries them, Pydantic's default ``extra``
+    policy accepts them, and #229 is this repository's own precedent for a
+    prompt schema acting as a dead control. An instruction is not a guarantee.
+
+    Matched by the SAME work-entry ``id`` identity ``_backfill_work_ids``
+    establishes and ``_restore_ledger_bullets`` relies on — MUST run after
+    ``_backfill_work_ids`` (never matched by company-name string, which risks
+    a wrong role's figures on a re-hire / same-employer-twice profile).
+    Mirrors ``_apply_certifications``: pure passthrough, no LLM, no I/O.
+    Returns a new TailoredCVData; the input is left unmutated.
+    """
+    vault_by_id: dict[str, dict] = {
+        str(w.get("id") or ""): w
+        for w in (profile_json.get("work_experience") or [])
+        if isinstance(w, dict) and w.get("id")
+    }
+    if not tailored.work_history:
+        return tailored
+
+    changed = False
+    new_work: list[TailoredWorkEntry] = []
+    for w in tailored.work_history:
+        # No match is NOT a reason to skip the write — an unmatched or re-keyed
+        # entry would otherwise be a laundering path for a drafted value.
+        vault_entry = (vault_by_id.get(w.id) if w.id else None) or {}
+
+        team_size = vault_entry.get("team_size")
+        # ``isinstance`` rather than truthiness: 0 is a real answer ("no direct
+        # reports"), and the vault is authoritative without being trusted to be
+        # well-typed. ``bool`` is an int subclass and is not a headcount.
+        team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
+        budget_managed = vault_entry.get("budget_managed") or None
+        industry_context = vault_entry.get("industry_context") or None
+
+        if (w.team_size, w.budget_managed, w.industry_context) == (
+            team_size, budget_managed, industry_context
+        ):
+            new_work.append(w)  # already correct — nothing to write
+            continue
+
+        changed = True
+        new_work.append(w.model_copy(update={
+            "team_size": team_size,
+            "budget_managed": budget_managed,
+            "industry_context": industry_context,
+        }))
+
+    if not changed:
+        return tailored
+    return tailored.model_copy(update={"work_history": new_work})
+
+
 def _cap_bullets(
     bullets: list[str], is_hit: Callable[[str], bool], max_bullets: int
 ) -> list[str]:
@@ -1372,6 +1448,109 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
     return tailored.model_copy(update={"skills": restored})
 
 
+def _restore_narrative_named_skills(
+    tailored: TailoredCVData,
+    profile_json: dict | None,
+    keyword_ledger: list[dict] | None,
+) -> TailoredCVData:
+    """#376 — a skill named in a generated bullet must not be missing from the
+    generated skills list.
+
+    Ground truth (ADR-064 charter run, section 4 finding F3, 2026-07-29): a
+    tailored CV's own work-experience bullet reads "Tägliche Arbeit mit SAP PP
+    und SAP MM (Disposition und Bestellanforderungen)" — both module names
+    spelled out in full — while the Kenntnisse (skills) section lists only
+    "SAP PP". "SAP MM" is absent from the one field a recruiter and every ATS
+    keyword pass reads first, in the very document that names it twice.
+
+    STRUCTURAL fix only (ADR-062 clause 1: a fact, not a judgement): for a
+    name already KNOWN to be true of this candidate — a vault ``Skill`` row
+    (unconfirmed rows excluded, ADR-061 clause 3) or a CLAIMABLE Keyword
+    Ledger concept/surface form (never a gap/denied one — that would be a
+    truthfulness violation, not a correction) — literal presence in the
+    tailored NARRATIVE (:func:`keyword_ledger._tailored_narrative_texts`,
+    work-history + nested project bullets) is a plain substring fact. When a
+    known name is present there but absent from the skills list (no near-dupe
+    either, :func:`ats_audit.skills_near_dupe`), it is added.
+
+    Deliberately does NOT resolve an elided compound ("SAP PP und MM" implying
+    "SAP MM") — reading what an elided sentence MEANS is a judgement under
+    ADR-062 clause 1, and #376's own cover-letter instance is exactly that
+    shape ("Täglich arbeite ich mit SAP PP und MM"). The CV's own bullet in
+    the reported case spells both names out in full, so the literal-substring
+    fact is enough for THIS half; the elided form intentionally does not
+    trigger this guard and is left to a model-side follow-up (ADR-061
+    precedent: ``services/profile/reconcile/stance.py`` LLM stance
+    adjudication, not a matcher).
+
+    Never invents a name: a candidate that never appears anywhere in the
+    tailored document is never added (this guard fixes a self-contradiction,
+    it never re-adds a vault skill the writer legitimately chose to omit).
+    Appends in place — never reorders or removes an existing entry. Pure;
+    ``tailored`` is left unmutated. No-op (returns ``tailored`` unchanged,
+    same object) when nothing needs adding. Tolerates ``profile_json``/
+    ``keyword_ledger`` being ``None``/malformed.
+
+    Run LAST in the skills pipeline (after ``_restore_skill_spelling``), on
+    the FINAL skills list and the FINAL narrative text, so it never chases a
+    spelling a later pass would still change.
+    """
+    from applire.services.ats_audit import _norm, skills_near_dupe, surface_present
+    from applire.services.keyword_ledger import _tailored_narrative_texts, claimable_surface_forms
+
+    existing = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
+
+    candidates: list[str] = []
+    seen_norm: set[str] = set()
+
+    def _add_candidate(name: str) -> None:
+        n = _norm(name)
+        if n and n not in seen_norm:
+            seen_norm.add(n)
+            candidates.append(name)
+
+    for entry in (profile_json or {}).get("skills") or []:
+        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line.
+        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
+            continue
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.strip():
+            _add_candidate(name.strip())
+
+    for form in claimable_surface_forms(keyword_ledger):
+        if isinstance(form, str) and form.strip():
+            _add_candidate(form.strip())
+
+    if not candidates:
+        return tailored
+
+    narrative_norm = _norm(" ".join(_tailored_narrative_texts(tailored.model_dump(mode="json"))))
+    if not narrative_norm:
+        return tailored
+
+    def _already_covered(name: str) -> bool:
+        return any(_norm(name) == _norm(s) or skills_near_dupe(name, s) for s in existing)
+
+    to_add: list[str] = []
+    for name in candidates:
+        if _already_covered(name):
+            continue
+        if surface_present(name, narrative_norm):
+            to_add.append(name)
+            existing = existing + [name]  # so a later candidate sees this one as covered
+
+    if not to_add:
+        return tailored
+
+    for name in to_add:
+        logger.info(
+            "skills-list gap guard (#376): %r named in a narrative bullet but absent "
+            "from the skills list — added",
+            name,
+        )
+    return tailored.model_copy(update={"skills": list(tailored.skills or []) + to_add})
+
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf.html.j2",
     "modern_swiss": "modern_swiss.html.j2",
@@ -1900,6 +2079,16 @@ async def _render_cv_background(
             # here; the photo step below rebinds the name to the raw profile dict).
             tailored = _backfill_work_ids(tailored, profile_json)
 
+            # #328: deterministically copy each work entry's quantified role facts
+            # (team_size / budget_managed / industry_context) from the vault onto the
+            # matching tailored entry, for rendering as document furniture (ADR-062
+            # clause 1) — bypassing prose (and the writer LLM) entirely. MUST run
+            # after _backfill_work_ids — matched by the SAME WorkEntry.id identity,
+            # never by company-name string. Uses the SORTED profile_json (still
+            # bound here; the photo step below rebinds the name to the raw profile
+            # dict).
+            tailored = _apply_role_facts(tailored, profile_json)
+
             # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
             # verbatim vault bullet that carries a claimable Keyword Ledger concept the
             # writer's draft dropped entirely. MUST run after _backfill_work_ids — it is
@@ -1945,13 +2134,21 @@ async def _render_cv_background(
 
             # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
             # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
-            # "Good Practice") back to the vault's exact string. MUST run LAST in
-            # the skills pipeline -- after every selection/cap/drop pass above, and
-            # BEFORE tailored_data/the ATS audit are persisted below, so the audit
-            # (and the Oracle, and any human reader) sees the final, correctly
-            # spelled document. Only ever rewrites a name already present; never
-            # adds or removes an entry.
+            # "Good Practice") back to the vault's exact string. MUST run before the
+            # #376 guard just below, so that guard's near-dupe check compares against
+            # the FINAL corrected spelling, not an intermediate mangled one. Only ever
+            # rewrites a name already present; never adds or removes an entry.
             tailored = _restore_skill_spelling(tailored, profile_json)
+
+            # #376 (ADR-064 charter run, section 4 finding F3): a skill named in a
+            # generated bullet ("SAP PP und SAP MM") but missing from the generated
+            # skills list ("SAP PP" only) -- the document contradicting itself. MUST
+            # run LAST in the skills pipeline -- after every selection/cap/drop/
+            # spelling pass above, and BEFORE tailored_data/the ATS audit are
+            # persisted below, so the audit (and any human reader) sees the final,
+            # self-consistent document. Only ever ADDS a name already known-true and
+            # already narrated; never invents, reorders, or removes an entry.
+            tailored = _restore_narrative_named_skills(tailored, profile_json, keyword_ledger)
 
             # Populate photo_url from master profile's personal_info.
             # Stored path; resolved to base64 at render time in get_cv_html.

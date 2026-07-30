@@ -124,6 +124,12 @@ class CoverLetterStatusResponse(BaseModel):
     letter_data: Optional[dict] = None  # populated only when status == ready
     # E044/US252 (ADR-054): 'pipeline' | 'agent' — drives the origin badge.
     origin: str = "pipeline"
+    # ADR-060 Pass B (#322): the outcome critic's cross-document coherence
+    # advisory, riding the SAME status poll both doors already use — no new
+    # MCP tool needed (ADR-056 §4 tool-surface budget), and it means a BYOI
+    # agent sees the advisory the moment it polls for readiness, same as a
+    # human. Null until computed; see OutcomeCriticReport.reason for why.
+    critic_report: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

@@ -30,12 +30,18 @@ import re
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-__all__ = ["month_year", "register_filters", "build_template_env"]
+__all__ = ["month_year", "budget_display", "register_filters", "build_template_env"]
 
 # "2017-04", "2017-04-01", "2017/04" — the shapes the extractor and the reconciler
 # actually produce. Anything else is passed through untouched (see month_year).
 _ISO_MONTH_RE = re.compile(r"^\s*(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?\s*$")
 _YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
+
+# A value that is ENTIRELY a number — digits plus the separators a human or a
+# reconciler might already have put in (thousands ``.``/``,``/space, at most
+# one decimal ``.``/``,``) — vs. one that carries wording (a magnitude word,
+# a currency symbol, a tilde, ...). Only the former is ours to reformat.
+_BARE_NUMBER_RE = re.compile(r"^\d[\d.,\s]*$")
 
 
 def month_year(value: object) -> str:
@@ -83,6 +89,82 @@ def month_year(value: object) -> str:
     return text.strip()
 
 
+def budget_display(value: object, lang: str = "de") -> str:
+    """Render a stored ``budget_managed`` value for display (adversarial pass,
+    2026-07-30, finding 1).
+
+    ``GET /api/cv/{id}/html`` shipped ``Budget: 6000000`` as document
+    furniture two lines above the writer's own prose quoting the SAME figure
+    formatted ("ca. 6 Mio. € pro Jahr") — the vault value (a bare digit
+    string, ``_apply_role_facts``'s correct, unconditional passthrough of
+    what the reconciler stored, ADR-062 clause 1) is a fine queryable
+    projection; nothing formatted it for a human reader.
+
+    A value that is **entirely a number** (optionally already carrying
+    thousands separators or a decimal comma/point — the reconciler's own
+    ``str(int)``/``str(float)`` coercion, see ``test_reconcile_apply.py``'s
+    "Field-type coercion" section, is the shape actually seen in practice) is
+    grouped for the document's language: ``.`` thousands-separated for
+    German, ``,`` for everything else. A value that already carries human
+    wording — a magnitude word ("Mio."), a currency symbol/code ("€", "EUR"),
+    a tilde ("~6m") — is **passed through untouched**: the writer already
+    said what it meant, and reformatting prose is not this filter's job.
+
+    Chosen over a "6 Mio." magnitude form: grouping is always exact for any
+    figure (a magnitude form needs a rounding decision the moment the number
+    isn't a clean multiple of a million) and needs no per-language
+    magnitude-word table — the same reasoning :func:`month_year` gives for
+    not localising month names.
+
+    Never invents a currency: the output is digits and separators only, even
+    when the stored value carries none — inventing "€6.000.000" from a bare
+    "6000000" would assert a fact (the currency) the vault never stated.
+
+    >>> budget_display("6000000", "de")
+    '6.000.000'
+    >>> budget_display("6000000", "en")
+    '6,000,000'
+    >>> budget_display("ca. 6 Mio. EUR", "de")
+    'ca. 6 Mio. EUR'
+    >>> budget_display(None)
+    ''
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    if not _BARE_NUMBER_RE.match(text):
+        # Already worded — a magnitude word, a currency symbol, a tilde, ...
+        # Never reformatted, never stripped.
+        return text
+
+    segments = [s for s in re.split(r"[.,\s]", text) if s]
+    if not segments:
+        # All separators, no actual digits (malformed) — fail open, same
+        # policy as month_year's unrecognised-value branch.
+        return text
+
+    # A trailing 1- or 2-digit segment is a decimal fraction; anything else —
+    # including a trailing 3-digit segment — is a thousands group, because an
+    # already-grouped whole number (the overwhelmingly common shape here) is
+    # far more likely than a budget figure carrying cents.
+    if len(segments) > 1 and len(segments[-1]) in (1, 2):
+        integer_part, fraction = "".join(segments[:-1]), segments[-1]
+    else:
+        integer_part, fraction = "".join(segments), ""
+    if not integer_part:
+        return text
+
+    thousands_sep = "." if lang == "de" else ","
+    grouped = f"{int(integer_part):,}".replace(",", thousands_sep)
+    if fraction:
+        decimal_sep = "," if lang == "de" else "."
+        grouped = f"{grouped}{decimal_sep}{fraction}"
+    return grouped
+
+
 def register_filters(env) -> None:
     """Install every shared template filter on a Jinja environment.
 
@@ -90,6 +172,7 @@ def register_filters(env) -> None:
     has to be constructed some other way.
     """
     env.filters["month_year"] = month_year
+    env.filters["budget_display"] = budget_display
 
 
 def build_template_env(templates_dir) -> Environment:

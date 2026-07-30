@@ -612,6 +612,20 @@ Enforcement is two-stage and fully deterministic. **Feedforward:** before any LL
 
 ---
 
+### ADR-060 — Draft-Aware Outcome Critic: a Bounded Second Look Before the Document Ships (accepted 2026-07-25, amended 2026-07-30)
+
+**Decision:** After a document's review loop settles and **before** it is presented, one bounded critic pass judges the draft by a different standard than every other check in the pipeline. A reviewer asks *"is this output correct and well-formed?"*; the Truthfulness Oracle asks *"is this claim true?"*; the critic asks *"is this document going to work, and do its two halves tell one story?"* Its remedies are whitelisted to two and it may never write content: reprioritise evidence that is **already in the vault**, or name **one** missing fact as a follow-up question attached to the delivered document. It **never gates delivery** — the document ships and the answer improves the next generation. Hard cap of one round. A critic that "fixes" a document by writing new prose would be a fabrication engine, so the constraint is structural rather than advisory.
+
+Ships in the Community Edition — there is no edition rationale for withholding output quality. Self-hosters on a tight provider budget can disable it: `CRITIC_ENABLED` (default `true`) and `CRITIC_MAX_ROUNDS` (default `1`). It reads the drafted documents, the job analysis and the already-computed gap/keyword-ledger analysis — deliberately **not** the raw profile, which keeps it structurally cheaper than a reconciliation call. On the agent door the verdict arrives as **data** on the existing report surfaces, never as a forced server-side loop (ADR-058 door parity).
+
+**Why:** Three consecutive blind hiring-panel reviews returned documents that were honest and still did not earn an interview — and named changes achievable from evidence *already in the profile*. Those are selection and positioning failures, not fit rejections. The pipeline had no step that looked at the finished work and judged it as a whole; that question existed only as an external test harness. A capable human — or a capable agent — rereads their own draft before sending it.
+
+**Amended (2026-07-30) — the reason for waiting was inverted, and scope narrowed to the cross-document pass.** This decision originally made itself conditional on a cheap deterministic first cut for cross-document coherence, on the reasoning that building a model pass first would *"put an LLM judgment where an assertion suffices"*. ADR-062 then deleted that deterministic mechanism three days later, because on real data its signal ran **backwards** — and classified the questions it was answering as *judgements* a deterministic rule may not compute. So the premise was false: the assertion does not suffice, and ADR-062's prescribed replacement (the facts verbatim plus one narrow rule) *is* a bounded model pass. Implementation is scoped to the **cross-document pass only**: it computes per-document presence of each claimable ledger concept in code — a literal, checkable fact — and hands the judgement to the model. The CV-selection pass stays unbuilt, because that defect is being closed deterministically instead (a required concept the profile proves must now appear in the CV's own narrative, not merely as a bare skills-list keyword).
+
+Two constraints are worth stating because they are architectural, not incidental. **The CV is always generated before the cover letter**, and nothing re-opens it afterwards — so a finding about something the CV omits can only ever surface as an **advisory to the user**, never a silent regeneration of a document they may already have reviewed or downloaded. And for the same ordering reason, the mirror check (the CV judged against the letter) is not merely unbuilt but impossible: at CV-generation time there is no letter to read.
+
+---
+
 ### ADR-062 — Facts are Deterministic, Judgements are the Model's (accepted 2026-07-28)
 
 **Decision:** Code in the generation path may compute a **fact** and hand it to a writer or reviewer prompt as ground truth. It may not compute a **judgement** and do the same.

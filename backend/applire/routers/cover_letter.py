@@ -36,10 +36,12 @@ from applire.schemas.cover_letter import (
     SectionOverridePatchResponse,
 )
 from applire.schemas.oracle import TruthfulnessReportResponse
+from applire.schemas.outcome_critic import OutcomeCriticReportResponse
 from applire.services.cover_letter import (
     generate_cover_letter,
     get_cover_letter_ats_report,
     get_cover_letter_by_job,
+    get_cover_letter_critic_report,
     get_cover_letter_html,
     get_cover_letter_status,
     get_cover_letter_truthfulness_report,
@@ -136,6 +138,21 @@ async def get_cl_truthfulness_report(
     generation + self-audit complete (or for pre-Tiramisu rows)."""
     try:
         return await get_cover_letter_truthfulness_report(cl_id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{cl_id}/critic-report", response_model=OutcomeCriticReportResponse)
+async def get_cl_critic_report(
+    cl_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> OutcomeCriticReportResponse:
+    """ADR-060 Pass B / #322: persisted cross-document coherence advisory.
+    `report` is null until generation + the critic pass complete (or for
+    pre-Tiramisu rows / when the pass did not run — see `report.reason`)."""
+    try:
+        return await get_cover_letter_critic_report(cl_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

@@ -229,6 +229,7 @@ async def get_cover_letter_status(
         expires_at=cl.expires_at,
         letter_data=letter_data,
         origin=cl.origin,
+        critic_report=cl.critic_report,
     )
 
 
@@ -1347,6 +1348,55 @@ async def _update_ats_report_letter(
             "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id
         )
         cl.truthfulness_report = None
+    # ADR-060 Pass B (amended 2026-07-30, #322): the outcome critic's
+    # cross-document coherence advisory rides the same commit as the
+    # artifact + the two reports above. A SEPARATE try block, deliberately
+    # independent of the ats_report block's local variables (like the
+    # truthfulness block above it) — a render_pdf/audit failure earlier in
+    # this function must never take the critic down with it, or vice versa.
+    # Non-fatal, never gates delivery; see run_pass_b's own docstring for the
+    # full set of short-circuits (SF-CRITIC.1/.8).
+    try:
+        from applire.services.outcome_critic import run_pass_b
+
+        job_row = await db.get(JobAnalysis, cl.job_analysis_id)
+        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        audited_letter = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+
+        # Pass B needs BOTH documents (ADR-060 amended 2026-07-30) — resolve
+        # the CV this letter's flow generated, exactly as the generation path
+        # itself does (flow.generated_cv_id), never the raw vault.
+        cv_tailored: dict | None = None
+        flow_result = await db.execute(
+            select(FlowSession).where(
+                FlowSession.job_id == cl.job_analysis_id,
+                FlowSession.deleted_at.is_(None),
+            )
+        )
+        flow = flow_result.scalar_one_or_none()
+        if flow is not None and flow.generated_cv_id is not None:
+            cv = await db.get(GeneratedCV, flow.generated_cv_id)
+            if cv is not None:
+                cv_tailored = cv.tailored_data
+
+        from applire.services.jd_excerpt import build_jd_excerpt
+
+        critic_provider = get_provider()
+        critic_report = await run_pass_b(
+            cv_tailored=cv_tailored,
+            letter_data=audited_letter,
+            keyword_ledger=ledger,
+            job_role_title=job_row.role_title if job_row else None,
+            jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
+            provider=critic_provider,
+        )
+        cl.critic_report = critic_report.model_dump(mode="json")
+    except Exception:
+        logger.exception(
+            "Outcome critic Pass B failed for cover letter %s — critic_report left NULL",
+            cl.id,
+        )
+        cl.critic_report = None
     await db.commit()
 
 
@@ -1420,6 +1470,43 @@ async def get_cover_letter_truthfulness_report(
             )
             report = None
     return TruthfulnessReportResponse(document_id=cl.id, status=cl.status, report=report)
+
+
+async def get_cover_letter_critic_report(
+    cl_id: uuid.UUID, db: AsyncSession
+) -> "OutcomeCriticReportResponse":
+    """Return the persisted ADR-060 Pass B advisory for a cover letter (#322).
+
+    Mirror of :func:`get_cover_letter_truthfulness_report` — same envelope
+    shape, same malformed-row degrade-to-null contract. Raises LookupError if
+    the cover letter is not found (→ 404 in the router). This is the ONE
+    read path both doors use (REST router + MCP tool both call this
+    function directly, ADR-066 clause 2) — there is no second implementation
+    to drift out of parity.
+    """
+    from applire.schemas.outcome_critic import OutcomeCriticReport, OutcomeCriticReportResponse
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    report = None
+    if cl.critic_report:
+        try:
+            report = OutcomeCriticReport.model_validate(cl.critic_report)
+        except Exception:
+            logger.warning(
+                "Stored outcome-critic report for cover letter %s is malformed — "
+                "returning report=null",
+                cl.id,
+            )
+            report = None
+    return OutcomeCriticReportResponse(document_id=cl.id, status=cl.status, report=report)
 
 
 # ---------------------------------------------------------------------------
