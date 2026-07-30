@@ -185,3 +185,94 @@ def test_an_adjacent_partial_positioning_only_entry_is_excluded():
     }
     facts = compute_presence_facts({}, letter, ledger)
     assert facts == []
+
+
+# ── Adversarial pass (2026-07-30), finding 3 — snippet is a SENTENCE ────────
+#
+# A letter's document UNITS are whole paragraphs (_document_units reuses
+# keyword_ledger._draft_strings, which flattens body.paragraphs entry-by-
+# entry). Two advisories about two different concepts in the SAME paragraph
+# therefore quoted the ENTIRE ~700-character paragraph twice, byte-identical
+# except for the concept name — the candidate sees the same wall of text
+# twice. Narrowing to the sentence containing the matched surface form is a
+# FACT (ADR-062 clause 1: which sentence contains a given literal string is
+# settled by string containment alone, no reading for meaning) — never a
+# summarisation or rewrite.
+
+_TWO_CONCEPT_LEDGER = [
+    {
+        "concept": "Arbeitsvorbereitung",
+        "surface_forms": ["Arbeitsvorbereitung"],
+        "claimable": True,
+        "status": "direct",
+    },
+    {
+        "concept": "Digitalisierung",
+        "surface_forms": ["Digitalisierung"],
+        "claimable": True,
+        "status": "direct",
+    },
+]
+
+_TWO_CONCEPT_LETTER = {
+    "body": {
+        "paragraphs": [
+            "Sehr geehrte Damen und Herren,",
+            "In meiner letzten Rolle war ich für die Arbeitsvorbereitung "
+            "zuständig. Außerdem trieb ich die Digitalisierung der Fertigung "
+            "entschlossen voran.",
+            "Mit freundlichen Grüßen",
+        ]
+    }
+}
+
+
+def test_the_snippet_is_the_sentence_not_the_whole_paragraph():
+    """Two concepts in ONE paragraph, each in its own sentence, neither in
+    the CV at all (letter_only) -- each advisory's snippet must be its OWN
+    sentence, not the shared ~120-char paragraph both concepts live in."""
+    facts = compute_presence_facts({}, _TWO_CONCEPT_LETTER, _TWO_CONCEPT_LEDGER)
+    by_concept = {f.concept: f for f in facts}
+    assert set(by_concept) == {"Arbeitsvorbereitung", "Digitalisierung"}
+
+    av = by_concept["Arbeitsvorbereitung"]
+    dg = by_concept["Digitalisierung"]
+
+    assert av.letter_snippet == (
+        "In meiner letzten Rolle war ich für die Arbeitsvorbereitung zuständig."
+    )
+    assert dg.letter_snippet == (
+        "Außerdem trieb ich die Digitalisierung der Fertigung entschlossen voran."
+    )
+    # The whole point: they must no longer be byte-identical.
+    assert av.letter_snippet != dg.letter_snippet
+    # Neither snippet is the whole two-sentence paragraph.
+    full_paragraph = _TWO_CONCEPT_LETTER["body"]["paragraphs"][1]
+    assert av.letter_snippet != full_paragraph
+    assert dg.letter_snippet != full_paragraph
+
+
+def test_the_advisory_message_quotes_the_narrowed_sentence_not_the_paragraph():
+    """End to end through _build_advisory: the persisted message text quotes
+    the SENTENCE, matching the FMEA's "adjudicate at a glance" requirement."""
+    from applire.services.outcome_critic import _build_advisory
+
+    facts = compute_presence_facts({}, _TWO_CONCEPT_LETTER, _TWO_CONCEPT_LEDGER)
+    by_concept = {f.concept: f for f in facts}
+    advisory_av = _build_advisory(by_concept["Arbeitsvorbereitung"])
+    advisory_dg = _build_advisory(by_concept["Digitalisierung"])
+
+    assert "Arbeitsvorbereitung zuständig" in advisory_av.message["de"]
+    assert "Digitalisierung der Fertigung" in advisory_dg.message["de"]
+    # Neither message drags in the OTHER concept's sentence.
+    assert "Digitalisierung" not in advisory_av.letter_state
+    assert "Arbeitsvorbereitung" not in advisory_dg.letter_state
+
+
+def test_a_single_sentence_unit_is_unaffected_by_narrowing():
+    """The pre-existing founding-case fixture (ISO 9001, one-sentence letter
+    paragraph) must keep quoting the whole sentence unchanged -- narrowing is
+    a no-op when the unit IS already one sentence."""
+    facts = compute_presence_facts(CV_TAILORED, LETTER_DATA, _LEDGER)
+    assert len(facts) == 1
+    assert "zehn Jahren" in (facts[0].letter_snippet or "")

@@ -23,6 +23,10 @@ ground truth each test is pinned against:
 1. CV dates rendered ISO (``2017-04 – heute``) instead of MM/YYYY (``04/2017``).
 2. The Anschreiben's Anrede ran into the opening sentence as one paragraph.
 3. The Grußformel carried a comma, which German does not take.
+
+A fourth convention (adversarial pass, 2026-07-30) joined this file for the
+same reason: ``budget_managed`` is a render-side formatting bug, not a vault
+defect — see the ``budget_display`` tests below.
 """
 import sys
 from pathlib import Path
@@ -33,7 +37,7 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from applire.templates.filters import month_year  # noqa: E402
+from applire.templates.filters import budget_display, month_year  # noqa: E402
 from applire.templates.labels import cover_letter_labels  # noqa: E402
 
 
@@ -137,6 +141,95 @@ def test_no_cv_template_renders_a_raw_date():
                     if field in expr and "month_year" not in expr:
                         offenders.append(f"{tpl.name}:{lineno}: {expr.strip()}")
     assert not offenders, "date interpolated without |month_year:\n" + "\n".join(offenders)
+
+
+# ── 4. budget_managed renders formatted, not as a raw digit string ─────────
+#
+# Adversarial pass (2026-07-30): GET /api/cv/{id}/html rendered
+# "Budget: 6000000" as furniture two lines above the writer's own prose
+# ("Budgetverantwortung von ca. 6 Mio. € pro Jahr") — the same figure twice,
+# once formatted and once looking like a data-quality bug. The VAULT value is
+# a correct queryable projection (a bare number); only the DISPLAY was wrong.
+# DACH thousands-grouped (``.``) for German, comma-grouped for everything
+# else — chosen over a "6 Mio." magnitude form because it is always exact (no
+# rounding decision for a non-round figure) and needs no per-language
+# magnitude-word table, mirroring month_year's own reasoning against a
+# localised-month table.
+
+
+@pytest.mark.parametrize(
+    "stored,lang,rendered",
+    [
+        ("6000000", "de", "6.000.000"),
+        ("6000000", "en", "6,000,000"),
+        ("50000", "de", "50.000"),
+        # Already DACH-grouped input is still entirely-a-number — reformatted,
+        # not passed through blind (idempotent on the target convention).
+        ("1.800.000", "de", "1.800.000"),
+        ("1,800,000", "en", "1,800,000"),
+        # Small figures don't need a separator, but must still render.
+        ("500", "de", "500"),
+    ],
+)
+def test_a_bare_number_budget_is_grouped_for_the_document_language(stored, lang, rendered):
+    assert budget_display(stored, lang) == rendered
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ca. 6 Mio. EUR",
+        "ca. 6 Mio. €",
+        "~6m",
+        "EUR 50m",
+        "€200k",
+        "6 Mio. €",
+    ],
+)
+def test_an_already_worded_budget_is_passed_through_untouched(value):
+    """A value that already carries human wording (a magnitude word, a
+    currency symbol, a tilde, ...) must never be reformatted or have a
+    currency invented for it — the writer already said what it meant."""
+    assert budget_display(value, "de") == value
+    assert budget_display(value, "en") == value
+
+
+def test_budget_display_never_invents_a_currency():
+    """The stored value carries no currency — the filter must format the
+    magnitude only, never guess EUR/USD/CHF."""
+    assert "€" not in budget_display("6000000", "de")
+    assert "EUR" not in budget_display("6000000", "de")
+    assert "$" not in budget_display("6000000", "en")
+
+
+def test_budget_display_none_and_empty_render_empty():
+    assert budget_display(None, "de") == ""
+    assert budget_display("", "de") == ""
+    assert budget_display("   ", "de") == ""
+
+
+def test_budget_display_is_registered_in_the_shared_environments():
+    from applire.services.cover_letter import _jinja_env as letter_env
+    from applire.services.cv import _jinja_env as cv_env
+
+    for env in (cv_env, letter_env):
+        assert "budget_display" in env.filters
+
+
+def test_no_cv_template_renders_a_raw_budget_number():
+    """Belt-and-braces against a NEW template interpolating budget_managed
+    without the filter — the same shape as test_no_cv_template_renders_a_raw_date."""
+    templates = Path(__file__).parent.parent.parent / "backend" / "applire" / "templates"
+    offenders = []
+    for tpl in sorted(templates.glob("*.html.j2")):
+        for lineno, line in enumerate(tpl.read_text(encoding="utf-8").splitlines(), 1):
+            for chunk in line.split("{{")[1:]:
+                expr = chunk.split("}}")[0]
+                if "budget_managed" in expr and "budget_display" not in expr:
+                    offenders.append(f"{tpl.name}:{lineno}: {expr.strip()}")
+    assert not offenders, "budget_managed interpolated without |budget_display:\n" + "\n".join(
+        offenders
+    )
 
 
 # ── 2. The Anrede gets its own paragraph ────────────────────────────────────
