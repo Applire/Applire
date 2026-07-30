@@ -279,7 +279,7 @@
           <div class="entry-subtitle">{{ job.company }}</div>
           {% set role_facts = [] %}
           {% if job.team_size is not none %}{% set _ = role_facts.append(labels.role_team_size ~ ': ' ~ job.team_size) %}{% endif %}
-          {% if job.budget_managed %}{% set _ = role_facts.append(labels.role_budget ~ ': ' ~ job.budget_managed) %}{% endif %}
+          {% if job.budget_managed %}{% set _ = role_facts.append(labels.role_budget ~ ': ' ~ (job.budget_managed | budget_display(lang))) %}{% endif %}
           {% if job.industry_context %}{% set _ = role_facts.append(labels.role_industry ~ ': ' ~ job.industry_context) %}{% endif %}
           {% if role_facts %}
           <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
