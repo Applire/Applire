@@ -27,11 +27,11 @@ Every architecture decision traces back to one or more of these principles. If a
 | Principle | What it means in practice |
 |---|---|
 | **JD-First** | Job description drives all downstream logic. No tailoring without a JD. |
-| **Stateful Backend** | Complex reasoning lives server-side. The frontend is a thin UI. Never move interview or flow logic to the client. |
+| **Stateful Backend** | Complex reasoning lives server-side. The frontend is a thin UI. Never move interview or flow logic to the client. **Sharpened by ADR-066:** any rule deciding what is *true, valid, complete, eligible or claimable* lives in the backend and is served to the UI as data — a rule duplicated in both layers counts as a violation even while the two copies still agree, because they drift silently and the UI is the copy the user believes. |
 | **Accumulate, Don't Overwrite** | The Master Profile grows richer over time. New data enriches it; it is never replaced. |
 | **Provider Abstraction** | Auth, LLM, Storage, and OCR are all pluggable via the same factory pattern. Community ships sensible defaults; Cloud overrides without touching Community code. |
 | **GDPR by Design** | Every model that stores personal data carries `expires_at` or `updated_at` + `deleted_at` from the start. Retention is automated, not manual. |
-| **MCP Agent Parity** | All user-facing features must be accessible as MCP tools. Agents are a first-class consumer, not an afterthought. |
+| **MCP Agent Parity** | All user-facing features must be accessible as MCP tools. Agents are a first-class consumer, not an afterthought. **Sharpened by ADR-066:** reachable is not enough — the two doors must converge on the *same implementation*, and parity is over the **data a door can carry** as well as the functions it can call. |
 | **Open Core Discipline** | Community code (`applire.*`) and Cloud code (`applire.cloud.*`) live in separate repositories. They never mix at the source level. |
 
 ---
@@ -728,6 +728,18 @@ A hallucinated decomposition is caught by a **review pass, not a rule table** �
 **Status:** decided, **not implemented**. Nothing on this page's ADR-065 section is in the code yet — `Skill.specialisation` does not exist and `work_experience[].technologies` is still present and in use.
 
 **Sequencing:** ADR-064 ships first and works alone — the interview asks the follow-up. This decision then makes most of those follow-ups unnecessary, and gets built with real data from 064 about how often a probe actually finds partial coverage.
+
+---
+
+### ADR-066 — Doors Are Adapters: One Implementation per Capability (accepted 2026-07-29)
+
+**Decision:** A **door** — a REST router, an MCP tool, a future CLI — is an *adapter*: it translates transport into one call on a capability-core function and translates the result back. It may authenticate, deserialise, map errors and shape a response. It may **not** branch on a business rule, apply a guard the other door omits, choose between two implementations, or decide where data lives (an input a door collects is handed to the core, which persists it on the entity that owns it — never on a document-scoped side table). **One logical operation has one implementation:** two doors converge on the *same function*, not on two functions that look equivalent. Intentional differences are **named parameters** on that one function; a difference that cannot be expressed as a parameter is a second implementation. The **frontend holds presentation only** — every rule deciding what is true, valid, complete, eligible or claimable lives in the backend and is served as data.
+
+**Why:** ADR-058 already required "equal semantics" across the doors, and it was read as capability *reachability* — can the agent do what the UI can. Import is the counter-example: both doors could import a CV, and did so through two separate pipelines with different extraction prompts, different refinement reviewers, and a pre-merge integrity check wired into only one of them (#229). Each pipeline was individually correct; together they produced different profiles from the same CV. The same week, an agent-channel run found the mirror-image problem — inputs the web UI collects that the MCP surface has no way to supply at all (#366), which made the agent door strictly worse for the same task. So parity is over the **data a door can carry**, not only the functions it can call.
+
+**Enforcement:** a **behavioural** parity suite over both axes — per logical operation, drive both doors end-to-end against the mock provider and diff the resulting persisted state; per input, assert that what one door accepts, the other accepts. Declared exceptions must cite the ADR clause permitting them; an undeclared divergence fails the build. A cheaper symbol-identity check (assert both doors resolve to the same function) was considered and rejected: it passes whenever two doors call one function with *different arguments*, which is one of the divergences that motivated the ADR. **Status: specified, not yet built** — it is recorded here as an obligation rather than as a shipped guarantee, and the ADR commits to being amended rather than quietly carrying the clause if it is not built.
+
+**Scope:** applies to all new work; existing divergences are converged opportunistically, with one exception — a divergence that *removes a guard* on one door is treated as a defect and fixed on discovery, not deferred.
 
 ---
 
