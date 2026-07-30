@@ -71,6 +71,23 @@ LLM_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("LLM_REVIEW_MAX_RETRIES", "2")
 )
 
+# ADR-060 Pass B — the outcome critic's cross-document coherence pass (#322).
+# Community feature, operator-configurable, default ON (ADR-060 clause 8 / PO
+# decision 3): a self-hoster on a tight provider budget can turn it off.
+CRITIC_ENABLED: bool = os.environ.get("CRITIC_ENABLED", "true").strip().lower() not in (
+    "false", "0", "no",
+)
+# Hard iteration cap (ADR-060 clause 4). Pass B's remedy is advisory-only (never
+# a regeneration, ADR-060 amended 2026-07-30), so this bounds the ONE judgement
+# call's own retry-on-malformed-output budget, not a remediation loop — the
+# critic never asks the writer to try again.
+CRITIC_MAX_ROUNDS: int = int(os.environ.get("CRITIC_MAX_ROUNDS", "1"))
+# Output budget for the critic's judgement call — small by contract, like
+# REVIEW_VERDICT_MAX_TOKENS below: it returns one {"findings": [...]} verdict
+# over a handful of pre-computed candidate concepts, never the documents
+# themselves (ADR-060 clause 7).
+CRITIC_JUDGEMENT_MAX_TOKENS: int = 1024
+
 # Output budget for the reviewer's *verdict* (ADR-021 amended 2026-06-29 / US193,
 # E036). The reviewer is bounded-output-by-contract: it reads the full draft + source
 # (large INPUT, fine) but only ever emits a small {approved, issues, feedback} verdict
