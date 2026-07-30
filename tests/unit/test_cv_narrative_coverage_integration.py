@@ -15,7 +15,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""#303 and #376 wired into the real generation path.
+"""#376 wired into the real generation path.
+
+**Scope note (2026-07-30): #303 was REVERTED and its assertions removed from
+this module.** Its narrative-presence predicate demanded that a ledger
+concept's own literal surface form appear in the CV's narrative — but the
+Keyword Ledger's surface forms for this defect class are abstract German
+compound nouns (``Investitionsplanung``, ``Arbeitsvorbereitung``), which
+honest testimony never contains verbatim ("Instandhaltungsinvestitionen plane
+und priorisiere ich selbst"). On a real-provider charter run the predicate was
+therefore unsatisfiable: both CV reviewer loops churned to full retry
+exhaustion without ever reaching ``approved: true``, the writer began emitting
+keyword-labelled bullets to feed the literal scan, and the pre-existing bullet
+cap — which cuts no-hit bullets first, "hit" meaning literal ledger-form
+presence — deleted the candidate's most quantified achievement (an LTIF
+accident-rate reduction) from the delivered document. The fixture below still
+carries the Kubernetes shape #303 was filed against; it is retained as
+ground truth for the re-scoped issue, and this module deliberately asserts
+nothing about it. See the re-filed issue for the full run evidence.
 
 Drives ``_render_cv_background`` end to end (the actual service entrypoint,
 not just the pure guard functions), against a real SQLite DB via
@@ -204,10 +221,10 @@ async def seeded(db):
 
 
 @pytest.mark.asyncio
-async def test_narrative_coverage_and_named_skill_guards_change_the_persisted_cv(seeded):
-    """The full pipeline, end to end: both #303's restoration and #376's
-    skills-list addition must be visible in the PERSISTED tailored_data --
-    not merely computable by calling the guard functions directly."""
+async def test_named_skill_guard_changes_the_persisted_cv(seeded):
+    """The full pipeline, end to end: #376's skills-list addition must be
+    visible in the PERSISTED tailored_data -- not merely computable by calling
+    the guard function directly."""
     db, job, profile, cv = seeded
 
     from applire.services.cv import _render_cv_background
@@ -228,9 +245,13 @@ async def test_narrative_coverage_and_named_skill_guards_change_the_persisted_cv
             "applire.services.cv.review_and_refine",
             AsyncMock(side_effect=_identity_review),
         ),
+        # Return bytes rather than raising: whether the render/measure step's
+        # exception is swallowed depends on which path runs (the condense path
+        # catches, the plain render path does not), so a raising mock makes the
+        # test depend on the draft's page count instead of on the guard.
         patch(
             "applire.services.cv._html_to_pdf",
-            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+            AsyncMock(return_value=b"%PDF-1.4 synthetic"),
         ),
     ):
         mock_session_local.return_value.__aenter__.return_value = db
@@ -246,13 +267,11 @@ async def test_narrative_coverage_and_named_skill_guards_change_the_persisted_cv
     bullets = tailored["work_history"][0]["bullets"]
     skills = tailored["skills"]
 
-    # --- #303: the Kubernetes narrative bullet is restored, not left as a
-    # bare skills-list tag alone. ---
-    assert _VAULT_BULLET_KUBERNETES in bullets, (
-        "#303: high-fit claimable concept's own vault narrative was not "
-        "restored into the delivered CV despite a bare skills-list tag"
-    )
-    assert "Kubernetes" in skills  # the tag itself is not expected to disappear
+    # NOTE: #303 was reverted (see the module docstring). This module
+    # deliberately makes NO assertion about the Kubernetes bullet in either
+    # direction -- neither that it is restored (it is not, post-revert) nor
+    # that it stays absent, since the re-scoped fix is expected to change it.
+    # Pinning current behaviour here would turn a known gap into a ratchet.
 
     # --- #376: "SAP MM" -- named in the delivered bullet -- is added to the
     # delivered skills list, which the writer's draft otherwise left it out

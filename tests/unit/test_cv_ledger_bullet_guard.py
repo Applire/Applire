@@ -179,25 +179,11 @@ class TestRestoreLedgerBullets:
 
     def test_noop_when_every_claimable_concept_already_present(self):
         """If the draft already surfaces every claimable concept (elsewhere in the
-        document, e.g. in the summary), nothing is missing -> nothing restored.
-
-        #303 amendment: ``_ledger_entry`` builds ``status="direct"``,
-        ``claimable=True``, ``fit_weight=1.0`` entries -- exactly the shape
-        #303's narrative-presence check now ALSO requires a narrative bullet
-        for (a summary-only mention no longer satisfies coverage for a
-        high-fit concept, by design -- that gap was the bug). This test's own
-        point is the document-wide ``verified_missing_claimable`` no-op path in
-        isolation, so the local ledger copy here is downgraded to
-        nice-to-have (fit_weight 0.5) -- out of #303's scope -- to keep
-        testing that path without conflating it with the new, stricter check.
-        See ``TestRestoreLedgerBulletsCoversNarrativePresence`` (#303) for the
-        high-fit case, which now correctly DOES restore in this shape.
-        """
+        document, e.g. in the summary), nothing is missing -> nothing restored."""
         from applire.schemas.cv import TailoredCVData
         from applire.services.cv import _restore_ledger_bullets
 
         profile_json, ledger, generic, hits = _founder_fixture()
-        ledger = [{**e, "fit_weight": 0.5, "sources": ["nice_to_have"]} for e in ledger]
         forms = [f"Concept{i}" for i in range(1, 6)]
         # All 5 concepts are already present -- in the SUMMARY, not the bullets.
         tailored = TailoredCVData.model_validate({
@@ -322,18 +308,11 @@ class TestRestoreLedgerBullets:
     def test_entries_under_ceiling_are_left_untouched_and_unreordered(self):
         """No restoration needed (every claimable concept already surfaces
         elsewhere in the document) and already within budget -- the entry,
-        incl. its original bullet ORDER, must not be touched at all.
-
-        #303 amendment: downgraded to nice-to-have (fit_weight 0.5) for the
-        same reason as ``test_noop_when_every_claimable_concept_already_present``
-        above -- a full-weight direct concept present ONLY in the summary is,
-        by #303 design, no longer a no-op.
-        """
+        incl. its original bullet ORDER, must not be touched at all."""
         from applire.schemas.cv import TailoredCVData
         from applire.services.cv import _restore_ledger_bullets
 
         profile_json, ledger, generic, hits = _founder_fixture()
-        ledger = [{**e, "fit_weight": 0.5, "sources": ["nice_to_have"]} for e in ledger]
         forms = [f"Concept{i}" for i in range(1, 6)]
         # All 5 concepts already present -- in the SUMMARY, so nothing is
         # "missing" and restoration never triggers for this entry.
@@ -678,22 +657,14 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
                     f"minted figure not present in vault: {fig.raw!r} in {bullet!r}"
                 )
 
-    def test_non_load_bearing_full_weight_concept_is_covered_by_303_not_315(self):
-        """#303 amendment: this is the EXACT "SAP, expert, 15 years" evidence
-        text ``is_load_bearing``'s own docstring pins as a case that must stay
-        NOT load-bearing (no percent/currency figure) -- ``is_load_bearing``
-        itself must still say False here, and #315's own load-bearing guard
-        must still find nothing. But this concept is ALSO status="direct" +
-        claimable=True + fit_weight=1.0 -- exactly #303's (separate,
-        sibling) scope -- so #303's narrative-presence check now DOES restore
-        the vault's own narrative bullet for it, via a completely different
-        mechanism than #315's figure-retention check. The two guards are
-        independently correct here: is_load_bearing stays narrow, and #303
-        closes the gap it deliberately leaves open."""
+    def test_does_not_regress_non_load_bearing_bare_keyword_noop(self):
+        """A plain (non-quantified) claimable concept must keep the EXISTING
+        behaviour: a bare keyword mention elsewhere is still sufficient, and
+        this guard must not restore anything for it. Only load-bearing
+        concepts get the stronger narrative check."""
         from applire.schemas.cv import TailoredCVData
         from applire.services.cv import _restore_ledger_bullets
         from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
-        from applire.services.load_bearing import is_load_bearing
 
         concept = "SAP (PP/MM)"
         ledger = [{
@@ -701,9 +672,6 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
             "status": "direct", "sources": ["required"], "fit_weight": 1.0,
             "evidence": "Explicitly listed as a skill (SAP, expert, 15 years).",
         }]
-        assert is_load_bearing(ledger[0]) is False, (
-            "fixture drift: this must stay the #315-pinned NOT-load-bearing case"
-        )
         profile_json = {
             "work_experience": [{
                 "id": "w1", "company": "Acme", "role": "Engineer",
@@ -731,12 +699,7 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
         )
 
         result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
-        final_bullets = result.work_history[0].bullets
-        assert "Daily work with SAP PP and MM modules." in final_bullets, (
-            "#303: a high-fit claimable concept's own vault narrative must be "
-            "restored even though it is not load-bearing (#315 scope unchanged)"
-        )
-        assert other_bullets[0] in final_bullets
+        assert result.work_history[0].bullets == other_bullets
 
 
 class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
