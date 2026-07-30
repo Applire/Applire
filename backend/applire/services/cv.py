@@ -667,8 +667,23 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     These three fields were captured by the CV-import extractor, carried
     through reconciliation, asked for by the interview and verified by the
     response reviewer, and counted toward profile completeness — but had ZERO
-    readers on the generation side. The writer's schema never mentions them,
-    so it can never mint or invent a figure; this pass is the ONLY writer.
+    readers on the generation side.
+
+    **This pass is the ONLY writer, and that is enforced structurally rather
+    than by instruction.** The three fields are written from the vault on every
+    tailored entry *unconditionally* — including as ``None`` when the vault is
+    silent, when no vault entry matches the tailored entry's id, and when the
+    profile carries no work history at all. Do not add an early return that
+    skips the write: that leaves whatever the draft happened to carry in place.
+
+    The reason this must fail safe rather than fail open: these values render as
+    document **furniture** (a labelled per-role sub-header), which presents them
+    to a recruiter as authoritative structured data rather than as prose a
+    reader discounts as authored — so a wrong value here costs more than a wrong
+    sentence. It is not sufficient that the writer prompt's schema omits these
+    fields: ``TailoredWorkEntry`` carries them, Pydantic's default ``extra``
+    policy accepts them, and #229 is this repository's own precedent for a
+    prompt schema acting as a dead control. An instruction is not a guarantee.
 
     Matched by the SAME work-entry ``id`` identity ``_backfill_work_ids``
     establishes and ``_restore_ledger_bullets`` relies on — MUST run after
@@ -680,29 +695,35 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     vault_by_id: dict[str, dict] = {
         str(w.get("id") or ""): w
         for w in (profile_json.get("work_experience") or [])
-        if w.get("id")
+        if isinstance(w, dict) and w.get("id")
     }
-    if not vault_by_id or not tailored.work_history:
+    if not tailored.work_history:
         return tailored
 
     changed = False
     new_work: list[TailoredWorkEntry] = []
     for w in tailored.work_history:
-        vault_entry = vault_by_id.get(w.id) if w.id else None
-        if vault_entry is None:
-            new_work.append(w)
-            continue
+        # No match is NOT a reason to skip the write — an unmatched or re-keyed
+        # entry would otherwise be a laundering path for a drafted value.
+        vault_entry = (vault_by_id.get(w.id) if w.id else None) or {}
 
         team_size = vault_entry.get("team_size")
+        # ``isinstance`` rather than truthiness: 0 is a real answer ("no direct
+        # reports"), and the vault is authoritative without being trusted to be
+        # well-typed. ``bool`` is an int subclass and is not a headcount.
+        team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
         budget_managed = vault_entry.get("budget_managed") or None
         industry_context = vault_entry.get("industry_context") or None
-        if team_size is None and budget_managed is None and industry_context is None:
-            new_work.append(w)
+
+        if (w.team_size, w.budget_managed, w.industry_context) == (
+            team_size, budget_managed, industry_context
+        ):
+            new_work.append(w)  # already correct — nothing to write
             continue
 
         changed = True
         new_work.append(w.model_copy(update={
-            "team_size": team_size if isinstance(team_size, int) else None,
+            "team_size": team_size,
             "budget_managed": budget_managed,
             "industry_context": industry_context,
         }))
