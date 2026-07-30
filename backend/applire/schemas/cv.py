@@ -119,6 +119,15 @@ class TailoredWorkEntry(BaseModel):
     # Projects associated with this position (US187 / ADR-044). Populated by the
     # deterministic post-tailoring nesting step, never by the LLM directly.
     projects: list[TailoredProjectEntry] = []
+    # #328 (ADR-062 clause 1 — a fact, not prose): quantified role facts carried
+    # verbatim from the vault WorkEntry by services.cv._apply_role_facts, AFTER
+    # the LLM tailoring step(s) — the writer's schema never mentions these
+    # fields, so it can never mint or invent them. Rendered as deterministic
+    # document furniture (a per-role sub-header line), never composed into a
+    # sentence. None means "not stated" — 0 is a valid team_size.
+    team_size: int | None = None
+    budget_managed: str | None = None
+    industry_context: str | None = None
 
     _coerce_fields = field_validator("company", "role", "start_date", mode="before")(_coerce_none_str)
     _coerce_id = field_validator("id", mode="before")(_coerce_none_str)

@@ -39,6 +39,10 @@ _CV_LABELS: dict[str, dict[str, str]] = {
         "contact": "Kontakt",
         "present": "heute",
         "certifications": "Zertifizierungen",
+        # #328: per-role quantified-fact furniture line (ADR-062 clause 1).
+        "role_team_size": "Teamgröße",
+        "role_budget": "Budget",
+        "role_industry": "Branche",
     },
     "en": {
         "summary": "Profile",
@@ -50,6 +54,9 @@ _CV_LABELS: dict[str, dict[str, str]] = {
         "contact": "Contact",
         "present": "Present",
         "certifications": "Certifications",
+        "role_team_size": "Team size",
+        "role_budget": "Budget",
+        "role_industry": "Industry",
     },
 }
 
