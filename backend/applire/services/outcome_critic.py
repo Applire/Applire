@@ -319,28 +319,41 @@ async def run_pass_b(
     Callers may still override explicitly, same shape as ``LLM_REVIEW_MAX_
     RETRIES`` threaded through ``review_and_refine``.
     """
+    # Every state-defining transition below logs at WARNING, not INFO — see
+    # "adversarial pass 2026-07-30, finding 2" (SF-CRITIC.1). The log CALLS
+    # were always here and always executed (reproduced against the real
+    # generation entrypoint, ``_render_cover_letter_background``, via caplog
+    # AND ``--log-cli-level=INFO``, on every branch); the defect was the
+    # LEVEL. ``config.py`` documents ``LOG_LEVEL=WARNING`` as a supported
+    # value ("applied to all applire.* loggers"), and under that (legitimate)
+    # setting an INFO-level "did not run"/"ran, N/M" line is silently
+    # dropped while the judgement-failure branch's WARNING survives — so a
+    # disabled pass and a working one become indistinguishable (both
+    # silent), exactly the shape the real run's eight failed greps show.
+    # Promoting to WARNING (not adding a second, redundant log call) puts
+    # all three SF-CRITIC.1 states on the same observability tier.
     if enabled is None:
         enabled = CRITIC_ENABLED
     if max_rounds is None:
         max_rounds = CRITIC_MAX_ROUNDS
     if not enabled:
-        logger.info("outcome critic Pass B: DID NOT RUN (CRITIC_ENABLED=false)")
+        logger.warning("outcome critic Pass B: DID NOT RUN (CRITIC_ENABLED=false)")
         return OutcomeCriticReport(ran=False, reason="disabled", advisories=[])
     if not letter_data:
-        logger.info("outcome critic Pass B: DID NOT RUN (no settled letter draft)")
+        logger.warning("outcome critic Pass B: DID NOT RUN (no settled letter draft)")
         return OutcomeCriticReport(ran=False, reason="missing_letter", advisories=[])
     if not cv_tailored:
         # ADR-060 amended 2026-07-30: Pass B needs BOTH documents. No CV yet
         # (e.g. an agent-authored letter with no linked GeneratedCV) means
         # there is nothing to cross-check against — this is a precondition
         # failure, never a "found nothing" judgement.
-        logger.info(
+        logger.warning(
             "outcome critic Pass B: DID NOT RUN (no generated CV to cross-check "
             "against — cross-document coherence needs both documents)"
         )
         return OutcomeCriticReport(ran=False, reason="missing_cv", advisories=[])
     if not keyword_ledger:
-        logger.info(
+        logger.warning(
             "outcome critic Pass B: DID NOT RUN (no Keyword Ledger — legacy/"
             "pre-E037 job analysis has none)"
         )
@@ -349,7 +362,7 @@ async def run_pass_b(
     facts = compute_presence_facts(cv_tailored, letter_data, keyword_ledger)
     candidates = [f for f in facts if f.flagged]
     if not candidates:
-        logger.info(
+        logger.warning(
             "outcome critic Pass B: RAN — 0 candidate concept(s); no "
             "cross-document incoherence to judge"
         )
@@ -366,7 +379,7 @@ async def run_pass_b(
                 prompt, system=SYSTEM_PROMPT, max_tokens=CRITIC_JUDGEMENT_MAX_TOKENS
             )
             advisories = _advisories_from_judgement(result, candidates)
-            logger.info(
+            logger.warning(
                 "outcome critic Pass B: RAN — %d candidate(s), %d advisory(-ies) "
                 "surfaced (judgement attempt %d/%d)",
                 len(candidates), len(advisories), attempt, attempts,
