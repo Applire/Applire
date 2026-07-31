@@ -17,6 +17,7 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 from applire.services.load_bearing import (
+    bullet_carries_figure,
     figures_present,
     load_bearing_fn_from_ledger,
     load_bearing_universe_from_ledger,
@@ -150,3 +151,56 @@ def test_load_bearing_fn_from_ledger_scores_run_7_case_2_rounds_correctly():
 def test_load_bearing_fn_from_ledger_with_empty_ledger_scores_everything_empty():
     fn = load_bearing_fn_from_ledger([])
     assert fn(ROUND_5_LETTER) == frozenset()
+
+
+# ── #377 (ADR-067 clause 4) — bullet_carries_figure ─────────────────────────
+
+def test_bullet_carries_figure_true_for_no_ledger_surface_form_bullet():
+    """The exact #377 regression shape: no ledger keyword ('Arbeitssicherheit'/
+    'Sicherheitsbeauftragter') appears here at all, but the bullet is
+    load-bearing substance — a real safety-ratio improvement."""
+    assert bullet_carries_figure("Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt") is True
+
+
+def test_bullet_carries_figure_true_for_percent_currency_and_plain_number():
+    assert bullet_carries_figure("Reduzierte Ausschussquote um 12 %.") is True
+    assert bullet_carries_figure("Budgetverantwortung ca. 6 Mio. €.") is True
+    assert bullet_carries_figure("Führte ein Team von 12 Mitarbeitenden.") is True
+
+
+def test_bullet_carries_figure_false_for_bare_year():
+    """A bare tenure marker is not quantified substance on its own."""
+    assert bullet_carries_figure("Bei Acme GmbH seit 2019 tätig.") is False
+
+
+def test_bullet_carries_figure_false_for_prose_with_no_figure_at_all():
+    assert bullet_carries_figure("Delivered Concept1 work on the platform.") is False
+    assert bullet_carries_figure("Generic baseline bullet without any number.") is False
+
+
+def test_bullet_carries_figure_true_when_year_and_number_both_present():
+    """A year alone does not count, but a real figure sitting alongside one
+    does — the exclusion is on the FIGURE KIND, not on the whole bullet."""
+    assert bullet_carries_figure("Seit 2019 Team von 12 Mitarbeitenden geführt.") is True
+
+
+def test_bullet_carries_figure_false_for_bare_standard_identifier():
+    """A norm/standard IDENTIFIER is a name, not quantified substance (charter
+    run 10, 2026-07-31): 'ISO-9001-Audits' outranked the ISO-45001 bullet in
+    the cap purely because '9001' parses as a bare number — a process bullet
+    with no achievement figure was protected over real evidence."""
+    assert bullet_carries_figure(
+        "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher"
+    ) is False
+    assert bullet_carries_figure(
+        "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet"
+    ) is False
+    assert bullet_carries_figure("Umsetzung der DIN EN 1090 im Stahlbau") is False
+
+
+def test_bullet_carries_figure_true_when_real_figure_sits_beside_standard_id():
+    """Masking the standard identifier must not blind the predicate to a real
+    figure in the same bullet."""
+    assert bullet_carries_figure(
+        "ISO-45001-Vorbereitung begleitet; Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt"
+    ) is True

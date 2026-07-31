@@ -264,3 +264,11 @@ ORACLE_ENTAILMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_ENTAILMENT_MAX_TO
 # Hard cap on entailment calls per audited document (ADR-052: "narrow and
 # capped") — claims beyond the cap fall back to the deterministic verdict.
 ORACLE_MAX_ENTAILMENT_CALLS: int = int(os.environ.get("ORACLE_MAX_ENTAILMENT_CALLS", "10"))
+
+# #379 — target_pages upper bound. The floor (>= 1) was validated everywhere it
+# enters the system; the ceiling was not, so a captured real run with
+# target_pages=999 fed straight into the per-role bullet-budget math and produced
+# budgets of "max 1002 bullet(s)" — every downstream cap became inert. 10 is far
+# above any DACH norm (ADR-051 default cv_standard_pages is 2), just a sane
+# outer bound on the budget arithmetic.
+MAX_TARGET_PAGES: int = 10

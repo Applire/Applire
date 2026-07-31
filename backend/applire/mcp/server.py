@@ -78,6 +78,7 @@ from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
 
 from applire.config import settings
+from applire.constants import MAX_TARGET_PAGES
 from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
@@ -615,8 +616,8 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
 )
 async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id")
-    if target_pages is not None and target_pages < 1:
-        raise invalid_input("target_pages must be >= 1")
+    if target_pages is not None and not (1 <= target_pages <= MAX_TARGET_PAGES):
+        raise invalid_input(f"target_pages must be between 1 and {MAX_TARGET_PAGES}")
     provider = get_provider()
     async with get_db() as db:
         try:
@@ -782,8 +783,8 @@ async def render_document(
     if target_pages is not None:
         if document_kind == "cover_letter":
             raise invalid_input("target_pages only applies to document_kind='cv'")
-        if target_pages < 1:
-            raise invalid_input("target_pages must be >= 1")
+        if not (1 <= target_pages <= MAX_TARGET_PAGES):
+            raise invalid_input(f"target_pages must be between 1 and {MAX_TARGET_PAGES}")
 
     base = settings.applire_base_url
     async with get_db() as db:

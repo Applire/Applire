@@ -40,6 +40,41 @@ def test_extract_figures(text, expected):
     assert got == expected
 
 
+# ── #377 (ADR-067 clause 4) — single-digit decimals are quantified substance ──
+#
+# n=10 real-provider trials: the lost bullet was "Unfallquote (LTIF) von 8,2
+# auf 3,1 gesenkt" -- neither "8,2" nor "3,1" matched _NUMBER_RE (single
+# leading digit), so the bullet looked figure-free to the deterministic cap
+# even though it carries a real, quantified safety-ratio improvement.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # single-digit decimals now match as plain numbers.
+        ("Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt", [("number", "8.2"), ("number", "3.1")]),
+        ("8,2", [("number", "8.2")]),
+        ("3.1", [("number", "3.1")]),
+        # the bare single-digit exclusion is NOT relaxed — a lone digit with
+        # no decimal part still sits below the signal floor.
+        ("led a team of 5", []),
+        # unchanged: a decimal immediately followed by "%" is still a percent
+        # figure, not a number — percent has priority and consumes the span.
+        ("cut costs by 12,5 %", [("percent", "12.5")]),
+        # German date-ordinal false-positive risk: "1.5" (day.month, "1.5.")
+        # is syntactically identical to a single-digit decimal number. DECISION
+        # (documented, not silently accepted): matching "1.5" as a number is
+        # acceptable — this extractor has no calendar awareness anywhere else
+        # either (see _YEAR_RE, which is equally blind to date context), and
+        # scoping a date exclusion here would need lookahead this module
+        # deliberately doesn't carry. A false-positive "number" figure is a
+        # weaker failure mode than the false NEGATIVE this fix closes (#377).
+        ("Beginn am 1.5. im Werk", [("number", "1.5")]),
+    ],
+)
+def test_extract_figures_single_digit_decimal(text, expected):
+    got = [(f.kind, f.value) for f in extract_figures(text)]
+    assert got == expected
+
+
 # ── vault index ───────────────────────────────────────────────────────────────
 
 PROFILE = {

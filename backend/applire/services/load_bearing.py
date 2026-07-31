@@ -51,10 +51,21 @@ grounding.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
 from applire.services.oracle.matchers.figures import extract_figures
+
+#: Norm/standard identifiers whose digits name a standard rather than
+#: quantify anything — masked by :func:`bullet_carries_figure` before figure
+#: extraction. ``DIN EN 1090``-style chained prefixes fold into the final
+#: ``EN 1090`` match; the optional ``:YYYY`` revision suffix is left in place
+#: (it parses as a "year" figure, which the predicate excludes anyway).
+_STANDARD_ID_RE = re.compile(
+    r"\b(?:ISO|DIN|IEC|EN|OHSAS|VDA|IFS|BRC|IATF|HACCP)[\s-]?\d{3,6}\b",
+    re.IGNORECASE,
+)
 
 
 def stringify_draft(draft: Any) -> str:
@@ -183,6 +194,39 @@ def retained_load_bearing_figures(text: str, universe: frozenset[str]) -> frozen
     if not universe:
         return frozenset()
     return universe & figures_present(text)
+
+
+def bullet_carries_figure(text: str) -> bool:
+    """True iff ``text`` itself carries a quantified value — a FACT computed
+    via the shared extractor (:func:`extract_figures`, US244), never a
+    keyword-proxy guess.
+
+    #377 / ADR-067 clause 4: deterministic code may cap and order a CV's
+    bullets, but it must not choose which bullet is the STRONGEST evidence by
+    whether it happens to contain a keyword-ledger surface form — whether a
+    bullet carries a figure is a fact (ADR-062 clause 1), not a judgement.
+    n=10 real-provider trials showed the writer keeps every load-bearing
+    figure in its draft, but the deterministic cap deleted the one bullet
+    ("Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt") that carried no ledger
+    surface form at all — the cap's old keyword-hit ranking cut it first
+    while keyword-bearing filler with no number survived.
+
+    A "year" figure alone does not count: a bare ``seit 2019`` is tenure-
+    ambient context, not quantified substance (the same exclusion
+    :func:`figures_present` already applies for the retention measure above).
+    Any other kind — percent, currency, or plain number — counts, so a
+    headcount ("12") or a ratio ("8,2") is substance even without a %/€ sign.
+
+    Norm/standard IDENTIFIERS are masked before extraction (charter run 10,
+    2026-07-31): the digits in ``ISO-9001`` name a standard, they do not
+    quantify anything — counting them let a process bullet ("Begleitung der
+    jährlichen ISO-9001-Audits") outrank the candidate's ISO-45001 evidence
+    in the cap purely by identifier. Masked here at the PREDICATE, not in the
+    shared Oracle extractor, so claim verification is unaffected.
+    """
+    return any(
+        f.kind != "year" for f in extract_figures(_STANDARD_ID_RE.sub(" ", text))
+    )
 
 
 def load_bearing_fn_from_ledger(

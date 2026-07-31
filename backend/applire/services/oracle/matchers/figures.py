@@ -36,8 +36,17 @@ _CURRENCY_RE = re.compile(
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 # Plain numbers: ≥ 2 digits (single digits sit below the signal floor — date
 # fragments and spelled-out-number wording variance would produce false red
-# flags; the 2026-07-18 bug classes are all multi-digit figures).
-_NUMBER_RE = re.compile(r"\b\d{1,3}(?:[.,]\d{3})+\b|\b[1-9]\d+(?:[.,]\d+)?\b")
+# flags; the 2026-07-18 bug classes are all multi-digit figures), OR a single
+# digit carrying an explicit decimal part ("8,2", "3.1" — #377/ADR-067 clause
+# 4: a single-digit DECIMAL is unambiguous quantified substance, e.g. an LTIF
+# safety ratio, and is never a spelled-out-number wording variant since it is
+# already a digit; the bare single-digit exclusion above is NOT relaxed for
+# non-decimal single digits, which stay excluded as date-fragment-prone).
+_NUMBER_RE = re.compile(
+    r"\b\d{1,3}(?:[.,]\d{3})+\b"
+    r"|\b[1-9]\d+(?:[.,]\d+)?\b"
+    r"|\b[1-9][.,]\d+\b"
+)
 
 # #237 (run-4 residual): a SINGLE digit immediately followed by "+" — "5+",
 # "10+" (the "10" half is already caught by ``_NUMBER_RE`` above; only the
