@@ -40,6 +40,9 @@ from applire.prompts.review_cv_extraction import (
     CV_EXTRACTION_REVIEW_SYSTEM_PROMPT as CV_EXTRACT_REVIEW,
 )
 from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as CV_TAILOR_REVIEW
+from applire.prompts.review_cv_language import (
+    CV_LANGUAGE_REVIEW_SYSTEM_PROMPT as CV_LANGUAGE_REVIEW,
+)
 from applire.prompts.review_job_analysis import (
     JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT as JD_REVIEW,
 )
@@ -51,6 +54,10 @@ REVIEWER_PROMPTS = {
     "cover_letter": CL_REVIEW,
     "cv_extraction": CV_EXTRACT_REVIEW,
     "cv_tailoring": CV_TAILOR_REVIEW,
+    # E049/ADR-067: the CV-language enforcement chain (services/cv.py
+    # _review_cv_language) opens "You are a language reviewer for an AI-generated,
+    # tailored CV draft..." — recognised by mock.py's "language reviewer" match.
+    "cv_language": CV_LANGUAGE_REVIEW,
     "job_analysis": JD_REVIEW,
 }
 

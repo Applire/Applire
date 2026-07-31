@@ -498,15 +498,21 @@ class TestCVTailoringGeneratorPrompts:
 
     def test_system_prompt_constrains_claim_strength(self):
         """US169 (JF-M-6.2) — generator-side prevention. The reviewer already flags
-        oversell (rule 6, US142), but the *generator* prompt never told the model not
+        oversell (US142; check 4 OVERSTATED CLAIM STRENGTH under E049/ADR-067's
+        renumbering, was rule 6), but the *generator* prompt never told the model not
         to inflate. Prevention lowers O before the draft exists; detection alone leaves
-        an unnecessary over-claim→reject→retry round-trip."""
+        an unnecessary over-claim→reject→retry round-trip.
+
+        E049/ADR-067 (2026-07-30): the writer's own claim-strength rule is now rule 6
+        CLAIM STRENGTH (v7's renumbered list) and its "no more senior role than the
+        profile states" wording replaced the old literal "seniority" word — pin the
+        current wording, not the retired one."""
         from applire.prompts.cv_tailoring import SYSTEM_PROMPT
 
         low = SYSTEM_PROMPT.lower()
         # the rule must forbid inflating claim strength / seniority beyond evidence
         assert "inflate" in low or "overstate" in low
-        assert "seniority" in low
+        assert "more senior role" in low
         # and must anchor verb strength to the source (don't upgrade "supported" → "led")
         assert "led" in low and "supported" in low
 

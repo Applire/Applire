@@ -314,14 +314,22 @@ class TestSalutationChrome:
 
 class TestCvTailoringLanguageDirective:
     def test_build_user_prompt_includes_german_directive(self):
+        # E049/ADR-067 (#383): the critical_gaps positional is gone, so the call is
+        # one argument shorter — (job_analysis, profile, keyword_gaps,
+        # output_language=...).
         from applire.prompts.cv_tailoring import build_user_prompt
-        prompt = build_user_prompt({}, {}, [], [], output_language="de")
+        prompt = build_user_prompt({}, {}, [], output_language="de")
         assert "OUTPUT LANGUAGE: GERMAN" in prompt
+        # ADR-067 prose-craft rewrite: the directive now names the prose-only
+        # response shape explicitly (summary/work bullets/skills), not the old
+        # full-CV field list.
+        assert "write the summary, all work bullets, and skills in GERMAN" in prompt
 
     def test_build_user_prompt_includes_english_directive(self):
         from applire.prompts.cv_tailoring import build_user_prompt
-        prompt = build_user_prompt({}, {}, [], [], output_language="en")
+        prompt = build_user_prompt({}, {}, [], output_language="en")
         assert "OUTPUT LANGUAGE: ENGLISH" in prompt
+        assert "write the summary, all work bullets, and skills in ENGLISH" in prompt
 
     def test_system_prompt_no_longer_delegates_language_detection(self):
         """Rule 7 used to say 'match the job description language' — pure LLM
