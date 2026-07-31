@@ -68,6 +68,46 @@ def test_short_suffix_never_collapses():
     assert not skills_page_dupe("Bau", "Anlagenbau".replace("Anlagen", "Xyzqw"))
 
 
+def test_slash_compound_containment_is_a_page_dupe():
+    # Charter run 11 (2026-07-31): the writer's honest 'SAP PP/MM' next to the
+    # guarantee-re-added vault 'SAP PP' shipped as two entries — the slash
+    # keeps 'pp/mm' one token for the vault-merge scope, so only the
+    # page-scope expansion can see the containment.
+    assert skills_page_dupe("SAP PP", "SAP PP/MM")
+    assert skills_page_dupe("SAP MM", "SAP PP/MM")
+    assert not skills_page_dupe("SAP PP", "SAP MM")  # sibling modules stay distinct
+    assert not skills_near_dupe("SAP PP", "SAP PP/MM")  # vault merge unchanged
+
+
+def test_acronym_spelling_guard_does_not_fire_on_compound_labels():
+    # Charter run 11: 'SAP PP/MM' is NOT a mangled spelling of vault 'SAP PP' —
+    # rewriting deleted the MM half and duplicated 'SAP PP' on the page. The
+    # GxP true positive must keep firing.
+    from applire.services.cv import _acronym_expansion_vault_match
+
+    assert _acronym_expansion_vault_match("SAP PP/MM", ["SAP PP", "SAP"]) is None
+    assert (
+        _acronym_expansion_vault_match(
+            "Good Practice Compliance & Computer System Validation",
+            ["GxP Compliance & Computer System Validation"],
+        )
+        == "GxP Compliance & Computer System Validation"
+    )
+
+
+def test_spelling_restore_never_introduces_a_duplicate():
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _restore_skill_spelling
+
+    cv = TailoredCVData.model_validate(
+        {"contact": {"name": "x"}, "skills": ["SAP PP", "Sap Pp"]}
+    )
+    out = _restore_skill_spelling(
+        cv, {"skills": [{"name": "SAP PP", "category": "technical"}]}
+    )
+    assert out.skills == ["SAP PP"]
+
+
 def test_page_predicate_is_a_strict_superset_of_the_merge_predicate():
     for a, b in RUN_10_CLUSTERS:
         if skills_near_dupe(a, b):

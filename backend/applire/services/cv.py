@@ -1319,6 +1319,16 @@ def _acronym_expansion_vault_match(mangled: str, vault_skills: list[str]) -> str
             continue
         if not mangled_only:
             continue
+        # E049 charter run 11 (2026-07-31): the presumed acronym must be GONE
+        # from the writer's name, not riding inside a compound token. The
+        # writer's honest 'SAP PP/MM' is not a mangled spelling of the vault's
+        # 'SAP PP' — the residual token 'pp/mm' CONTAINS 'pp', so rewriting
+        # would silently delete the MM half (and duplicate 'SAP PP' on the
+        # page). GxP is unaffected: 'gxp' is a substring of neither 'good'
+        # nor 'practice'.
+        (acronym,) = vault_only
+        if any(acronym in m for m in mangled_only):
+            continue
         candidates.append(vault_skill)
 
     if len(candidates) == 1:
@@ -1407,13 +1417,31 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
 
         exact = vault_by_norm.get(_norm(skill))
         if exact is not None:
+            # E049 charter run 11: a restoration must NEVER introduce a page
+            # duplicate — if the vault form is already on the list (another
+            # entry restored to it, or the #192 guarantee re-added it), this
+            # entry collapses into it instead of appearing twice.
+            if any(_norm(exact) == _norm(r) for r in restored):
+                changed = True
+                logger.info(
+                    "skill spelling guard: %r restores to %r which is already "
+                    "listed — collapsed (no duplicate introduced)", skill, exact,
+                )
+                continue
             if exact != skill:
                 changed = True
             restored.append(exact)
             continue
 
         match = _acronym_expansion_vault_match(skill, vault_skills)
-        if match is not None and match not in restored:
+        if match is not None:
+            if any(_norm(match) == _norm(r) for r in restored):
+                changed = True
+                logger.info(
+                    "skill spelling guard: %r restores to %r which is already "
+                    "listed — collapsed (no duplicate introduced)", skill, match,
+                )
+                continue
             changed = True
             restored.append(match)
             continue

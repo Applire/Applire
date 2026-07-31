@@ -357,6 +357,19 @@ def _compound_suffix_dupe(ta: frozenset[str], tb: frozenset[str]) -> bool:
     return False
 
 
+def _page_token_set(name: str) -> frozenset[str]:
+    """Page-scope token set: :func:`skill_tokens` plus the parts of any
+    slash-compound token ('pp/mm' also yields 'pp' and 'mm', ≥ 2 chars).
+    Page-side ONLY — ``skill_tokens`` itself deliberately preserves
+    token-internal symbols (CI/CD) for the vault-merge scope."""
+    toks: set[str] = set()
+    for t in skill_tokens(name):
+        toks.add(t)
+        if "/" in t:
+            toks.update(p for p in t.split("/") if len(p) >= 2)
+    return frozenset(toks)
+
+
 def skills_page_dupe(a: str, b: str) -> bool:
     """Would ``a`` and ``b`` read as a DUPLICATE on the rendered skills list? (#386)
 
@@ -372,6 +385,9 @@ def skills_page_dupe(a: str, b: str) -> bool:
       certainly a page dupe),
     * bare single-token containment (:func:`skills_single_token_containment` —
       'MES' ⊂ 'MES (…)', 'Lean' ⊂ 'Lean Management'),
+    * slash-compound containment over :func:`_page_token_set` ('SAP PP' ⊂
+      'SAP PP/MM' — charter run 11: the JD's own 'SAP (PP/MM)' phrasing makes
+      this pair otherwise invisible to token rules, and both shipped),
     * the German-compound suffix shape ('Schichtbetrieb'/'Dreischichtbetrieb',
       'Führung'/'Mitarbeiterführung' — see :func:`_compound_suffix_dupe`).
 
@@ -384,6 +400,9 @@ def skills_page_dupe(a: str, b: str) -> bool:
     if skills_near_dupe(a, b):
         return True
     if skills_single_token_containment(a, b):
+        return True
+    pa, pb = _page_token_set(a), _page_token_set(b)
+    if pa and pb and (pa <= pb or pb <= pa):
         return True
     return _compound_suffix_dupe(skill_tokens(a), skill_tokens(b))
 
