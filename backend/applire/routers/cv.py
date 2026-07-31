@@ -31,6 +31,7 @@ from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.ats import ATSReportResponse
 from applire.schemas.oracle import TruthfulnessReportResponse
+from applire.schemas.outcome_critic import OutcomeCriticReportResponse
 from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVProfileDiffResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
     AssistAnswerRequest,
@@ -43,7 +44,7 @@ from applire.schemas.cv_sections import (
     SectionPatchRequest,
     SectionPatchResponse,
 )
-from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_pdf_filename, list_cvs_for_job
+from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_pdf_filename, list_cvs_for_job
 from applire.services.cv_diff import get_cv_profile_diff
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
@@ -133,6 +134,23 @@ async def get_cv_truthfulness_report_handler(
     generation + self-audit complete (or for pre-Tiramisu rows)."""
     try:
         return await get_cv_truthfulness_report(cv_id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{cv_id}/critic-report", response_model=OutcomeCriticReportResponse)
+async def get_cv_critic_report_handler(
+    cv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> OutcomeCriticReportResponse:
+    """ADR-060 (third amendment) / E049 49.6: the outcome critic's Pass A
+    verdict on the ASSEMBLED CV — advisory-only, never gates delivery.
+    `report` is null until generation + the critic pass complete (or for
+    pre-two-mount rows); `report.reason` distinguishes did-not-run from
+    ran-and-found-nothing."""
+    try:
+        return await get_cv_critic_report(cv_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

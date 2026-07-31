@@ -227,7 +227,25 @@ async def test_advisory_reaches_the_persisted_report(seeded):
     service function the agent door calls returns the identical shape."""
     db, job, profile, cv, cl = seeded
 
-    judgement = {"findings": [{"concept": "ISO 9001", "worth_surfacing": True}]}
+    # Third-amendment judgement shape: the model quotes the span its finding
+    # rests on; the service verifies the citation against the letter before
+    # building the advisory (SF-CRITIC.11).
+    judgement = {
+        "findings": [
+            {
+                "kind": "letter_only",
+                "concept": "ISO 9001",
+                "cv_quote": None,
+                "cv_detail_quote": None,
+                "letter_quote": (
+                    "Bei Musterwerk GmbH bringe ich mit zehn Jahren "
+                    "ISO-9001-Auditpraxis genau die Qualitätssicherungs-"
+                    "Expertise mit, die Sie suchen."
+                ),
+                "worth_surfacing": True,
+            }
+        ]
+    }
     await _run_generation(db, job, cl, [judgement])
 
     await db.refresh(cl)

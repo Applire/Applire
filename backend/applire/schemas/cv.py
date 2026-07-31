@@ -88,6 +88,11 @@ class CVStatusResponse(BaseModel):
     # E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents are
     # never presented as Applire-authored (origin badge in the UI).
     origin: str = "pipeline"
+    # ADR-060 third amendment (E049 49.6): the outcome critic's Pass A verdict
+    # rides the status response as data — same door-parity shape as the letter
+    # status carrying its critic_report (ADR-060 clause 6). None = not yet
+    # computed or pre-two-mount row.
+    critic_report: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

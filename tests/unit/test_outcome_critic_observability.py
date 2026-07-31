@@ -49,8 +49,16 @@ _LEDGER = [
 
 
 def _records(caplog):
-    """The Pass B state records, at whatever level they were emitted."""
-    return [r for r in caplog.records if "outcome critic Pass B" in r.getMessage()]
+    """The critic state records, at whatever level they were emitted."""
+    return [r for r in caplog.records if "outcome critic (" in r.getMessage()]
+
+
+class _EmptyFindingsProvider:
+    """Minimal judgement stub — full-kwargs signature per the provider-ABC
+    stub rule in CLAUDE.md."""
+
+    async def aparse_json(self, prompt, **kwargs):
+        return {"findings": []}
 
 
 async def _run(**overrides):
@@ -60,7 +68,7 @@ async def _run(**overrides):
         keyword_ledger=_LEDGER,
         job_role_title="Leiter Operations",
         jd_excerpt="ISO 9001 erforderlich.",
-        provider=None,
+        provider=_EmptyFindingsProvider(),
         enabled=True,
     )
     kwargs.update(overrides)
@@ -72,8 +80,7 @@ async def _run(**overrides):
     [
         ({"enabled": False}, "disabled", "CRITIC_ENABLED=false"),
         ({"letter_data": None}, "missing_letter", "no settled letter draft"),
-        ({"cv_tailored": None}, "missing_cv", "no generated CV"),
-        ({"keyword_ledger": None}, "missing_ledger", "no Keyword Ledger"),
+        ({"cv_tailored": None}, "missing_cv", "no assembled CV"),
     ],
 )
 async def test_each_short_circuit_state_logs_its_own_reason(
@@ -82,7 +89,10 @@ async def test_each_short_circuit_state_logs_its_own_reason(
     """Every "did not run" state names WHY in the log, not just in the report.
 
     SF-CRITIC.8's requirement that missing inputs short-circuit *loudly* rather
-    than degrade into a judgement on partial data.
+    than degrade into a judgement on partial data. (The pre-2026-07-31
+    ``missing_ledger`` short-circuit is retired — see the dedicated test
+    below: the ledger only feeds the anchor list now, the judgement's real
+    input is the documents.)
     """
     with caplog.at_level(logging.INFO, logger="applire"):
         report = await _run(**overrides)
@@ -98,25 +108,40 @@ async def test_each_short_circuit_state_logs_its_own_reason(
     )
 
 
+async def test_a_missing_ledger_no_longer_blocks_the_pass(caplog):
+    """ADR-060 third amendment: the ledger feeds ANCHORS, not the judgement's
+    input boundary — a legacy/pre-E037 analysis without one must still get a
+    coherence read (SF-CRITIC.9: the enumeration is no longer the boundary).
+    The absence is still a logged fact, never silent."""
+    with caplog.at_level(logging.INFO, logger="applire"):
+        report = await _run(keyword_ledger=None)
+
+    assert report.ran is True
+    assert report.reason is None
+    msgs = [r.getMessage() for r in _records(caplog)]
+    assert any("no Keyword Ledger" in m for m in msgs), (
+        f"the ledger's absence is not logged: {msgs}"
+    )
+    assert any("RAN" in m for m in msgs)
+
+
 async def test_ran_with_nothing_to_judge_is_not_confusable_with_did_not_run(caplog):
     """The distinction SF-CRITIC.1 exists for, and the one a collapsed log
-    destroys: a clean pass that found no incoherence must NOT read like a pass
-    that never executed. Here the two documents agree, so there is no candidate.
+    destroys: a clean pass that found nothing must NOT read like a pass that
+    never executed. (Since the third amendment there is no 0-candidate
+    short-circuit — the model reads the documents and may find nothing; the
+    RAN record carries the advisory count.)
     """
     with caplog.at_level(logging.INFO, logger="applire"):
         report = await _run()
 
     assert report.ran is True
-    # ``reason`` is populated even on the ran path ("no_candidates") rather than
-    # left None — deliberately preserved here: "ran and found nothing" carrying
-    # its own reason is what makes it machine-distinguishable from a bare
-    # success, not only human-readable in the log.
-    assert report.reason == "no_candidates"
+    assert report.reason is None
+    assert report.advisories == []
 
-    msgs = [r.getMessage() for r in _records(caplog)]
-    assert len(msgs) == 1, f"expected exactly one state record, got {msgs}"
-    assert "RAN" in msgs[0]
-    assert "DID NOT RUN" not in msgs[0], (
+    msgs = [m for m in (r.getMessage() for r in _records(caplog)) if "RAN" in m]
+    assert msgs, "no RAN state record emitted"
+    assert all("DID NOT RUN" not in m for m in msgs), (
         "a pass that RAN is being logged with the same phrase as one that did not — "
         "this is precisely the SF-CRITIC.1 collapse"
     )
@@ -135,10 +160,10 @@ async def test_the_three_state_families_produce_mutually_distinct_messages(caplo
             await _run(**overrides)
         recs = _records(caplog)
         assert recs, f"no state record emitted for {overrides!r}"
-        seen.append(recs[0].getMessage())
+        seen.append(recs[-1].getMessage())
 
     assert len(set(seen)) == len(seen), (
-        f"two Pass B states log an identical message: {seen}"
+        f"two critic states log an identical message: {seen}"
     )
 
 
