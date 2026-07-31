@@ -21,6 +21,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from applire.constants import MAX_TARGET_PAGES
 from applire.models.cv import CVGenerationStatus
 from applire.schemas.profile import FieldChange
 
@@ -44,8 +45,10 @@ class CVGenerateRequest(BaseModel):
     template: CVTemplate = "classic_german"
     # E042/US236 (ADR-051 §1): optional per-generation page-count override.
     # None = fall back to the user's UserSettings.target_cv_pages, then the
-    # region standard (resolve_target_pages()).
-    target_pages: int | None = Field(default=None, ge=1)
+    # region standard (resolve_target_pages()). #379: upper-bounded — an
+    # unbounded override fed straight into the per-role bullet-budget math
+    # and produced inert "max 1002 bullet(s)" ceilings.
+    target_pages: int | None = Field(default=None, ge=1, le=MAX_TARGET_PAGES)
 
 
 class CVProfileDiffResponse(BaseModel):

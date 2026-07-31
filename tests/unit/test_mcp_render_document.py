@@ -179,6 +179,25 @@ async def test_input_validation_errors():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_target", [11, 999])
+async def test_render_document_rejects_target_pages_above_max(bad_target):
+    """#379: the floor (>= 1) was validated here; the ceiling was not — an
+    unbounded target_pages fed straight into the per-role bullet-budget math and
+    produced inert "max 1002 bullet(s)" ceilings on a captured target_pages=999
+    run. Mirrors the existing fail-loud style (no silent clamping)."""
+    from applire.constants import MAX_TARGET_PAGES
+    from applire.mcp.server import render_document
+
+    with pytest.raises(McpError, match=f"target_pages must be between 1 and {MAX_TARGET_PAGES}"):
+        await render_document(
+            document_kind="cv",
+            content=dict(AGENT_CV_CONTENT),
+            job_id=str(uuid.uuid4()),
+            target_pages=bad_target,
+        )
+
+
+@pytest.mark.asyncio
 async def test_alacarte_cv_render_returns_reports_inline(seeded):
     from applire.mcp.server import render_document
     from applire.models.cv import GeneratedCV

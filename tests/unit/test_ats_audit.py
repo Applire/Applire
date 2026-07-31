@@ -101,6 +101,74 @@ def test_skills_near_dupe_jaccard_boundary():
     assert skills_near_dupe(c, d) is False
 
 
+# ---------------------------------------------------------------------------
+# #308 (E049/US271, ADR-066/ADR-067) — shared-parenthetical-abbreviation shape.
+#
+# Ground truth (2026-07 captured LLM log): the vault holds
+# 'MES (Manufacturing Execution System)'; a German CV writer correctly emitted
+# 'Fertigungsleitsysteme (MES)' — the German translation, canonical-abbreviation
+# preserved. Token-set Jaccard scores this pair at 1/5 = 0.2 (well below the 0.75
+# threshold), so the #192 guarantee step re-added the vault's English spelling as
+# a spurious "missing" skill, and the Oracle's grounding matcher graded the
+# translated label 'unbacked' for the identical reason. Both symptoms share ONE
+# cause (ADR-066: fix the predicate once) -- skills_near_dupe never recognised
+# that two skill names carrying the SAME parenthetical abbreviation name the same
+# skill, whatever language surrounds it.
+# ---------------------------------------------------------------------------
+
+_SHARED_ABBREVIATION_PAIRS = [
+    ("MES (Manufacturing Execution System)", "Fertigungsleitsysteme (MES)"),
+]
+
+_SHARED_ABBREVIATION_NEGATIVE_PAIRS = [
+    # 'Advanced' is a qualifier, not an abbreviation: single token but 8 chars
+    # (over the 2-6 shape guard) and only 1 uppercase letter.
+    ("Excel (Advanced)", "Word (Advanced)"),
+    # Unrelated skills, no parens at all -- existing Jaccard/containment behaviour
+    # must be untouched by the new disjunct.
+    ("Team Leadership", "Team Building"),
+    # One-sided: only one name carries a parenthetical. Governed by the existing
+    # single-token-containment rule (skills_single_token_containment), NOT by the
+    # new shared-abbreviation disjunct -- skills_near_dupe must stay False here.
+    ("MES", "Fertigungsleitsysteme (MES)"),
+]
+
+
+@pytest.mark.parametrize("a,b", _SHARED_ABBREVIATION_PAIRS)
+def test_skills_near_dupe_true_for_shared_parenthetical_abbreviation(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is True
+    assert skills_near_dupe(b, a) is True  # symmetric
+
+
+@pytest.mark.parametrize("a,b", _SHARED_ABBREVIATION_NEGATIVE_PAIRS)
+def test_skills_near_dupe_false_without_shared_abbreviation_shape(a, b):
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe(a, b) is False
+    assert skills_near_dupe(b, a) is False
+
+
+def test_skills_near_dupe_shared_abbreviation_is_case_insensitive():
+    """The shape guard runs on the raw form (>= 2 uppercase letters each), but the
+    final comparison of two already-qualifying abbreviations is case-insensitive:
+    'GxP' (2 uppercase) and 'GXP' (3 uppercase) both pass the guard independently
+    and must be recognised as the same abbreviation."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe("Something (GxP)", "Other Thing (GXP)") is True
+
+
+def test_skills_near_dupe_ambiguous_double_abbreviation_does_not_match():
+    """Both the head and the parenthetical look abbreviation-shaped inside a
+    single name -- there is no way to tell which one is canonical, so the
+    predicate must not guess: no shared-abbreviation match for this shape."""
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe("ABC (XYZ)", "Something Else (XYZ)") is False
+
+
 def test_skill_tokens_folds_variants_and_strips_punct():
     from applire.services.ats_audit import skill_tokens
 
