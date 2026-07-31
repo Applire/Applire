@@ -390,68 +390,67 @@ async def test_cv_certifications_survive_roundtrip(template):
 
 
 # ---------------------------------------------------------------------------
-# Issue #118 — two CONCURRENT open-ended positions. The tailored data arrives
-# oldest-start-first (the UAT profile order) and the summary names the current
-# employer, which is exactly the constellation that made the reading-order
-# check fire: the audit anchors each entry at its FIRST text occurrence, so the
-# wrongly-last-placed newest entry anchored inside the summary. After
-# _enforce_work_order the render must be newest-start-first and the check pass.
+# Issue #118 — two CONCURRENT open-ended positions, and the summary names the
+# current employer, which is exactly the constellation that made the
+# reading-order check fire: the audit anchors each entry at its FIRST text
+# occurrence, so a wrongly-last-placed newest entry anchored inside the summary.
+# E049/ADR-067: `_enforce_work_order` is deleted — document order is now the
+# VAULT's sorted order at `assemble_tailored_cv`, structurally. The regression
+# guard therefore assembles from a sorted vault profile with the writer's PROSE
+# arriving in the WRONG order, and the render must still be newest-start-first.
 # ---------------------------------------------------------------------------
 
-CV_118_WRONG_ORDER = TailoredCVData.model_validate(
-    {
-        "contact": {
-            "name": "Anna Bauer",
-            "email": "anna.bauer@example.de",
-            "phone": "+49 151 1234567",
-            "location": "Berlin",
-            "photo_url": None,
-        },
-        "show_photo": False,
-        # Mentions the CURRENT employer — the first-occurrence anchor lands here.
-        "summary": (
-            "Lead Data Engineer bei Alpha Analytics AG mit paralleler "
-            "Beratungstätigkeit und Schwerpunkt auf skalierbaren Datenplattformen."
-        ),
-        "work_history": [
-            {
-                "company": "Beta Consulting GmbH",
-                "role": "Senior Consultant",
-                "start_date": "2024-12",
-                "end_date": None,
-                "bullets": ["Beratung von Mittelständlern zu Datenstrategie."],
-            },
-            {
-                "company": "Alpha Analytics AG",
-                "role": "Lead Data Engineer",
-                "start_date": "2026-03",
-                "end_date": None,
-                "bullets": ["Aufbau der zentralen Datenplattform."],
-            },
-        ],
-        "skills": ["Python", "Kubernetes"],
-        "education": [
-            {
-                "institution": "TU Berlin",
-                "degree": "M.Sc.",
-                "field": "Informatik",
-                "start_date": "2014-10",
-                "end_date": "2017-09",
-            }
-        ],
-        "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
-    }
-)
+# Vault profile, reverse-chronological (as _render_cv_background sorts it
+# before the prompt is ever built).
+PROFILE_118 = {
+    "personal_info": {
+        "name": "Anna Bauer",
+        "email": "anna.bauer@example.de",
+        "phone": "+49 151 1234567",
+        "location": "Berlin",
+    },
+    "work_experience": [
+        {"id": "w-alpha", "company": "Alpha Analytics AG", "role": "Lead Data Engineer",
+         "start_date": "2026-03", "end_date": None},
+        {"id": "w-beta", "company": "Beta Consulting GmbH", "role": "Senior Consultant",
+         "start_date": "2024-12", "end_date": None},
+    ],
+    "education": [
+        {"institution": "TU Berlin", "degree": "M.Sc.", "field": "Informatik",
+         "start_date": "2014-10", "end_date": "2017-09"},
+    ],
+    "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
+}
+
+# The writer's prose response, deliberately OLDEST-first — the model cannot
+# reorder entries it never emits, so assembly must ignore this order entirely.
+PROSE_118_WRONG_ORDER = {
+    # Mentions the CURRENT employer — the first-occurrence anchor lands here.
+    "summary": (
+        "Lead Data Engineer bei Alpha Analytics AG mit paralleler "
+        "Beratungstätigkeit und Schwerpunkt auf skalierbaren Datenplattformen."
+    ),
+    "work": [
+        {"id": "w-beta", "bullets": ["Beratung von Mittelständlern zu Datenstrategie."]},
+        {"id": "w-alpha", "bullets": ["Aufbau der zentralen Datenplattform."]},
+    ],
+    "skills": ["Python", "Kubernetes"],
+}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
 async def test_concurrent_open_ended_positions_render_newest_first(template):
-    """#118 regression — enforced order survives the real PDF round-trip:
-    newest-start-first in the document AND a passing reading-order check."""
-    from applire.services.cv import _enforce_work_order
+    """#118 regression — vault-join order survives the real PDF round-trip:
+    newest-start-first in the document AND a passing reading-order check.
+    E049/ADR-067: order comes from `assemble_tailored_cv`'s vault join now;
+    the writer's prose arrives oldest-first and must not matter."""
+    from applire.services.cv import assemble_tailored_cv
 
-    tailored = _enforce_work_order(CV_118_WRONG_ORDER)
+    tailored = TailoredCVData.model_validate(
+        assemble_tailored_cv(PROSE_118_WRONG_ORDER, PROFILE_118)
+    )
+    tailored = tailored.model_copy(update={"show_photo": False})
     assert [w.company for w in tailored.work_history] == [
         "Alpha Analytics AG",
         "Beta Consulting GmbH",

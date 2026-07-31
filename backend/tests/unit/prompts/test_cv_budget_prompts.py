@@ -45,8 +45,12 @@ def test_single_call_system_prompt_states_the_budget_rule():
 
 
 def test_single_call_system_prompt_keeps_existing_rule_numbering():
-    # Rule 6 (entry-count contract) is load-bearing — must not be renumbered.
-    assert "6. The number of work_history entries in your output must equal exactly" in SYSTEM_PROMPT
+    # E049/ADR-067: the old rule 6 (entry-count contract) is DELETED wholesale — the
+    # work_history entry-count field it defended no longer exists in the narrowed
+    # prose-only response schema. BULLET BUDGETS (this file's subject) is now rule 9,
+    # the last rule before the response schema.
+    assert "9. BULLET BUDGETS." in SYSTEM_PROMPT
+    assert "6. The number of work_history entries in your output must equal exactly" not in SYSTEM_PROMPT
 
 
 def test_build_user_prompt_carries_the_budget_block():

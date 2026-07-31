@@ -379,14 +379,23 @@ def test_dedup_skills_noop_when_all_distinct():
     assert out.skills == ["Python", "Kubernetes", "FastAPI"]
 
 
-def test_dedup_skills_keeps_single_token_containment_distinct():
-    """Bare single-token containment ('React' ⊂ 'React Native') is NOT a near-dupe
-    (#172 strict) — the render dedup must keep BOTH, never drop a legit skill."""
+def test_dedup_skills_collapses_single_token_containment_on_the_page():
+    """#386 (E049/ADR-067 clause 6) — INVERTS the old
+    test_dedup_skills_keeps_single_token_containment_distinct, whose vault-merge
+    premise no longer governs this pass. ``_dedup_skills`` now runs the PAGE-scope
+    predicate ``ats_audit.skills_page_dupe``, a strict superset of the vault-merge
+    predicate ``skills_near_dupe`` — it additionally covers bare single-token
+    containment ('React' ⊂ 'React Native') and the German-compound suffix shape.
+    On a RENDERED page, 'React' next to 'React Native' reads as one skill named
+    twice, even though the two are correctly kept SEPARATE by the vault-merge
+    predicate (``skills_near_dupe`` is UNCHANGED — the reconciler's containment
+    confirmation flow still governs there, never here). The more-specific name
+    wins, same as any other collapse in this pass."""
     from applire.services.cv import _dedup_skills
 
     cv = _cv_with_skills(["React", "React Native", "AWS", "AWS Lambda"])
     out = _dedup_skills(cv)
-    assert out.skills == ["React", "React Native", "AWS", "AWS Lambda"]
+    assert out.skills == ["React Native", "AWS Lambda"]
 
 
 def test_dedup_skills_runs_after_language_pass_in_pipeline():
@@ -524,23 +533,66 @@ def test_section_editor_preserves_projects_round_trip():
 
 
 # ---------------------------------------------------------------------------
-# Blind PQ 2026-07-04: English project bullets shipped in a German CV. The
-# deterministic nesting step ran AFTER the ADR-038 language pass, so verbatim
-# profile-project copies were never language-reviewed. Nesting must happen
-# BEFORE _review_cv_language in the generation pipeline.
+# Blind PQ 2026-07-04 found English project bullets shipped in a German CV, back
+# when the deterministic nesting step ran AFTER the ADR-038 language pass on a
+# document the LLM had already emitted whole. E049/ADR-067 DELIBERATELY INVERTS
+# that order (this test used to be test_projects_are_nested_before_the_language_pass):
 # ---------------------------------------------------------------------------
 
 
-def test_projects_are_nested_before_the_language_pass():
+def test_projects_are_nested_after_assembly_and_the_language_pass():
+    """E049/ADR-067: ``_nest_projects`` now runs AFTER ``assemble_tailored_cv``
+    (it matches a source project's parent onto the joined company/role identity,
+    which does not exist before assembly) and therefore also after
+    ``_review_cv_language``, which runs on the writer's PROSE shape BEFORE
+    assembly. The nested project copies are verbatim VAULT facts — like
+    education, carried in the vault's own language — so it is correct that no
+    LLM pass re-words them. The blind-PQ leak this test used to guard against
+    (2026-07-04) is now prevented structurally: a nested project bullet is never
+    routed through an LLM pass at all, not by running nesting before one."""
     import inspect
 
     import applire.services.cv as cv
 
     source = inspect.getsource(cv)
-    nest_call = source.index("= _nest_projects(")
     language_call = source.index("await _review_cv_language(")
-    assert nest_call < language_call, (
-        "deterministic project nesting must precede the ADR-038 language pass — "
-        "otherwise verbatim profile-project bullets ship unreviewed (blind PQ "
-        "2026-07-04)"
+    nest_call = source.index("= _nest_projects(")
+    assert language_call < nest_call, (
+        "deterministic project nesting must run AFTER the ADR-038 language pass "
+        "(and after assembly) — E049/ADR-067 clause 3: nested vault project "
+        "copies are verbatim facts, never routed through any LLM pass"
     )
+
+
+def test_nest_projects_skips_vault_copy_when_writer_already_tailored_it():
+    """E049 charter run 11: the writer's schema now carries nested projects, so
+    _nest_projects appending the vault's verbatim copy next to the writer's
+    tailored version rendered the same project heading twice. Same normalised
+    name (a fact) ⇒ the reviewed tailored version wins; the copy is skipped."""
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _nest_projects
+
+    tailored = TailoredCVData.model_validate({
+        "contact": {"name": "x"},
+        "work_history": [{
+            "id": "w1", "company": "Weberit", "role": "PL", "start_date": "2017",
+            "bullets": ["b"],
+            "projects": [{"name": "Einführung eines MES-Systems",
+                          "bullets": ["Tailored MES bullet with OEE 61 % auf 73 %"]}],
+        }],
+    })
+    profile = {
+        "work_experience": [{"id": "w1", "company": "Weberit", "role": "PL"}],
+        "projects": [{
+            "name": "Einführung eines MES-Systems",
+            "description": "Verbatim vault description",
+            "responsibilities": ["Vault resp"],
+            "achievements": ["Vault achievement"],
+            "associated_experience": "w1",
+        }],
+    }
+    out = _nest_projects(tailored, profile)
+    projects = out.work_history[0].projects
+    assert len(projects) == 1
+    assert projects[0].bullets == ["Tailored MES bullet with OEE 61 % auf 73 %"]
+    assert out.projects == []

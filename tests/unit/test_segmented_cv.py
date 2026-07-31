@@ -18,26 +18,37 @@
 """Segmented CV tailoring — outline-then-expand (ADR-047 §1 / E036 US189).
 
 The segmented path generates the CV in pieces (outline + per-work-entry + per-section
-calls, each under SEGMENT_MAX_TOKENS) so no single call needs a large output. The
-pieces are then assembled **deterministically in code** — this module pins that pure
-assembly step: given an outline directive and the section pieces, produce a valid
-TailoredCVData with work history ordered per the outline, and nothing fabricated.
+calls, each under SEGMENT_MAX_TOKENS) so no single call needs a large output.
 
-Hermetic: pure function, no LLM, no DB.
+E049 / ADR-067: this module now pins the ORCHESTRATION contract only — that
+``generate_cv_segmented`` returns the shared PROSE shape (``summary``, id-keyed
+``work``, ``skills``, top-level ``projects``), that every call stays under budget,
+that there is exactly one call per work entry, and that NO education/languages
+call is made (that section LLM call is retired — transcription is copied from the
+vault at assembly). The former ``assemble_segmented_cv`` pure-assembly tests below
+are DELETED, not rewritten here: assembly is now ``assemble_tailored_cv``, the ONE
+join both generation paths share (ADR-066), and its contract (vault-order document
+order, fail-closed unknown ids, omitted-entry handling, education/languages carried
+wholesale) is already fully pinned in ``tests/unit/test_cv_assembly.py`` — this
+module must not duplicate that coverage.
+
+Hermetic: mock/spy providers, no LLM, no DB.
 """
 
 
 import pytest
 
 
-def _work(id_, role):
-    return {"id": id_, "company": f"{role} Co", "role": role, "start_date": "2020-01",
-            "end_date": "2022-01", "bullets": [f"did {role} things"], "projects": []}
-
-
 class _SegmentSpyProvider:
     """Routes aparse_json by the section's system-prompt role phrase and records every
-    max_tokens budget. Absorbs the full ABC signature via **kwargs (AGENTS.md)."""
+    max_tokens budget. Absorbs the full ABC signature via **kwargs (AGENTS.md).
+
+    E049/ADR-067: there is no "education writer" branch — the education/languages
+    section LLM call is retired (transcription is copied from the vault at
+    assembly, never routed through an LLM). If ``generate_cv_segmented`` ever made
+    that call again, it would hit the ``raise AssertionError`` below rather than
+    silently pass.
+    """
 
     def __init__(self):
         self.budgets: list[int] = []
@@ -60,10 +71,6 @@ class _SegmentSpyProvider:
             return {"summary": "A tailored summary."}
         if "skills writer" in s:
             return {"skills": ["Python", "Leadership"]}
-        if "education writer" in s:
-            return {"education": [{"institution": "TU", "degree": "BSc", "field": "CS",
-                                   "start_date": "2014", "end_date": "2017"}],
-                    "languages": [{"language": "German", "level": "native"}]}
         if "projects writer" in s:
             return {"projects": []}
         raise AssertionError(f"unexpected segmented system prompt: {s!r}")
@@ -84,6 +91,10 @@ _PROFILE = {
          "end_date": "2023-01", "bullets": ["b"]},
     ],
     "education": [], "skills": ["Python"], "projects": [],
+    # Carried wholesale by assemble_tailored_cv (ADR-067 clause 3) — used below to
+    # confirm the real-mock-provider test still sees languages after assembly, even
+    # though no LLM call produces them any more.
+    "languages": [{"language": "German", "level": "native"}],
 }
 
 _JOB = {"role_title": "Lead Engineer", "required_skills": ["Python"], "keywords": ["Python"]}
@@ -97,7 +108,7 @@ async def test_segmented_orchestrator_keeps_every_call_under_the_segment_budget(
     from applire.services.cv import generate_cv_segmented
 
     spy = _SegmentSpyProvider()
-    await generate_cv_segmented(_JOB, _PROFILE, [], [], output_language="en", provider=spy)
+    await generate_cv_segmented(_JOB, _PROFILE, [], output_language="en", provider=spy)
 
     assert spy.budgets, "expected segmented calls"
     assert all(b <= SEGMENT_MAX_TOKENS for b in spy.budgets)
@@ -105,13 +116,17 @@ async def test_segmented_orchestrator_keeps_every_call_under_the_segment_budget(
 
 @pytest.mark.asyncio
 async def test_segmented_orchestrator_calls_one_work_section_per_entry():
-    """Per-work-entry segmentation: one section call for each work-experience entry."""
+    """Per-work-entry segmentation: one section call for each work-experience entry,
+    and — E049/ADR-067 — exactly outline + N work + summary + skills + projects calls,
+    with NO education/languages call (that section LLM call is retired)."""
     from applire.services.cv import generate_cv_segmented
 
     spy = _SegmentSpyProvider()
-    await generate_cv_segmented(_JOB, _PROFILE, [], [], output_language="en", provider=spy)
+    await generate_cv_segmented(_JOB, _PROFILE, [], output_language="en", provider=spy)
 
     assert spy.work_calls == len(_PROFILE["work_experience"]) == 2
+    # outline(1) + work(2) + summary(1) + skills(1) + projects(1) = 6, no education call.
+    assert len(spy.systems) == 6
 
 
 @pytest.mark.asyncio
@@ -136,7 +151,7 @@ async def test_segmented_orchestrator_threads_ledger_into_summary_call():
 
     spy = _CapturingSpy()
     await generate_cv_segmented(
-        _JOB, _PROFILE, [], [], output_language="en", provider=spy, keyword_ledger=ledger,
+        _JOB, _PROFILE, [], output_language="en", provider=spy, keyword_ledger=ledger,
     )
 
     summary_prompts = [p for s, p in captured_prompts if "summary writer" in s.lower()]
@@ -146,16 +161,24 @@ async def test_segmented_orchestrator_threads_ledger_into_summary_call():
 
 
 @pytest.mark.asyncio
-async def test_segmented_orchestrator_assembles_valid_cv_with_profile_contact():
-    """The orchestrated result validates as TailoredCVData, with contact sourced
-    deterministically from the profile (not LLM-generated — ADR-040)."""
+async def test_segmented_orchestrator_returns_the_shared_prose_shape():
+    """E049/ADR-067: generate_cv_segmented returns the same PROSE shape the
+    single-call writer does — summary / id-keyed work (bullets + nested projects)
+    / skills / top-level projects — never a full TailoredCVData. Assembling it onto
+    the profile (assemble_tailored_cv, ADR-066's shared join) must then validate,
+    with contact sourced deterministically from the profile (not LLM-generated —
+    ADR-040)."""
     from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import generate_cv_segmented
+    from applire.services.cv import assemble_tailored_cv, generate_cv_segmented
 
     spy = _SegmentSpyProvider()
-    result = await generate_cv_segmented(_JOB, _PROFILE, [], [], output_language="en", provider=spy)
-    cv = TailoredCVData.model_validate(result)
+    prose = await generate_cv_segmented(_JOB, _PROFILE, [], output_language="en", provider=spy)
 
+    assert prose["summary"] == "A tailored summary."
+    assert {w["id"] for w in prose["work"]} == {"w0", "w1"}
+    assert prose["skills"] == ["Python", "Leadership"]
+
+    cv = TailoredCVData.model_validate(assemble_tailored_cv(prose, _PROFILE))
     assert cv.contact.name == "Marcus Berg"
     assert len(cv.work_history) == 2
     assert cv.summary == "A tailored summary."
@@ -164,35 +187,44 @@ async def test_segmented_orchestrator_assembles_valid_cv_with_profile_contact():
 
 @pytest.mark.asyncio
 async def test_segmented_orchestrator_keeps_reverse_chronological_work_order():
-    """Work order stays deterministic reverse-chronological (single-call rule 2 parity),
-    NOT whatever the outline's role_order suggests — the orchestrator owns the policy."""
+    """Document order stays deterministic reverse-chronological (single-call rule 2
+    parity), NOT whatever the outline's role_order suggests. E049/ADR-067: order is
+    no longer this function's concern at all — ``generate_cv_segmented`` iterates
+    ``work_src`` (already sorted by the caller) to build ``prose["work"]``, and
+    ``assemble_tailored_cv`` is what makes the vault's sorted order the document
+    order (this is what retired ``_enforce_work_order``, pinned in
+    ``test_cv_assembly.py``). Here we only confirm the prose ids come back in that
+    same sorted order, regardless of the stub outline's coincidental role_order."""
     from applire.services.cv import generate_cv_segmented
 
     spy = _SegmentSpyProvider()
-    result = await generate_cv_segmented(_JOB, _PROFILE, [], [], output_language="en", provider=spy)
+    prose = await generate_cv_segmented(_JOB, _PROFILE, [], output_language="en", provider=spy)
 
-    # Globex (2020–2023) is more recent than Acme (2018–2020) → must come first,
+    # Globex (2020–2023) is more recent than Acme (2018–2020) → w1 (Globex) first,
     # regardless of the stub outline returning role_order ["w1","w0"] coincidentally.
-    assert [w["company"] for w in result["work_history"]] == ["Globex", "Acme"]
+    assert [w["id"] for w in prose["work"]] == ["w1", "w0"]
 
 
 @pytest.mark.asyncio
 async def test_segmented_orchestrator_runs_against_the_real_mock_provider():
-    """The new segmented chains in MockLLMProvider must all return schema-valid slices —
-    drives the orchestrator through the actual mock the CI/integration tests use."""
+    """The segmented chains in MockLLMProvider must all return schema-valid slices —
+    drives the orchestrator through the actual mock the CI/integration tests use,
+    then through the real assembly join (ADR-066)."""
     from applire.providers.llm.mock import MockLLMProvider
     from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import generate_cv_segmented
+    from applire.services.cv import assemble_tailored_cv, generate_cv_segmented
 
-    result = await generate_cv_segmented(
-        _JOB, _PROFILE, [], [], output_language="de", provider=MockLLMProvider()
+    prose = await generate_cv_segmented(
+        _JOB, _PROFILE, [], output_language="de", provider=MockLLMProvider()
     )
-    cv = TailoredCVData.model_validate(result)
+    cv = TailoredCVData.model_validate(assemble_tailored_cv(prose, _PROFILE))
 
     assert cv.summary
     assert len(cv.work_history) == 2
     assert cv.skills
-    assert cv.languages  # education writer also returns spoken languages
+    # Carried wholesale from the profile at assembly (ADR-067 clause 3) — no LLM
+    # education/languages call exists any more to have produced this.
+    assert cv.languages
 
 
 # ---------------------------------------------------------------------------
@@ -227,16 +259,18 @@ class _SingleCallFails:
 @pytest.mark.asyncio
 async def test_truncated_single_call_falls_back_to_segmented():
     """A single-call truncation switches to segmented mode (not budget-doubling) and still
-    yields a complete, valid CV — the PQ-run-4 'no CV' fix (ADR-047)."""
+    yields a complete, valid CV — the PQ-run-4 'no CV' fix (ADR-047). E049/ADR-067:
+    ``_tailor_cv_with_fallback`` returns the PROSE shape either way, so this test
+    assembles it onto the profile before validating as TailoredCVData."""
     from applire.exceptions import LLMTruncatedError
     from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import _tailor_cv_with_fallback
+    from applire.services.cv import _tailor_cv_with_fallback, assemble_tailored_cv
 
     provider = _SingleCallFails(LLMTruncatedError("hit the cap"))
-    raw = await _tailor_cv_with_fallback(
-        _JOB, _PROFILE, [], [], output_language="de", provider=provider
+    prose = await _tailor_cv_with_fallback(
+        _JOB, _PROFILE, [], output_language="de", provider=provider
     )
-    cv = TailoredCVData.model_validate(raw)
+    cv = TailoredCVData.model_validate(assemble_tailored_cv(prose, _PROFILE))
 
     assert provider.single_calls == 1  # tried the fast path once
     assert len(cv.work_history) == 2  # then completed via segmentation
@@ -246,13 +280,13 @@ async def test_truncated_single_call_falls_back_to_segmented():
 async def test_timed_out_single_call_falls_back_to_segmented():
     from applire.exceptions import LLMTimeoutError
     from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import _tailor_cv_with_fallback
+    from applire.services.cv import _tailor_cv_with_fallback, assemble_tailored_cv
 
     provider = _SingleCallFails(LLMTimeoutError("too slow"))
-    raw = await _tailor_cv_with_fallback(
-        _JOB, _PROFILE, [], [], output_language="de", provider=provider
+    prose = await _tailor_cv_with_fallback(
+        _JOB, _PROFILE, [], output_language="de", provider=provider
     )
-    assert TailoredCVData.model_validate(raw)
+    assert TailoredCVData.model_validate(assemble_tailored_cv(prose, _PROFILE))
 
 
 @pytest.mark.asyncio
@@ -272,7 +306,7 @@ async def test_successful_single_call_skips_segmentation():
             return await super().aparse_json(prompt, system=system, **kwargs)
 
     provider = _CountingMock()
-    await _tailor_cv_with_fallback(_JOB, _PROFILE, [], [], output_language="de", provider=provider)
+    await _tailor_cv_with_fallback(_JOB, _PROFILE, [], output_language="de", provider=provider)
 
     # the single-call consultant chain ran; no segmented section chain was touched
     assert any("career consultant" in s for s in provider.systems)
@@ -299,113 +333,7 @@ async def test_small_declared_cap_segments_upfront(monkeypatch):
             return await super().aparse_json(prompt, system=system, **kwargs)
 
     provider = _CountingMock()
-    await _tailor_cv_with_fallback(_JOB, _PROFILE, [], [], output_language="de", provider=provider)
+    await _tailor_cv_with_fallback(_JOB, _PROFILE, [], output_language="de", provider=provider)
 
     assert any("outline planner" in s for s in provider.systems)  # went straight to segmented
     assert not any("career consultant" in s for s in provider.systems)  # skipped the doomed call
-
-
-
-def test_assembly_orders_work_history_by_the_outline_role_order():
-    """The outline decides role ordering; assembly must honour it deterministically."""
-    from applire.services.cv import assemble_segmented_cv
-
-    outline = {"role_order": ["w2", "w1"], "summary_angle": "", "skills_focus": []}
-    sections = {
-        "summary": "A tailored summary.",
-        "work_entries": [_work("w1", "Engineer"), _work("w2", "Lead")],
-        "skills": ["Python", "Leadership"],
-        "education": [],
-        "languages": [],
-        "projects": [],
-    }
-
-    assembled = assemble_segmented_cv(outline, sections)
-
-    assert [w["role"] for w in assembled["work_history"]] == ["Lead", "Engineer"]
-
-
-def test_assembly_produces_a_valid_tailored_cv_data():
-    """The assembled dict must validate as TailoredCVData — assembly is the contract
-    boundary between the segmented LLM calls and the rest of the pipeline."""
-    from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import assemble_segmented_cv
-
-    outline = {"role_order": ["w1"], "summary_angle": "", "skills_focus": []}
-    sections = {
-        "summary": "Senior engineer with a delivery focus.",
-        "work_entries": [_work("w1", "Engineer")],
-        "skills": ["Python"],
-        "education": [{"institution": "TU", "degree": "BSc", "field": "CS",
-                       "start_date": "2014", "end_date": "2017"}],
-        "languages": [{"language": "German", "level": "native"}],
-        "projects": [{"name": "Side project", "bullets": ["built a thing"]}],
-    }
-
-    assembled = assemble_segmented_cv(outline, sections)
-    cv = TailoredCVData.model_validate(assembled)
-
-    assert cv.summary == "Senior engineer with a delivery focus."
-    assert cv.skills == ["Python"]
-    assert cv.education[0].institution == "TU"
-    assert cv.languages[0].language == "German"
-    assert cv.projects[0].name == "Side project"
-
-
-def test_assembly_carries_contact_from_the_profile_sourced_section():
-    """Contact is factual identity data sourced deterministically from the profile, not
-    LLM-generated per segment (ADR-040) — assembly must carry it onto the CV."""
-    from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import assemble_segmented_cv
-
-    outline = {"role_order": [], "summary_angle": "", "skills_focus": []}
-    sections = {
-        "contact": {"name": "Marcus Berg", "email": "m@example.com", "location": "Berlin"},
-        "summary": "", "work_entries": [], "skills": [],
-        "education": [], "languages": [], "projects": [],
-    }
-
-    cv = TailoredCVData.model_validate(assemble_segmented_cv(outline, sections))
-
-    assert cv.contact.name == "Marcus Berg"
-    assert cv.contact.location == "Berlin"
-
-
-def test_assembly_appends_work_entries_missing_from_role_order():
-    """An entry the outline forgot to order must still appear (no silent data loss) —
-    appended after the ordered ones, never dropped (ADR-040 truthfulness floor)."""
-    from applire.services.cv import assemble_segmented_cv
-
-    outline = {"role_order": ["w1"], "summary_angle": "", "skills_focus": []}
-    sections = {
-        "summary": "",
-        "work_entries": [_work("w1", "Engineer"), _work("w2", "Intern")],
-        "skills": [],
-        "education": [],
-        "languages": [],
-        "projects": [],
-    }
-
-    assembled = assemble_segmented_cv(outline, sections)
-
-    assert [w["role"] for w in assembled["work_history"]] == ["Engineer", "Intern"]
-
-
-def test_assembly_ignores_role_order_ids_with_no_matching_entry():
-    """A stale id in role_order (no matching work entry) must not invent an empty entry."""
-    from applire.services.cv import assemble_segmented_cv
-
-    outline = {"role_order": ["ghost", "w1"], "summary_angle": "", "skills_focus": []}
-    sections = {
-        "summary": "",
-        "work_entries": [_work("w1", "Engineer")],
-        "skills": [],
-        "education": [],
-        "languages": [],
-        "projects": [],
-    }
-
-    assembled = assemble_segmented_cv(outline, sections)
-
-    assert len(assembled["work_history"]) == 1
-    assert assembled["work_history"][0]["role"] == "Engineer"

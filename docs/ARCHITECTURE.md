@@ -757,7 +757,7 @@ A hallucinated decomposition is caught by a **review pass, not a rule table** �
 
 ---
 
-### ADR-067 — Content Ownership in the Delivered Document (accepted 2026-07-30)
+### ADR-067 — Content Ownership in the Delivered Document (accepted 2026-07-30, implemented 2026-07-31)
 
 **Decision:** Every element of a delivered document belongs to exactly one content class, and the class determines its owner:
 
@@ -768,7 +768,7 @@ A hallucinated decomposition is caught by a **review pass, not a rule table** �
 | **Prose** | wording — rephrasing for relevance, the summary | the LLM |
 | **Layout** | placement, ordering, page furniture | template / deterministic |
 
-Concretely: the single-call CV path adopts the contract the segmented path already implements. The model is *given* each vault `WorkEntry.id` and returns bullets and projects keyed to it; an id not in the vault set is a hard, fail-closed error. Contact, employer, role and dates are joined from the vault at assembly and never pass through the model. Skills become **references to vault entries** with an optional display label for the output language — identity is transcription, the label is prose — so a translated skill label can no longer be graded as an unbacked claim by the truthfulness check (#308). Deterministic code may **cap and order**, but may not decide which evidence is *strongest* by keyword proxy — ranking bullet survival by literal keyword-surface hits is retired (#377). A critic pass reads the **assembled** document (not the writer's draft) before presentation, advisory-only; and no new deterministic post-pass may be added to the post-assembly chain while no component reads the assembled result.
+Concretely (as implemented): both CV generation paths return the same prose-only response — `summary`, id-keyed `work` bullets/projects, `skills` — and share one deterministic join (`assemble_tailored_cv`). The model is *given* each vault `WorkEntry.id` and returns prose keyed to it; an id not in the vault set is a hard, fail-closed error. Contact, employer, role, dates, education and languages are joined from the vault at assembly and never pass through a model — both LLM review chains run *before* the join, so a re-emission cannot mutate a fact or drop an id. Skill *labels* are the writer's prose in the output language (the old rename-toward-vault-phrasing step is retired); duplicate handling on the rendered page uses a dedicated page-scope predicate that is deliberately wider than the vault-merge predicate (#308, #386). The skills-as-vault-references model sketched in the decision is deferred — vault skill entries carry no id yet. Deterministic code may **cap and order**, but may not decide which evidence is *strongest* by keyword proxy — ranking bullet survival by literal keyword-surface hits is retired (#377). Next step per the decision: a critic pass reads the **assembled** document (not the writer's draft) before presentation, advisory-only; and no new deterministic post-pass may be added to the post-assembly chain while no component reads the assembled result.
 
 **The narrowing applies to the prompt response schema only.** The `TailoredCVData` Pydantic model, the published `schema://cv` agent contract, `render_agent_cv`'s verbatim-authoring path (ADR-054) and persisted-row deserialisation are all **unchanged** — a field absent from what the LLM is *asked to return* cannot be mutated, mistranslated or dropped, and that enforcement is schema-level, not instructional.
 

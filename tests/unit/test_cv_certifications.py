@@ -151,22 +151,23 @@ def test_apply_certifications_does_not_mutate_input():
 
 
 # ---------------------------------------------------------------------------
-# Segmented path: assemble_segmented_cv must not lose certifications either —
-# the design decision routes certifications through the SAME deterministic
-# post-LLM step in both generation paths (_apply_certifications is called by
-# the caller after assembly, mirroring _nest_projects), so the assembled dict
-# validates cleanly and certifications default empty at assembly time (the LLM
-# section writers are never asked to produce them).
+# E049/ADR-067: assemble_segmented_cv is DELETED — assembly is now the ONE
+# assemble_tailored_cv both generation paths share (ADR-066). Certifications
+# are NOT joined there either (see assemble_tailored_cv's own docstring):
+# _apply_certifications, called by the caller after assembly (mirroring
+# _nest_projects), remains their one writer, so the assembled dict validates
+# cleanly with certifications defaulting empty (no LLM section writer is ever
+# asked to produce them, on either generation path).
 # ---------------------------------------------------------------------------
 
 
-def test_assembled_segmented_cv_validates_with_empty_certifications():
+def test_assembled_cv_validates_with_empty_certifications():
     from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import assemble_segmented_cv
+    from applire.services.cv import assemble_tailored_cv
 
-    outline = {"role_order": []}
-    sections = {"contact": {"name": "Anna"}, "work_entries": []}
-    cv = TailoredCVData.model_validate(assemble_segmented_cv(outline, sections))
+    prose = {"summary": "", "work": [], "skills": []}
+    profile_json = {"personal_info": {"name": "Anna"}}
+    cv = TailoredCVData.model_validate(assemble_tailored_cv(prose, profile_json))
     assert cv.certifications == []
 
 

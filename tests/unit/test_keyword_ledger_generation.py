@@ -63,11 +63,12 @@ class TestCvTailoringConsumesLedger:
     def _prompt(self):
         from applire.prompts.cv_tailoring import build_user_prompt
 
+        # E049/ADR-067 (#383): critical_gaps is gone from the signature — the
+        # CRITICAL GAPS block it fed was deleted along with it.
         return build_user_prompt(
             {"role_title": "Backend Engineer"},
             {"name": "Test"},
             keyword_gaps=[],
-            critical_gaps=[],
             output_language="en",
             keyword_ledger=LEDGER,
         )
@@ -102,7 +103,7 @@ class TestCvTailoringConsumesLedger:
         from applire.prompts.cv_tailoring import build_user_prompt
 
         # Existing callers pass no ledger — must still build a valid prompt.
-        prompt = build_user_prompt({}, {}, [], [], output_language="de")
+        prompt = build_user_prompt({}, {}, [], output_language="de")
         assert "OUTPUT LANGUAGE: GERMAN" in prompt
 
 
@@ -116,11 +117,11 @@ class TestCvSegmentedSummaryConsumesLedger:
     def _prompt(self, **kwargs):
         from applire.prompts.cv_segmented import build_summary_prompt
 
+        # E049/ADR-067 (#383): critical_gaps is gone from the signature.
         return build_summary_prompt(
             directive={"summary_angle": "AI leadership"},
             job_analysis={"role_title": "Lead AI Engineer"},
             profile={"name": "Test"},
-            critical_gaps=[],
             output_language="en",
             keyword_ledger=kwargs.get("keyword_ledger", LEDGER),
         )
@@ -146,7 +147,6 @@ class TestCvSegmentedSummaryConsumesLedger:
             directive={"summary_angle": "x"},
             job_analysis={},
             profile={},
-            critical_gaps=[],
             output_language="de",
         )
         assert "OUTPUT LANGUAGE: GERMAN" in prompt
@@ -161,18 +161,24 @@ class TestCvSegmentedSummaryConsumesLedger:
 
 class TestCvSingleCallSummaryRuleLeadsWithLedger:
     """#235 — the single-call path already threads the ledger block into the prompt,
-    but SYSTEM_PROMPT Rule 4 never told the writer to prioritise it for the summary.
-    Strengthened wording, not a new feature."""
+    and SYSTEM_PROMPT's SUMMARY rule tells the writer to prioritise it there.
+    Strengthened wording, not a new feature.
 
-    def test_system_prompt_rule_4_leads_with_claimable_concepts(self):
+    E049/ADR-067 (2026-07-30): v7's rule list was rebuilt and renumbered wholesale —
+    SUMMARY is now rule 5, not rule 4, and its wording changed from "write a concise
+    professional summary" to "2–3 sentences, third person, aimed at THIS role". This
+    test now locates the rule by its stable "5. SUMMARY." heading rather than the old
+    sentence, so a future wording tweak inside the rule doesn't retrigger this test."""
+
+    def test_system_prompt_rule_5_leads_with_claimable_concepts(self):
         from applire.prompts.cv_tailoring import SYSTEM_PROMPT
 
         low = SYSTEM_PROMPT.lower()
         assert "claimable" in low
-        # Rule 4 (summary) must reference leading with ledger concepts, not just Rule 3 (skills).
-        idx_rule4 = low.find("write a concise professional summary")
-        assert idx_rule4 != -1
-        window = low[idx_rule4: idx_rule4 + 500]
+        # Rule 5 (SUMMARY) must reference leading with ledger concepts, not just Rule 7 (SKILLS).
+        idx_rule5 = low.find("5. summary.")
+        assert idx_rule5 != -1
+        window = low[idx_rule5: idx_rule5 + 500]
         assert "claimable" in window
         assert "lead" in window
 

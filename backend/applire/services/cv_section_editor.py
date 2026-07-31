@@ -66,9 +66,10 @@ def build_content_snapshot(tailored: TailoredCVData) -> dict:
         positions.append(
             SnapshotPosition(
                 id=str(uuid.uuid4()),
-                # #336 — carry the profile WorkEntry.id (back-filled onto tailored
-                # entries by cv._backfill_work_ids) so the profile write-back can
-                # target an entity instead of guessing by company name.
+                # #336 — carry the profile WorkEntry.id (structural on every
+                # tailored entry since cv.assemble_tailored_cv, E049/ADR-067)
+                # so the profile write-back can target an entity instead of
+                # guessing by company name.
                 work_id=entry.id or None,
                 index=idx,
                 title=entry.role,

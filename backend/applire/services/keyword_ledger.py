@@ -578,6 +578,33 @@ def claimable_surface_forms(
     return forms
 
 
+def claimable_surface_form_groups(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[list[str]]:
+    """Every CLAIMABLE ledger entry's forms, ONE GROUP PER ENTRY (#386, E049).
+
+    Same filtering as :func:`claimable_surface_forms`, but the row structure is
+    preserved: each group is ``[concept, *surface_forms]`` (deduped, order kept).
+    A consumer adding forms to a rendered page must treat each group as ONE
+    competence — charter run 10 shipped 'Dreischichtbetrieb' AND 'Schichtbetrieb'
+    (sibling forms of one ledger row) as two skill tags because the flattened
+    list makes every form an independent candidate.
+    """
+    groups: list[list[str]] = []
+    claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    for entry in [e for e in claimable if not is_positioning_only(e)]:
+        group: list[str] = []
+        seen: set[str] = set()
+        for sf in [entry.get("concept", "")] + list(entry.get("surface_forms") or []):
+            key = _norm(sf) if isinstance(sf, str) else ""
+            if key and key not in seen:
+                seen.add(key)
+                group.append(sf)
+        if group:
+            groups.append(group)
+    return groups
+
+
 def unsupported_claim_surface_forms(
     keyword_ledger: list[dict[str, Any]] | None,
 ) -> list[str]:
