@@ -86,6 +86,11 @@ def test_acronym_spelling_guard_does_not_fire_on_compound_labels():
     from applire.services.cv import _acronym_expansion_vault_match
 
     assert _acronym_expansion_vault_match("SAP PP/MM", ["SAP PP", "SAP"]) is None
+    # ...and a SIBLING module code is not an expansion either: rewriting the
+    # writer's 'SAP MM' to the vault's 'SAP PP' renamed a real module into its
+    # neighbour (charter run 11, third false-positive shape). An expansion
+    # replaces one acronym with MULTIPLE words.
+    assert _acronym_expansion_vault_match("SAP MM", ["SAP PP", "SAP"]) is None
     assert (
         _acronym_expansion_vault_match(
             "Good Practice Compliance & Computer System Validation",

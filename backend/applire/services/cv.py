@@ -1377,15 +1377,20 @@ def _acronym_expansion_vault_match(mangled: str, vault_skills: list[str]) -> str
             continue
         if not mangled_only:
             continue
-        # E049 charter run 11 (2026-07-31): the presumed acronym must be GONE
-        # from the writer's name, not riding inside a compound token. The
-        # writer's honest 'SAP PP/MM' is not a mangled spelling of the vault's
-        # 'SAP PP' — the residual token 'pp/mm' CONTAINS 'pp', so rewriting
-        # would silently delete the MM half (and duplicate 'SAP PP' on the
-        # page). GxP is unaffected: 'gxp' is a substring of neither 'good'
-        # nor 'practice'.
+        # E049 charter run 11 (2026-07-31), two false-positive shapes pinned on
+        # live generation:
+        # 1. The presumed acronym must be GONE from the writer's name, not
+        #    riding inside a compound token — the writer's honest 'SAP PP/MM'
+        #    is not a mangled spelling of the vault's 'SAP PP' ('pp' ⊂
+        #    'pp/mm'); rewriting deleted the MM half.
+        # 2. An EXPANSION replaces one acronym with MULTIPLE words ('GxP' →
+        #    'Good Practice'). A single-token swap is a SIBLING code ('SAP MM'
+        #    vs 'SAP PP' — MM is not PP spelled out); rewriting renamed a real
+        #    module into its neighbour and the dedup guard then deleted it.
         (acronym,) = vault_only
         if any(acronym in m for m in mangled_only):
+            continue
+        if len(mangled_only) < 2:
             continue
         candidates.append(vault_skill)
 
