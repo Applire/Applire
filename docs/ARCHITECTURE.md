@@ -757,6 +757,29 @@ A hallucinated decomposition is caught by a **review pass, not a rule table** �
 
 ---
 
+### ADR-067 — Content Ownership in the Delivered Document (accepted 2026-07-30)
+
+**Decision:** Every element of a delivered document belongs to exactly one content class, and the class determines its owner:
+
+| Class | Definition | Owner |
+|---|---|---|
+| **Transcription** | a fact copied from the vault (contact block, employer, role, dates, education, certifications, languages) | deterministic join — **never the LLM** |
+| **Selection** | which evidence appears, and how much | split: *relevance* is the model's judgement; *limits* (page budget, per-role ceilings, counts) are facts owned by code |
+| **Prose** | wording — rephrasing for relevance, the summary | the LLM |
+| **Layout** | placement, ordering, page furniture | template / deterministic |
+
+Concretely: the single-call CV path adopts the contract the segmented path already implements. The model is *given* each vault `WorkEntry.id` and returns bullets and projects keyed to it; an id not in the vault set is a hard, fail-closed error. Contact, employer, role and dates are joined from the vault at assembly and never pass through the model. Skills become **references to vault entries** with an optional display label for the output language — identity is transcription, the label is prose — so a translated skill label can no longer be graded as an unbacked claim by the truthfulness check (#308). Deterministic code may **cap and order**, but may not decide which evidence is *strongest* by keyword proxy — ranking bullet survival by literal keyword-surface hits is retired (#377). A critic pass reads the **assembled** document (not the writer's draft) before presentation, advisory-only; and no new deterministic post-pass may be added to the post-assembly chain while no component reads the assembled result.
+
+**The narrowing applies to the prompt response schema only.** The `TailoredCVData` Pydantic model, the published `schema://cv` agent contract, `render_agent_cv`'s verbatim-authoring path (ADR-054) and persisted-row deserialisation are all **unchanged** — a field absent from what the LLM is *asked to return* cannot be mutated, mistranslated or dropped, and that enforcement is schema-level, not instructional.
+
+**Why:** An audit of the default single-call path found that after the last LLM review, eleven deterministic transforms mutate the document before persistence with no LLM reading the result; eight model fields are absent from the writer's own response schema (so code must inject them); and several prompt rules exist only to stop the model corrupting data it merely echoes. The repair layer both failed to prevent defects (the blocking factual-mutation check is an LLM judgement that fails open on retry exhaustion) and *manufactured* them (a correctly translated skill was re-added in its source spelling by a near-dupe predicate miss, creating a visible duplicate plus a false `unbacked` flag). Removing custody removes the failure class: a fact the model never holds needs no guard, no reviewer rule and no retry budget — and the delivered document's factual content becomes reproducible (same vault + same JD ⇒ same facts).
+
+**Existing post-LLM passes are dispositioned on evidence, not grandfathered:** each is deleted only when a real-provider run shows the prompt covering its job at least as well, and retained (with the evidence recorded) where measurement shows it is still needed — e.g. the pass guaranteeing that JD-required skills present in the profile appear on the CV stays, because measured skill selection is not stable enough without it.
+
+**Status:** decided, **in implementation** — the divergence removal ships incrementally (bullet-cap ranking and the near-dupe predicate first, then the response-schema narrowing together with the matching reviewer change).
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:
