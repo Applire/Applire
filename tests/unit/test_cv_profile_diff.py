@@ -16,10 +16,18 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """
-US147 — deterministic pre-download diff (JF-M-6.1). Flags discrete, verifiable
-divergences between the generated CV and the Master Profile: fabricated employers,
-mutated dates, changed/inflated titles, and ungrounded skills. Semantic bullet
-grounding stays the ADR-021 LLM reviewer's job — this is the no-LLM complement.
+US147 / ADR-067 clause 9 (E049 49.7) — the pre-download diff is skills-only.
+
+Employer/role/date detection is retired: those fields are vault-joined
+transcription since ADR-067 (`assemble_tailored_cv`, fail-closed ids) and can
+no longer diverge, so detection code would be a control that can never fire.
+The structural guarantee is pinned here as an ABSENCE assertion: mutated
+work-history fields in the input must produce NO diff items — the surface
+states the guarantee instead (frontend `WhatChangedReview`).
+
+The retained skills half is grounded against BOTH `skills[].name` and the
+vault's literal narrative corpus (#395): a narrative-backed skill is truthful
+content and must not be flagged.
 """
 import sys
 from pathlib import Path
@@ -35,7 +43,8 @@ from applire.services.cv_diff import compute_cv_profile_diff  # noqa: E402
 _PROFILE = {
     "work_experience": [
         {"company": "Acme GmbH", "role": "Software Developer",
-         "role_aliases": ["Backend Developer"], "start_date": "2020-01", "end_date": "2022-12"}
+         "start_date": "2020-01", "end_date": "2022-12",
+         "achievements": ["Kostenrechnung für drei Werke aufgebaut."]}
     ],
     "skills": [{"name": "Python"}, {"name": "PostgreSQL"}],
 }
@@ -53,39 +62,9 @@ def _cv(**over) -> dict:
     return base
 
 
-def _fields(diff, section=None):
-    return [(c.section, c.field, c.action) for c in diff if section is None or c.section == section]
-
-
 class TestCVProfileDiff:
     def test_clean_cv_has_no_diff(self):
         assert compute_cv_profile_diff(_cv(), _PROFILE) == []
-
-    def test_title_in_role_aliases_is_not_flagged(self):
-        cv = _cv(work_history=[{"company": "Acme GmbH", "role": "Backend Developer",
-                                "start_date": "2020-01", "end_date": "2022-12", "bullets": []}])
-        assert _fields(compute_cv_profile_diff(cv, _PROFILE), "work_experience") == []
-
-    def test_fabricated_employer_flagged(self):
-        cv = _cv(work_history=[{"company": "Globex Corp", "role": "VP", "start_date": "2019-01",
-                                "end_date": "2020-01", "bullets": []}])
-        diff = compute_cv_profile_diff(cv, _PROFILE)
-        assert any(c.section == "work_experience" and c.field == "company" for c in diff)
-
-    def test_mutated_start_date_flagged(self):
-        cv = _cv(work_history=[{"company": "Acme GmbH", "role": "Software Developer",
-                                "start_date": "2017-01", "end_date": "2022-12", "bullets": []}])
-        diff = compute_cv_profile_diff(cv, _PROFILE)
-        assert any(c.field == "start_date" and c.action == "updated" for c in diff)
-
-    def test_changed_title_is_not_flagged(self):
-        # ADR-040 amendment (2026-07-01): a tailored title differing from the stored
-        # role is expected tailoring, not a red flag — the ADR-021 reviewer covers
-        # genuine inflation. The pre-download notice must not accuse on rewording.
-        cv = _cv(work_history=[{"company": "Acme GmbH", "role": "Lead Architect",
-                                "start_date": "2020-01", "end_date": "2022-12", "bullets": []}])
-        diff = compute_cv_profile_diff(cv, _PROFILE)
-        assert not any(c.field == "role" for c in diff)
 
     def test_ungrounded_skill_flagged(self):
         cv = _cv(skills=["Python", "Kubernetes"])
@@ -93,9 +72,28 @@ class TestCVProfileDiff:
         flagged = [c.new_value for c in diff if c.section == "skills"]
         assert "Kubernetes" in flagged and "Python" not in flagged
 
+    def test_narrative_backed_skill_is_not_flagged(self):
+        """#395: `Kostenrechnung` is evidenced in a work achievement but absent
+        from skills[].name — it is grounded content, and flagging it accused
+        the candidate of inventing a skill they demonstrably hold."""
+        cv = _cv(skills=["Python", "Kostenrechnung"])
+        diff = compute_cv_profile_diff(cv, _PROFILE)
+        assert [c.new_value for c in diff] == []
+
+    def test_work_history_mutations_produce_no_diff_items(self):
+        """ADR-067 clause 9: employer/role/date detection is RETIRED — those
+        fields are vault-joined and structurally cannot diverge in a real
+        generation. This absence assertion pins the retirement: even a
+        hand-mutated input yields no work_experience items, because the
+        detection code is gone, not merely quiet."""
+        cv = _cv(work_history=[{"company": "Globex Corp", "role": "VP",
+                                "start_date": "1999-01", "end_date": "2001-01",
+                                "bullets": []}])
+        diff = compute_cv_profile_diff(cv, _PROFILE)
+        assert [c for c in diff if c.section == "work_experience"] == []
+
     def test_every_diff_item_has_rationale(self):
-        cv = _cv(work_history=[{"company": "Globex Corp", "role": "VP", "start_date": "2019-01",
-                                "end_date": "2020-01", "bullets": []}], skills=["Rust"])
+        cv = _cv(skills=["Rust"])
         diff = compute_cv_profile_diff(cv, _PROFILE)
         assert diff and all(c.rationale for c in diff)
 
@@ -114,7 +112,6 @@ class TestGetCVProfileDiffService:
 
         db = AsyncMock()
         db.get.side_effect = [cv, profile]  # GeneratedCV, then MasterProfile
-
         result = await get_cv_profile_diff("cv-1", db)
         assert result.grounded is False
         assert any(c.section == "skills" and c.new_value == "Kubernetes" for c in result.items)

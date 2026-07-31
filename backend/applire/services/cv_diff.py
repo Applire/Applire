@@ -19,15 +19,28 @@
 US147 / ADR-040 — deterministic pre-download diff between a generated CV
 (`generated_cvs.tailored_data`) and the live Master Profile.
 
-This is the *detection* half of the JF-M-6.1 control. It runs with no LLM and no
-network, comparing only discrete, verifiable facts where a deterministic check is
-trustworthy: fabricated employers, mutated dates, changed/inflated titles, and
-ungrounded skills. Semantic bullet grounding is deliberately NOT attempted here —
-that is the ADR-021 LLM reviewer's job (prevention); a substring check would raise
-false positives on legitimately rephrased bullets.
+**Employer/date detection retired, deliberately (ADR-067 clause 9 / E049
+49.7).** Since ADR-067's vault join, employer names, roles and dates are
+transcription: `assemble_tailored_cv` copies them from the vault keyed by
+`WorkEntry.id`, the writer's response schema cannot even express them, and an
+unknown id fails closed. The JF-M-6.1 control this module used to *detect*
+with is now **structurally impossible to violate**, which is the stronger
+control — detection code kept alive against an impossible failure mode would
+be a control that can never fire (the SF-WRITE.17 shape). The pre-download
+surface now STATES the guarantee instead of re-checking it; see
+`WhatChangedReview` on the frontend.
 
-Reads only the two persisted artifacts — never the source upload (retention-safe,
-ADR-005).
+What remains is the **skills half**: skill tags are the one surface where the
+writer's prose (translated/relabelled tags, ADR-067 clause 3) can drift from
+what the vault evidences. A tag is flagged only when it is grounded NEITHER in
+`skills[].name` NOR in the vault's own literal narrative text
+(`profile_literal_corpus` + the shared `surface_present` predicate) — #395:
+a narrative-backed skill (`Kostenrechnung` evidenced in a work achievement but
+absent from the skills list) is grounded, and flagging it read as an
+accusation on truthful content.
+
+Reads only the two persisted artifacts — never the source upload
+(retention-safe, ADR-005).
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,67 +48,38 @@ from applire.models.cv import GeneratedCV
 from applire.models.profile import MasterProfile
 from applire.schemas.cv import CVProfileDiffResponse
 from applire.schemas.profile import FieldChange
-from applire.services.profile.merge import company_names_match
-
-
-def _norm_month(value: str | None) -> str | None:
-    if not value:
-        return None
-    return (str(value) + "-01")[:7]
+from applire.services.ats_audit import surface_present
+from applire.services.keyword_ledger import profile_literal_corpus
 
 
 def compute_cv_profile_diff(tailored: dict, profile: dict) -> list[FieldChange]:
-    """Return the structured divergences of the tailored CV from the Master Profile."""
+    """Return the structured divergences of the tailored CV from the Master
+    Profile — skills only, since ADR-067 made every other fact vault-joined."""
     changes: list[FieldChange] = []
-    prof_wx: list[dict] = profile.get("work_experience", []) or []
 
-    for cv_e in tailored.get("work_history", []) or []:
-        company = (cv_e.get("company") or "").strip()
-        if not company:
-            continue
-        match = next(
-            (p for p in prof_wx if company_names_match(p.get("company", ""), company)),
-            None,
-        )
-        if match is None:
-            role = (cv_e.get("role") or "").strip()
-            changes.append(FieldChange(
-                section="work_experience", field="company", action="added",
-                new_value=f"{role} @ {company}".strip(" @"),
-                rationale=f"“{company}” isn't in your Master Profile — make sure this position is real.",
-            ))
-            continue
-
-        # Title is deliberately NOT flagged (ADR-040 amendment 2026-07-01): a tailored
-        # title differing from the stored role is expected tailoring, and reads as an
-        # accusation at download. Genuine title inflation stays covered by the ADR-021
-        # prevention reviewer; the pre-download notice only surfaces unambiguous red
-        # flags — an invented company/skill or a changed date.
-
-        # Dates — flag a clear month-level difference.
-        for fld, label in (("start_date", "Start date"), ("end_date", "End date")):
-            cv_d = _norm_month(cv_e.get(fld))
-            prof_d = _norm_month(match.get(fld))
-            if cv_d and prof_d and cv_d != prof_d:
-                changes.append(FieldChange(
-                    section="work_experience", field=fld, action="updated",
-                    old_value=match.get(fld), new_value=cv_e.get(fld),
-                    rationale=f"{label} for {company} differs from your Master Profile.",
-                ))
-
-    # Skills — discrete tokens; flag any CV skill not present in the profile.
     prof_skills: set[str] = set()
     for s in profile.get("skills", []) or []:
         name = s.get("name") if isinstance(s, dict) else s
         if name:
             prof_skills.add(str(name).strip().lower())
+    # #395: the vault's own narrative text also grounds a tag — a skill
+    # evidenced in an achievement/summary is not "not listed", and the
+    # pre-download notice must never accuse truthful content. Same corpus +
+    # predicate the ATS/Oracle consistency guards use (one shared instrument).
+    vault_text_norm = profile_literal_corpus(profile)
+
     for sk in tailored.get("skills", []) or []:
-        if sk and str(sk).strip().lower() not in prof_skills:
-            changes.append(FieldChange(
-                section="skills", field="skills", action="added",
-                new_value=sk,
-                rationale="Not listed in your Master Profile — confirm you have this skill.",
-            ))
+        if not sk:
+            continue
+        if str(sk).strip().lower() in prof_skills:
+            continue
+        if vault_text_norm and surface_present(str(sk), vault_text_norm):
+            continue
+        changes.append(FieldChange(
+            section="skills", field="skills", action="added",
+            new_value=sk,
+            rationale="Not listed in your Master Profile — confirm you have this skill.",
+        ))
 
     return changes
 

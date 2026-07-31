@@ -133,6 +133,19 @@ describe("WhatChangedReview", () => {
     expect(screen.getByTestId("what-changed-confirm")).toHaveTextContent("confirmDownload");
   });
 
+  it("states the vault-join fact guarantee in download mode (ADR-067 clause 9)", () => {
+    // SF-WRITE.17 / JF-M-6.1: employer/date detection was retired because the
+    // fields are vault-joined and cannot diverge — the surface must STATE the
+    // guarantee so its disappearance never reads as a missing check.
+    render(<WhatChangedReview mode="download" changes={[]} onConfirm={vi.fn()} />);
+    expect(screen.getByTestId("what-changed-fact-guarantee")).toBeInTheDocument();
+  });
+
+  it("does not show the fact guarantee outside download mode", () => {
+    render(<WhatChangedReview mode="merge" changes={CHANGES} />);
+    expect(screen.queryByTestId("what-changed-fact-guarantee")).toBeNull();
+  });
+
   it("shows an empty state when there are no changes", () => {
     render(<WhatChangedReview mode="merge" changes={[]} />);
     expect(screen.getByTestId("what-changed-empty")).toBeInTheDocument();

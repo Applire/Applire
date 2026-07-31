@@ -1083,6 +1083,7 @@
     "confirmDownload": "Yes, this reflects my experience",
     "confirmDefault": "Looks good",
     "attestationNote": "By downloading you confirm the content reflects your actual experience.",
+    "factGuarantee": "Employer names, positions and dates come directly from your profile and cannot be altered by the generator.",
     "storyChallenge": "Challenge",
     "storyMechanism": "Approach",
     "storyOutcome": "Outcome",

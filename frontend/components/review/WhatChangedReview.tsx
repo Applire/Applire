@@ -206,7 +206,20 @@ export function WhatChangedReview({ mode, changes, onConfirm, onDismiss, onFix }
       )}
 
       {mode === "download" && (
-        <p className="mt-4 text-sm text-muted-foreground">{t("attestationNote")}</p>
+        <>
+          {/* ADR-067 clause 9 (E049 49.7): employer/role/date detection is
+              retired because those fields are vault-joined and cannot diverge.
+              The guarantee is STATED here so the check's disappearance never
+              reads to the user as a missing check (SF-WRITE.17 / JF-M-6.1 —
+              detection replaced by structural impossibility). */}
+          <p
+            data-testid="what-changed-fact-guarantee"
+            className="mt-4 text-sm text-muted-foreground"
+          >
+            {t("factGuarantee")}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">{t("attestationNote")}</p>
+        </>
       )}
 
       <div className="mt-4 flex items-center justify-end gap-2">
