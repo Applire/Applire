@@ -41,11 +41,13 @@ import json
 from applire.prompts.review_severity import review_output_schema
 
 CV_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
-You are a language reviewer for an AI-generated, tailored CV represented as JSON.
-Your sole responsibility is to verify that ALL human-readable text is written entirely
-in the required language: the professional `summary`, every `work_history` bullet,
-every project bullet (nested under work entries or standalone), and every entry in
-the `skills` list.
+You are a language reviewer for an AI-generated, tailored CV draft represented as JSON.
+The draft is prose only (ADR-067): a professional `summary`, `work` entries (each an
+`id` with `bullets` and nested `projects`), and a `skills` list — employer names,
+dates, education and certifications are joined from the profile elsewhere and are not
+in this draft. Your sole responsibility is to verify that ALL human-readable text is
+written entirely in the required language: the `summary`, every work bullet, every
+project bullet, and every entry in the `skills` list.
 
 Judge ONLY language — not quality, tone, grounding, or correctness of content.
 
@@ -91,16 +93,18 @@ proper nouns).
 """
 
 CV_LANGUAGE_REFINEMENT_PROMPT = """\
-You rewrite a tailored CV JSON into a required language.
-You receive (1) a previous draft (the full CV JSON) and (2) reviewer feedback naming the
+You rewrite a tailored CV prose draft into a required language.
+You receive (1) a previous draft — `summary`, `work` entries (each an `id` with
+`bullets` and nested `projects`), `skills` — and (2) reviewer feedback naming the
 required language and the items to translate.
-Translate the `summary`, every `work_history` bullet, every project bullet (nested
-`work_history[].projects[].bullets` and standalone `projects[].bullets`), and every
-`skills` entry into that language, preserving meaning and facts EXACTLY. Translating is
-not inventing.
-Keep company names, project names, product/tool/technology names, certifications'
-official names, dates, and numeric metrics unchanged. Do NOT add, remove, reorder,
-split, or merge any entry, project, or skill — only translate text in place.
+Translate the `summary`, every work bullet, every project bullet, and every `skills`
+entry into that language, preserving meaning and facts EXACTLY. Translating is not
+inventing.
+Keep project names, product/tool/technology names, certifications' official names,
+dates, and numeric metrics unchanged. Keep every entry's `id` exactly as given — ids
+address vault entries and are never invented, dropped, or reassigned. Do NOT add,
+remove, reorder, split, or merge any entry, project, or skill — only translate text
+in place.
 VERBATIM LABELS: within a skill name, certification name, employer name, job title, or
 named system/product, a domain acronym — GxP, GMP, ALCOA+, CSV, LIMS, MES, ITIL, or an
 unfamiliar one — IS the name; copy it exactly and never expand it into its full words
@@ -122,7 +126,9 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
     summary = draft.get("summary", "")
     bullets: list[str] = []
     project_bullets: list[str] = []
-    for entry in draft.get("work_history", []) or []:
+    # E049/ADR-067: the draft is the prose shape (`work`); `work_history` is read as
+    # a fallback so a legacy full-shape draft in a test fixture still reviews.
+    for entry in (draft.get("work") or draft.get("work_history") or []):
         bullets.extend(entry.get("bullets", []) or [])
         for proj in entry.get("projects", []) or []:
             project_bullets.extend(proj.get("bullets", []) or [])
@@ -133,7 +139,7 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
     return (
         f"Required language: {required_language}\n\n"
         f"summary: {summary}\n"
-        f"work_history bullets: {json.dumps(bullets, ensure_ascii=False)}\n"
+        f"work bullets: {json.dumps(bullets, ensure_ascii=False)}\n"
         f"project bullets: {json.dumps(project_bullets, ensure_ascii=False)}\n"
         f"skills: {json.dumps(skills, ensure_ascii=False)}\n\n"
         f"Are the summary, every bullet (work and project), and every skill written "

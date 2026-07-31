@@ -134,43 +134,89 @@ def _record_generation_failure(record, exc: BaseException) -> None:
     record.error_code = classify_generation_error(exc)
 
 
-def assemble_segmented_cv(outline: dict, sections: dict) -> dict:
-    """Deterministically assemble outline-then-expand section pieces into a TailoredCVData
-    dict (ADR-047 §1 / US189).
+class UnknownWorkEntryIdError(ValueError):
+    """E049 / ADR-067 clause 3 — the writer keyed prose to an id that is not in the
+    vault's work-entry set. A hard, deterministic, FAIL-CLOSED error: an invented id
+    would either be dropped silently (data loss) or matched fuzzily (the #303-class
+    misassignment this design removes), so generation fails instead."""
 
-    Work history is ordered by ``outline['role_order']``; an entry the outline forgot is
-    appended in input order (no silent data loss — ADR-040), and a stale id with no
-    matching entry is skipped (nothing fabricated). Pure: no LLM, no I/O. The result is
-    handed to the same downstream as the single-call path (``_nest_projects``, photo
-    injection, the coherence + language review).
+
+def assemble_tailored_cv(prose: dict, profile_json: dict) -> dict:
+    """Deterministically join the writer's PROSE onto the vault's FACTS, producing a
+    TailoredCVData-shaped dict (E049 / ADR-067 clauses 2–3 — one assembly for both
+    generation paths, ADR-066).
+
+    ``prose`` is the LLM response shape: ``summary``, ``work`` (each entry an ``id``
+    with ``bullets``/``projects``), ``skills`` — plus optional top-level ``projects``
+    (the segmented path's standalone-projects writer). Everything factual — contact,
+    employer, role, dates, education, languages — is carried verbatim from
+    ``profile_json``, whose work_experience order (reverse-chronological, sorted by
+    the caller) IS the document order: the model cannot reorder entries it never
+    emits, which is what retired ``_enforce_work_order``.
+
+    Contract (ADR-067 clause 3):
+      * a prose id absent from the vault set → :class:`UnknownWorkEntryIdError`
+        (fail closed — never fuzzy-matched, never silently dropped);
+      * a vault entry the writer omitted keeps its factual line with empty bullets
+        (logged — no silent entry loss, and no fabricated prose either).
+
+    Certifications are NOT joined here — ``_apply_certifications`` remains their one
+    writer (PQ F7). Pure: no LLM, no I/O.
     """
-    work_entries: list[dict] = list(sections.get("work_entries") or [])
-    first_index_by_id: dict = {}
-    for i, w in enumerate(work_entries):
-        first_index_by_id.setdefault(w.get("id"), i)
+    work_src: list[dict] = [
+        w for w in (profile_json.get("work_experience") or []) if isinstance(w, dict)
+    ]
+    vault_ids = [str(w.get("id") or "") for w in work_src]
 
-    ordered: list[dict] = []
-    placed: set[int] = set()
-    for rid in outline.get("role_order") or []:
-        i = first_index_by_id.get(rid)
-        if i is not None and i not in placed:
-            ordered.append(work_entries[i])
-            placed.add(i)
-    for i, w in enumerate(work_entries):  # entries the outline didn't order
-        if i not in placed:
-            ordered.append(w)
-            placed.add(i)
+    prose_by_id: dict[str, dict] = {}
+    for entry in prose.get("work") or []:
+        if not isinstance(entry, dict):
+            continue
+        pid = str(entry.get("id") or "")
+        if pid not in vault_ids or not pid:
+            raise UnknownWorkEntryIdError(
+                f"CV writer returned prose for unknown work-entry id {pid!r} "
+                f"(vault ids: {vault_ids}) — failing closed (ADR-067 clause 3)"
+            )
+        prose_by_id[pid] = entry
+
+    omitted = [i for i in vault_ids if i and i not in prose_by_id]
+    if omitted:
+        logger.warning(
+            "CV writer omitted %d work-entry id(s) %s — their factual lines are "
+            "kept with empty bullets (ADR-067 clause 3: no silent entry loss)",
+            len(omitted), omitted,
+        )
+
+    work_history: list[dict] = []
+    for w in work_src:
+        wid = str(w.get("id") or "")
+        p = prose_by_id.get(wid) or {}
+        work_history.append({
+            "id": wid,
+            "company": w.get("company") or "",
+            "role": w.get("role") or "",
+            "start_date": w.get("start_date") or "",
+            "end_date": w.get("end_date"),
+            "bullets": [b for b in (p.get("bullets") or []) if isinstance(b, str)],
+            "projects": [pr for pr in (p.get("projects") or []) if isinstance(pr, dict)],
+        })
 
     return {
-        # contact is factual identity data sourced deterministically from the profile,
-        # never LLM-generated per segment (ADR-040). Photo is injected downstream as today.
-        "contact": sections.get("contact") or {},
-        "summary": sections.get("summary") or "",
-        "work_history": ordered,
-        "skills": list(sections.get("skills") or []),
-        "education": list(sections.get("education") or []),
-        "languages": list(sections.get("languages") or []),
-        "projects": list(sections.get("projects") or []),
+        # Identity/factual data sourced deterministically from the profile, never the
+        # LLM (ADR-040/ADR-067). Photo is injected downstream as today.
+        "contact": _contact_from_profile(profile_json),
+        "summary": prose.get("summary") or "",
+        "work_history": work_history,
+        "skills": [s for s in (prose.get("skills") or []) if isinstance(s, str)],
+        # Transcription, copied wholesale (ADR-067 clause 3 — no authored content,
+        # no join key needed; the education section LLM call is retired).
+        "education": [e for e in (profile_json.get("education") or []) if isinstance(e, dict)],
+        "languages": [l for l in (profile_json.get("languages") or []) if isinstance(l, dict)],
+        # Standalone projects from the segmented path's projects writer; the
+        # single-call prose shape has none (vault standalone projects are nested
+        # by _nest_projects downstream).
+        "projects": [p for p in (prose.get("projects") or []) if isinstance(p, dict)],
     }
 
 
@@ -189,7 +235,6 @@ async def generate_cv_segmented(
     job_analysis: dict,
     profile: dict,
     keyword_gaps: list[str],
-    critical_gaps: list[str],
     *,
     output_language: str,
     provider: "LLMProvider",
@@ -200,12 +245,16 @@ async def generate_cv_segmented(
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
     One small outline call produces a shared tailoring directive; then one call per
-    work-experience entry plus one each for summary / skills / education / projects, every
-    call capped at ``SEGMENT_MAX_TOKENS`` so no single output is large. Factual fields
-    (company, role, dates, contact) are carried deterministically from the profile (ADR-040)
-    — section writers only produce tailored prose. Work order stays reverse-chronological
-    (single-call rule-2 parity); the outline's role_order is advisory. The assembled dict is
-    handed to the same coherence + language review as the single-call path by the caller.
+    work-experience entry plus one each for summary / skills / standalone projects,
+    every call capped at ``SEGMENT_MAX_TOKENS`` so no single output is large.
+
+    E049 / ADR-067: returns the shared PROSE shape — ``summary``, ``work`` (each
+    entry ``id`` + ``bullets``/``projects``), ``skills``, plus top-level
+    ``projects`` — identical to the single-call writer's response. Facts are joined
+    later by :func:`assemble_tailored_cv`, the ONE assembly both paths share
+    (ADR-066). The education/languages section call is retired (clause 3:
+    transcription, copied at assembly). Work order is not this function's concern —
+    assembly follows the vault's sorted order.
 
     ``budget`` (E042/US237, ADR-051 §3) — the deterministic per-role bullet-count ceiling
     table, threaded into the outline call and each per-role work-section call so the model
@@ -218,13 +267,11 @@ async def generate_cv_segmented(
     into the summary and skills section calls so neither contradicts a stated limit.
     """
     from applire.prompts.cv_segmented import (
-        EDUCATION_SECTION_SYSTEM_PROMPT,
         OUTLINE_SYSTEM_PROMPT,
         PROJECTS_SECTION_SYSTEM_PROMPT,
         SKILLS_SECTION_SYSTEM_PROMPT,
         SUMMARY_SECTION_SYSTEM_PROMPT,
         WORK_SECTION_SYSTEM_PROMPT,
-        build_education_prompt,
         build_outline_prompt,
         build_projects_prompt,
         build_skills_prompt,
@@ -234,8 +281,8 @@ async def generate_cv_segmented(
 
     token_budget = SEGMENT_MAX_TOKENS
 
-    # Reverse-chronological order is the orchestrator's policy (rule-2 parity), independent
-    # of whatever the outline suggests — keeps the segmented path consistent with single-call.
+    # Reverse-chronological order for the per-entry calls (parity with the vault
+    # order assembly will join on).
     work_src: list[dict] = list(profile.get("work_experience") or [])
     if work_src:
         from applire.schemas.profile import WorkEntry
@@ -263,17 +310,13 @@ async def generate_cv_segmented(
         )
         work_entries.append({
             "id": w["id"],
-            "company": w.get("company", ""),
-            "role": w.get("role", ""),
-            "start_date": w.get("start_date") or "",
-            "end_date": w.get("end_date"),
             "bullets": list(section.get("bullets") or []),
             "projects": list(section.get("projects") or []),
         })
 
     summary_res = await provider.aparse_json(
         build_summary_prompt(
-            directive, job_analysis, profile, critical_gaps, output_language, keyword_ledger,
+            directive, job_analysis, profile, output_language, keyword_ledger,
             stated_limits_block,
         ),
         system=SUMMARY_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
@@ -285,26 +328,17 @@ async def generate_cv_segmented(
         ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
-    edu_res = await provider.aparse_json(
-        build_education_prompt(profile, output_language),
-        system=EDUCATION_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
-    )
     projects_res = await provider.aparse_json(
         build_projects_prompt(directive, job_analysis, profile, output_language),
         system=PROJECTS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
 
-    sections = {
-        "contact": _contact_from_profile(profile),
+    return {
         "summary": summary_res.get("summary") or "",
-        "work_entries": work_entries,
+        "work": work_entries,
         "skills": list(skills_res.get("skills") or []),
-        "education": list(edu_res.get("education") or []),
-        "languages": list(edu_res.get("languages") or []),
         "projects": list(projects_res.get("projects") or []),
     }
-    # role_order = the deterministic reverse-chronological order (outline does not reorder).
-    return assemble_segmented_cv({"role_order": [w["id"] for w in work_src]}, sections)
 
 
 async def _should_segment_upfront() -> bool:
@@ -323,7 +357,6 @@ async def _tailor_cv_with_fallback(
     job_analysis: dict,
     profile: dict,
     keyword_gaps: list[str],
-    critical_gaps: list[str],
     *,
     output_language: str,
     provider: "LLMProvider",
@@ -331,11 +364,16 @@ async def _tailor_cv_with_fallback(
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
 ) -> dict:
-    """Produce the tailored CV draft: single call on the fast path, segmented as the
-    fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront; otherwise try
-    the single large call and switch to segmented on truncation/timeout rather than doubling
-    the budget into a timeout (the US188 'switch to segmented' recovery). The returned draft
-    is fed to the same coherence + language review as before by the caller.
+    """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
+    the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
+    otherwise try the single large call and switch to segmented on truncation/timeout
+    rather than doubling the budget into a timeout (the US188 'switch to segmented'
+    recovery).
+
+    E049 / ADR-067: both paths return the same PROSE shape — ``summary``, ``work``
+    (id-keyed bullets/projects), ``skills`` — never facts. The caller runs the
+    review + language chains on this shape and only then joins the vault facts via
+    :func:`assemble_tailored_cv`.
 
     ``keyword_ledger`` (ADR-048 / US200) is surfaced into the prompt(s) as the
     claimable-vs-forbidden keyword split. ``budget`` (E042/US237, ADR-051 §3) is the
@@ -344,7 +382,7 @@ async def _tailor_cv_with_fallback(
     verbatim, threaded into whichever path runs."""
     if await _should_segment_upfront():
         return await generate_cv_segmented(
-            job_analysis, profile, keyword_gaps, critical_gaps,
+            job_analysis, profile, keyword_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
@@ -352,7 +390,7 @@ async def _tailor_cv_with_fallback(
     try:
         return await provider.aparse_json(
             build_user_prompt(
-                job_analysis, profile, keyword_gaps, critical_gaps,
+                job_analysis, profile, keyword_gaps,
                 output_language=output_language,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
@@ -368,7 +406,7 @@ async def _tailor_cv_with_fallback(
             "mode instead of doubling the budget (ADR-047)"
         )
         return await generate_cv_segmented(
-            job_analysis, profile, keyword_gaps, critical_gaps,
+            job_analysis, profile, keyword_gaps,
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
@@ -564,90 +602,12 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
     )
 
 
-def _enforce_work_order(tailored: TailoredCVData) -> TailoredCVData:
-    """Deterministically re-sort ``tailored.work_history`` reverse-chronologically
-    by START date (#118) — newest first; ties break on end date (open end =
-    ongoing = 9999-12), then original order; missing/unparseable starts sort last.
-
-    The LLM's ordering is advisory only: with two concurrent open-ended
-    ("present") positions the end-date-only sort tied and the incidental profile
-    order leaked into the rendered CV. Called once, after the LLM step(s) and the
-    deterministic passthroughs, at the single site where ``tailored_data`` and
-    ``content_snapshot`` are established — everything downstream (render, section
-    editor, ATS audit) inherits the order from there. Pure; input unmutated.
-    """
-    if len(tailored.work_history) < 2:
-        return tailored
-    return tailored.model_copy(
-        update={"work_history": _sort_work_by_date(list(tailored.work_history))}
-    )
-
-
-def _backfill_work_ids(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
-    """Deterministically back-fill the profile ``WorkEntry.id`` onto tailored work
-    entries whose ``id`` is empty (E042/US238 fix round).
-
-    The single-call fast path's LLM schema omits ``id`` (and the ADR-038 language
-    pass re-emits the JSON, so even carried ids can be dropped) — but the condense
-    loop's budget lookup is keyed by profile ``WorkEntry.id``. Without this pass the
-    DEFAULT generation path would never match a role, silently skip condensation,
-    and report "condensed to the maximum" without having condensed anything.
-
-    Identity rule, mirroring ``_nest_projects``: match by case-folded, stripped
-    company+role; each profile id is assigned at most once. Entries left ambiguous
-    (duplicate company+role pairs, e.g. a re-hire) or unmatched fall back to
-    POSITIONAL pairing — sound because tailoring rule 6 guarantees the output entry
-    count equals the profile's, and both lists are enforced reverse-chronological
-    (``_sort_work_by_date`` upstream, ``_enforce_work_order`` on the tailored side —
-    call this AFTER it). When the counts differ, unmatched entries keep an empty id
-    (no budget applied) rather than risk a wrong role's budget. Pure; no LLM; the
-    input is left unmutated.
-    """
-    source = profile_json.get("work_experience") or []
-    if not source or not tailored.work_history:
-        return tailored
-    if all(w.id for w in tailored.work_history):
-        return tailored  # segmented path (or already back-filled) — nothing to do
-
-    def _key(company: object, role: object) -> tuple[str, str]:
-        return (
-            (company if isinstance(company, str) else "").strip().lower(),
-            (role if isinstance(role, str) else "").strip().lower(),
-        )
-
-    ids_by_key: dict[tuple[str, str], list[str]] = {}
-    for s in source:
-        sid = str(s.get("id") or "")
-        if sid:
-            ids_by_key.setdefault(_key(s.get("company"), s.get("role")), []).append(sid)
-
-    data = tailored.model_dump()
-    work: list[dict] = data.get("work_history") or []
-    used: set[str] = {w["id"] for w in work if w.get("id")}
-
-    unmatched: list[int] = []
-    for i, w in enumerate(work):
-        if w.get("id"):
-            continue
-        candidates = [
-            sid for sid in ids_by_key.get(_key(w.get("company"), w.get("role")), [])
-            if sid not in used
-        ]
-        if len(candidates) == 1:
-            w["id"] = candidates[0]
-            used.add(candidates[0])
-        else:
-            unmatched.append(i)
-
-    # Positional fallback (documented above): only when the counts line up 1:1.
-    if unmatched and len(work) == len(source):
-        for i in unmatched:
-            sid = str(source[i].get("id") or "")
-            if sid and sid not in used:
-                work[i]["id"] = sid
-                used.add(sid)
-
-    return TailoredCVData.model_validate(data)
+# E049 / ADR-067 clause 3: `_enforce_work_order` (#118) and `_backfill_work_ids`
+# (E042/US238) are DELETED, not relocated. The writer no longer emits entries at
+# all — assemble_tailored_cv joins prose onto the vault's sorted work list, so
+# document order is the vault order structurally, and every tailored entry carries
+# its vault id by construction. Both passes' reasons to exist disappeared with the
+# fields they repaired.
 
 
 def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
@@ -678,12 +638,12 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     policy accepts them, and #229 is this repository's own precedent for a
     prompt schema acting as a dead control. An instruction is not a guarantee.
 
-    Matched by the SAME work-entry ``id`` identity ``_backfill_work_ids``
-    establishes and ``_restore_ledger_bullets`` relies on — MUST run after
-    ``_backfill_work_ids`` (never matched by company-name string, which risks
-    a wrong role's figures on a re-hire / same-employer-twice profile).
-    Mirrors ``_apply_certifications``: pure passthrough, no LLM, no I/O.
-    Returns a new TailoredCVData; the input is left unmutated.
+    Matched by the SAME work-entry ``id`` identity ``assemble_tailored_cv``
+    establishes structurally (E049/ADR-067 — never matched by company-name
+    string, which risks a wrong role's figures on a re-hire /
+    same-employer-twice profile). Mirrors ``_apply_certifications``: pure
+    passthrough, no LLM, no I/O. Returns a new TailoredCVData; the input is
+    left unmutated.
     """
     vault_by_id: dict[str, dict] = {
         str(w.get("id") or ""): w
@@ -838,8 +798,8 @@ def _restore_ledger_bullets(
             missing.append(entry)
             already.add(entry.get("concept"))
 
-    # Vault entries keyed by id — the SAME identity ``_backfill_work_ids`` relies on;
-    # this guard MUST run after it so tailored ids are populated.
+    # Vault entries keyed by id — the identity ``assemble_tailored_cv`` establishes
+    # structurally on every tailored entry (E049/ADR-067).
     vault_by_id: dict[str, dict] = {}
     for w in profile_json.get("work_experience") or []:
         wid = str(w.get("id") or "")
@@ -984,7 +944,7 @@ def _prefer_measured_outcomes(
 
     Deterministic post-draft guard, mirroring ``_restore_ledger_bullets``'s
     own idiom (runs after it, on the SAME vault WorkEntry.id identity
-    ``_backfill_work_ids`` establishes): for every work entry whose bullets
+    ``assemble_tailored_cv`` establishes structurally): for every work entry whose bullets
     contain a target-phrase bullet with a safely-paired measured outcome
     elsewhere in the vault (owner-scoped, #196/#244 attribution machinery —
     see ``services.outcome_preference`` module docstring for the full pairing
@@ -1935,7 +1895,10 @@ async def _render_cv_background(
             )
             gap = gap_result.scalar_one_or_none()
             keyword_gaps: list[str] = gap.keyword_gaps if gap else []
-            critical_gaps: list[str] = gap.critical_gaps if gap else []
+            # E049 (#383 prompt-side half): critical_gaps are no longer fed to the
+            # writer — the CRITICAL GAPS prompt block contradicted the "a CV is not
+            # the place to disclose a gap" rule on every call. Gap handling is the
+            # Keyword Ledger's job (ADR-048).
             # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
             # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
             keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
@@ -2006,11 +1969,12 @@ async def _render_cv_background(
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
-            tailored_raw: dict = await _tailor_cv_with_fallback(
+            # E049/ADR-067: both paths return the PROSE shape (summary / id-keyed work /
+            # skills) — the vault facts are joined only after both LLM review chains.
+            prose_draft: dict = await _tailor_cv_with_fallback(
                 job_dict,
                 profile_json,
                 keyword_gaps,
-                critical_gaps,
                 output_language=resolve_jd_language(job),
                 provider=provider,
                 keyword_ledger=keyword_ledger,
@@ -2039,9 +2003,9 @@ async def _render_cv_background(
             if ledger_block:
                 source_material = f"{source_material}\n\n{ledger_block}"
 
-            tailored_raw = await review_and_refine(
+            prose_draft = await review_and_refine(
                 source=source_material,
-                draft=tailored_raw,
+                draft=prose_draft,
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
                 reviewer_prompt_fn=coverage_reviewer_prompt_fn(
@@ -2054,60 +2018,53 @@ async def _render_cv_background(
                 chain_id="cv_tailoring",
             )
 
-            # US187: deterministically nest source projects under their parent
-            # position (or the standalone list). The LLM tailors prose; code disposes.
-            # MUST precede the language pass: these are verbatim profile copies, and
-            # nesting after review shipped English project bullets in a German CV
-            # (blind PQ 2026-07-04).
-            tailored = _nest_projects(
-                TailoredCVData.model_validate(tailored_raw), profile_json
-            )
-
             # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
             # are all in the target-job language (the directive alone leaks
-            # discipline-skill phrases — #1). Carries the ledger: this pass is the
-            # LAST writer, so the US213 coverage gate must also watch its rewording
-            # (#122 follow-up).
-            tailored_raw = await _review_cv_language(
-                tailored.model_dump(mode="json"), resolve_jd_language(job), provider,
+            # discipline-skill phrases — #1). E049/ADR-067: runs on the PROSE shape,
+            # BEFORE assembly — an LLM re-emission can therefore no longer mutate an
+            # employer/date or drop a work-entry id (the #303/GxP custody class).
+            # Vault facts joined below are verbatim by design and are not re-worded.
+            # Carries the ledger: this pass is the LAST writer, so the US213 coverage
+            # gate must also watch its rewording (#122 follow-up).
+            prose_draft = await _review_cv_language(
+                prose_draft, resolve_jd_language(job), provider,
                 keyword_ledger=keyword_ledger,
             )
 
-            tailored = TailoredCVData.model_validate(tailored_raw)
+            # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
+            # facts (contact, employer/role/dates by id, education, languages).
+            # Fail-closed on an unknown id; shared by both generation paths.
+            tailored = TailoredCVData.model_validate(
+                assemble_tailored_cv(prose_draft, profile_json)
+            )
+
+            # US187: deterministically nest source projects under their parent
+            # position (or the standalone list). The LLM tailors prose; code
+            # disposes. Runs after assembly (it matches on the joined company/role
+            # identity). The nested copies are verbatim vault facts — like
+            # education, they are carried in the vault's own language (ADR-067:
+            # transcription is not re-worded by any LLM pass).
+            tailored = _nest_projects(tailored, profile_json)
 
             # PQ F7: deterministically copy the profile's certifications verbatim
             # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
             # single-call and segmented paths, since both converge here.
             tailored = _apply_certifications(tailored, profile_json)
 
-            # #118: enforce reverse-chronological work order (newest start first)
-            # here — the one site where tailored_data + content_snapshot are
-            # established — instead of trusting the LLM's echo of the input order.
-            tailored = _enforce_work_order(tailored)
-
-            # E042/US238 fix round: back-fill profile WorkEntry.ids onto the tailored
-            # entries. The single-call path's schema omits `id` (and the language pass
-            # can drop carried ids), but the condense loop's budget lookup is keyed by
-            # them. MUST run after _enforce_work_order — the positional fallback for
-            # ambiguous company+role pairs relies on both lists sharing the enforced
-            # reverse-chronological order. Uses the SORTED profile_json (still bound
-            # here; the photo step below rebinds the name to the raw profile dict).
-            tailored = _backfill_work_ids(tailored, profile_json)
-
             # #328: deterministically copy each work entry's quantified role facts
             # (team_size / budget_managed / industry_context) from the vault onto the
             # matching tailored entry, for rendering as document furniture (ADR-062
-            # clause 1) — bypassing prose (and the writer LLM) entirely. MUST run
-            # after _backfill_work_ids — matched by the SAME WorkEntry.id identity,
-            # never by company-name string. Uses the SORTED profile_json (still
-            # bound here; the photo step below rebinds the name to the raw profile
-            # dict).
+            # clause 1) — bypassing prose (and the writer LLM) entirely. Matched by
+            # the WorkEntry.id identity assemble_tailored_cv establishes
+            # structurally, never by company-name string. Uses the SORTED
+            # profile_json (still bound here; the photo step below rebinds the
+            # name to the raw profile dict).
             tailored = _apply_role_facts(tailored, profile_json)
 
             # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
             # verbatim vault bullet that carries a claimable Keyword Ledger concept the
-            # writer's draft dropped entirely. MUST run after _backfill_work_ids — it is
-            # keyed by the same profile WorkEntry.id the budget uses. Uses the SORTED
+            # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
+            # the budget uses (structural since assemble_tailored_cv). Uses the SORTED
             # profile_json (still bound here; the photo step below rebinds the name to
             # the raw profile dict).
             tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)

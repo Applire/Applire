@@ -26,7 +26,8 @@ System prompt fingerprints:
   "HR analyst"                     → job analysis          (aparse_json → dict)
   "CV analyst"                     → profile parsing       (aparse_json → dict)
   "three-category gap analysis"    → gap analysis          (aparse_json → dict)
-  "dach career consultant"         → CV tailoring          (aparse_json → dict)
+  "dach career consultant"         → CV tailoring — PROSE shape, ids parsed from
+                                     the caller's prompt (aparse_json → dict)
   "expert career analyst"          → gap clustering        (aparse_json → list)
   "expert career coach"            → targeted question     (aparse_json → dict)
   "expert dach career coach"       → cover letter          (aparse_json → dict)
@@ -170,59 +171,90 @@ _GAP_ANALYSIS_RESPONSE: dict[str, Any] = {
     "keyword_gaps": ["microservices architecture", "Kubernetes", "GraphQL"],
 }
 
-_CV_TAILORING_RESPONSE: dict[str, Any] = {
-    # Valid TailoredCVData — all required fields present.
-    # contact.name matches the iter9 LinkedIn fixture (Anna Bauer) used by CV template tests.
-    "contact": {
-        "name": "Anna Bauer",
-        "email": "anna.bauer@example.de",
-        "phone": "+49 170 1234567",
-        "location": "Berlin, Germany",
-        "linkedin": None,
-    },
-    "summary": (
-        "Experienced software engineer with a strong background in Python and FastAPI, "
-        "specialising in backend systems for the DACH market. "
-        "Proven track record delivering scalable REST APIs and CI/CD pipelines."
-    ),
-    "work_history": [
-        {
-            "company": "TechVision GmbH",
-            "role": "Senior Software Engineer",
-            "start_date": "2021-03",
-            "end_date": None,
-            "bullets": [
-                "Designed and implemented microservices with FastAPI and PostgreSQL.",
-                "Introduced CI/CD pipelines via GitHub Actions, reducing deploy time by 40%.",
-                "Led migration from monolith to containerised Docker architecture.",
-            ],
-        },
-        {
-            "company": "StartupX AG",
-            "role": "Software Engineer",
-            "start_date": "2018-06",
-            "end_date": "2021-02",
-            "bullets": [
-                "Built REST APIs serving 50k daily active users.",
-                "Improved test coverage from 30% to 85% using pytest.",
-            ],
-        },
+# E049 / ADR-067: the CV writer's response is PROSE ONLY — summary, id-keyed work
+# bullets, skills. Contact, employer/role/dates, education and languages are joined
+# deterministically from the vault by services.cv.assemble_tailored_cv, so the mock
+# no longer hardcodes any of them. Work-entry ids are NOT canned either: they are
+# parsed from the caller's own prompt (see _mock_cv_tailoring), because assembly
+# fails closed on an id that is not in the vault set.
+_CV_TAILORING_SUMMARY = (
+    "Experienced software engineer with a strong background in Python and FastAPI, "
+    "specialising in backend systems for the DACH market. "
+    "Proven track record delivering scalable REST APIs and CI/CD pipelines."
+)
+
+_CV_TAILORING_SKILLS = ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs", "CI/CD", "Git"]
+
+# Per-entry bullet sets, assigned to the prompt's work-entry ids in order (cycling).
+_CV_TAILORING_BULLETS: list[list[str]] = [
+    [
+        "Designed and implemented microservices with FastAPI and PostgreSQL.",
+        "Introduced CI/CD pipelines via GitHub Actions, reducing deploy time by 40%.",
+        "Led migration from monolith to containerised Docker architecture.",
     ],
-    "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "REST APIs", "CI/CD", "Git"],
-    "education": [
+    [
+        "Built REST APIs serving 50k daily active users.",
+        "Improved test coverage from 30% to 85% using pytest.",
+    ],
+]
+
+_BUDGET_ID_RE = re.compile(r"^\s*-\s*\[([^\]]+)\]", re.MULTILINE)
+_PROFILE_BLOCK_RE = re.compile(
+    r"CANDIDATE PROFILE[^\n]*:\n(?P<json>\{.*?\})\s*(?:\n\n[A-Z]|\Z)", re.DOTALL
+)
+_ID_RE = re.compile(r'"id"\s*:\s*"([^"]+)"')
+
+
+def _prompt_work_ids(prompt: str) -> list[str]:
+    """Extract the vault work-entry ids the real writer would key its response to.
+
+    Priority: (1) ROLE BULLET BUDGETS lines (`- [<id>] ...` — the production id
+    channel, ADR-067 clause 3); (2) the CANDIDATE PROFILE JSON block's
+    work_experience ids; (3) any `"id": "..."` occurrences as a last resort.
+    Deduped, order-preserving. Empty when the prompt carries no ids at all —
+    the assembled CV then keeps every vault entry with empty bullets.
+    """
+    ids = _BUDGET_ID_RE.findall(prompt)
+    if not ids:
+        m = _PROFILE_BLOCK_RE.search(prompt)
+        if m:
+            try:
+                profile = json.loads(m.group("json"))
+                ids = [
+                    str(w.get("id"))
+                    for w in (profile.get("work_experience") or [])
+                    if isinstance(w, dict) and w.get("id")
+                ]
+            except (ValueError, AttributeError):
+                ids = _ID_RE.findall(m.group("json"))
+    if not ids:
+        ids = _ID_RE.findall(prompt)
+    seen: set[str] = set()
+    out: list[str] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def _mock_cv_tailoring(prompt: str) -> dict[str, Any]:
+    """Schema-valid prose response for the CV writer AND its review-loop corrector
+    (both receive the vault ids in their prompt: the writer via the budget block /
+    profile JSON, the corrector via the re-sent CANDIDATE PROFILE)."""
+    work = [
         {
-            "institution": "Technische Universität Berlin",
-            "degree": "Master of Science",
-            "field": "Computer Science",
-            "start_date": "2016-10",
-            "end_date": "2018-05",
+            "id": wid,
+            "bullets": list(_CV_TAILORING_BULLETS[i % len(_CV_TAILORING_BULLETS)]),
+            "projects": [],
         }
-    ],
-    "languages": [
-        {"language": "German", "level": "Native"},
-        {"language": "English", "level": "C1"},
-    ],
-}
+        for i, wid in enumerate(_prompt_work_ids(prompt))
+    ]
+    return {
+        "summary": _CV_TAILORING_SUMMARY,
+        "work": work,
+        "skills": list(_CV_TAILORING_SKILLS),
+    }
 
 _RECONCILE_RESPONSE: dict[str, Any] = {
     "ops": [
@@ -543,20 +575,19 @@ class MockLLMProvider(LLMProvider):
                 "projects": [],
             }
         if "cv summary writer" in system_lower:
-            return {"summary": _CV_TAILORING_RESPONSE["summary"]}
+            return {"summary": _CV_TAILORING_SUMMARY}
         if "cv skills writer" in system_lower:
-            return {"skills": list(_CV_TAILORING_RESPONSE["skills"])}
-        if "cv education writer" in system_lower:
-            return {
-                "education": [dict(e) for e in _CV_TAILORING_RESPONSE["education"]],
-                "languages": [{"language": "German", "level": "Native"},
-                              {"language": "English", "level": "C1"}],
-            }
+            return {"skills": list(_CV_TAILORING_SKILLS)}
+        # E049/ADR-067: no "cv education writer" branch — the education/languages
+        # section call is retired (transcription is copied from the vault at assembly).
         if "cv projects writer" in system_lower:
             return {"projects": []}
 
+        # E049/ADR-067: the single-call writer returns PROSE keyed to the prompt's
+        # own vault work-entry ids (assembly fails closed on an unknown id, so a
+        # canned id list would break every mock generation).
         if "dach career consultant" in system_lower:
-            return dict(_CV_TAILORING_RESPONSE)
+            return _mock_cv_tailoring(prompt)
 
         if "expert career coach" in system_lower:
             return dict(_QUESTION_RESPONSE)
@@ -603,7 +634,7 @@ class MockLLMProvider(LLMProvider):
             return dict(_PROFILE_PARSE_RESPONSE)
 
         if "tailored cv corrector" in system_lower:
-            return dict(_CV_TAILORING_RESPONSE)
+            return _mock_cv_tailoring(prompt)
 
         # US179 — role-conditional field expectation analysis.
         # Inspects the user *prompt* for management keywords so mock-stack PQ

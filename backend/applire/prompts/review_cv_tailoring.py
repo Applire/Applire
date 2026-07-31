@@ -15,7 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v2 (US142 — named FMEA failure classes: certifications, oversell)
+# Prompt version: v3 (E049 / ADR-067 — checks 2 (ENTRY COUNT) and 3 (FACTUAL
+#   MUTATIONS) DELETED, not reworded: the writer's response schema no longer
+#   carries employers, roles, dates, education or entry structure — those are
+#   joined deterministically from the vault at assembly, so a check on them can
+#   never fail and, worse, rejects every draft for the absence of what it guards
+#   (SF-WRITE.16: full retry exhaustion → the draft ships unreviewed, run 10
+#   measured 5/5 exhaustion on exactly this churn, #385). See the SHAPE NOTE.)
+# v2 was US142 — named FMEA failure classes: certifications, oversell.
 # Used by: services/cv.py → reviewer.review_and_refine
 
 import json
@@ -23,29 +30,30 @@ import json
 from applire.prompts.review_severity import review_output_schema
 
 REVIEW_SYSTEM_PROMPT = """\
-You are a strict CV quality auditor. Your task is to verify that a tailored CV JSON
+You are a strict CV quality auditor. Your task is to verify that a tailored CV draft
 contains only claims that are grounded in the candidate's master profile.
 
+SHAPE NOTE (ADR-067): the draft contains ONLY prose — `summary`, `work` (each entry an
+`id` plus `bullets`/`projects`), and `skills`. Employers, roles, dates, education,
+certifications and contact details are joined deterministically from the profile and are
+NOT in this draft. Their absence is correct and must never be raised as an issue.
+
 Check for ALL of the following:
-1. FABRICATED BULLETS: Every bullet in work_history must be grounded in the CANDIDATE PROFILE.
-   Flag any bullet that claims a technology, achievement, project, metric, or responsibility
-   not explicitly present in the source material.
-2. ENTRY COUNT: The number of work_history entries must equal exactly the number in CANDIDATE
-   PROFILE. Flag additions, removals, or splits of entries.
-3. FACTUAL MUTATIONS: Company names, roles, start_date, end_date, degrees, and institutions
-   must match the CANDIDATE PROFILE exactly — character for character. Flag any deviation.
-4. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
+1. FABRICATED BULLETS: Every bullet in every work entry must be grounded in the CANDIDATE
+   PROFILE. Flag any bullet that claims a technology, achievement, project, metric, or
+   responsibility not explicitly present in the source material.
+2. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
    explicitly supported by the candidate's work history or skills. Flag any keyword added
    without clear supporting evidence in the source material.
-5. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, degree or formal
+3. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, degree or formal
    qualification named anywhere in the output must appear in the CANDIDATE PROFILE. Flag any
    certification or qualification not explicitly present in the source — these are the most
    damaging fabrications because a recruiter can verify them.
-6. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
+4. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
    beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
    or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
    profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
-7. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
+5. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
    gaps NOT in the profile). Two checks:
    (a) VERIFIED COVERAGE (US213, #122): do NOT scan for absent claimable keywords yourself — a
@@ -86,9 +94,11 @@ def build_review_prompt(source_material: str, tailored_json: dict) -> str:
         tailored_json: The tailored CV JSON produced by the tailoring agent.
     """
     return (
-        "Review this tailored CV against the candidate's source material.\n\n"
+        "Review this tailored CV draft against the candidate's source material.\n\n"
         f"CANDIDATE PROFILE (source of truth):\n{source_material}\n\n"
-        f"TAILORED CV:\n{json.dumps(tailored_json, ensure_ascii=False, indent=2)}\n\n"
-        "Does the tailored CV contain only claims grounded in the source material — "
-        "no fabricated bullets, no extra entries, no mutated facts? Return your review JSON."
+        f"TAILORED CV DRAFT (prose only — see SHAPE NOTE):\n"
+        f"{json.dumps(tailored_json, ensure_ascii=False, indent=2)}\n\n"
+        "Does the draft contain only claims grounded in the source material — no "
+        "fabricated bullets, no ungrounded keywords, no overstated claims? "
+        "Return your review JSON."
     )
