@@ -995,6 +995,13 @@
       "not_applicable": "Aussage über den Arbeitgeber"
     }
   },
+  "criticAdvisory": {
+    "title": "Zur Prüfung",
+    "subtitle": "Hier wurde nichts geändert — die Entscheidung liegt bei Ihnen.",
+    "cvQuoteLabel": "Aus Ihrem Lebenslauf",
+    "cvDetailQuoteLabel": "Ebenfalls in Ihrem Lebenslauf",
+    "letterQuoteLabel": "Aus Ihrem Anschreiben"
+  },
   "admin": {
     "appearanceTitle": "Erscheinungsbild",
     "schemeEditor": {

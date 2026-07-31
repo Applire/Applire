@@ -41,6 +41,7 @@ import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
+import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
@@ -106,6 +107,8 @@ export default function CVPage({
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // E043/US247: truthfulness self-audit report, fetched alongside the ATS report.
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
+  // ADR-060/E049 49.6: outcome critic advisory report (Pass A, this mount).
+  const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
   // E042/US239 (ADR-051 §1): per-generation page-target override, sent as
   // `target_pages` in the generate POST body. Defaults to the user's
   // `target_cv_pages` setting when set, else the DACH standard (2).
@@ -242,8 +245,19 @@ export default function CVPage({
         // Non-fatal — panel shows unavailable state
       }
     }
+    async function fetchCriticReport() {
+      try {
+        const res = await fetch(`${API_BASE}/api/cv/${cvId}/critic-report`);
+        if (!res.ok) return;
+        const data: { report: OutcomeCriticReport } = await res.json();
+        setCriticReport(data.report ?? null);
+      } catch {
+        // Non-fatal — advisory panel simply doesn't render
+      }
+    }
     void fetchAtsReport();
     void fetchTruthReport();
+    void fetchCriticReport();
   }, [cvId, phase, atsRefresh]);
 
   async function handleGenerate(tpl: CVTemplate) {
@@ -449,6 +463,7 @@ export default function CVPage({
             <div className="space-y-2">
               <ATSChecksPanel report={atsReport} />
               <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
+              <CriticAdvisoryPanel report={criticReport} />
             </div>
           }
           sidebar={
@@ -471,6 +486,7 @@ export default function CVPage({
                 <div className="space-y-2">
                   <ATSChecksPanel report={atsReport} />
                   <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
+                  <CriticAdvisoryPanel report={criticReport} />
                 </div>
               }
               fineTuneSurface={
