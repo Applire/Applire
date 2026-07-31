@@ -97,28 +97,18 @@ def _writer_draft():
     bare label with NO figure -- the exact #328 ground-truth defect shape.
     Nothing downstream should need to fix this bullet for the figure to reach
     the page; the furniture line is a wholly separate deterministic surface.
+
+    E049/ADR-067: the writer's response is the shared PROSE shape (summary +
+    id-keyed work + skills) -- contact/company/role/dates/education/languages
+    are joined from the vault by assemble_tailored_cv, never emitted here.
     """
     return {
-        "contact": {
-            "name": "Petra Wolff", "email": "petra@example.com",
-            "phone": None, "location": None, "linkedin": None,
-        },
         "summary": "Erfahrene Werksleiterin mit Fokus auf Anlagenbau.",
-        "work_history": [
-            {
-                "id": "w1", "company": "Nordstahl AG", "role": "Werksleiterin",
-                "start_date": "2016-01", "end_date": None,
-                "bullets": [_BUDGET_BULLET_BARE],
-            },
-            {
-                "id": "w2", "company": "Beta GmbH", "role": "Junior Consultant",
-                "start_date": "2013-01", "end_date": "2015-12",
-                "bullets": ["Unterstützte das Beraterteam bei Kundenprojekten."],
-            },
+        "work": [
+            {"id": "w1", "bullets": [_BUDGET_BULLET_BARE]},
+            {"id": "w2", "bullets": ["Unterstützte das Beraterteam bei Kundenprojekten."]},
         ],
         "skills": [],
-        "education": [],
-        "languages": [],
     }
 
 
@@ -226,8 +216,10 @@ async def _run_render(db, job, profile, cv):
 async def test_role_facts_persisted_on_tailored_work_entry(db):
     """The vault's team_size/budget_managed/industry_context reach the
     PERSISTED tailored_data on the matching work entry -- keyed by the same
-    WorkEntry id _backfill_work_ids establishes, not by company-name string --
-    even though the writer's own bullet dropped the figure entirely."""
+    WorkEntry id ``assemble_tailored_cv`` establishes structurally on every
+    entry (E049/ADR-067; ``_backfill_work_ids`` is deleted, not needed -- an
+    id can no longer go missing), not by company-name string -- even though
+    the writer's own bullet dropped the figure entirely."""
     db, job, profile, cv = await _seed(db, jd_language="de")
     await _run_render(db, job, profile, cv)
 

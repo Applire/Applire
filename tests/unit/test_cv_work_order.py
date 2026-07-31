@@ -20,9 +20,24 @@
 UAT (Chocolate pre-release) found two CONCURRENT open-ended ("present") positions
 rendered oldest-first: the shared sort keyed on END date only, so both ongoing
 roles tied at 9999-12 and the incidental input order survived all the way into
-``tailored_data`` / ``content_snapshot``. The LLM's ordering is advisory —
-``_enforce_work_order`` re-sorts the validated ``TailoredCVData`` at the single
-site where ``tailored_data`` and ``content_snapshot`` are established.
+``tailored_data`` / ``content_snapshot``.
+
+E049 / ADR-067: ``_enforce_work_order`` is DELETED, not relocated — the writer no
+longer emits work entries at all (it returns id-keyed prose), so there is nothing
+left for a post-hoc re-sort to correct. Document order is now structural: the
+per-entry sort this module used to re-derive lives in
+``applire.services.profile.merge._sort_work_by_date`` (already fully covered,
+INCLUDING the concurrent-open-ended-positions case, by
+``backend/tests/unit/test_sort_work_by_date.py``), and ``assemble_tailored_cv``
+makes that sorted vault order the document order by construction (pinned by
+``test_cv_assembly.py::test_document_order_is_the_vault_order_not_the_prose_order``).
+The two unit-level ``_enforce_work_order`` tests that used to live here are
+DELETED rather than rewritten — they would only duplicate that existing coverage.
+
+What still has value, and is kept below: the PIPELINE-level regression, driving
+the real ``_render_cv_background`` entrypoint end to end, that the persisted
+``tailored_data`` AND ``content_snapshot`` carry the vault's sorted order even
+when the writer's prose names the two concurrent positions in the opposite order.
 """
 import sys
 import uuid
@@ -39,85 +54,49 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 
-# ---------------------------------------------------------------------------
-# Helper level: _enforce_work_order on TailoredCVData
-# ---------------------------------------------------------------------------
-
-
-def _tailored_two_concurrent_positions() -> dict:
-    """Two overlapping open-ended positions, deliberately OLDEST-START FIRST."""
+def _profile_two_concurrent_positions() -> dict:
+    """Two overlapping open-ended positions, deliberately OLDEST-START FIRST in the
+    vault's raw (pre-sort) order — mirrors the #118 UAT shape."""
     return {
-        "contact": {"name": "Max Mustermann", "email": "max@example.com"},
-        "summary": "Lead Data Engineer bei Alpha Analytics AG mit paralleler Beratungstätigkeit.",
-        "work_history": [
+        "personal_info": {"name": "Max Mustermann", "email": "max@example.com"},
+        "work_experience": [
             {
+                "id": "beta",
                 "company": "Beta Consulting GmbH",
                 "role": "Senior Consultant",
                 "start_date": "2024-12",
                 "end_date": None,
-                "bullets": ["Beratung von Mittelständlern zu Datenstrategie."],
             },
             {
+                "id": "alpha",
                 "company": "Alpha Analytics AG",
                 "role": "Lead Data Engineer",
                 "start_date": "2026-03",
                 "end_date": None,
-                "bullets": ["Aufbau der zentralen Datenplattform."],
             },
         ],
-        "skills": ["Python"],
-        "education": [
-            {
-                "institution": "TU Berlin",
-                "degree": "M.Sc.",
-                "field": "Informatik",
-                "start_date": "2014-10",
-                "end_date": "2017-09",
-            }
-        ],
-        "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
+        "education": [],
+        "languages": [],
     }
 
 
-def test_enforce_work_order_sorts_concurrent_open_ended_positions_newest_first():
-    from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import _enforce_work_order
-
-    tailored = TailoredCVData.model_validate(_tailored_two_concurrent_positions())
-    ordered = _enforce_work_order(tailored)
-    assert [w.company for w in ordered.work_history] == [
-        "Alpha Analytics AG",
-        "Beta Consulting GmbH",
-    ]
-    # Entry payloads travel with their position (bullets stay attached).
-    assert ordered.work_history[0].bullets == ["Aufbau der zentralen Datenplattform."]
-
-
-def test_enforce_work_order_missing_start_sorts_last_and_is_stable():
-    from applire.schemas.cv import TailoredCVData
-    from applire.services.cv import _enforce_work_order
-
-    data = _tailored_two_concurrent_positions()
-    data["work_history"].append(
-        {
-            "company": "Gamma KG",
-            "role": "Praktikant",
-            "start_date": "",
-            "end_date": "2010-08",
-            "bullets": [],
-        }
-    )
-    ordered = _enforce_work_order(TailoredCVData.model_validate(data))
-    assert [w.company for w in ordered.work_history] == [
-        "Alpha Analytics AG",
-        "Beta Consulting GmbH",
-        "Gamma KG",
-    ]
+def _prose_two_concurrent_positions() -> dict:
+    """The writer's PROSE draft, deliberately naming the positions in the SAME
+    (oldest-start-first) order as the raw vault input — order must come from the
+    vault's sort, never from the order the writer happens to emit ids in."""
+    return {
+        "summary": "Lead Data Engineer bei Alpha Analytics AG mit paralleler Beratungstätigkeit.",
+        "work": [
+            {"id": "beta", "bullets": ["Beratung von Mittelständlern zu Datenstrategie."]},
+            {"id": "alpha", "bullets": ["Aufbau der zentralen Datenplattform."]},
+        ],
+        "skills": ["Python"],
+    }
 
 
 # ---------------------------------------------------------------------------
-# Pipeline level: _render_cv_background persists the enforced order in BOTH
-# tailored_data and content_snapshot (the single enforcement site).
+# Pipeline level: _render_cv_background persists the vault's sorted order in BOTH
+# tailored_data and content_snapshot (the single assembly site, ADR-066).
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +160,7 @@ async def db_with_cv(db):
     )
     profile = MasterProfile(
         id=profile_id,
-        profile_json={"work_experience": [], "contact": {}},
+        profile_json=_profile_two_concurrent_positions(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -205,18 +184,20 @@ async def db_with_cv(db):
 
 @pytest.mark.asyncio
 async def test_generation_persists_reverse_chronological_order(db_with_cv):
-    """#118 regression (pipeline wiring): even when the LLM returns the two
-    concurrent open-ended positions oldest-first, the persisted tailored_data
-    AND the content_snapshot are newest-start-first."""
+    """#118 regression (pipeline wiring), E049/ADR-067 shape: even when the
+    writer's PROSE names the two concurrent open-ended positions oldest-first,
+    the persisted tailored_data AND the content_snapshot are newest-start-first —
+    because ``assemble_tailored_cv`` joins prose onto the ALREADY-SORTED vault
+    work list (``_sort_work_by_date``), not onto the writer's own id order."""
     from applire.models.cv import GeneratedCV
 
     ctx = db_with_cv
     session = ctx["db"]
 
-    tailored_raw = _tailored_two_concurrent_positions()
+    prose_draft = _prose_two_concurrent_positions()
 
     mock_provider = AsyncMock()
-    mock_provider.aparse_json.return_value = tailored_raw
+    mock_provider.aparse_json.return_value = prose_draft
 
     async def fake_review(**kwargs):
         return kwargs["draft"]

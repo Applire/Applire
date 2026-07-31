@@ -365,30 +365,34 @@ def _fastpath_profile_json() -> dict:
 
 
 def _fastpath_llm_payload() -> dict:
-    # Shaped like the single-call fast path's LLM output: NO `id` on work entries
-    # (the schema omits it) — TailoredWorkEntry.id defaults to "".
+    # E049/ADR-067: the single-call fast path's LLM output is now the shared PROSE
+    # shape — summary + id-keyed work (bullets only) + skills. There is no more
+    # "payload without ids" to bridge: assemble_tailored_cv attaches every work
+    # entry's `id` from the VAULT structurally (ADR-067 clause 3), regardless of
+    # what the writer emits — company/role/dates are never LLM output either. The
+    # id below is supplied so the writer's bullets actually land on the entry (an
+    # omitted id would keep the vault entry with empty bullets by design, which
+    # would trivially "not condense" for an unrelated reason).
     return {
-        "contact": {"name": "Anna Bauer", "email": "anna@example.com"},
         "summary": "Erfahrene Entwicklerin.",
-        "work_history": [
-            {
-                "company": "Acme GmbH",
-                "role": "Software Engineer",
-                "start_date": "2020-01",
-                "end_date": None,
-                "bullets": [f"Bullet {i}" for i in range(7)],
-            }
+        "work": [
+            {"id": _PROFILE_WORK_ID, "bullets": [f"Bullet {i}" for i in range(7)]},
         ],
         "skills": ["Python"],
     }
 
 
 @pytest.mark.asyncio
-async def test_fastpath_payload_without_ids_still_condenses(db):
-    """HIGH regression (reviewer finding): the DEFAULT single-call path emits work
-    entries WITHOUT ids while the budget is keyed by profile WorkEntry.id (a UUID).
-    _backfill_work_ids must bridge that seam so the loop actually condenses — and
-    never emits the false 'condensed to the maximum' wording without condensing."""
+async def test_condense_loop_finds_budget_by_structural_work_id(db):
+    """E049/ADR-067: replaces test_fastpath_payload_without_ids_still_condenses,
+    whose premise is obsolete — ``_backfill_work_ids`` is deleted, and there is no
+    longer any path where a tailored work entry's id could go missing or diverge
+    from the vault's (``assemble_tailored_cv`` establishes it structurally, on
+    every entry, unconditionally). What still needs proving end to end: the
+    condense loop's budget lookup is keyed by that SAME profile ``WorkEntry.id``
+    (a UUID) that assembly attaches, so it actually finds the role's ceiling and
+    condenses — never emitting the false 'condensed to the maximum' wording
+    without having condensed anything."""
     from applire.models.job import JobAnalysis
     from applire.models.profile import MasterProfile
     from applire.models.cv import GeneratedCV
