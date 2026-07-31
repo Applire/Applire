@@ -80,3 +80,26 @@ async def test_mock_recognises_every_reviewer_chain(chain: str, system_prompt: s
         f"the {chain!r} reviewer's mock verdict must be an explicit approval "
         f"(approved=True), got {result!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_mock_recognises_the_outcome_critic_chain():
+    """ADR-060 outcome critic (E049 49.6) — not an ADR-021 reviewer (no
+    ``approved`` field), but the same defect class killed it once already:
+    between 2026-07-30 and 2026-07-31 the critic had NO mock fingerprint,
+    fell to ``{"mock": ...}`` on every mock-stack run, and every mock
+    ``critic_report`` ended ``judgement_error`` — the advisory path was never
+    exercised by IQ/OQ/PQ at all. The mock must answer the critic's response
+    shape (``findings``), never the generic fallback."""
+    from applire.prompts.outcome_critic import SYSTEM_PROMPT as CRITIC_SYSTEM
+
+    result = await MockLLMProvider().aparse_json(
+        "PASS A judgement over an assembled CV", system=CRITIC_SYSTEM
+    )
+    assert "mock" not in result, (
+        "MockLLMProvider does not recognise the outcome critic — it fell "
+        "through to the generic fallback; every mock-stack critic_report will "
+        "end judgement_error and the advisory surface is never exercised. Add "
+        "a system-prompt match in providers/llm/mock.py."
+    )
+    assert isinstance(result.get("findings"), list)
