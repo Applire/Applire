@@ -185,6 +185,30 @@ def retained_load_bearing_figures(text: str, universe: frozenset[str]) -> frozen
     return universe & figures_present(text)
 
 
+def bullet_carries_figure(text: str) -> bool:
+    """True iff ``text`` itself carries a quantified value — a FACT computed
+    via the shared extractor (:func:`extract_figures`, US244), never a
+    keyword-proxy guess.
+
+    #377 / ADR-067 clause 4: deterministic code may cap and order a CV's
+    bullets, but it must not choose which bullet is the STRONGEST evidence by
+    whether it happens to contain a keyword-ledger surface form — whether a
+    bullet carries a figure is a fact (ADR-062 clause 1), not a judgement.
+    n=10 real-provider trials showed the writer keeps every load-bearing
+    figure in its draft, but the deterministic cap deleted the one bullet
+    ("Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt") that carried no ledger
+    surface form at all — the cap's old keyword-hit ranking cut it first
+    while keyword-bearing filler with no number survived.
+
+    A "year" figure alone does not count: a bare ``seit 2019`` is tenure-
+    ambient context, not quantified substance (the same exclusion
+    :func:`figures_present` already applies for the retention measure above).
+    Any other kind — percent, currency, or plain number — counts, so a
+    headcount ("12") or a ratio ("8,2") is substance even without a %/€ sign.
+    """
+    return any(f.kind != "year" for f in extract_figures(text))
+
+
 def load_bearing_fn_from_ledger(
     ledger: list[dict[str, Any]] | None,
 ) -> Callable[[dict[str, Any]], frozenset[str]]:

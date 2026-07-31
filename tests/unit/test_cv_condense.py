@@ -82,13 +82,20 @@ def test_condense_never_mutates_input():
 
 # --- cut order -------------------------------------------------------------
 
-def test_no_hit_bullets_cut_before_hit_bullets():
+def test_figure_less_bullets_cut_before_figure_bearing_bullets():
+    """#377 (ADR-067 clause 4): the cut order now keys on whether a bullet
+    carries a quantified FIGURE, never on a claimable-keyword hit — rewritten
+    from the prior keyword-hit contract this test encoded (a "Python" surface
+    form used to protect a bullet with no number at all; that premise is now
+    inverted by design). The figure bullet is LAST-listed here specifically so
+    it can only survive via the figure-status tier, never the later-listed
+    tie-break."""
     data = _cv([{"id": "r1", "bullets": [
-        "Led the Python migration", "Filed weekly reports", "Watered the plants",
+        "Filed weekly reports", "Watered the plants", "Reduced deployment time by 40%",
     ]}])
     out, changed = condense_to_budget(data, _budget({"r1": 1}, claimable_forms=["Python"]), 1)
     assert changed
-    assert out["work_history"][0]["bullets"] == ["Led the Python migration"]
+    assert out["work_history"][0]["bullets"] == ["Reduced deployment time by 40%"]
 
 
 def test_project_bullets_cut_before_role_bullets():
@@ -100,13 +107,17 @@ def test_project_bullets_cut_before_role_bullets():
     assert out["work_history"][0]["projects"] == []
 
 
-def test_full_cut_order_no_hit_project_role_then_hit():
-    # ceiling 1 over 4 bullets: no-hit-project, no-hit-role, hit-project cut; hit-role kept.
+def test_full_cut_order_no_figure_project_role_then_figure():
+    """#377 (ADR-067 clause 4): rewritten from the prior keyword-hit contract
+    (a "Python" surface form used to rank survival) — the full 3-key cut order
+    is now (figure-status, project/role, later-listed), never keyword-status.
+    ceiling 1 over 4 bullets: no-figure-project, no-figure-role, figure-project
+    cut; figure-role kept."""
     data = _cv([{"id": "r1",
-                 "bullets": ["Administrative work", "Owned Python services"],
-                 "projects": [{"name": "P", "bullets": ["Misc chores", "Shipped Python SDK"]}]}])
+                 "bullets": ["Administrative work", "Reduced churn by 30%"],
+                 "projects": [{"name": "P", "bullets": ["Misc chores", "Cut latency by 25%"]}]}])
     out, _ = condense_to_budget(data, _budget({"r1": 1}, claimable_forms=["Python"]), 1)
-    assert out["work_history"][0]["bullets"] == ["Owned Python services"]
+    assert out["work_history"][0]["bullets"] == ["Reduced churn by 30%"]
     assert out["work_history"][0]["projects"] == []
 
 
@@ -170,12 +181,43 @@ def test_unknown_role_id_is_left_untouched():
     assert out["work_history"][0]["bullets"] == ["a", "b", "c"]
 
 
-def test_void_relevance_treats_all_bullets_as_no_hit():
-    # No claimable_forms → every bullet is a no-hit bullet; project cut before role.
+def test_no_figures_anywhere_falls_through_to_project_before_role():
+    """#377: neither bullet carries a figure (``claimable_forms`` no longer
+    drives step 1 at all — see ``condense_to_budget``'s docstring), so both
+    tie on figure-status and the cut falls through to key 2: project before
+    role."""
     data = _cv([{"id": "r1", "bullets": ["Role work"],
                  "projects": [{"name": "P", "bullets": ["Project work"]}]}])
     out, _ = condense_to_budget(data, _budget({"r1": 1}, claimable_forms=[]), 1)
     assert out["work_history"][0]["bullets"] == ["Role work"]
+
+
+# --- #377 (US270, ADR-067 clause 4) — substance over keyword proxy --------
+
+def test_condense_keeps_figure_bullet_with_no_ledger_surface_form():
+    """The page-overrun twin of the #377 regression: a figure bullet carrying
+    NO claimable-keyword hit must survive over keyword-bearing bullets with no
+    figure at all -- otherwise this pass could re-delete the exact bullet
+    ``_cap_bullets`` was fixed to protect (n=10 real-provider ground truth:
+    'Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt')."""
+    figure_bullet = "Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt"
+    keyword_bullets = [
+        "Verantwortlich für Arbeitssicherheit im gesamten Werk",
+        "Sicherheitsbeauftragter für den Produktionsbereich",
+        "Schulungen zur Arbeitssicherheit durchgeführt",
+    ]
+    data = _cv([{"id": "r1", "bullets": keyword_bullets + [figure_bullet]}])
+    out, changed = condense_to_budget(
+        data, _budget({"r1": 3}, claimable_forms=["Arbeitssicherheit"]), 1
+    )
+    assert changed
+    final = out["work_history"][0]["bullets"]
+    assert len(final) == 3
+    assert figure_bullet in final, (
+        "the load-bearing figure bullet was cut ahead of keyword-only filler"
+    )
+    # The later-listed keyword-only bullet is the one that yields.
+    assert keyword_bullets[-1] not in final
 
 
 def test_project_with_surviving_bullets_is_kept():

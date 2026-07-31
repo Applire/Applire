@@ -63,6 +63,7 @@ from datetime import date
 from typing import Any, Literal
 
 from applire.norms import DEFAULT_REGION, REGION_NORMS
+from applire.services.load_bearing import bullet_carries_figure
 
 TierName = Literal["top", "mid", "bottom"]
 
@@ -398,20 +399,6 @@ def role_budget_line(budget: BudgetResult, work_entry_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _bullet_has_hit(text: str, claimable_forms: tuple[str, ...]) -> bool:
-    """Does this bullet contain any claimable keyword? Uses THE shared presence
-    predicate (``ats_audit.surface_present``) so the condense pass and the ATS/budget
-    layers can never disagree on what counts as a relevance hit."""
-    if not claimable_forms:
-        return False
-    from applire.services.ats_audit import _norm, surface_present
-
-    text_norm = _norm(text)
-    if not text_norm:
-        return False
-    return any(surface_present(f, text_norm) for f in claimable_forms)
-
-
 def condense_to_budget(
     tailored_data: dict[str, Any],
     budgets: BudgetResult,
@@ -426,11 +413,15 @@ def condense_to_budget(
     Cut order, applied per role until its total bullet count (role bullets + nested
     project bullets) meets the ceiling:
 
-    1. bullets with NO claimable-keyword hit go first (``budgets.claimable_forms``
-       via the shared presence predicate),
-    2. then, among equal hit-status, nested PROJECT bullets before ROLE bullets,
-    3. within an equal (hit-status, project/role) group the later-listed bullet is
-       cut first, so the earliest (typically strongest) bullets survive.
+    1. bullets carrying NO quantified figure go first
+       (:func:`applire.services.load_bearing.bullet_carries_figure`, #377 /
+       ADR-067 clause 4 — a FACT computed via the shared extractor, not a
+       keyword-ledger proxy: deterministic code may cap and order, but it may
+       not choose which evidence is strongest by whether a bullet happens to
+       repeat a ledger surface form),
+    2. then, among equal figure-status, nested PROJECT bullets before ROLE bullets,
+    3. within an equal (figure-status, project/role) group the later-listed bullet
+       is cut first, so the earliest (typically strongest) bullets survive.
 
     "Oldest roles collapse toward one-liners" is not a separate step — it falls out
     of the tier ceilings (bottom tier == 1, and 0 at iteration 2).
@@ -440,6 +431,13 @@ def condense_to_budget(
 
     Roles are NEVER removed — ``work_history`` length is invariant (the DACH gap
     rule). A project that loses every one of its bullets is dropped (omission).
+
+    NOTE (#377 scope note): this is an extension beyond the epic task's literal
+    scope (which named only ``cv.py``'s ``_cap_bullets``), made so this
+    page-overrun path cannot re-delete the same figure-bearing bullet the
+    ``_cap_bullets`` fix now protects. ``budgets.claimable_forms`` is kept on
+    :class:`BudgetResult` and still governs step 2's project/role split via
+    other callers of this module — only THIS function's step-1 key changed.
     """
     import copy
 
@@ -448,7 +446,6 @@ def condense_to_budget(
     if not isinstance(work, list):
         return data, False
 
-    forms = budgets.claimable_forms
     changed = False
 
     for entry in work:
@@ -465,29 +462,30 @@ def condense_to_budget(
         projects = entry.get("projects")
         projects = projects if isinstance(projects, list) else []
 
-        # Flatten every string bullet under this role, tagging origin + hit status.
+        # Flatten every string bullet under this role, tagging origin + figure status.
         items: list[dict[str, Any]] = []
         for b in role_bullets:
             if isinstance(b, str):
                 items.append({"is_role": True, "proj_idx": None, "text": b,
-                              "has_hit": _bullet_has_hit(b, forms)})
+                              "carries_figure": bullet_carries_figure(b)})
         for pi, proj in enumerate(projects):
             if not isinstance(proj, dict):
                 continue
             for b in (proj.get("bullets") or []):
                 if isinstance(b, str):
                     items.append({"is_role": False, "proj_idx": pi, "text": b,
-                                  "has_hit": _bullet_has_hit(b, forms)})
+                                  "carries_figure": bullet_carries_figure(b)})
         for order, it in enumerate(items):
             it["order"] = order
 
         if len(items) <= ceiling:
             continue
 
-        # Remove the most-expendable first: no-hit before hit; within that, project
-        # before role; within that, later-listed before earlier (keep the earliest).
+        # Remove the most-expendable first: figure-less before figure-bearing
+        # (#377 / ADR-067 clause 4); within that, project before role; within
+        # that, later-listed before earlier (keep the earliest).
         removal_order = sorted(
-            items, key=lambda it: (it["has_hit"], it["is_role"], -it["order"])
+            items, key=lambda it: (it["carries_figure"], it["is_role"], -it["order"])
         )
         removed = {id(it) for it in removal_order[: len(items) - ceiling]}
 
