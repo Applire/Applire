@@ -702,6 +702,94 @@ class TestRestoreLedgerBulletsProtectsLoadBearingClaims:
         assert result.work_history[0].bullets == other_bullets
 
 
+class TestCapBulletsSubstanceOverKeywordProxy:
+    """#377 (US270, ADR-067 clause 4) — the deterministic cap must rank
+    survival on whether a bullet carries a quantified FIGURE
+    (``load_bearing.bullet_carries_figure``), never on ledger-keyword
+    presence. n=10 real-provider trials: the writer kept the load-bearing
+    figure in every draft, but the cap deleted it because it carried no
+    ledger surface form ("Arbeitssicherheit"/"Sicherheitsbeauftragter") while
+    keyword-bearing filler with no number survived."""
+
+    def test_cap_bullets_keeps_the_figure_bullet_over_keyword_only_filler(self):
+        """Direct unit test of ``_cap_bullets``: a figure-bearing bullet with
+        NO keyword hit must survive over keyword-bearing bullets with no
+        figure, regardless of the old is_hit ranking."""
+        from applire.services.cv import _cap_bullets
+
+        figure_bullet = "Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt."
+        keyword_bullets = [
+            "Verantwortlich für Arbeitssicherheit im gesamten Werk.",
+            "Sicherheitsbeauftragter für den Produktionsbereich.",
+            "Schulungen zur Arbeitssicherheit durchgeführt.",
+            "Mitglied im Arbeitssicherheitsausschuss.",
+        ]
+        bullets = keyword_bullets + [figure_bullet]
+
+        capped = _cap_bullets(bullets, 4)
+
+        assert len(capped) == 4
+        assert figure_bullet in capped, (
+            "the load-bearing figure bullet was cut ahead of keyword-only filler"
+        )
+        # Exactly one no-figure (keyword-only) bullet was cut -- the
+        # later-listed one within that tier.
+        assert keyword_bullets[-1] not in capped
+        for kb in keyword_bullets[:-1]:
+            assert kb in capped
+
+    def test_cap_bullets_is_a_noop_within_budget(self):
+        from applire.services.cv import _cap_bullets
+
+        bullets = ["a", "b", "c"]
+        assert _cap_bullets(bullets, 5) is bullets
+
+    def test_restore_ledger_bullets_survives_figure_bullet_with_no_ledger_surface_form(self):
+        """The acceptance shape end-to-end: a role has more bullets than
+        max_bullets, containing (i) a figure bullet carrying NO ledger
+        surface form, and (ii) keyword-bearing bullets without figures. The
+        ledger concept is already present via the keyword bullets (nothing
+        missing to restore), so this exercises the ceiling-only ``_cap_bullets``
+        path inside ``_restore_ledger_bullets`` -- the figure bullet MUST
+        survive the cap."""
+        from applire.schemas.cv import TailoredCVData
+        from applire.services.cv import _restore_ledger_bullets
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        concept = "Arbeitssicherheit"
+        figure_bullet = "Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt."
+        keyword_bullets = [
+            "Verantwortlich für Arbeitssicherheit im gesamten Werk.",
+            "Sicherheitsbeauftragter für den Produktionsbereich.",
+            "Schulungen zur Arbeitssicherheit durchgeführt.",
+            "Mitglied im Arbeitssicherheitsausschuss.",
+        ]
+        ledger = [_ledger_entry(concept)]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit", "role": "Produktionsleiter",
+                "start_date": "2017-04", "end_date": None, "is_current": True,
+                "responsibilities": keyword_bullets + [figure_bullet],
+                "achievements": [],
+            }],
+            "projects": [],
+        }
+        tailored = _tailored_cv(keyword_bullets + [figure_bullet])
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=4)},
+            tiers={"top": BulletTier("top", 4, 3)}, target_pages=2, region="DACH",
+            claimable_forms=(concept,),
+        )
+
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+
+        final_bullets = result.work_history[0].bullets
+        assert len(final_bullets) == 4
+        assert figure_bullet in final_bullets, (
+            "the load-bearing figure bullet was cut ahead of keyword-only filler"
+        )
+
+
 class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
     """End-to-end: ``_render_cv_background`` must thread the guard so a founder-
     acceptance-shaped draft (4 generic bullets survive, 5 JD-matching vault

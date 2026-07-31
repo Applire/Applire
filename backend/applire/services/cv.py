@@ -44,7 +44,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
@@ -92,6 +92,7 @@ from applire.prompts.review_cv_language import (
 )
 from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
+from applire.services.load_bearing import bullet_carries_figure
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
@@ -725,14 +726,25 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     return tailored.model_copy(update={"work_history": new_work})
 
 
-def _cap_bullets(
-    bullets: list[str], is_hit: Callable[[str], bool], max_bullets: int
-) -> list[str]:
+def _cap_bullets(bullets: list[str], max_bullets: int) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, mirroring
-    ``cv_budget.condense_to_budget``'s cut order: no-hit bullets are removed
-    before hit bullets, and within an equal hit-status the later-listed bullet
-    is removed first (so the earliest, typically strongest, bullets survive).
-    A hit bullet is NEVER removed while a no-hit bullet remains.
+    ``cv_budget.condense_to_budget``'s cut order: bullets carrying NO
+    quantified figure (:func:`applire.services.load_bearing.bullet_carries_figure`,
+    #377 / ADR-067 clause 4) are removed before bullets that DO carry one, and
+    within an equal figure-status the later-listed bullet is removed first (so
+    the earliest, typically strongest, bullets survive). A figure-bearing
+    bullet is NEVER removed while a figure-less bullet remains.
+
+    #377: deterministic code may cap and order, but it may not choose which
+    evidence is STRONGEST by keyword-ledger proxy -- whether a bullet carries
+    a figure is a FACT (ADR-062 clause 1), computed via the shared extractor,
+    not a guess from whether the bullet happens to repeat a ledger surface
+    form. The prior ``is_hit`` (ledger-keyword) ranking is retired: it cut a
+    real, quantified safety-ratio bullet ("Unfallquote (LTIF) von 8,2 auf 3,1
+    gesenkt") ahead of keyword-bearing filler that carried no number at all.
+    The model's own bullet ORDER is preserved as its own relevance judgement
+    within each figure-status tier -- this pass only caps, it never reorders
+    beyond what the tie-break requires.
 
     Unlike the restore-path reordering in ``_restore_ledger_bullets`` (which
     intentionally regroups hits-first), this preserves the SURVIVORS' original
@@ -743,13 +755,14 @@ def _cap_bullets(
     """
     if len(bullets) <= max_bullets:
         return bullets
-    indexed = [(i, b, is_hit(b)) for i, b in enumerate(bullets)]
-    # Ascending (has_hit, -order): no-hit (False) sorts before hit (True); within
-    # a tie, the higher (later) order sorts first -- i.e. later-listed first.
+    indexed = [(i, b, bullet_carries_figure(b)) for i, b in enumerate(bullets)]
+    # Ascending (carries_figure, -order): figure-less (False) sorts before
+    # figure-bearing (True); within a tie, the higher (later) order sorts
+    # first -- i.e. later-listed first.
     removal_order = sorted(indexed, key=lambda t: (t[2], -t[0]))
     cut = len(bullets) - max_bullets
     removed_idx = {t[0] for t in removal_order[:cut]}
-    return [b for i, b, _hit in indexed if i not in removed_idx]
+    return [b for i, b, _figure in indexed if i not in removed_idx]
 
 
 def _restore_ledger_bullets(
@@ -789,9 +802,10 @@ def _restore_ledger_bullets(
     ``RoleBudget.max_bullets`` even when this pass restored nothing into it, since
     upstream (the writer, or the #122 coverage-review loop asking for a reworded
     sentence) has no ceiling awareness of its own and can leave an entry over
-    budget with no restoration ever happening. No-hit bullets are cut before hit
-    bullets, later-listed before earlier — mirrors ``cv_budget.condense_to_budget``'s
-    cut order exactly. Entries already within budget keep their original bullets
+    budget with no restoration ever happening. Figure-less bullets are cut before
+    figure-bearing bullets (#377 / ADR-067 clause 4 — see ``_cap_bullets``),
+    later-listed before earlier — mirrors ``cv_budget.condense_to_budget``'s cut
+    order exactly. Entries already within budget keep their original bullets
     AND order untouched.
     """
     if not keyword_ledger:
@@ -938,11 +952,12 @@ def _restore_ledger_bullets(
         # over its RoleBudget with nothing downstream to trim it back except a
         # page-overrun condense pass that may never fire. Enforce the ceiling
         # deterministically here too, mirroring cv_budget.condense_to_budget's cut
-        # order (no-hit bullets first, later-listed first within a tie -- a hit
-        # bullet is only ever cut once every no-hit bullet is gone). Untouched
+        # order (figure-less bullets first, later-listed first within a tie -- a
+        # figure-bearing bullet is only ever cut once every figure-less bullet is
+        # gone; #377 / ADR-067 clause 4). Untouched
         # (under-ceiling) entries keep their original bullets AND order exactly.
         if rb is not None and len(existing_bullets) > rb.max_bullets:
-            capped = _cap_bullets(existing_bullets, _is_hit, rb.max_bullets)
+            capped = _cap_bullets(existing_bullets, rb.max_bullets)
             if capped != existing_bullets:
                 changed = True
                 w_dict["bullets"] = capped
