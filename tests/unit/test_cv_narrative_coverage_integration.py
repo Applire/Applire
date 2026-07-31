@@ -127,23 +127,17 @@ def _writer_draft():
     """The writer's draft, exactly as the review loop hands it onward:
     Kubernetes dropped from the narrative (bare skills tag only) -- #303;
     "SAP MM" named in the bullet but missing from the skills list -- #376.
+
+    E049/ADR-067: the writer's response is the shared PROSE shape (summary +
+    id-keyed work + skills) -- contact/company/role/dates/education/languages
+    are joined from the vault by assemble_tailored_cv, never emitted here.
     """
     return {
-        "contact": {
-            "name": "Stefan Brandt", "email": "stefan@example.com",
-            "phone": None, "location": None, "linkedin": None,
-        },
         "summary": "Erfahrener Leiter Operations mit Fokus auf ERP und Infrastruktur.",
-        "work_history": [
-            {
-                "id": "w1", "company": "Rheinwerk", "role": "Leiter Operations",
-                "start_date": "2018-01", "end_date": None,
-                "bullets": [_VAULT_BULLET_GENERIC, _SAP_BULLET],
-            }
+        "work": [
+            {"id": "w1", "bullets": [_VAULT_BULLET_GENERIC, _SAP_BULLET]},
         ],
         "skills": ["Kubernetes", "SAP PP"],
-        "education": [],
-        "languages": [],
     }
 
 

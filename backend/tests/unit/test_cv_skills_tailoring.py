@@ -275,11 +275,18 @@ class TestDropUngroundedJdEchoSkills:
         ):
             assert jd_echo not in result.skills, f"{jd_echo!r} should have been dropped"
 
-    def test_vault_tied_entries_survive_with_vault_grounded_naming(self):
-        """Genuine vault skills are never dropped. An exact vault name (Python,
-        AI Observability) is kept verbatim; a writer rewording that near-dupes a
-        vault skill toward JD phrasing ("Team Leadership") is renamed back to the
-        vault's own attested phrasing ("Team Leadership and Mentorship")."""
+    def test_vault_tied_entries_survive_in_the_writer_own_wording(self):
+        """Genuine vault skills are never dropped. E049/ADR-067 RETIRES the former
+        rename-toward-vault-phrasing step (inverts the old
+        test_vault_tied_entries_survive_with_vault_grounded_naming): the label is
+        PROSE, owned by the writer in the output language; the vault tie only
+        decides survival, never spelling. An exact vault name (Python, AI
+        Observability) is kept verbatim as before; a writer rewording that
+        near-dupes a vault skill toward JD phrasing ("Team Leadership" for the
+        vault's "Team Leadership and Mentorship") now survives in the WRITER'S
+        OWN WORDING instead of being rewritten back to the vault's phrasing —
+        renaming resurfaced the vault's mixed-language label onto a
+        single-language page (#386)."""
         from applire.services.cv import _drop_ungrounded_jd_echo_skills
 
         writer_output = _tailored(_run3_writer_output())
@@ -290,8 +297,8 @@ class TestDropUngroundedJdEchoSkills:
 
         assert "Python" in result.skills
         assert "AI Observability" in result.skills
-        assert "Team Leadership and Mentorship" in result.skills
-        assert "Team Leadership" not in result.skills
+        assert "Team Leadership" in result.skills
+        assert "Team Leadership and Mentorship" not in result.skills
 
     def test_claimable_concept_with_genuine_vault_tie_is_kept(self):
         """A ledger-claimable concept present ONLY as a skill tag but WITH a real
