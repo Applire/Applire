@@ -74,6 +74,37 @@ def test_cv_generate_request_rejects_negative_target_pages():
 
 
 # ---------------------------------------------------------------------------
+# #379 — target_pages upper bound (MAX_TARGET_PAGES). The floor (>= 1) was
+# already validated; the ceiling was not — a captured real run with
+# target_pages=999 produced per-role bullet budgets of "max 1002 bullet(s)",
+# making every downstream bullet-budget cap inert.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [11, 999])
+def test_cv_generate_request_rejects_target_pages_above_max(bad):
+    from applire.schemas.cv import CVGenerateRequest
+
+    with pytest.raises(ValidationError):
+        CVGenerateRequest(job_id=uuid.uuid4(), target_pages=bad)
+
+
+@pytest.mark.parametrize("ok", [1, 2, 5, 10])
+def test_cv_generate_request_accepts_target_pages_up_to_max(ok):
+    from applire.schemas.cv import CVGenerateRequest
+
+    req = CVGenerateRequest(job_id=uuid.uuid4(), target_pages=ok)
+    assert req.target_pages == ok
+
+
+def test_cv_generate_request_accepts_none_target_pages():
+    from applire.schemas.cv import CVGenerateRequest
+
+    req = CVGenerateRequest(job_id=uuid.uuid4(), target_pages=None)
+    assert req.target_pages is None
+
+
+# ---------------------------------------------------------------------------
 # Router pass-through: POST /api/cv/generate
 # ---------------------------------------------------------------------------
 
@@ -279,7 +310,32 @@ async def test_mcp_generate_cv_rejects_target_pages_below_one(bad_target):
         patch("applire.mcp.server.get_provider"),
         patch("applire.mcp.server.cv_svc.generate_cv", mock_generate),
     ):
-        with pytest.raises(McpError, match="target_pages must be >= 1"):
+        with pytest.raises(McpError, match="target_pages must be between 1 and"):
+            await generate_cv(job_id=job_id, target_pages=bad_target)
+
+    mock_generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_target", [11, 999])
+async def test_mcp_generate_cv_rejects_target_pages_above_max(bad_target):
+    """#379: the floor was validated (>= 1), the ceiling was not — an unbounded
+    override fed straight into the per-role bullet-budget math and produced inert
+    "max 1002 bullet(s)" ceilings on a captured target_pages=999 run."""
+    from mcp.shared.exceptions import McpError
+
+    from applire.constants import MAX_TARGET_PAGES
+    from applire.mcp.server import generate_cv
+
+    job_id = str(uuid.uuid4())
+    mock_generate = AsyncMock()
+
+    with (
+        patch("applire.mcp.server.get_db"),
+        patch("applire.mcp.server.get_provider"),
+        patch("applire.mcp.server.cv_svc.generate_cv", mock_generate),
+    ):
+        with pytest.raises(McpError, match=f"target_pages must be between 1 and {MAX_TARGET_PAGES}"):
             await generate_cv(job_id=job_id, target_pages=bad_target)
 
     mock_generate.assert_not_awaited()
