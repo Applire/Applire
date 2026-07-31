@@ -88,12 +88,12 @@ class OutcomeCriticReport(BaseModel):
     failure this pass exists to avoid repeating.
 
     reason ∈ {None, "disabled", "missing_letter", "missing_cv",
-    "missing_ledger", "judgement_error"}. ``None`` only when ``ran`` is True
-    and at least the judgement call itself completed (``advisories`` may
-    still be empty — the model found nothing worth surfacing). The pre-
-    2026-07-31 ``no_candidates`` short-circuit is retired deliberately
-    (SF-CRITIC.9: 0 candidates ≠ nothing wrong); old persisted rows may still
-    carry it.
+    "judgement_error"}. ``None`` only when ``ran`` is True and at least the
+    judgement call itself completed (``advisories`` may still be empty — the
+    model found nothing worth surfacing). The pre-2026-07-31
+    ``no_candidates`` and ``missing_ledger`` short-circuits are retired
+    deliberately (SF-CRITIC.9: 0 candidates ≠ nothing wrong; the ledger only
+    feeds anchors now); old persisted rows may still carry either.
 
     ``dropped_citations`` (SF-CRITIC.11): findings the model returned whose
     quoted spans failed literal verification against the documents — dropped,
