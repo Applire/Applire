@@ -174,6 +174,38 @@ def test_keyword_ledger_drives_relevance_when_job_fields_absent():
     assert "React" in result.skills
 
 
+# ── #308 (E049/US271, ADR-066/ADR-067) — shared-parenthetical-abbreviation shape ──
+# Ground truth (captured LLM log): the vault holds 'MES (Manufacturing Execution
+# System)'; for a German CV the writer correctly emitted exactly ONE skill,
+# 'Fertigungsleitsysteme (MES)' -- the German translation, canonical abbreviation
+# preserved. Because skills_near_dupe scored that pair as NOT a near-dupe (token
+# Jaccard 1/5 = 0.2), the #192 guarantee step below re-added the vault's English
+# spelling as though the writer had dropped a required skill, producing a
+# duplicate 'MES' entry under two spellings.
+
+_MES_PROFILE = {
+    "skills": [
+        {"name": "MES (Manufacturing Execution System)", "category": "technical"},
+        {"name": "Python", "category": "technical"},
+    ]
+}
+
+_MES_JOB = {"role_title": "Produktionsleiter", "required_skills": ["MES"]}
+
+
+def test_tailor_skills_to_jd_does_not_re_add_english_spelling_of_translated_mes_skill():
+    """#308: the writer's German 'Fertigungsleitsysteme (MES)' already satisfies the
+    JD's MES requirement -- the guarantee step must recognise it as the SAME skill
+    as the vault's 'MES (Manufacturing Execution System)' and must not duplicate it
+    under the vault's English spelling."""
+    writer_output = _tailored(["Fertigungsleitsysteme (MES)", "Python"])
+
+    result = _tailor_skills_to_jd(writer_output, _MES_PROFILE, _MES_JOB, keyword_ledger=[])
+
+    assert "Fertigungsleitsysteme (MES)" in result.skills
+    assert "MES (Manufacturing Execution System)" not in result.skills
+
+
 # ── #250 (Tiramisu founder-acceptance blind-panel finding, run 3, 2026-07-24) ──
 # Both blind reviewers (HR + hiring manager) independently flagged near-verbatim
 # JD phrases minted as bare skill tags ("Fast-Moving Product-Led Environment

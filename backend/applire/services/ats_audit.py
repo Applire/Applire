@@ -201,6 +201,72 @@ def skill_tokens(name: str) -> frozenset[str]:
     return frozenset(tokens)
 
 
+# #308 (E049/US271, ADR-066/ADR-067) — shared-parenthetical-abbreviation shape.
+# 'X (ABBR)' / 'Y (ABBR)' is a translation/synonym pair sharing its canonical
+# abbreviation, e.g. the vault's 'MES (Manufacturing Execution System)' and a
+# German writer's own 'Fertigungsleitsysteme (MES)'. Extracted from the RAW
+# names (before ``_norm``/``_SKILL_EDGE_PUNCT`` fold case and unwrap parens —
+# by the time a name reaches ``skill_tokens`` the parenthetical is just more
+# bare, lowercased tokens, and the pairing is unrecoverable).
+_PAREN_ABBR_RE = re.compile(r"\(([^()]*)\)")
+_PAREN_ABBR_MIN_LEN = 2
+_PAREN_ABBR_MAX_LEN = 6
+_PAREN_ABBR_MIN_UPPER = 2
+
+
+def _looks_like_abbreviation(segment: str) -> bool:
+    """Shape guard for a candidate abbreviation segment (#308).
+
+    A single token (no internal whitespace), 2–6 characters, with at least 2
+    uppercase letters in its raw form. This is what separates a true abbreviation
+    ('MES', 'GxP', 'CI/CD') from a qualifier ('Advanced': 8 chars, 1 uppercase) or
+    a full expansion ('Manufacturing Execution System': not a single token).
+    """
+    token = segment.strip()
+    if not token or any(ch.isspace() for ch in token):
+        return False
+    if not (_PAREN_ABBR_MIN_LEN <= len(token) <= _PAREN_ABBR_MAX_LEN):
+        return False
+    return sum(1 for ch in token if ch.isupper()) >= _PAREN_ABBR_MIN_UPPER
+
+
+def _paren_abbreviation(name: str) -> str | None:
+    """The abbreviation-shaped segment of a skill name of the form
+    ``ABBR (Expansion)`` or ``Expansion (ABBR)`` (#308), or ``None`` when the
+    name carries no parenthetical, or the shape is absent/ambiguous.
+
+    Looks at BOTH the parenthetical content and the text outside it (the
+    'head') — the abbreviation may sit on either side ('MES (Manufacturing
+    Execution System)' has it in the head; 'Fertigungsleitsysteme (MES)' has
+    it inside the parens). Exactly one of the two must pass the shape guard;
+    if neither does (no abbreviation present) or both do (ambiguous — no way
+    to tell which is canonical), this returns ``None`` rather than guess.
+    """
+    match = _PAREN_ABBR_RE.search(name)
+    if match is None:
+        return None
+    inner = match.group(1)
+    head = name[: match.start()] + name[match.end() :]
+    candidates = [seg for seg in (inner, head) if _looks_like_abbreviation(seg)]
+    if len(candidates) != 1:
+        return None
+    return candidates[0].strip()
+
+
+def _shared_paren_abbreviation(a: str, b: str) -> bool:
+    """True when both raw skill names carry a parenthetical abbreviation and the
+    two abbreviations match case-insensitively (#308). One-sided parentheticals
+    (only one name has any) are deliberately NOT handled here — they stay
+    governed by the existing containment rules (:func:`skills_near_dupe`,
+    :func:`skills_single_token_containment`). Symmetric by construction.
+    """
+    abbr_a = _paren_abbreviation(a)
+    abbr_b = _paren_abbreviation(b)
+    if abbr_a is None or abbr_b is None:
+        return False
+    return abbr_a.lower() == abbr_b.lower()
+
+
 def skills_near_dupe(a: str, b: str) -> bool:
     """Are two skill names safe to AUTO-merge as the same skill? (#172, strict)
 
@@ -209,16 +275,28 @@ def skills_near_dupe(a: str, b: str) -> bool:
     * token-set containment where the *contained* side has ≥ 2 tokens — a modifier
       refinement of a real multi-word skill ('Team Leadership' ⊂ 'Team Leadership
       and Mentorship', 'GxP Compliance' ⊂ 'Regulatory Compliance … (GxP, CSV)'), OR
-    * token overlap (Jaccard) reaches ``_NEAR_DUPE_JACCARD``.
+    * token overlap (Jaccard) reaches ``_NEAR_DUPE_JACCARD``, OR
+    * both names carry a parenthetical abbreviation and the abbreviations match
+      (#308, E049/US271, ADR-066/067) — a translation/synonym pair sharing its
+      canonical abbreviation, e.g. 'MES (Manufacturing Execution System)' and
+      'Fertigungsleitsysteme (MES)' (:func:`_shared_paren_abbreviation`). This is
+      the ONE shared predicate five call sites rely on (cv.py, profile/reconcile/
+      {import_bridge,dedupe,apply}.py, oracle/matchers/grounding.py) — fixed here
+      once, never at a call site (ADR-066: doors are adapters).
 
     **Bare single-token containment is NOT a near-dupe.** One token strictly inside
     a larger set ('React' ⊂ 'React Native', 'Docker' ⊂ 'Docker & Kubernetes') names
     a *distinct* skill, and auto-merging would silently drop it or rename the atom
     into a compound (persisted corruption, UAT 2026-07-15). The reconciler routes
     such pairs to a user confirmation via :func:`skills_single_token_containment`.
+    A ONE-SIDED parenthetical (only one name has any, e.g. 'MES' vs
+    'Fertigungsleitsysteme (MES)') is untouched by the new disjunct and stays
+    governed by this same containment rule.
 
     Token-level, so 'Java' ≠ 'JavaScript'. Symmetric; empty token sets never match.
     """
+    if _shared_paren_abbreviation(a, b):
+        return True
     ta, tb = skill_tokens(a), skill_tokens(b)
     if not ta or not tb:
         return False
