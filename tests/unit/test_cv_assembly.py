@@ -133,6 +133,23 @@ def test_nested_writer_projects_survive_the_join():
     assert t.work_history[0].projects[0].name == "Migration"
 
 
+def test_bilingual_duplicate_language_rows_collapse():
+    # Charter run 11: a vault built from a German CV + an English-labelled
+    # source carried German/Deutsch and English/Englisch as four rows; the
+    # retired education-LLM used to launder this, so assembly dedups now.
+    profile = dict(PROFILE)
+    profile["languages"] = [
+        {"language": "German", "level": "Muttersprache"},
+        {"language": "English", "level": "B2"},
+        {"language": "Deutsch", "level": "Muttersprache"},
+        {"language": "Englisch", "level": "Gut"},
+    ]
+    t = TailoredCVData.model_validate(assemble_tailored_cv(_prose(), profile))
+    assert [(l.language, l.level) for l in t.languages] == [
+        ("German", "Muttersprache"), ("English", "B2")
+    ]
+
+
 def test_junk_tolerance():
     prose = {
         "summary": None,

@@ -212,12 +212,50 @@ def assemble_tailored_cv(prose: dict, profile_json: dict) -> dict:
         # Transcription, copied wholesale (ADR-067 clause 3 — no authored content,
         # no join key needed; the education section LLM call is retired).
         "education": [e for e in (profile_json.get("education") or []) if isinstance(e, dict)],
-        "languages": [l for l in (profile_json.get("languages") or []) if isinstance(l, dict)],
+        "languages": _dedup_languages(
+            [l for l in (profile_json.get("languages") or []) if isinstance(l, dict)]
+        ),
         # Standalone projects from the segmented path's projects writer; the
         # single-call prose shape has none (vault standalone projects are nested
         # by _nest_projects downstream).
         "projects": [p for p in (prose.get("projects") or []) if isinstance(p, dict)],
     }
+
+
+# E049 charter run 11: bilingual vault dirt — a profile built from a German CV
+# plus an English-labelled source carries the SAME language twice ('Deutsch' +
+# 'German'). The retired education-section LLM call used to launder this; the
+# wholesale copy transcribes it, so assembly dedups deterministically. Mapping a
+# language's German name to its English name is a finite lookup — a FACT under
+# ADR-062 clause 1, not a judgement. First-seen row wins (vault order).
+_LANGUAGE_NAME_CANON: dict[str, str] = {
+    "deutsch": "german", "englisch": "english", "französisch": "french",
+    "spanisch": "spanish", "italienisch": "italian", "polnisch": "polish",
+    "türkisch": "turkish", "russisch": "russian", "niederländisch": "dutch",
+    "portugiesisch": "portuguese", "arabisch": "arabic", "chinesisch": "chinese",
+    "japanisch": "japanese", "koreanisch": "korean", "hindi": "hindi",
+    "schwedisch": "swedish", "dänisch": "danish", "norwegisch": "norwegian",
+    "finnisch": "finnish", "tschechisch": "czech", "ungarisch": "hungarian",
+    "rumänisch": "romanian", "griechisch": "greek", "ukrainisch": "ukrainian",
+}
+
+
+def _dedup_languages(languages: list[dict]) -> list[dict]:
+    """Collapse same-language rows that differ only in naming language
+    ('Deutsch'/'German'). Keeps the first-seen row verbatim; never rewrites a
+    name or level. Pure."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for l in languages:
+        name = (l.get("language") or "") if isinstance(l, dict) else ""
+        key = name.strip().casefold()
+        key = _LANGUAGE_NAME_CANON.get(key, key)
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(l)
+    return out
 
 
 def _contact_from_profile(profile: dict) -> dict:
@@ -520,6 +558,8 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 return idx
         return None
 
+    from applire.services.ats_audit import _norm as _ats_norm
+
     standalone: list[dict] = []
     for proj in source_projects:
         name = (proj.get("name") or "").strip()
@@ -540,8 +580,26 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 )
 
         if target_idx is not None:
+            # E049 charter run 11: the writer's response schema now carries nested
+            # projects, so the writer may already have tailored THIS project onto
+            # the entry — appending the vault copy next to it rendered the same
+            # project heading twice with overlapping bullets. Same-name (fact,
+            # normalised equality) ⇒ the reviewed, tailored version already on the
+            # page wins; the verbatim copy is not appended.
+            existing_names = {
+                _ats_norm(p.get("name") or "")
+                for p in work_history[target_idx].get("projects") or []
+            }
+            if _ats_norm(name) in existing_names:
+                continue
             work_history[target_idx].setdefault("projects", []).append(entry)
         else:
+            already = [
+                _ats_norm(p.get("name") or "")
+                for p in list(data.get("projects") or []) + standalone
+            ]
+            if _ats_norm(name) in already:
+                continue
             standalone.append(entry)
 
     _suppress_duplicate_project_bullets(work_history)

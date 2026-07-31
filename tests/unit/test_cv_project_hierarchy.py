@@ -562,3 +562,37 @@ def test_projects_are_nested_after_assembly_and_the_language_pass():
         "(and after assembly) — E049/ADR-067 clause 3: nested vault project "
         "copies are verbatim facts, never routed through any LLM pass"
     )
+
+
+def test_nest_projects_skips_vault_copy_when_writer_already_tailored_it():
+    """E049 charter run 11: the writer's schema now carries nested projects, so
+    _nest_projects appending the vault's verbatim copy next to the writer's
+    tailored version rendered the same project heading twice. Same normalised
+    name (a fact) ⇒ the reviewed tailored version wins; the copy is skipped."""
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _nest_projects
+
+    tailored = TailoredCVData.model_validate({
+        "contact": {"name": "x"},
+        "work_history": [{
+            "id": "w1", "company": "Weberit", "role": "PL", "start_date": "2017",
+            "bullets": ["b"],
+            "projects": [{"name": "Einführung eines MES-Systems",
+                          "bullets": ["Tailored MES bullet with OEE 61 % auf 73 %"]}],
+        }],
+    })
+    profile = {
+        "work_experience": [{"id": "w1", "company": "Weberit", "role": "PL"}],
+        "projects": [{
+            "name": "Einführung eines MES-Systems",
+            "description": "Verbatim vault description",
+            "responsibilities": ["Vault resp"],
+            "achievements": ["Vault achievement"],
+            "associated_experience": "w1",
+        }],
+    }
+    out = _nest_projects(tailored, profile)
+    projects = out.work_history[0].projects
+    assert len(projects) == 1
+    assert projects[0].bullets == ["Tailored MES bullet with OEE 61 % auf 73 %"]
+    assert out.projects == []
