@@ -182,3 +182,25 @@ def test_bullet_carries_figure_true_when_year_and_number_both_present():
     """A year alone does not count, but a real figure sitting alongside one
     does — the exclusion is on the FIGURE KIND, not on the whole bullet."""
     assert bullet_carries_figure("Seit 2019 Team von 12 Mitarbeitenden geführt.") is True
+
+
+def test_bullet_carries_figure_false_for_bare_standard_identifier():
+    """A norm/standard IDENTIFIER is a name, not quantified substance (charter
+    run 10, 2026-07-31): 'ISO-9001-Audits' outranked the ISO-45001 bullet in
+    the cap purely because '9001' parses as a bare number — a process bullet
+    with no achievement figure was protected over real evidence."""
+    assert bullet_carries_figure(
+        "Begleitung der jährlichen ISO-9001-Audits als Bereichsverantwortlicher"
+    ) is False
+    assert bullet_carries_figure(
+        "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet"
+    ) is False
+    assert bullet_carries_figure("Umsetzung der DIN EN 1090 im Stahlbau") is False
+
+
+def test_bullet_carries_figure_true_when_real_figure_sits_beside_standard_id():
+    """Masking the standard identifier must not blind the predicate to a real
+    figure in the same bullet."""
+    assert bullet_carries_figure(
+        "ISO-45001-Vorbereitung begleitet; Unfallquote (LTIF) von 8,2 auf 3,1 gesenkt"
+    ) is True
