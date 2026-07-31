@@ -329,6 +329,65 @@ def skills_single_token_containment(a: str, b: str) -> bool:
     return False
 
 
+# #386 (E049 / ADR-067 clause 6) — German compound page-duplicates. skill_tokens
+# cannot see that 'Schichtbetrieb' is the head of 'Dreischichtbetrieb' or
+# 'Führung' the head of 'Mitarbeiterführung': the compounds are single disjoint
+# tokens, so no token-set rule ever relates them. Character-suffix is the only
+# deterministic signal, and it is safe ONLY at page scope (a rendered skills
+# list), never for vault merging.
+_COMPOUND_SUFFIX_MIN_LEN = 6
+
+
+def _compound_suffix_dupe(ta: frozenset[str], tb: frozenset[str]) -> bool:
+    """One side is a bare single-token tag whose token is a strict suffix (or
+    prefix-extended form) of a token on the other side — the German-compound
+    shape ('Schichtbetrieb' / 'Dreischichtbetrieb'). Requires the shorter token
+    to be ≥ _COMPOUND_SUFFIX_MIN_LEN chars so a generic word ending can never
+    collapse two unrelated names."""
+    if min(len(ta), len(tb)) != 1:
+        return False
+    single, other = (ta, tb) if len(ta) == 1 else (tb, ta)
+    (t,) = single
+    for u in other:
+        if u == t:
+            continue
+        shorter, longer = (t, u) if len(t) <= len(u) else (u, t)
+        if len(shorter) >= _COMPOUND_SUFFIX_MIN_LEN and longer.endswith(shorter):
+            return True
+    return False
+
+
+def skills_page_dupe(a: str, b: str) -> bool:
+    """Would ``a`` and ``b`` read as a DUPLICATE on the rendered skills list? (#386)
+
+    Strictly wider than :func:`skills_near_dupe`, and scoped to a different job:
+    ``skills_near_dupe`` decides what is safe to auto-MERGE in the vault (where
+    'React' and 'React Native' may be two real, distinct skills — #172 persisted-
+    corruption incident); this predicate decides what a human reader sees as the
+    same competence twice on one PAGE, where 'MES' next to
+    'MES (Maschinendaten- und Betriebsdatenerfassung)' has no second meaning
+    (charter run 10, #386: six such clusters shipped). Union of:
+
+    * :func:`skills_near_dupe` (the vault-merge notion — anything mergeable is
+      certainly a page dupe),
+    * bare single-token containment (:func:`skills_single_token_containment` —
+      'MES' ⊂ 'MES (…)', 'Lean' ⊂ 'Lean Management'),
+    * the German-compound suffix shape ('Schichtbetrieb'/'Dreischichtbetrieb',
+      'Führung'/'Mitarbeiterführung' — see :func:`_compound_suffix_dupe`).
+
+    ONE definition, used by every page-side skills pass in services/cv.py
+    (ADR-066: fixed here once, never at a call site). NEVER use this for vault
+    merging or reconciliation — the reconciler's confirmation flow for
+    single-token containment exists precisely because that scope must not
+    auto-merge these pairs.
+    """
+    if skills_near_dupe(a, b):
+        return True
+    if skills_single_token_containment(a, b):
+        return True
+    return _compound_suffix_dupe(skill_tokens(a), skill_tokens(b))
+
+
 def _entry_norms(entry: dict[str, Any]) -> set[str]:
     forms = entry.get("surface_forms") or [entry.get("concept", "")]
     return {_norm(f) for f in forms} | {_norm(entry.get("concept", ""))}

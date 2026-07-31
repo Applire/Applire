@@ -984,22 +984,28 @@ def _prefer_measured_outcomes(
 
 
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
-    """#172: collapse near-duplicate skill tags so the rendered CV stays clean even
+    """#172: collapse duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
     existing profiles carry twins like 'Team Leadership' + 'Team Leadership and
-    Mentorship'). Uses the SAME shared predicate as the reconciler and the audit.
+    Mentorship').
+
+    #386 (E049 clause-6 disposition): the predicate is now the PAGE-scope
+    :func:`ats_audit.skills_page_dupe` — on the rendered list, 'MES' next to
+    'MES (Maschinendaten- und Betriebsdatenerfassung)' is a visible duplicate
+    with no second meaning, even though the vault-merge predicate correctly
+    refuses to auto-merge that pair in the reconciler.
 
     Keeps the first-seen occurrence's POSITION (stable order) but upgrades its name
-    to the more-specific variant when a later near-dupe strictly contains it. Pure;
+    to the more-specific variant when a later dupe strictly contains it. Pure;
     input unmutated. Must run AFTER the ADR-038 language pass, which rewords tags.
     """
-    from applire.services.ats_audit import skill_tokens, skills_near_dupe
+    from applire.services.ats_audit import skill_tokens, skills_page_dupe
 
     original = list(tailored.skills or [])
     kept: list[str] = []
     for s in original:
         dup_idx = next(
-            (i for i, k in enumerate(kept) if skills_near_dupe(k, s)), None
+            (i for i, k in enumerate(kept) if skills_page_dupe(k, s)), None
         )
         if dup_idx is None:
             kept.append(s)
@@ -1070,7 +1076,7 @@ def _tailor_skills_to_jd(
     from applire.services.ats_audit import (
         _NEAR_DUPE_JACCARD,
         skill_tokens,
-        skills_near_dupe,
+        skills_page_dupe,
     )
 
     tailored_skills = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
@@ -1122,17 +1128,20 @@ def _tailor_skills_to_jd(
     # Candidate pool = the writer's tags, PLUS any master-profile skill that maps to a
     # JD-required term but the writer dropped (defect #2). Profile spelling is used verbatim
     # — no fabrication. Order: writer's tags first (they carry the ADR-038 language pass),
-    # re-added required skills appended.
+    # re-added required skills appended. #386: the re-add check is the PAGE-scope
+    # predicate — a vault spelling that would render as a visible duplicate of a
+    # tag already on the page ('Lean Management' next to the writer's 'Lean') is
+    # already covered, not missing (charter run 10 shipped six such clusters).
     pool = list(tailored_skills)
     for p in profile_skills:
-        if _tier(p) == 0 and not any(skills_near_dupe(p, x) for x in pool):
+        if _tier(p) == 0 and not any(skills_page_dupe(p, x) for x in pool):
             pool.append(p)
 
-    # Collapse near-dupes (the newly re-added profile skills may twin a writer tag), keeping
-    # the more-specific name — same shared predicate as _dedup_skills.
+    # Collapse page-dupes (the newly re-added profile skills may twin a writer tag),
+    # keeping the more-specific name — same shared page predicate as _dedup_skills.
     deduped: list[str] = []
     for s in pool:
-        dup = next((i for i, k in enumerate(deduped) if skills_near_dupe(k, s)), None)
+        dup = next((i for i, k in enumerate(deduped) if skills_page_dupe(k, s)), None)
         if dup is None:
             deduped.append(s)
         elif skill_tokens(s) > skill_tokens(deduped[dup]):
@@ -1171,43 +1180,45 @@ def _drop_ungrounded_jd_echo_skills(
 
     Drops a tailored skill entry only when BOTH hold:
 
-    * it near-dupes NO master-profile skill (:func:`ats_audit.skills_near_dupe` --
-      the SAME shared containment/near-dupe instrument #172/#192/#244 already use,
-      so this pass can never disagree with the dedup/tailoring passes about what
-      counts as "the same skill"), AND
-    * it near-dupes a JD-required/nice-to-have/keyword term or a Keyword Ledger
+    * it page-dupes NO attested vault form (:func:`ats_audit.skills_page_dupe`
+      over the profile's skill names AND each WorkEntry's ``technologies`` —
+      #386: 'SAP MM' lives in the vault as a work-entry technology and in
+      testimony, but the old skills[]-only tie was structurally blind to it and
+      dropped a JD-named, vault-backed tag), AND
+    * it page-dupes a JD-required/nice-to-have/keyword term or a Keyword Ledger
       concept/surface form (:func:`_jd_skill_terms`) -- i.e. it reads as an echo of
       the posting's own phrasing, not an independently-attested candidate skill.
 
-    A skill that DOES near-dupe a vault skill is NEVER dropped -- and is reworded to
-    the vault's own phrasing when it currently reads as the JD's rather than the
-    vault's (prefer the attested name over the posting's), so "Team Leadership" (the
-    writer's JD-flavoured trim of the vault's "Team Leadership and Mentorship")
-    surfaces under its real, vault-grounded name rather than vanishing or staying in
-    the JD's words. A concept that ALSO exists as a genuine vault skill (e.g. "AI
-    Observability" with real ``experience_refs``) is correctly kept even though it
-    happens to match the JD's own phrasing verbatim -- the fix is JD-echo-with-no-tie,
-    never "matches the JD" alone.
+    A skill that DOES tie to the vault is NEVER dropped — and is kept in the
+    WRITER'S OWN WORDING. The former rename-toward-vault-phrasing step is
+    retired (E049/ADR-067: the label is PROSE, owned by the writer in the
+    output language; identity is what the tie establishes — renaming resurfaced
+    the vault's mixed-language 'Arbeitssicherheit / Occupational Safety' label
+    onto a German page, #386). A concept that ALSO exists as a genuine vault
+    skill is correctly kept even though it happens to match the JD's own
+    phrasing verbatim -- the fix is JD-echo-with-no-tie, never "matches the JD"
+    alone.
 
-    Runs LAST in the skills pipeline (after #192's ``_tailor_skills_to_jd``), so a
-    dropped tag can never be silently re-added by an earlier pass, and strictly
-    BEFORE the record's ``tailored_data``/ATS audit are persisted -- so
-    ``keyword_ledger.verified_missing_claimable`` (US213/#122's shared presence
-    predicate) sees the true, final document: a concept still genuinely present in a
-    bullet/summary elsewhere stays covered (no false amber), while a concept that was
-    ONLY ever covered by the now-dropped tag honestly reappears as missing-claimable
-    instead of being silently laundered by a bare tag.
+    #386 pass-order disposition: runs BEFORE ``_tailor_skills_to_jd`` — the two
+    passes were designed against each other: the cap ranked bare JD echoes as
+    tier-0 and let them starve vault-confirmed tier-1 skills out of the page
+    (ISO 9001, run 10), only for THIS pass to then delete 10 of the entries the
+    cap had protected. Dropping echoes first lets the cap rank only entries
+    that will actually ship. A dropped tag still cannot be re-added downstream:
+    the #192 guarantee pool is vault skills only, and a dropped tag by
+    definition has no vault tie. ``verified_missing_claimable`` still sees the
+    true final document (this pass runs strictly before persistence).
 
     Pure; ``tailored`` is left unmutated. No-op (returns ``tailored`` unchanged, same
-    object) when nothing is dropped or renamed.
+    object) when nothing is dropped.
     """
-    from applire.services.ats_audit import skills_near_dupe
+    from applire.services.ats_audit import skills_page_dupe
 
     original = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
     if not original:
         return tailored
 
-    profile_skills: list[str] = []
+    vault_forms: list[str] = []
     for s in profile_json.get("skills") or []:
         # ADR-061 clause 3: an unconfirmed skill grants no "vault tie" either —
         # a tag that only matches an unconfirmed entry is not backed.
@@ -1215,33 +1226,28 @@ def _drop_ungrounded_jd_echo_skills(
             continue
         name = s.get("name") if isinstance(s, dict) else s
         if isinstance(name, str) and name.strip():
-            profile_skills.append(name.strip())
+            vault_forms.append(name.strip())
+    # #386: WorkEntry.technologies are attested vault data too — transcribed at
+    # import, carried through reconciliation. A tag they back is not an echo.
+    for w in profile_json.get("work_experience") or []:
+        if not isinstance(w, dict):
+            continue
+        for t in w.get("technologies") or []:
+            if isinstance(t, str) and t.strip():
+                vault_forms.append(t.strip())
 
     required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
     jd_terms = required + nice + keyword
 
-    def _vault_tie(skill: str) -> str | None:
-        """The vault skill's own name this tag near-dupes, if any (first match)."""
-        return next((p for p in profile_skills if skills_near_dupe(skill, p)), None)
+    def _vault_tied(skill: str) -> bool:
+        return any(skills_page_dupe(skill, p) for p in vault_forms)
 
     def _is_jd_echo(skill: str) -> bool:
-        return any(skills_near_dupe(skill, t) for t in jd_terms)
+        return any(skills_page_dupe(skill, t) for t in jd_terms)
 
-    kept: list[str] = []
-    for s in original:
-        tie = _vault_tie(s)
-        if tie is None:
-            if _is_jd_echo(s):
-                continue  # bare JD echo, no deterministic vault tie -- drop
-            kept.append(s)
-            continue
-        # Vault-tied: always survives. Prefer the vault's own attested phrasing over
-        # the JD's when the tag currently reads as a JD echo of it.
-        name = tie if (s != tie and _is_jd_echo(s)) else s
-        if not any(skills_near_dupe(name, k) for k in kept):
-            kept.append(name)
-        # else: collapses into an already-kept near-dupe (dedup safety net --
-        # renaming toward the vault name must never re-introduce a duplicate).
+    kept: list[str] = [
+        s for s in original if _vault_tied(s) or not _is_jd_echo(s)
+    ]
 
     if kept == original:
         return tailored
@@ -1470,19 +1476,21 @@ def _restore_narrative_named_skills(
     the FINAL skills list and the FINAL narrative text, so it never chases a
     spelling a later pass would still change.
     """
-    from applire.services.ats_audit import _norm, skills_near_dupe, surface_present
-    from applire.services.keyword_ledger import _tailored_narrative_texts, claimable_surface_forms
+    from applire.services.ats_audit import _norm, skills_page_dupe, surface_present
+    from applire.services.keyword_ledger import (
+        _tailored_narrative_texts,
+        claimable_surface_form_groups,
+    )
 
     existing = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
 
-    candidates: list[str] = []
+    # #386 (E049 clause-6 disposition): candidates are GROUPS — one group per
+    # competence, at most ONE page entry added per group. The flattened form list
+    # made every sibling surface form of one ledger row an independent candidate,
+    # and 'Dreischichtbetrieb' + 'Schichtbetrieb' + 'Lean' + 'Kaizen' (all sibling
+    # forms of two rows) landed as four separate tags on one delivered page.
+    groups: list[list[str]] = []
     seen_norm: set[str] = set()
-
-    def _add_candidate(name: str) -> None:
-        n = _norm(name)
-        if n and n not in seen_norm:
-            seen_norm.add(n)
-            candidates.append(name)
 
     for entry in (profile_json or {}).get("skills") or []:
         # ADR-061 clause 3: an unconfirmed skill cannot back a CV line.
@@ -1490,29 +1498,36 @@ def _restore_narrative_named_skills(
             continue
         name = entry.get("name") if isinstance(entry, dict) else entry
         if isinstance(name, str) and name.strip():
-            _add_candidate(name.strip())
+            n = _norm(name)
+            if n and n not in seen_norm:
+                seen_norm.add(n)
+                groups.append([name.strip()])
 
-    for form in claimable_surface_forms(keyword_ledger):
-        if isinstance(form, str) and form.strip():
-            _add_candidate(form.strip())
+    for group in claimable_surface_form_groups(keyword_ledger):
+        fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()]
+        if fresh:
+            groups.append(fresh)
 
-    if not candidates:
+    if not groups:
         return tailored
 
     narrative_norm = _norm(" ".join(_tailored_narrative_texts(tailored.model_dump(mode="json"))))
     if not narrative_norm:
         return tailored
 
-    def _already_covered(name: str) -> bool:
-        return any(_norm(name) == _norm(s) or skills_near_dupe(name, s) for s in existing)
+    def _covered(name: str) -> bool:
+        # PAGE-scope coverage (#386): a form whose addition would render as a
+        # visible duplicate of an entry already on the list is covered, not missing.
+        return any(_norm(name) == _norm(s) or skills_page_dupe(name, s) for s in existing)
 
     to_add: list[str] = []
-    for name in candidates:
-        if _already_covered(name):
-            continue
-        if surface_present(name, narrative_norm):
-            to_add.append(name)
-            existing = existing + [name]  # so a later candidate sees this one as covered
+    for group in groups:
+        if any(_covered(f) for f in group):
+            continue  # the competence is already on the page in some form
+        hit = next((f for f in group if surface_present(f, narrative_norm)), None)
+        if hit is not None:
+            to_add.append(hit)
+            existing = existing + [hit]  # later groups see this one as covered
 
     if not to_add:
         return tailored
@@ -2084,6 +2099,18 @@ async def _render_cv_background(
             # carries twins. After the language pass, which rewords the tags.
             tailored = _dedup_skills(tailored)
 
+            # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
+            # tags that are JD/ledger-concept echoes with no deterministic vault tie
+            # (both blind reviewers independently flagged these as keyword-stuffing).
+            # #386 reorder: runs BEFORE #192's cap — the cap used to rank doomed
+            # echoes as tier-0 and starve vault-confirmed skills (ISO 9001) out of
+            # the page, only for this pass to then delete the very entries the cap
+            # protected. A dropped tag cannot be re-added below: the #192 guarantee
+            # pool is vault skills only, and dropped ⇒ no vault tie.
+            tailored = _drop_ungrounded_jd_echo_skills(
+                tailored, profile_json, job_dict, keyword_ledger
+            )
+
             # #192: present a prioritised, JD-relevant SUBSET of the candidate's skills
             # instead of the whole master profile. Deterministic, downstream of the LLM +
             # language pass (so it ranks the final target-language tags): guarantees the
@@ -2091,16 +2118,6 @@ async def _render_cv_background(
             # the cap, and never invents a skill. Uses the SORTED profile_json (still bound
             # here — the photo step below rebinds `profile_json` to the raw profile dict).
             tailored = _tailor_skills_to_jd(
-                tailored, profile_json, job_dict, keyword_ledger
-            )
-
-            # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
-            # tags that are JD/ledger-concept echoes with no deterministic vault tie
-            # (both blind reviewers independently flagged these as keyword-stuffing).
-            # MUST run after #192's cap/guarantee pass, so nothing re-adds a dropped
-            # tag, and BEFORE the spelling-restoration guard below so it acts on the
-            # FINAL selected/capped list, not an intermediate one.
-            tailored = _drop_ungrounded_jd_echo_skills(
                 tailored, profile_json, job_dict, keyword_ledger
             )
 
