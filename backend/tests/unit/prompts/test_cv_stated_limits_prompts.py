@@ -78,14 +78,17 @@ def test_build_user_prompt_without_stated_limits_is_byte_identical_to_baseline()
 
 
 def test_build_summary_prompt_carries_the_stated_limits_block():
-    prompt = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, [], "en", stated_limits_block=_BLOCK)
+    # E049/ADR-067: build_summary_prompt's critical_gaps parameter is gone (#383) —
+    # the call is (directive, job_analysis, profile, output_language, ...), one
+    # positional arg fewer than before.
+    prompt = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, "en", stated_limits_block=_BLOCK)
     assert "STATED LIMITS" in prompt
     assert "embedding models" in prompt
 
 
 def test_build_summary_prompt_without_stated_limits_is_byte_identical_to_baseline():
-    baseline = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, [], "en")
-    with_none = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, [], "en", stated_limits_block=None)
+    baseline = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, "en")
+    with_none = build_summary_prompt(_DIRECTIVE, _JOB, _PROFILE, "en", stated_limits_block=None)
     assert with_none == baseline
     assert "STATED LIMITS" not in baseline
 
