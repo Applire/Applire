@@ -985,6 +985,9 @@
     "detailsButton": "Details",
     "evidenceLabel": "Beleg aus Ihrem Profil:",
     "statedLimit": "Dieser Bericht prüft die Übereinstimmung zwischen Dokument und Ihrem Profil. Er kann das Profil selbst nicht beweisen — Profilangaben sind Selbstauskünfte; die dokumentierte Herkunft aus Interviews mildert das, hebt es aber nicht auf.",
+    "judgementBadge": "KI-beurteilt",
+    "judgementBadgeTooltip": "Dieses Ergebnis stammt aus einer begrenzten Modellbeurteilung (z. B. Übersetzungsäquivalenz), nicht aus einem wörtlichen Profilabgleich.",
+    "judgementUnavailableNotice": "{count, plural, one {# Prüfung konnte nicht abgeschlossen werden — \"nicht prüfbar\" kann hier auch \"nicht geprüft\" bedeuten.} other {# Prüfungen konnten nicht abgeschlossen werden — \"nicht prüfbar\" kann hier auch \"nicht geprüft\" bedeuten.}}",
     "verdicts": {
       "grounded": "Belegt",
       "inflated": "Überhöht",

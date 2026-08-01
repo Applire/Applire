@@ -267,8 +267,22 @@ describe("TruthfulnessPanel — unverifiable_dominated backend field (louder let
     expect(banner.textContent).toContain("unreviewed");
   });
 
-  it("does not render the banner when the field is absent (older reports, back-compat)", () => {
+  // ADR-068 clause 3 (SF-ORACLE.7 converged dominance signal): the backend
+  // field is absent here, so the banner now falls back to the SAME client
+  // heuristic that already drove the compact-card headline (previously a
+  // separate signal that never triggered the banner) — this report has 8/9
+  // unverifiable claims, well past the client floor, so it now DOES fire.
+  it("field absent: falls back to the client heuristic, which fires here (converged signal, ADR-068)", () => {
     render(withIntl(<TruthfulnessPanel report={UNVERIFIABLE_DOMINATED_REPORT} />));
+    expect(
+      screen.getByTestId("truthfulness-unverifiable-dominated-warning"),
+    ).toBeInTheDocument();
+  });
+
+  // Fallback still means NOT dominant when the client heuristic itself says
+  // no (below the floor) — the converged signal isn't "always on absent".
+  it("field absent AND client heuristic says not dominant: no banner", () => {
+    render(withIntl(<TruthfulnessPanel report={ALL_GREEN_REPORT} />));
     expect(
       screen.queryByTestId("truthfulness-unverifiable-dominated-warning"),
     ).not.toBeInTheDocument();
@@ -285,10 +299,154 @@ describe("TruthfulnessPanel — unverifiable_dominated backend field (louder let
     ).not.toBeInTheDocument();
   });
 
+  // Authority check: backend says false even though the client heuristic
+  // (large unverifiable majority, past the floor) would say true — backend
+  // wins.
+  it("backend field false wins over a client heuristic that would say dominant", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel
+          report={{ ...UNVERIFIABLE_DOMINATED_REPORT, unverifiable_dominated: false }}
+        />,
+      ),
+    );
+    expect(
+      screen.queryByTestId("truthfulness-unverifiable-dominated-warning"),
+    ).not.toBeInTheDocument();
+  });
+
   it("DE locale: the warning banner renders German copy", () => {
     render(withIntl(<TruthfulnessPanel report={BACKEND_DOMINATED_REPORT} />, "de"));
     const banner = screen.getByTestId("truthfulness-unverifiable-dominated-warning");
     expect(banner.textContent).toContain("ungeprüft");
+  });
+});
+
+// ADR-068 (SF-ORACLE.6 verdict-provenance ambiguity): claims whose checker is
+// a bounded MODEL JUDGEMENT (translation equivalence, restatement-vs-
+// fabrication), not a literal vault-string match, must render with a
+// distinct provenance chip — never identically to a literal grounding hit.
+const JUDGEMENT_CLAIM_REPORT: TruthfulnessReport = {
+  version: "1.2",
+  document_kind: "cv",
+  claims: [
+    {
+      claim: { text: "Leitete das Team zur ISO-Zertifizierung.", location: "summary[0]", kind: "sentence" },
+      verdict: {
+        verdict: "inflated",
+        checker: "cross_language_judgement",
+        evidence: [],
+        detail: "German phrasing overstates the English vault record.",
+      },
+    },
+    {
+      claim: { text: "Restated the Q3 rollout in different words.", location: "summary[1]", kind: "sentence" },
+      verdict: {
+        verdict: "grounded",
+        checker: "restatement_judgement",
+        evidence: [],
+        detail: null,
+      },
+    },
+    {
+      claim: { text: "Cut deployment time by 40%.", location: "work_history[0].bullets[0]", kind: "bullet" },
+      verdict: { verdict: "grounded", checker: "numbers", evidence: [], detail: null },
+    },
+  ],
+  counts: { grounded: 2, inflated: 1, unverifiable: 0 },
+  stated_limit: "This report verifies document-vault consistency only.",
+};
+
+describe("TruthfulnessPanel — ADR-068 judgement-checker provenance chip (SF-ORACLE.6)", () => {
+  it("a flagged claim with a judgement checker renders the distinct AI-judged badge", () => {
+    render(withIntl(<TruthfulnessPanel report={JUDGEMENT_CLAIM_REPORT} />));
+    const flag = screen.getByTestId("truthfulness-flag-summary[0]");
+    const badge = within(flag).getByTestId("truthfulness-judgement-badge");
+    expect(badge.textContent).toBe("AI-judged");
+    expect(badge.getAttribute("title")).toContain("bounded model judgement");
+  });
+
+  it("a literal-checker flagged claim (e.g. numbers) never gets the judgement badge", () => {
+    render(withIntl(<TruthfulnessPanel report={REPORT_WITH_FLAGS} />));
+    const flag = screen.getByTestId("truthfulness-flag-skills[3]");
+    expect(within(flag).queryByTestId("truthfulness-judgement-badge")).not.toBeInTheDocument();
+  });
+
+  it("a grounded judgement-checker claim gets the badge in the drawer (not just flags)", () => {
+    render(withIntl(<TruthfulnessPanel report={JUDGEMENT_CLAIM_REPORT} />));
+    fireEvent.click(screen.getByTestId("truthfulness-details-button"));
+    const claimRow = screen.getByTestId("truthfulness-drawer-claim-summary[1]");
+    expect(within(claimRow).getByTestId("truthfulness-judgement-badge")).toBeInTheDocument();
+  });
+
+  it("a grounded literal-checker claim in the drawer has no judgement badge", () => {
+    render(withIntl(<TruthfulnessPanel report={JUDGEMENT_CLAIM_REPORT} />));
+    fireEvent.click(screen.getByTestId("truthfulness-details-button"));
+    const claimRow = screen.getByTestId(
+      "truthfulness-drawer-claim-work_history[0].bullets[0]",
+    );
+    expect(within(claimRow).queryByTestId("truthfulness-judgement-badge")).not.toBeInTheDocument();
+  });
+
+  it("DE locale: the badge renders German copy", () => {
+    render(withIntl(<TruthfulnessPanel report={JUDGEMENT_CLAIM_REPORT} />, "de"));
+    const flag = screen.getByTestId("truthfulness-flag-summary[0]");
+    expect(within(flag).getByTestId("truthfulness-judgement-badge").textContent).toBe(
+      "KI-beurteilt",
+    );
+  });
+});
+
+// ADR-068 clause 2 (SF-ORACLE.3 report-side control): `judgement_unavailable`
+// surfaces how many checks never ran at all (provider failure/degradation) —
+// distinct from an "unverifiable" verdict the Oracle actually reached.
+describe("TruthfulnessPanel — ADR-068 judgement_unavailable degradation notice", () => {
+  it("renders a visible notice with the count when judgement_unavailable > 0", () => {
+    render(
+      withIntl(<TruthfulnessPanel report={{ ...ALL_GREEN_REPORT, judgement_unavailable: 3 }} />),
+    );
+    const notice = screen.getByTestId("truthfulness-judgement-unavailable-notice");
+    expect(notice.textContent).toContain("3");
+    expect(notice.textContent).toContain("could not be completed");
+  });
+
+  it("does not render the notice when judgement_unavailable is 0", () => {
+    render(
+      withIntl(<TruthfulnessPanel report={{ ...ALL_GREEN_REPORT, judgement_unavailable: 0 }} />),
+    );
+    expect(
+      screen.queryByTestId("truthfulness-judgement-unavailable-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the notice when the field is absent (older reports, back-compat)", () => {
+    render(withIntl(<TruthfulnessPanel report={ALL_GREEN_REPORT} />));
+    expect(
+      screen.queryByTestId("truthfulness-judgement-unavailable-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("DE locale: the notice renders German copy with the count", () => {
+    render(
+      withIntl(
+        <TruthfulnessPanel report={{ ...ALL_GREEN_REPORT, judgement_unavailable: 1 }} />,
+        "de",
+      ),
+    );
+    const notice = screen.getByTestId("truthfulness-judgement-unavailable-notice");
+    expect(notice.textContent).toContain("1");
+    expect(notice.textContent).toContain("nicht abgeschlossen");
+  });
+});
+
+describe("TruthfulnessPanel — ADR-068 graceful degradation on old reports", () => {
+  it("a report lacking every new field renders exactly as before: no chip, no notice, no crash", () => {
+    render(withIntl(<TruthfulnessPanel report={REPORT_WITH_FLAGS} />));
+    expect(screen.queryByTestId("truthfulness-judgement-badge")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("truthfulness-judgement-unavailable-notice"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("truthfulness-panel")).toBeInTheDocument();
   });
 });
 
