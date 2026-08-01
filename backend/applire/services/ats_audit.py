@@ -56,11 +56,28 @@ def _norm(s: str) -> str:
 
 
 def _find(needle: str, haystack_norm: str) -> int:
-    """First index of normalised needle in pre-normalised haystack; -1 if absent or empty."""
+    """First index of normalised needle in pre-normalised haystack; -1 if absent or empty.
+
+    #399: pypdf's ``extract_text()`` can insert a spurious ASCII space inside a
+    kerned run of adjacent glyphs (observed on repeated-letter pairs like "ff" and
+    "11" — "katrin.hoffmann@..." extracted as "katrin.hof fmann@...", "711" as
+    "71 1") that poppler's ``pdftotext`` does not; the text genuinely reached the
+    PDF's text layer, pypdf just mis-split it. An exact match is tried first
+    (cheap, the common case); on a miss, retry allowing any number of extra spaces
+    at every character boundary of the needle — this is the ONE shared match
+    primitive every check (name/email/phone-adjacent/keyword/body-paragraph) goes
+    through, so the tolerance applies uniformly rather than per template
+    (ADR-066: one logical operation, one implementation).
+    """
     n = _norm(needle)
     if not n:
         return -1
-    return haystack_norm.find(n)
+    idx = haystack_norm.find(n)
+    if idx >= 0:
+        return idx
+    loose = r" *".join(re.escape(ch) for ch in n)
+    m = re.search(loose, haystack_norm)
+    return m.start() if m else -1
 
 
 # US212 minimum sizes for the morphological fold: strip a trailing "s" only when the
