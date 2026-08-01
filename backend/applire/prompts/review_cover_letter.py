@@ -145,12 +145,15 @@ or incomplete; anything you notice outside them is `minor` by definition.
    candidate fact.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
-   ``gap_transfer_argument``, ``availability``, ``closing``. Each entry carries its own
-   grounding and instruction. A required entry the body does not deliver is an issue:
-   name which one, and instruct the writer to add it using ONLY that entry's own
-   grounding. ``closing`` is always required and must be a genuine paragraph — interest
-   plus a call to action, with availability folded in. A bare terminal line ("Notice
-   period can be discussed.") is a failure of this check, not a closing.
+   ``gap_transfer_argument``, ``availability``, ``scope_positioning``, ``closing``. Each
+   entry carries its own grounding and instruction. A required entry the body does not
+   deliver is an issue: name which one, and instruct the writer to add it using ONLY that
+   entry's own grounding. ``closing`` is always required and must be a genuine paragraph —
+   interest plus a call to action, with availability folded in. A bare terminal line
+   ("Notice period can be discussed.") is a failure of this check, not a closing.
+   ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
+   delivering it with the candidate's values is not overclaiming; stating the posting's
+   own figure as the candidate's is.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -215,11 +218,11 @@ def build_review_prompt(source_material: str, letter_json: dict) -> str:
         "Does the letter body contain only claims grounded in the source — no invented "
         "dates, employers, titles, achievements, or metrics? Also check any "
         "'positioning_requested' block in the CANDIDATE SOURCE: is every REQUIRED "
-        "company/domain, gap/transfer-argument, or availability instruction actually "
-        "delivered in the body (check 7) — and, where a DO-NOT-CLAIM term is used there, "
-        "is it used honestly (naming an employer fact or the candidate's own absence of "
-        "it) rather than as a candidate competence claim (check 5(b))? Return your review "
-        "JSON."
+        "company/domain, gap/transfer-argument, availability, or scope-positioning "
+        "instruction actually delivered in the body (check 4) — and, where a "
+        "DO-NOT-CLAIM term is used there, is it used honestly (naming an employer fact "
+        "or the candidate's own absence of it) rather than as a candidate competence "
+        "claim (check 5)? Return your review JSON."
     )
 
 
@@ -235,8 +238,12 @@ Rules:
   ungrounded claims while keeping the letter coherent and well-written.
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
-  honest gap/transfer argument, and availability paragraphs are REQUIRED content — do not
-  strip or dilute them while fixing an unrelated issue. A DO-NOT-CLAIM term used honestly
+  honest gap/transfer argument, availability, and ``scope_positioning`` paragraphs are
+  REQUIRED content — do not strip or dilute them while fixing an unrelated issue. A
+  ``scope_positioning`` statement (ADR-070) quotes the candidate's own attested scale
+  values with their stated unit — it is grounded by that entry's own ``testimony``, never
+  a fabrication; when patching it, keep the candidate's figures verbatim and never
+  substitute the posting's own figure. A DO-NOT-CLAIM term used honestly
   there (naming an employer-domain fact from ``job_description``, or naming the candidate's
   OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
   reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate

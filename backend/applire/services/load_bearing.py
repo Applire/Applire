@@ -147,6 +147,17 @@ def is_load_bearing(entry: dict[str, Any]) -> bool:
     """
     if not entry.get("claimable") or entry.get("status") != "direct":
         return False
+    # ADR-070 clause 5: scope entries out by predicate — a `direct` budget
+    # scope entry's composed evidence embeds the JD's own currency figure
+    # (bar.quote is quoted into it), and letting that figure join the
+    # load-bearing universe would retain the POSTING's number as if it were
+    # the candidate's. Lazy import: keyword_ledger imports this module
+    # (re-export), so a top-level import would cycle; the predicate's single
+    # definition stays keyword_ledger.is_scope_entry.
+    from applire.services.keyword_ledger import is_scope_entry
+
+    if is_scope_entry(entry):
+        return False
     evidence = entry.get("evidence") or ""
     if not isinstance(evidence, str):
         return False

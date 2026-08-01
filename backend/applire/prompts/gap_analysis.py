@@ -117,8 +117,18 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     quantity also supports at most "partial" (see above).
   - "gap" is reserved for NO candidate values at all, or values that carry no signal about
     the bar either way.
+  - ATTESTED PROSE (ADR-070): when a work entry's own responsibilities/achievements prose in
+    the CANDIDATE PROFILE states a quantified fact bearing on this bar (e.g. deputy coverage
+    of a larger span, an interim leadership stint, a concrete project budget), you MUST
+    report it in "attested_evidence": quote the sentence VERBATIM from that entry's prose,
+    name the entry, and state in "unit" the quantity the quote itself measures (e.g.
+    "site headcount covered as deputy", "direct reports", "project budget"). A verified
+    attestation supports "partial" even when no typed value exists — never "direct".
   - NEVER classify a scope requirement from the presence of related words anywhere in the
-    profile — only from the typed candidate values handed to you in its own entry.
+    profile — only from the typed candidate values handed to you in its own entry, plus a
+    verbatim "attested_evidence" quote per the rule above (reporting a quote is not
+    presence-matching: the quote must itself STATE a quantity, and code verifies it
+    resolves in the cited entry's own prose).
 
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations.
 
@@ -138,7 +148,8 @@ Schema:
       "concept": "exact concept string from SCOPE REQUIREMENTS — omit the whole array when that section is absent",
       "status": "direct|partial|gap",
       "reason": "which quantities you compared and why the status follows",
-      "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise."
+      "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise.",
+      "attested_evidence": {"entry": "Role @ Company of the work entry whose prose states the fact", "quote": "that entry's own responsibility/achievement sentence, VERBATIM, stating a quantity bearing on the bar", "unit": "the quantity the quote itself measures, in a few words"}
     }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],

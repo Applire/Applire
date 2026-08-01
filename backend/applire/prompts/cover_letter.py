@@ -199,6 +199,7 @@ def build_cover_letter_prompt(
     stated_limits_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
+    scope_positioning_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -393,6 +394,14 @@ def build_cover_letter_prompt(
     # though the argument sat in the vault as interview testimony (a Signature Story,
     # ADR-055). gap_testimony is found deterministically (no LLM) by
     # applire.services.cover_letter_positioning.find_gap_testimony; absent → say nothing.
+    # ADR-070 clause 2: the candidate's own scale evidence for a partial scope
+    # requirement (services.scope_requirements.render_scope_positioning_block) —
+    # candidate side only, never the posting's figure; REQUIRED content, mirrored
+    # into positioning_requested["scope_positioning"] by the caller so the
+    # reviewer requires and the corrector preserves it. Absent → adds nothing.
+    if scope_positioning_block:
+        lines += ["", scope_positioning_block]
+
     if gap_testimony:
         story = gap_testimony.get("story") or {}
         testimony_parts = [

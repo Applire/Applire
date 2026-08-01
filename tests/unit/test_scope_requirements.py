@@ -315,3 +315,347 @@ class TestCoverageExemptions:
         assert changed is False
         assert new_ledger[0]["status"] == "gap"
         assert new_ledger[0]["evidence"] != "Ich habe 90 Leute geführt."
+
+
+# ── ADR-070 — the attested partial is deliverable ────────────────────────────
+
+_DEPUTY_QUOTE = (
+    "Urlaubs- und Krankheitsvertretung des Betriebsleiters: Führung des "
+    "Gesamtstandorts mit rund 90 Mitarbeitenden, jeweils 2 bis 4 Wochen am Stück"
+)
+
+_MARCUS_PROFILE_WITH_TESTIMONY = {
+    "work_experience": [
+        {
+            "role": "Produktionsleiter",
+            "company": "Weberit Kunststofftechnik GmbH",
+            "team_size": 38,
+            "budget_managed": "6 Mio. €",
+            "responsibilities": [
+                "Führung von 38 Mitarbeitenden im Dreischichtbetrieb",
+                _DEPUTY_QUOTE,
+            ],
+        },
+        {
+            "role": "Schichtleiter",
+            "company": "Rasselstein Umformtechnik GmbH",
+            "team_size": 14,
+        },
+    ]
+}
+
+_ATTESTED = {
+    "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+    "quote": _DEPUTY_QUOTE,
+    "unit": "Gesamtstandort-Mitarbeiterzahl in Vertretung",
+}
+
+
+def _attested_entries(cls_overrides=None, profile=None, req=_MARCUS_REQ):
+    profile = profile if profile is not None else _MARCUS_PROFILE_WITH_TESTIMONY
+    cls = {
+        "concept": scope_concept_label(req, "de"),
+        "status": "partial",
+        "reason": "38/14 direct reports vs 120 span; deputy site lead ~90",
+        "attested_evidence": dict(_ATTESTED),
+    }
+    if cls_overrides:
+        cls.update(cls_overrides)
+    return build_scope_ledger_entries(
+        build_scope_prompt_block([req], profile, "de"),
+        [cls],
+        profile_json=profile,
+    )
+
+
+class TestAttestedEvidence:
+    """ADR-070 clause 1 — the model cites vault prose with a stated unit;
+    code verifies the quote resolves and carries a figure, fail-closed."""
+
+    def test_verified_attestation_stored_on_bar(self):
+        e = _attested_entries()[0]
+        assert e["status"] == "partial"
+        att = e["bar"]["attested"]
+        assert att["quote"] == _DEPUTY_QUOTE
+        assert att["unit"] == "Gesamtstandort-Mitarbeiterzahl in Vertretung"
+        assert att["entry"] == "Produktionsleiter @ Weberit Kunststofftechnik GmbH"
+        # The attested fact joins the composed evidence string (SF-GAP.4).
+        assert "rund 90 Mitarbeitenden" in e["evidence"]
+
+    def test_quote_with_typographic_punctuation_still_resolves(self):
+        # The model may fold whitespace / typographic dashes; NFKC + fold must
+        # still resolve the quote (the U+2019 lesson, 2026-07-11).
+        mangled = _DEPUTY_QUOTE.replace(" 2 bis 4 ", "  2 bis 4 ").replace("-", "‐")
+        e = _attested_entries({"attested_evidence": dict(_ATTESTED, quote=mangled)})[0]
+        assert e["bar"]["attested"] is not None
+
+    def test_unresolvable_quote_is_dropped(self):
+        e = _attested_entries(
+            {"attested_evidence": dict(_ATTESTED, quote="Führung von 200 Personen weltweit")}
+        )[0]
+        assert e["bar"].get("attested") is None
+        assert e["status"] == "partial"  # typed values still carry the partial
+
+    def test_quote_without_a_figure_is_dropped(self):
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Produktionsleiter",
+                    "company": "Weberit Kunststofftechnik GmbH",
+                    "team_size": 38,
+                    "responsibilities": ["Vertretung des Betriebsleiters bei Abwesenheit"],
+                }
+            ]
+        }
+        e = _attested_entries(
+            {
+                "attested_evidence": {
+                    "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+                    "quote": "Vertretung des Betriebsleiters bei Abwesenheit",
+                    "unit": "deputy duty",
+                }
+            },
+            profile=profile,
+        )[0]
+        assert e["bar"].get("attested") is None
+
+    def test_missing_unit_is_dropped(self):
+        e = _attested_entries({"attested_evidence": dict(_ATTESTED, unit="")})[0]
+        assert e["bar"].get("attested") is None
+
+    def test_entry_label_is_resolved_by_code_not_the_model(self):
+        # Model cites the wrong entry label but the quote resolves in a real
+        # entry's prose — code stores the RESOLVED label (ADR-061 discipline).
+        e = _attested_entries(
+            {"attested_evidence": dict(_ATTESTED, entry="Someone @ Somewhere")}
+        )[0]
+        att = e["bar"]["attested"]
+        assert att is not None
+        assert att["entry"] == "Produktionsleiter @ Weberit Kunststofftechnik GmbH"
+
+    def test_partial_floor_lifted_by_verified_attestation(self):
+        # No typed values at all — prose testimony alone now supports partial.
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Produktionsleiter",
+                    "company": "Weberit Kunststofftechnik GmbH",
+                    "responsibilities": [_DEPUTY_QUOTE],
+                }
+            ]
+        }
+        e = _attested_entries(profile=profile)[0]
+        assert e["status"] == "partial"
+        assert e["claimable"] is True
+        assert e["bar"]["attested"] is not None
+
+    def test_partial_without_values_or_attestation_still_floors_to_gap(self):
+        profile = {"work_experience": []}
+        e = _attested_entries({"attested_evidence": None}, profile=profile)[0]
+        assert e["status"] == "gap"
+
+    def test_direct_without_typed_citation_stays_impossible_with_attestation(self):
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Produktionsleiter",
+                    "company": "Weberit Kunststofftechnik GmbH",
+                    "responsibilities": [_DEPUTY_QUOTE],
+                }
+            ]
+        }
+        e = _attested_entries({"status": "direct"}, profile=profile)[0]
+        # direct requires a same-quantity TYPED value; attested lifts to partial only.
+        assert e["status"] == "partial"
+
+    def test_legacy_call_without_profile_still_works(self):
+        # build_scope_ledger_entries stays callable without profile_json —
+        # attestation silently unavailable, everything else unchanged.
+        entries = build_scope_ledger_entries(
+            build_scope_prompt_block([_MARCUS_REQ], _MARCUS_PROFILE, "de"),
+            [
+                {
+                    "concept": "Führungsspanne ~120 MA",
+                    "status": "partial",
+                    "reason": "r",
+                    "attested_evidence": dict(_ATTESTED),
+                }
+            ],
+        )
+        assert entries[0]["status"] == "partial"
+        assert entries[0]["bar"].get("attested") is None
+
+
+class TestScopePositioningBlock:
+    """ADR-070 clause 2 — candidate side only; the block can never emit the
+    JD's own figure (no concept, no bar.value, no bar.quote)."""
+
+    def _partial_with_attested(self):
+        return _attested_entries()[0]
+
+    def test_partial_with_attested_renders_candidate_side_only(self):
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        block = render_scope_positioning_block([self._partial_with_attested()], "de")
+        assert "POSITIONING: SCOPE" in block
+        assert _DEPUTY_QUOTE in block
+        assert "Gesamtstandort-Mitarbeiterzahl in Vertretung" in block  # the unit
+        assert "38" in block  # typed value with semantics
+        assert "direct reports" in block
+        assert "Führungsspanne" in block  # kind label, number-free
+        # The JD's own figure appears NOWHERE in the block, in any form:
+        assert "120" not in block
+        assert "ca. 120" not in block
+        assert "Führungsspanne ~120 MA" not in block
+        assert _MARCUS_REQ["quote"] not in block
+
+    def test_direct_and_bare_gap_render_nothing(self):
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        direct = _attested_entries({"status": "direct", "cited_entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH"})[0]
+        assert render_scope_positioning_block([direct], "de") == ""
+        gap = _scope_entry("gap")
+        gap["status"] = "gap"
+        gap["claimable"] = False
+        gap["bar"]["candidate_values"] = []
+        assert render_scope_positioning_block([gap], "de") == ""
+
+    def test_partial_with_typed_values_but_no_attestation_still_renders(self):
+        e = _scope_entry("partial")
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        block = render_scope_positioning_block([e], "de")
+        assert "38" in block
+        assert "120" not in block
+
+    def test_empty_ledger_renders_empty(self):
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        assert render_scope_positioning_block(None, "de") == ""
+        assert render_scope_positioning_block([], "de") == ""
+        # Non-scope entries contribute nothing.
+        assert (
+            render_scope_positioning_block(
+                [{"concept": "MES", "claimable": True, "status": "partial"}], "de"
+            )
+            == ""
+        )
+
+
+class TestClause5SeamPredicates:
+    """ADR-070 clause 5 — the four consumers the recon found unpredicated."""
+
+    def test_unaddressed_hard_requirements_skips_scope_entries(self):
+        from applire.services.cross_document import find_unaddressed_hard_requirements
+
+        gap = _scope_entry("gap")
+        gap["status"] = "gap"
+        gap["claimable"] = False
+        result = find_unaddressed_hard_requirements([gap], None)
+        assert result == []
+
+    def test_letter_evidence_never_anchors_a_scope_entry(self):
+        from applire.services.letter_evidence import _claimable_entries
+
+        assert _claimable_entries([_scope_entry("partial")]) == []
+
+    def test_cv_budget_relevance_ignores_scope_entries(self):
+        from datetime import date
+
+        from applire.services.cv_budget import compute_bullet_budgets
+
+        # A work entry whose text literally contains the scope label must not
+        # gain relevance from the scope entry's concept fallback.
+        entries = [
+            {
+                "id": "a",
+                "start_date": "2020-01",
+                "end_date": None,
+                "is_current": True,
+                "responsibilities": ["Führungsspanne ~120 MA im Bericht erwähnt"],
+            }
+        ]
+        with_scope = compute_bullet_budgets(
+            entries, [_scope_entry("partial")], 2, today=date(2026, 8, 1)
+        )
+        without = compute_bullet_budgets(entries, None, 2, today=date(2026, 8, 1))
+        assert {k: r.max_bullets for k, r in with_scope.roles.items()} == {
+            k: r.max_bullets for k, r in without.roles.items()
+        }
+        # And the label never rides along as relevance "hit data" either.
+        assert all("Führungsspanne" not in f for f in with_scope.claimable_forms)
+
+    def test_load_bearing_universe_skips_scope_entries(self):
+        from applire.services.load_bearing import (
+            is_load_bearing,
+            load_bearing_universe_from_ledger,
+        )
+
+        budget_req = {
+            "kind": "budget",
+            "value": 2500000.0,
+            "value_max": None,
+            "comparator": "exact",
+            "quote": "Budgetverantwortung von 2,5 Mio. €",
+            "level": "required",
+        }
+        e = build_scope_ledger_entries(
+            build_scope_prompt_block([budget_req], _MARCUS_PROFILE, "de"),
+            [
+                {
+                    "concept": scope_concept_label(budget_req, "de"),
+                    "status": "direct",
+                    "reason": "6 Mio. € managed",
+                    "cited_entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+                }
+            ],
+        )[0]
+        assert e["status"] == "direct"  # typed budget value + resolving citation
+        assert is_load_bearing(e) is False
+        assert load_bearing_universe_from_ledger([e]) == frozenset()
+
+
+class TestWriterPromptWiring:
+    """ADR-070 clauses 2–3 — the block reaches both writers; the letter
+    reviewer/corrector know the new positioning key."""
+
+    def test_cv_prompt_carries_scope_positioning_block(self):
+        from applire.prompts.cv_tailoring import build_user_prompt
+
+        prompt = build_user_prompt(
+            {"role_title": "Betriebsleiter"},
+            {"work_experience": []},
+            [],
+            scope_positioning_block="=== POSITIONING: SCOPE (ADR-070) ===\nTESTMARKER",
+        )
+        assert "TESTMARKER" in prompt
+        # Omitted → adds nothing (legacy callers unchanged).
+        assert "POSITIONING: SCOPE" not in build_user_prompt(
+            {"role_title": "x"}, {"work_experience": []}, []
+        )
+
+    def test_cover_letter_prompt_carries_scope_positioning_block(self):
+        from applire.prompts.cover_letter import build_cover_letter_prompt
+
+        prompt = build_cover_letter_prompt(
+            cv_data={},
+            jd_text="JD text",
+            pre_gen_inputs={},
+            detected_language="de",
+            scope_positioning_block="=== POSITIONING: SCOPE (ADR-070) ===\nTESTMARKER",
+        )
+        assert "TESTMARKER" in prompt
+
+    def test_gap_analysis_prompt_declares_attested_evidence(self):
+        from applire.prompts.gap_analysis import SYSTEM_PROMPT
+
+        assert "attested_evidence" in SYSTEM_PROMPT
+        assert '"unit"' in SYSTEM_PROMPT
+        # The anti-presence rule survives (status still never moves on presence).
+        assert "NEVER classify a scope requirement from the presence" in SYSTEM_PROMPT
+
+    def test_letter_reviewer_and_corrector_know_scope_positioning(self):
+        from applire.prompts import review_cover_letter as rcl
+
+        assert "scope_positioning" in rcl.REVIEW_SYSTEM_PROMPT
+        assert "scope_positioning" in rcl.COVER_LETTER_REFINEMENT_PROMPT

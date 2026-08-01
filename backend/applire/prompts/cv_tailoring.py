@@ -100,6 +100,7 @@ def build_user_prompt(
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
+    scope_positioning_block: str | None = None,
 ) -> str:
     """Build the single-call CV tailoring user prompt.
 
@@ -128,6 +129,11 @@ def build_user_prompt(
     # never an unqualified claim; render the scoped form naming both halves. Empty →
     # adds nothing (back-compat).
     stated_limits_section = f"{stated_limits_block}\n\n" if stated_limits_block else ""
+    # ADR-070 clause 2: the candidate's own scale evidence for a partial scope
+    # requirement (services.scope_requirements.render_scope_positioning_block) —
+    # candidate side only, never the posting's figure. Omitted/empty → adds
+    # nothing (legacy callers unchanged).
+    scope_section = f"{scope_positioning_block}\n\n" if scope_positioning_block else ""
     # E042/US237, ADR-051 §3: per-role bullet-count ceilings computed deterministically
     # BEFORE generation. Under ADR-067 clause 3 this block is also the id channel: the
     # writer keys its work entries to the [id] each budget line carries.
@@ -143,6 +149,7 @@ def build_user_prompt(
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
         f"{stated_limits_section}"
+        f"{scope_section}"
         f"{budget_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"

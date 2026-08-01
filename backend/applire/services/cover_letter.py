@@ -771,6 +771,16 @@ async def _render_cover_letter_background(
                 unaddressed_requirements, denied_concepts
             )
 
+            # ADR-070 clause 2: the candidate's own scale evidence for partial scope
+            # entries (bar.attested + typed values) — the ONLY channel scope material
+            # takes into the letter (scope entries are excluded from the ledger block
+            # AND from the unaddressed-hard-requirements block by is_scope_entry).
+            from applire.services.scope_requirements import render_scope_positioning_block
+
+            scope_positioning_block = render_scope_positioning_block(
+                keyword_ledger, detected_language
+            ) or None
+
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
             # received all three POSITIONING blocks (and engaged the domain) but the
             # ADR-021 reviewer/corrector loop never did — so it could not tell a legitimate,
@@ -782,7 +792,7 @@ async def _render_cover_letter_background(
             positioning_requested: dict = {}
             # #272 Task 2: UNCONDITIONAL — unlike the other positioning entries, every
             # letter needs a genuine closing paragraph, so this is never gated on a
-            # deterministic condition. Plugs into the SAME machinery: reviewer check 7
+            # deterministic condition. Plugs into the SAME machinery: reviewer check 4
             # already flags missing required positioning content, and the corrector
             # prompt already has a PRESERVE REQUIRED POSITIONING CONTENT rule.
             positioning_requested["closing"] = {
@@ -858,6 +868,22 @@ async def _render_cover_letter_background(
                         "this testimony, grounded verbatim. Its absence is a review issue."
                     ),
                 }
+            if scope_positioning_block:
+                # ADR-070 clause 3: the reviewer requires it (check 4), the corrector
+                # preserves it, and the "testimony" field grounds its figures for
+                # check 1 (a positioning testimony is a valid FIGURES source there).
+                positioning_requested["scope_positioning"] = {
+                    "testimony": scope_positioning_block,
+                    "required": True,
+                    "instruction": (
+                        "REQUIRED content: state the candidate's real, attested scope "
+                        "honestly — grounded ONLY in the typed values and attested "
+                        "quote in 'testimony' above, as exactly what their stated "
+                        "unit/semantics say. NEVER state or imply the posting's own "
+                        "figure as something the candidate has done, led, or held. "
+                        "Its absence from the letter body is a review issue."
+                    ),
+                }
 
             # Call LLM
             # #177 / ADR-051 §6 amended: feedforward body-word budget from the region
@@ -906,6 +932,7 @@ async def _render_cover_letter_background(
                 stated_limits_block=stated_limits_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
+                scope_positioning_block=scope_positioning_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).

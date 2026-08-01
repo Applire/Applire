@@ -263,9 +263,19 @@ def find_unaddressed_hard_requirements(
     paragraphs = _get(body, "paragraphs", None)
     text_norm = ats_norm(" ".join(p for p in (paragraphs or []) if isinstance(p, str)))
 
+    from applire.services.keyword_ledger import is_scope_entry
+
     unaddressed: list[dict[str, Any]] = []
     for entry in keyword_ledger or []:
         if not isinstance(entry, dict):
+            continue
+        # ADR-070 clause 5: a scope entry's concept label embeds the JD's own
+        # number — rendering it here would put that figure into the letter
+        # prompt (a scope `gap` is claimable:false + required, so it WOULD
+        # qualify below). Scope positioning is owned solely by
+        # render_scope_positioning_block; a persistent scope gap is positioned
+        # nowhere, deliberately (ADR-070's explicit limitation).
+        if is_scope_entry(entry):
             continue
         if entry.get("claimable") and not entry.get("adjacent_evidence"):
             continue

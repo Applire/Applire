@@ -480,8 +480,10 @@ async def _run_analysis(
     # cluster → targeted probe). Floor + citation check applied inside; the
     # entry's evidence string is composed from the recorded facts, never from
     # the model's reason alone (SF-GAP.4).
+    # ADR-070 clause 1: profile prose is passed so a model-cited attestation can
+    # be verified fail-closed and stored on bar.attested.
     keyword_ledger = keyword_ledger + build_scope_ledger_entries(
-        scope_block, data.get("scope_classifications")
+        scope_block, data.get("scope_classifications"), profile_json=profile.profile_json
     )
 
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's
