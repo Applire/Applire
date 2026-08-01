@@ -66,17 +66,29 @@ def _fmt_number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 
+def _fmt_amount(value: float, lang: str) -> str:
+    """Human-scale money formatting for the budget concept label."""
+    if value >= 1_000_000:
+        scaled = _fmt_number(value / 1_000_000)
+        return f"{scaled} Mio." if lang == "de" else f"{scaled}M"
+    if value >= 1_000:
+        return f"{_fmt_number(value / 1_000)}k"
+    return _fmt_number(value)
+
+
 def scope_concept_label(req: dict[str, Any], jd_language: str | None) -> str:
     """Deterministic ledger concept for a scope requirement (a fact: assembled
     from the bar's own stored values, no prose read)."""
     lang = "de" if (jd_language or "").startswith("de") else "en"
-    label = _KIND_LABELS.get(req.get("kind", ""), {}).get(lang, req.get("kind", ""))
-    value = _fmt_number(req.get("value", 0))
+    kind = req.get("kind", "")
+    label = _KIND_LABELS.get(kind, {}).get(lang, kind)
+    fmt = (lambda v: _fmt_amount(v, lang)) if kind == "budget" else _fmt_number
+    value = fmt(req.get("value", 0))
     if req.get("comparator") == "range" and req.get("value_max") is not None:
-        number = f"{value}–{_fmt_number(req['value_max'])}"
+        number = f"{value}–{fmt(req['value_max'])}"
     else:
         number = f"{_COMPARATOR_SYMBOLS.get(req.get('comparator', ''), '')}{value}"
-    unit = " MA" if req.get("kind") == "team_size" and lang == "de" else ""
+    unit = " MA" if kind == "team_size" and lang == "de" else ""
     return f"{label} {number}{unit}"
 
 

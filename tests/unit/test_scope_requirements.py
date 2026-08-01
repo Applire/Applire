@@ -24,10 +24,14 @@ label, "Führungsspanne ~120 MA".
 """
 
 from applire.services.job import _coerce_scope_requirements
+from applire.services.cv_gap_hints import build_gap_hints
 from applire.services.keyword_ledger import (
     claimable_surface_forms,
     is_scope_entry,
     reevaluate_gap_ledger_against_vault,
+    render_ledger_prompt_block,
+    render_ledger_reviewer_block,
+    split_ledger_for_prompt,
     upgrade_ledger_for_concepts,
     verified_missing_claimable,
 )
@@ -100,6 +104,13 @@ class TestCoerceScopeRequirements:
 class TestFactLayer:
     def test_concept_label_matches_the_designed_case_row(self):
         assert scope_concept_label(_MARCUS_REQ, "de") == "Führungsspanne ~120 MA"
+
+    def test_budget_labels_render_human_scale(self):
+        req = {"kind": "budget", "value": 2500000.0, "comparator": "exact"}
+        assert scope_concept_label(req, "en") == "Budget responsibility 2.5M"
+        assert scope_concept_label(req, "de") == "Budgetverantwortung 2.5 Mio."
+        rng = {"kind": "budget", "value": 500000.0, "value_max": 1000000.0, "comparator": "range"}
+        assert scope_concept_label(rng, "en") == "Budget responsibility 500k–1M"
 
     def test_candidate_values_carry_entry_and_semantics(self):
         values = collect_candidate_values(_MARCUS_PROFILE, "team_size")
@@ -257,6 +268,42 @@ class TestCoverageExemptions:
         new_ledger, changed = reevaluate_gap_ledger_against_vault([entry], profile)
         assert changed is False
         assert new_ledger[0]["status"] == "gap"
+
+    def test_scope_entry_reaches_neither_writer_prompt_list(self):
+        """2026-08-01 adversarial pass finding #1 (BLOCKER): split_ledger_for_prompt
+        fed every claimable entry to render_ledger_prompt_block, whose
+        ``or [concept]`` fallback told the CV/letter writers to SURFACE the
+        JD's own figure ("Führungsspanne ~120 MA") as the candidate's fact."""
+        ledger = [
+            {
+                "concept": "MES",
+                "surface_forms": ["MES"],
+                "status": "direct",
+                "claimable": True,
+                "fit_weight": 1.0,
+                "evidence": "MES rollout",
+            },
+            _scope_entry("partial"),
+        ]
+        claimable, forbidden = split_ledger_for_prompt(ledger)
+        assert [e["concept"] for e in claimable] == ["MES"]
+        assert all("Führungsspanne" not in c for c in forbidden)
+        # And through both render blocks (writers AND reviewers):
+        assert "Führungsspanne" not in render_ledger_prompt_block(ledger)
+        assert "Führungsspanne" not in render_ledger_reviewer_block(ledger)
+
+    def test_scope_entry_never_becomes_an_editor_gap_hint(self):
+        """Finding #2: the section editor rendered the synthesised bar label as
+        a 'claimable' chip inviting the candidate to type it into the CV."""
+        by_section, general = build_gap_hints(
+            ledger=[_scope_entry("partial")],
+            category_b=[],
+            category_c=[],
+            section_contents={"summary": "Ein Absatz."},
+        )
+        labels = [h.label for hs in by_section.values() for h in hs]
+        labels += [h.label for h in general]
+        assert all("Führungsspanne" not in label for label in labels)
 
     def test_upgrade_for_concepts_skips_scope_entries(self):
         entry = _scope_entry("gap")

@@ -101,6 +101,11 @@ def apply_jd_level_guard(
     removal for fabrication is the reviewer's legitimate call). The settled
     draft's placements are then forced back to the authorised level wherever
     they differ, and the transport field ``level_changes`` is stripped.
+
+    Deliberately out of scope: the ``keywords`` list is not a level — a
+    concept moved out of both level lists into ``keywords`` reads as a
+    removal here (the keyword bag carries no required/optional semantics;
+    its ATS-coverage role is the ledger's concern, not this guard's).
     """
     if not draft_history:
         return settled
@@ -116,6 +121,16 @@ def apply_jd_level_guard(
             elif level != prior and declared.get(key) == level:
                 authorised[key] = level
             # else: undeclared move — authorised level stands.
+        # A concept absent from this round was REMOVED (the reviewer's
+        # legitimate call — e.g. a fabrication removal). Its authority dies
+        # with it: a later re-addition is new content and adopts its own
+        # placement. Without this, remove-then-readd-at-the-correct-level is
+        # misread as an undeclared move and forced back to the pre-removal
+        # level (2026-08-01 adversarial pass finding #4 — the guard would
+        # reproduce, in reverse, the harm it exists to prevent).
+        for key in list(authorised):
+            if key not in current:
+                del authorised[key]
 
     result = dict(settled)
     result.pop("level_changes", None)

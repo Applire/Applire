@@ -97,6 +97,19 @@ class TestDeclaredMovesStand:
 
 
 class TestBoundaries:
+    def test_remove_then_readd_at_a_new_level_is_content_not_a_move(self):
+        """2026-08-01 adversarial pass finding #4: a concept removed as
+        fabricated in round 1 and correctly re-added at nice_to_have in round
+        2 was misread as an undeclared move and forced back to its
+        pre-removal level — the guard reproducing, in reverse, the harm it
+        exists to prevent. Removal must invalidate the concept's authority."""
+        r0 = _draft(["SAP PP"], [])
+        r1 = _draft([], [])
+        r2 = _draft([], ["SAP PP"], level_changes=[])
+        result = apply_jd_level_guard(r2, [r0, r1, r2])
+        assert "SAP PP" in result["nice_to_have_skills"]
+        assert "SAP PP" not in result["required_skills"]
+
     def test_removals_are_never_resurrected(self):
         # The reviewer's fabrication removal is legitimate — the guard only
         # polices LEVEL moves, never absence.

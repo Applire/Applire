@@ -416,10 +416,21 @@ def split_ledger_for_prompt(
         list only.
 
     Pure; tolerant of ``None``/empty (legacy pre-E037 gap rows have no ledger).
+
+    ADR-069: scope entries (:func:`is_scope_entry`) appear in NEITHER list.
+    Their synthesised concept embeds the JD's own figure — rendering one as
+    claimable instructs the writer to surface that number as the candidate's
+    fact (the run-#7 pathology, found live by the 2026-08-01 adversarial pass:
+    ``render_ledger_prompt_block``'s ``or [concept]`` fallback re-created it),
+    and rendering one as forbidden burns the do-not-claim list on a label no
+    writer would produce. Scope material reaches documents only through the
+    testimony the interview probe elicits, never through this block.
     """
     claimable: list[dict[str, Any]] = []
     forbidden: list[str] = []
     for entry in keyword_ledger or []:
+        if is_scope_entry(entry):
+            continue
         if entry.get("claimable"):
             claimable.append(entry)
         else:

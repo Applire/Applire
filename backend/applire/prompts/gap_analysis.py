@@ -110,8 +110,13 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     measuring a different quantity than the bar supports at most "partial"; state in "reason"
     which quantities you compared.
   - "direct" requires a candidate value that meets the bar ON THE SAME quantity, and you MUST
-    set "cited_entry" to that value's "entry" string exactly as given. No candidate values at
-    all ⇒ "gap".
+    set "cited_entry" to that value's "entry" string exactly as given.
+  - "partial" — BELOW THE BAR: a candidate value measuring the SAME quantity that falls short
+    of the bar is "partial", never "gap" (known-insufficient is real signal, not silence —
+    the candidate has scope experience, just less than asked). A value measuring a DIFFERENT
+    quantity also supports at most "partial" (see above).
+  - "gap" is reserved for NO candidate values at all, or values that carry no signal about
+    the bar either way.
   - NEVER classify a scope requirement from the presence of related words anywhere in the
     profile — only from the typed candidate values handed to you in its own entry.
 
