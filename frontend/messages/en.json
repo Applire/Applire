@@ -985,6 +985,9 @@
     "detailsButton": "Details",
     "evidenceLabel": "Evidence from your profile:",
     "statedLimit": "This report verifies consistency between the document and your profile. It cannot prove the profile itself — profile claims are self-attested; documented interview provenance mitigates but does not eliminate this.",
+    "judgementBadge": "AI-judged",
+    "judgementBadgeTooltip": "This verdict comes from a bounded model judgement (e.g. translation equivalence), not a literal profile match.",
+    "judgementUnavailableNotice": "{count, plural, one {# check could not be completed — \"unverifiable\" may also mean \"not checked\" here.} other {# checks could not be completed — \"unverifiable\" may also mean \"not checked\" here.}}",
     "verdicts": {
       "grounded": "Backed",
       "inflated": "Inflated",

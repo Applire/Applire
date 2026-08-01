@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ATSReport } from "@/components/cv/ATSChecksPanel";
 
@@ -55,9 +55,25 @@ export type TruthfulnessReport = {
   // persisted reports simply lack the field, which must render exactly as
   // before (absent === false, never a crash or a silent "true").
   unverifiable_dominated?: boolean;
+  // ADR-068 (SF-ORACLE.3 report-side control): count of claims whose model
+  // judgement (cross_language_judgement / restatement_judgement) could not
+  // run — provider failure/degradation. For those claims "unverifiable" can
+  // also mean "not checked", not just "checked, no evidence". Optional/
+  // frontend-only widening; absent on older reports (=> no notice, ever).
+  judgement_unavailable?: number;
 } | null;
 
 const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
+
+// ADR-068 clause 5 (SF-ORACLE.6 verdict-provenance ambiguity): checkers whose
+// verdict is a BOUNDED MODEL JUDGEMENT (e.g. translation equivalence,
+// restatement-vs-fabrication), not a literal vault-string match. A model's
+// opinion must never render identically to a literal grounding hit.
+const JUDGEMENT_CHECKERS = new Set(["cross_language_judgement", "restatement_judgement"]);
+
+function isJudgementChecker(checker: string): boolean {
+  return JUDGEMENT_CHECKERS.has(checker);
+}
 
 // #237 (F14): a report with no red flags can still be dominated by claims the
 // vault simply couldn't check (the letter path's whole-sentence claims almost
@@ -100,6 +116,23 @@ function VerdictChip({ kind, label }: { kind: DisplayKind; label: string }) {
       data-testid={`truthfulness-chip-${kind}`}
       className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${VERDICT_CHIP_CLASS[kind]}`}
     >
+      {label}
+    </span>
+  );
+}
+
+// ADR-068 clause 5: deliberately NOT a same-shaped pill as VerdictChip
+// (dashed outline + icon + uppercase micro-label vs. the verdict chips'
+// solid rounded-full fills) — a model judgement must be visually
+// unmistakable from a literal vault match, not just differently colored.
+function JudgementBadge({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <span
+      data-testid="truthfulness-judgement-badge"
+      title={tooltip}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded border border-dashed border-primary/50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary"
+    >
+      <Sparkles aria-hidden="true" className="h-2.5 w-2.5" />
       {label}
     </span>
   );
@@ -173,16 +206,26 @@ export default function TruthfulnessPanel({
   const related = claims.filter((c) => isRelated(c));
   const unverifiable = claims.filter((c) => c.verdict.verdict === "unverifiable");
   const groundedCount = claims.filter((c) => c.verdict.verdict === "grounded").length;
-  const unverifiableDominant =
+  // ADR-068 clause 3 (SF-ORACLE.7 duplicate dominance signal, ADR-066
+  // one-implementation): a single "is this report unverifiable-dominated"
+  // question used to have two answers — this client heuristic AND a
+  // backend-computed `unverifiable_dominated` flag — each driving a
+  // different piece of UI. Converged: the backend field, when present, is
+  // AUTHORITATIVE for every dominance-driven render (headline styling, the
+  // unverifiable note, and the loud banner below); the client heuristic is
+  // now only the FALLBACK for reports that predate the backend field.
+  const clientUnverifiableDominant =
     flagged.length === 0 &&
     isUnverifiableDominant(groundedCount, unverifiable.length, claims.length);
-  // #249/US266 letter panel louder-failure copy: a SEPARATE, backend-computed
-  // signal (>50% unverifiable) from the client-side heuristic above — a
-  // sibling change adds `unverifiable_dominated` to the report itself.
-  // Defensive by construction: `=== true` so an absent field (older reports)
-  // or any other value never trips the loud banner.
-  const unverifiableDominatedBackend = report.unverifiable_dominated === true;
+  const backendUnverifiableDominated = report.unverifiable_dominated;
+  const unverifiableDominant =
+    backendUnverifiableDominated !== undefined && backendUnverifiableDominated !== null
+      ? backendUnverifiableDominated
+      : clientUnverifiableDominant;
   const verdictLabel = (v: Verdict) => t(`verdicts.${v}`);
+  // ADR-068 clause 2 (SF-ORACLE.3 report-side control): older reports lack
+  // the field entirely — that must render exactly as today, no notice.
+  const judgementUnavailable = report.judgement_unavailable ?? 0;
 
   // Drawer ordering: red flags first, then related-evidence, then
   // unverifiable, grounded last.
@@ -268,8 +311,11 @@ export default function TruthfulnessPanel({
         {/* #249/US266: a report-level "unreviewed" warning — louder and more
             explicit than the compact-card headline above, never a green or
             neutral summary. Renders independently of the flagged-claims list
-            (a letter can be flag-free and STILL be mostly unverifiable). */}
-        {unverifiableDominatedBackend && (
+            (a letter can be flag-free and STILL be mostly unverifiable).
+            ADR-068 clause 3: driven by the converged `unverifiableDominant`
+            signal (backend-authoritative, client fallback) — no longer a
+            separate backend-only condition. */}
+        {unverifiableDominant && (
           <div
             data-testid="truthfulness-unverifiable-dominated-warning"
             role="alert"
@@ -280,6 +326,21 @@ export default function TruthfulnessPanel({
               <span className="block font-semibold">{t("unverifiableDominatedTitle")}</span>
               <span className="block">{t("unverifiableDominatedBody")}</span>
             </span>
+          </div>
+        )}
+
+        {/* ADR-068 clause 2 (SF-ORACLE.3 report-side control): a visible,
+            non-error notice — some "unverifiable" verdicts here mean the
+            model judgement never ran (provider failure/degradation), not
+            "checked, no evidence". Absent/zero on older or healthy reports
+            renders nothing, unchanged. */}
+        {judgementUnavailable > 0 && (
+          <div
+            data-testid="truthfulness-judgement-unavailable-notice"
+            className="mt-2 flex items-start gap-2 rounded-r-lg border-l-4 border-outline-variant bg-surface-container p-3 text-xs text-on-surface-variant"
+          >
+            <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <span>{t("judgementUnavailableNotice", { count: judgementUnavailable })}</span>
           </div>
         )}
 
@@ -296,6 +357,9 @@ export default function TruthfulnessPanel({
                   kind={c.verdict.verdict}
                   label={verdictLabel(c.verdict.verdict)}
                 />
+                {isJudgementChecker(c.verdict.checker) && (
+                  <JudgementBadge label={t("judgementBadge")} tooltip={t("judgementBadgeTooltip")} />
+                )}
                 <span className="min-w-0">
                   <span className="block">{c.claim.text}</span>
                   {c.verdict.detail ? (
@@ -386,6 +450,12 @@ export default function TruthfulnessPanel({
                   >
                     <div className="flex items-start gap-2">
                       <VerdictChip kind={chipKind} label={chipLabel} />
+                      {isJudgementChecker(c.verdict.checker) && (
+                        <JudgementBadge
+                          label={t("judgementBadge")}
+                          tooltip={t("judgementBadgeTooltip")}
+                        />
+                      )}
                       <span className="min-w-0 flex-1">{c.claim.text}</span>
                     </div>
                     <p className="pl-1 font-mono text-[11px] text-on-surface-variant">
