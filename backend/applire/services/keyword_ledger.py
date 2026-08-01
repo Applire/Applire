@@ -78,8 +78,13 @@ def _fit_weight(sources: set[str]) -> float:
 
 
 def _tokens(s: str) -> list[str]:
-    """Normalised word tokens of a concept, e.g. "CI/CD pipelines" -> ["ci", "cd", "pipelines"]."""
-    return [t for t in re.split(r"[^a-z0-9]+", _norm(s)) if t]
+    """Normalised word tokens of a concept, e.g. "CI/CD pipelines" -> ["ci", "cd", "pipelines"].
+
+    Splits on non-word-character sequences, treating Unicode letters (including umlauts
+    and accented characters) as word characters. Fixes #408: German umlauts (ä, ö, ü, ß)
+    and other diacritics are now correctly recognized as part of tokens, not as separators.
+    """
+    return [t for t in re.split(r"[^\w]+", _norm(s)) if t]
 
 
 def _is_token_prefix_dup(a_tokens: list[str], b_tokens: list[str]) -> bool:

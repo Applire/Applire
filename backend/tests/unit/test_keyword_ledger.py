@@ -1188,3 +1188,84 @@ def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable
     entry = _by_concept(ledger)["Embeddings"]
     assert entry["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
     assert entry["claimable"] is False
+
+
+# ── Issue #408: Unicode (umlaut) tokenization regression ─────────────────────
+#
+# `_tokens` splits on ASCII-only [^a-z0-9]+ after casefolding, so German
+# umlauts ä, ö, ü, ß are not recognized as word characters and act as
+# separators. ADR-069's synthesised scope labels like "Führungsspanne ~120 MA"
+# exercise this systematically during duplicate detection. Fix: use
+# Unicode-aware \W (word character negation) instead of ASCII-only [^a-z0-9].
+
+
+def test_tokens_splits_german_umlauts_as_single_word():
+    """German umlauts should be treated as word characters, not separators."""
+    from applire.services.keyword_ledger import _tokens
+
+    # Before fix: ["f", "hrungsspanne"]
+    # After fix: ["führungsspanne"]
+    assert _tokens("Führungsspanne") == ["führungsspanne"]
+    assert _tokens("führungsspanne") == ["führungsspanne"]
+
+
+def test_tokens_splits_mixed_umlauts_correctly():
+    """Multiple umlauts in a single word."""
+    from applire.services.keyword_ledger import _tokens
+
+    # Before fix: ["qualit", "tsmanagement"]
+    # After fix: ["qualitätsmanagement"]
+    assert _tokens("Qualitätsmanagement") == ["qualitätsmanagement"]
+
+
+def test_tokens_splits_eszett_as_word_character():
+    """German ß (Eszett) is case-folded to 'ss' but is recognized as a word character."""
+    from applire.services.keyword_ledger import _tokens
+
+    # Python's casefold() normalizes ß to ss (aggressive Unicode normalization)
+    # Before fix: would break on ß
+    # After fix: ["grösse"] (ß casefolded to ss, but treated as word chars)
+    assert _tokens("Größe") == ["grösse"]
+
+
+def test_tokens_splits_mixed_label_with_umlauts_and_numbers():
+    """ADR-069 scope label case: German concept with tilde and numbers."""
+    from applire.services.keyword_ledger import _tokens
+
+    # "Führungsspanne ~120 MA" should tokenise as concept, number, unit
+    # Tilde and spaces are separators; umlauts are part of words
+    result = _tokens("Führungsspanne ~120 MA")
+    assert result == ["führungsspanne", "120", "ma"]
+
+
+def test_tokens_splits_preserves_ascii_behavior():
+    """Ensure the fix doesn't break existing ASCII tokenization."""
+    from applire.services.keyword_ledger import _tokens
+
+    # These should work exactly as before
+    assert _tokens("CI/CD pipelines") == ["ci", "cd", "pipelines"]
+    assert _tokens("Kubernetes (production at scale)") == ["kubernetes", "production", "at", "scale"]
+    assert _tokens("Machine Learning") == ["machine", "learning"]
+
+
+def test_prefix_duplicate_german_concepts_are_merged():
+    """E037 polish with German umlauts: the short German term and the full
+    phrase should collapse (just like "Kubernetes" and "Kubernetes (production)")."""
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Führungsspanne", "gap", ["Führungsspanne"]),
+            _cls("Führungsspanne ~120 Mitarbeiter", "gap", ["Führungsspanne", "Staff leadership"]),
+        ],
+        required_skills=["Führungsspanne ~120 Mitarbeiter"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+    # Both concepts are about the same requirement; the shorter one should win
+    # as the canonical label, collapsing them into a single entry
+    matching = [e for e in ledger if "führungsspanne" in e["concept"].casefold()]
+    assert len(matching) == 1, f"Expected 1 entry, got {len(matching)}: {[e['concept'] for e in matching]}"
+    canonical = matching[0]
+    assert canonical["concept"] == "Führungsspanne", "shorter German concept should be canonical"
+    # Both sources and forms should be present
+    assert canonical["fit_weight"] == 1.0  # required weight
+    assert "Staff leadership" in canonical["surface_forms"] or "Führungsspanne" in canonical["surface_forms"]
