@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v3 (#407 — PER-ENTRY GROUNDING FOR TECHNOLOGIES rule added to the detail-pass
+#   prompt; run-12 evidence: "SAP" was reproducibly attributed to Weberit's technologies list
+#   even though Weberit's own bullets never mention SAP — backfilled from the general
+#   "Kenntnisse" section onto the most recent/current role instead of its actual role)
+# Prompt version: v2 (#407 — German self-declaration words added to the PROFICIENCY word-scale
+#   mapping; run-12 evidence: "SAP (Anwender)" was mapped by the model itself to "intermediate"
+#   because the English-only word list gave it no matching bucket, bypassing the
+#   _PROFICIENCY_ALIASES backstop in schemas/profile.py, which only sees an already-valid enum)
 # Prompt version: v1 (US195 / E036 — segmented CV extraction, ADR-047)
 # Used by: services/profile/extract_segmented.py → LLMProvider.aparse_json
 #
@@ -108,6 +116,13 @@ Return:
 Rules:
 - Extract only what the source states for THIS position; do not invent, and do not pull in
   another position's bullets. Empty lists are fine if the source gives none.
+- PER-ENTRY GROUNDING FOR TECHNOLOGIES (#407): "technologies" holds ONLY tools THIS position's
+  own text names — never a tool that appears solely in a separate general skills/"Kenntnisse"
+  section or under a DIFFERENT position's heading. A general skills list is employer-agnostic
+  evidence about the candidate, not evidence about this specific job — do not backfill it onto
+  every position, especially not the most recent one by default. If a tool is named once in the
+  Kenntnisse section and once inside a specific OTHER position's own bullet, it belongs to that
+  other position's technologies, not this one's.
 - Separate duties (responsibilities) from outcomes/metrics (achievements).
 - """ + _TECH_VS_PRACTICES + """
 - QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context (extracted for this
@@ -166,7 +181,13 @@ Rules:
 - PROFICIENCY: every skill proficiency MUST be exactly basic|intermediate|advanced|expert.
   Map a numeric/graphical scale by filled fraction (full→expert, ~80%→advanced, ~50-60%→
   intermediate, ≤40%→basic); word scales: beginner→basic, professional working→intermediate,
-  proficient/fluent/senior→advanced, native/expert→expert. Equal scale positions → equal level.
+  proficient/fluent/senior→advanced, native/expert→expert. German self-declaration words map the
+  same way, do NOT guess your own English-scale equivalent: Anwender/Grundkenntnisse/Grundlagen→
+  basic, Fortgeschritten/Erfahren/Verhandlungssicher/Fließend/Fliessend→advanced,
+  Muttersprache→expert — in ANY position: a dedicated scale, a dash suffix, or a bare
+  parenthetical right after the skill name (a "KENNTNISSE" line reading "SAP (Anwender)"
+  declares SAP at "basic"; do not default an unscaled skill to "intermediate" when a German
+  qualifier sits next to it). Equal scale positions → equal level.
 - """ + _TECH_VS_PRACTICES + """
 - CERTIFICATIONS TAKE PRECEDENCE: any item under a "Certifications"/"Zertifikate"/
   "Zertifizierungen"/"Licenses" heading is a certification — put it in "certifications" (name +

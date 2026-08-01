@@ -658,6 +658,31 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
     # 'Team Leadership' instead of littering the profile with morphological twins.
+    #
+    # #407 recon note (not fixed here — no vector pinned): the issue reported two
+    # duplicate "SAP" skill rows (years_experience 9 and 15) surviving in the
+    # run-12 vault for a profile built from TWO source documents (a CV + a XING
+    # export, tests/files/panel_review_case/operations_marcus_de/). Read against
+    # this function: an exact-name repeat ("SAP" == "SAP") always reaches
+    # `len(near) == 1` below via the Jaccard disjunct in skills_near_dupe
+    # (identical single-token names -> Jaccard 1.0), which merges via
+    # _append_dedup rather than appending a second row — verified against two
+    # independent real-provider extractions of the fixture's two source
+    # documents (CV text and XING text), both of which returned the skill name
+    # "SAP" (exact, same category) for this profile. `ops.py` defines exactly
+    # one op type for skills ("upsert_skill"), always routed through this
+    # function — there is no second write path that could bypass the guard.
+    # The one available ground-truth snapshot (backend/logs/llm/2026-07-31.jsonl,
+    # the gap-analysis prompt embedding the full candidate profile, ts
+    # 18:05:42Z) shows exactly ONE "SAP" row (experience_refs already unioning
+    # both employers — that IS #407 item 2, the extraction-time misattribution,
+    # already fixed via the prompt) — not two. The dev-stack Postgres
+    # (master_profiles) had 0 rows at investigation time, so the actual run-12
+    # persisted vault could not be inspected directly. The duplicate-row vector
+    # itself (as opposed to item 2's misattribution) is UNPINNED: reproducing it
+    # needs either the real run-12 profile_json or a live end-to-end two-
+    # document import observed through the actual reconcile op stream — do not
+    # guess-fix this function on the strength of the code read alone.
     from applire.services.ats_audit import (
         skill_tokens,
         skills_near_dupe,
