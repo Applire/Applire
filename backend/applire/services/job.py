@@ -36,6 +36,7 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.job import JobAnalysisResponse
+from applire.services.jd_level_guard import apply_jd_level_guard
 from applire.services.jd_shape_guard import apply_jd_shape_guard
 from applire.services.reviewer import review_and_refine
 from applire.utils.language_detection import detect_language
@@ -210,6 +211,66 @@ async def _apply_title_overrides(
     return record
 
 
+_SCOPE_KINDS = ("team_size", "budget")
+_SCOPE_COMPARATORS = ("approx", "min", "exact", "range")
+_SCOPE_LEVELS = ("required", "nice_to_have")
+
+
+def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
+    """ADR-069 clause 1's deterministic floor on the extracted scope bars.
+
+    Facts only (ADR-062): kind/comparator/level in their closed sets, value
+    numeric, quote a non-empty string that actually occurs in the posting
+    (whitespace-folded — the reviewer judges wording, this checks presence).
+    An entry failing any check is dropped and logged — never repaired, never
+    invented. The no-invention rule lives in the prompt; this floor only
+    guarantees nothing structurally invalid reaches the ORM or the ledger.
+    """
+    if not isinstance(raw, list):
+        return []
+    folded_jd = " ".join(jd_text.split()).casefold()
+    kept: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        value = entry.get("value")
+        value_max = entry.get("value_max")
+        comparator = entry.get("comparator") or "approx"
+        quote = entry.get("quote")
+        level = entry.get("level") or "required"
+        ok = (
+            kind in _SCOPE_KINDS
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and (value_max is None or (isinstance(value_max, (int, float)) and not isinstance(value_max, bool)))
+            and comparator in _SCOPE_COMPARATORS
+            and level in _SCOPE_LEVELS
+            and isinstance(quote, str)
+            and quote.strip()
+            and " ".join(quote.split()).casefold() in folded_jd
+        )
+        if not ok:
+            logger.warning(
+                "analyze_jd: dropping structurally invalid scope_requirements "
+                "entry %r (ADR-069 floor — closed kinds, numeric value, quote "
+                "present in the posting).",
+                entry,
+            )
+            continue
+        kept.append(
+            {
+                "kind": kind,
+                "value": float(value),
+                "value_max": float(value_max) if value_max is not None else None,
+                "comparator": comparator,
+                "quote": quote.strip(),
+                "level": level,
+            }
+        )
+    return kept
+
+
 async def analyze_jd(
     text: str,
     db: AsyncSession,
@@ -276,6 +337,10 @@ async def analyze_jd(
         # by a false-positive reviewer round and never recovered (#264 follow-up) —
         # once either field is populated in any round, it must never ship absent.
         required_fields=("company_name", "role_title"),
+        # ADR-069 clause 4: a required↔nice-to-have move the corrector performed
+        # but did not declare in `level_changes` is reverted (run 12 silently
+        # demoted a required skill across correction rounds, 2026-07-31 18:05).
+        settle_guard=apply_jd_level_guard,
     )
 
     # Wave-6 Task 3 (belt and braces): the review loop's prompt-level shape
@@ -339,6 +404,9 @@ async def analyze_jd(
         required_skills=data.get("required_skills", []),
         nice_to_have_skills=data.get("nice_to_have_skills", []),
         keywords=data.get("keywords", []),
+        scope_requirements=_coerce_scope_requirements(
+            data.get("scope_requirements"), text
+        ),
         seniority_level=data.get("seniority_level") or "",
         company_culture_signals=data.get("company_culture_signals", []),
         language_requirement=data.get("language_requirement") or "",

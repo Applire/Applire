@@ -192,6 +192,10 @@ async def test_gap_analysis_pass2_threads_raised_budget():
     job.company_culture_signals = []
     job.language_requirement = ""
     job.embedding = None
+    # ADR-069: scope_requirements/jd_language are read by _run_analysis; a
+    # bare MagicMock attribute is not JSON-serialisable in the prompt build.
+    job.scope_requirements = None
+    job.jd_language = "en"
 
     profile = MagicMock(spec=MasterProfile)
     profile.profile_json = {"work_experience": []}

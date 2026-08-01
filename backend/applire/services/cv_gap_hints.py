@@ -38,6 +38,7 @@ from typing import Any
 from applire.schemas.cv_sections import GapHintItem
 from applire.services.ats_audit import _norm, surface_present
 from applire.services.cv_gap_mapper import map_gaps_to_sections
+from applire.services.keyword_ledger import is_scope_entry
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,12 @@ def _candidates(
         for entry in ledger:
             concept = (entry.get("concept") or "").strip()
             if not concept or _norm(concept) in seen:
+                continue
+            # ADR-069: a scope entry's concept is a synthesised bar label
+            # ("Führungsspanne ~120 MA") carrying the JD's own figure — never
+            # a chip inviting the candidate to type it into their document
+            # (2026-08-01 adversarial pass finding #2).
+            if is_scope_entry(entry):
                 continue
             # keyword-only entries (fit_weight 0) never hint in sections —
             # parity with category_b/c; US204 routes them via the ATS panel.

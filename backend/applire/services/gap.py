@@ -54,6 +54,10 @@ from applire.services.keyword_ledger import (
     keyword_only_honest_gaps,
 )
 from applire.services.match_score import compute_match_score_from_ledger
+from applire.services.scope_requirements import (
+    build_scope_ledger_entries,
+    build_scope_prompt_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +108,11 @@ def _job_inputs(job: JobAnalysis) -> dict:
         "seniority_level": job.seniority_level,
         "company_culture_signals": job.company_culture_signals,
         "language_requirement": job.language_requirement,
+        # ADR-069 — quantified scope bars are score-bearing inputs too: they
+        # produce fit-weighted ledger entries, so they must be in the
+        # idempotency fingerprint (a JD re-analysis that gains a bar forces a
+        # recompute). None (legacy rows) hashes identically to [] on purpose.
+        "scope_requirements": job.scope_requirements or [],
     }
 
 
@@ -407,9 +416,17 @@ async def _run_analysis(
     # Pass 1: rule-based pre-classification
     pre = pre_classify(job_dict, profile.profile_json)
 
+    # ADR-069 clause 2 — assemble the scope confrontation (facts): the JD's
+    # stated bars verbatim + the candidate's typed vault values with their
+    # field semantics. The sufficiency judgement happens inside the same LLM
+    # call; the floor + citation check run on its output below.
+    scope_block = build_scope_prompt_block(
+        job.scope_requirements, profile.profile_json, job.jd_language
+    )
+
     # Pass 2: LLM refinement
     data: dict = await provider.aparse_json(
-        build_user_prompt(job_dict, profile.profile_json, pre),
+        build_user_prompt(job_dict, profile.profile_json, pre, scope_block),
         system=SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=GAP_ANALYSIS_MAX_TOKENS,
@@ -455,6 +472,15 @@ async def _run_analysis(
         # independently affirm a broad term against real evidence instead of
         # always fail-closing on a narrow denial's compound-containment rule.
         profile_json=profile.profile_json,
+    )
+
+    # ADR-069 clause 3 — scope entries join the ledger BEFORE the score and the
+    # category split, so they ride the existing rails (partial → category B →
+    # cluster → targeted probe). Floor + citation check applied inside; the
+    # entry's evidence string is composed from the recorded facts, never from
+    # the model's reason alone (SF-GAP.4).
+    keyword_ledger = keyword_ledger + build_scope_ledger_entries(
+        scope_block, data.get("scope_classifications")
     )
 
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's

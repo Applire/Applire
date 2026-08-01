@@ -16,10 +16,10 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.schemas.application import DuplicateOfHint
 
@@ -49,6 +49,24 @@ class JobAnalyzeRequest(BaseModel):
         return self
 
 
+class ScopeRequirement(BaseModel):
+    """ADR-069 clause 1 — a quantified scope bar the posting states.
+
+    Model-extracted (reading a magnitude out of prose is a judgement), emitted
+    only when the posting states an actual number; the verbatim ``quote`` is
+    the entry's identity. The closed ``kind`` set enumerates the vault's own
+    typed fact fields (``WorkEntry.team_size`` / ``WorkEntry.budget_managed``)
+    — widening it requires widening the vault schema first (ADR-069 clause 1).
+    """
+
+    kind: Literal["team_size", "budget"]
+    value: float
+    value_max: Optional[float] = None
+    comparator: Literal["approx", "min", "exact", "range"] = "approx"
+    quote: str
+    level: Literal["required", "nice_to_have"] = "required"
+
+
 class JobAnalysisResponse(BaseModel):
     id: uuid.UUID
     role_title: str
@@ -64,6 +82,9 @@ class JobAnalysisResponse(BaseModel):
     berufsbild_label: Optional[str] = None
     raw_text_hash: str
     source_url: Optional[str] = None
+    # ADR-069 — quantified scope bars (team size, budget). Empty for legacy rows
+    # (nullable column) and for postings that state no numeric scope bar.
+    scope_requirements: list[ScopeRequirement] = Field(default_factory=list)
     # E039/US220 (journey Branch F): set when this JD matches one of the user's
     # existing applications — a repost recognition hint, never a block. Enriched
     # by the caller (router / MCP tool), not by analyze_jd itself: the service
@@ -76,3 +97,9 @@ class JobAnalysisResponse(BaseModel):
     @classmethod
     def coerce_list_fields(cls, v: object) -> list[str]:
         return _coerce_to_list(v)
+
+    @field_validator("scope_requirements", mode="before")
+    @classmethod
+    def coerce_scope_requirements(cls, v: object) -> list:
+        """Legacy rows (pre-ADR-069 nullable column) come back as None."""
+        return v if isinstance(v, list) else []

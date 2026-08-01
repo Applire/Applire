@@ -416,10 +416,21 @@ def split_ledger_for_prompt(
         list only.
 
     Pure; tolerant of ``None``/empty (legacy pre-E037 gap rows have no ledger).
+
+    ADR-069: scope entries (:func:`is_scope_entry`) appear in NEITHER list.
+    Their synthesised concept embeds the JD's own figure — rendering one as
+    claimable instructs the writer to surface that number as the candidate's
+    fact (the run-#7 pathology, found live by the 2026-08-01 adversarial pass:
+    ``render_ledger_prompt_block``'s ``or [concept]`` fallback re-created it),
+    and rendering one as forbidden burns the do-not-claim list on a label no
+    writer would produce. Scope material reaches documents only through the
+    testimony the interview probe elicits, never through this block.
     """
     claimable: list[dict[str, Any]] = []
     forbidden: list[str] = []
     for entry in keyword_ledger or []:
+        if is_scope_entry(entry):
+            continue
         if entry.get("claimable"):
             claimable.append(entry)
         else:
@@ -443,6 +454,25 @@ def is_positioning_only(entry: dict[str, Any] | None) -> bool:
     heals", stated the other way round).
     """
     return bool((entry or {}).get("adjacent_evidence"))
+
+
+def is_scope_entry(entry: dict[str, Any] | None) -> bool:
+    """True for a quantified-scope ledger entry (ADR-069 — a ``bar`` facet).
+
+    THE single definition of the scope exemption, parallel to
+    :func:`is_positioning_only`. A scope entry's concept is a synthesised
+    label ("Führungsspanne ~120 MA") carrying the JD's own number — a thing
+    to ASK about, never a string a writer must force into the document.
+    Every coverage instrument excludes it: an empty ``surface_forms`` list
+    is NOT sufficient, because every consumer falls back to the bare concept
+    (``entry.get("surface_forms") or [concept]``), and
+    :func:`verified_missing_claimable` would otherwise drive the ADR-021
+    retry loop to insert the JD's own figure (the run-#7 pathology). Its
+    status also never moves via literal corpus presence — see
+    :func:`reevaluate_gap_ledger_against_vault` and
+    :func:`upgrade_ledger_for_concepts`.
+    """
+    return bool((entry or {}).get("bar"))
 
 
 def retention_forms(entry: dict[str, Any]) -> list[str]:
@@ -569,7 +599,9 @@ def claimable_surface_forms(
     forms: list[str] = []
     seen: set[str] = set()
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    for entry in [e for e in claimable if not is_positioning_only(e)]:
+    for entry in [
+        e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
+    ]:
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
             if key and key not in seen:
@@ -744,7 +776,11 @@ def verified_missing_claimable(
     from applire.services.ats_audit import _norm as ats_norm, surface_present
 
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    claimable = [e for e in claimable if not is_positioning_only(e)]
+    # ADR-069: a scope entry's concept embeds the JD's own figure — demanding
+    # it verbatim would force the number into the document (see is_scope_entry).
+    claimable = [
+        e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
+    ]
     if not claimable:
         return []
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
@@ -1003,6 +1039,14 @@ def upgrade_ledger_for_concepts(
     changed = False
     for entry in keyword_ledger:
         e = dict(entry)
+        # ADR-069: a scope entry is excluded from this seam — "the cluster was
+        # addressed" must not flip a quantified bar to claimable with a raw
+        # answer as its evidence. The answer lands in the vault through the
+        # normal testimony rail and the bar is re-judged at the next gap
+        # analysis (the ADR-059 every-seam rule, applied to bars).
+        if is_scope_entry(e):
+            new_ledger.append(e)
+            continue
         concept_norm = _norm(e.get("concept", ""))
         matched = (
             concept_norm
@@ -1128,6 +1172,12 @@ def reevaluate_gap_ledger_against_vault(
     changed = False
     for entry in keyword_ledger:
         if entry.get("claimable") or entry.get("status") != "gap":
+            continue
+        # ADR-069: a scope entry's status moves only via the gap-analysis
+        # judgement seam or elicited testimony — literal presence of its
+        # synthesised label (or its number) in unrelated vault prose is not
+        # evidence about a span or a budget (the ADR-059 every-seam rule).
+        if is_scope_entry(entry):
             continue
         concept = entry.get("concept", "")
         if not _norm(concept):

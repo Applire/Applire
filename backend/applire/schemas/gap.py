@@ -59,6 +59,14 @@ class KeywordLedgerEntry(BaseModel):
     # level. Never independently settable to a meaningful value on a
     # non-denied entry — see the invariant enforced below.
     denial_level: Literal["direct", "partial"] | None = None
+    # ADR-069 — the bar facet of a quantified scope requirement (team size,
+    # budget): {kind, value, value_max, comparator, quote, level,
+    # candidate_values, cited_entry}. None on every ordinary concept entry.
+    # A bar-carrying entry is EXEMPT from all coverage machinery by predicate
+    # (keyword_ledger.is_scope_entry) and its status moves only via the
+    # gap-analysis judgement seam or elicited testimony — never via literal
+    # corpus presence.
+    bar: dict | None = None
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":

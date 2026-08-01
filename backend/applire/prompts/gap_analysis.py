@@ -15,6 +15,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (ADR-069, 2026-08-01 — charter run 12 #397):
+#   - PROFICIENCY-CEILING rule: `Skill.proficiency` had been present in the prompt
+#     payload since #304/#317 with NO rule weighing it — run 12 classified a skill
+#     declared "SAP (Anwender)" as "direct" for the JD's depth-worded "Sicherer
+#     Umgang mit SAP", reasoning from years-since-first-mention alone (LLM log
+#     2026-07-31 18:05:42). Declared proficiency is a CEILING (ADR-061 lineage).
+#   - SCOPE REQUIREMENTS block (ADR-069 clauses 1-2): quantified scope requirements
+#     (team size, budget) arrive as a separate labelled section carrying the JD's
+#     stated bar verbatim AND the candidate's typed vault values WITH their field
+#     semantics; the model judges sufficiency (a deterministic >= would compare
+#     different quantities — direct reports vs total span) and must cite the vault
+#     entry for any "direct". Code enforces the fail-closed floor afterwards.
+#
 # Prompt version: v4
 # Used by: services/gap.py → LLMProvider.aparse_json
 #
@@ -60,6 +73,14 @@ Rules:
   - Classify ONLY the requirements given. Do NOT add, rename, merge, or split requirements.
   - Use profile years_experience and the JD seniority_level to decide direct vs partial.
   - When a skill is present but its years cannot be confirmed against a stated bar, choose "partial".
+  - PROFICIENCY CEILING: when a requirement is DEPTH-WORDED ("sicherer Umgang", "fundierte
+    Kenntnisse", "Expertenkenntnisse", "profound/expert-level command"), weigh the profile
+    skill's "proficiency" field. Declared proficiency is a CEILING — the candidate's own
+    declaration caps what may be claimed. A skill the profile declares at a basic/Anwender
+    tier can NEVER be "direct" for a depth-worded requirement: classify it "partial" (below
+    the bar — omit adjacent_evidence) and name the declared proficiency in "reason". The
+    skill's mere presence, or a years figure alone, is NOT depth evidence: years_experience
+    measures how long ago the skill first appears in the profile, not how deeply it is used.
   - "partial" covers TWO different situations and you must distinguish them, because the document
     writers act on them differently:
       (a) ADJACENT — the candidate does not have the named thing but has a different capability that
@@ -80,6 +101,25 @@ Rules:
     appear among a claimable concept's surface forms; classify it as its own "gap" requirement
     instead.
 
+SCOPE REQUIREMENTS (a separate labelled section, present only when the posting states a
+quantified scope bar — team size, budget). These are judged, never keyword-matched:
+  - For each entry return one object in "scope_classifications". Judge the SUFFICIENCY of the
+    candidate's typed values against the JD's stated bar. The two sides may measure DIFFERENT
+    quantities — every candidate value states its own semantics (e.g. team_size counts direct
+    reports in that one role, while a JD figure may be a total organisational span). A value
+    measuring a different quantity than the bar supports at most "partial"; state in "reason"
+    which quantities you compared.
+  - "direct" requires a candidate value that meets the bar ON THE SAME quantity, and you MUST
+    set "cited_entry" to that value's "entry" string exactly as given.
+  - "partial" — BELOW THE BAR: a candidate value measuring the SAME quantity that falls short
+    of the bar is "partial", never "gap" (known-insufficient is real signal, not silence —
+    the candidate has scope experience, just less than asked). A value measuring a DIFFERENT
+    quantity also supports at most "partial" (see above).
+  - "gap" is reserved for NO candidate values at all, or values that carry no signal about
+    the bar either way.
+  - NEVER classify a scope requirement from the presence of related words anywhere in the
+    profile — only from the typed candidate values handed to you in its own entry.
+
 Respond ONLY with a valid JSON object matching this schema — no markdown, no explanations.
 
 Schema:
@@ -91,6 +131,14 @@ Schema:
       "reason": "short justification grounded in the profile (this is the evidence)",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
       "surface_forms": ["literal aliases an ATS scans for, e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
+    }
+  ],
+  "scope_classifications": [
+    {
+      "concept": "exact concept string from SCOPE REQUIREMENTS — omit the whole array when that section is absent",
+      "status": "direct|partial|gap",
+      "reason": "which quantities you compared and why the status follows",
+      "cited_entry": "REQUIRED when status is direct: the exact 'entry' string of the candidate value that meets the bar. Omit otherwise."
     }
   ],
   "strengths": ["requirements where the candidate clearly meets or exceeds the bar"],
@@ -150,6 +198,7 @@ def build_user_prompt(
     job_analysis: dict,
     profile: dict,
     pre: PreClassification,
+    scope_requirements: list[dict] | None = None,
 ) -> str:
     pre_dict = {
         "matched": pre.matched,
@@ -178,11 +227,23 @@ def build_user_prompt(
         if statements
         else ""
     )
+    # ADR-069 clause 2: the scope block is assembled by services/gap.py — the JD's
+    # stated bar verbatim plus the candidate's typed vault values WITH their field
+    # semantics. Only the sufficiency JUDGEMENT is the model's; the facts, the
+    # fail-closed floor and the citation check are code's.
+    scope_block = (
+        "SCOPE REQUIREMENTS (quantified requirements — judge sufficiency per the system "
+        "rules; do NOT keyword-match):\n"
+        f"{json.dumps(scope_requirements, ensure_ascii=False, indent=2)}\n\n"
+        if scope_requirements
+        else ""
+    )
     return (
         "Produce the gap analysis JSON.\n\n"
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile_wo_meta, ensure_ascii=False, indent=2)}\n\n"
         f"{statements_block}"
+        f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
         f"REQUIREMENTS:\n{json.dumps(requirements, ensure_ascii=False, indent=2)}"
     )
