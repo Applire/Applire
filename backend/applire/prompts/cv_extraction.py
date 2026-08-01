@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v4 (#407 — PER-ENTRY GROUNDING FOR TECHNOLOGIES rule added; run-12 evidence:
+#   "SAP" was reproducibly attributed to Weberit's technologies list even though Weberit's own
+#   bullets never mention SAP — the model was backfilling a general "Kenntnisse" skills-section
+#   item onto the most recent/current role instead of the role SAP is actually stated under)
+# Prompt version: v3 (#407 — German self-declaration words added to the PROFICIENCY SCALE
+#   word-scale mapping; run-12 evidence: "SAP (Anwender)" was mapped by the model itself to
+#   "intermediate" because the English-only word list gave it no matching bucket, so the
+#   downstream _PROFICIENCY_ALIASES backstop in schemas/profile.py never saw the raw word)
 # Prompt version: v2 (US175 proficiency-scale mapping + US176 technologies-vs-practices hygiene)
 # Used by: services/profile/__init__.py → upload_cv() → LLMProvider.aparse_json
 #          and reviewer.review_and_refine retry path
@@ -159,6 +167,18 @@ Rules:
   methodology is a genuine competency, route it to skills with category "domain" (or "soft" for a
   pure way-of-working), or omit it. This applies to the technologies list in work_experience,
   projects AND volunteer_activities.
+- PER-ENTRY GROUNDING FOR TECHNOLOGIES (#407): a work_experience/project/volunteer entry's
+  "technologies" list holds ONLY tools that entry's OWN text (its responsibilities/achievements,
+  or a bullet directly under its heading) actually names. Never copy a tool into an entry's
+  technologies list just because it appears in a separate skills/"Kenntnisse" section, in a
+  DIFFERENT entry's bullets, or in the professional summary — a global skills list is
+  employer-agnostic evidence about the candidate, not evidence about any one specific role. A
+  skill named only in a general skills section belongs in the top-level "skills" array; it does
+  not get backfilled onto every job the candidate ever held. Concretely: if a CV lists "SAP" once
+  under a general "Kenntnisse"/"Skills" heading and once inside a specific role's own bullet
+  ("Mitarbeit bei der Einführung von SAP in der Fertigung" under Company A), "SAP" belongs in
+  Company A's technologies — NOT in Company B's, even if Company B is the candidate's current or
+  most recent role and even if SAP is the most prominent word in the skills section.
 - CERTIFICATIONS TAKE PRECEDENCE: any item listed under a "Certifications", "Zertifikate",
   "Zertifizierungen", "Licenses" or "Qualifikationen" heading is a certification — populate the
   "certifications" section with it (at minimum its "name", plus "issuing_organization" when stated).
@@ -178,8 +198,16 @@ Rules:
     • ≤40% (1-2/5 dots, ≤4/10) → "basic"
   Word scales map the same way: beginner / novice / elementary → basic; professional working →
   intermediate; proficient / fluent / senior / full professional → advanced; native / expert /
-  master → expert. Two skills shown at the same scale position MUST receive the same proficiency
-  level. Where a CV gives an explicit scale, this mapping takes precedence over any other weighting.
+  master → expert. German self-declaration words map the same way — do NOT guess your own
+  English-scale equivalent for them: Anwender / Grundkenntnisse / Grundlagen → basic;
+  Fortgeschritten / Erfahren / Verhandlungssicher / Fließend / Fliessend → advanced;
+  Muttersprache → expert. This applies whenever such a word is the candidate's OWN declared level
+  for a skill, in ANY position — a dedicated scale, a suffix after a dash, or a bare parenthetical
+  right after the skill name (e.g. a "KENNTNISSE"/skills line reading "SAP (Anwender)" declares
+  SAP at "basic", exactly as "SAP - Grundkenntnisse" would; do not default an unscaled skill name
+  to "intermediate" when a German qualifier is sitting right next to it). Two skills shown at the
+  same scale position MUST receive the same proficiency level. Where a CV gives an explicit scale,
+  this mapping takes precedence over any other weighting.
 - Preserve German umlauts and special characters exactly as written.
 - Use null for missing optional fields — never omit required fields.
 - For DACH CVs: Ausbildung maps to education; Praktikum/Werkstudent map to work_experience entries.

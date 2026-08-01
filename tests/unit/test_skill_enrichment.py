@@ -1081,7 +1081,18 @@ class TestPhase1MatchesTheRolesOwnEvidence:
 
     def test_technical_skill_named_only_in_a_bullet_is_computed(self):
         """SAP is in role 0's ``technologies`` AND role 1's bullets. Keying on
-        ``technologies`` alone credited one role and lost the six earlier years."""
+        ``technologies`` alone credited one role and lost the six earlier years.
+
+        #407 note: role 0's ``technologies=["SAP"]`` here is the run-9 extractor's
+        OWN (later found to be wrong) output, kept verbatim as this test's fixture
+        input — it is NOT a claim that Weberit's CV bullets ever mention SAP (they
+        don't; #407 pinned this against the real source text). This test is about
+        what ``_match_and_enrich`` does with whatever ``technologies`` already
+        contains, which is unchanged by #407 and correct on its own terms. The
+        upstream fix (the extractor must not backfill an entry's technologies from
+        a separate skills section) is a PROMPT fix — see
+        test_407_extraction_dual_prompt_parity.py and
+        TestIssue407PerEntryTechnologiesGrounding below for the corrected shape."""
         from applire.services.skill_enrichment import _match_and_enrich
         profile = self._run9_profile(
             [{"name": "SAP", "category": "technical", "proficiency": "intermediate"}]
@@ -1148,6 +1159,81 @@ class TestPhase1MatchesTheRolesOwnEvidence:
         ])
         enriched, unmatched = _match_and_enrich(profile)
         assert {s.name for s in unmatched} == {"R", "C"}
+
+
+# ---------------------------------------------------------------------------
+# #407 item 2 — the CORRECTED run-12 shape. Ground truth against the real source
+# text (tests/files/panel_review_case/operations_marcus_de/{cv,xing}_stefan_brandt.md,
+# synthetic fixtures): SAP is named ONLY under Rasselstein's own bullet
+# ("Mitarbeit bei der Einführung von SAP in der Fertigung" / "SAP-Fertigungs-
+# einführung begleitet") — Weberit's own bullets never mention SAP anywhere in
+# either source document. Reproduced against the real provider (OpenRouter,
+# mistralai/mistral-medium-3-5) that the pre-#407 extraction prompt reproducibly
+# (8/8 captured calls across three dates) put "SAP" in Weberit's technologies
+# list anyway — a prompt defect (see test_407_extraction_dual_prompt_parity.py),
+# not a skill_enrichment defect. This class locks the DOWNSTREAM half: once the
+# extractor stops mis-populating an entry's technologies, _match_and_enrich must
+# credit only the role the evidence actually names.
+# ---------------------------------------------------------------------------
+
+class TestIssue407PerEntryTechnologiesGrounding:
+    def _corrected_profile(self, skills):
+        from applire.schemas.profile import MasterProfileData, Skill, WorkEntry
+        return MasterProfileData(
+            skills=[Skill(**s) for s in skills],
+            work_experience=[
+                WorkEntry(
+                    company="Weberit Kunststofftechnik GmbH",
+                    role="Produktionsleiter",
+                    start_date="2017-04",
+                    end_date=None,
+                    technologies=[],  # #407: corrected — the real bullets never name SAP
+                    responsibilities=[
+                        "Verantwortung für zwei Fertigungsbereiche (Spritzguss, Montage)",
+                    ],
+                    achievements=[
+                        "Ausschussquote von 4,1 % auf 2,3 % gesenkt durch Einführung von "
+                        "Shopfloor-Management und KVP-Routinen",
+                    ],
+                ),
+                WorkEntry(
+                    company="Rasselstein Umformtechnik GmbH",
+                    role="Schichtleiter",
+                    start_date="2011-08",
+                    end_date="2017-03",
+                    technologies=["SAP"],
+                    responsibilities=[
+                        "Führung einer Schicht mit 14 Mitarbeitenden in der Blechumformung",
+                        "Mitarbeit bei der Einführung von SAP in der Fertigung",
+                    ],
+                    achievements=[],
+                ),
+            ],
+        )
+
+    def test_sap_credits_only_the_role_whose_own_text_names_it(self):
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._corrected_profile(
+            [{"name": "SAP", "category": "technical", "proficiency": "basic"}]
+        )
+        enriched, unmatched = _match_and_enrich(profile)
+        assert unmatched == []
+        skill = enriched[0]
+        assert skill.experience_refs == ["Rasselstein Umformtechnik GmbH"], (
+            "Weberit must NOT be credited — its own bullets never name SAP "
+            "(#407 ground truth against the real source documents)"
+        )
+        assert skill.source == "computed"
+
+    def test_sap_declared_proficiency_is_not_touched_by_enrichment(self):
+        """ADR-061 clauses 5/6 (#304/#317): this phase never writes proficiency —
+        the #407-corrected "basic" declaration must survive untouched."""
+        from applire.services.skill_enrichment import _match_and_enrich
+        profile = self._corrected_profile(
+            [{"name": "SAP", "category": "technical", "proficiency": "basic"}]
+        )
+        enriched, _ = _match_and_enrich(profile)
+        assert enriched[0].proficiency == "basic"
 
 
 # ---------------------------------------------------------------------------

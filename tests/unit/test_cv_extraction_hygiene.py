@@ -156,3 +156,110 @@ def test_prompt_gives_standard_examples(prompt):
     assert "iso 25010" in lowered and "v-model" in lowered, (
         "rule must give concrete standard/methodology examples"
     )
+
+
+# ---------------------------------------------------------------------------
+# #407 item 1 — German self-declaration words in the PROFICIENCY SCALE rule
+#
+# Root cause (run-12, panel_review_case/operations_marcus_de): "SAP (Anwender)" was
+# mapped by the model itself to "intermediate" because the word-scale legend was
+# English-only ("beginner", "proficient", "fluent", "native", ...) — the model had
+# to guess its own English-scale equivalent for a German declaration, and the
+# _PROFICIENCY_ALIASES backstop (schemas/profile.py) never saw the raw German word
+# because the schema constrains the model to emit only the final enum. These tests
+# pin the prompt-level fix so a future edit cannot silently drop it again.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
+    ids=["generic", "jd_aware"],
+)
+def test_prompt_proficiency_scale_teaches_german_words(prompt):
+    """The word-scale mapping must teach the German self-declaration tiers, not just
+    the English/LinkedIn vocabulary — #304/#317's own case ("Anwender") went through
+    exactly this gap."""
+    lowered = prompt.lower()
+    for word in (
+        "anwender", "grundkenntnisse", "grundlagen",
+        "fortgeschritten", "erfahren", "verhandlungssicher",
+        "muttersprache",
+    ):
+        assert word in lowered, f"PROFICIENCY rule must teach the German word {word!r}"
+    # Both the German ß and its ASCII "ss" transliteration must be covered, mirroring
+    # _PROFICIENCY_ALIASES (a prior incident, #213/#214, had a Unicode variant defeat
+    # a matcher; do not assume only one spelling reaches this rule).
+    assert "fließend" in lowered or "fliessend" in lowered
+
+
+def test_prompt_german_proficiency_words_align_with_schema_aliases():
+    """The German words taught in the prompt must map to the same level
+    _PROFICIENCY_ALIASES assigns them (schemas/profile.py) — the alias table is the
+    backstop for any path that bypasses the prompt, so the two must never disagree."""
+    lowered = GENERIC_CV_EXTRACTION_PROMPT.lower()
+    sampled = {
+        "anwender": "basic",
+        "grundkenntnisse": "basic",
+        "fortgeschritten": "advanced",
+        "verhandlungssicher": "advanced",
+        "muttersprache": "expert",
+    }
+    for word, expected_level in sampled.items():
+        assert _PROFICIENCY_ALIASES[word] == expected_level, "test fixture drift"
+        assert word in lowered, f"prompt must teach {word!r}"
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
+    ids=["generic", "jd_aware"],
+)
+def test_prompt_proficiency_scale_covers_bare_parenthetical_qualifier(prompt):
+    """Real run-12 shape: "SAP (Anwender)" is a bare parenthetical qualifier next to a
+    skill name, not a dedicated multi-item scale — the rule must explicitly say this
+    counts too, or the model reads the qualifier as ambiguous and defaults to
+    "intermediate" (reproduced against the real provider before this rule existed)."""
+    lowered = prompt.lower()
+    assert "sap (anwender)" in lowered, (
+        "rule must give the exact run-12 example so the model recognises a bare "
+        "parenthetical qualifier as a proficiency declaration"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #407 item 2 — PER-ENTRY GROUNDING FOR TECHNOLOGIES
+#
+# Root cause (run-12, same profile): the extractor reproducibly attributed "SAP" to
+# Weberit's technologies list even though Weberit's own bullets never mention SAP —
+# the model backfilled a general "Kenntnisse"/skills-section item onto the most
+# recent/current role instead of the role (Rasselstein) whose own bullet actually
+# states it. Reproduced 8/8 times against the real provider across three separate
+# capture dates (2026-07-29, 2026-07-30, 2026-07-31) before this rule existed.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
+    ids=["generic", "jd_aware"],
+)
+def test_prompt_forbids_backfilling_technologies_from_skills_section(prompt):
+    """An entry's technologies list must be grounded in THAT entry's own text, never
+    backfilled from a separate skills/Kenntnisse section or a different entry."""
+    lowered = prompt.lower()
+    assert "per-entry grounding" in lowered
+    assert "kenntnisse" in lowered
+    assert "different entry" in lowered or "different position" in lowered
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
+    ids=["generic", "jd_aware"],
+)
+def test_prompt_technologies_grounding_gives_run12_example(prompt):
+    """The rule must give the concrete run-12 example (SAP under Company A's own
+    bullet, not Company B's) so the model has an unambiguous anchor."""
+    lowered = prompt.lower()
+    assert "company a" in lowered and "company b" in lowered
