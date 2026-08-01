@@ -45,8 +45,11 @@ ORACLE_STATED_LIMIT = (
 # marker data files carry their own version field). 1.1 = the additive
 # ``misattributed`` verdict + fifth counts key (Oracle v2 role attribution).
 # 1.2 = the additive ``not_applicable`` verdict + sixth counts key (#237
-# round-3, employer-fact claims).
-ORACLE_REPORT_VERSION = "1.2"
+# round-3, employer-fact claims). 1.3 = ADR-068 bounded equivalence
+# judgement: the additive ``judgement_unavailable`` field (a claim COUNT, not
+# a verdict — the verdict taxonomy itself is unchanged) and the two new
+# ``CheckerId`` values below.
+ORACLE_REPORT_VERSION = "1.3"
 
 Verdict = Literal[
     "grounded", "inflated", "misattributed", "unbacked", "unverifiable",
@@ -54,9 +57,19 @@ Verdict = Literal[
 ]
 
 # Checker ids, carried on every verdict so a report line is attributable to
-# the code (or the narrow entailment call) that produced it.
+# the code (or the narrow entailment/judgement call) that produced it.
+# ADR-068 — ``cross_language_judgement`` and ``restatement_judgement`` are the
+# two bounded equivalence judgement seams; never reuse ``entailment`` (a
+# different, older narrow call with its own budget/prompt/token cap).
 CheckerId = Literal[
-    "numbers", "grounding", "stance", "attribution", "entailment", "extraction"
+    "numbers",
+    "grounding",
+    "stance",
+    "attribution",
+    "entailment",
+    "extraction",
+    "cross_language_judgement",
+    "restatement_judgement",
 ]
 
 Stance = Literal["aspirational", "achieved"]
@@ -164,6 +177,17 @@ class TruthfulnessReport(BaseModel):
     # same judgement. ``False`` for an empty report — no claims, nothing
     # dominates.
     unverifiable_dominated: bool = False
+    # ADR-068 — count of claims whose bounded equivalence judgement (the
+    # cross-language or restatement seam) could not run to a decided,
+    # citation-verified answer: provider failure or absence, the per-document
+    # judgement budget exhausted, or the model's own ``vault_quote`` failing
+    # citation verification. NOT a verdict — every one of these claims still
+    # carries a real ``Verdict`` (the clause-3 fail-safe, normally
+    # ``unverifiable``); this is a transparency count, so a report consumer
+    # can tell "the deterministic layer was silent AND the judgement layer
+    # never got to answer" apart from "the judgement layer looked and found
+    # nothing".
+    judgement_unavailable: int = 0
     # ADR-052 §5 — never omitted, never blocks delivery in v1 (ADR-040
     # attestation remains the delivery gate).
     stated_limit: str = ORACLE_STATED_LIMIT
@@ -173,7 +197,10 @@ class TruthfulnessReport(BaseModel):
 
     @classmethod
     def from_results(
-        cls, document_kind: DocumentKind, results: list[ClaimResult]
+        cls,
+        document_kind: DocumentKind,
+        results: list[ClaimResult],
+        judgement_unavailable: int = 0,
     ) -> "TruthfulnessReport":
         # Derived from the Verdict vocabulary so adding a verdict can never
         # desync the counts keys (KeyError at audit time otherwise).
@@ -193,6 +220,7 @@ class TruthfulnessReport(BaseModel):
             claims=results,
             counts=counts,
             unverifiable_dominated=dominated,
+            judgement_unavailable=judgement_unavailable,
         )
 
 

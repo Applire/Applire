@@ -103,3 +103,53 @@ async def test_mock_recognises_the_outcome_critic_chain():
         "a system-prompt match in providers/llm/mock.py."
     )
     assert isinstance(result.get("findings"), list)
+
+
+@pytest.mark.asyncio
+async def test_mock_recognises_the_oracle_judgement_chain():
+    """ADR-068 — the Oracle's bounded equivalence judgement (cross-language +
+    restatement seams). Same #264 defect class: an unrecognised system
+    prompt falls to the generic ``{"mock": ...}`` fallback, which fails the
+    caller's own "items" list check and every candidate degrades to
+    judgement_unavailable on every mock-stack run — the seams would never be
+    exercised by IQ/OQ/PQ at all."""
+    from applire.prompts.oracle_judgement import (
+        ORACLE_JUDGEMENT_SYSTEM_PROMPT as JUDGEMENT_SYSTEM,
+    )
+
+    result = await MockLLMProvider().aparse_json(
+        "ITEM 0 (mode: cross_language):\nCLAIM: x\nVAULT EVIDENCE:\n  [0] y",
+        system=JUDGEMENT_SYSTEM,
+    )
+    assert "mock" not in result, (
+        "MockLLMProvider does not recognise the Oracle judgement chain — it "
+        "fell through to the generic fallback; every mock-stack judgement "
+        "candidate will end judgement_unavailable and the seams are never "
+        "exercised. Add a system-prompt match in providers/llm/mock.py."
+    )
+    items = result.get("items")
+    assert isinstance(items, list) and items
+    assert items[0]["index"] == 0
+    assert items[0]["corresponds"] == "uncertain"
+
+
+@pytest.mark.asyncio
+async def test_mock_recognises_the_oracle_entailment_chain():
+    """#404 retrofit — the Oracle's narrow entailment call
+    (``services/oracle/audit.py``'s ``_entailment``) went through
+    ``aparse_json`` with NO ``system=`` argument at all, so it was invisible
+    to every fingerprint here and always fell to the generic fallback (safe,
+    since an invalid verdict already degrades to the caller's own
+    deterministic fallback — but it means the mock stack never exercised a
+    real entailment verdict shape)."""
+    from applire.services.oracle.audit import _ENTAILMENT_SYSTEM_PROMPT
+
+    result = await MockLLMProvider().aparse_json(
+        "PROFILE EVIDENCE:\n- x\n\nDOCUMENT CLAIM:\ny", system=_ENTAILMENT_SYSTEM_PROMPT
+    )
+    assert "mock" not in result, (
+        "MockLLMProvider does not recognise the Oracle entailment call (#404) "
+        "— it fell through to the generic fallback. Add a system-prompt "
+        "match in providers/llm/mock.py."
+    )
+    assert result.get("verdict") in ("grounded", "inflated", "unbacked", "unverifiable")

@@ -21,6 +21,7 @@ from applire.services.oracle.matchers.figures import (
     extract_figures,
     extract_spelled_figures,
 )
+from applire.utils.language_detection import detect_language
 
 
 @dataclass
@@ -61,6 +62,15 @@ class VaultIndex:
     # company is an ordinary tenure-spanning claim, not a cross-employer
     # blend. Empty for an id with no siblings (the common single-role case).
     same_employer_ids: dict[str, frozenset[str]] = field(default_factory=dict)
+    # ADR-068 clause 2a — the vault's OWN dominant language, computed ONCE per
+    # audit over the CONCATENATED text of every evidence unit (never
+    # per-unit: a short label like a skill name or a year span defaults to
+    # 'de' on its own and would swing a per-unit vote on noise alone — see
+    # ``applire.utils.language_detection.detect_language``'s own DE-default
+    # tie-break). This is the comparison side of the cross-language
+    # judgement seam's trigger: a document written in a DIFFERENT language
+    # than this one.
+    dominant_language: str = "de"
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -313,11 +323,15 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         for wid in group
     }
 
+    all_text_norm = _norm(" ".join(u.text for u in units))
     return VaultIndex(
         units=units,
-        all_text_norm=_norm(" ".join(u.text for u in units)),
+        all_text_norm=all_text_norm,
         skill_names=skill_names,
         figure_map=figure_map,
         experience_ids=frozenset(experience_ids),
         same_employer_ids=same_employer_ids,
+        # ADR-068 clause 2a — corpus-level, once, over the SAME normalized
+        # blob every grounding matcher already shares (never per-unit).
+        dominant_language=detect_language(all_text_norm),
     )

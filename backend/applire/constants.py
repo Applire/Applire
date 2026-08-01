@@ -265,6 +265,19 @@ ORACLE_ENTAILMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_ENTAILMENT_MAX_TO
 # capped") — claims beyond the cap fall back to the deterministic verdict.
 ORACLE_MAX_ENTAILMENT_CALLS: int = int(os.environ.get("ORACLE_MAX_ENTAILMENT_CALLS", "10"))
 
+# ── Oracle bounded equivalence judgement (ADR-068) ───────────────────────────
+# Per-item token budget for a batched judgement call (cross-language +
+# restatement seams, clause 6) — one-verdict-sized ORACLE_ENTAILMENT_MAX_TOKENS
+# above must NOT be reused, a judgement item carries a vault_quote span the
+# narrow entailment verdict never has to. The actual call cap is
+# ``max(400, ORACLE_JUDGEMENT_MAX_TOKENS * batch_size)`` — see
+# ``prompts.oracle_judgement.judgement_call_max_tokens``.
+ORACLE_JUDGEMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_JUDGEMENT_MAX_TOKENS", "120"))
+# Hard cap on judgement BATCH calls per audited document (mirrors
+# ORACLE_MAX_ENTAILMENT_CALLS's "narrow and capped" discipline) — candidates
+# beyond the budget degrade to the clause-3 fail-safe (judgement_unavailable).
+ORACLE_MAX_JUDGEMENT_CALLS: int = int(os.environ.get("ORACLE_MAX_JUDGEMENT_CALLS", "5"))
+
 # #379 — target_pages upper bound. The floor (>= 1) was validated everywhere it
 # enters the system; the ceiling was not, so a captured real run with
 # target_pages=999 fed straight into the per-role bullet-budget math and produced
