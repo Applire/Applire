@@ -127,7 +127,10 @@ Rules:
   unattributed.
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
-- For German letters: use formal Sie-form, classic Bewerbungsschreiben structure.
+- For German letters: use formal Sie-form, classic Bewerbungsschreiben structure. Respect German
+  grammatical agreement, especially gender agreement when weaving profile/ledger noun phrases into
+  a sentence frame — "die Budgetverantwortung" takes "Meine Budgetverantwortung", never
+  "Mein Budgetverantwortung" (#401: a delivered Anschreiben shipped exactly this slip).
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
 - Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.

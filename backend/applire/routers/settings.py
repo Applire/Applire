@@ -40,6 +40,9 @@ class SettingsResponse(BaseModel):
     default_color_profile_id: uuid.UUID | None
     default_accent_hex: str | None
     ui_language: str
+    # ADR-038 (amended 2026-08-01, #400): True only when a write explicitly
+    # carried ui_language — the served 'en' default is not a choice.
+    ui_language_explicit: bool = False
     hide_predownload_notice: bool
     # E042/US236 (ADR-051 §1): NULL = "use region standard".
     target_cv_pages: int | None = None
@@ -56,7 +59,9 @@ class SettingsPatchRequest(BaseModel):
 async def get_settings(db: AsyncSession) -> dict:
     """Service logic — returns current settings for the CE stub user.
 
-    ui_language is NOT NULL in the DB (ADR-038); defaults to 'en' if no row exists.
+    ui_language is nullable (ADR-038 amended 2026-08-01): NULL = never chosen,
+    served as 'en' with ui_language_explicit=False so the frontend can
+    materialise its locale as an explicit choice (#400).
     """
     from applire.models.user_settings import UserSettings
     from applire.models.color_profile import ColorProfile
@@ -67,7 +72,8 @@ async def get_settings(db: AsyncSession) -> dict:
     row = result.scalar_one_or_none()
 
     # Build response
-    ui_language = row.ui_language if row else "en"
+    ui_language_explicit = bool(row.ui_language) if row else False
+    ui_language = (row.ui_language if row else None) or "en"
     hide_predownload_notice = bool(row.hide_predownload_notice) if row else False
     target_cv_pages = row.target_cv_pages if row else None
 
@@ -76,6 +82,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "default_color_profile_id": None,
             "default_accent_hex": None,
             "ui_language": ui_language,
+            "ui_language_explicit": ui_language_explicit,
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
         }
@@ -86,6 +93,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "default_color_profile_id": None,
             "default_accent_hex": None,
             "ui_language": ui_language,
+            "ui_language_explicit": ui_language_explicit,
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
         }
@@ -94,6 +102,7 @@ async def get_settings(db: AsyncSession) -> dict:
         "default_color_profile_id": cp.id,
         "default_accent_hex": cp.seed_primary,
         "ui_language": ui_language,
+        "ui_language_explicit": ui_language_explicit,
         "hide_predownload_notice": hide_predownload_notice,
         "target_cv_pages": target_cv_pages,
     }
@@ -161,6 +170,7 @@ async def update_settings(
 
     response: dict = {
         "ui_language": row.ui_language or "en",
+        "ui_language_explicit": bool(row.ui_language),
         "hide_predownload_notice": bool(row.hide_predownload_notice),
         "target_cv_pages": row.target_cv_pages,
     }

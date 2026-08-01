@@ -50,6 +50,7 @@ from applire.constants import (
 )
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
+from applire.utils.language_detection import resolve_jd_language
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
@@ -109,14 +110,52 @@ logger = logging.getLogger(__name__)
 async def get_ui_language(db: AsyncSession) -> str:
     """Resolve the user's UI language for conversational LLM output (ADR-038).
 
-    Reads the CE stub user's settings; returns 'en' when no row exists.
-    Single seam for the future multi-user (OIDC) lookup.
+    Reads the CE stub user's settings; returns 'en' when no explicit choice
+    exists (``ui_language`` is nullable since the 2026-08-01 amendment — NULL
+    means the user never chose). Single seam for the future multi-user (OIDC)
+    lookup. Job-scoped conversation should use ``get_conversation_language``
+    instead, which adds the JD-language fallback.
     """
     result = await db.execute(
         select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
     )
     row = result.scalar_one_or_none()
     return (row.ui_language if row else None) or "en"
+
+
+async def get_conversation_language(
+    db: AsyncSession, job_id: uuid.UUID | str | None = None
+) -> str:
+    """Resolve the language for job-scoped conversational output.
+
+    ADR-038 amendment 2026-08-01 (#400/#313): an explicitly chosen
+    ``ui_language`` always wins; without one (no settings row, or a row
+    auto-created by an unrelated settings write — ``ui_language`` NULL), a
+    job-scoped conversation follows the language the JD is written in, the
+    language the user is demonstrably operating in on a headless/agent-channel
+    journey. 'en' remains the last-resort default only when there is no job
+    to route on.
+    """
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+    )
+    row = result.scalar_one_or_none()
+    if row is not None and row.ui_language:
+        return row.ui_language
+    if isinstance(job_id, str):
+        # Interview state JSONB stores job_id as a string.
+        try:
+            job_id = uuid.UUID(job_id)
+        except ValueError:
+            job_id = None
+    if job_id is not None:
+        job_result = await db.execute(
+            select(JobAnalysis).where(JobAnalysis.id == job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        if job is not None:
+            return resolve_jd_language(job)
+    return "en"
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +332,7 @@ async def _handle_gate_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_ui_language(db)
+    lang = await get_conversation_language(db, job_id=state.get("job_id"))
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -375,7 +414,7 @@ async def _handle_confirmation_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_ui_language(db)
+    lang = await get_conversation_language(db, job_id=state.get("job_id"))
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -564,7 +603,7 @@ async def _handle_conflict_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_ui_language(db)
+    lang = await get_conversation_language(db, job_id=state.get("job_id"))
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -881,8 +920,8 @@ async def create_session(
     else:
         resolved_mode = _auto_detect_mode(profile_record)
 
-    # Resolve UI language once per request (ADR-038)
-    lang = await get_ui_language(db)
+    # Resolve conversation language once per request (ADR-038, amended 2026-08-01)
+    lang = await get_conversation_language(db, job_id=job.id)
 
     # --- Micro-session: target_gap scopes to a single gap (Gap-Click mode, 19.9) ---
     if request.target_gap and resolved_mode == "targeted":
@@ -1767,8 +1806,8 @@ async def send_message(
     if record.status == "complete":
         raise ValueError("Session is already complete")
 
-    # Resolve UI language once for this turn (ADR-038)
-    lang = await get_ui_language(db)
+    # Resolve conversation language once for this turn (ADR-038, amended 2026-08-01)
+    lang = await get_conversation_language(db, job_id=record.job_analysis_id)
 
     state: InterviewState = dict(record.state)
     state["messages"].append({"role": "user", "content": message})
