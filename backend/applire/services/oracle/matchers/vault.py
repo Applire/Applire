@@ -195,11 +195,15 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         owners = _owners_of(w)
         _add_experience(f"work_experience[{i}]", w, owners)
         _add(f"work_experience[{i}].budget_managed", w.budget_managed, owners)
+    project_by_id: dict[str, Any] = {}
     for i, pr in enumerate(p.projects):
         owners = _project_owners(pr)
         experience_ids.update(owners)
         _add_experience(f"projects[{i}]", pr, owners)
         _add(f"projects[{i}].description", pr.description, owners)
+        pid = _safe_id(pr.id)
+        if pid is not None:
+            project_by_id[pid] = pr
     for i, v in enumerate(p.volunteer_activities):
         _add_experience(f"volunteer_activities[{i}]", v, _owners_of(v))
 
@@ -238,9 +242,40 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     # summary/skills — the presence of a real anchor is what changes, not the
     # unit kind.
     for i, story in enumerate(p.signature_stories):
-        story_owners = frozenset(
-            r.strip() for r in (story.experience_refs or []) if isinstance(r, str) and r.strip()
-        )
+        # #378/run-12 (sibling of #355, evidence on #378): a story's
+        # ``experience_refs`` entry can name a PROJECT id (US172 provenance
+        # pattern) rather than a work-experience id directly — the project's
+        # OWN units already resolve to their parent work id via
+        # ``_project_owners`` (US187 nesting), so a story ref pointing at
+        # that same project must resolve the same way, or a claim anchored
+        # to the parent position clears via the project's units but is
+        # flagged "misattributed" via the story's units for the identical
+        # underlying fact (run 12, controlling_emma_de: "Management-
+        # Reporting auf Power BI umstellen", byte-identical detail text
+        # reproduced by recon 2026-08-01). Reuses ``_project_owners``
+        # itself rather than duplicating its resolution logic.
+        #
+        # A ref naming a work-experience id directly (or a volunteer
+        # activity id — volunteer activities have no ``associated_experience``
+        # parent to resolve to, so their own id already IS the correct owner,
+        # same as before this fix) is kept as-is.
+        #
+        # #355: a ref matching NO known entity (dangling) is also kept
+        # verbatim — removing it would flip fail-open/fail-closed behavior
+        # for the attribution matcher, which is out of scope here.
+        story_owners_set: set[str] = set()
+        for r in story.experience_refs or []:
+            if not isinstance(r, str):
+                continue
+            ref = r.strip()
+            if not ref:
+                continue
+            pr = project_by_id.get(ref)
+            if pr is not None:
+                story_owners_set |= _project_owners(pr)
+            else:
+                story_owners_set.add(ref)
+        story_owners = frozenset(story_owners_set)
         _add(f"signature_stories[{i}].title", story.title, story_owners)
         _add(f"signature_stories[{i}].challenge", story.challenge, story_owners)
         _add(f"signature_stories[{i}].mechanism", story.mechanism, story_owners)

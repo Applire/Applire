@@ -59,6 +59,47 @@ _PLUS_QUANTIFIER_RE = re.compile(r"\b([1-9])\+")
 
 _GROUPED_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
 
+# #374 (recon-verified 2026-08-01, edge probe 2026-07-29): a standard or
+# regulation identifier ("ISO 15189", "ISO/IEC 27001", "21 CFR Part 11") is
+# NOT a quantified figure — it is a fact-level exclusion (ADR-062 clause 1),
+# never a heuristic about meaning, so the list is narrow and literal.
+# Uppercase-only and word-boundary-anchored: lowercase "en" is ordinary
+# German prose (e.g. "kennen"), and only the exact uppercase token counts as
+# the DIN/EN standard prefix. Both directions of #374 traced to the SAME
+# root cause — the claim-side false "No vault evidence for figure(s): 15189"
+# and the vault-side pollution where a certification like "ISO 9001 Lead
+# Auditor" put ("number", "9001") into ``figure_map`` — because both the
+# claim extractor and ``build_vault_index`` call this one shared function;
+# the guard lives here, not in either caller, so both directions are fixed
+# by construction.
+_IDENTIFIER_PREFIX = r"(?:ISO|IEC|EN|DIN|CFR|GAMP|ASTM|ANSI|RFC|IEEE|VDE|VDI)"
+# The common shape: prefix immediately followed (one space/"/"/"-") by the
+# identifier's digits — "ISO 15189", "DIN EN 9100", "ISO/IEC 27001".
+_IDENTIFIER_AFTER_RE = re.compile(
+    rf"\b{_IDENTIFIER_PREFIX}(?:\s*/\s*{_IDENTIFIER_PREFIX})?[ /-]\s*(\d+)"
+)
+# "21 CFR" — the CFR shape uniquely puts the identifying number BEFORE the
+# prefix (the US federal register title number), unlike every other prefix
+# in the list, so this is scoped to CFR only, not generalized.
+_IDENTIFIER_BEFORE_CFR_RE = re.compile(r"\b(\d+)\s+CFR\b")
+# "21 CFR Part 11" — the part/section number follows "Part" within a few
+# tokens of the CFR mention.
+_CFR_PART_RE = re.compile(r"\bCFR\b(?:\s+\S+){0,3}?\s+[Pp]art\s+(\d+)")
+
+
+def _identifier_spans(text: str) -> list[tuple[int, int]]:
+    """Digit spans immediately owned by a standard/regulation identifier."""
+    spans: list[tuple[int, int]] = []
+    for pattern in (_IDENTIFIER_AFTER_RE, _IDENTIFIER_BEFORE_CFR_RE, _CFR_PART_RE):
+        for m in pattern.finditer(text):
+            spans.append(m.span(1))
+    return spans
+
+
+def _overlaps_identifier(span: tuple[int, int], identifier_spans: list[tuple[int, int]]) -> bool:
+    start, end = span
+    return any(not (end <= a or start >= b) for a, b in identifier_spans)
+
 
 def _canonical_number(s: str) -> str:
     """Normalize separators: '1.000'/'1,000' → '1000'; '12,5' → '12.5'."""
@@ -85,6 +126,10 @@ def extract_figures(text: str) -> list[Figure]:
     """
     figures: list[Figure] = []
     consumed: list[tuple[int, int]] = []
+    # #374: computed once — percent/currency extraction is deliberately NOT
+    # guarded (a standard body never prefixes a percentage or a currency
+    # amount), only the year- and number-kind matches consult it.
+    identifier_spans = _identifier_spans(text)
 
     def _free(start: int, end: int) -> bool:
         return all(end <= s or start >= e for s, e in consumed)
@@ -104,11 +149,20 @@ def extract_figures(text: str) -> list[Figure]:
     for m in _YEAR_RE.finditer(text):
         if not _free(*m.span()):
             continue
+        if _overlaps_identifier(m.span(), identifier_spans):
+            # #374: "ISO 2015" must not become a year figure either — mark
+            # the span consumed so the number-kind pass below does not pick
+            # it up as a plain number instead.
+            consumed.append(m.span())
+            continue
         figures.append(Figure("year", m.group(1), m.group(0)))
         consumed.append(m.span())
 
     for m in _NUMBER_RE.finditer(text):
         if not _free(*m.span()):
+            continue
+        if _overlaps_identifier(m.span(), identifier_spans):
+            consumed.append(m.span())
             continue
         figures.append(Figure("number", _canonical_number(m.group(0)), m.group(0)))
         consumed.append(m.span())
