@@ -16,6 +16,7 @@ from applire.services.oracle.extract import (
     split_sentences,
     split_clauses,
 )
+from applire.services.oracle.matchers.figures import extract_figures
 
 
 class _SpyProvider:
@@ -51,10 +52,57 @@ class _SpyProvider:
         ("Delivered 3.5 years of support.", ["Delivered 3.5 years of support."]),
         ("", []),
         ("   ", []),
+        # #398 / charter run 12 (real provider, 2026-08-01): "Mio." split the
+        # sentence, orphaning "€" — extract_figures then produced a plain
+        # ``number`` figure ("78") instead of a ``currency`` figure ("78m"),
+        # which never matched the vault's indexed currency/78m entry and
+        # produced a false "No vault evidence for figure(s): 78".
+        (
+            "Ich verantwortete den rollierenden Forecast für 78 Mio. € "
+            "Umsatz als Key-Userin in SAP CO/FI.",
+            [
+                "Ich verantwortete den rollierenden Forecast für 78 Mio. € "
+                "Umsatz als Key-Userin in SAP CO/FI."
+            ],
+        ),
+        (
+            "Wir planten 2 Mrd. € Investitionsvolumen. Das Team wuchs auf "
+            "5 Tsd. Mitarbeiter.",
+            [
+                "Wir planten 2 Mrd. € Investitionsvolumen.",
+                "Das Team wuchs auf 5 Tsd. Mitarbeiter.",
+            ],
+        ),
+        # Titled salutations (separately-tracked bug, #398 board item): a
+        # bare "Mr." must not read as a sentence terminator either.
+        (
+            "Ich sprach mit Mr. Smith über das Projekt.",
+            ["Ich sprach mit Mr. Smith über das Projekt."],
+        ),
+        (
+            "I met with Mrs. Jones and Ms. Lee today.",
+            ["I met with Mrs. Jones and Ms. Lee today."],
+        ),
     ],
 )
 def test_split_sentences(text, expected):
     assert split_sentences(text) == expected
+
+
+def test_split_sentences_run12_currency_survives_into_one_currency_figure():
+    """#398 / charter run 12 ground truth: the whole "78 Mio. €" span must
+    stay inside a single sentence so ``extract_figures`` classifies it as a
+    ``currency`` figure ("78m"), never a bare ``number`` ("78") that can
+    never match the vault's indexed currency entry."""
+    text = (
+        "Ich verantwortete den rollierenden Forecast für 78 Mio. € Umsatz "
+        "als Key-Userin in SAP CO/FI."
+    )
+    sentences = split_sentences(text)
+    assert len(sentences) == 1
+    figures = extract_figures(sentences[0])
+    assert ("currency", "78m") in [(f.kind, f.value) for f in figures]
+    assert ("number", "78") not in [(f.kind, f.value) for f in figures]
 
 
 # ── tailored_data (generated CV) ──────────────────────────────────────────────
@@ -577,3 +625,134 @@ def test_clause_naming_neither_employer_stays_unanchored_in_two_employer_sentenc
     assert len(claims) == 2
     assert claims[0].source_experience_id is None
     assert claims[1].source_experience_id is None
+
+
+# ── #372 (2) — distinctive-token employer-anchor fallback (2026-08-01 recon) ──
+#
+# Recon-verified 2026-08-01: matching was one-directional — the FULL vault
+# company name (minus a trailing legal-form suffix, #237) had to appear
+# verbatim in the sentence. A letter's natural shortened mention ("Bei
+# Nordkette bewährte sich…" for vault "Nordkette Systemtechnik GmbH") never
+# matched at all (not even via the #248 loose/legal-form pass, since
+# "Nordkette Systemtechnik" itself still never appears verbatim) →
+# source_experience_id stayed None → downstream false-flag. The fallback
+# tries each vault company's DISTINCTIVE leading token only after the
+# stricter exact/legal-form passes found nothing.
+
+PROFILE_SHORTENED_MENTION = {
+    "work_experience": [
+        {
+            "id": "w-nordkette",
+            "company": "Nordkette Systemtechnik GmbH",
+            "role": "Consultant",
+        },
+        {"id": "w-applire", "company": "Applire", "role": "Founder"},
+    ],
+}
+
+
+def test_distinctive_token_fallback_resolves_shortened_mention():
+    letter = {
+        "body": {"paragraphs": ["Bei Nordkette bewährte sich mein Ansatz."]}
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_SHORTENED_MENTION)
+    assert claims
+    assert all(c.source_experience_id == "w-nordkette" for c in claims)
+
+
+def test_distinctive_token_fallback_never_overrides_exact_match():
+    """Guard (c): the fallback must never fire when a stricter pass already
+    resolved the anchor — the full company name is present verbatim here,
+    so the distinctive-token pass is never even consulted."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Bei Nordkette Systemtechnik GmbH bewährte sich mein Ansatz."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_SHORTENED_MENTION)
+    assert claims
+    assert all(c.source_experience_id == "w-nordkette" for c in claims)
+
+
+def test_distinctive_token_fallback_ambiguous_across_two_companies_stays_unanchored():
+    """Guard (a): a shortened form resolving to TWO different vault
+    employers must resolve to NO anchor, mirroring the existing multi-match
+    ambiguity behaviour."""
+    profile = {
+        "work_experience": [
+            {
+                "id": "w-nordkette",
+                "company": "Nordkette Systemtechnik GmbH",
+                "role": "Consultant",
+            },
+            {
+                "id": "w-ostsee",
+                "company": "Ostsee Datentechnik AG",
+                "role": "Consultant",
+            },
+        ],
+    }
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Bei Nordkette und Ostsee habe ich als Berater gearbeitet."
+            ]
+        }
+    }
+    claims = extract_claims_from_letter(letter, profile)
+    assert claims
+    assert all(c.source_experience_id is None for c in claims)
+
+
+def test_distinctive_token_fallback_skips_generic_stoplist_token():
+    """Guard (b): a leading token in the generic-company-word stoplist
+    ("Service") must never anchor, even though it is >= 4 chars and
+    otherwise unique across the candidate set."""
+    profile = {
+        "work_experience": [
+            {
+                "id": "w-service",
+                "company": "Service Solutions GmbH",
+                "role": "Consultant",
+            },
+        ],
+    }
+    letter = {"body": {"paragraphs": ["Bei Service habe ich mitgewirkt."]}}
+    claims = extract_claims_from_letter(letter, profile)
+    assert claims
+    assert all(c.source_experience_id is None for c in claims)
+
+
+def test_distinctive_token_fallback_skips_token_shared_by_two_company_names():
+    """Guard (b): a token that appears in MORE THAN ONE company's name is
+    excluded outright, even when it is not in the stoplist and even when it
+    happens to be the leading token of only one of them."""
+    profile = {
+        "work_experience": [
+            {
+                "id": "w-1",
+                "company": "Nordkette Systemtechnik GmbH",
+                "role": "Consultant",
+            },
+            {"id": "w-2", "company": "Baltic Nordkette AG", "role": "Consultant"},
+        ],
+    }
+    letter = {"body": {"paragraphs": ["Bei Nordkette habe ich gearbeitet."]}}
+    claims = extract_claims_from_letter(letter, profile)
+    assert claims
+    assert all(c.source_experience_id is None for c in claims)
+
+
+def test_distinctive_token_fallback_existing_exact_and_legal_form_tests_unchanged():
+    """Sanity pin: the pre-existing exact-name anchor still resolves without
+    ever touching the new fallback path."""
+    letter = {
+        "body": {
+            "paragraphs": ["Bei NordPharm habe ich die Automatisierung geleitet."]
+        }
+    }
+    claims = extract_claims_from_letter(letter, PROFILE_WITH_TWO_EMPLOYERS)
+    assert claims
+    assert all(c.source_experience_id == "w-nordpharm" for c in claims)
