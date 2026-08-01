@@ -1800,6 +1800,9 @@ async def get_cv_status(
         expires_at=record.expires_at,
         target_pages=record.target_pages,
         origin=record.origin,
+        # ADR-060 clause 6: the Pass A verdict is data on the status surface,
+        # both doors (REST poller and MCP get_cv_status serialize this model).
+        critic_report=record.critic_report,
     )
 
 
@@ -2503,6 +2506,38 @@ async def _update_ats_report(
             "Truthfulness self-audit failed for CV %s — report left NULL", record.id
         )
         record.truthfulness_report = None
+    # ADR-060 Pass A (third amendment, 2026-07-31 / ADR-067 clause 5): the
+    # outcome critic reads the ASSEMBLED CV — post-join, post-every-pass,
+    # overrides applied — and rides the same commit as the two reports above,
+    # so "ready implies critic verdict available" holds before the poller can
+    # see a terminal status. A SEPARATE try block, deliberately independent
+    # of the other blocks' locals: an ATS/truthfulness failure must never
+    # take the critic down, or vice versa. Advisory-only, never gates
+    # delivery (see run_pass_a's own short-circuits, SF-CRITIC.1/.8).
+    try:
+        from applire.services.cv_section_editor import apply_overrides_to_tailored
+        from applire.services.jd_excerpt import build_jd_excerpt
+        from applire.services.outcome_critic import run_pass_a
+
+        job_row = await db.get(JobAnalysis, record.job_analysis_id)
+        assembled = apply_overrides_to_tailored(
+            TailoredCVData.model_validate(record.tailored_data),
+            record.content_snapshot,
+            record.section_overrides,
+        )
+        critic_report = await run_pass_a(
+            cv_tailored=assembled.model_dump(mode="json"),
+            job_role_title=job_row.role_title if job_row else None,
+            jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
+            provider=get_provider(),
+        )
+        record.critic_report = critic_report.model_dump(mode="json")
+    except Exception:
+        logger.exception(
+            "Outcome critic Pass A failed for CV %s — critic_report left NULL",
+            record.id,
+        )
+        record.critic_report = None
     await db.commit()
 
 
@@ -2562,6 +2597,38 @@ async def get_cv_truthfulness_report(
             )
             report = None
     return TruthfulnessReportResponse(
+        document_id=record.id, status=record.status, report=report
+    )
+
+
+async def get_cv_critic_report(
+    cv_id: uuid.UUID, db: AsyncSession
+) -> "OutcomeCriticReportResponse":
+    """Return the persisted Pass A outcome-critic report for a CV (ADR-060
+    third amendment / E049 49.6) — the CV-side mirror of
+    ``get_cover_letter_critic_report`` (ADR-066: one implementation shape per
+    capability, one per document owner).
+
+    Raises LookupError if the CV is not found (→ 404 in the router). A
+    malformed stored report degrades to report=null, never a 500.
+    """
+    from applire.schemas.outcome_critic import (
+        OutcomeCriticReport,
+        OutcomeCriticReportResponse,
+    )
+
+    record = await _load_cv(cv_id, db)
+    report = None
+    if record.critic_report:
+        try:
+            report = OutcomeCriticReport.model_validate(record.critic_report)
+        except Exception:
+            logger.warning(
+                "Stored critic report for CV %s is malformed — returning report=null",
+                record.id,
+            )
+            report = None
+    return OutcomeCriticReportResponse(
         document_id=record.id, status=record.status, report=report
     )
 

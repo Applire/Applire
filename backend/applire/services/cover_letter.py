@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.db.session import AsyncSessionLocal
 from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
-from applire.models.cv import GeneratedCV
+from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
@@ -1363,10 +1363,18 @@ async def _update_ats_report_letter(
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
         audited_letter = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
 
-        # Pass B needs BOTH documents (ADR-060 amended 2026-07-30) — resolve
-        # the CV this letter's flow generated, exactly as the generation path
-        # itself does (flow.generated_cv_id), never the raw vault.
-        cv_tailored: dict | None = None
+        # Pass B needs BOTH documents (ADR-060 amended 2026-07-30). Resolution
+        # corrected 2026-07-31 (third amendment / SF-CRITIC.10): resolving the
+        # CV EXCLUSIVELY via flow.generated_cv_id starved this pass on every
+        # direct-generation path — that field is populated only by an explicit
+        # flow-advance-to-complete with the CV as artifact_id, which a direct
+        # generate_cv call (charter runs; agent-door runs that never advance
+        # the flow) never performs. Run-11 ground truth: `ran:false,
+        # reason:missing_cv` persisted while a ready CV for the same job sat
+        # two minutes away. Fallback is deterministic: the latest ready
+        # GeneratedCV for the SAME job_analysis_id. Both paths log which one
+        # resolved, so a starved run is diagnosable from the log alone.
+        cv_record = None
         flow_result = await db.execute(
             select(FlowSession).where(
                 FlowSession.job_id == cl.job_analysis_id,
@@ -1375,9 +1383,56 @@ async def _update_ats_report_letter(
         )
         flow = flow_result.scalar_one_or_none()
         if flow is not None and flow.generated_cv_id is not None:
-            cv = await db.get(GeneratedCV, flow.generated_cv_id)
-            if cv is not None:
-                cv_tailored = cv.tailored_data
+            cv_record = await db.get(GeneratedCV, flow.generated_cv_id)
+        if cv_record is None:
+            fallback_result = await db.execute(
+                select(GeneratedCV)
+                .where(
+                    GeneratedCV.job_analysis_id == cl.job_analysis_id,
+                    GeneratedCV.status == CVGenerationStatus.ready.value,
+                )
+                .order_by(GeneratedCV.created_at.desc())
+                .limit(1)
+            )
+            cv_record = fallback_result.scalar_one_or_none()
+            if cv_record is not None:
+                logger.info(
+                    "outcome critic (letter mount): CV resolved via latest-ready "
+                    "fallback for job %s (flow link absent — SF-CRITIC.10)",
+                    cl.job_analysis_id,
+                )
+        else:
+            logger.info(
+                "outcome critic (letter mount): CV resolved via flow.generated_cv_id"
+            )
+
+        # The critic must judge the CV the user actually has — overrides
+        # applied, exactly as the render path does (the letter side already
+        # applied its own overrides above; asymmetry found 2026-07-31).
+        cv_tailored: dict | None = None
+        if cv_record is not None:
+            cv_tailored = cv_record.tailored_data
+            if cv_record.section_overrides:
+                from applire.schemas.cv import TailoredCVData
+                from applire.services.cv_section_editor import (
+                    apply_overrides_to_tailored,
+                )
+
+                try:
+                    cv_tailored = apply_overrides_to_tailored(
+                        TailoredCVData.model_validate(cv_record.tailored_data),
+                        cv_record.content_snapshot,
+                        cv_record.section_overrides,
+                    ).model_dump(mode="json")
+                except Exception:
+                    # Advisory pass: a row that fails strict validation (legacy
+                    # shape) is judged un-overridden rather than not at all.
+                    logger.warning(
+                        "outcome critic (letter mount): could not apply CV "
+                        "section overrides for %s — judging the raw "
+                        "tailored_data instead",
+                        cv_record.id,
+                    )
 
         from applire.services.jd_excerpt import build_jd_excerpt
 

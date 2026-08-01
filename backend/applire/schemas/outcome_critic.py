@@ -15,14 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""ADR-060 Pass B — the outcome critic's persisted verdict (#322).
+"""ADR-060 — the outcome critic's persisted verdict (#322, amended 2026-07-31).
 
-A separate report shape from ``ATSReport``/``TruthfulnessReport`` (own field,
-own endpoint, own MCP tool) rather than a new key folded into either — Pass B
-judges something neither of those checks (cross-document coherence), and
-keeping it a distinct, additive surface means it can never be confused with a
-correctness/grounding verdict, and can never gate on the same field a stricter
-consumer might key off of.
+One engine, two mounts (ADR-066): the same report shape is persisted on
+``GeneratedCV.critic_report`` (Pass A — assembled single-document coherence)
+and ``GeneratedCoverLetter.critic_report`` (Pass B — cross-document
+coherence). A separate report shape from ``ATSReport``/``TruthfulnessReport``
+(own field, own endpoint) rather than a new key folded into either — the
+critic judges something neither of those checks, and keeping it a distinct,
+additive surface means it can never be confused with a correctness/grounding
+verdict, and can never gate on the same field a stricter consumer might key
+off of.
 
 ``CriticAdvisory.changed`` is pinned to the literal ``False`` (SF-CRITIC.5):
 the type itself makes "this pass could have set changed=True" inexpressible —
@@ -36,28 +39,48 @@ from pydantic import BaseModel, Field
 
 
 class CriticAdvisory(BaseModel):
-    """One cross-document finding — always advisory, never a rewrite (ADR-060
-    clause 5/amendment). ``cv_state``/``letter_state`` are the literal, verbatim
-    snippets the finding rests on (SF-CRITIC.2/.6: "state the fact it rests on
-    so a user can adjudicate at a glance"); ``message`` is the localized
-    narrative built deterministically from those facts (see
-    ``services/outcome_critic.py:_build_advisory``) — DE/EN parity is a
-    construction guarantee (both are always populated), never a per-call
+    """One coherence finding — always advisory, never a rewrite (ADR-060
+    clause 5/amendments). ``cv_state``/``cv_detail``/``letter_state`` are the
+    literal, citation-verified snippets the finding rests on (SF-CRITIC.2/.6:
+    "state the fact it rests on so a user can adjudicate at a glance");
+    ``message`` is the localized narrative built deterministically from those
+    facts (see ``services/outcome_critic.py:_build_advisory``) — DE/EN parity
+    is a construction guarantee (both are always populated), never a per-call
     accident of which language the model happened to answer in.
+
+    ``kind`` (2026-07-31, third ADR-060 amendment):
+    - ``letter_only`` — the letter states something the CV never mentions
+    - ``letter_richer`` — both mention it; only the letter carries the depth
+    - ``numeric_inconsistency`` — the two documents state different figures
+      for the same quantity (cross-document)
+    - ``internal_inconsistency`` — one document contradicts itself (Pass A:
+      a summary broader than its own detail; ``cv_detail`` holds the second
+      span)
     """
 
     concept: str
+    kind: Literal[
+        "letter_only",
+        "letter_richer",
+        "numeric_inconsistency",
+        "internal_inconsistency",
+    ] = "letter_only"
     # The CV's own verbatim mention, or None when the concept is entirely
     # absent from the CV (the plain letter-only shape).
     cv_state: Optional[str] = None
-    # The letter's verbatim mention that the finding is about.
-    letter_state: str
+    # Pass A internal findings: the second CV span the first one overreaches
+    # (e.g. the detail bullet a summary claim is broader than).
+    cv_detail: Optional[str] = None
+    # The letter's verbatim mention the finding is about (None on Pass A —
+    # there is no letter at the CV mount).
+    letter_state: Optional[str] = None
     changed: Literal[False] = False
     message: dict[str, str] = Field(default_factory=dict)  # {"de": ..., "en": ...}
 
 
 class OutcomeCriticReport(BaseModel):
-    """Persisted on ``GeneratedCoverLetter.critic_report``.
+    """Persisted on ``GeneratedCV.critic_report`` (Pass A) and
+    ``GeneratedCoverLetter.critic_report`` (Pass B).
 
     ``ran``/``reason`` deliberately distinguish "did not run" from "ran and
     found nothing" from "ran but the judgement call errored" (SF-CRITIC.1) —
@@ -65,15 +88,26 @@ class OutcomeCriticReport(BaseModel):
     failure this pass exists to avoid repeating.
 
     reason ∈ {None, "disabled", "missing_letter", "missing_cv",
-    "missing_ledger", "no_candidates", "judgement_error"}. ``None`` only when
-    ``ran`` is True and at least the judgement call itself completed
-    (``advisories`` may still be empty — the model found nothing worth
-    surfacing).
+    "judgement_error"}. ``None`` only when ``ran`` is True and at least the
+    judgement call itself completed (``advisories`` may still be empty — the
+    model found nothing worth surfacing). The pre-2026-07-31
+    ``no_candidates`` and ``missing_ledger`` short-circuits are retired
+    deliberately (SF-CRITIC.9: 0 candidates ≠ nothing wrong; the ledger only
+    feeds anchors now); old persisted rows may still carry either.
+
+    ``dropped_citations`` (SF-CRITIC.11): findings the model returned whose
+    quoted spans failed literal verification against the documents — dropped,
+    never surfaced, but COUNTED so a run with gutted recall is readable from
+    the persisted report alone.
     """
 
     ran: bool
     reason: Optional[str] = None
+    # Which mount produced this report: "cv" (Pass A) or "letter" (Pass B).
+    # None on pre-2026-07-31 rows.
+    mount: Optional[str] = None
     advisories: list[CriticAdvisory] = Field(default_factory=list)
+    dropped_citations: int = 0
 
 
 class OutcomeCriticReportResponse(BaseModel):

@@ -995,6 +995,13 @@
       "not_applicable": "About the employer"
     }
   },
+  "criticAdvisory": {
+    "title": "For your consideration",
+    "subtitle": "Nothing here has been changed — the choice is yours.",
+    "cvQuoteLabel": "From your CV",
+    "cvDetailQuoteLabel": "Also in your CV",
+    "letterQuoteLabel": "From your letter"
+  },
   "admin": {
     "appearanceTitle": "Appearance",
     "schemeEditor": {
@@ -1076,6 +1083,7 @@
     "confirmDownload": "Yes, this reflects my experience",
     "confirmDefault": "Looks good",
     "attestationNote": "By downloading you confirm the content reflects your actual experience.",
+    "factGuarantee": "Employer names, positions and dates come directly from your profile and cannot be altered by the generator.",
     "storyChallenge": "Challenge",
     "storyMechanism": "Approach",
     "storyOutcome": "Outcome",

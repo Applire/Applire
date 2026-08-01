@@ -71,6 +71,12 @@ class GeneratedCV(Base):
     # (oracle error or pre-Tiramisu row). Written in the same commit as the
     # artifact/report so re-generation replaces it atomically. Never gates delivery.
     truthfulness_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-060 (third amendment, 2026-07-31): the outcome critic's Pass A
+    # verdict — the ASSEMBLED CV judged alone for single-document coherence
+    # before presentation. NULL = not yet computed (pre-two-mount row, or the
+    # pass did not run; OutcomeCriticReport.reason says why). Written in the
+    # same commit as ats_report/truthfulness_report. Never gates delivery.
+    critic_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

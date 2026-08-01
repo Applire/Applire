@@ -227,7 +227,25 @@ async def test_advisory_reaches_the_persisted_report(seeded):
     service function the agent door calls returns the identical shape."""
     db, job, profile, cv, cl = seeded
 
-    judgement = {"findings": [{"concept": "ISO 9001", "worth_surfacing": True}]}
+    # Third-amendment judgement shape: the model quotes the span its finding
+    # rests on; the service verifies the citation against the letter before
+    # building the advisory (SF-CRITIC.11).
+    judgement = {
+        "findings": [
+            {
+                "kind": "letter_only",
+                "concept": "ISO 9001",
+                "cv_quote": None,
+                "cv_detail_quote": None,
+                "letter_quote": (
+                    "Bei Musterwerk GmbH bringe ich mit zehn Jahren "
+                    "ISO-9001-Auditpraxis genau die Qualitätssicherungs-"
+                    "Expertise mit, die Sie suchen."
+                ),
+                "worth_surfacing": True,
+            }
+        ]
+    }
     await _run_generation(db, job, cl, [judgement])
 
     await db.refresh(cl)
@@ -375,4 +393,75 @@ async def test_missing_cv_short_circuits_loudly_not_silently(db):
     assert cl.status == CoverLetterStatus.ready.value
     assert cl.critic_report["ran"] is False
     assert cl.critic_report["reason"] == "missing_cv"
+
+
+@pytest.mark.asyncio
+async def test_cv_resolved_via_latest_ready_fallback_when_flow_link_absent(db):
+    """SF-CRITIC.10 (run-11 ground truth): a direct generate_cv never populates
+    flow.generated_cv_id, and resolving the CV EXCLUSIVELY through it starved
+    Pass B on both charter cases (`ran:false, reason:missing_cv` persisted
+    while a ready CV for the same job existed). The deterministic fallback —
+    latest ready GeneratedCV for the same job_analysis_id — must feed the
+    pass instead."""
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.models.cv import GeneratedCV
+    from applire.models.flow import FlowSession
+    from applire.models.gap import GapAnalysis
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.models.user import User
+
+    user = User(id=uuid.uuid4(), email="critic-it-3@test.com")
+    db.add(user)
+    job = JobAnalysis(
+        id=uuid.uuid4(),
+        raw_text_hash="criticit789",
+        raw_text="Qualitätsmanager (m/w/d) — ISO 9001 gefordert.",
+        role_title="Qualitätsmanager",
+        required_skills=["ISO 9001"],
+        nice_to_have_skills=[],
+        keywords=["ISO 9001"],
+        seniority_level="senior",
+        company_culture_signals=[],
+        language_requirement="de",
+    )
+    db.add(job)
+    profile = MasterProfile(profile_json=PROFILE_JSON)
+    db.add(profile)
+    await db.flush()
+    # A ready CV for the job — NOT linked to any flow (the charter-run shape).
+    cv = GeneratedCV(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        tailored_data=CV_TAILORED_DATA,
+        template="classic_german",
+        status="ready",
+    )
+    db.add(cv)
+    gap = GapAnalysis(job_analysis_id=job.id, profile_id=profile.id, keyword_ledger=_LEDGER)
+    db.add(gap)
+    flow = FlowSession(user_id=user.id, job_id=job.id, generated_cv_id=None)
+    db.add(flow)
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        template="classic_german",
+        letter_data={},
+        pre_gen_inputs={},
+        status=CoverLetterStatus.pending.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    await _run_generation(db, job, cl, [{"findings": []}])
+
+    await db.refresh(cl)
+    assert cl.status == CoverLetterStatus.ready.value
+    assert cl.critic_report["ran"] is True, (
+        "the latest-ready fallback did not feed the pass — the run-11 "
+        "starvation shape (SF-CRITIC.10) is back"
+    )
+    assert cl.critic_report["reason"] is None
+    assert cl.critic_report["mount"] == "letter"
     assert cl.critic_report["advisories"] == []

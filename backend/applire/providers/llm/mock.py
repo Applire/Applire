@@ -651,5 +651,33 @@ class MockLLMProvider(LLMProvider):
                 )
             }
 
+        # ADR-060 outcome critic — one engine, two mounts (E049 49.6). The mock
+        # mirrors the real response shape AND the citation discipline: any
+        # quote it returns is lifted VERBATIM from the prompt's own document
+        # block, so the service's citation verification always passes (the
+        # stance-adjudication precedent: an unrecognised prompt would fall to
+        # the generic {"mock": ...} fallback, which the caller treats as
+        # malformed → judgement_error on EVERY mock run, so the mock IQ/OQ/PQ
+        # suites would never exercise the advisory path at all — exactly what
+        # happened to Pass B between 2026-07-30 and 2026-07-31, when this
+        # fingerprint did not exist).
+        if "outcome critic" in system_lower:
+            letter_unit = re.search(r"=== COVER LETTER[^\n]*===\n\[1\] (.+)", prompt)
+            if letter_unit:
+                return {
+                    "findings": [
+                        {
+                            "kind": "letter_only",
+                            "concept": "Mock coherence probe",
+                            "cv_quote": None,
+                            "cv_detail_quote": None,
+                            "letter_quote": letter_unit.group(1).strip(),
+                            "worth_surfacing": True,
+                        }
+                    ]
+                }
+            # Pass A (no letter block): a clean ran-and-found-nothing report.
+            return {"findings": []}
+
         # Fallback: return a minimal valid dict for any unrecognised prompt
         return {"mock": True, "raw_prompt_length": len(prompt)}

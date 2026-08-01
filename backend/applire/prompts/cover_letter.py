@@ -148,12 +148,20 @@ Rules:
     product, market, or achievement that is not stated in that JOB DESCRIPTION text.
   * HONEST GAP / TRANSFER ARGUMENT: when a GAP TESTIMONY block appears, write exactly ONE
     honest paragraph that (a) names/acknowledges the stated gap directly and (b) delivers the
-    candidate's OWN transfer argument, grounded VERBATIM in the testimony given in that block —
+    candidate's OWN transfer argument, using ONLY the facts and reasoning stated in that block —
     never invent a transfer argument the candidate did not state. When no GAP TESTIMONY block
     is present, do not mention any gap at all.
   * AVAILABILITY / CONCURRENT COMMITMENTS: when an AVAILABILITY TESTIMONY block appears,
-    address availability/commitment using ONLY that testimony, grounded verbatim. When it is
+    address availability/commitment using ONLY the facts stated in that testimony. When it is
     absent, make NO availability or commitment claim beyond what PRE-GENERATION INPUTS states.
+  * TESTIMONY IS SOURCE MATERIAL, NOT LETTER PROSE (E049 49.6, run-11 finding): testimony
+    blocks are transcripts of SPOKEN interview answers. Use only their content — same facts,
+    same reasoning, nothing added — but ALWAYS rewrite them in the letter's professional
+    register. Never splice spoken phrasing into the letter ("das will ich ehrlich sagen",
+    "to be honest with you"), and resolve every deictic reference: "bei uns"/"we"/"here" in
+    testimony means the candidate's CURRENT/former employer — in a letter addressed to the
+    TARGET company those words read as the target. Name the employer instead. And never
+    re-state content another paragraph of the letter already covers — one fact, one paragraph.
 - STATED LIMITS: when a STATED LIMITS block appears in the user message, it holds the
   candidate's own words about what they cannot claim, and they are the ONLY limits that
   exist. Never write a claim one of them contradicts. Equally: never invent a limit they do

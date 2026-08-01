@@ -995,6 +995,13 @@
       "not_applicable": "Aussage über den Arbeitgeber"
     }
   },
+  "criticAdvisory": {
+    "title": "Zur Prüfung",
+    "subtitle": "Hier wurde nichts geändert — die Entscheidung liegt bei Ihnen.",
+    "cvQuoteLabel": "Aus Ihrem Lebenslauf",
+    "cvDetailQuoteLabel": "Ebenfalls in Ihrem Lebenslauf",
+    "letterQuoteLabel": "Aus Ihrem Anschreiben"
+  },
   "admin": {
     "appearanceTitle": "Erscheinungsbild",
     "schemeEditor": {
@@ -1076,6 +1083,7 @@
     "confirmDownload": "Ja, das entspricht meiner Erfahrung",
     "confirmDefault": "Sieht gut aus",
     "attestationNote": "Mit dem Download bestätigst du, dass der Inhalt deine tatsächliche Erfahrung widerspiegelt.",
+    "factGuarantee": "Arbeitgeber, Positionen und Daten stammen direkt aus deinem Profil und können vom Generator nicht verändert werden.",
     "storyChallenge": "Herausforderung",
     "storyMechanism": "Vorgehen",
     "storyOutcome": "Ergebnis",

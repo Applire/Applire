@@ -15,12 +15,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""ADR-060 Pass B — the outcome critic's cross-document coherence pass (#322).
+"""ADR-060 — the outcome critic: ONE engine, TWO mounts (#322, third
+amendment 2026-07-31, ADR-066).
 
-**Scope.** This module builds ONLY Pass B (letter vs. CV cross-document
-coherence), per the PO's 2026-07-30 amendment to ADR-060. Pass A (CV
-selection) is deliberately NOT built — see the ADR amendment for why (#303's
-narrative-presence predicate closes that defect deterministically instead).
+**Mounts.** :func:`run_pass_a` — the ASSEMBLED CV, judged alone for
+single-document coherence before it is presented (ADR-067 clause 5's
+required reader for the CV chain). :func:`run_pass_b` — the assembled CV +
+settled letter pair, judged for cross-document coherence. Same engine
+(:func:`_run_mount`), same report schema, same contract: advisory-only,
+never gates delivery.
+
+**The judgement reads the documents (2026-07-31).** The 2026-07-30 build
+sent the model only fact-half nominations; SF-CRITIC.9 observed that
+candidate universe missing real findings (achievement figures, scope
+qualifiers — shapes no enumeration anticipated). The model now reads the
+assembled document(s) verbatim; the presence facts below survive as ANCHORS.
+What bounds the widened judgement is CITATION VERIFICATION: every finding
+must quote its span(s), verified under normalisation against the named
+document before an advisory is built (SF-CRITIC.11) — the model does the
+semantic work, code checks the citation.
 
 **The fact / judgement split (ADR-062 clause 1-2).**
 
@@ -68,7 +81,11 @@ from applire.constants import (
     CRITIC_JUDGEMENT_MAX_TOKENS,
     CRITIC_MAX_ROUNDS,
 )
-from applire.prompts.outcome_critic import SYSTEM_PROMPT, build_pass_b_prompt
+from applire.prompts.outcome_critic import (
+    SYSTEM_PROMPT,
+    build_pass_a_prompt,
+    build_pass_b_prompt,
+)
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.outcome_critic import CriticAdvisory, OutcomeCriticReport
 from applire.services.ats_audit import _norm as ats_norm
@@ -249,89 +266,374 @@ def compute_presence_facts(
     return facts
 
 
+# ── citation verification (SF-CRITIC.11, third amendment 2026-07-31) ───────
+# A finding is only surfaced on spans provably in the documents. Verification
+# runs under normalisation, NEVER a raw ``in`` check: a model quotes German
+# prose with typographic punctuation (U+2019 apostrophes, curly quotes — the
+# documented class that defeated an ASCII marker list once already) and may
+# reflow whitespace; a naive substring check would silently drop true
+# findings, quietly re-narrowing the very control the widened judgement is
+# (an invisible recall cliff, not a fail-open bug).
+
+_CITATION_PUNCT_FOLD = str.maketrans(
+    {
+        "’": "'",  # right single quotation mark (the U+2019 class)
+        "‘": "'",
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "«": '"',
+        "»": '"',
+        "–": "-",  # en dash
+        "—": "-",  # em dash
+        " ": " ",  # no-break space
+    }
+)
+
+
+def _normalize_citation(text: str) -> str:
+    """Punctuation-fold + the shared ``ats_norm`` fold + whitespace collapse.
+
+    Layered ON TOP of ``ats_norm`` (the module's shared instrument), never
+    instead of it — the two folds answer different questions and only their
+    composition survives both a typographic quote and a case difference.
+    """
+    return " ".join(ats_norm(text.translate(_CITATION_PUNCT_FOLD)).split())
+
+
+def _citation_present(quote: str | None, units: list[str]) -> bool:
+    """Is *quote* literally present (under normalisation) in any unit — or in
+    the unit-joined text, for a span crossing a sentence boundary within one
+    paragraph? Empty/None quotes are NOT present — a finding must cite."""
+    if not quote or not quote.strip():
+        return False
+    q = _normalize_citation(quote)
+    if not q:
+        return False
+    for unit in units:
+        if q in _normalize_citation(unit):
+            return True
+    return False
+
+
 # ── deterministic, bilingual advisory text (SF-CRITIC.2/.6) ────────────────
-# Both languages are ALWAYS built from the same facts — DE/EN parity is a
-# construction guarantee, never a per-call accident of which language the
-# model happened to answer in (the model is never asked to write prose here
-# at all; see prompts/outcome_critic.py — it answers one true/false per
-# candidate, nothing else).
+# Both languages are ALWAYS built from the same citation-verified quotes —
+# DE/EN parity is a construction guarantee, never a per-call accident of
+# which language the model happened to answer in. The model contributes the
+# judgement (worth_surfacing), the quotes, and a short neutral topic label;
+# the narrative the user reads is assembled HERE, from the verified quotes
+# only, so the advisory always states the fact it rests on.
 _MESSAGES: dict[str, dict[str, str]] = {
     "de": {
         "letter_only": (
-            'Ihr Anschreiben nennt "{letter_snippet}" (zu {concept}); '
+            'Ihr Anschreiben nennt "{letter_state}" (zu {concept}); '
             "Ihr Lebenslauf erwähnt dies nicht."
         ),
         "letter_richer": (
-            'Ihr Anschreiben nennt zu {concept} "{letter_snippet}"; Ihr Lebenslauf '
-            'nennt {concept} nur ohne diese Angabe ("{cv_snippet}").'
+            'Ihr Anschreiben nennt zu {concept} "{letter_state}"; Ihr Lebenslauf '
+            'nennt {concept} nur ohne diese Angabe ("{cv_state}").'
+        ),
+        "numeric_inconsistency": (
+            'Zu {concept} nennt Ihr Lebenslauf "{cv_state}", Ihr Anschreiben '
+            'dagegen "{letter_state}" — die Angaben unterscheiden sich.'
+        ),
+        "internal_inconsistency": (
+            'Ihr Lebenslauf sagt zu {concept} "{cv_state}"; die zugehörige '
+            'Detailangabe lautet "{cv_detail}" — die Zusammenfassung geht über '
+            "das Detail hinaus."
         ),
         "advice": (
-            "Es wurde nichts verändert — Sie entscheiden, ob Sie den Lebenslauf "
-            "ergänzen oder es so lassen."
+            "Es wurde nichts verändert — Sie entscheiden, ob Sie das Dokument "
+            "anpassen oder es so lassen."
         ),
     },
     "en": {
         "letter_only": (
-            'Your cover letter states "{letter_snippet}" (about {concept}); '
+            'Your cover letter states "{letter_state}" (about {concept}); '
             "your CV does not mention it."
         ),
         "letter_richer": (
-            'Your cover letter states "{letter_snippet}" about {concept}; your CV '
-            'mentions {concept} without that detail ("{cv_snippet}").'
+            'Your cover letter states "{letter_state}" about {concept}; your CV '
+            'mentions {concept} without that detail ("{cv_state}").'
+        ),
+        "numeric_inconsistency": (
+            'About {concept}, your CV states "{cv_state}" while your cover '
+            'letter states "{letter_state}" — the figures differ.'
+        ),
+        "internal_inconsistency": (
+            'Your CV\'s summary states "{cv_state}" about {concept}; the '
+            'underlying detail reads "{cv_detail}" — the summary claims more '
+            "than the detail substantiates."
         ),
         "advice": (
-            "Nothing has been changed — it is your choice whether to add this to "
-            "the CV or leave it as is."
+            "Nothing has been changed — it is your choice whether to adjust "
+            "the document or leave it as is."
         ),
     },
 }
 
+_PASS_KINDS: dict[str, frozenset[str]] = {
+    "cv": frozenset({"internal_inconsistency"}),
+    "letter": frozenset({"letter_only", "letter_richer", "numeric_inconsistency"}),
+}
 
-def _build_advisory(fact: ConceptPresenceFact) -> CriticAdvisory:
-    kind = "letter_only" if fact.letter_only else "letter_richer"
+
+def _build_advisory(
+    *,
+    kind: str,
+    concept: str,
+    cv_state: str | None,
+    cv_detail: str | None,
+    letter_state: str | None,
+) -> CriticAdvisory:
     messages: dict[str, str] = {}
     for lang, m in _MESSAGES.items():
         body = m[kind].format(
-            concept=fact.concept,
-            letter_snippet=fact.letter_snippet or "",
-            cv_snippet=fact.cv_snippet or "",
+            concept=concept,
+            cv_state=cv_state or "",
+            cv_detail=cv_detail or "",
+            letter_state=letter_state or "",
         )
         messages[lang] = f"{body} {m['advice']}"
     return CriticAdvisory(
-        concept=fact.concept,
-        cv_state=fact.cv_snippet,
-        letter_state=fact.letter_snippet or "",
+        concept=concept,
+        kind=kind,  # type: ignore[arg-type]
+        cv_state=cv_state,
+        cv_detail=cv_detail,
+        letter_state=letter_state,
         changed=False,
         message=messages,
     )
 
 
 def _advisories_from_judgement(
-    result: Any, candidates: list[ConceptPresenceFact]
-) -> list[CriticAdvisory]:
+    result: Any,
+    *,
+    mount: str,
+    cv_units: list[str],
+    letter_units: list[str],
+) -> tuple[list[CriticAdvisory], int]:
+    """Parse the model's findings, verify EVERY quoted span against the
+    document it names, and build advisories from the survivors.
+
+    Returns ``(advisories, dropped_citations)``. A malformed envelope raises
+    (the caller's retry loop owns that); an individual bad finding never does
+    — it is dropped and counted, so one hallucinated quote cannot take down
+    the round's real findings (SF-CRITIC.11: drops must be visible, not
+    fatal and not silent).
+    """
     if not isinstance(result, dict) or not isinstance(result.get("findings"), list):
         raise ValueError(
-            "outcome critic Pass B: malformed judgement response "
+            "outcome critic: malformed judgement response "
             "(expected {'findings': [...]})"
         )
-    by_concept = {c.concept: c for c in candidates}
     advisories: list[CriticAdvisory] = []
+    dropped = 0
     for item in result["findings"]:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or not item.get("worth_surfacing"):
             continue
-        fact = by_concept.get(item.get("concept"))
-        if fact is None or not item.get("worth_surfacing"):
+        kind = item.get("kind")
+        if kind not in _PASS_KINDS[mount]:
+            dropped += 1
+            logger.warning(
+                "outcome critic (%s mount): finding kind %r not valid on this "
+                "pass — dropped",
+                mount, kind,
+            )
             continue
-        advisories.append(_build_advisory(fact))
-    return advisories
+        concept = str(item.get("concept") or "").strip()
+        cv_quote = item.get("cv_quote")
+        cv_detail_quote = item.get("cv_detail_quote")
+        letter_quote = item.get("letter_quote")
+
+        # Per-kind citation requirements — every span the advisory will show
+        # must verify against the document it is attributed to.
+        checks: list[bool] = [bool(concept)]
+        if kind == "letter_only":
+            checks.append(_citation_present(letter_quote, letter_units))
+            cv_quote = None  # by definition absent from the CV
+        elif kind == "letter_richer" or kind == "numeric_inconsistency":
+            checks.append(_citation_present(letter_quote, letter_units))
+            checks.append(_citation_present(cv_quote, cv_units))
+        elif kind == "internal_inconsistency":
+            checks.append(_citation_present(cv_quote, cv_units))
+            checks.append(_citation_present(cv_detail_quote, cv_units))
+            letter_quote = None
+        if not all(checks):
+            dropped += 1
+            logger.warning(
+                "outcome critic (%s mount): citation verification FAILED for "
+                "%r finding %r — dropped, not surfaced (cv_quote=%r, "
+                "cv_detail_quote=%r, letter_quote=%r)",
+                mount, kind, concept, cv_quote, cv_detail_quote, letter_quote,
+            )
+            continue
+        advisories.append(
+            _build_advisory(
+                kind=kind,
+                concept=concept,
+                cv_state=cv_quote,
+                cv_detail=cv_detail_quote,
+                letter_state=letter_quote,
+            )
+        )
+    return advisories, dropped
 
 
-def _candidate_dict(fact: ConceptPresenceFact) -> dict[str, str]:
+def _anchor_dict(fact: ConceptPresenceFact) -> dict[str, str]:
     return {
         "concept": fact.concept,
         "cv_state": fact.cv_snippet if fact.cv_present else "not mentioned in the CV",
         "letter_state": fact.letter_snippet or "",
     }
+
+
+async def _run_mount(
+    *,
+    mount: str,
+    cv_tailored: dict[str, Any] | None,
+    letter_data: dict[str, Any] | None,
+    keyword_ledger: list[dict[str, Any]] | None,
+    job_role_title: str | None,
+    jd_excerpt: str | None,
+    provider: LLMProvider,
+    enabled: bool | None,
+    max_rounds: int | None,
+) -> OutcomeCriticReport:
+    """ONE critic engine, mounted twice (ADR-066 / ADR-060 third amendment).
+
+    Never raises — every failure mode short-circuits to a distinctly-logged,
+    distinctly-reasoned :class:`OutcomeCriticReport` (SF-CRITIC.1/.8) and
+    NEVER gates delivery (ADR-060 clause 3 / PO decision 2, unchanged through
+    all three amendments).
+
+    ``enabled``/``max_rounds`` default to ``None``, resolved to the CURRENT
+    value of the module-level ``CRITIC_ENABLED``/``CRITIC_MAX_ROUNDS`` at
+    CALL time (deliberately NOT a bound default — a default value is frozen
+    at function-definition time, which would make ``CRITIC_ENABLED`` un-
+    patchable by an operator env-var change or a test's ``monkeypatch``
+    after import; reading the module global inside the body stays live).
+
+    There is deliberately NO 0-candidate short-circuit any more: the model
+    reads the assembled document(s) regardless of what the fact layer found.
+    "0 candidates ⇒ no LLM call" WAS SF-CRITIC.9's blindness — the blind
+    panel found real asymmetries the candidate universe could not contain.
+    """
+    if enabled is None:
+        enabled = CRITIC_ENABLED
+    if max_rounds is None:
+        max_rounds = CRITIC_MAX_ROUNDS
+    if not enabled:
+        logger.info("outcome critic (%s mount): DID NOT RUN (CRITIC_ENABLED=false)", mount)
+        return OutcomeCriticReport(ran=False, reason="disabled", mount=mount, advisories=[])
+    if not cv_tailored:
+        # Both mounts need the assembled CV — Pass A judges it, Pass B
+        # cross-checks against it. A precondition failure, never a "found
+        # nothing" judgement.
+        logger.info(
+            "outcome critic (%s mount): DID NOT RUN (no assembled CV)", mount
+        )
+        return OutcomeCriticReport(ran=False, reason="missing_cv", mount=mount, advisories=[])
+    if mount == "letter" and not letter_data:
+        logger.info(
+            "outcome critic (letter mount): DID NOT RUN (no settled letter draft)"
+        )
+        return OutcomeCriticReport(
+            ran=False, reason="missing_letter", mount=mount, advisories=[]
+        )
+
+    cv_units = _document_units(cv_tailored)
+    letter_units = _document_units(letter_data) if mount == "letter" else []
+
+    if mount == "letter":
+        # The deterministic presence facts ride along as ANCHORS — no longer
+        # the input boundary (SF-CRITIC.9). A missing ledger (legacy/pre-E037
+        # analysis) empties the anchor list; it no longer blocks the pass,
+        # because the judgement's real input is the documents themselves.
+        if keyword_ledger:
+            facts = compute_presence_facts(cv_tailored, letter_data, keyword_ledger)
+            anchors = [_anchor_dict(f) for f in facts if f.flagged]
+        else:
+            logger.info(
+                "outcome critic (letter mount): no Keyword Ledger — judging "
+                "with an empty anchor list"
+            )
+            anchors = []
+        prompt = build_pass_b_prompt(
+            cv_units, letter_units, anchors, job_role_title, jd_excerpt
+        )
+    else:
+        anchors = []
+        prompt = build_pass_a_prompt(cv_units, job_role_title, jd_excerpt)
+
+    attempts = max(1, max_rounds)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            result = await provider.aparse_json(
+                prompt, system=SYSTEM_PROMPT, max_tokens=CRITIC_JUDGEMENT_MAX_TOKENS
+            )
+            advisories, dropped = _advisories_from_judgement(
+                result, mount=mount, cv_units=cv_units, letter_units=letter_units
+            )
+            logger.info(
+                "outcome critic (%s mount): RAN — %d anchor(s), %d advisory(-ies) "
+                "surfaced, %d citation-dropped (judgement attempt %d/%d)",
+                mount, len(anchors), len(advisories), dropped, attempt, attempts,
+            )
+            return OutcomeCriticReport(
+                ran=True,
+                reason=None,
+                mount=mount,
+                advisories=advisories,
+                dropped_citations=dropped,
+            )
+        except Exception as exc:  # noqa: BLE001 — advisory-only judgement call;
+            # a provider/parse error must never fail document generation
+            # (never gates delivery). Logged distinctly from the "DID NOT
+            # RUN" branches above and from a clean 0-advisory run, so the
+            # states are never conflated at the observability layer
+            # (SF-CRITIC.1's own lesson).
+            last_error = exc
+            logger.warning(
+                "outcome critic (%s mount): judgement call failed on attempt %d/%d: %s",
+                mount, attempt, attempts, exc,
+            )
+
+    logger.warning(
+        "outcome critic (%s mount): RAN but the judgement call never succeeded "
+        "after %d attempt(s) — advisory omitted, delivery unaffected. Last "
+        "error: %s",
+        mount, attempts, last_error,
+    )
+    return OutcomeCriticReport(
+        ran=True, reason="judgement_error", mount=mount, advisories=[]
+    )
+
+
+async def run_pass_a(
+    *,
+    cv_tailored: dict[str, Any] | None,
+    job_role_title: str | None,
+    jd_excerpt: str | None,
+    provider: LLMProvider,
+    enabled: bool | None = None,
+    max_rounds: int | None = None,
+) -> OutcomeCriticReport:
+    """ADR-060 Pass A (built by the 2026-07-31 amendment): the ASSEMBLED CV,
+    judged alone for single-document coherence, before it is presented —
+    ADR-067 clause 5's required reader for the CV chain."""
+    return await _run_mount(
+        mount="cv",
+        cv_tailored=cv_tailored,
+        letter_data=None,
+        keyword_ledger=None,
+        job_role_title=job_role_title,
+        jd_excerpt=jd_excerpt,
+        provider=provider,
+        enabled=enabled,
+        max_rounds=max_rounds,
+    )
 
 
 async def run_pass_b(
@@ -345,90 +647,16 @@ async def run_pass_b(
     enabled: bool | None = None,
     max_rounds: int | None = None,
 ) -> OutcomeCriticReport:
-    """Run ADR-060 Pass B once for a settled letter draft. Never raises —
-    every failure mode short-circuits to a distinctly-logged, distinctly-
-    reasoned :class:`OutcomeCriticReport` (SF-CRITIC.1/.8) and NEVER gates
-    delivery (SF-CRITIC's "never gates delivery" requirement, ADR-060 clause
-    3/PO decision 2, unaffected by the 2026-07-30 amendment).
-
-    ``enabled``/``max_rounds`` default to ``None``, resolved to the CURRENT
-    value of the module-level ``CRITIC_ENABLED``/``CRITIC_MAX_ROUNDS`` at
-    CALL time (deliberately NOT a bound default — a default value is frozen
-    at function-definition time, which would make ``CRITIC_ENABLED`` un-
-    patchable by an operator env-var change or a test's ``monkeypatch``
-    after import; reading the module global inside the body stays live).
-    Callers may still override explicitly, same shape as ``LLM_REVIEW_MAX_
-    RETRIES`` threaded through ``review_and_refine``.
-    """
-    if enabled is None:
-        enabled = CRITIC_ENABLED
-    if max_rounds is None:
-        max_rounds = CRITIC_MAX_ROUNDS
-    if not enabled:
-        logger.info("outcome critic Pass B: DID NOT RUN (CRITIC_ENABLED=false)")
-        return OutcomeCriticReport(ran=False, reason="disabled", advisories=[])
-    if not letter_data:
-        logger.info("outcome critic Pass B: DID NOT RUN (no settled letter draft)")
-        return OutcomeCriticReport(ran=False, reason="missing_letter", advisories=[])
-    if not cv_tailored:
-        # ADR-060 amended 2026-07-30: Pass B needs BOTH documents. No CV yet
-        # (e.g. an agent-authored letter with no linked GeneratedCV) means
-        # there is nothing to cross-check against — this is a precondition
-        # failure, never a "found nothing" judgement.
-        logger.info(
-            "outcome critic Pass B: DID NOT RUN (no generated CV to cross-check "
-            "against — cross-document coherence needs both documents)"
-        )
-        return OutcomeCriticReport(ran=False, reason="missing_cv", advisories=[])
-    if not keyword_ledger:
-        logger.info(
-            "outcome critic Pass B: DID NOT RUN (no Keyword Ledger — legacy/"
-            "pre-E037 job analysis has none)"
-        )
-        return OutcomeCriticReport(ran=False, reason="missing_ledger", advisories=[])
-
-    facts = compute_presence_facts(cv_tailored, letter_data, keyword_ledger)
-    candidates = [f for f in facts if f.flagged]
-    if not candidates:
-        logger.info(
-            "outcome critic Pass B: RAN — 0 candidate concept(s); no "
-            "cross-document incoherence to judge"
-        )
-        return OutcomeCriticReport(ran=True, reason="no_candidates", advisories=[])
-
-    prompt = build_pass_b_prompt(
-        [_candidate_dict(f) for f in candidates], job_role_title, jd_excerpt
+    """ADR-060 Pass B: the assembled CV + settled letter pair, judged for
+    cross-document coherence. Same engine as Pass A (ADR-066)."""
+    return await _run_mount(
+        mount="letter",
+        cv_tailored=cv_tailored,
+        letter_data=letter_data,
+        keyword_ledger=keyword_ledger,
+        job_role_title=job_role_title,
+        jd_excerpt=jd_excerpt,
+        provider=provider,
+        enabled=enabled,
+        max_rounds=max_rounds,
     )
-    attempts = max(1, max_rounds)
-    last_error: Exception | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            result = await provider.aparse_json(
-                prompt, system=SYSTEM_PROMPT, max_tokens=CRITIC_JUDGEMENT_MAX_TOKENS
-            )
-            advisories = _advisories_from_judgement(result, candidates)
-            logger.info(
-                "outcome critic Pass B: RAN — %d candidate(s), %d advisory(-ies) "
-                "surfaced (judgement attempt %d/%d)",
-                len(candidates), len(advisories), attempt, attempts,
-            )
-            return OutcomeCriticReport(ran=True, reason=None, advisories=advisories)
-        except Exception as exc:  # noqa: BLE001 — advisory-only judgement call;
-            # a provider/parse error must never fail letter generation
-            # (never gates delivery). Logged distinctly from the "DID NOT
-            # RUN" branches above and from a clean 0-candidate run, so the
-            # three states are never conflated at the observability layer
-            # (SF-CRITIC.1's own lesson).
-            last_error = exc
-            logger.warning(
-                "outcome critic Pass B: judgement call failed on attempt %d/%d: %s",
-                attempt, attempts, exc,
-            )
-
-    logger.warning(
-        "outcome critic Pass B: RAN (facts computed for %d candidate(s)) but the "
-        "judgement call never succeeded after %d attempt(s) — advisory omitted, "
-        "delivery unaffected. Last error: %s",
-        len(candidates), attempts, last_error,
-    )
-    return OutcomeCriticReport(ran=True, reason="judgement_error", advisories=[])

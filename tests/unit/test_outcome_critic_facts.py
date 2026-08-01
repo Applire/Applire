@@ -259,8 +259,20 @@ def test_the_advisory_message_quotes_the_narrowed_sentence_not_the_paragraph():
 
     facts = compute_presence_facts({}, _TWO_CONCEPT_LETTER, _TWO_CONCEPT_LEDGER)
     by_concept = {f.concept: f for f in facts}
-    advisory_av = _build_advisory(by_concept["Arbeitsvorbereitung"])
-    advisory_dg = _build_advisory(by_concept["Digitalisierung"])
+
+    def _advise(fact):
+        # Mirror the engine's own construction for a fact-anchored finding
+        # (the 2026-07-31 refactor made _build_advisory kwargs-only).
+        return _build_advisory(
+            kind="letter_only" if fact.letter_only else "letter_richer",
+            concept=fact.concept,
+            cv_state=fact.cv_snippet,
+            cv_detail=None,
+            letter_state=fact.letter_snippet,
+        )
+
+    advisory_av = _advise(by_concept["Arbeitsvorbereitung"])
+    advisory_dg = _advise(by_concept["Digitalisierung"])
 
     assert "Arbeitsvorbereitung zuständig" in advisory_av.message["de"]
     assert "Digitalisierung der Fertigung" in advisory_dg.message["de"]

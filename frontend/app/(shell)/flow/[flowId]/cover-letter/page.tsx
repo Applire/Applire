@@ -33,6 +33,7 @@ import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
+import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
@@ -87,6 +88,8 @@ export default function CoverLetterPage({
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // E043/US247: truthfulness self-audit report, fetched alongside the ATS report.
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
+  // ADR-060/E049 49.6: outcome critic advisory report (Pass B, cross-document mount).
+  const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const init = useCallback(async () => {
@@ -193,8 +196,21 @@ export default function CoverLetterPage({
         // Non-fatal — panel shows unavailable state
       }
     }
+    async function fetchCriticReport() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/cover-letter/${clState!.coverLetterId}/critic-report`,
+        );
+        if (!res.ok) return;
+        const data: { report: OutcomeCriticReport } = await res.json();
+        setCriticReport(data.report ?? null);
+      } catch {
+        // Non-fatal — advisory panel simply doesn't render
+      }
+    }
     void fetchAtsReport();
     void fetchTruthReport();
+    void fetchCriticReport();
   }, [phase, clState?.coverLetterId]);
 
   function startPolling(clId: string) {
@@ -391,6 +407,7 @@ export default function CoverLetterPage({
           <div className="space-y-2">
             <ATSChecksPanel report={atsReport} />
             <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
+            <CriticAdvisoryPanel report={criticReport} />
           </div>
         }
         sidebar={
