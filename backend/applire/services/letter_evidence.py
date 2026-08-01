@@ -185,7 +185,18 @@ def _ledger_forms(entry: dict[str, Any]) -> list[str]:
 
 
 def _claimable_entries(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    return [e for e in (keyword_ledger or []) if isinstance(e, dict) and e.get("claimable")]
+    # ADR-070 clause 5: scope entries out by predicate. Before this guard the
+    # non-match was accidental — the bar's synthesised label (which embeds the
+    # JD's own figure) simply never occurred verbatim in vault text, so
+    # _anchor_for_concept found nothing. Scope evidence reaches the letter via
+    # render_scope_positioning_block, never through this digest.
+    from applire.services.keyword_ledger import is_scope_entry
+
+    return [
+        e
+        for e in (keyword_ledger or [])
+        if isinstance(e, dict) and e.get("claimable") and not is_scope_entry(e)
+    ]
 
 
 @dataclass(frozen=True)

@@ -145,12 +145,17 @@ def build_work_section_prompt(
     output_language: str,
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
+    scope_positioning_block: str | None = None,
 ) -> str:
     from applire.services.cv_budget import role_budget_line
 
     theme = (directive.get("per_role_themes") or {}).get(entry.get("id"), "")
     budget_line = role_budget_line(budget, entry.get("id", "")) if budget is not None else ""
     budget_section = f"{budget_line}\n" if budget_line else ""
+    # ADR-070 clause 2 (segmented-path parity, ADR-066): the same scope-positioning
+    # block the single-call writer receives — the attested bullet belongs in ITS
+    # matching role, and only the writer of that entry can place it.
+    scope_section = f"{scope_positioning_block}\n\n" if scope_positioning_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"EMPHASIS THEME FOR THIS ENTRY: {theme or '(use the summary angle)'}\n"
@@ -159,6 +164,7 @@ def build_work_section_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"THIS WORK ENTRY:\n{json.dumps(entry, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
+        f"{scope_section}"
         f"KEYWORD GAPS (use only where explicitly supported by this entry):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the tailored bullets + nested projects JSON for this entry only."

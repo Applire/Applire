@@ -61,7 +61,10 @@ class KeywordLedgerEntry(BaseModel):
     denial_level: Literal["direct", "partial"] | None = None
     # ADR-069 — the bar facet of a quantified scope requirement (team size,
     # budget): {kind, value, value_max, comparator, quote, level,
-    # candidate_values, cited_entry}. None on every ordinary concept entry.
+    # candidate_values, cited_entry, attested}. ``attested`` (ADR-070) is the
+    # code-verified {entry, quote, unit} citation of vault prose bearing on the
+    # bar — the only material render_scope_positioning_block delivers to the
+    # writers. None on every ordinary concept entry.
     # A bar-carrying entry is EXEMPT from all coverage machinery by predicate
     # (keyword_ledger.is_scope_entry) and its status moves only via the
     # gap-analysis judgement seam or elicited testimony — never via literal

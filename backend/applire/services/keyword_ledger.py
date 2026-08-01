@@ -487,7 +487,10 @@ def retention_forms(entry: dict[str, Any]) -> list[str]:
     entry the JD's own term is REPLACED by ``adjacent_evidence``: the candidate
     has no bullet containing "TOGAF", so retaining that form protects nothing,
     while the arc42 bullet it is meant to promote would otherwise score as a
-    no-hit and be cut first by ``condense_to_budget`` (ADR-051 §3).
+    no-hit. (Corrected 2026-08-01, ADR-070 recon: since #377/ADR-067 clause 4,
+    ``condense_to_budget``'s per-bullet CUT order is ``bullet_carries_figure``,
+    not these forms — this function feeds the role-level relevance/tier signal
+    via ``cv_budget._flatten_claimable_forms``/``_hit_count`` only.)
 
     Never widens what may be CLAIMED — this feeds bullet RETENTION only. The
     adjacent term deliberately stays out of ``surface_forms`` so it can never

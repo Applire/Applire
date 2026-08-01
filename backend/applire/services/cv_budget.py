@@ -318,7 +318,15 @@ def compute_bullet_budgets(
     today = today or date.today()
     tiers = _tier_table(target_pages, region)
 
-    claimable = [e for e in (keyword_ledger or []) if e.get("claimable")]
+    # ADR-070 clause 5: scope entries out by predicate — their concept label
+    # embeds the JD's own figure and must never feed relevance hit-counting
+    # (before this guard the non-match was accidental: the label just never
+    # occurred in role text).
+    from applire.services.keyword_ledger import is_scope_entry
+
+    claimable = [
+        e for e in (keyword_ledger or []) if e.get("claimable") and not is_scope_entry(e)
+    ]
     claimable_forms = _flatten_claimable_forms(claimable)
     latest_start_id = _latest_start_id(work_entries)
 

@@ -279,6 +279,7 @@ async def generate_cv_segmented(
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
+    scope_positioning_block: str | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -340,7 +341,8 @@ async def generate_cv_segmented(
     for w in work_src:
         section = await provider.aparse_json(
             build_work_section_prompt(
-                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger, budget
+                w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger,
+                budget, scope_positioning_block=scope_positioning_block,
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
@@ -401,6 +403,7 @@ async def _tailor_cv_with_fallback(
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
+    scope_positioning_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
     the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
@@ -424,6 +427,7 @@ async def _tailor_cv_with_fallback(
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
+            scope_positioning_block=scope_positioning_block,
         )
     try:
         return await provider.aparse_json(
@@ -433,6 +437,7 @@ async def _tailor_cv_with_fallback(
                 keyword_ledger=keyword_ledger,
                 budget=budget,
                 stated_limits_block=stated_limits_block,
+                scope_positioning_block=scope_positioning_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -448,6 +453,7 @@ async def _tailor_cv_with_fallback(
             output_language=output_language, provider=provider,
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
+            scope_positioning_block=scope_positioning_block,
         )
 
 
@@ -2075,6 +2081,16 @@ async def _render_cv_background(
                 collect_stated_limits(denied_concepts)
             )
 
+            # ADR-070 clause 2: the candidate's own scale evidence for partial scope
+            # entries (bar.attested + typed values) — the ONLY channel scope material
+            # takes into a document (scope entries are excluded from the ledger block
+            # by is_scope_entry). Empty → adds nothing.
+            from applire.services.scope_requirements import render_scope_positioning_block
+
+            scope_positioning_block = render_scope_positioning_block(
+                keyword_ledger, resolve_jd_language(job)
+            ) or None
+
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
@@ -2089,6 +2105,7 @@ async def _render_cv_background(
                 keyword_ledger=keyword_ledger,
                 budget=budget,
                 stated_limits_block=stated_limits_block,
+                scope_positioning_block=scope_positioning_block,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
