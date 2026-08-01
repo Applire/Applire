@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v3 (ADR-069, 2026-08-01 — charter run 12 #397): QUALIFIED
+# REQUIREMENT DISPOSITION for reviewer AND corrector (decomposition, never
+# demotion/deletion — run 12's reviewer correctly flagged "SAP PP"/"SAP MM" as
+# ungrounded in required_skills, and the corrector, with removal as its only
+# disposition, deleted the qualifier information and demoted SAP to
+# nice-to-have, killing the designed B-gap); level moves must be DECLARED in
+# `level_changes` (the deterministic settle guard in services/jd_level_guard.py
+# reverts undeclared moves — the ADR-064 state-the-fact/code-compares pattern);
+# scope_requirements quote-grounding check.
+#
 # Prompt version: v2 (Wave-6: concept-term shape rule for required_skills/
 # nice_to_have_skills/keywords, reconciled with the verbatim-grounding rule)
 # Used by: services/job.py -> analyze_jd() -> reviewer.review_and_refine
@@ -85,12 +95,41 @@ after an earlier round asked for it to be added back — do not raise that issue
 corrector already did what a prior round of your own critique asked for, and asking for
 the opposite now only flips the field back and forth without ever converging.
 
+QUALIFIED REQUIREMENT DISPOSITION (read before flagging a decomposed requirement): a
+posting requirement with an explicitly-optional qualifier — "Sicherer Umgang mit SAP
+(idealerweise PP/MM)" — is CORRECTLY extracted as the base concept at its stated level
+(SAP in required_skills) plus the qualifier as its own nice-to-have concept(s) ("SAP PP",
+"SAP MM" in nice_to_have_skills). That decomposition is correct extraction, NOT a
+fabrication: the qualifier concepts are grounded in the posting's own parenthetical.
+When you find qualifier concepts at the WRONG level (e.g. "SAP PP" in required_skills
+although the posting says "idealerweise"), instruct the corrector to MOVE them to
+nice_to_have_skills — never to remove them, and never to move the BASE concept down:
+only the qualifier is optional, the base requirement keeps its stated level. Deleting a
+qualifier's information, or demoting a base concept because its qualifier is optional,
+is itself a material defect (LEVEL DEMOTION below).
+
 Check for these defects:
 1. FABRICATED REQUIREMENT: a required_skill or nice_to_have_skill not stated or clearly
    implied anywhere in the source posting (e.g. adding "Kubernetes" to a posting that
    never mentions containers/orchestration, just because the role sounds technical).
 2. REQUIRED/NICE-TO-HAVE MISCLASSIFICATION: a skill the posting explicitly marks as
-   optional/preferred/"a plus" listed under required_skills, or vice versa.
+   optional/preferred/"a plus" listed under required_skills, or vice versa. When you ask
+   for a level move, name the concept and the target level explicitly — the corrector
+   must declare every move it performs, and undeclared moves are reverted by a
+   deterministic guard.
+2b. LEVEL DEMOTION / QUALIFIER DELETION: a base concept the posting requires sitting in
+   nice_to_have_skills because its optional qualifier was mishandled, or a grounded
+   qualifier concept removed entirely instead of being moved to nice_to_have_skills
+   (see QUALIFIED REQUIREMENT DISPOSITION above).
+2c. SCOPE REQUIREMENT GROUNDING (scope_requirements entries only): the entry's "quote"
+   must appear in the source posting (allowing whitespace/line-break differences), and
+   its "value"/"value_max"/"comparator" must be consistent with that quote's own wording.
+   An entry whose quote is absent from the posting, or whose number contradicts its own
+   quote, is fabricated. A posting figure that is NOT a team-size or budget bar must NOT
+   appear here — team_size counts PEOPLE and budget is MONEY, so a duration emitted as a
+   scope entry ("mindestens 8 Jahre" as kind team_size) is fabricated-in-kind: instruct
+   its removal — but never flag the ABSENCE of a scope entry for a vague magnitude with
+   no stated number ("im dreistelligen Bereich"): omission is the correct handling there.
 3. FABRICATED KEYWORDS: an ATS keyword with no textual basis in the posting.
 4. INVENTED TITLE OR COMPANY: a role_title or company_name not present in the source
    text. If the posting genuinely does not name a company, company_name must be null —
@@ -146,6 +185,21 @@ Rules:
 - The previous extraction is your working draft. Modify it to resolve the reviewer's
   issues — remove or reclassify unsupported items; do not invent new ones.
 - Every remaining item must be traceable to the source posting text.
+- QUALIFIED REQUIREMENT DISPOSITION (decomposition, never demotion): when an issue
+  concerns a requirement with an explicitly-optional qualifier ("Sicherer Umgang mit
+  SAP (idealerweise PP/MM)"), the fix is to DECOMPOSE: keep the base concept at the
+  level the posting states for it (SAP stays in required_skills) and place the
+  qualifier as its own concept term(s) in nice_to_have_skills ("SAP PP", "SAP MM").
+  Never delete the qualifier's information, and never move the base concept down a
+  level because its qualifier is optional.
+- DECLARE EVERY LEVEL MOVE: whenever your corrected JSON places a concept in a
+  different list than the PREVIOUS EXTRACTION had it (required_skills ↔
+  nice_to_have_skills, in either direction), add {"concept": "<the concept>", "to":
+  "required"|"nice_to_have"} to a top-level "level_changes" array in your output.
+  A move you do not declare is reverted by a deterministic guard after this loop —
+  silence keeps the previous level. Removing an ungrounded concept entirely is a
+  removal, not a move: do not declare it. Emit "level_changes": [] when you moved
+  nothing.
 - PRESERVE SHAPE in required_skills / nice_to_have_skills / keywords: these three
   fields are a controlled vocabulary of short concept terms (typically 1-4 words),
   never sentences or verbatim quotations. When fixing an unrelated issue you may add,

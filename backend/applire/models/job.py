@@ -50,6 +50,11 @@ class JobAnalysis(Base):
     # outputs per ADR-038. NULL for rows that pre-date migration 0032
     # (resolved at use time via utils.language_detection.resolve_jd_language).
     jd_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    # ADR-069 — quantified scope bars the posting states (team size, budget):
+    # list of {kind, value, value_max, comparator, quote, level}, model-extracted,
+    # validated deterministically in services/job.py. NULL for pre-migration rows
+    # and treated as [] everywhere.
+    scope_requirements: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     # LLM-extracted best-effort; nullable (recruiter-anonymised JDs omit company)
     company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     # DACH occupation classification — KldB 2020 (BA-Klassifikation der Berufe 2020).

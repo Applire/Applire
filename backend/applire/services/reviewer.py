@@ -160,6 +160,7 @@ async def review_and_refine(
     required_fields: Sequence[str] | None = None,
     prefer_if: Callable[[dict[str, Any]], bool] | None = None,
     load_bearing_fn: Callable[[dict[str, Any]], frozenset[str]] | None = None,
+    settle_guard: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -239,6 +240,15 @@ async def review_and_refine(
                   ``providers/llm/debug_log.py``'s ``log_review_substitution_diff``
                   / ``log_review_substitution_refused``. Default None reproduces
                   today's ``retain_if``/``prefer_if`` behaviour bit-for-bit.
+        settle_guard: Optional (ADR-069 clause 4) deterministic, STRUCTURAL-ONLY
+                  transform called as ``fn(settled_draft, draft_history)`` on the
+                  draft this loop is about to return — after ``retain_if`` and
+                  the ``required_fields`` floor. Never an LLM call, never a
+                  score. The caller owns the semantics (e.g. the job-analysis
+                  level guard: revert level moves the corrector performed but
+                  did not declare in ``level_changes`` — a level move between
+                  rounds is a computable FACT, and a prompt rule alone is a
+                  dead control, #229). Default None is a pure pass-through.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -419,7 +429,10 @@ async def review_and_refine(
         settled = final
         if retain_if is not None:
             settled = _select_retained_draft(settled)
-        return _apply_required_fields(settled)
+        settled = _apply_required_fields(settled)
+        if settle_guard is not None:
+            settled = settle_guard(settled, list(draft_history))
+        return settled
 
     if max_retries <= 0:
         return _settle(draft)
