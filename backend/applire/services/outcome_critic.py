@@ -90,6 +90,8 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.outcome_critic import CriticAdvisory, OutcomeCriticReport
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
+from applire.services.citation import citation_present as _citation_present
+from applire.services.citation import normalize_citation as _normalize_citation
 from applire.services.keyword_ledger import _draft_strings, is_positioning_only, split_ledger_for_prompt
 from applire.services.letter_figure_guard import _TENURE_RE
 from applire.services.oracle.extract import split_sentences
@@ -267,53 +269,14 @@ def compute_presence_facts(
 
 
 # ── citation verification (SF-CRITIC.11, third amendment 2026-07-31) ───────
-# A finding is only surfaced on spans provably in the documents. Verification
-# runs under normalisation, NEVER a raw ``in`` check: a model quotes German
-# prose with typographic punctuation (U+2019 apostrophes, curly quotes — the
-# documented class that defeated an ASCII marker list once already) and may
-# reflow whitespace; a naive substring check would silently drop true
-# findings, quietly re-narrowing the very control the widened judgement is
-# (an invisible recall cliff, not a fail-open bug).
-
-_CITATION_PUNCT_FOLD = str.maketrans(
-    {
-        "’": "'",  # right single quotation mark (the U+2019 class)
-        "‘": "'",
-        "“": '"',
-        "”": '"',
-        "„": '"',
-        "«": '"',
-        "»": '"',
-        "–": "-",  # en dash
-        "—": "-",  # em dash
-        " ": " ",  # no-break space
-    }
-)
-
-
-def _normalize_citation(text: str) -> str:
-    """Punctuation-fold + the shared ``ats_norm`` fold + whitespace collapse.
-
-    Layered ON TOP of ``ats_norm`` (the module's shared instrument), never
-    instead of it — the two folds answer different questions and only their
-    composition survives both a typographic quote and a case difference.
-    """
-    return " ".join(ats_norm(text.translate(_CITATION_PUNCT_FOLD)).split())
-
-
-def _citation_present(quote: str | None, units: list[str]) -> bool:
-    """Is *quote* literally present (under normalisation) in any unit — or in
-    the unit-joined text, for a span crossing a sentence boundary within one
-    paragraph? Empty/None quotes are NOT present — a finding must cite."""
-    if not quote or not quote.strip():
-        return False
-    q = _normalize_citation(quote)
-    if not q:
-        return False
-    for unit in units:
-        if q in _normalize_citation(unit):
-            return True
-    return False
+# ADR-068 clause 4 / ADR-066 (one logical operation, one implementation): the
+# fold + presence check now live in the SHARED instrument
+# ``services/citation.py`` (imported above) — the Oracle's cross-language/
+# restatement judgement seams (services/oracle/audit.py) are the second
+# consumer. ``_citation_present``/``_normalize_citation`` are re-exported
+# under their original private names above so this module's own call sites,
+# and its published test (``from applire.services.outcome_critic import
+# _citation_present``), are unchanged.
 
 
 # ── deterministic, bilingual advisory text (SF-CRITIC.2/.6) ────────────────

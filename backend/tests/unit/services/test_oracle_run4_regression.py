@@ -37,6 +37,12 @@ but dropped in prose, a second distinct employer) are preserved):
    ownership check used to soften this to ``unverifiable``; it now
    escalates to a genuine negative verdict via owner-scoped content-overlap
    (``audit._owner_scoped_coverage`` / ``_UNATTRIBUTABLE_CONTENT_FLOOR``).
+   ADR-068 amendment (2026-08-01): the coverage number alone no longer
+   decides ``unbacked`` — below the floor is now a RESTATEMENT-JUDGEMENT
+   candidate (Seam B); the escalation still happens, but only behind a
+   citation-verified model judgement, and degrades to ``unverifiable``
+   (counted, logged) when no provider is available — see this file's
+   ``test_run4_borrowed_figure_without_a_provider_is_the_adr068_failsafe``.
 5. Narrative sentences bundling several facts about ONE role rarely clear
    the single-unit coverage floor — :func:`applire.services.oracle.
    matchers.grounding.ground_via_role_union` (an anchored claim's
@@ -54,9 +60,38 @@ discriminate instead of defaulting almost everything to soft
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from applire.services.oracle import audit_document
+
+# ADR-068 (2026-08-01) amendment: ``_owner_scoped_coverage <
+# _UNATTRIBUTABLE_CONTENT_FLOOR`` (root cause 4 below) no longer decides
+# ``unbacked`` on the coverage number alone — it defers to the bounded
+# RESTATEMENT-JUDGEMENT seam, batched once per document (Seam B,
+# ``services/oracle/audit.py``). This stub answers that seam deterministically
+# (never the pre-existing narrow entailment call, which carries no "ITEM n
+# (mode: ...)" structure and is left to its own pre-existing fallback): it
+# denies restatement, citing the FIRST vault-evidence span verbatim, so the
+# run-4 fabrication still escalates to a real negative verdict — proving the
+# citation-gated judgement path, not just the old coverage heuristic, catches
+# it.
+_ITEM_RE = re.compile(
+    r"ITEM (\d+) \(mode: \w+\):.*?VAULT EVIDENCE:\n(.*?)(?=\n\nITEM \d+|\Z)", re.DOTALL
+)
+_EVIDENCE_LINE_RE = re.compile(r"^\s*\[\d+\] (.+)$", re.MULTILINE)
+
+
+class _DenyRestatementProvider:
+    async def aparse_json(self, prompt, *, system=None, **kwargs):
+        items = []
+        for idx_str, evidence_block in _ITEM_RE.findall(prompt):
+            lines = _EVIDENCE_LINE_RE.findall(evidence_block)
+            items.append(
+                {"index": int(idx_str), "corresponds": False, "vault_quote": lines[0] if lines else ""}
+            )
+        return {"items": items}
 
 # Sanitized: real name/email/phone/address removed. Company, role, and
 # achievement text kept near-verbatim (coordinator-approved) — this is what
@@ -162,7 +197,12 @@ LETTER = {
 
 @pytest.mark.asyncio
 async def test_run4_letter_report_is_not_unverifiable_dominated():
-    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
+    """With the judgement layer available (a provider present), the report
+    still discriminates — the ADR-068 amendment does not resurrect the
+    original F14 camouflage."""
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=LETTER, provider=_DenyRestatementProvider()
+    )
     assert report.counts["unverifiable"] <= sum(
         v for k, v in report.counts.items() if k != "unverifiable"
     ), report.counts
@@ -172,8 +212,16 @@ async def test_run4_letter_report_is_not_unverifiable_dominated():
 @pytest.mark.asyncio
 async def test_run4_borrowed_figure_gets_a_negative_verdict_not_unverifiable():
     """The exact run-4 fabrication: a "5" borrowed from an unrelated CURRENT
-    role's fact, wearing a "mentoring" claim no vault evidence supports."""
-    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
+    role's fact, wearing a "mentoring" claim no vault evidence supports.
+
+    ADR-068 amendment (2026-08-01): the coverage-floor branch that used to
+    decide ``unbacked`` directly now defers to the restatement-judgement seam
+    (Seam B) — a citation-verified ``corresponds=false`` answer is what
+    escalates it, not the coverage number alone. This test proves that path
+    still catches the fabrication when a provider is available."""
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=LETTER, provider=_DenyRestatementProvider()
+    )
     hits = [r for r in report.claims if "5+" in r.claim.text]
     assert hits, "expected a decomposed claim carrying the '5+' figure"
     for r in hits:
@@ -182,6 +230,25 @@ async def test_run4_borrowed_figure_gets_a_negative_verdict_not_unverifiable():
             r.claim.text,
             r.verdict,
         )
+
+
+@pytest.mark.asyncio
+async def test_run4_borrowed_figure_without_a_provider_is_the_adr068_failsafe():
+    """ADR-068 clause 3 polarity, pinned against this exact fixture: WITHOUT a
+    judgement provider (the generation-time self-audit's common case, or any
+    caller that opts out), the same fabrication can no longer be accused on
+    the coverage number alone — it degrades to ``unverifiable``
+    (``restatement_judgement``), counted in ``judgement_unavailable``, never
+    silently reverting to the pre-ADR-068 ``unbacked``. This is a deliberate,
+    documented behaviour change from the run-4 fix's original shape (see this
+    module's docstring root cause 4) — not a regression."""
+    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
+    hits = [r for r in report.claims if "5+" in r.claim.text]
+    assert hits, "expected a decomposed claim carrying the '5+' figure"
+    for r in hits:
+        assert r.verdict.verdict == "unverifiable", (r.claim.text, r.verdict)
+        assert r.verdict.checker == "restatement_judgement", (r.claim.text, r.verdict)
+    assert report.judgement_unavailable >= len(hits), report.judgement_unavailable
 
 
 @pytest.mark.asyncio

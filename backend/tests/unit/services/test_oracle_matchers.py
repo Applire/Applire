@@ -40,6 +40,38 @@ def test_extract_figures(text, expected):
     assert got == expected
 
 
+# ── #374 — standard/regulation identifiers are not figures (recon-verified
+# 2026-08-01, edge probe 2026-07-29): "unter ISO 15189, DSGVO, IVDR und dem
+# EU AI Act" was extracting "15189" as Figure(number, "15189"), producing a
+# false claim-side "No vault evidence for figure(s): 15189" AND, on the vault
+# side, a certification like "ISO 9001 Lead Auditor" polluted figure_map with
+# ("number", "9001") so an unrelated "9001" elsewhere would falsely GROUND.
+# ADR-062 clause 1: this is a fact-level exclusion (a standard number is not
+# a quantified claim), never a heuristic about meaning — narrow, literal
+# prefix list, uppercase-only to avoid German lowercase word collisions
+# ("en" is common German prose; "EN" the DIN/EN standard prefix is not).
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("unter ISO 15189, DSGVO, IVDR und dem EU AI Act", []),
+        ("ISO 9001 und ISO 27001", []),
+        ("ISO/IEC 27001", []),
+        ("EN 9100-zertifiziert", []),
+        ("en 9100 lowercase stays a number", [("number", "9100")]),
+        ("21 CFR Part 11", []),
+        ("GAMP 5", []),
+        # control cases — the guard must not overreach.
+        ("Budget von 15189 EUR", [("currency", "15189")]),
+        ("seit 2015", [("year", "2015")]),
+        ("ISO 2015", []),  # year-kind match must be excluded too
+        ("S/4HANA rollout", []),  # SAP module name, not a digit-run identifier
+    ],
+)
+def test_extract_figures_identifier_exclusion(text, expected):
+    got = [(f.kind, f.value) for f in extract_figures(text)]
+    assert got == expected
+
+
 # ── #377 (ADR-067 clause 4) — single-digit decimals are quantified substance ──
 #
 # n=10 real-provider trials: the lost bullet was "Unfallquote (LTIF) von 8,2
@@ -129,6 +161,20 @@ def test_vault_index_units_and_figure_map():
     assert ("percent", "40") in index.figure_map
     assert ("year", "2019") in index.figure_map
     assert ("number", "12") in index.figure_map
+
+
+# ── #374 — vault-side identifier pollution (recon-verified 2026-08-01) ──────
+ISO_CERT_PROFILE = {
+    "personal_info": {"name": "Anna Bauer"},
+    "certifications": [
+        {"name": "ISO 9001 Lead Auditor", "issuing_organization": "TÜV"},
+    ],
+}
+
+
+def test_vault_index_certification_prefix_not_indexed_as_figure():
+    index = build_vault_index(ISO_CERT_PROFILE)
+    assert ("number", "9001") not in index.figure_map
 
 
 def test_vault_index_attaches_adr046_receipts():
@@ -262,3 +308,103 @@ def test_ground_text_claim_coverage():
 
     far = ground_text_claim("Owned vendor negotiations across three continents.", index)
     assert far.best_coverage < 0.6
+
+
+# ── #378/run-12 (sibling of #355) — story owner_ids miss project→parent
+# resolution ──────────────────────────────────────────────────────────────
+#
+# Ground truth (run 12, controlling_emma_de): the story "Management-Reporting
+# auf Power BI umstellen" carries experience_refs=[<the PROJECT's id>]; the
+# project's own units already resolve to the parent work id via
+# ``_project_owners`` (US187 nesting), but the story owner construction
+# trusted ``experience_refs`` verbatim, so the project's own units cleared a
+# claim rendered under the parent work position while the story's units
+# (same fact, same claim) flagged it "misattributed" — a false positive
+# (byte-identical detail text reproduced by recon 2026-08-01).
+from applire.services.oracle.matchers import find_foreign_owner
+
+RUN12_PROFILE = {
+    "personal_info": {"name": "Anna Bauer"},
+    "work_experience": [
+        {
+            "id": "w1",
+            "company": "Controlling GmbH",
+            "role": "Head of Controlling",
+            "start_date": "2020-01",
+            "end_date": None,
+        },
+    ],
+    "projects": [
+        {
+            "id": "p1",
+            "name": "Power BI Rollout",
+            "role": "Lead",
+            "associated_experience": "w1",
+        },
+    ],
+    "signature_stories": [
+        {
+            "title": "Management-Reporting auf Power BI umstellen",
+            "challenge": "Manual Excel reporting was slow and error-prone.",
+            "mechanism": "Rolled out a Power BI-based reporting stack.",
+            "outcome": "Reduced monthly close time by 40%.",
+            "experience_refs": ["p1"],
+        },
+    ],
+}
+
+
+def test_story_owner_ids_resolve_project_ref_to_parent_work_id():
+    index = build_vault_index(RUN12_PROFILE)
+    story_unit = next(
+        u for u in index.units if u.path == "signature_stories[0].outcome"
+    )
+    assert "p1" in story_unit.owner_ids
+    assert "w1" in story_unit.owner_ids
+
+
+def test_story_backed_claim_not_misattributed_when_ref_is_a_project():
+    index = build_vault_index(RUN12_PROFILE)
+    story_unit = next(
+        u for u in index.units if u.path == "signature_stories[0].outcome"
+    )
+    assert find_foreign_owner("w1", [story_unit], index.same_employer_ids.get("w1", frozenset())) is None
+
+
+def test_story_owner_ids_ref_naming_work_id_directly_unchanged():
+    profile = {
+        "personal_info": {"name": "Anna Bauer"},
+        "work_experience": [{"id": "w1", "company": "Acme", "role": "Lead"}],
+        "signature_stories": [
+            {
+                "title": "Direct work ref",
+                "challenge": "c",
+                "mechanism": "m",
+                "outcome": "o",
+                "experience_refs": ["w1"],
+            }
+        ],
+    }
+    index = build_vault_index(profile)
+    story_unit = next(u for u in index.units if u.path == "signature_stories[0].outcome")
+    assert story_unit.owner_ids == frozenset({"w1"})
+
+
+def test_story_owner_ids_dangling_ref_kept_verbatim():
+    """#355: a ref matching NO entity stays in owner_ids as-is (fail-open is
+    out of scope for this fix — removing it would change that behavior)."""
+    profile = {
+        "personal_info": {"name": "Anna Bauer"},
+        "signature_stories": [
+            {
+                "title": "Dangling ref",
+                "challenge": "c",
+                "mechanism": "m",
+                "outcome": "o",
+                "experience_refs": ["ghost-id"],
+            }
+        ],
+    }
+    index = build_vault_index(profile)
+    story_unit = next(u for u in index.units if u.path == "signature_stories[0].outcome")
+    assert story_unit.owner_ids == frozenset({"ghost-id"})

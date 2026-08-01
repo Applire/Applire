@@ -782,6 +782,16 @@ Concretely (as implemented): both CV generation paths return the same prose-only
 
 ---
 
+### ADR-068 — Bounded Equivalence Judgement at the Oracle's Deterministic Boundary (accepted + implemented 2026-08-01)
+
+**Problem:** The Truthfulness Oracle verifies documents against the profile with deterministic instruments (literal surface matching, canonical figure matching, owner-set attribution). Two evidenced false-positive families showed those instruments answering questions that are *judgements* under ADR-062: **cross-language grounding** (the document language follows the job description per ADR-038, so an English CV over a German profile got most of its truthful skill labels flagged "unbacked" — `Budgeting & Forecasting` vs the profile's `Budgetierung & Forecast`), and the **unanchored-figure escalation** (a lexical word-overlap floor deciding "does this wording restate that evidence", which false-accuses honest paraphrases). Precision defects found in the same investigation were fixed deterministically first, in the same change (sentence-splitting on German magnitude abbreviations like `Mio.`; standard identifiers like `ISO 15189` extracted as figures; signature-story evidence resolving to the wrong owner).
+
+**Decision:** Deterministic-first stands, and its positive results are unchanged. At exactly two seams — where the deciding question is a judgement a deterministic rule may not compute — the Oracle defers to a **bounded model pass**: batched once per document per seam, `temperature=0.0`, every finding **citation-verified** against the profile text (a failed citation drops the judgement), and rendered under **distinct checker ids** (`cross_language_judgement`, `restatement_judgement`) so a model's opinion never displays like a literal profile match. **Verdict polarity:** at a judgement seam, an accusatory verdict needs an affirmative basis — when the judgement is unavailable (provider outage, budget), the claim falls back to `unverifiable` and the report itself carries a `judgement_unavailable` count, so a degraded report self-identifies. The pre-delivery self-audit (previously LLM-free) gains only these two bounded passes; its deterministic core still runs first and hermetically, and judgement failure degrades the report, never the generation. A third judgement seam has an explicit admission bar: two independent real-run incidents plus demonstrated *structural* inability of the deterministic instrument — imprecision is fixed deterministically first.
+
+**Why:** For a truthfulness product, false alarms are not noise — they train the user to ignore the exact surface the product exists to make trustworthy. The fix follows the codebase's standing rule (ADR-062): facts stay deterministic; judgements go to a bounded, citation-disciplined model pass — never to a tuned heuristic.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:

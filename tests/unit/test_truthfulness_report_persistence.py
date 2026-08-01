@@ -205,16 +205,23 @@ async def seeded(db):
 @pytest.mark.asyncio
 async def test_cv_audit_hook_persists_truthfulness_report(seeded):
     from applire.models.cv import GeneratedCV
+    from applire.providers.llm.mock import MockLLMProvider
     from applire.schemas.oracle import ORACLE_STATED_LIMIT
     from applire.services.cv import _update_ats_report
 
     session = seeded["db"]
     record = await session.get(GeneratedCV, seeded["cv_id"])
 
+    # ADR-068: the truthfulness self-audit now threads a real provider (for
+    # its bounded judgement seams) — hermetic MockLLMProvider stands in, same
+    # as every other CV-generation test that touches ``get_provider``. Its
+    # canned judgement answer is "uncertain" (never grants), so the seeded
+    # skill miss below stays the deterministic ``unbacked`` this test pins.
     with patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF")), \
          patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 1)), \
-         patch("applire.services.ats_audit._audit_cv_text", return_value=_make_ats_report("cv")):
+         patch("applire.services.ats_audit._audit_cv_text", return_value=_make_ats_report("cv")), \
+         patch("applire.services.cv.get_provider", return_value=MockLLMProvider()):
         await _update_ats_report(record, session)
 
     session.expire_all()

@@ -30,10 +30,21 @@ from applire.services.ats_audit import skill_tokens
 # Dotted abbreviations that must not terminate a sentence (DE + EN). Matching
 # is case-sensitive on purpose: "No." the abbreviation is title-cased, while a
 # sentence ending in "no." is a real boundary.
+#
+# "Mio.", "Mrd.", "Tsd." (German magnitude units) and "Mr.", "Mrs.", "Ms."
+# (titled salutations) added #398 / charter run 12 ground truth (real
+# provider, 2026-08-01): the letter sentence "…rollierenden Forecast für 78
+# Mio. € Umsatz als Key-Userin in SAP CO/FI." split after "Mio.", orphaning
+# "€" into the next fragment — extract_figures then produced Figure(number,
+# "78") instead of Figure(currency, "78m"), which never matched the vault's
+# indexed currency/78m entry and produced a false "No vault evidence for
+# figure(s): 78". "Mr."/"Mrs."/"Ms." close the separately-tracked sibling bug
+# (same board item) — a bare "Mr." also split a sentence in half.
 _ABBREVIATIONS = (
     "z.B.", "z. B.", "d.h.", "d. h.", "u.a.", "u. a.", "bzw.", "ggf.",
     "inkl.", "ca.", "vs.", "e.g.", "i.e.", "etc.", "approx.",
     "Dr.", "Prof.", "Nr.", "No.",
+    "Mio.", "Mrd.", "Tsd.", "Mr.", "Mrs.", "Ms.",
 )
 _SENTINEL = "\x00"
 
@@ -495,6 +506,72 @@ def _current_work_ids(profile: Any | None) -> frozenset[str]:
     return frozenset(ids)
 
 
+# ── #372 (2) — distinctive-token employer-anchor fallback ───────────────────
+# Recon-verified 2026-08-01: matching stayed one-directional even after #248
+# — the FULL vault company name (minus a trailing legal-form suffix) had to
+# appear verbatim in the sentence. A letter's natural shortened mention ("Bei
+# Nordkette bewährte sich…" for vault "Nordkette Systemtechnik GmbH") never
+# matches EITHER the exact or the legal-form-stripped pass, since
+# "Nordkette Systemtechnik" itself still never appears verbatim →
+# source_experience_id stays None → downstream false-flag. This fallback
+# tries each company's own DISTINCTIVE leading token — but only once the
+# stricter passes have already found nothing (guard c, ``_find_employer_
+# anchor`` below), and only for a token that cannot plausibly be a
+# coincidental match (guard b): long enough, not a generic company word, and
+# not itself shared by more than one candidate's own name.
+_GENERIC_COMPANY_TOKENS = frozenset(
+    t.lower()
+    for t in (
+        "Gruppe", "Group", "Holding", "Systems", "Systeme", "Consulting",
+        "Solutions", "Service", "Services", "Partner", "Deutschland",
+        "International", "Industries", "Industrie", "Technik", "Technologies",
+        "Technology", "Software", "Engineering", "Global",
+    )
+)
+_MIN_DISTINCTIVE_TOKEN_CHARS = 4
+
+
+def _name_tokens(name: str) -> list[str]:
+    return [t for t in re.split(r"\s+", name.strip()) if t]
+
+
+def _distinctive_token_candidates(
+    candidates: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """(distinctive leading token, experience id) pairs for the #372 anchor
+    fallback — one entry per candidate whose legal-form-stripped name's
+    FIRST token is long enough (``_MIN_DISTINCTIVE_TOKEN_CHARS``), not in
+    ``_GENERIC_COMPANY_TOKENS``, and does not occur (case-insensitively)
+    anywhere in another candidate's own name. A token shared across two
+    companies could never disambiguate between them, so it is dropped
+    outright rather than risked as a coincidental match — mirroring guard
+    (b) of the #372 brief.
+    """
+    parsed = [
+        (_core_company_name(name), entity_id, _name_tokens(_core_company_name(name)))
+        for name, entity_id in candidates
+    ]
+    token_owner_ids: dict[str, set[str]] = {}
+    for _core, entity_id, tokens in parsed:
+        for tok in tokens:
+            token_owner_ids.setdefault(tok.lower(), set()).add(entity_id)
+
+    fallback: list[tuple[str, str]] = []
+    for _core, entity_id, tokens in parsed:
+        if not tokens:
+            continue
+        leading = tokens[0]
+        key = leading.lower()
+        if len(leading) < _MIN_DISTINCTIVE_TOKEN_CHARS:
+            continue
+        if key in _GENERIC_COMPANY_TOKENS:
+            continue
+        if len(token_owner_ids.get(key, ())) > 1:
+            continue
+        fallback.append((leading, entity_id))
+    return fallback
+
+
 def _find_employer_anchor(
     sentence: str,
     candidates: list[tuple[str, str]],
@@ -538,10 +615,23 @@ def _find_employer_anchor(
     multi-employer sentence) or the tie-break itself can't decide (more
     than one/none of the found candidates is current) — this narrows, never
     removes, the existing fail-open guarantee.
+
+    #372 (2), 2026-08-01 recon: a THIRD, additive widening. When neither the
+    exact nor the legal-form-tolerant pass found anything at all, retry
+    against each candidate's own DISTINCTIVE leading token (see
+    :func:`_distinctive_token_candidates`) — tolerating a letter's natural
+    shortened mention ("Bei Nordkette" for vault "Nordkette Systemtechnik
+    GmbH") that never appears verbatim under either stricter pass. This
+    fallback runs ONLY when ``found`` is still empty (never overrides an
+    exact or legal-form match) and feeds the SAME ambiguity guard below —
+    a shortened form resolving to two or more distinct companies still
+    fails open to ``None``, exactly like the exact-name multi-match case.
     """
     found = _match_ids(sentence, candidates)
     if not found and loose_candidates:
         found = _match_ids(sentence, loose_candidates)
+    if not found and loose_candidates:
+        found = _match_ids(sentence, _distinctive_token_candidates(loose_candidates))
     if len(found) == 1:
         return next(iter(found))
     if len(found) > 1:

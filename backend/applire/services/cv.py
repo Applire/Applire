@@ -2497,9 +2497,21 @@ async def _update_ats_report(
             record.content_snapshot,
             record.section_overrides,
         )
+        # ADR-068 clause 7: the JD-resolved OUTPUT language (ADR-038,
+        # ``resolve_jd_language`` — the same value the writer/reviewer chain
+        # itself generated this CV in, see e.g. line ~2087's
+        # ``output_language=resolve_jd_language(job)``) is this document's
+        # own language for the cross-language judgement seam. A job-less
+        # audit (job row missing/deleted) leaves it ``None`` — the seam then
+        # stays off, fail-open, exactly like the pre-ADR-068 report.
+        judgement_job = await db.get(JobAnalysis, record.job_analysis_id)
         record.truthfulness_report = await build_self_audit_report(
             profile.profile_json if profile else {},
             tailored_data=audited.model_dump(mode="json"),
+            provider=get_provider(),
+            document_language=(
+                resolve_jd_language(judgement_job) if judgement_job else None
+            ),
         )
     except Exception:
         logger.exception(

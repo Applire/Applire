@@ -47,13 +47,23 @@ wrongly flag the former too (see ``test_oracle_letter_nonfigure_ownership.py``).
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from applire.constants import (
     ORACLE_ENTAILMENT_MAX_TOKENS,
     ORACLE_MAX_ENTAILMENT_CALLS,
+    ORACLE_MAX_JUDGEMENT_CALLS,
+)
+from applire.prompts.oracle_judgement import (
+    ORACLE_JUDGEMENT_BATCH_SIZE,
+    ORACLE_JUDGEMENT_SYSTEM_PROMPT,
+    build_judgement_user_prompt,
+    judgement_call_max_tokens,
 )
 from applire.services.ats_audit import skill_tokens, surface_present
+from applire.services.citation import citation_present
 from applire.schemas.oracle import (
     Claim,
     ClaimResult,
@@ -83,7 +93,15 @@ from applire.services.oracle.matchers import (
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
 
+logger = logging.getLogger(__name__)
+
 _EXCERPT_CHARS = 160
+
+# ADR-068 — human labels for the two DE/EN document languages the cross-
+# language judgement seam quotes in its "grounded" detail text. Falls back to
+# the bare language code for anything else (out of DACH-native scope today,
+# but never a reason to raise).
+_LANGUAGE_LABELS = {"de": "German", "en": "English"}
 
 
 def _evidence_refs(units: list[EvidenceUnit]) -> list[EvidenceRef]:
@@ -111,6 +129,295 @@ class _EntailmentBudget:
             return False
         self.remaining -= 1
         return True
+
+
+# ── ADR-068 — bounded equivalence judgement (cross-language + restatement) ──
+#
+# The deterministic layer above is a LITERAL matcher: it can prove a claim
+# traces to the vault, but cannot tell a faithful restatement from a genuine
+# miss. Two narrow seams defer that ONE question to a model, batched once per
+# document (clause 6) rather than per claim — see
+# ``applire.prompts.oracle_judgement`` for the full contract and rationale.
+#
+# ``verify_claim`` never calls the judgement provider itself. When a seam
+# triggers it either (a) resolves IMMEDIATELY to the clause-3 fail-safe
+# verdict, when no ``judgement_sink`` is wired (a bare ``verify_claim`` call,
+# outside ``audit_document``'s batching), or (b) appends a ``_SeamCandidate``
+# to the sink and returns it AS THE VERDICT SLOT — ``audit_document`` checks
+# for this marker, holds the fail-safe verdict as a placeholder, and
+# overwrites it once the batched judgement call resolves (or leaves it,
+# fail-safe, if resolution never lands one).
+
+
+@dataclass
+class _SeamCandidate:
+    """One claim deferred to the batched judgement pass."""
+
+    seam: Literal["cross_language", "restatement"]
+    claim_text: str
+    units: list[EvidenceUnit]
+    # cross_language only: corresponds=false/uncertain -> this verdict stands
+    # (the pre-existing deterministic miss). None for restatement (its own
+    # polarity is symmetric — see _resolve_seam_candidate).
+    deny_verdict: ClaimVerdict | None
+    # What the claim verdicts as if the judgement never resolves cleanly
+    # (unavailable/malformed/citation-dropped) — always non-accusatory
+    # (ADR-068 clause 3).
+    unavailable_verdict: ClaimVerdict
+    vault_language_label: str | None = None
+
+
+def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
+    for unit in units:
+        if citation_present(quote, [unit.text]):
+            return unit
+    return None
+
+
+def _cross_language_trigger(document_language: str | None, index: VaultIndex) -> bool:
+    """ADR-068 clause 2a — a deterministic miss AND the document's language
+    differs from the vault's own dominant language. ``document_language is
+    None`` (the caller opted out, or a non-letter/CV audit) fails OPEN to
+    today's behaviour — the seam never fires."""
+    return document_language is not None and document_language != index.dominant_language
+
+
+def _cross_language_candidate(
+    claim_text: str,
+    index: VaultIndex,
+    document_language: str | None,
+    units: list[EvidenceUnit],
+    deny_verdict: ClaimVerdict,
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate | None":
+    """ADR-068 Seam A. ``None`` when the trigger doesn't hold or there is
+    nothing to judge against — the caller keeps its pre-existing verdict.
+    Otherwise a resolved fail-safe :class:`ClaimVerdict` (no sink wired) or a
+    deferred :class:`_SeamCandidate` (sink wired — resolved later, batched)."""
+    if not _cross_language_trigger(document_language, index) or not units:
+        return None
+    unavailable = ClaimVerdict(
+        verdict="unverifiable",
+        checker="cross_language_judgement",
+        evidence=_evidence_refs(units),
+        detail=(
+            "This claim's language differs from the vault's own — an "
+            "equivalence judgement could not confirm whether it restates the "
+            "candidate's vault evidence, so this is left as an honest gap "
+            "rather than an accusation (ADR-068)."
+        ),
+    )
+    candidate = _SeamCandidate(
+        seam="cross_language",
+        claim_text=claim_text,
+        units=units,
+        deny_verdict=deny_verdict,
+        unavailable_verdict=unavailable,
+        vault_language_label=_LANGUAGE_LABELS.get(index.dominant_language, index.dominant_language),
+    )
+    if judgement_sink is None:
+        logger.info(
+            "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=cross_language"
+        )
+        return unavailable
+    judgement_sink.append(candidate)
+    return candidate
+
+
+def _restatement_candidate(
+    claim_text: str,
+    units: list[EvidenceUnit],
+    judgement_sink: "list[_SeamCandidate] | None",
+) -> "ClaimVerdict | _SeamCandidate":
+    """ADR-068 Seam B (the unanchored-figure escalation, formerly a
+    deterministic ``unbacked``) — always a candidate once the below-floor
+    branch is reached; unlike Seam A there is no "trigger" to fail open on,
+    only whether a batching sink is available."""
+    unavailable = ClaimVerdict(
+        verdict="unverifiable",
+        checker="restatement_judgement",
+        evidence=_evidence_refs(units),
+        detail=(
+            "This claim's only vault evidence is owned by a position, but "
+            "this claim names no employer and the letter's own context "
+            "doesn't unambiguously point to that one position — an "
+            "equivalence judgement could not confirm the claim restates that "
+            "evidence, so attribution is left unverifiable rather than "
+            "accused (ADR-068)."
+        ),
+    )
+    candidate = _SeamCandidate(
+        seam="restatement",
+        claim_text=claim_text,
+        units=units,
+        deny_verdict=None,
+        unavailable_verdict=unavailable,
+    )
+    if judgement_sink is None:
+        logger.info(
+            "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_sink seam=restatement"
+        )
+        return unavailable
+    judgement_sink.append(candidate)
+    return candidate
+
+
+def _resolve_seam_candidate(
+    candidate: _SeamCandidate, response_item: dict[str, Any] | None
+) -> tuple[ClaimVerdict, bool, str | None]:
+    """(verdict, unavailable, reason) for one resolved batch item.
+
+    ``reason`` is ``None`` on a clean resolution (grant, deny, or the soft
+    restatement verdict) and one of ``"malformed_item"``/``"citation_drop"``
+    otherwise — the caller logs the distinct ``ORACLE_JUDGEMENT_UNAVAILABLE``/
+    ``ORACLE_JUDGEMENT_CITATION_DROP`` lines from it.
+    """
+    if not isinstance(response_item, dict):
+        return candidate.unavailable_verdict, True, "malformed_item"
+    corresponds = response_item.get("corresponds")
+    quote = response_item.get("vault_quote")
+    unit_texts = [u.text for u in candidate.units]
+    citation_ok = citation_present(quote, unit_texts)
+
+    if candidate.seam == "cross_language":
+        if corresponds is True:
+            if not citation_ok:
+                return candidate.unavailable_verdict, True, "citation_drop"
+            matched_unit = _find_citing_unit(quote, candidate.units)
+            verdict = ClaimVerdict(
+                verdict="grounded",
+                checker="cross_language_judgement",
+                evidence=_evidence_refs([matched_unit] if matched_unit else candidate.units),
+                detail=(
+                    "Equivalent restatement across languages — vault evidence "
+                    f'({candidate.vault_language_label}): "{quote}".'
+                ),
+            )
+            return verdict, False, None
+        if corresponds is False or corresponds == "uncertain":
+            assert candidate.deny_verdict is not None
+            return candidate.deny_verdict, False, None
+        return candidate.unavailable_verdict, True, "malformed_item"
+
+    # seam == "restatement" — both true/false/uncertain need a verified
+    # citation (the model must always show which evidence it compared the
+    # claim against, whichever way it answers).
+    if not citation_ok:
+        return candidate.unavailable_verdict, True, "citation_drop"
+    if corresponds is False:
+        verdict = ClaimVerdict(
+            verdict="unbacked",
+            checker="restatement_judgement",
+            evidence=_evidence_refs(candidate.units),
+            detail=(
+                "The only vault evidence for this claim's figure belongs to "
+                "a different position, and an equivalence judgement confirms "
+                "this claim's own wording does not restate that evidence — "
+                "the figure appears borrowed from an unrelated fact."
+            ),
+        )
+        return verdict, False, None
+    if corresponds is True or corresponds == "uncertain":
+        verdict = ClaimVerdict(
+            verdict="unverifiable",
+            checker="restatement_judgement",
+            evidence=_evidence_refs(candidate.units),
+            detail=(
+                "This claim's only vault evidence is owned by a position, but "
+                "this claim names no employer and the letter's own context "
+                "doesn't unambiguously point to that one position — "
+                "attribution cannot be verified."
+            ),
+        )
+        return verdict, False, None
+    return candidate.unavailable_verdict, True, "malformed_item"
+
+
+async def _run_judgement_batches(
+    candidates: list[_SeamCandidate], provider: Any
+) -> list[tuple[ClaimVerdict, bool]]:
+    """Resolve every candidate via batched ORACLE_JUDGEMENT calls (clause 6),
+    ``ORACLE_JUDGEMENT_BATCH_SIZE`` items per call, ``ORACLE_MAX_JUDGEMENT_
+    CALLS`` calls per document. Returns ``(verdict, unavailable)`` pairs in
+    the SAME order as *candidates*.
+
+    Fail-safe end-to-end (ADR-068): a batch's own exception, a malformed
+    top-level response, or a missing provider degrades ONLY the candidates in
+    that batch (or all of them, for a missing provider) to their own
+    ``unavailable_verdict`` — this function never raises.
+    """
+    if not candidates:
+        return []
+    results: list[tuple[ClaimVerdict, bool]] = [
+        (c.unavailable_verdict, True) for c in candidates
+    ]
+    if provider is None:
+        for c in candidates:
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_provider seam=%s", c.seam
+            )
+        return results
+
+    calls_made = 0
+    for start in range(0, len(candidates), ORACLE_JUDGEMENT_BATCH_SIZE):
+        batch = candidates[start : start + ORACLE_JUDGEMENT_BATCH_SIZE]
+        if calls_made >= ORACLE_MAX_JUDGEMENT_CALLS:
+            for c in batch:
+                logger.info(
+                    "ORACLE_JUDGEMENT_UNAVAILABLE reason=budget_exhausted seam=%s",
+                    c.seam,
+                )
+            continue
+        calls_made += 1
+        items = [(c.claim_text, [u.text for u in c.units], c.seam) for c in batch]
+        prompt = build_judgement_user_prompt(items)
+        try:
+            response = await provider.aparse_json(
+                prompt,
+                system=ORACLE_JUDGEMENT_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=judgement_call_max_tokens(len(batch)),
+            )
+        except Exception:
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=provider_error seam=batch "
+                "size=%d",
+                len(batch),
+            )
+            continue  # this sub-batch's placeholders (unavailable) stand
+
+        raw_items = response.get("items") if isinstance(response, dict) else None
+        if not isinstance(raw_items, list):
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_response seam=batch "
+                "size=%d",
+                len(batch),
+            )
+            continue
+
+        by_index: dict[int, Any] = {}
+        for entry in raw_items:
+            if isinstance(entry, dict) and isinstance(entry.get("index"), int):
+                by_index[entry["index"]] = entry
+
+        for j, c in enumerate(batch):
+            entry = by_index.get(j)
+            if entry is None and j < len(raw_items):
+                entry = raw_items[j]  # positional fallback (bad/missing index)
+            verdict, unavailable, reason = _resolve_seam_candidate(c, entry)
+            results[start + j] = (verdict, unavailable)
+            if reason == "citation_drop":
+                logger.info(
+                    "ORACLE_JUDGEMENT_CITATION_DROP seam=%s span=%r",
+                    c.seam,
+                    (entry or {}).get("vault_quote") if isinstance(entry, dict) else None,
+                )
+            elif reason == "malformed_item":
+                logger.info(
+                    "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_item seam=%s",
+                    c.seam,
+                )
+    return results
 
 
 def _attribution_red_flag(
@@ -206,7 +513,8 @@ def _unattributable_evidence_flag(
     letter_named_ids: frozenset[str] | None,
     sentence_named_ids: frozenset[str],
     units: list[EvidenceUnit],
-) -> ClaimVerdict | None:
+    judgement_sink: "list[_SeamCandidate] | None" = None,
+) -> "ClaimVerdict | _SeamCandidate | None":
     """#243-adjacent / #248 — the letter ownership check (module docstring).
 
     Generalized (#248) from figure-only evidence to ANY evidence-unit list —
@@ -280,15 +588,24 @@ def _unattributable_evidence_flag(
     OR was silently mismatched). Once every escape above has failed to
     clear the claim, :func:`_owner_scoped_coverage` — the claim's best
     coverage against ONLY the evidence owned by the position(s) that back
-    it, role-agnostic prose excluded — decides which negative verdict fits:
-    if the claim's own wording clears ``_UNATTRIBUTABLE_CONTENT_FLOOR``
-    against that position's OWN evidence (a plausible restatement whose
-    ownership just can't be pinned down in the letter's prose), stay
-    ``unverifiable`` — honest uncertainty, not an accusation. If it does not
-    (the claim's action/content has nothing to do with what that position's
-    evidence actually says — a number lifted from an unrelated fact and
-    dressed in different wording), escalate to ``unbacked``: the evidence
-    backs the FIGURE, not the CLAIM.
+    it, role-agnostic prose excluded — decides how to proceed: coverage AT
+    OR ABOVE ``_UNATTRIBUTABLE_CONTENT_FLOOR`` (a plausible restatement whose
+    ownership just can't be pinned down in the letter's prose) stays
+    ``unverifiable`` directly — a cheap, deterministic short-circuit, no
+    model call, honest uncertainty rather than an accusation.
+
+    BELOW the floor (ADR-068 clause 4/Seam B, amended 2026-08-01 — this
+    branch previously escalated straight to ``unbacked`` on the coverage
+    number alone): the claim becomes a RESTATEMENT-JUDGEMENT CANDIDATE
+    (:func:`_restatement_candidate`) instead. A bounded equivalence
+    judgement, not a bare token-overlap number, decides whether the claim's
+    own wording genuinely restates the owning position's evidence
+    (``corresponds=false``, citation-verified -> ``unbacked``,
+    checker ``restatement_judgement``) or not (``true``/``uncertain``, or the
+    judgement is unavailable -> the same soft ``unverifiable`` this function
+    already returns for the at-or-above-floor case). The coverage floor may
+    only ever soften toward ``unverifiable`` on its own now — it can no
+    longer, by itself, accuse.
     """
     if source_id is not None or letter_named_ids is None or not units:
         return None
@@ -300,17 +617,7 @@ def _unattributable_evidence_flag(
     if _all_same_employer(letter_named_ids, index) and letter_named_ids & owners:
         return None
     if _owner_scoped_coverage(claim_text, index, owners) < _UNATTRIBUTABLE_CONTENT_FLOOR:
-        return ClaimVerdict(
-            verdict="unbacked",
-            checker="attribution",
-            evidence=_evidence_refs(units),
-            detail=(
-                "The only vault evidence for this claim's figure belongs to "
-                "a different position, and this claim's own wording does not "
-                "correspond to that evidence's content — the figure appears "
-                "borrowed from an unrelated fact."
-            ),
-        )
+        return _restatement_candidate(claim_text, units, judgement_sink)
     return ClaimVerdict(
         verdict="unverifiable",
         checker="attribution",
@@ -324,17 +631,29 @@ def _unattributable_evidence_flag(
     )
 
 
-_ENTAILMENT_PROMPT = (
+# #404 retrofit (2026-08-01): this call had NO ``system=`` argument at all —
+# the entire prompt, including its own opening identity line, went through
+# as the user prompt. That is invisible to ``MockLLMProvider.aparse_json``'s
+# fingerprint strategy (it inspects ``system``, never ``prompt`` — see
+# ``providers/llm/mock.py``'s own module docstring), so under the mock
+# provider this call ALWAYS fell to the generic ``{"mock": ...}`` fallback,
+# which fails ``_VALID_ENTAILMENT_VERDICTS`` and degrades to ``fallback`` —
+# safe, but silently means the mock stack has never once exercised a real
+# entailment verdict. Split into a system identity line (fingerprinted below,
+# and pinned by ``test_mock_reviewer_chain_recognition.py``) + a user prompt
+# carrying the actual comparison.
+_ENTAILMENT_SYSTEM_PROMPT = (
     "You are a strict verification function for job-application claims.\n"
     "Compare the DOCUMENT CLAIM against the PROFILE EVIDENCE and return "
-    'STRICT JSON: {{"verdict": "grounded" | "inflated" | "unbacked" | "unverifiable"}}.\n'
+    'STRICT JSON: {"verdict": "grounded" | "inflated" | "unbacked" | "unverifiable"}.\n'
     "- grounded: the evidence supports the claim as stated\n"
     "- inflated: the evidence is aspirational or weaker than the claim's rendering "
     "(e.g. a target presented as an achieved result)\n"
     "- unbacked: the evidence does not contain or contradicts the claim\n"
-    "- unverifiable: subjective, or the evidence cannot decide it\n\n"
-    "PROFILE EVIDENCE:\n{evidence}\n\nDOCUMENT CLAIM:\n{claim}"
+    "- unverifiable: subjective, or the evidence cannot decide it"
 )
+
+_ENTAILMENT_USER_PROMPT = "PROFILE EVIDENCE:\n{evidence}\n\nDOCUMENT CLAIM:\n{claim}"
 
 _VALID_ENTAILMENT_VERDICTS = {"grounded", "inflated", "unbacked", "unverifiable"}
 
@@ -355,7 +674,8 @@ async def _entailment(
     evidence = "\n".join(f"- {u.text}" for u in evidence_units) or "- (no close evidence)"
     try:
         result = await provider.aparse_json(
-            _ENTAILMENT_PROMPT.format(evidence=evidence, claim=claim_text),
+            _ENTAILMENT_USER_PROMPT.format(evidence=evidence, claim=claim_text),
+            system=_ENTAILMENT_SYSTEM_PROMPT,
             temperature=0.0,
             max_tokens=ORACLE_ENTAILMENT_MAX_TOKENS,
         )
@@ -389,7 +709,9 @@ async def verify_claim(
     index: VaultIndex | None = None,
     budget: _EntailmentBudget | None = None,
     letter_named_ids: frozenset[str] | None = None,
-) -> ClaimVerdict:
+    document_language: str | None = None,
+    judgement_sink: "list[_SeamCandidate] | None" = None,
+) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
     ``profile`` accepts a ``MasterProfileData`` or its JSONB dict; pass a
@@ -398,6 +720,15 @@ async def verify_claim(
     (#243-adjacent) is the set of experience ids named anywhere in a letter
     being audited — ``None`` for CV/text callers, who never need it (see
     :func:`_unattributable_evidence_flag`).
+
+    ``document_language`` (ADR-068 clause 2a) is the language THIS document
+    is written in; ``None`` (the default) keeps the cross-language judgement
+    seam off, fail-open to pre-ADR-068 behaviour. ``judgement_sink``, when
+    supplied, is where a triggered seam DEFERS its candidate instead of
+    resolving it immediately — the return value is then a
+    :class:`_SeamCandidate`, not a :class:`ClaimVerdict`; a bare call (the
+    common case for direct callers outside :func:`audit_document`) always
+    gets back a real, immediately fail-safe :class:`ClaimVerdict`.
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
@@ -452,11 +783,34 @@ async def verify_claim(
             return ClaimVerdict(
                 verdict="grounded", checker="grounding", evidence=_evidence_refs([unit])
             )
-        return ClaimVerdict(
+        deny = ClaimVerdict(
             verdict="unbacked",
             checker="grounding",
             detail=f'Skill "{claim.text}" has no vault evidence.',
         )
+        # ADR-068 Seam A (#394 site): a literal miss on a DIFFERENT-language
+        # document gets one bounded equivalence judgement before the
+        # accusation stands — the deterministic matcher only ever compares
+        # surface forms, so a skill genuinely held but named in the vault's
+        # OTHER supported language always misses here. Same-language misses
+        # (the trigger fails open, ``document_language is None`` included)
+        # are completely unaffected — ``deny`` is returned exactly as before.
+        # The vault's OWN skill units are ALWAYS in the candidate pool for a
+        # skill label — a zero-token-overlap translation ("Capital
+        # consolidation" ↔ "Kapitalkonsolidierung", the German compound-noun
+        # class) leaves lexical top_units either empty or, worse,
+        # coincidentally non-empty with unrelated narrative units, starving
+        # the judgement of the one unit that answers it (real-provider probe,
+        # 2026-08-01: 3/4 #394 pairs grounded, the fourth failed exactly
+        # here). Skill units lead; lexical top_units append as narrative
+        # context.
+        skill_units = [u for u in idx.units if u.path.startswith("skills[")]
+        top_units = ground_text_claim(claim.text, idx).top_units
+        skill_candidates = skill_units + [u for u in top_units if u not in skill_units]
+        seam = _cross_language_candidate(
+            claim.text, idx, document_language, skill_candidates, deny, judgement_sink
+        )
+        return seam if seam is not None else deny
 
     # ── 1. number/date provenance (deterministic red flag) ──────────────────
     figures = extract_figures(claim.text)
@@ -509,7 +863,13 @@ async def verify_claim(
             if fig.kind == "year":
                 continue
             flag = _unattributable_evidence_flag(
-                claim.text, idx, source_id, letter_named_ids, claim.sentence_named_ids, fig_units
+                claim.text,
+                idx,
+                source_id,
+                letter_named_ids,
+                claim.sentence_named_ids,
+                fig_units,
+                judgement_sink,
             )
             if flag is not None:
                 return flag
@@ -588,6 +948,7 @@ async def verify_claim(
             letter_named_ids,
             claim.sentence_named_ids,
             grounding.qualifying_units,
+            judgement_sink,
         )
         if flag is not None:
             return flag
@@ -723,12 +1084,43 @@ async def audit_document(
     letter_data: dict[str, Any] | None = None,
     text: str | None = None,
     provider: Any | None = None,
+    document_language: str | None = None,
+    entailment: bool = True,
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
 
     Exactly one of ``tailored_data`` / ``letter_data`` / ``text`` must be
     provided. The report NEVER blocks delivery in v1 (ADR-040 attestation
     remains the gate) and always carries the ADR-052 §5 stated limit.
+
+    ``document_language`` (ADR-068 clause 2a) is this document's OWN
+    language (e.g. the generation output language) — ``None`` keeps the
+    cross-language judgement seam off, fail-open to pre-ADR-068 behaviour.
+    Both bounded-equivalence seams (cross-language + restatement) are
+    BATCHED once per document (clause 6): every claim's per-claim
+    verification either finalizes immediately (the deterministic layer,
+    unchanged) or is deferred as a judgement candidate; after the full pass
+    over every claim, one (or a few, ``ORACLE_MAX_JUDGEMENT_CALLS``-bounded)
+    batched judgement call resolves them all, and citation-verified answers
+    are patched into the report. A judgement failure of any kind — no
+    provider, budget exhaustion, a provider exception, a malformed response,
+    or a citation that doesn't verify — degrades ONLY the affected claim(s)
+    to the clause-3 fail-safe verdict and never fails the audit.
+
+    ``entailment`` (ADR-068 clause 7 scoping, added during implementation —
+    NOT part of the original ADR-068 clause text, flagged as a deviation in
+    the implementing commit): the pre-existing narrow ``_entailment`` call
+    (ADR-052, undecided figure-free claims) shares this same ``provider``
+    parameter. ``build_self_audit_report`` (the generation-time self-audit)
+    passes ``entailment=False`` so threading a real provider for the TWO NEW
+    bounded judgement seams does not also silently reactivate the older,
+    broader, previously-dormant entailment mechanism during every CV/letter
+    generation — that would reopen the "free of added latency/cost" half of
+    the ADR-052 §4 guarantee ADR-068 never asked to amend, and did break
+    several pre-existing tests whose mocked providers assert an exact call
+    count/sequence. The agent-door ``audit_document`` tool (the OTHER
+    caller) keeps ``entailment=True`` (the default) — entailment there was
+    always live and intentional.
     """
     sources = [s for s in (tailored_data, letter_data, text) if s is not None]
     if len(sources) != 1:
@@ -747,7 +1139,12 @@ async def audit_document(
         claims = await extract_claims_from_text(text or "", provider=provider)
 
     index = build_vault_index(profile)
-    budget = _EntailmentBudget()
+    budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
+    # ADR-068 clause 6 — every claim that defers to the judgement layer lands
+    # here; ``pending`` remembers, in the SAME order, which ``results`` slot
+    # each one fills once the batch resolves.
+    judgement_sink: list[_SeamCandidate] = []
+    pending_result_indices: list[int] = []
     results: list[ClaimResult] = []
     for claim in claims:
         verdict = await verify_claim(
@@ -757,7 +1154,33 @@ async def audit_document(
             index=index,
             budget=budget,
             letter_named_ids=letter_named_ids,
+            document_language=document_language,
+            judgement_sink=judgement_sink,
         )
-        results.append(ClaimResult(claim=claim, verdict=verdict))
+        if isinstance(verdict, _SeamCandidate):
+            # The candidate's own fail-safe verdict is the placeholder — if
+            # the batch below never resolves it, this is exactly what stays.
+            results.append(ClaimResult(claim=claim, verdict=verdict.unavailable_verdict))
+            pending_result_indices.append(len(results) - 1)
+        else:
+            results.append(ClaimResult(claim=claim, verdict=verdict))
 
-    return TruthfulnessReport.from_results(document_kind, results)
+    judgement_unavailable = 0
+    try:
+        resolved = await _run_judgement_batches(judgement_sink, provider)
+    except Exception:
+        # Fail-safe end-to-end (ADR-068): an unexpected error anywhere in the
+        # batching layer must never fail the audit — every pending claim
+        # simply keeps its already-placed fail-safe placeholder.
+        logger.exception("Oracle judgement batching failed — every pending claim stays fail-safe")
+        resolved = [(c.unavailable_verdict, True) for c in judgement_sink]
+    for sink_idx, (verdict, unavailable) in enumerate(resolved):
+        result_idx = pending_result_indices[sink_idx]
+        claim = results[result_idx].claim
+        results[result_idx] = ClaimResult(claim=claim, verdict=verdict)
+        if unavailable:
+            judgement_unavailable += 1
+
+    return TruthfulnessReport.from_results(
+        document_kind, results, judgement_unavailable=judgement_unavailable
+    )

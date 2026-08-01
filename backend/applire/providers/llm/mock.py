@@ -36,6 +36,9 @@ System prompt fingerprints:
   "tailored cv corrector"          → CV tailoring refinement    (aparse_json → dict)
   "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
   "verifying one narrow claim"     → ADR-061 stance adjudication (aparse_json → dict, prompt-keyed)
+  "strict verification function"   → Oracle narrow entailment (#404 retrofit) (aparse_json → dict)
+  "truthfulness oracle's equivalence judge" → ADR-068 bounded equivalence judgement
+                                     (cross-language + restatement seams) (aparse_json → dict, prompt-keyed)
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
@@ -462,6 +465,31 @@ def _mock_stance_adjudication(prompt: str) -> dict[str, Any]:
     return {"answer": "yes", "quote": quote}
 
 
+# ADR-068 — the bounded equivalence judgement's user prompt shape
+# (applire.prompts.oracle_judgement.build_judgement_user_prompt):
+# "ITEM <n> (mode: ...):\n...".
+_JUDGEMENT_ITEM_RE = re.compile(r"^ITEM (\d+) \(mode: \w+\):", re.MULTILINE)
+
+
+def _mock_oracle_judgement(prompt: str) -> dict[str, Any]:
+    """Hermetically stable, ALWAYS fail-safe: every item comes back
+    ``corresponds="uncertain"`` with an empty ``vault_quote`` — a citation
+    that will never verify, so the caller's own citation-drop path is what
+    resolves it, exactly the way an honest "I looked and couldn't tell"
+    provider answer would. Tests that need a specific grant/deny outcome use
+    a targeted stub provider instead (the ADR-061 stance-adjudication /
+    outcome-critic precedent — this mock only proves the CHAIN is recognised,
+    never substitutes for a real judgement)."""
+    indices = [int(m) for m in _JUDGEMENT_ITEM_RE.findall(prompt)]
+    if not indices:
+        indices = [0]
+    return {
+        "items": [
+            {"index": i, "corresponds": "uncertain", "vault_quote": ""} for i in indices
+        ]
+    }
+
+
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
 
@@ -525,6 +553,28 @@ class MockLLMProvider(LLMProvider):
         # correct answer would.
         if "verifying one narrow claim" in system_lower:
             return _mock_stance_adjudication(prompt)
+
+        # ADR-068 — the bounded equivalence judgement (cross-language +
+        # restatement seams, services/oracle/audit.py). Recognised on the
+        # system prompt's distinctive first line
+        # (applire.prompts.oracle_judgement.ORACLE_JUDGEMENT_SYSTEM_PROMPT) —
+        # an unrecognised prompt would fall to the generic {"mock": ...}
+        # fallback, which fails the caller's own "items" shape check and
+        # every candidate degrades to judgement_unavailable on every mock
+        # run (the #264 lesson).
+        if "truthfulness oracle's equivalence judge" in system_lower:
+            return _mock_oracle_judgement(prompt)
+
+        # #404 retrofit — the Oracle's narrow entailment call
+        # (services/oracle/audit.py's ``_entailment``) had NO ``system=`` at
+        # all until this fix, so it was invisible to this fingerprint
+        # strategy and always fell to the generic fallback. Canned response
+        # is the SAME safe/neutral shape that fallback already produced
+        # (``unverifiable`` — never overrules a deterministic red flag
+        # either way, ADR-052 §2), now via a real recognised branch instead
+        # of an accident of the generic {"mock": ...} shape being invalid.
+        if "strict verification function" in system_lower:
+            return {"verdict": "unverifiable"}
 
         if "hr analyst" in system_lower:
             return dict(_JOB_ANALYSIS_RESPONSE)
