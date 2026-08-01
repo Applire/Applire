@@ -507,6 +507,51 @@ def test_letter_audit():
 
 
 # ---------------------------------------------------------------------------
+# #399 — pypdf inserts a spurious space inside a kerned character pair (e.g.
+# adjacent identical glyphs "ff"/"11"), splitting a token that IS present in
+# the rendered PDF's header. Ground truth (charter run 12, controlling_emma_de,
+# 2026-08-01, classic_german/lebenslauf_letter template, reproduced via the
+# real Playwright round-trip): pypdf's extract_text() returned
+# "...katrin.hof fmann@example.com" for a header that unambiguously contains
+# "katrin.hoffmann@example.com" — poppler's pdftotext extracts the same PDF
+# intact. The issue's own hypothesis (header block not reaching the text
+# layer, or an obfuscation/encoding step) does NOT hold: the header text does
+# reach the text layer, mangled by a pypdf extraction artifact, not dropped or
+# encoded away.
+# ---------------------------------------------------------------------------
+
+def test_contact_email_survives_pypdf_kerning_space_artifact():
+    """The exact shape #399 reproduced: the header DOES contain the email, but
+    pypdf's extracted text has a spurious space inside a kerned run ("hof
+    fmann"). Must still PASS — this is a text-extraction artifact, not an
+    absent address."""
+    letter = {
+        "header": {
+            "name": "Katrin Hoffmann",
+            "email": "katrin.hoffmann@example.com",
+            "phone": "+49 711 0000000",
+            "address": "Musterstraße 1, 70173 Stuttgart",
+        },
+        "recipient": {"company": "Beispiel AG", "name": "Herr Arnold", "title": None,
+                       "address": None, "date": "1. August 2026"},
+        "body": {"paragraphs": ["Absatz eins.", "Absatz zwei."]},
+        "signature": {"name": "Katrin Hoffmann"},
+    }
+    # Verbatim shape of the pypdf-mangled text this run produced (#399 repro):
+    # the phantom space lands inside "hoffmann", between the two adjacent "f"s.
+    text = (
+        "KATRIN HOFFMANN\nHerr Arnold\nBeispiel AG\n1. August 2026\nAbsatz eins.\n"
+        "Absatz zwei.\nKatrin Hoffmann\nMusterstraße 1, 70173 Stuttgart · "
+        "+49 71 1 0000000 · katrin.hof fmann@example.com"
+    )
+    report = _audit_letter_text(text, letter, keywords=[])
+    email_check = _check_by_id(report, "contact-email")
+    assert email_check is not None and email_check.status == "pass", (
+        f"contact-email false negative on a pypdf kerning-space artifact: {email_check}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # E042/US240 (ADR-051 §6): cover-letter page-length DETECTION check — same check
 # id ("page-length") as the CV band, but no target/condense (deferred this
 # flavour): 1 page passes, 2+ fails naming the region's letter norm.
