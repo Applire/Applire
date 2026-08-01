@@ -315,10 +315,11 @@ async def cluster_gaps(
 ) -> None:
     """Run clustering LLM call and persist result to gap_analysis.gap_clusters."""
     # #3 (ADR-038): cluster descriptions (jd_context) render on the conversational gaps
-    # page, so they follow the candidate's UI language. Local import avoids the
-    # session<->gap circular dependency.
-    from applire.services.session import get_ui_language
-    lang = await get_ui_language(db)
+    # page, so they follow the candidate's conversation language — explicit UI choice,
+    # else the JD's language (amendment 2026-08-01, #400: job-scoped surface). Local
+    # import avoids the session<->gap circular dependency.
+    from applire.services.session import get_conversation_language
+    lang = await get_conversation_language(db, job_id=job.id)
     # US204 (ADR-048 §10): keyword-only honest gaps carry no fit weight, so they
     # never reach category_c — route them into the interview here, deduped against
     # the category_c gaps already present. The clustering LLM merges by domain and

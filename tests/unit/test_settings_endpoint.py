@@ -121,6 +121,41 @@ class TestLanguageSettings:
         result = await update_settings(db)  # no accent_hex, no ui_language
         assert result["ui_language"] == "en"
 
+    # --- ADR-038 amendment 2026-08-01 (#400/#313): the 'en' default is not a choice ---
+
+    @pytest.mark.asyncio
+    async def test_get_settings_not_explicit_when_no_row(self, db):
+        from applire.routers.settings import get_settings
+        result = await get_settings(db)
+        assert result["ui_language"] == "en"
+        assert result["ui_language_explicit"] is False
+
+    @pytest.mark.asyncio
+    async def test_language_write_marks_explicit(self, db):
+        from applire.routers.settings import get_settings, update_settings
+        await update_settings(db, ui_language="de")
+        result = await get_settings(db)
+        assert result["ui_language"] == "de"
+        assert result["ui_language_explicit"] is True
+
+    @pytest.mark.asyncio
+    async def test_explicit_en_choice_is_explicit(self, db):
+        from applire.routers.settings import get_settings, update_settings
+        await update_settings(db, ui_language="en")
+        result = await get_settings(db)
+        assert result["ui_language"] == "en"
+        assert result["ui_language_explicit"] is True
+
+    @pytest.mark.asyncio
+    async def test_unrelated_write_does_not_make_language_explicit(self, db):
+        # A row auto-created by a non-language settings write must not count as
+        # a language choice — row-existence is not choice-existence (#400).
+        from applire.routers.settings import get_settings, update_settings
+        await update_settings(db, accent_hex="#334455")
+        result = await get_settings(db)
+        assert result["ui_language"] == "en"
+        assert result["ui_language_explicit"] is False
+
 
 class TestPreDownloadNoticeSetting:
     # ADR-040 amendment (2026-07-01): one shared user-level flag suppresses the

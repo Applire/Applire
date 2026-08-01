@@ -100,7 +100,7 @@ async def test_cluster_gaps_persists_clusters():
 
     # cluster_gaps now resolves the UI language for jd_context (#3, ADR-038).
     from unittest.mock import patch
-    with patch("applire.services.session.get_ui_language", new=AsyncMock(return_value="de")):
+    with patch("applire.services.session.get_conversation_language", new=AsyncMock(return_value="de")):
         await cluster_gaps(gap_analysis, job, provider, db)
 
     assert gap_analysis.gap_clusters == clusters_raw
@@ -520,7 +520,7 @@ async def _run_cluster_gaps(raw_return, category_c=None, category_b=None):
     db = _MagicMock()
     db.commit = _AsyncMock()
     db.__contains__ = _MagicMock(return_value=True)
-    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+    with _patch("applire.services.session.get_conversation_language", new=_AsyncMock(return_value="en")):
         await cluster_gaps(ga, job, provider, db)
     return ga
 
@@ -637,7 +637,7 @@ async def test_cluster_gaps_uses_keyword_only_honest_gaps_as_clustering_input():
     db = _MagicMock()
     db.commit = _AsyncMock()
     db.__contains__ = _MagicMock(return_value=True)
-    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+    with _patch("applire.services.session.get_conversation_language", new=_AsyncMock(return_value="en")):
         await cluster_gaps(ga, job, provider, db)
     prompt_arg = provider.aparse_json.call_args.args[0]
     assert "Kubernetes" in prompt_arg
@@ -714,7 +714,7 @@ async def test_cluster_gaps_uses_keyword_liabilities_as_clustering_input():
     db = _MagicMock()
     db.commit = _AsyncMock()
     db.__contains__ = _MagicMock(return_value=True)
-    with _patch("applire.services.session.get_ui_language", new=_AsyncMock(return_value="en")):
+    with _patch("applire.services.session.get_conversation_language", new=_AsyncMock(return_value="en")):
         await cluster_gaps(ga, job, provider, db)
     prompt_arg = provider.aparse_json.call_args.args[0]
     assert "RAG" in prompt_arg

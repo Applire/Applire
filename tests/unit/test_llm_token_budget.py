@@ -170,7 +170,7 @@ async def test_cluster_gaps_threads_raised_budget():
     db = MagicMock()
     db.commit = AsyncMock()
 
-    with patch("applire.services.session.get_ui_language", new=AsyncMock(return_value="en")):
+    with patch("applire.services.session.get_conversation_language", new=AsyncMock(return_value="en")):
         await cluster_gaps(gap_analysis, job, spy, db)
 
     assert spy.parse_budgets == [GAP_CLUSTERING_MAX_TOKENS]

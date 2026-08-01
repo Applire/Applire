@@ -91,6 +91,63 @@ async def test_get_ui_language_defaults_en_when_no_row():
 
 
 # ---------------------------------------------------------------------------
+# ADR-038 amendment 2026-08-01 (#400/#313): the 'en' default is not a choice.
+# get_conversation_language — explicit UI-language choice wins; a headless
+# job-scoped conversation falls back to the JD's language; 'en' last.
+# ---------------------------------------------------------------------------
+
+import uuid
+
+from applire.services.session import get_conversation_language
+
+
+class _FakeSeqDB:
+    """Returns queued rows, one per execute() call (settings row first, then job)."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    async def execute(self, *args, **kwargs):
+        return _FakeResult(self._rows.pop(0))
+
+
+_JOB_ID = uuid.uuid4()
+
+
+@pytest.mark.asyncio
+async def test_conversation_language_explicit_choice_wins_over_jd():
+    db = _FakeSeqDB([SimpleNamespace(ui_language="en")])
+    assert await get_conversation_language(db, job_id=_JOB_ID) == "en"
+
+
+@pytest.mark.asyncio
+async def test_conversation_language_no_row_follows_jd_language():
+    db = _FakeSeqDB([None, SimpleNamespace(jd_language="de", raw_text=None)])
+    assert await get_conversation_language(db, job_id=_JOB_ID) == "de"
+
+
+@pytest.mark.asyncio
+async def test_conversation_language_unchosen_row_follows_jd_language():
+    # Row auto-created by an unrelated settings write: ui_language is NULL.
+    db = _FakeSeqDB(
+        [SimpleNamespace(ui_language=None), SimpleNamespace(jd_language="de", raw_text=None)]
+    )
+    assert await get_conversation_language(db, job_id=_JOB_ID) == "de"
+
+
+@pytest.mark.asyncio
+async def test_conversation_language_no_row_no_job_defaults_en():
+    db = _FakeSeqDB([None])
+    assert await get_conversation_language(db, job_id=None) == "en"
+
+
+@pytest.mark.asyncio
+async def test_conversation_language_missing_job_row_defaults_en():
+    db = _FakeSeqDB([None, None])
+    assert await get_conversation_language(db, job_id=_JOB_ID) == "en"
+
+
+# ---------------------------------------------------------------------------
 # B6: question_generator_with_profile — lang directive + language review
 # ---------------------------------------------------------------------------
 

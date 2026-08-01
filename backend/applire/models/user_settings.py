@@ -34,9 +34,11 @@ class UserSettings(Base):
     default_color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )
-    ui_language: Mapped[str] = mapped_column(
-        String(5), nullable=False, server_default="en", default="en"
-    )
+    # ADR-038 (amended 2026-08-01, #400): nullable — NULL means the user never
+    # explicitly chose a language (always *served* as 'en'). Only a write that
+    # carries ui_language may set it; the 'en' default standing in for a choice
+    # is what sent English interview questions into a German agent-channel run.
+    ui_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # ADR-040 (amended 2026-07-01): when true, suppress the clean-case pre-download
     # "AI content" notice across BOTH the CV and cover-letter surfaces. A real
     # red-flag notice is never suppressed by this.

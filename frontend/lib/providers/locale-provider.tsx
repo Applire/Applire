@@ -57,6 +57,18 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
         if (lang === "de" || lang === "en") {
           setLocaleState(lang);
           document.documentElement.lang = lang;
+          // ADR-038 (amended 2026-08-01, #400): the UI is an explicit language
+          // context — persist the active locale once so "no explicit choice"
+          // reliably means a headless/agent-channel journey.
+          if (data.ui_language_explicit === false) {
+            fetch(`${API_BASE}/api/settings`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ui_language: lang }),
+            }).catch(() => {
+              // Best-effort — the next load retries.
+            });
+          }
         }
       })
       .catch(() => {

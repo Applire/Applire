@@ -417,7 +417,7 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 ### ADR-038 — LLM Output-Language Routing
 
 **Decision:** Two language domains, routed by output kind:
-- **Conversation** (interview questions and choices, MODE B questions, follow-up probes, Mode C enrichment questions) is generated in the user's **UI language** (`UserSettings.ui_language`, non-nullable, default `en`) — *regardless* of the language of the profile, JD, or injected context.
+- **Conversation** (interview questions and choices, MODE B questions, follow-up probes, Mode C enrichment questions) is generated in the user's **UI language** (`UserSettings.ui_language`, nullable — NULL means never explicitly chosen, served as `en`) — *regardless* of the language of the profile, JD, or injected context.
 - **Documents** (tailored CV, cover letter) follow the **target-job language**, unchanged.
 
 **Why:** A user picks a UI language because that is the language they want to *operate in*; a CV/cover letter must be in the *employer's* language to be usable. Previously the conversation generators carried no language directive and drifted to whatever language the source material (e.g. a German JD's `jd_context`) happened to be in. The directive is enforced at the system-prompt level (`with_language()`) and verified by the ADR-021 reviewer loop (`INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES`, default 1). Scope: English/German only.
@@ -425,6 +425,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 **Amended (2026-06-10):** the document-side "target-job language" is now resolved deterministically. `job_analyses.jd_language` stores the language the JD is *written in* — detected in code by a stopword/umlaut scorer (`applire/utils/language_detection.py`) at analysis time — and both document generators route on it. The previous source, `language_requirement`, describes what the job demands of the candidate (e.g. "Bilingual DE/EN") and misrouted mixed-language postings; CV tailoring additionally receives an explicit `OUTPUT LANGUAGE` directive instead of inferring the language itself. In the same change, the cover-letter date became system-injected (`applire/utils/letter_date.py`) rather than LLM-generated.
 
 **Amended (2026-07-05):** the document-language enforcement pass now covers **project bullets** (nested under work entries and standalone) — previously it reviewed only the summary, work bullets, and skills, so English project text could ship in a German CV — and it runs after **every** step that adds prose to the document, including the deterministic project-nesting copy from the Master Profile. Standing rule: the language pass is the last prose writer; only language-invariant facts (certifications, dates, metrics) may be added after it.
+
+**Amended (2026-08-01):** the `en` default is not a choice. The conversation rule routed on the server default even for journeys that never touch a settings surface — every agent-channel/API-driven run — producing English interview questions on fully German cases. Now: an *explicitly chosen* `ui_language` always wins (the settings API reports `ui_language_explicit`, and the web UI persists its active locale as an explicit choice on first load); a **job-scoped** conversation with no explicit choice follows the JD's language (`get_conversation_language`); job-less conversation (Mode C enrichment) keeps the `en` fallback.
 
 ---
 
