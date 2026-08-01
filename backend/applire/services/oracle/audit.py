@@ -795,9 +795,18 @@ async def verify_claim(
         # OTHER supported language always misses here. Same-language misses
         # (the trigger fails open, ``document_language is None`` included)
         # are completely unaffected — ``deny`` is returned exactly as before.
-        skill_candidates = ground_text_claim(claim.text, idx).top_units or [
-            u for u in idx.units if u.path.startswith("skills[")
-        ]
+        # The vault's OWN skill units are ALWAYS in the candidate pool for a
+        # skill label — a zero-token-overlap translation ("Capital
+        # consolidation" ↔ "Kapitalkonsolidierung", the German compound-noun
+        # class) leaves lexical top_units either empty or, worse,
+        # coincidentally non-empty with unrelated narrative units, starving
+        # the judgement of the one unit that answers it (real-provider probe,
+        # 2026-08-01: 3/4 #394 pairs grounded, the fourth failed exactly
+        # here). Skill units lead; lexical top_units append as narrative
+        # context.
+        skill_units = [u for u in idx.units if u.path.startswith("skills[")]
+        top_units = ground_text_claim(claim.text, idx).top_units
+        skill_candidates = skill_units + [u for u in top_units if u not in skill_units]
         seam = _cross_language_candidate(
             claim.text, idx, document_language, skill_candidates, deny, judgement_sink
         )

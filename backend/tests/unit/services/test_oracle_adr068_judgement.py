@@ -478,3 +478,63 @@ def test_report_version_bumped_and_judgement_unavailable_serializes():
     assert dumped["judgement_unavailable"] == 2
     # counts math is unaffected by the new field
     assert sum(report.counts.values()) == 0
+
+
+# ── candidate pool: skill units are ALWAYS candidates for a skill label ──────
+# Real-provider probe 2026-08-01: "Capital consolidation" ↔ vault
+# "Kapitalkonsolidierung" (zero token overlap) drew two coincidental narrative
+# top_units, so the all-skills fallback never fired and the judgement never saw
+# the one unit that answers it — 3/4 #394 pairs grounded, the fourth failed
+# exactly here. The pool now leads with the vault's skill units.
+ZERO_OVERLAP_PROFILE = {
+    "personal_info": {"name": "Petra Muster"},
+    "skills": [{"name": "Kapitalkonsolidierung", "category": "technical"}],
+    "work_experience": [
+        {
+            "id": "w1",
+            "company": "Muster GmbH",
+            "role": "Finanzanalystin",
+            "responsibilities": [
+                # engineered coincidental overlap: shares the token "capital"
+                # with the claim, so lexical top_units is NON-empty but wrong
+                "Working Capital Management des Bereichs optimiert."
+            ],
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_skill_units_always_in_judgement_candidates_despite_wrong_top_units():
+    class _RecordingGrantProvider:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def aparse_json(self, prompt, *, system=None, **kwargs):
+            self.prompts.append(prompt)
+            return {
+                "items": [
+                    {
+                        "index": 0,
+                        "corresponds": True,
+                        "vault_quote": "Kapitalkonsolidierung",
+                    }
+                ]
+            }
+
+    provider = _RecordingGrantProvider()
+    report = await audit_document(
+        "cv",
+        ZERO_OVERLAP_PROFILE,
+        tailored_data={"skills": ["Capital consolidation"]},
+        provider=provider,
+        document_language="en",
+    )
+    (result,) = [r for r in report.claims if r.claim.location == "skills[0]"]
+    assert provider.prompts, "judgement must be consulted"
+    assert "Kapitalkonsolidierung" in provider.prompts[0], (
+        "the vault skill unit must be in the judgement's candidate pool even "
+        "when lexical top_units is non-empty but wrong"
+    )
+    assert result.verdict.verdict == "grounded"
+    assert result.verdict.checker == "cross_language_judgement"
