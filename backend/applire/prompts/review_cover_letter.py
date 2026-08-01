@@ -181,7 +181,9 @@ flag the result of that change and ask for the original back. That is oscillatio
 finding.
 
 WHAT IS `minor` HERE. Everything not in checks 1-5: repetition of a name or phrase,
-paragraph order, sentence length, a weak opening, tone, word choice — and soft filler
+paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
+(e.g. wrong German gender agreement: "Mein Budgetverantwortung" for "Meine
+Budgetverantwortung") — and soft filler
 that asserts nothing checkable about the candidate ("Regulated industries share the same
 discipline..."). Filler is real, and worth recording, but nothing false is stated, so it
 never justifies regenerating the letter. Record it as `minor` and move on. Never use it
