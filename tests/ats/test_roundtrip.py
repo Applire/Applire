@@ -554,3 +554,98 @@ async def test_letter_en_signoff_and_sender_name_survive_pdf_roundtrip(template)
     assert _norm_probe("Catherine O'Brien") in text, (
         f"{template}: backfilled sender name missing after the sign-off in PDF"
     )
+
+
+# ---------------------------------------------------------------------------
+# #429 (charter run 15) — a budget-length letter is ONE page; the signature
+# never orphans. Run 15's delivered Anschreiben (266 words of body, within the
+# ADR-051 DACH budget) rendered as 2 PDF pages with page 2 holding nothing but
+# the sender name: the break fell INSIDE the signature block, and the block's
+# generous spacing pushed the name ~3mm past 297mm. The condense machinery
+# owns content length; layout must give budgeted content room.
+# ---------------------------------------------------------------------------
+
+LETTER_DE_BUDGET = {
+    "header": LETTER_DE["header"],
+    "recipient": LETTER_DE["recipient"],
+    "body": {
+        "paragraphs": [
+            (
+                "mit großem Interesse habe ich Ihre Ausschreibung für die Position "
+                "als Leiter Qualitätssicherung gelesen. Süddeutsche Präzisionstechnik "
+                "fertigt hochwertige Baugruppen für anspruchsvolle Industriekunden in "
+                "ganz Europa, und genau dieses Umfeld aus Serienfertigung, "
+                "Projektmanagement und hoher Dokumentationsdisziplin reizt mich an "
+                "dieser verantwortungsvollen Aufgabe."
+            ),
+            (
+                "Als Teamleiter Qualitätssicherung führe ich derzeit acht "
+                "Prüfingenieure über drei Fertigungsstandorte hinweg und verantworte "
+                "die statistische Prozesslenkung der gesamten Serienfertigung. Die "
+                "Ausschussquote konnte ich in achtzehn Monaten durch konsequente "
+                "Prozessoptimierung deutlich senken, während die Liefertreue "
+                "gegenüber unseren Schlüsselkunden stabil blieb. In der Vertretung "
+                "der Werksleitung habe ich mehrfach die Verantwortung für den "
+                "gesamten Standort mit allen Schichten übernommen."
+            ),
+            (
+                "Meine fundierten Kenntnisse in Python und der Aufbau automatisierter "
+                "Messdaten-Workflows ermöglichen es mir, Qualitätsdaten effizient "
+                "auszuwerten und Entscheidungen auf belastbare Zahlen zu stellen. "
+                "Die Einführung eines KPI-gestützten Berichtswesens hat bei uns die "
+                "monatlichen Qualitätsrunden von einer Diskussion über Einzelfälle "
+                "zu einer Steuerung über Trends verändert, die auch die "
+                "Geschäftsführung unmittelbar nutzt."
+            ),
+            (
+                "Eine Zertifizierungslandschaft nach IATF-Standard kenne ich bisher "
+                "nur aus der Auditvorbereitung, nicht aus eigener Verantwortung — "
+                "das wäre für mich der nächste Schritt, und genau deshalb reizt "
+                "mich diese Position. Die Audit- und Dokumentationsdisziplin selbst "
+                "ist mir aus zehn Jahren Qualitätsarbeit in der Präzisionsfertigung "
+                "durchgehend vertraut."
+            ),
+            (
+                "Über die Gelegenheit zu einem persönlichen Gespräch würde ich mich "
+                "sehr freuen und stehe Ihnen für Rückfragen jederzeit gerne zur "
+                "Verfügung."
+            ),
+        ]
+    },
+    "signature": LETTER_DE["signature"],
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "template",
+    [
+        # #431: academic's typography (11pt / 1.7 / 28mm measure) is ~32mm
+        # over at budget length — needs a design decision, not a spacing
+        # nudge. strict=True so fixing the template forces this marker out.
+        pytest.param(t, marks=pytest.mark.xfail(strict=True, reason="#431"))
+        if t == "academic"
+        else t
+        for t in sorted(LETTER_TEMPLATES)
+    ],
+)
+async def test_letter_at_budget_renders_one_page(template):
+    import io
+
+    from pypdf import PdfReader
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+        letter=LETTER_DE_BUDGET,
+        color=_default_color_context(),
+        lang="de",
+        labels=cover_letter_labels("de"),
+        subject="Bewerbung als Leiter Qualitätssicherung",
+    )
+    pdf = await _html_to_pdf(html)
+    reader = PdfReader(io.BytesIO(pdf))
+    n_words = sum(len(p.split()) for p in LETTER_DE_BUDGET["body"]["paragraphs"])
+    assert len(reader.pages) == 1, (
+        f"{template}: {n_words}-word body rendered {len(reader.pages)} pages — "
+        "budget-length letters must fit the DACH 1-page norm (ADR-051); "
+        f"last page text: {reader.pages[-1].extract_text()!r}"
+    )

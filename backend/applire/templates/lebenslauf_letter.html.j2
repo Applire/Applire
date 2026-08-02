@@ -23,8 +23,11 @@
     .date { text-align: right; margin-bottom: 6mm; font-size: 10pt; color: #555; }
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 6mm; }
     .body p { margin-bottom: 5mm; font-size: 10.5pt; text-align: justify; }
-    .signature { margin-top: 10mm; font-size: 10.5pt; }
-    .signature .closing { margin-bottom: 12mm; }
+    /* #429 (run 15): keep-together so the break can never fall inside the
+       block, and 4mm less signature air — a budget-length body (266 words)
+       overflowed 297mm by ~3mm, orphaning the bare sender name on page 2. */
+    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 8mm; font-size: 10.5pt; }
+    .signature .closing { margin-bottom: 10mm; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>
