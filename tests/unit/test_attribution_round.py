@@ -241,6 +241,71 @@ class TestRunAttributionRound:
         )
         assert out is DRAFT
 
+    async def test_a_draft_that_empties_its_bullets_is_rejected(self):
+        """The id set surviving is not evidence the CONTENT did. A corrector
+        that keeps every entry and empties them passes an id-only check while
+        destroying the whole document — found by this branch's adversarial
+        pass, 2026-08-02."""
+        gutted = {
+            "summary": DRAFT["summary"],
+            "work": [{"id": "weberit", "bullets": []},
+                     {"id": "rasselstein", "bullets": []}],
+            "skills": ["SAP PP"],
+        }
+        provider = await self._provider(gutted)
+        out = await run_attribution_round(
+            DRAFT, report=_report(), profile_json=PROFILE,
+            source_material="{}", provider=provider,
+        )
+        assert out is DRAFT
+
+    async def test_dropping_exactly_one_misplaced_detail_is_allowed(self):
+        """The floor is one bullet per finding, not zero: the feedback permits
+        dropping a misplaced detail when the entry that owns it is not in this
+        CV. One finding, one bullet fewer — accepted."""
+        trimmed = {
+            "summary": DRAFT["summary"],
+            "work": [{"id": "weberit", "bullets": ["Leitung der Fertigung"]},
+                     {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk"]}],
+            "skills": ["SAP PP"],
+        }
+        provider = await self._provider(trimmed)
+        out = await run_attribution_round(
+            DRAFT, report=_report(), profile_json=PROFILE,
+            source_material="{}", provider=provider,
+        )
+        assert out == trimmed
+
+    async def test_a_relocation_that_keeps_the_count_is_allowed(self):
+        moved = {
+            "summary": DRAFT["summary"],
+            "work": [{"id": "weberit", "bullets": ["Leitung der Fertigung", SAP_BULLET]},
+                     {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk"]}],
+            "skills": ["SAP PP"],
+        }
+        provider = await self._provider(moved)
+        out = await run_attribution_round(
+            DRAFT, report=_report(), profile_json=PROFILE,
+            source_material="{}", provider=provider,
+        )
+        assert out == moved
+
+    async def test_a_draft_that_empties_the_summary_is_rejected(self):
+        """This round never asks about the summary, so losing it is collateral
+        damage from a full re-emission — the #303/GxP custody class."""
+        no_summary = {
+            "summary": "",
+            "work": [{"id": "weberit", "bullets": ["Leitung der Fertigung", SAP_BULLET]},
+                     {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk"]}],
+            "skills": ["SAP PP"],
+        }
+        provider = await self._provider(no_summary)
+        out = await run_attribution_round(
+            DRAFT, report=_report(), profile_json=PROFILE,
+            source_material="{}", provider=provider,
+        )
+        assert out is DRAFT
+
     async def test_a_provider_failure_ships_the_original_draft(self):
         provider = AsyncMock()
         provider.aparse_json = AsyncMock(side_effect=RuntimeError("boom"))

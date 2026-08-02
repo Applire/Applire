@@ -1118,3 +1118,107 @@ class TestAttributionRoundWiredIntoBackgroundRender:
 
         prompts = [c.args[0] for c in provider.aparse_json.await_args_list if c.args]
         assert not [p for p in prompts if "ROLE OWNERSHIP" in p]
+
+
+class TestRestoreBranchHonoursCoverage:
+    """ADR-072 clause 1 on the OTHER ceiling path — found by this branch's own
+    adversarial pass, 2026-08-02.
+
+    ``_restore_ledger_bullets`` has two ceiling enforcers. The one reached when
+    nothing was restored delegates to ``_cap_bullets`` and therefore to the
+    shared ranking. The one reached when a restoration DID fire truncates
+    positionally instead, ordering by ``_is_hit`` — "does this bullet contain
+    any claimable surface form" — which cannot tell the SOLE carrier of a
+    concept from a bullet repeating a term the skills list already carries.
+
+    So restoring one concept could silently delete another concept's only
+    evidence, and because that path never computes sole-carrier status it also
+    never emitted clause 4's WARNING. Two enforcers of one rule, one of them
+    unaware of it — the ADR-066 shape this repository keeps re-learning.
+    """
+
+    SOLE = "Reinraumqualifizierung nach ISO 14644 verantwortet"
+    COMMON_1 = "Lean Management in der Montage etabliert"
+    COMMON_2 = "Lean Management auf die Logistik ausgeweitet"
+    RESTORABLE = "Sechs-Sigma-Projekte zur Ausschussreduktion geleitet"
+
+    def _fixture(self, max_bullets: int = 3):
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        ledger = [
+            {"concept": "ISO 14644", "surface_forms": ["Reinraumqualifizierung"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Reinraum"},
+            {"concept": "Lean Management", "surface_forms": ["Lean"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Lean"},
+            {"concept": "Six Sigma", "surface_forms": ["Sechs-Sigma"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Sechs-Sigma"},
+        ]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit", "role": "Produktionsleiter",
+                "start_date": "2018-01", "end_date": None, "is_current": True,
+                "responsibilities": [self.COMMON_1, self.COMMON_2, self.SOLE,
+                                     self.RESTORABLE],
+                "achievements": [],
+            }],
+            "projects": [],
+        }
+        concepts = (("Reinraumqualifizierung", "ISO 14644"),
+                    ("Lean", "Lean Management"),
+                    ("Sechs-Sigma", "Six Sigma"))
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top",
+                                    max_bullets=max_bullets)},
+            tiers={"top": BulletTier("top", 3, 2), "mid": BulletTier("mid", 3, 2),
+                   "bottom": BulletTier("bottom", 1, 0)},
+            target_pages=2, region="DACH",
+            claimable_forms=("Reinraumqualifizierung", "ISO 14644", "Lean",
+                             "Lean Management", "Sechs-Sigma", "Six Sigma"),
+            claimable_concepts=concepts,
+        )
+        # "Lean Management" also sits in the skills list, so BOTH Lean bullets
+        # are covered; the Reinraum bullet is its concept's only carrier and is
+        # listed LAST, which is what condemned it under positional truncation.
+        tailored = _tailored_cv([self.COMMON_1, self.COMMON_2, self.SOLE])
+        tailored = tailored.model_copy(update={"skills": ["Lean Management"]})
+        return tailored, profile_json, ledger, budget
+
+    def test_restoring_one_concept_does_not_delete_another_concepts_only_carrier(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture()
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+
+        assert len(bullets) == 3
+        assert self.RESTORABLE in bullets, "the restoration itself did not happen"
+        assert self.SOLE in bullets, (
+            "restoring Six Sigma deleted the only Reinraum evidence — the "
+            "restore branch ignored the coverage ranking"
+        )
+        # One of the two interchangeable Lean bullets is the correct casualty.
+        assert (self.COMMON_1 in bullets) != (self.COMMON_2 in bullets)
+
+    def test_a_forced_cut_of_a_protected_bullet_still_logs_at_warning(self, caplog):
+        """Clause 4's promise applies to BOTH enforcers. When the ceiling is
+        tighter than the protected set the clause cannot be honoured, and that
+        is precisely the case that must not be silent."""
+        import logging
+
+        from applire.services.cv import _restore_ledger_bullets
+
+        # Two bullets are sole carriers (Reinraum, and the restored Six Sigma);
+        # the two Lean bullets are covered by the skills list. A ceiling of 1
+        # is therefore tighter than the protected set and the clause cannot be
+        # honoured -- which is exactly the case that must not be silent.
+        tailored, profile_json, ledger, budget = self._fixture(max_bullets=1)
+        with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
+            _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        warned = [r for r in caplog.records
+                  if "TAIL_DELETE" in r.getMessage()
+                  and "sole_carrier=True" in r.getMessage()]
+        assert warned, "a protected bullet was deleted with no warning"
+        assert all(r.levelno == logging.WARNING for r in warned)

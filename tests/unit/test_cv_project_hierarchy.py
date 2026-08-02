@@ -706,3 +706,76 @@ def test_unambiguous_company_name_still_resolves():
         profile["projects"],
     )
     assert len(enriched[0]["projects"]) == 1
+
+
+def _two_tenures_same_company_and_role():
+    """A rehire into the SAME title — the shape the first ambiguity fix missed.
+
+    ADR-072 clause 5 guarded the company-only fallback but left the exact
+    company+role branch on first-match-wins, so an UNAMBIGUOUS association (the
+    project names the vault id of the second tenure) still resolved to whichever
+    tailored entry happened to be listed first. Found by this branch's own
+    adversarial pass, 2026-08-02.
+    """
+    from applire.schemas.cv import TailoredCVData, TailoredContact, TailoredWorkEntry
+
+    work = [
+        TailoredWorkEntry(
+            id="work-1", company="Acme GmbH", role="Consultant",
+            start_date="2015-01", end_date="2017-01", bullets=[],
+        ),
+        TailoredWorkEntry(
+            id="work-2", company="Acme GmbH", role="Consultant",
+            start_date="2020-01", end_date=None, bullets=[],
+        ),
+    ]
+    tailored = TailoredCVData(
+        summary="s", contact=TailoredContact(), work_history=work, skills=[]
+    )
+    profile = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Consultant"},
+            {"id": "work-2", "company": "Acme GmbH", "role": "Consultant"},
+        ],
+        "projects": [
+            {
+                "name": "Second-tenure Programme",
+                "responsibilities": ["Evidence owned by work-2 only"],
+                "associated_experience": "work-2",  # the vault id — unambiguous
+            }
+        ],
+    }
+    return tailored, profile
+
+
+def test_an_unambiguous_id_reaches_the_right_tenure_even_when_role_also_matches():
+    """The association carries a vault id, so there is nothing to guess. Before
+    the fix the id resolved the SOURCE entry correctly and was then thrown away:
+    the tailored-side lookup re-matched on company+role strings and returned the
+    first hit — the tenure that ended in 2017."""
+    from applire.services.cv import _nest_projects
+
+    tailored, profile = _two_tenures_same_company_and_role()
+    nested = _nest_projects(tailored, profile)
+
+    by_id = {e.id: [p.name for p in (e.projects or [])] for e in nested.work_history}
+    assert by_id["work-2"] == ["Second-tenure Programme"]
+    assert by_id["work-1"] == []
+    assert not (nested.projects or [])
+
+
+def test_the_tailored_lookup_uses_the_id_not_the_company_role_strings():
+    """Structural: TailoredWorkEntry.id exists so this lookup never needs string
+    matching (schemas/cv.py). Every sibling pass — _apply_role_facts,
+    _restore_ledger_bullets — matches by id; this one is now consistent with
+    them. Proven by making the strings USELESS: identical company and role on
+    both entries, distinct ids."""
+    from applire.services.cv import _nest_projects
+
+    tailored, profile = _two_tenures_same_company_and_role()
+    profile["projects"][0]["associated_experience"] = "work-1"
+    nested = _nest_projects(tailored, profile)
+
+    by_id = {e.id: [p.name for p in (e.projects or [])] for e in nested.work_history}
+    assert by_id["work-1"] == ["Second-tenure Programme"]
+    assert by_id["work-2"] == []

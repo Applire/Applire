@@ -208,6 +208,23 @@ def _work_ids(draft: Any) -> set[str]:
     return {str(w.get("id")) for w in work if isinstance(w, dict) and w.get("id")}
 
 
+def _bullet_count(draft: Any) -> int:
+    work = draft.get("work") if isinstance(draft, dict) else None
+    if not isinstance(work, list):
+        return 0
+    total = 0
+    for entry in work:
+        if not isinstance(entry, dict):
+            continue
+        total += sum(1 for b in (entry.get("bullets") or []) if isinstance(b, str))
+        for project in entry.get("projects") or []:
+            if isinstance(project, dict):
+                total += sum(
+                    1 for b in (project.get("bullets") or []) if isinstance(b, str)
+                )
+    return total
+
+
 async def run_attribution_round(
     prose_draft: dict[str, Any],
     *,
@@ -262,6 +279,30 @@ async def run_attribution_round(
             "ATTRIBUTION_ROUND EXHAUSTED (ADR-071 clause 3): the correction dropped or "
             "renamed a work entry (%s -> %s) — rejected, shipping the original draft",
             sorted(original_ids), sorted(_work_ids(corrected)),
+        )
+        return prose_draft
+
+    # The id set surviving is not evidence the CONTENT did. A relocation moves
+    # a bullet between entries and keeps the total; the feedback also permits
+    # dropping a misplaced detail when its owning entry is not in the CV, so
+    # the floor is one bullet per finding, not zero. Below that floor the round
+    # destroyed prose it was not asked to touch — the #303/GxP full-re-emission
+    # class this module's own docstring names — and the original ships.
+    before, after = _bullet_count(prose_draft), _bullet_count(corrected)
+    if after < before - len(findings):
+        logger.warning(
+            "ATTRIBUTION_ROUND EXHAUSTED (ADR-071 clause 3): the correction returned "
+            "%d bullet(s) where the draft had %d and at most %d relocation(s) were "
+            "requested — rejected as content loss, shipping the original draft",
+            after, before, len(findings),
+        )
+        return prose_draft
+
+    original_summary = prose_draft.get("summary") if isinstance(prose_draft, dict) else None
+    if original_summary and not corrected.get("summary"):
+        logger.warning(
+            "ATTRIBUTION_ROUND EXHAUSTED (ADR-071 clause 3): the correction emptied the "
+            "summary, which this round never asks about — rejected, shipping the original",
         )
         return prose_draft
 

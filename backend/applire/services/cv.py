@@ -562,19 +562,48 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
     data = tailored.model_dump()
     work_history = data.get("work_history") or []
 
-    def _match_tailored_index(company: str, role: str) -> int | None:
-        company_l = (company or "").strip().lower()
-        role_l = (role or "").strip().lower()
-        # Prefer an exact company+role match, then fall back to company-only —
-        # but the fallback fires ONLY when the company identifies exactly one
-        # tailored entry (ADR-072 clause 5, same reasoning as the source-side
-        # index above: with two tenures at one employer, "first match wins" is a
-        # coin flip that renders one tenure's evidence under the other).
-        for idx, w in enumerate(work_history):
-            if (w.get("company") or "").strip().lower() == company_l and (
-                w.get("role") or ""
-            ).strip().lower() == role_l:
-                return idx
+    def _match_tailored_index(parent_work: dict) -> int | None:
+        """Locate the TAILORED entry that renders ``parent_work``.
+
+        By ``id`` — the identity ``assemble_tailored_cv`` establishes
+        structurally on every tailored entry (E049/ADR-067), and the reason
+        ``TailoredWorkEntry.id`` exists at all. Every sibling pass in this
+        module (``_apply_role_facts``, ``_restore_ledger_bullets``) already
+        matches this way; this one did not, and that was the residual half of
+        ADR-072 clause 5: resolving the SOURCE entry by id and then throwing
+        the id away to re-match the tailored side on company+role strings.
+        With a rehire into the same title, "first match wins" put the current
+        tenure's project under the tenure that ended years earlier (found by
+        this branch's own adversarial pass, 2026-08-02).
+
+        The string path survives only for legacy/id-less tailored data — the
+        case ``TailoredWorkEntry.id``'s own docstring provides for ("Empty for
+        legacy records / mock fixtures — nesting then matches on company+role
+        instead") — and both of its branches are ambiguity-guarded: an
+        association that cannot identify exactly one entry falls through to the
+        standalone project list, which never asserts an ownership the data does
+        not support.
+        """
+        wid = str(parent_work.get("id") or "")
+        if wid and any(str(w.get("id") or "") for w in work_history):
+            for idx, w in enumerate(work_history):
+                if str(w.get("id") or "") == wid:
+                    return idx
+            # An id that names no tailored entry is not a licence to guess.
+            return None
+
+        company_l = (parent_work.get("company") or "").strip().lower()
+        role_l = (parent_work.get("role") or "").strip().lower()
+        if company_l and role_l:
+            hits = [
+                idx for idx, w in enumerate(work_history)
+                if (w.get("company") or "").strip().lower() == company_l
+                and (w.get("role") or "").strip().lower() == role_l
+            ]
+            if len(hits) == 1:
+                return hits[0]
+            if hits:
+                return None  # two tenures, same title — indistinguishable
         if not company_l:
             return None
         hits = [
@@ -601,9 +630,7 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 parent_key.lower()
             )
             if parent_work is not None:
-                target_idx = _match_tailored_index(
-                    parent_work.get("company", ""), parent_work.get("role", "")
-                )
+                target_idx = _match_tailored_index(parent_work)
 
         if target_idx is not None:
             # E049 charter run 11: the writer's response schema now carries nested
@@ -950,6 +977,19 @@ def _restore_ledger_bullets(
     non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
     pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
 
+    def _external_text(index: int, entry_dict: dict) -> str:
+        """Everything the cap at ``index`` cannot itself remove.
+
+        The entry's OWN non-bullet text counts as external — a concept named in
+        the position title or the entry summary is covered whatever this cap
+        decides. Both ceiling enforcers below use this, so they cannot disagree
+        about what "covered elsewhere" means.
+        """
+        if not concept_groups:
+            return ""
+        others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
+        return stringify_draft({**non_work, "work_history": others})
+
     for w_index, w in enumerate(tailored.work_history):
         w_dict = w.model_dump(mode="json")
         eid = str(w_dict.get("id") or "")
@@ -1010,22 +1050,44 @@ def _restore_ledger_bullets(
             hits = restored_load_bearing + existing_hits + restored_other
             ordered = hits + no_hits
             if rb is not None and len(ordered) > rb.max_bullets:
-                # Positional truncation, NOT rank_cuts: the order above is a
-                # deliberate priority (#315 puts load-bearing restorations
-                # ahead of generic pre-existing hits) and is already
-                # coverage-aware in the direction ADR-072 clause 1 asks for --
-                # ``no_hits``, the bullets carrying no claimable form at all,
-                # sit last and yield first. Re-ranking here would overwrite
-                # that priority with a coarser one. Clause 4 still applies:
-                # every drop leaves a trace.
-                from applire.services.bullet_cuts import log_deletion
+                # THE shared ranking (ADR-072 clause 1 / ADR-066), not a
+                # positional truncation. An earlier revision cut `ordered` by
+                # position on the argument that the order above is already
+                # coverage-aware, because ``no_hits`` sit last and yield first.
+                # That holds only until ``no_hits`` runs out: past that point
+                # the cut eats ``existing_hits`` positionally, and `_is_hit` --
+                # "does this bullet contain ANY claimable surface form" -- can
+                # neither tell a concept's sole carrier from a bullet repeating
+                # a term the skills list already carries, nor emit clause 4's
+                # WARNING, because it never computes sole-carrier status at
+                # all. Two enforcers of one rule, one of them unaware of it
+                # (found by this branch's own adversarial pass, 2026-08-02).
+                #
+                # The #315 priority is preserved by CARRYING it in the tier key
+                # rather than in the list order: a restored load-bearing bullet
+                # outranks a pre-existing hit, which outranks a no-hit. Coverage
+                # sits above all three, which is not a conflict in practice --
+                # a load-bearing restoration is restored precisely because its
+                # concept was verifiably absent, so it is a sole carrier too.
+                from applire.services.bullet_cuts import apply_cuts, log_cuts, rank_cuts
 
-                for dropped in ordered[rb.max_bullets:]:
-                    log_deletion(
-                        "_restore_ledger_bullets", "RoleBudget ceiling after restore",
-                        dropped, work_entry_id=eid, ceiling=rb.max_bullets,
-                    )
-                ordered = ordered[: rb.max_bullets]
+                lb = set(restored_load_bearing)
+                cuts = rank_cuts(
+                    ordered,
+                    # Ascending = cut FIRST, so each flag is written so that the
+                    # thing worth KEEPING is True: a load-bearing restoration
+                    # sorts last of all, a claimable hit after a no-hit, and
+                    # within a tier the later-listed bullet yields first.
+                    [(b in lb, _is_hit(b), -i) for i, b in enumerate(ordered)],
+                    keep=rb.max_bullets,
+                    concept_groups=concept_groups,
+                    external_text=_external_text(w_index, w_dict),
+                )
+                log_cuts(
+                    "_restore_ledger_bullets", cuts,
+                    work_entry_id=eid, ceiling=rb.max_bullets,
+                )
+                ordered = apply_cuts(ordered, cuts)
             # ADR-061 clause 8 ("every drop is diagnosable from the log
             # alone"): even front-ordered, a load-bearing restoration can
             # still be cancelled if there are MORE load-bearing restorations
@@ -1058,20 +1120,10 @@ def _restore_ledger_bullets(
         # gone; #377 / ADR-067 clause 4). Untouched
         # (under-ceiling) entries keep their original bullets AND order exactly.
         if rb is not None and len(existing_bullets) > rb.max_bullets:
-            external = ""
-            if concept_groups:
-                # This entry's own non-bullet text counts as external: it is not
-                # cuttable here, so a concept named in the position title or the
-                # entry summary is covered whatever this cap decides.
-                others = (
-                    new_work
-                    + [{**w_dict, "bullets": []}]
-                    + pending_dumps[w_index + 1:]
-                )
-                external = stringify_draft({**non_work, "work_history": others})
             capped = _cap_bullets(
                 existing_bullets, rb.max_bullets,
-                concept_groups=concept_groups, external_text=external,
+                concept_groups=concept_groups,
+                external_text=_external_text(w_index, w_dict),
                 context={"work_entry_id": eid},
             )
             if capped != existing_bullets:
@@ -2300,18 +2352,23 @@ async def _render_cv_background(
                 attribution_report = await build_self_audit_report(
                     profile_json, tailored_data=audit_view,
                 )
-            except Exception:
-                logger.exception(
-                    "Attribution pre-audit failed for CV %s — the ADR-071 clause 3 "
-                    "round is skipped; generation continues", cv_id,
-                )
-            else:
+                # Inside the try deliberately. ``run_attribution_round`` is
+                # written never to raise, but "never raises" asserted only by
+                # one function's own completeness is not a defence — one
+                # unguarded line added to it later would otherwise become a
+                # hard failure of CV generation. ADR-052 §5 says this may never
+                # gate delivery, so the guarantee is enforced at the boundary.
                 prose_draft = await run_attribution_round(
                     prose_draft,
                     report=attribution_report,
                     profile_json=profile_json,
                     source_material=source_material,
                     provider=provider,
+                )
+            except Exception:
+                logger.exception(
+                    "The ADR-071 clause 3 attribution round failed for CV %s — "
+                    "skipped; generation continues with the settled draft", cv_id,
                 )
 
             # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)

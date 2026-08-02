@@ -498,8 +498,9 @@ class TestCVTailoringGeneratorPrompts:
 
     def test_system_prompt_constrains_claim_strength(self):
         """US169 (JF-M-6.2) — generator-side prevention. The reviewer already flags
-        oversell (US142; check 4 OVERSTATED CLAIM STRENGTH under E049/ADR-067's
-        renumbering, was rule 6), but the *generator* prompt never told the model not
+        oversell (US142; check 5 OVERSTATED CLAIM STRENGTH after ADR-071's
+        renumbering — check 4 under E049/ADR-067, rule 6 before that), but the
+        *generator* prompt never told the model not
         to inflate. Prevention lowers O before the draft exists; detection alone leaves
         an unnecessary over-claim→reject→retry round-trip.
 
