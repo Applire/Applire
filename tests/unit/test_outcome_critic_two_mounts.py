@@ -288,3 +288,98 @@ async def test_mock_provider_yields_a_clean_pass_a_report():
     assert report.reason is None
     assert report.mount == "cv"
     assert report.advisories == []
+
+
+# ── 5. duplicate-finding dedup (#430) ───────────────────────────────────────
+#
+# Charter run 15: one model judgement produced the SAME internal_inconsistency
+# finding TWICE for "leadership duration" — identical cv_state and cv_detail
+# reached the persisted report as two advisories, double-counted by any
+# consumer that counts advisories. Dedup key is the tuple of (kind, concept
+# normalized case/whitespace, cv_quote, cv_detail_quote, letter_quote) taken
+# AFTER the per-kind quote nulling above — deliberately conservative: same
+# concept with DIFFERENT quoted spans is never treated as a duplicate.
+
+
+_LEADERSHIP_CV_QUOTE = "Verantwortlich für Gruppenkonsolidierung und Budgetprozesse."
+_LEADERSHIP_DETAIL_QUOTE = (
+    "Verantwortlich für das Teilprojekt Intercompany-Abstimmung bei der "
+    "Gruppenkonsolidierung."
+)
+
+
+def _internal_inconsistency_finding(
+    *, concept: str, cv_detail_quote: str = _LEADERSHIP_DETAIL_QUOTE
+) -> dict:
+    return {
+        "kind": "internal_inconsistency",
+        "concept": concept,
+        "cv_quote": _LEADERSHIP_CV_QUOTE,
+        "cv_detail_quote": cv_detail_quote,
+        "worth_surfacing": True,
+    }
+
+
+def test_exact_duplicate_finding_collapses_to_one_advisory(caplog):
+    """The charter run 15 shape: the same finding twice in one judgement's
+    ``findings`` list must not double the persisted advisory."""
+    finding = _internal_inconsistency_finding(concept="leadership duration")
+    with caplog.at_level("INFO"):
+        advisories, dropped = _advisories_from_judgement(
+            {"findings": [finding, dict(finding)]},
+            mount="cv",
+            cv_units=[
+                _CV["professional_summary"],
+                _CV["work_history"][0]["bullets"][0],
+            ],
+            letter_units=[],
+        )
+    assert len(advisories) == 1
+    # A dedup is not a citation drop — the two meanings must never conflate.
+    assert dropped == 0
+    assert any(
+        "dedup" in r.message.lower() or "duplicate" in r.message.lower()
+        for r in caplog.records
+        if r.name == "applire.services.outcome_critic"
+    )
+
+
+def test_same_concept_different_quotes_both_survive():
+    """Deliberately conservative: two findings sharing a concept but citing
+    DIFFERENT spans are NOT duplicates and must both reach the report."""
+    finding_a = _internal_inconsistency_finding(
+        concept="leadership duration", cv_detail_quote=_LEADERSHIP_DETAIL_QUOTE
+    )
+    finding_b = _internal_inconsistency_finding(
+        concept="leadership duration",
+        cv_detail_quote=_CV["professional_summary"],
+    )
+    advisories, dropped = _advisories_from_judgement(
+        {"findings": [finding_a, finding_b]},
+        mount="cv",
+        cv_units=[
+            _CV["professional_summary"],
+            _CV["work_history"][0]["bullets"][0],
+        ],
+        letter_units=[],
+    )
+    assert len(advisories) == 2
+    assert dropped == 0
+
+
+def test_case_only_concept_difference_still_dedups():
+    """Two otherwise-identical findings differing only in concept casing are
+    the SAME duplicate — the dedup key normalizes case and whitespace."""
+    finding_a = _internal_inconsistency_finding(concept="Leadership Duration")
+    finding_b = _internal_inconsistency_finding(concept="  leadership duration  ")
+    advisories, dropped = _advisories_from_judgement(
+        {"findings": [finding_a, finding_b]},
+        mount="cv",
+        cv_units=[
+            _CV["professional_summary"],
+            _CV["work_history"][0]["bullets"][0],
+        ],
+        letter_units=[],
+    )
+    assert len(advisories) == 1
+    assert dropped == 0
