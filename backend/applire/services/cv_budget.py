@@ -279,12 +279,25 @@ def attach_projects(work_entries: list[dict[str, Any]], projects: list[dict[str,
         by_id.setdefault(key, []).append(p)
         by_company.setdefault(key.lower(), []).append(p)
 
+    # ADR-072 clause 5: a company name that matches more than one work entry
+    # identifies no single owner, so its projects are attached to NONE of them.
+    # Attaching to all — the shipped behaviour — was worse than the sibling
+    # defect in ``_nest_projects``: that one rendered a project under the wrong
+    # tenure, this one counted its text toward BOTH tenures' ``_hit_count``,
+    # inflating the relevance tier and therefore the bullet budget of a role
+    # that does not own the evidence (reproduced 2026-08-02).
+    ambiguous = {
+        c
+        for c in by_company
+        if sum(1 for w in work_entries if (w.get("company") or "").strip().lower() == c) > 1
+    }
+
     enriched: list[dict[str, Any]] = []
     for w in work_entries:
         wid = str(w.get("id") or "")
         company = (w.get("company") or "").strip().lower()
         assoc = list(by_id.get(wid) or [])
-        if company:
+        if company and company not in ambiguous:
             for p in by_company.get(company, []):
                 if p not in assoc:
                     assoc.append(p)

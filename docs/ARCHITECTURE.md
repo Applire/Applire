@@ -814,6 +814,34 @@ Concretely (as implemented): both CV generation paths return the same prose-only
 
 ---
 
+### ADR-071 — Attachment Is a Per-Entry Contract (accepted 2026-08-02)
+
+**Problem:** A CV bullet stating a fact about the candidate's *current* job was rendered under a previous employer whose tenure ended years earlier. The fact was true and correctly stored in the profile; only its placement was wrong. Blind reviewers read it as embellishment — which is exactly right, because a reader has no way to tell a misplaced true claim from an invented one, and the candidate ends up defending in an interview a claim they never made. Three separate evaluation runs reported it as three different bugs.
+
+Investigating it corrected two assumptions worth recording, because both were wrong in instructive ways. First, the truthfulness audit **already detects this**: every CV bullet is stamped with the id of the position it is rendered under, compared against the ids that own its backing evidence, and a mismatch is reported as `misattributed` — deterministically, and surfaced to the reader as a red flag on the review screen. The bug report claimed no such surfacing existed; it had shipped eleven days before the report was filed, and the run that produced the report never opened the page. Second, the cover-letter chain was assumed to have an attribution control the CV chain lacked. The reverse is true — the CV holds the primary implementation and the letter path was built to reach it.
+
+So the gap was neither detection nor display: **nothing in the generation loop consumed a verdict the system was already computing correctly.** Meanwhile the writer had never been told the rule. Its grounding instruction required a bullet to trace to "something in the candidate profile" — the whole document — and the accompanying instruction to emit a valid position id is a *format* constraint that the assembly step checks for existence only. The output format makes a bullet a bare string with no field linking it to its source evidence, so attachment was structurally uncheckable; no reviewer check named it; and coverage checks flatten every entry's bullets into one pool before matching, discarding placement entirely. Six review rounds in one captured run never mentioned it.
+
+**Decision:** (1) The writer is told the actual rule — a bullet under a position must trace to *that position's* evidence, and evidence owned by another position belongs under that position. (2) Role ownership becomes a numbered reviewer check rather than a word in shared boilerplate. (3) A `misattributed` verdict triggers **at most one** targeted revision round naming the claim, the position it was rendered under, and the position that owns the evidence — deliberately **not** a deletion, because removing the bullet destroys a true claim the candidate is entitled to make, and deliberately **not** a delivery gate, since the audit stays advisory. Agent-door callers receive the verdict as data and decide for themselves.
+
+**Why:** A control that computes the right answer and is read by nobody in the loop is worth very little, and adding a *second* detector would have been the wrong instinct. Binding a bullet to its source evidence in the output format would make attachment checkable instead of judged; that is recorded as an open question rather than quietly deferred.
+
+---
+
+### ADR-072 — The Deterministic Tail May Not Silently Delete Load-Bearing Content (accepted 2026-08-02)
+
+**Problem:** The candidate's only evidence for the hiring employer's own industry reached the cover letter every time and the CV almost never. Every blind reviewer made the mismatch their single reservation: the letter sounded more confident than the CV supported.
+
+The reported cause — the CV writer failing to select the fact — was wrong, and so were the first two replacement theories. Replaying four complete captured runs through the real pipeline showed the writer *did* select it, and that it was deleted afterwards by **two different deterministic passes**, in the window after the last review approved the draft and before the document was assembled — with no model call in between. One pass enforces a per-role bullet ceiling and cuts bullets without numbers first; a domain-evidence bullet whose only temporal marker was a year ranked last on both criteria and was cut. The other is a duplicate-skill filter whose German-compound rule matched any shared six-character suffix, so a compound noun ending in "-industrie" was treated as a duplicate of an unrelated concept that merely *starts* with "Industrie", and dropped without a trace. Either mechanism alone loses the fact, which is why it never appeared as both a bullet and a skill in the same run.
+
+The general lesson matters more than either bug: roughly a dozen deterministic passes run *after* the last review, so their output is invisible to every reviewer, to the retry log, and to the writer. **No prompt change could have prevented either loss**, because the content was already approved when it was deleted.
+
+**Decision:** (1) A deterministic pass may not remove the sole carrier of a required or claimable requirement concept — coverage now outranks number-presence when choosing what to cut. This only reorders what is dropped among content the writer already produced; it never asks the writer to produce anything, which is the distinction from an earlier attempt that demanded literal keyword text honest prose could not contain and had to be reverted. (2) The compound-suffix duplicate rule requires the shorter form to be a single word — the extra word is precisely the evidence that it is a different named concept rather than the compound's head noun. (3) When a duplicate rule does fire, the more specific form survives rather than the earlier-listed one; output that depends on emission order is a defect in deterministic code. (4) **Every deletion in this tail is logged with its reason** — all three bugs here were expensive to find precisely because they left no trace. (5) A project is attached to its parent position by id only; a name-based fallback silently picked the wrong one when a candidate held two roles at the same employer, and double-counted it when computing that role's bullet budget.
+
+**Why:** Content that survived every review and then vanished is the hardest class of defect to attribute and the easiest to ship. Making the tail auditable is what turns the next one into an hour's work instead of a week's.
+
+---
+
 ### CV Theming & Color (ADR-020, 023, 024, 025, 026)
 
 A cluster of Community rendering decisions a contributor will encounter in the CV pipeline:

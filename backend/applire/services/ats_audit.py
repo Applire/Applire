@@ -356,22 +356,36 @@ _COMPOUND_SUFFIX_MIN_LEN = 6
 
 
 def _compound_suffix_dupe(ta: frozenset[str], tb: frozenset[str]) -> bool:
-    """One side is a bare single-token tag whose token is a strict suffix (or
-    prefix-extended form) of a token on the other side — the German-compound
-    shape ('Schichtbetrieb' / 'Dreischichtbetrieb'). Requires the shorter token
-    to be ≥ _COMPOUND_SUFFIX_MIN_LEN chars so a generic word ending can never
-    collapse two unrelated names."""
-    if min(len(ta), len(tb)) != 1:
+    """BOTH sides are bare single-token tags, one token a strict suffix of the
+    other — the German-compound shape ('Schichtbetrieb' / 'Dreischichtbetrieb',
+    'Führung' / 'Mitarbeiterführung'). Requires the shorter token to be
+    ≥ _COMPOUND_SUFFIX_MIN_LEN chars so a generic word ending can never collapse
+    two unrelated names.
+
+    ADR-072 clause 2 — **both** sides must be single-token, not just one.
+    As originally shipped this required only ``min(len(ta), len(tb)) == 1``, so
+    a bare compound was compared against every token of a MULTI-word tag: German
+    compounds are head-final, so ``Verpackungsindustrie`` genuinely is a kind of
+    ``Industrie`` — but ``Industrie 4.0`` is not the bare head noun, it is a
+    different named concept that merely BEGINS with one. Charter run D
+    (2026-08-02) dropped ``Verpackungsindustrie`` — the candidate's only
+    packaging-domain skill, against a packaging manufacturer's JD — as a page
+    duplicate of ``Industrie 4.0``, silently and with no trace. Verified to
+    generalise to ``Lebensmittelindustrie``, ``Automobilindustrie`` and
+    ``Qualitätsmanagement``/``Management``.
+
+    The extra token IS the discriminator: a head-noun relation holds between two
+    bare tags, and a tag carrying further tokens has narrowed itself to
+    something else. #386's founding pairs are single-token on both sides and are
+    unaffected (pinned in ``tests/unit/test_skills_page_dupe.py``)."""
+    if len(ta) != 1 or len(tb) != 1:
         return False
-    single, other = (ta, tb) if len(ta) == 1 else (tb, ta)
-    (t,) = single
-    for u in other:
-        if u == t:
-            continue
-        shorter, longer = (t, u) if len(t) <= len(u) else (u, t)
-        if len(shorter) >= _COMPOUND_SUFFIX_MIN_LEN and longer.endswith(shorter):
-            return True
-    return False
+    (t,) = ta
+    (u,) = tb
+    if u == t:
+        return False
+    shorter, longer = (t, u) if len(t) <= len(u) else (u, t)
+    return len(shorter) >= _COMPOUND_SUFFIX_MIN_LEN and longer.endswith(shorter)
 
 
 def _page_token_set(name: str) -> frozenset[str]:

@@ -596,3 +596,113 @@ def test_nest_projects_skips_vault_copy_when_writer_already_tailored_it():
     assert len(projects) == 1
     assert projects[0].bullets == ["Tailored MES bullet with OEE 61 % auf 73 %"]
     assert out.projects == []
+
+
+# --- ADR-072 clause 5: a company name is not an identity ---------------------
+#
+# Found by the adversarial pass on ADR-071/072 and reproduced 2026-08-02. When a
+# candidate held TWO tenures at one employer (a promotion — an ordinary DACH CV
+# shape) and a project's `associated_experience` is the company NAME rather than
+# an id (the documented CV-extraction shape), the name index resolved to
+# whichever tenure came first in vault order.
+
+
+def _two_tenures_one_employer():
+    from applire.schemas.cv import TailoredCVData, TailoredContact, TailoredWorkEntry
+
+    work = [
+        TailoredWorkEntry(
+            id="work-1", company="Acme GmbH", role="Junior Engineer",
+            start_date="2015-01", end_date="2018-01", bullets=[],
+        ),
+        TailoredWorkEntry(
+            id="work-2", company="Acme GmbH", role="Senior Engineer",
+            start_date="2018-02", end_date=None, bullets=[],
+        ),
+    ]
+    tailored = TailoredCVData(
+        summary="s", contact=TailoredContact(), work_history=work, skills=[]
+    )
+    profile = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Junior Engineer"},
+            {"id": "work-2", "company": "Acme GmbH", "role": "Senior Engineer"},
+        ],
+        "projects": [
+            {
+                "name": "Senior-tenure Migration",
+                "responsibilities": ["Evidence that belongs to work-2 only"],
+                "associated_experience": "Acme GmbH",  # NAME, not id
+            }
+        ],
+    }
+    return tailored, profile
+
+
+def test_ambiguous_company_name_never_nests_under_a_guessed_tenure():
+    """The project must not be asserted under EITHER tenure — it goes standalone,
+    which claims no ownership the data cannot support. Before the fix it landed
+    under 'Junior Engineer', the tenure that merely happened to be listed first."""
+    from applire.services.cv import _nest_projects
+
+    tailored, profile = _two_tenures_one_employer()
+    nested = _nest_projects(tailored, profile)
+
+    for entry in nested.work_history:
+        assert not (entry.projects or []), (
+            f"{entry.role} was given a project it may not own"
+        )
+    assert [p.name for p in (nested.projects or [])] == ["Senior-tenure Migration"]
+
+
+def test_ambiguous_company_name_does_not_inflate_both_bullet_budgets():
+    """The budget path's variant was worse: it attached the project to BOTH
+    tenures, so one tenure's evidence raised the other's relevance tier and
+    therefore its bullet ceiling."""
+    from applire.services.cv_budget import attach_projects
+
+    _, profile = _two_tenures_one_employer()
+    entries = [
+        {"id": "work-1", "company": "Acme GmbH", "role": "Junior Engineer", "bullets": []},
+        {"id": "work-2", "company": "Acme GmbH", "role": "Senior Engineer", "bullets": []},
+    ]
+    enriched = attach_projects(entries, profile["projects"])
+    assert [len(e["projects"]) for e in enriched] == [0, 0]
+
+
+def test_unambiguous_company_name_still_resolves():
+    """The regression guard: the name path is narrowed, not removed — a single
+    tenure at an employer still nests by name (the CV-extraction shape)."""
+    from applire.schemas.cv import TailoredCVData, TailoredContact, TailoredWorkEntry
+    from applire.services.cv import _nest_projects
+    from applire.services.cv_budget import attach_projects
+
+    work = [
+        TailoredWorkEntry(
+            id="work-1", company="Acme GmbH", role="Senior Engineer",
+            start_date="2018-02", end_date=None, bullets=[],
+        )
+    ]
+    tailored = TailoredCVData(
+        summary="s", contact=TailoredContact(), work_history=work, skills=[]
+    )
+    profile = {
+        "work_experience": [
+            {"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer"}
+        ],
+        "projects": [
+            {
+                "name": "Migration",
+                "responsibilities": ["Owned by work-1"],
+                "associated_experience": "Acme GmbH",
+            }
+        ],
+    }
+    nested = _nest_projects(tailored, profile)
+    assert [p.name for p in (nested.work_history[0].projects or [])] == ["Migration"]
+
+    enriched = attach_projects(
+        [{"id": "work-1", "company": "Acme GmbH", "role": "Senior Engineer", "bullets": []}],
+        profile["projects"],
+    )
+    assert len(enriched[0]["projects"]) == 1

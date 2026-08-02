@@ -537,15 +537,26 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
     # `associated_experience` is an id on the reconcile path (ADR-046) but a
     # company/organisation NAME on the CV-extraction path (prompts/cv_extraction.py),
     # so we index work entries by both id and company name.
+    #
+    # ADR-072 clause 5: the company-name index is UNAMBIGUOUS ONLY, and a name
+    # matching two or more tenures resolves to nothing. `setdefault` silently
+    # picked whichever tenure came first in vault order, so a candidate promoted
+    # inside one employer had the project nested under the WRONG role — evidence
+    # from the senior tenure rendered under the junior one (reproduced
+    # 2026-08-02). Falling through to the standalone project list is honest: it
+    # never asserts an ownership the data does not support.
     work_by_id: dict[str, dict] = {}
-    work_by_company: dict[str, dict] = {}
+    company_hits: dict[str, list[dict]] = {}
     for w in profile_json.get("work_experience") or []:
         wid = w.get("id")
         if wid:
             work_by_id[str(wid)] = w
         company = (w.get("company") or "").strip().lower()
         if company:
-            work_by_company.setdefault(company, w)
+            company_hits.setdefault(company, []).append(w)
+    work_by_company: dict[str, dict] = {
+        c: ws[0] for c, ws in company_hits.items() if len(ws) == 1
+    }
 
     data = tailored.model_dump()
     work_history = data.get("work_history") or []
@@ -553,16 +564,24 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
     def _match_tailored_index(company: str, role: str) -> int | None:
         company_l = (company or "").strip().lower()
         role_l = (role or "").strip().lower()
-        # Prefer an exact company+role match, then fall back to company-only.
+        # Prefer an exact company+role match, then fall back to company-only —
+        # but the fallback fires ONLY when the company identifies exactly one
+        # tailored entry (ADR-072 clause 5, same reasoning as the source-side
+        # index above: with two tenures at one employer, "first match wins" is a
+        # coin flip that renders one tenure's evidence under the other).
         for idx, w in enumerate(work_history):
             if (w.get("company") or "").strip().lower() == company_l and (
                 w.get("role") or ""
             ).strip().lower() == role_l:
                 return idx
-        for idx, w in enumerate(work_history):
-            if company_l and (w.get("company") or "").strip().lower() == company_l:
-                return idx
-        return None
+        if not company_l:
+            return None
+        hits = [
+            idx
+            for idx, w in enumerate(work_history)
+            if (w.get("company") or "").strip().lower() == company_l
+        ]
+        return hits[0] if len(hits) == 1 else None
 
     from applire.services.ats_audit import _norm as _ats_norm
 
@@ -1047,6 +1066,28 @@ def _prefer_measured_outcomes(
     return tailored.model_copy(update={"work_history": new_work})
 
 
+def _is_more_specific(candidate: str, kept: str) -> bool:
+    """ADR-072 clause 3: which of two page-duplicate tags survives.
+
+    Token containment is the primary signal ('MES (Maschinendaten…)' strictly
+    contains 'MES'). It cannot decide the German-compound shape, because the
+    compound and its head are single DISJOINT tokens — 'dreischichtbetrieb' is
+    not a superset of 'schichtbetrieb' — so before this the survivor there was
+    whichever the writer happened to emit FIRST. A deterministic pass whose
+    output depends on emission order is a defect by itself (it is SF-WRITE.19's
+    instability in a second place), so the longer compound wins explicitly.
+    """
+    from applire.services.ats_audit import skill_tokens
+
+    tc, tk = skill_tokens(candidate), skill_tokens(kept)
+    if tc > tk:
+        return True
+    if len(tc) == 1 and len(tk) == 1:
+        (c,), (k,) = tc, tk
+        return len(c) > len(k) and c.endswith(k)
+    return False
+
+
 def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     """#172: collapse duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
@@ -1073,7 +1114,7 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
         )
         if dup_idx is None:
             kept.append(s)
-        elif skill_tokens(s) > skill_tokens(kept[dup_idx]):
+        elif _is_more_specific(s, kept[dup_idx]):
             kept[dup_idx] = s  # upgrade in place to the more-specific name
     if kept == original:
         return tailored
