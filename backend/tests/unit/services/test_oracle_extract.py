@@ -83,10 +83,67 @@ class _SpyProvider:
             "I met with Mrs. Jones and Ms. Lee today.",
             ["I met with Mrs. Jones and Ms. Lee today."],
         ),
+        # #416 / charter run 13 ground truth (controlling_emma_de): a bare
+        # academic degree abbreviation mid-sentence split the claim in half,
+        # orphaning the field of study from the rest of the sentence.
+        (
+            "Mit meinem M.Sc. Betriebswirtschaftslehre und neun Jahren "
+            "Erfahrung bringe ich X mit.",
+            [
+                "Mit meinem M.Sc. Betriebswirtschaftslehre und neun Jahren "
+                "Erfahrung bringe ich X mit."
+            ],
+        ),
+        # A two-sentence text where the second sentence contains a degree
+        # abbreviation must still split into two sentences at the real
+        # boundary — the abbreviation guard must not swallow real splits.
+        (
+            "Ich leitete das Projekt erfolgreich. Mein B.A. in Wirtschaft "
+            "half mir dabei sehr.",
+            [
+                "Ich leitete das Projekt erfolgreich.",
+                "Mein B.A. in Wirtschaft half mir dabei sehr.",
+            ],
+        ),
+        # #416 ordering subtlety: "Dr." is already protected and is a prefix
+        # of "Dr. rer. pol." / "Dr.-Ing."; "B.A." is a substring of "M.B.A.".
+        # If the shorter member runs first in the sequential-replace loop it
+        # partially sentinel-fies the longer one and destroys the match —
+        # protection must apply longest-first.
+        (
+            "Sie promovierte als Dr. rer. pol. an der Universität und "
+            "forschte weiter.",
+            [
+                "Sie promovierte als Dr. rer. pol. an der Universität und "
+                "forschte weiter."
+            ],
+        ),
+        (
+            "Er schloss sein Dipl.-Ing. Studium mit Auszeichnung ab.",
+            ["Er schloss sein Dipl.-Ing. Studium mit Auszeichnung ab."],
+        ),
+        (
+            "Nach ihrem M.B.A. wechselte sie in die Beratung.",
+            ["Nach ihrem M.B.A. wechselte sie in die Beratung."],
+        ),
     ],
 )
 def test_split_sentences(text, expected):
     assert split_sentences(text) == expected
+
+
+def test_split_sentences_run13_degree_abbreviation_survives_as_one_sentence():
+    """#416 / charter run 13 ground truth (controlling_emma_de): the letter
+    sentence "Mit meinem M.Sc. Betriebswirtschaftslehre … bringe ich … mit."
+    must reach the oracle as ONE groundable sentence, not split after
+    "M.Sc." into two unverifiable fragments."""
+    text = (
+        "Mit meinem M.Sc. Betriebswirtschaftslehre und neun Jahren "
+        "Erfahrung bringe ich fundiertes Fachwissen mit."
+    )
+    sentences = split_sentences(text)
+    assert len(sentences) == 1
+    assert sentences[0] == text
 
 
 def test_split_sentences_run12_currency_survives_into_one_currency_figure():
