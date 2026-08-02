@@ -865,3 +865,111 @@ class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
         final_bullets = mock_cv.tailored_data["work_history"][0]["bullets"]
         for h in hits:
             assert h in final_bullets, f"dropped JD-matching vault bullet was not restored: {h!r}"
+
+
+class TestCoverageProtectsTheSoleCarrier:
+    """#423 / ADR-072 clause 1 — the run-A shape, end to end through the pass
+    that actually deleted the content.
+
+    Charter run A (2026-08-01 13:07): the Weberit role's logged ceiling was
+    ``max 5 (tier: top)`` and the settled draft carried 6 bullets. Nothing was
+    restorable, so ``_restore_ledger_bullets`` fell to its unconditional
+    ceiling branch and ``_cap_bullets`` deleted the candidate's ONLY packaging
+    evidence against a packaging manufacturer's JD. There was no LLM call
+    between the last reviewer's approval and this deletion, and no prompt
+    change could have reached it.
+    """
+
+    PACKAGING = (
+        "Verantwortung für den Sauberraumbereich "
+        "(Kunststoff- und Kosmetik-Verpackungen) seit 2021"
+    )
+    GENERIC = "Schichtplanung für drei Schichten koordiniert"
+    BULLETS = [
+        "Ausschussquote von 4,1 % auf 1,8 % gesenkt",
+        "Rüstzeiten um 35 % reduziert",
+        "Einführung von Lean Management in der Fertigung",
+        GENERIC,
+        "OEE von 62 % auf 78 % gesteigert",
+        PACKAGING,
+    ]
+
+    def _fixture(self, *, with_concepts: bool):
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        ledger = [
+            {"concept": "Verpackungen", "surface_forms": ["Verpackungsindustrie"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Sauberraum Kosmetik-Verpackungen"},
+            {"concept": "Lean Management", "surface_forms": ["Lean"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Lean in der Fertigung"},
+        ]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit", "role": "Produktionsleiter",
+                "start_date": "2021-01", "end_date": None, "is_current": True,
+                "responsibilities": list(self.BULLETS), "achievements": [],
+            }],
+            "projects": [],
+        }
+        concepts = (("Verpackungsindustrie", "Verpackungen"), ("Lean", "Lean Management"))
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4), "mid": BulletTier("mid", 3, 2),
+                   "bottom": BulletTier("bottom", 1, 0)},
+            target_pages=2, region="DACH",
+            claimable_forms=("Verpackungsindustrie", "Verpackungen", "Lean", "Lean Management"),
+            claimable_concepts=concepts if with_concepts else (),
+        )
+        # "Lean Management" also sits in the skills list — that is what makes the
+        # Lean bullet COVERED and therefore unprotected, while the packaging
+        # bullet is the concept's only carrier anywhere in the document.
+        tailored = _tailored_cv(self.BULLETS)
+        tailored = tailored.model_copy(update={"skills": ["Lean Management", "Six Sigma"]})
+        return tailored, profile_json, ledger, budget
+
+    def test_the_cap_keeps_the_only_packaging_evidence(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+        assert len(bullets) == 5
+        assert self.PACKAGING in bullets, "#423: the sole packaging carrier was cut again"
+        # The generic bullet is the correct casualty: figure-less like the
+        # packaging one, but carrying no claimable concept at all.
+        assert self.GENERIC not in bullets
+
+    def test_without_the_concept_groups_the_old_cut_reproduces_the_bug(self):
+        """The negative control. Same fixture, coverage signal removed — the
+        pass deletes the packaging bullet exactly as run A did, which is what
+        makes the assertion above a real gate rather than a coincidence of
+        ordering."""
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=False)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        assert self.PACKAGING not in result.work_history[0].bullets
+
+    def test_the_surviving_bullets_keep_the_writers_order(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+        assert bullets == [b for b in self.BULLETS if b in set(bullets)]
+
+    def test_the_deletion_is_logged_with_the_pass_and_the_role(self, caplog):
+        import logging
+
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
+            _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        lines = [r.getMessage() for r in caplog.records if "TAIL_DELETE" in r.getMessage()]
+        assert len(lines) == 1
+        assert "_cap_bullets" in lines[0]
+        assert "work_entry_id='w1'" in lines[0]
+        assert self.GENERIC in lines[0]

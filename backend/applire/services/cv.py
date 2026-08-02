@@ -41,6 +41,7 @@ import logging
 import re
 import unicodedata
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
@@ -769,14 +770,39 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     return tailored.model_copy(update={"work_history": new_work})
 
 
-def _cap_bullets(bullets: list[str], max_bullets: int) -> list[str]:
-    """Trim ``bullets`` down to ``max_bullets``, mirroring
-    ``cv_budget.condense_to_budget``'s cut order: bullets carrying NO
-    quantified figure (:func:`applire.services.load_bearing.bullet_carries_figure`,
-    #377 / ADR-067 clause 4) are removed before bullets that DO carry one, and
-    within an equal figure-status the later-listed bullet is removed first (so
-    the earliest, typically strongest, bullets survive). A figure-bearing
-    bullet is NEVER removed while a figure-less bullet remains.
+def _cap_bullets(
+    bullets: list[str],
+    max_bullets: int,
+    *,
+    concept_groups: Sequence[Sequence[str]] = (),
+    external_text: str = "",
+    context: dict | None = None,
+) -> list[str]:
+    """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
+    implementation with ``cv_budget.condense_to_budget`` — both delegate to
+    :func:`applire.services.bullet_cuts.rank_cuts` (ADR-066: one logical
+    operation, one implementation; these two drifted apart before #377).
+
+    Cut order: a bullet that is the sole carrier of a claimable Keyword-Ledger
+    concept goes LAST (ADR-072 clause 1); then bullets carrying NO quantified
+    figure (:func:`applire.services.load_bearing.bullet_carries_figure`, #377 /
+    ADR-067 clause 4); then, within an equal status, the later-listed bullet
+    first, so the earliest (typically strongest) bullets survive.
+
+    This is the pass that lost #423. The Weberit role's logged ceiling was
+    ``max 5 (tier: top)`` against 6 settled bullets, and *"Verantwortung für
+    den Sauberraumbereich (Kunststoff- und Kosmetik-Verpackungen) seit 2021"*
+    — the candidate's only packaging evidence, against a packaging
+    manufacturer's JD — ranked last on both of the then-existing criteria: a
+    bare year is not a quantified figure, and it was listed last. No prompt
+    change could reach it, because the content was already approved by every
+    reviewer when this pass deleted it.
+
+    ``concept_groups`` is ``BudgetResult.claimable_concepts`` (one group per
+    claimable ledger entry) and ``external_text`` is the rest of the document —
+    a concept carried there is covered whatever happens here. Both default to
+    empty, in which case the ranking is exactly #377's and this function
+    behaves as it did before ADR-072.
 
     #377: deterministic code may cap and order, but it may not choose which
     evidence is STRONGEST by keyword-ledger proxy -- whether a bullet carries
@@ -798,14 +824,20 @@ def _cap_bullets(bullets: list[str], max_bullets: int) -> list[str]:
     """
     if len(bullets) <= max_bullets:
         return bullets
-    indexed = [(i, b, bullet_carries_figure(b)) for i, b in enumerate(bullets)]
-    # Ascending (carries_figure, -order): figure-less (False) sorts before
-    # figure-bearing (True); within a tie, the higher (later) order sorts
-    # first -- i.e. later-listed first.
-    removal_order = sorted(indexed, key=lambda t: (t[2], -t[0]))
-    cut = len(bullets) - max_bullets
-    removed_idx = {t[0] for t in removal_order[:cut]}
-    return [b for i, b, _figure in indexed if i not in removed_idx]
+    from applire.services.bullet_cuts import apply_cuts, log_cuts, rank_cuts
+
+    # Ascending (carries_figure, -order) below the coverage criterion rank_cuts
+    # prepends: figure-less (False) sorts before figure-bearing (True); within a
+    # tie, the higher (later) order sorts first -- i.e. later-listed first.
+    cuts = rank_cuts(
+        bullets,
+        [(bullet_carries_figure(b), -i) for i, b in enumerate(bullets)],
+        keep=max_bullets,
+        concept_groups=concept_groups,
+        external_text=external_text,
+    )
+    log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
+    return apply_cuts(bullets, cuts)
 
 
 def _restore_ledger_bullets(
@@ -860,6 +892,7 @@ def _restore_ledger_bullets(
         verified_missing_claimable,
         verified_missing_load_bearing,
     )
+    from applire.services.load_bearing import stringify_draft
 
     # NOTE: deliberately no early return when ``missing`` is empty — an entry can
     # still be over its RoleBudget ceiling with nothing left to restore (the #122
@@ -907,7 +940,17 @@ def _restore_ledger_bullets(
     changed = False
     new_work: list[dict] = []
 
-    for w in tailored.work_history:
+    # ADR-072 clause 1 needs a whole-document coverage picture, so the cap can
+    # tell "this bullet is the only place the concept appears" from "it is
+    # repeated in the skills list". Everything outside work_history is fixed
+    # (no pass below cuts it); the work entries are rebuilt per iteration from
+    # the entries already processed plus the ones still untouched, so a cut
+    # made in an earlier entry is correctly absent from the picture.
+    concept_groups = budget.claimable_concepts if budget is not None else ()
+    non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
+    pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
+
+    for w_index, w in enumerate(tailored.work_history):
         w_dict = w.model_dump(mode="json")
         eid = str(w_dict.get("id") or "")
         existing_bullets = [b for b in (w_dict.get("bullets") or []) if isinstance(b, str)]
@@ -967,6 +1010,21 @@ def _restore_ledger_bullets(
             hits = restored_load_bearing + existing_hits + restored_other
             ordered = hits + no_hits
             if rb is not None and len(ordered) > rb.max_bullets:
+                # Positional truncation, NOT rank_cuts: the order above is a
+                # deliberate priority (#315 puts load-bearing restorations
+                # ahead of generic pre-existing hits) and is already
+                # coverage-aware in the direction ADR-072 clause 1 asks for --
+                # ``no_hits``, the bullets carrying no claimable form at all,
+                # sit last and yield first. Re-ranking here would overwrite
+                # that priority with a coarser one. Clause 4 still applies:
+                # every drop leaves a trace.
+                from applire.services.bullet_cuts import log_deletion
+
+                for dropped in ordered[rb.max_bullets:]:
+                    log_deletion(
+                        "_restore_ledger_bullets", "RoleBudget ceiling after restore",
+                        dropped, work_entry_id=eid, ceiling=rb.max_bullets,
+                    )
                 ordered = ordered[: rb.max_bullets]
             # ADR-061 clause 8 ("every drop is diagnosable from the log
             # alone"): even front-ordered, a load-bearing restoration can
@@ -1000,7 +1058,22 @@ def _restore_ledger_bullets(
         # gone; #377 / ADR-067 clause 4). Untouched
         # (under-ceiling) entries keep their original bullets AND order exactly.
         if rb is not None and len(existing_bullets) > rb.max_bullets:
-            capped = _cap_bullets(existing_bullets, rb.max_bullets)
+            external = ""
+            if concept_groups:
+                # This entry's own non-bullet text counts as external: it is not
+                # cuttable here, so a concept named in the position title or the
+                # entry summary is covered whatever this cap decides.
+                others = (
+                    new_work
+                    + [{**w_dict, "bullets": []}]
+                    + pending_dumps[w_index + 1:]
+                )
+                external = stringify_draft({**non_work, "work_history": others})
+            capped = _cap_bullets(
+                existing_bullets, rb.max_bullets,
+                concept_groups=concept_groups, external_text=external,
+                context={"work_entry_id": eid},
+            )
             if capped != existing_bullets:
                 changed = True
                 w_dict["bullets"] = capped
@@ -1103,8 +1176,15 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     Keeps the first-seen occurrence's POSITION (stable order) but upgrades its name
     to the more-specific variant when a later dupe strictly contains it. Pure;
     input unmutated. Must run AFTER the ADR-038 language pass, which rewords tags.
+
+    ADR-072 clause 4: every drop is logged with the surviving tag it was judged
+    a duplicate of. This is the pass that silently deleted #423's
+    ``Verpackungsindustrie`` as a "page duplicate" of the unrelated
+    ``Industrie 4.0`` — a loss that took four captured runs to attribute
+    precisely because it left nothing behind.
     """
-    from applire.services.ats_audit import skill_tokens, skills_page_dupe
+    from applire.services.ats_audit import skills_page_dupe
+    from applire.services.bullet_cuts import log_deletion
 
     original = list(tailored.skills or [])
     kept: list[str] = []
@@ -1114,8 +1194,14 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
         )
         if dup_idx is None:
             kept.append(s)
-        elif _is_more_specific(s, kept[dup_idx]):
+            continue
+        if _is_more_specific(s, kept[dup_idx]):
+            log_deletion("_dedup_skills", "skills_page_dupe (less specific form)",
+                         kept[dup_idx], superseded_by=s)
             kept[dup_idx] = s  # upgrade in place to the more-specific name
+        else:
+            log_deletion("_dedup_skills", "skills_page_dupe",
+                         s, duplicate_of=kept[dup_idx])
     if kept == original:
         return tailored
     return tailored.model_copy(update={"skills": kept})
