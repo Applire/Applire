@@ -826,6 +826,8 @@ So the gap was neither detection nor display: **nothing in the generation loop c
 
 **Why:** A control that computes the right answer and is read by nobody in the loop is worth very little, and adding a *second* detector would have been the wrong instinct. Binding a bullet to its source evidence in the output format would make attachment checkable instead of judged; that is recorded as an open question rather than quietly deferred.
 
+**Amended during implementation (2026-08-02):** the revision round's own output is itself a model re-emission of the whole document, so it carries the risk it was written to remedy. Checking that the set of position ids survived is not evidence the *content* did — a response keeping every position and emptying every one of them passes that check. It now also has to return roughly the content it was given, and any rejection falls back to the draft that went in. Nothing here can block delivery.
+
 ---
 
 ### ADR-072 — The Deterministic Tail May Not Silently Delete Load-Bearing Content (accepted 2026-08-02)
@@ -839,6 +841,10 @@ The general lesson matters more than either bug: roughly a dozen deterministic p
 **Decision:** (1) A deterministic pass may not remove the sole carrier of a required or claimable requirement concept — coverage now outranks number-presence when choosing what to cut. This only reorders what is dropped among content the writer already produced; it never asks the writer to produce anything, which is the distinction from an earlier attempt that demanded literal keyword text honest prose could not contain and had to be reverted. (2) The compound-suffix duplicate rule requires the shorter form to be a single word — the extra word is precisely the evidence that it is a different named concept rather than the compound's head noun. (3) When a duplicate rule does fire, the more specific form survives rather than the earlier-listed one; output that depends on emission order is a defect in deterministic code. (4) **Every deletion in this tail is logged with its reason** — all three bugs here were expensive to find precisely because they left no trace. (5) A project is attached to its parent position by id only; a name-based fallback silently picked the wrong one when a candidate held two roles at the same employer, and double-counted it when computing that role's bullet budget.
 
 **Why:** Content that survived every review and then vanished is the hardest class of defect to attribute and the easiest to ship. Making the tail auditable is what turns the next one into an hour's work instead of a week's.
+
+**Amended during implementation (2026-08-02):** both rules above were written against one named function, and in both cases a second implementation of the same job existed elsewhere and was missed — a second bullet-ceiling enforcer that cut by position rather than by the shared ranking, and a second name-based lookup that still guessed between two spells at one employer when the job titles also matched. Each now goes through a single implementation. The lesson generalises past these two bugs: before writing a rule against a function, check whether that function is one of several doing the same work, because a second unaudited implementation is indistinguishable from having no rule at all.
+
+Two scoping choices are worth stating plainly. Protection applies only to requirements the candidate can actually claim — protecting a bullet that carries a concept the profile does *not* support would make the page budget the last thing in the pipeline rewarding an overstatement. And when the choice is between a number-bearing bullet that answers no stated requirement and a number-free bullet that is the only answer to one, the second survives; the reviewers who reported this asked for the missing domain evidence, not for another figure.
 
 ---
 
