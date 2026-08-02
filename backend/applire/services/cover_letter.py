@@ -1020,11 +1020,16 @@ async def _render_cover_letter_background(
                 reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
             )
             # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
-            # structural-only tie-break over drafts retain_if already accepts —
-            # among has_closing_paragraph-satisfying drafts, prefer one that ALSO
-            # fits the region's word budget. It can never select a draft that lost
-            # the closing (retain_if still decides eligibility); see
-            # services/reviewer.py's retention-design-v2 docstring.
+            # structural-only tie-break over drafts retain_if already accepts.
+            # #420 (ADR-021 amended 2026-08-02): it is wired into the CONDENSE
+            # loop ONLY. On the primary content loop the writer writes to the
+            # feedforward budget and correctors ADD demanded content, so the
+            # only draft satisfying the budget preference is structurally the
+            # pre-review draft — run 14's settle substituted it, silently
+            # discarding the attested scope fact and every reviewer-demanded
+            # delivery of five rounds. Budget ownership: the feedforward word
+            # budget in the writer prompt, the page-gated condense pass below,
+            # and the LETTER_OVER_BUDGET line for an over-budget primary settle.
             def _within_budget(draft: dict) -> bool:
                 return within_word_budget(draft, norm.letter_body_word_budget)
 
@@ -1054,9 +1059,17 @@ async def _render_cover_letter_background(
                 # when the settled draft fails it, an earlier round's draft that
                 # passed is substituted instead — no new LLM call.
                 retain_if=has_closing_paragraph,
-                prefer_if=_within_budget,
                 load_bearing_fn=load_bearing_fn,
             )
+
+            # #420 (ADR-021 amended 2026-08-02): with prefer_if gone from this
+            # loop, an over-budget settle that never trips the page gate below
+            # ships wordy — recorded, never resolved by reverting content.
+            _settled_word_count = body_word_count(letter_data)
+            if _settled_word_count > norm.letter_body_word_budget:
+                log_letter_over_budget(
+                    "cover_letter", _settled_word_count, norm.letter_body_word_budget
+                )
 
             # #254 — deterministic figure-attribution guard, run on the FINAL
             # settled output of the review/corrector loop (never mid-loop): the

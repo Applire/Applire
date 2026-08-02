@@ -52,6 +52,21 @@ _APOSTROPHE_CHARS = "’ʼ‘‛´`"
 _QUOTE_CHARS = "“”„‟«»"
 _DIGIT_RE = re.compile(r"\d")
 
+
+def _quote_states_a_figure(quote_norm: str) -> bool:
+    """ADR-070 clause 1, amended 2026-08-02 (#421): a digit, or a spelled EN/DE
+    integer per the shared ``stance._spelled_figures`` word tables — German
+    prose writes small team sizes as words ("zwei Werkstudierenden"), and the
+    digit-only gate starved exactly the small-team case the attestation rail
+    exists for. The tables exclude the standalone German article "ein/eine",
+    so the widening cannot admit a figure-free quote (fail-closed preserved).
+    """
+    if _DIGIT_RE.search(quote_norm):
+        return True
+    from applire.services.profile.reconcile.stance import _spelled_figures
+
+    return bool(_spelled_figures(quote_norm))
+
 # The vault prose fields an attested quote may resolve against — one text node,
 # not a concatenation (the quote must live in a single real bullet).
 _ATTESTED_PROSE_FIELDS = ("responsibilities", "achievements")
@@ -192,14 +207,14 @@ def verify_attested_evidence(
                 unit,
             )
         return None
-    if not _DIGIT_RE.search(quote):
+    quote_norm = _norm_quote(quote)
+    if not _quote_states_a_figure(quote_norm):
         logger.warning(
             "scope_requirements: attested_evidence dropped — the quote states no "
-            "numeric figure (ADR-070 clause 1): %r",
+            "numeric figure, digit or spelled (ADR-070 clause 1, #421): %r",
             quote[:120],
         )
         return None
-    quote_norm = _norm_quote(quote)
     entries = [
         e
         for e in (profile_json or {}).get("work_experience") or []
@@ -367,7 +382,12 @@ def build_scope_ledger_entries(
                     "quote": item.get("jd_quote", ""),
                     "level": item.get("level", "required"),
                     "candidate_values": values,
-                    "cited_entry": cited or None,
+                    # #421: the prompt contract says cited_entry is REQUIRED for
+                    # `direct` and omitted otherwise; only the `direct` path
+                    # validates it against a typed value, so a non-direct row
+                    # never carries one (the floor branch used to ship a `gap`
+                    # row still holding the model's unresolvable citation).
+                    "cited_entry": (cited or None) if status == "direct" else None,
                     "attested": attested,
                 },
             }

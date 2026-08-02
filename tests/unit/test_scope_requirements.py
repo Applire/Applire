@@ -468,6 +468,114 @@ class TestAttestedEvidence:
         # direct requires a same-quantity TYPED value; attested lifts to partial only.
         assert e["status"] == "partial"
 
+    # ── ADR-070 amended 2026-08-02 (#421) — word-number figures + citation hygiene ──
+
+    def test_word_number_quote_passes_the_figure_gate(self):
+        # Run-14 Emma, verbatim: small German team sizes are written as words,
+        # so the digit-only gate starved exactly the small-team case (#421).
+        word_quote = (
+            "Fachliche Führung von zwei Werkstudierenden und einer "
+            "Junior-Controllerin im Tagesgeschäft"
+        )
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Controllerin",
+                    "company": "Schwarzwald Präzision GmbH",
+                    "responsibilities": [word_quote],
+                }
+            ]
+        }
+        e = _attested_entries(
+            {
+                "attested_evidence": {
+                    "entry": "Controllerin @ Schwarzwald Präzision GmbH",
+                    "quote": word_quote,
+                    "unit": "fachlich geführte Personen",
+                }
+            },
+            profile=profile,
+        )[0]
+        att = e["bar"]["attested"]
+        assert att is not None
+        assert att["quote"] == word_quote
+        # No typed value in the profile — the verified attestation lifts the floor.
+        assert e["status"] == "partial"
+
+    def test_bare_german_article_is_not_a_figure(self):
+        # "einer" is the article, not the number — admitting it would let a
+        # figure-free quote through the gate (fail-closed direction preserved).
+        article_quote = "Führung einer Junior-Controllerin im Tagesgeschäft"
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Controllerin",
+                    "company": "Schwarzwald Präzision GmbH",
+                    "responsibilities": [article_quote],
+                }
+            ]
+        }
+        e = _attested_entries(
+            {
+                "attested_evidence": {
+                    "entry": "Controllerin @ Schwarzwald Präzision GmbH",
+                    "quote": article_quote,
+                    "unit": "fachlich geführte Personen",
+                }
+            },
+            profile=profile,
+        )[0]
+        assert e["bar"].get("attested") is None
+        assert e["status"] == "gap"
+
+    def test_english_word_number_quote_passes_the_figure_gate(self):
+        word_quote = "Functional lead for two working students in daily operations"
+        profile = {
+            "work_experience": [
+                {
+                    "role": "Controller",
+                    "company": "Schwarzwald Präzision GmbH",
+                    "responsibilities": [word_quote],
+                }
+            ]
+        }
+        e = _attested_entries(
+            {
+                "attested_evidence": {
+                    "entry": "Controller @ Schwarzwald Präzision GmbH",
+                    "quote": word_quote,
+                    "unit": "functionally led people",
+                }
+            },
+            profile=profile,
+        )[0]
+        assert e["bar"]["attested"] is not None
+
+    def test_floor_to_gap_clears_stale_cited_entry(self):
+        # Run-14 Emma shipped status "gap" with the model's unresolvable
+        # citation string still on the bar (#421's hygiene half).
+        profile = {"work_experience": []}
+        e = _attested_entries(
+            {
+                "status": "partial",
+                "attested_evidence": None,
+                "cited_entry": "Controllerin @ Schwarzwald Präzision GmbH",
+            },
+            profile=profile,
+        )[0]
+        assert e["status"] == "gap"
+        assert e["bar"]["cited_entry"] is None
+
+    def test_cited_entry_persists_only_on_validated_direct(self):
+        # The prompt contract says cited_entry is REQUIRED for direct and
+        # omitted otherwise; only the direct path validates it, so a non-direct
+        # status never carries one (bookkeeping-is-not-testimony).
+        e = _attested_entries(
+            {"status": "partial", "cited_entry": "Nonexistent @ Nowhere"}
+        )[0]
+        assert e["status"] == "partial"
+        assert e["bar"]["cited_entry"] is None
+
     def test_legacy_call_without_profile_still_works(self):
         # build_scope_ledger_entries stays callable without profile_json —
         # attestation silently unavailable, everything else unchanged.

@@ -109,6 +109,54 @@ def test_universe_is_empty_for_empty_or_none_ledger():
     assert load_bearing_universe_from_ledger(None) == frozenset()
 
 
+def test_universe_includes_candidate_attested_scope_figures_never_jd_side():
+    """#420 (ADR-021 amended 2026-08-02): a scope entry's candidate-side
+    attested figures join the universe — run 14's settle substitution was
+    blind to exactly the evidence ADR-070 made required. JD-side strings
+    (bar.value/quote, the composed evidence embedding the JD quote) still
+    never enter it (ADR-070 clause 5's justification, kept narrow)."""
+    scope_entry = {
+        "concept": "Führungsspanne ~120 MA",
+        "status": "partial",
+        "claimable": True,
+        "evidence": (
+            'JD bar (team_size): "ca. 120 Mitarbeitende, Mehrschichtbetrieb". '
+            "Vault: 38 (Produktionsleiter @ Weberit — direct reports). "
+            'Attested (Gesamtstandort-Mitarbeitende): "Führung des '
+            'Gesamtstandorts mit rund 90 Mitarbeitenden". Judgement: deputy span'
+        ),
+        "bar": {
+            "kind": "team_size",
+            "value": 120,
+            "quote": "ca. 120 Mitarbeitende, Mehrschichtbetrieb",
+            "candidate_values": [
+                {"value": 38, "entry": "Produktionsleiter @ Weberit", "semantics": "direct reports"}
+            ],
+            "attested": {
+                "entry": "Produktionsleiter @ Weberit",
+                "quote": "Führung des Gesamtstandorts mit rund 90 Mitarbeitenden",
+                "unit": "Gesamtstandort-Mitarbeitende",
+            },
+        },
+    }
+    universe = load_bearing_universe_from_ledger([scope_entry])
+    assert "number:90" in universe, "the candidate's attested figure must be load-bearing"
+    assert "number:120" not in universe, "the JD's own figure must never enter the universe"
+
+
+def test_universe_scope_entry_without_attestation_contributes_nothing():
+    """A scope entry with no verified attestation stays fully excluded — the
+    widening is keyed on bar.attested only, never on the entry's evidence."""
+    scope_entry = {
+        "concept": "Führungsspanne ~120 MA",
+        "status": "gap",
+        "claimable": False,
+        "evidence": 'JD bar (team_size): "ca. 120 Mitarbeitende". Vault: no typed vault value.',
+        "bar": {"kind": "team_size", "value": 120, "quote": "ca. 120 Mitarbeitende", "attested": None},
+    }
+    assert load_bearing_universe_from_ledger([scope_entry]) == frozenset()
+
+
 def test_figures_present_extracts_percent_and_currency():
     present = figures_present("Budget von 6 Mio. € und OEE von 61 % auf 73 %.")
     assert "currency:6m" in present

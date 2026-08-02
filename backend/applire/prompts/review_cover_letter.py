@@ -147,10 +147,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
    content the writer was required to produce — ``company_domain_engagement``,
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``, ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
-   deliver is an issue: name which one, and instruct the writer to add it using ONLY that
-   entry's own grounding. ``closing`` is always required and must be a genuine paragraph —
-   interest plus a call to action, with availability folded in. A bare terminal line
-   ("Notice period can be discussed.") is a failure of this check, not a closing.
+   deliver is an issue: name it BY KEY (e.g. ``company_domain_engagement``) and point
+   the writer to ONLY that entry's own grounding — NEVER copy ``job_description`` wording
+   into your demand; a pasted phrase carrying a DO-NOT-CLAIM term comes back as a
+   candidate claim a later round must then flag. ``closing`` is always required: a
+   genuine paragraph (interest + call to action, availability folded in), never a bare
+   terminal line.
    ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
    delivering it with the candidate's values is not overclaiming; stating the posting's
    own figure as the candidate's is.
@@ -248,6 +250,16 @@ Rules:
   OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
   reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate
   competence claim; never delete an entire required paragraph to make a word disappear.
+  When ADDING company/domain engagement, write it as its OWN sentence whose subject is
+  the EMPLOYER ("Rheinwerk fertigt ... — genau dieses Umfeld reizt mich."), then state
+  the candidate's motivation separately. Never embed the employer's domain phrase inside
+  a sentence whose subject is the candidate's own know-how or experience ("mit
+  fundiertem Know-how in ..." makes every term in the phrase a candidate claim, and a
+  DO-NOT-CLAIM term in it will be flagged; #420). And if the reviewer flags a
+  DO-NOT-CLAIM term you used as an employer fact, do not restore or argue — rewrite the
+  domain engagement around the employer's NON-denied aspects (e.g. "Kunststoffverpackungen
+  für Konsumgüter") so the letter converges instead of oscillating; everything else the
+  paragraph delivers stays.
 - NEVER DELETE OR REDUCE THE CLOSING PARAGRAPH (#272 — the run-5 regression: a corrector round
   deleted the letter's entire closing paragraph — "I would welcome the opportunity to discuss
   how my experience aligns with your needs. My notice period can be discussed." — while fixing

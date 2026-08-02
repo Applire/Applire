@@ -192,18 +192,17 @@ async def test_condense_pass_also_receives_retain_if(seeded):
 
 
 @pytest.mark.asyncio
-async def test_review_and_refine_receives_prefer_if_word_budget_check(seeded):
-    """Wave-6 follow-up (charter run #6, Task 2): the primary review_and_refine
-    call must also be wired with a ``prefer_if`` that checks the region's word
-    budget — proven behaviourally (it is a closure, not an importable stable
-    function, unlike retain_if) against a within-budget and an over-budget
-    draft."""
+async def test_primary_loop_does_not_receive_prefer_if(seeded):
+    """#420 (ADR-021 amended 2026-08-02): the PRIMARY content loop must NOT
+    carry the word-budget prefer_if. On a content loop the writer writes to
+    the feedforward budget and correctors ADD demanded content, so the only
+    draft satisfying the budget preference is structurally the pre-review
+    draft — run 14's settle substituted it, silently discarding the attested
+    scope fact and every reviewer-demanded delivery. The budget belongs to
+    the feedforward prompt + the page-gated condense pass."""
     db, job, profile, cl = seeded
 
     from applire.services.cover_letter import _render_cover_letter_background
-    from applire.norms import DEFAULT_REGION, REGION_NORMS
-
-    budget = REGION_NORMS[DEFAULT_REGION].letter_body_word_budget
 
     mock_provider = MagicMock()
     mock_provider.aparse_json = AsyncMock(return_value=_letter(["Dear team,", "Sincerely,"]))
@@ -227,19 +226,16 @@ async def test_review_and_refine_receives_prefer_if_word_budget_check(seeded):
         await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
 
     assert calls, "review_and_refine was not called"
-    prefer_if = calls[0].get("prefer_if")
-    assert prefer_if is not None, "prefer_if was not wired into the primary review_and_refine call"
-
-    within = {"body": {"paragraphs": [" ".join(["word"] * (budget - 5))]}}
-    over = {"body": {"paragraphs": [" ".join(["word"] * (budget + 50))]}}
-    assert prefer_if(within) is True
-    assert prefer_if(over) is False
+    assert calls[0].get("prefer_if") is None, (
+        "the primary content loop must not carry the word-budget prefer_if (#420)"
+    )
 
 
 @pytest.mark.asyncio
-async def test_condense_pass_also_receives_prefer_if(seeded):
-    """The condense/refine loop's review_and_refine call must ALSO carry the
-    word-budget prefer_if — mirroring test_condense_pass_also_receives_retain_if."""
+async def test_condense_pass_alone_receives_prefer_if(seeded):
+    """The condense/refine loop keeps the word-budget prefer_if — narrowing
+    among CONDENSE rounds is its designed use (charter run #6). The primary
+    loop must not carry it (#420) — asserted per call below."""
     db, job, profile, cl = seeded
 
     from applire.services.cover_letter import _render_cover_letter_background
@@ -278,13 +274,13 @@ async def test_condense_pass_also_receives_prefer_if(seeded):
         await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
 
     assert len(calls) == 2, "expected primary + condense review_and_refine calls"
-    for call in calls:
-        prefer_if = call.get("prefer_if")
-        assert prefer_if is not None
-        within = {"body": {"paragraphs": [" ".join(["word"] * (budget - 5))]}}
-        over = {"body": {"paragraphs": [" ".join(["word"] * (budget + 50))]}}
-        assert prefer_if(within) is True
-        assert prefer_if(over) is False
+    assert calls[0].get("prefer_if") is None, "primary loop must not carry prefer_if (#420)"
+    prefer_if = calls[1].get("prefer_if")
+    assert prefer_if is not None, "condense loop must keep the word-budget prefer_if"
+    within = {"body": {"paragraphs": [" ".join(["word"] * (budget - 5))]}}
+    over = {"body": {"paragraphs": [" ".join(["word"] * (budget + 50))]}}
+    assert prefer_if(within) is True
+    assert prefer_if(over) is False
 
 
 @pytest.mark.asyncio
@@ -336,6 +332,50 @@ async def test_condense_over_budget_result_emits_letter_over_budget_log(seeded, 
     assert over_budget_lines, "expected a LETTER_OVER_BUDGET log line"
     assert any("cover_letter_condense" in r.getMessage() for r in over_budget_lines)
     assert any(str(budget) in r.getMessage() for r in over_budget_lines)
+
+
+@pytest.mark.asyncio
+async def test_primary_over_budget_settle_emits_letter_over_budget_log(seeded, caplog):
+    """#420 (ADR-021 amended 2026-08-02): with prefer_if gone from the primary
+    loop, an over-budget settled letter that never trips the page gate must
+    still be countable — the norms violation is recorded, never resolved by
+    reverting content."""
+    import logging
+
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+    from applire.norms import DEFAULT_REGION, REGION_NORMS
+
+    budget = REGION_NORMS[DEFAULT_REGION].letter_body_word_budget
+    over_budget_body = " ".join(["word"] * (budget + 50))
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        return_value=_letter(["Dear team,", over_budget_body])
+    )
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+            await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    over_budget_lines = [r for r in caplog.records if "LETTER_OVER_BUDGET" in r.getMessage()]
+    assert over_budget_lines, "expected a LETTER_OVER_BUDGET line for the primary settle"
+    assert any(
+        "chain=cover_letter " in r.getMessage() for r in over_budget_lines
+    ), "the line must name the primary chain, not the condense chain"
 
 
 @pytest.mark.asyncio
