@@ -59,6 +59,46 @@ _PLUS_QUANTIFIER_RE = re.compile(r"\b([1-9])\+")
 
 _GROUPED_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
 
+# #412 (charter run 13 ground truth, operations_marcus_de): German states a
+# percentage range's unit ONCE, at the end — "von 61 auf 73 %", "zwischen 4,1
+# und 2,3 %", "61–73 %" — while explicit document prose repeats it ("von 61 %
+# auf 73 %"). Without distributing the trailing % across the range, the two
+# sides canonicalise to DIFFERENT kinds (number 61 vs percent 61) and a
+# candidate-attested improvement grades "unbacked". Both the claim extractor
+# and ``build_vault_index`` call ``extract_figures``, so the distribution
+# here fixes both directions by construction (the #374 pattern). Scoped to
+# percent — the issue's evidenced class; currency ranges stay as-is.
+#
+# The word form REQUIRES the range preposition (von/from/zwischen/between):
+# a bare "stieg 2021 auf 15 %" must never distribute onto what is a year,
+# and the preposition is what makes the two numbers one range construction.
+_PERCENT_RANGE_WORD_RE = re.compile(
+    r"\b(?:von|from|zwischen|between)\s+(\d+(?:[.,]\d+)?)"
+    r"\s+(?:auf|bis|und|to|and)\s+\d+(?:[.,]\d+)?\s*%",
+    re.IGNORECASE,
+)
+# Dash form: the leading number must be immediately range-joined ("61–73 %");
+# a % or digit right before the candidate start means it is not a bare range
+# start (either already unit-carrying or the tail of a larger number).
+_PERCENT_RANGE_DASH_RE = re.compile(
+    r"(?<![\d.,%])(\d+(?:[.,]\d+)?)\s*[-‒–—―−]\s*\d+(?:[.,]\d+)?\s*%"
+)
+# A year never receives the distributed unit ("von 2020 auf 25 %" is a
+# time-to-value phrasing, not a percentage range).
+_RANGE_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
+
+
+def _percent_range_bare_spans(text: str) -> list[tuple[str, tuple[int, int]]]:
+    """(raw, span) of every bare leading range number owed a trailing %."""
+    out: list[tuple[str, tuple[int, int]]] = []
+    for pattern in (_PERCENT_RANGE_WORD_RE, _PERCENT_RANGE_DASH_RE):
+        for m in pattern.finditer(text):
+            raw = m.group(1)
+            if _RANGE_YEAR_RE.fullmatch(raw):
+                continue
+            out.append((raw, m.span(1)))
+    return out
+
 # #374 (recon-verified 2026-08-01, edge probe 2026-07-29): a standard or
 # regulation identifier ("ISO 15189", "ISO/IEC 27001", "21 CFR Part 11") is
 # NOT a quantified figure — it is a fact-level exclusion (ADR-062 clause 1),
@@ -133,6 +173,20 @@ def extract_figures(text: str) -> list[Figure]:
 
     def _free(start: int, end: int) -> bool:
         return all(end <= s or start >= e for s, e in consumed)
+
+    # #412 pre-pass: the bare leading number of a percent range becomes a
+    # percent figure (unit distributed) and its span is consumed, so the
+    # number-kind pass below never re-reads it as a plain number — the claim
+    # side must carry the percent reading ONLY, or 'von 61 auf 73 %' in a
+    # document could never ground on a vault that wrote 'von 61 % auf 73 %'.
+    # (The vault side re-adds the plain-number reading via
+    # ``extract_range_bare_numbers`` — vault-side widening, same asymmetry as
+    # ``extract_spelled_figures``.)
+    for raw, span in _percent_range_bare_spans(text):
+        if not _free(*span):
+            continue
+        figures.append(Figure("percent", _canonical_number(raw), raw))
+        consumed.append(span)
 
     for m in _PERCENT_RE.finditer(text):
         figures.append(Figure("percent", _canonical_number(m.group(1)), m.group(0).strip()))
@@ -258,4 +312,24 @@ def extract_spelled_figures(text: str) -> list[Figure]:
         if de:
             value = _DE_COMPOUND_UNITS[de.group(1)] + _DE_TENS[de.group(2)]
             figures.append(Figure("number", str(value), tok))
+    return figures
+
+
+def extract_range_bare_numbers(text: str) -> list[Figure]:
+    """Vault-side-only plain-number readings for #412 range starts.
+
+    ``extract_figures`` now reads the bare leading number of a percent range
+    as a percent (unit distributed). On the VAULT side that number keeps its
+    pre-#412 plain-number reading TOO, so a document citing the range start
+    as a bare figure still finds evidence — widening what the vault is
+    recognized to support, never what a document is allowed to claim (same
+    one-sided contract as ``extract_spelled_figures``; called only from
+    ``matchers/vault.py``). ``_NUMBER_RE.fullmatch`` keeps the pre-#412
+    signal floor: a single-digit range start ("von 8 bis 3 %") was never a
+    plain-number unit before and does not become one now.
+    """
+    figures: list[Figure] = []
+    for raw, _span in _percent_range_bare_spans(text):
+        if _NUMBER_RE.fullmatch(raw):
+            figures.append(Figure("number", _canonical_number(raw), raw))
     return figures

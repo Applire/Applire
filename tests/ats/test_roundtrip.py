@@ -554,3 +554,116 @@ async def test_letter_en_signoff_and_sender_name_survive_pdf_roundtrip(template)
     assert _norm_probe("Catherine O'Brien") in text, (
         f"{template}: backfilled sender name missing after the sign-off in PDF"
     )
+
+
+# ---------------------------------------------------------------------------
+# #429 (charter run 15) — a budget-length letter is ONE page; the signature
+# never orphans. Run 15's delivered Anschreiben (266 words of body, within the
+# ADR-051 DACH budget) rendered as 2 PDF pages with page 2 holding nothing but
+# the sender name: the break fell INSIDE the signature block, and the block's
+# generous spacing pushed the name ~3mm past 297mm. The condense machinery
+# owns content length; layout must give budgeted content room.
+# ---------------------------------------------------------------------------
+
+LETTER_DE_BUDGET = {
+    "header": LETTER_DE["header"],
+    "recipient": LETTER_DE["recipient"],
+    "body": {
+        "paragraphs": [
+            (
+                "mit großem Interesse habe ich Ihre Ausschreibung für die Position "
+                "als Leiter Qualitätssicherung gelesen. Süddeutsche Präzisionstechnik "
+                "fertigt hochwertige Baugruppen für anspruchsvolle Industriekunden in "
+                "ganz Europa, und genau dieses Umfeld aus Serienfertigung, "
+                "Projektmanagement und hoher Dokumentationsdisziplin reizt mich an "
+                "dieser verantwortungsvollen Aufgabe."
+            ),
+            (
+                "Als Teamleiter Qualitätssicherung führe ich derzeit acht "
+                "Prüfingenieure über drei Fertigungsstandorte hinweg und verantworte "
+                "die statistische Prozesslenkung der gesamten Serienfertigung. Die "
+                "Ausschussquote konnte ich in achtzehn Monaten durch konsequente "
+                "Prozessoptimierung deutlich senken, während die Liefertreue "
+                "gegenüber unseren Schlüsselkunden stabil blieb. In der Vertretung "
+                "der Werksleitung habe ich mehrfach die Verantwortung für den "
+                "gesamten Standort mit allen Schichten übernommen."
+            ),
+            (
+                "Meine fundierten Kenntnisse in Python und der Aufbau automatisierter "
+                "Messdaten-Workflows ermöglichen es mir, Qualitätsdaten effizient "
+                "auszuwerten und Entscheidungen auf belastbare Zahlen zu stellen. "
+                "Die Einführung eines KPI-gestützten Berichtswesens hat bei uns die "
+                "monatlichen Qualitätsrunden von einer Diskussion über Einzelfälle "
+                "zu einer Steuerung über Trends verändert, die auch die "
+                "Geschäftsführung unmittelbar nutzt."
+            ),
+            (
+                "Eine Zertifizierungslandschaft nach IATF-Standard kenne ich bisher "
+                "nur aus der Auditvorbereitung, nicht aus eigener Verantwortung — "
+                "das wäre für mich der nächste Schritt, und genau deshalb reizt "
+                "mich diese Position. Die Audit- und Dokumentationsdisziplin selbst "
+                "ist mir aus zehn Jahren Qualitätsarbeit in der Präzisionsfertigung "
+                "durchgehend vertraut."
+            ),
+            (
+                "Über die Gelegenheit zu einem persönlichen Gespräch würde ich mich "
+                "sehr freuen und stehe Ihnen für Rückfragen jederzeit gerne zur "
+                "Verfügung."
+            ),
+        ]
+    },
+    "signature": LETTER_DE["signature"],
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
+async def test_letter_signature_block_never_splits_across_pages(template):
+    """The #429 defect verbatim: the sign-off stayed on page 1 and the sender
+    name alone spilled to page 2.
+
+    Asserting the *page count* here would be the obvious test and is the wrong
+    one — it depends on the renderer's font metrics (these templates ask for
+    Palatino/Georgia, absent on a bare CI runner), so a budget-length fixture
+    sits at the boundary and the gate flips with the environment. This suite
+    BLOCKS the build, so an environment-sensitive assertion in it is a
+    liability, not coverage. What the fix actually guarantees is relative and
+    metric-independent: the signature block is atomic, so the sender name is
+    always on the same page as the closing it belongs to. The absolute
+    "budget-length letter fits one page" property is verified on the real
+    render path instead, and `academic` cannot hold it at all (#431).
+    """
+    import io
+
+    from pypdf import PdfReader
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+        letter=LETTER_DE_BUDGET,
+        color=_default_color_context(),
+        lang="de",
+        labels=cover_letter_labels("de"),
+        subject="Bewerbung als Leiter Qualitätssicherung",
+    )
+    pdf = await _html_to_pdf(html)
+    reader = PdfReader(io.BytesIO(pdf))
+    pages = [_norm_probe(p.extract_text() or "") for p in reader.pages]
+
+    closing = _norm_probe(LETTER_DE_BUDGET["signature"]["closing"])
+    name = _norm_probe(LETTER_DE_BUDGET["signature"]["name"])
+    closing_pages = [i for i, t in enumerate(pages) if closing in t]
+    assert closing_pages, f"{template}: sign-off missing from the rendered PDF"
+
+    # Every template puts the sender name in the LETTERHEAD too, so "the name
+    # appears somewhere on the closing's page" is satisfied on page 1 even
+    # when the signature name orphaned onto page 2 — that phrasing produces a
+    # test that cannot fail (verified against the pre-fix CSS before this
+    # form was chosen). The discriminator has to be positional: the name must
+    # follow the closing ON the closing's own page.
+    closing_page = pages[closing_pages[-1]]
+    after_closing = closing_page[closing_page.rindex(closing) + len(closing):]
+    assert name in after_closing, (
+        f"{template}: signature block split across pages — the sign-off is on "
+        f"page {closing_pages[-1] + 1} with no sender name after it; the name "
+        f"orphaned onto page {len(pages)}. This is #429: the block must be "
+        f"atomic (break-inside: avoid)."
+    )

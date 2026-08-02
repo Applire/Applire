@@ -56,7 +56,10 @@ from typing import Any
 import pytest
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
-from applire.services.profile.reconcile.attribution import enforce_attribution
+from applire.services.profile.reconcile.attribution import (
+    _split_sentences,
+    enforce_attribution,
+)
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.ops import (
     AddBullets,
@@ -366,3 +369,49 @@ class TestEnforceAttributionUnit:
             ops, profile=profile, new_info={"answer": _LIVE_ANSWER}, source="agent_interview"
         )
         assert result == ops
+
+
+class TestSplitSentencesDegreeAbbreviations:
+    """#416: the reconcile-side independent copy of the sentence splitter
+    carried the same gap as ``services.oracle.extract.split_sentences`` —
+    no academic degree abbreviations in ``_ABBREVIATIONS``, so a testimony
+    answer naming a degree mid-sentence split into unverifiable fragments
+    before it ever reached the attribution/grounding corpus."""
+
+    def test_msc_mid_sentence_stays_one_sentence(self) -> None:
+        text = (
+            "Mit meinem M.Sc. Betriebswirtschaftslehre und neun Jahren "
+            "Erfahrung bringe ich fundiertes Fachwissen mit."
+        )
+        assert _split_sentences(text) == [text]
+
+    def test_two_sentence_text_with_ba_still_splits_in_two(self) -> None:
+        text = (
+            "Ich leitete das Projekt erfolgreich. Mein B.A. in Wirtschaft "
+            "half mir dabei sehr."
+        )
+        assert _split_sentences(text) == [
+            "Ich leitete das Projekt erfolgreich.",
+            "Mein B.A. in Wirtschaft half mir dabei sehr.",
+        ]
+
+    def test_dr_rer_pol_survives_ordering_hazard(self) -> None:
+        """#416 ordering subtlety: "Dr." is already protected and is a
+        prefix of "Dr. rer. pol." — if the shorter member runs first in the
+        sequential-replace loop it partially sentinel-fies the longer one
+        and destroys the match. Protection must apply longest-first."""
+        text = (
+            "Sie promovierte als Dr. rer. pol. an der Universität und "
+            "forschte weiter."
+        )
+        assert _split_sentences(text) == [text]
+
+    def test_dipl_ing_mid_sentence_stays_one_sentence(self) -> None:
+        text = "Er schloss sein Dipl.-Ing. Studium mit Auszeichnung ab."
+        assert _split_sentences(text) == [text]
+
+    def test_mba_survives_ba_substring_ordering_hazard(self) -> None:
+        """#416 ordering subtlety: "B.A." is a substring of "M.B.A." — the
+        same longest-first requirement as the Dr. rer. pol. case above."""
+        text = "Nach ihrem M.B.A. wechselte sie in die Beratung."
+        assert _split_sentences(text) == [text]

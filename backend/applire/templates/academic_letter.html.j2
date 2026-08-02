@@ -14,8 +14,10 @@
     .date { text-align: right; margin-bottom: 6mm; font-style: italic; color: #555; }
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 7mm; text-align: center; }
     .body p { margin-bottom: 5mm; text-align: justify; }
-    .signature { margin-top: 12mm; }
-    .signature .closing { margin-bottom: 14mm; }
+    /* #429: keep-together + tighter signature air, same rationale as
+       lebenslauf_letter — a budget-length body must fit the 1-page norm. */
+    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 9mm; }
+    .signature .closing { margin-bottom: 11mm; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>

@@ -97,10 +97,33 @@ def _normalize_punct(text: str) -> str:
     return out
 
 
-_ABBREVIATIONS = (
-    "z.B.", "z. B.", "d.h.", "d. h.", "u.a.", "u. a.", "bzw.", "ggf.",
-    "inkl.", "ca.", "vs.", "e.g.", "i.e.", "etc.", "approx.",
-    "Dr.", "Prof.", "Nr.", "No.",
+# Academic degree abbreviations added #416 (same gap as the oracle package's
+# independent copy in services.oracle.extract — see that module's
+# _ABBREVIATIONS comment for the charter-run-13 ground truth). This copy
+# deliberately does NOT carry oracle's "Mio."/"Mrd."/"Tsd."/"Mr."/"Mrs."/"Ms."
+# additions from #398 — the two lists are allowed to diverge; only the
+# degree family + the ordering fix below are shared.
+#
+# Ordering constraint: protection is applied by SEQUENTIAL literal
+# ``str.replace`` (below), so a shorter member that is a prefix/substring of
+# a longer one must not run first, or it partially sentinel-fies the longer
+# match and destroys it — e.g. "Dr." vs. "Dr. rer. pol." / "Dr.-Ing.", or
+# "B.A." vs. "M.B.A.". The tuple is sorted longest-first once at import time
+# so the human-readable grouping above can stay unordered.
+_ABBREVIATIONS = tuple(
+    sorted(
+        (
+            "z.B.", "z. B.", "d.h.", "d. h.", "u.a.", "u. a.", "bzw.", "ggf.",
+            "inkl.", "ca.", "vs.", "e.g.", "i.e.", "etc.", "approx.",
+            "Dr.", "Prof.", "Nr.", "No.",
+            "M.Sc.", "B.Sc.", "M.A.", "B.A.", "M.Eng.", "B.Eng.",
+            "Dipl.-Ing.", "Dipl.-Kfm.", "Dipl.-Betriebsw.",
+            "Dr. rer. nat.", "Dr. rer. pol.", "Dr.-Ing.",
+            "LL.M.", "M.B.A.", "Ph.D.",
+        ),
+        key=len,
+        reverse=True,
+    )
 )
 _SENTINEL = "\x00"
 _DECIMAL_DOT_RE = re.compile(r"(?<=\d)\.(?=\d)")
