@@ -63,6 +63,17 @@ class VaultIndex:
     # company is an ordinary tenure-spanning claim, not a cross-employer
     # blend. Empty for an id with no siblings (the common single-role case).
     same_employer_ids: dict[str, frozenset[str]] = field(default_factory=dict)
+    # #422 — the denial rail (``metadata.denied_concepts[*].statement``) as a
+    # SEPARATE corpus: the letter writer receives these statements verbatim
+    # via the STATED LIMITS block (ADR-064, by design), so their figures
+    # reliably re-appear in letters — and reliably graded ``unbacked``
+    # because this corpus never held them. Deliberately NOT part of
+    # ``units``/``figure_map``/``all_text_norm``: a denial statement must
+    # never be free-floating grounding evidence, or the rail that exists to
+    # prevent an overclaim would itself ground it (the control-defeated-by-
+    # its-own-receipt trap). Consulted ONLY by the numbers checker's guarded
+    # absorption in ``audit._denial_statement_backing``.
+    denial_units: list[EvidenceUnit] = field(default_factory=list)
     # ADR-068 clause 2a — the vault's OWN dominant language, computed ONCE per
     # audit over the CONCATENATED text of every evidence unit (never
     # per-unit: a short label like a skill name or a year span defaults to
@@ -331,6 +342,27 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         for wid in group
     }
 
+    # #422: denial statements indexed AFTER the receipt/figure_map passes on
+    # purpose — they join neither (see the ``denial_units`` field comment).
+    denial_units: list[EvidenceUnit] = []
+    if p.metadata:
+        for i, dc in enumerate(p.metadata.denied_concepts):
+            statement = (dc.statement or "").strip()
+            if not statement:
+                continue
+            denial_units.append(
+                EvidenceUnit(
+                    path=f"metadata.denied_concepts[{i}].statement",
+                    text=statement,
+                    text_norm=_norm(statement),
+                    figures=(
+                        extract_figures(statement)
+                        + extract_spelled_figures(statement)
+                        + extract_range_bare_numbers(statement)
+                    ),
+                )
+            )
+
     all_text_norm = _norm(" ".join(u.text for u in units))
     return VaultIndex(
         units=units,
@@ -339,6 +371,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         figure_map=figure_map,
         experience_ids=frozenset(experience_ids),
         same_employer_ids=same_employer_ids,
+        denial_units=denial_units,
         # ADR-068 clause 2a — corpus-level, once, over the SAME normalized
         # blob every grounding matcher already shares (never per-unit).
         dominant_language=detect_language(all_text_norm),

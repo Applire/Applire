@@ -62,7 +62,7 @@ from applire.prompts.oracle_judgement import (
     build_judgement_user_prompt,
     judgement_call_max_tokens,
 )
-from applire.services.ats_audit import skill_tokens, surface_present
+from applire.services.ats_audit import _norm, skill_tokens, surface_present
 from applire.services.citation import citation_present
 from applire.schemas.oracle import (
     Claim,
@@ -701,6 +701,60 @@ async def _entailment(
     )
 
 
+# ── #422 — guarded figure absorption from the denial rail ────────────────────
+# The claim must substantially RESTATE the specific denial statement it
+# borrows a figure from. Content tokens only (digits + tokens of ≥ 4 chars
+# over the shared ``_norm`` form): German function words inflate raw overlap
+# in both directions. Threshold validated against the run-14/15 ground truth:
+# the two real honest restatements score 0.78–0.87, while a fabricated
+# achieved claim reusing the denied figure ("Ich führe derzeit 120
+# Mitarbeitende in drei Schichten") scores 0.5 against the very statement
+# that denies it. Fail-safe by construction — a miss keeps today's verdict
+# (a false ACCUSATION at worst), never creates a false pass.
+_DENIAL_OVERLAP_THRESHOLD = 0.6
+_DENIAL_MIN_CONTENT_TOKENS = 3
+
+
+def _denial_content_tokens(text: str) -> set[str]:
+    return {t for t in _norm(text).split() if len(t) >= 4 or t.isdigit()}
+
+
+def _denial_statement_backing(
+    claim_text: str,
+    unmatched: list[Any],
+    idx: VaultIndex,
+) -> list[EvidenceUnit] | None:
+    """Denial-statement units absorbing EVERY unmatched figure, else None.
+
+    Each unmatched figure must appear (same kind, same canonical value) in a
+    denial statement the claim substantially restates; one unresolved figure
+    means no absorption at all and the caller's accusation stands unchanged.
+    """
+    if not idx.denial_units:
+        return None
+    claim_tokens = _denial_content_tokens(claim_text)
+    if len(claim_tokens) < _DENIAL_MIN_CONTENT_TOKENS:
+        return None
+    backing: list[EvidenceUnit] = []
+    for fig in unmatched:
+        found: EvidenceUnit | None = None
+        for unit in idx.denial_units:
+            if not any(
+                f.kind == fig.kind and f.value == fig.value for f in unit.figures
+            ):
+                continue
+            statement_tokens = _denial_content_tokens(unit.text)
+            overlap = len(claim_tokens & statement_tokens) / len(claim_tokens)
+            if overlap >= _DENIAL_OVERLAP_THRESHOLD:
+                found = unit
+                break
+        if found is None:
+            return None
+        if found not in backing:
+            backing.append(found)
+    return backing
+
+
 async def verify_claim(
     claim: Claim | str,
     profile: Any,
@@ -815,13 +869,33 @@ async def verify_claim(
     # ── 1. number/date provenance (deterministic red flag) ──────────────────
     figures = extract_figures(claim.text)
     fig_match = match_figures(figures, idx)
+    denial_backing: list[EvidenceUnit] = []
     if fig_match.unmatched:
-        missing = ", ".join(f.raw for f in fig_match.unmatched)
-        return ClaimVerdict(
-            verdict="unbacked",
-            checker="numbers",
-            detail=f"No vault evidence for figure(s): {missing}.",
-        )
+        # #422: before accusing, check the denial rail — the letter carries
+        # ADR-064 STATED LIMITS statements (near-)verbatim, so their figures
+        # legitimately re-appear in honest restatements. Guarded absorption
+        # only (see ``_denial_statement_backing``); a miss falls through to
+        # the accusation exactly as before.
+        absorbed = _denial_statement_backing(claim.text, fig_match.unmatched, idx)
+        if absorbed is None:
+            missing = ", ".join(f.raw for f in fig_match.unmatched)
+            return ClaimVerdict(
+                verdict="unbacked",
+                checker="numbers",
+                detail=f"No vault evidence for figure(s): {missing}.",
+            )
+        denial_backing = absorbed
+        if not fig_match.matched:
+            return ClaimVerdict(
+                verdict="grounded",
+                checker="numbers",
+                evidence=_evidence_refs(denial_backing),
+                detail=(
+                    "Figure(s) trace to the candidate's recorded denial "
+                    "statement (ADR-064 stated limit) — an honest "
+                    "restatement, not a new claim."
+                ),
+            )
 
     # ── 2. target-vs-achieved stance (deterministic red flag) ───────────────
     if fig_match.matched:
@@ -874,6 +948,14 @@ async def verify_claim(
             if flag is not None:
                 return flag
         # US245: entailment ONLY when both sides lack stance markers.
+        # #422 (mixed case): denial-absorbed figures join the EVIDENCE and the
+        # entailment context, never the stance analysis above — a denial
+        # statement's own stance must not be able to suppress an inflation
+        # flag raised by real vault evidence.
+        if denial_backing:
+            evidence_units = evidence_units + [
+                u for u in denial_backing if u not in evidence_units
+            ]
         if claim_stance is None and not any(unit_stances):
             fallback = ClaimVerdict(
                 verdict="grounded",
