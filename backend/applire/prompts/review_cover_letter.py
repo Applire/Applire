@@ -148,12 +148,14 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``, ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
    deliver is an issue: name which one, and instruct the writer to add it using ONLY that
-   entry's own grounding. ``closing`` is always required and must be a genuine paragraph —
-   interest plus a call to action, with availability folded in. A bare terminal line
-   ("Notice period can be discussed.") is a failure of this check, not a closing.
+   entry's own grounding. ``closing`` is always required: a genuine paragraph (interest +
+   call to action, availability folded in), never a bare terminal line.
    ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
    delivering it with the candidate's values is not overclaiming; stating the posting's
    own figure as the candidate's is.
+   Phrase a demand BY KEY, never by quote: never copy ``job_description`` wording
+   into a demand — a pasted phrase carrying a DO-NOT-CLAIM term comes back as a
+   candidate claim a later round must then flag: your demand causes the violation.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -248,6 +250,10 @@ Rules:
   OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
   reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate
   competence claim; never delete an entire required paragraph to make a word disappear.
+  When ADDING company/domain engagement, anchor the domain phrase to the EMPLOYER —
+  "Ihr Umfeld der ...", "Ihre Produkte", "your market" — and never attach a term the
+  DO-NOT-CLAIM list carries to the candidate's own know-how or experience ("mit
+  fundiertem Know-how in ..." is a candidate claim and will be flagged; #420).
 - NEVER DELETE OR REDUCE THE CLOSING PARAGRAPH (#272 — the run-5 regression: a corrector round
   deleted the letter's entire closing paragraph — "I would welcome the opportunity to discuss
   how my experience aligns with your needs. My notice period can be discussed." — while fixing

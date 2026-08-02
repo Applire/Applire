@@ -180,6 +180,17 @@ def load_bearing_universe_from_ledger(ledger: list[dict[str, Any]] | None) -> fr
     """
     universe: set[str] = set()
     for entry in ledger or []:
+        # #420 (ADR-021 amended 2026-08-02): a scope entry's CANDIDATE-side
+        # attested figures are load-bearing — run 14's settle substitution
+        # traded the ADR-070-required "~90" attestation away invisibly because
+        # the wholesale scope exclusion below kept it out of this universe.
+        # Keyed on bar.attested.quote ONLY (verified vault prose, ADR-070
+        # clause 1): the JD-side strings (bar.value/quote, the composed
+        # evidence embedding the JD quote) still never enter the universe,
+        # which is all the ADR-070 clause-5 exclusion was ever for.
+        attested = ((entry or {}).get("bar") or {}).get("attested") or {}
+        for figure in extract_figures(attested.get("quote") or ""):
+            universe.add(_figure_key(figure.kind, figure.value))
         if not is_load_bearing(entry):
             continue
         for figure in extract_figures(entry.get("evidence") or ""):

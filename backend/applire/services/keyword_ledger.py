@@ -738,7 +738,11 @@ def render_ledger_reviewer_block(
     lines += [
         "",
         "DO NOT CLAIM (honest gaps — NOT in the profile). Flag any of these that the draft "
-        "presents as something the candidate has, has done, or knows — that is a fabrication:",
+        "presents as something the candidate has, has done, or knows — that is a fabrication. "
+        "Whose fact? Judge the SENTENCE, not the term (#420): a sentence stating the "
+        "EMPLOYER's product/market from the job_description (\"Ihr Umfeld der ...\", their "
+        "domain), or naming the candidate's OWN honest absence of the term, is NOT a claim "
+        "to it and must never be flagged:",
     ]
     if forbidden:
         for concept in forbidden:
