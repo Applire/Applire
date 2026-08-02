@@ -392,6 +392,7 @@ def _advisories_from_judgement(
         )
     advisories: list[CriticAdvisory] = []
     dropped = 0
+    seen: set[tuple[str, str, str | None, str | None, str | None]] = set()
     for item in result["findings"]:
         if not isinstance(item, dict) or not item.get("worth_surfacing"):
             continue
@@ -431,6 +432,34 @@ def _advisories_from_judgement(
                 mount, kind, concept, cv_quote, cv_detail_quote, letter_quote,
             )
             continue
+
+        # Exact-duplicate dedup (#430): charter run 15 persisted the SAME
+        # judgement finding twice — one model round produced two identical
+        # `internal_inconsistency` entries and the caller built one advisory
+        # per finding, unconditionally. The key is taken AFTER the per-kind
+        # quote nulling above, so two findings are duplicates only if they
+        # would build byte-identical advisories modulo concept casing —
+        # deliberately conservative: a shared concept with DIFFERENT quoted
+        # spans is never treated as a duplicate (both must survive). Skipped
+        # duplicates are visible (SF-CRITIC.11), never counted in
+        # `dropped_citations` — that counter means citation-verification
+        # drops, a different meaning that must not be conflated.
+        dedup_key = (
+            kind,
+            concept.casefold().strip(),
+            cv_quote,
+            cv_detail_quote,
+            letter_quote,
+        )
+        if dedup_key in seen:
+            logger.info(
+                "outcome critic (%s mount): duplicate %r finding for concept "
+                "%r — deduped, not double-surfaced",
+                mount, kind, concept,
+            )
+            continue
+        seen.add(dedup_key)
+
         advisories.append(
             _build_advisory(
                 kind=kind,
