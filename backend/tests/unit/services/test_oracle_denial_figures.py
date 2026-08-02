@@ -162,6 +162,110 @@ async def test_fabricated_overclaim_reusing_denial_figure_stays_unbacked():
     assert "120" in (verdict.detail or "")
 
 
+# ── adversarial round 1 (2026-08-02): inversion laundering ──────────────────
+# The refutation pass BROKE the overlap-only guard: word reuse cannot see
+# DIRECTION, so a claim that inverts the denial's hedged framing into an
+# achieved assertion ("120 wäre der nächste Schritt" → "120 habe ich
+# geführt") cleared 0.6 comfortably. The guard now adds stance-consistency:
+# a figure whose statement sub-clauses are all hedged/negated absorbs only
+# into a claim that itself carries a hedge marker.
+
+@pytest.mark.asyncio
+async def test_inverted_achieved_claim_on_hedged_denial_figure_stays_unbacked():
+    """The refutation vector verbatim: the denial's own words, inverted."""
+    verdict = await verify_claim(
+        Claim(
+            text="Die dauerhafte Spanne von 120 habe ich bei Weberit geführt.",
+            location="body.paragraphs[9][0]",
+        ),
+        DENIAL_PROFILE,
+    )
+    assert verdict.verdict == "unbacked"
+    assert verdict.checker == "numbers"
+
+
+@pytest.mark.asyncio
+async def test_percent_range_denial_inversion_stays_unbacked():
+    """#412 × #422 interaction: a hedged percent-range denial must not
+    ground its own inversion."""
+    profile = {
+        "personal_info": {"name": "Stefan Brandt"},
+        "metadata": {
+            "denied_concepts": [
+                {
+                    "concept": "OEE-Verbesserung 61 auf 73",
+                    "statement": (
+                        "Eine Verbesserung der OEE von 61 auf 73 % wäre für "
+                        "mich ambitioniert, das habe ich so nie erreicht "
+                        "oder behauptet."
+                    ),
+                    "source": "interview",
+                    "date": "2026-08-02",
+                    "denial_level": "direct",
+                }
+            ]
+        },
+    }
+    verdict = await verify_claim(
+        Claim(
+            text="Die Verbesserung der OEE von 61 auf 73 % habe ich erreicht.",
+            location="body.paragraphs[2][0]",
+        ),
+        profile,
+    )
+    assert verdict.verdict == "unbacked"
+
+
+@pytest.mark.asyncio
+async def test_mixed_true_win_plus_laundered_denial_figure_stays_unbacked():
+    """The most damaging refutation shape: one real achievement plus a
+    quietly extended scope in the same sentence."""
+    verdict = await verify_claim(
+        Claim(
+            text=(
+                "Ich führe 38 Mitarbeitende und habe zudem die dauerhafte "
+                "Spanne von 120 bei Weberit bereits direkt geführt."
+            ),
+            location="body.paragraphs[2][0]",
+        ),
+        DENIAL_PROFILE,
+    )
+    assert verdict.verdict == "unbacked"
+    assert "120" in (verdict.detail or "")
+
+
+# ── adversarial round 2 (self-probe of the round-1 hardening) ───────────────
+# The first hardening checked "is the claim's figure-bearing clause hedged"
+# with a statement-side splitter that does not break on commas — so an
+# assertion bought absorption by appending a hedged tail. The claim side now
+# splits on commas too (see ``_DENIAL_CLAIM_SPLIT_RE``); the statement side
+# deliberately does not.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Die dauerhafte Spanne von 120 habe ich bei Weberit geführt, mehr wäre der nächste Schritt.",
+        "Die dauerhafte Spanne von 120 habe ich geführt; das wäre der nächste Schritt.",
+        "Ich habe die dauerhafte Spanne von 120 bei Weberit verantwortet – künftig gerne mehr.",
+    ],
+    ids=["comma-tail", "semicolon-tail", "dash-tail"],
+)
+async def test_hedged_tail_cannot_launder_an_assertion(text):
+    verdict = await verify_claim(Claim(text=text, location="x"), DENIAL_PROFILE)
+    assert verdict.verdict == "unbacked"
+
+
+def test_statement_side_is_not_comma_split():
+    """The asymmetry itself: a hedged statement must not be carvable into a
+    factual-looking fragment that grants blanket absorption."""
+    from applire.services.oracle.audit import _denial_sub_clauses
+
+    statement = "Die Spanne von 120, die wäre neu für mich."
+    assert len(_denial_sub_clauses(statement)) == 1
+    assert len(_denial_sub_clauses(statement, claim_side=True)) == 2
+
+
 # ── mixed case: vault-backed + denial-backed figures in one claim ────────────
 
 @pytest.mark.asyncio

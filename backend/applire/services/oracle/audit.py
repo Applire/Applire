@@ -48,6 +48,7 @@ wrongly flag the former too (see ``test_oracle_letter_nonfigure_ownership.py``).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -709,14 +710,121 @@ async def _entailment(
 # the two real honest restatements score 0.78–0.87, while a fabricated
 # achieved claim reusing the denied figure ("Ich führe derzeit 120
 # Mitarbeitende in drei Schichten") scores 0.5 against the very statement
-# that denies it. Fail-safe by construction — a miss keeps today's verdict
-# (a false ACCUSATION at worst), never creates a false pass.
+# that denies it.
+#
+# Overlap ALONE is not sufficient, and the adversarial refutation pass
+# (2026-08-02) proved it: word reuse cannot see DIRECTION, so a claim that
+# inverts the denial's own framing scores HIGHEST of all. "Die dauerhafte
+# Spanne von 120 habe ich bei Weberit geführt" — the exact negation of the
+# statement it borrows from — scored 0.83 and absorbed. Three vectors
+# confirmed (plain number, percent range via #412, and a mixed true-win +
+# laundered-scope sentence). Hence the stance-consistency rule below.
+#
+# It is deliberately NOT ``stance.classify_stance``: that classifier is
+# negation-blind (a statement containing "das habe ich so nie erreicht"
+# classifies as "achieved"), so routing this through it would have closed
+# one vector and left the other open. This is a local, literal
+# hedge/negation test over the SUB-CLAUSE that actually carries the figure —
+# a fact-level check in ADR-062's sense, never a judgement about meaning.
 _DENIAL_OVERLAP_THRESHOLD = 0.6
 _DENIAL_MIN_CONTENT_TOKENS = 3
+
+# Sub-clause boundaries: sentence enders, plus the separators a German
+# denial statement actually uses to attach its hedge ("…, jeweils 2 bis 4
+# Wochen am Stück. Ehrlich gesagt: die dauerhafte Spanne von 120 wäre …").
+# The dash alternatives require surrounding whitespace so a compound noun
+# ("Hygiene- und Dokumentationsdisziplin", "ISO-9001-Audit-Praxis") is never
+# split — the figure would lose the very context this check reads.
+#
+# The two sides split DIFFERENTLY, and deliberately so — the asymmetry is
+# the control (SF-ORACLE.1's anchors: false accusation S=2, false assurance
+# S=3, so every uncertain case must resolve toward refusing absorption):
+#
+#   statement side — the WIDER window (no comma). A narrower one could carve
+#       a hedged statement into a factual-LOOKING fragment ("Die Spanne von
+#       120, die wäre neu für mich") and grant blanket absorption.
+#   claim side — the NARROWER window (comma included). Without it, an
+#       assertion buys absorption by appending an unrelated hedged tail
+#       ("…habe ich geführt, mehr wäre der nächste Schritt" — found by
+#       probing the first hardening, 2026-08-02). The cost is a resumptive
+#       honest phrasing ("Eine Spanne von 120, das wäre der nächste
+#       Schritt") staying accused: the cheaper error, by the anchors above.
+_DENIAL_CLAUSE_SPLIT_RE = re.compile(r"[.!?;:]|\s[-‒–—―−]\s")
+_DENIAL_CLAIM_SPLIT_RE = re.compile(r"[.!?;:,]|\s[-‒–—―−]\s")
+
+# Literal hedge/negation markers (DE + EN). Matched as whole tokens over the
+# shared ``_norm`` form, so "kein" never fires inside "keineswegs"-style
+# neighbours and "no" never fires inside a word.
+_DENIAL_HEDGE_TOKENS = frozenset({
+    "wäre", "wären", "würde", "würden", "hätte", "hätten", "sollte",
+    "nicht", "nie", "niemals", "kein", "keine", "keinen", "keinem",
+    "keiner", "keines", "nein", "ziel", "künftig", "zukünftig",
+    "would", "could", "not", "never", "no", "aspire", "goal", "future",
+})
+# Multi-word hedges checked as substrings of the normalized sub-clause.
+_DENIAL_HEDGE_PHRASES = (
+    "nächste schritt", "nächster schritt", "nächsten schritt",
+    "noch nicht", "bisher nicht", "next step", "have not", "has not",
+    "not yet",
+)
 
 
 def _denial_content_tokens(text: str) -> set[str]:
     return {t for t in _norm(text).split() if len(t) >= 4 or t.isdigit()}
+
+
+def _denial_sub_clauses(text: str, *, claim_side: bool = False) -> list[str]:
+    pattern = _DENIAL_CLAIM_SPLIT_RE if claim_side else _DENIAL_CLAUSE_SPLIT_RE
+    return [part for part in pattern.split(text) if part.strip()]
+
+
+def _denial_is_hedged(text: str) -> bool:
+    normalized = _norm(text)
+    if any(phrase in normalized for phrase in _DENIAL_HEDGE_PHRASES):
+        return True
+    return bool(set(normalized.split()) & _DENIAL_HEDGE_TOKENS)
+
+
+def _denial_carrying_clauses(
+    text: str, fig: Any, *, claim_side: bool = False
+) -> list[str]:
+    """Sub-clauses of ``text`` that actually state ``fig``.
+
+    Uses the SAME extractor as everything else, so #412's percent-range
+    distribution composes here instead of being re-derived.
+    """
+    return [
+        clause
+        for clause in _denial_sub_clauses(text, claim_side=claim_side)
+        if any(
+            f.kind == fig.kind and f.value == fig.value
+            for f in extract_figures(clause)
+        )
+    ]
+
+
+def _denial_stance_consistent(claim_text: str, statement: str, fig: Any) -> bool:
+    """False when the claim ASSERTS a figure its statement only hedges.
+
+    If every sub-clause of the statement that carries the figure is hedged or
+    negated, the figure is stated as a limit — and only a claim that carries
+    a hedge in its OWN figure-bearing sub-clause may restate it. A figure
+    also stated factually somewhere in the statement (e.g. "seit 2021" inside
+    a transfer clause) is ordinary testimony and needs no hedge at all.
+
+    The claim side is checked per sub-clause, not whole-claim: otherwise an
+    achieved overclaim could buy absorption by appending an unrelated "…das
+    wäre der nächste Schritt" tail.
+    """
+    statement_clauses = _denial_carrying_clauses(statement, fig)
+    if not statement_clauses:
+        return False  # fail-safe: cannot locate the figure's own context
+    if not all(_denial_is_hedged(c) for c in statement_clauses):
+        return True  # stated factually at least once — genuine testimony
+    claim_clauses = _denial_carrying_clauses(claim_text, fig, claim_side=True)
+    if not claim_clauses:
+        return False  # fail-safe: cannot locate the claim's own context
+    return all(_denial_is_hedged(c) for c in claim_clauses)
 
 
 def _denial_statement_backing(
@@ -727,8 +835,11 @@ def _denial_statement_backing(
     """Denial-statement units absorbing EVERY unmatched figure, else None.
 
     Each unmatched figure must appear (same kind, same canonical value) in a
-    denial statement the claim substantially restates; one unresolved figure
-    means no absorption at all and the caller's accusation stands unchanged.
+    denial statement the claim substantially restates AND restates with a
+    consistent stance; one unresolved figure means no absorption at all and
+    the caller's accusation stands unchanged. Fail-safe by construction — a
+    miss keeps today's verdict (a false ACCUSATION at worst), never creates
+    a false pass.
     """
     if not idx.denial_units:
         return None
@@ -745,9 +856,17 @@ def _denial_statement_backing(
                 continue
             statement_tokens = _denial_content_tokens(unit.text)
             overlap = len(claim_tokens & statement_tokens) / len(claim_tokens)
-            if overlap >= _DENIAL_OVERLAP_THRESHOLD:
-                found = unit
-                break
+            if overlap < _DENIAL_OVERLAP_THRESHOLD:
+                continue
+            if not _denial_stance_consistent(claim_text, unit.text, fig):
+                logger.info(
+                    "oracle #422: denial absorption REFUSED for figure %r — "
+                    "the statement hedges it, the claim asserts it (%r)",
+                    fig.raw, unit.path,
+                )
+                continue
+            found = unit
+            break
         if found is None:
             return None
         if found not in backing:
