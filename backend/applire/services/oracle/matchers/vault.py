@@ -19,6 +19,7 @@ from applire.services.oracle.extract import _core_company_name
 from applire.services.oracle.matchers.figures import (
     Figure,
     extract_figures,
+    extract_range_bare_numbers,
     extract_spelled_figures,
 )
 from applire.utils.language_detection import detect_language
@@ -124,7 +125,14 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         # indexing side (see its docstring), so the figure becomes citable
         # evidence instead of a fabricated-looking claim silently getting a
         # pass because the vault "doesn't have a 5" in digit form.
-        figures = extract_figures(stripped) + extract_spelled_figures(stripped)
+        # #412: a percent-range start additionally keeps its pre-distribution
+        # plain-number reading — vault-side widening only, mirroring
+        # ``extract_spelled_figures``' one-sided contract.
+        figures = (
+            extract_figures(stripped)
+            + extract_spelled_figures(stripped)
+            + extract_range_bare_numbers(stripped)
+        )
         units.append(
             EvidenceUnit(
                 path=path,

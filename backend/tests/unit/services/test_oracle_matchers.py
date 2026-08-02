@@ -107,6 +107,39 @@ def test_extract_figures_single_digit_decimal(text, expected):
     assert got == expected
 
 
+# ── #412 — German percentage-range unit distribution (charter run 13 ground
+# truth, operations_marcus_de): German states a range's unit ONCE, at the end
+# ("von 61 auf 73 %"), while explicit document prose repeats it ("von 61 %
+# auf 73 %"). Without distributing the trailing % across the range, the two
+# sides canonicalise to different figure kinds (number 61 vs percent 61) and
+# a candidate-attested improvement grades as the CV's only "unbacked". The
+# distribution lives in the shared extractor, so both the claim side and the
+# vault side are fixed by construction (#374 pattern).
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
+            "Steigerung der OEE im Spritzguss von 61 auf 73 % in 18 Monaten",
+            [("percent", "61"), ("percent", "73"), ("number", "18")],
+        ),
+        ("von 61 % auf 73 %", [("percent", "61"), ("percent", "73")]),
+        ("zwischen 4,1 und 2,3 %", [("percent", "4.1"), ("percent", "2.3")]),
+        ("Auslastung von 61–73 %", [("percent", "61"), ("percent", "73")]),
+        ("Auslastung 61-73 %", [("percent", "61"), ("percent", "73")]),
+        ("increased from 15 to 22%", [("percent", "15"), ("percent", "22")]),
+        ("Ausschuss von 8 bis 3 % gesenkt", [("percent", "8"), ("percent", "3")]),
+        # a year is never granted the distributed unit (percents run first,
+        # so extraction order is percent > year regardless of position)
+        ("stieg von 2020 auf 25 %", [("percent", "25"), ("year", "2020")]),
+        # no trailing unit → no distribution, plain figures as before
+        ("von 61 auf 73 gesteigert", [("number", "61"), ("number", "73")]),
+    ],
+)
+def test_extract_figures_percent_range_distribution(text, expected):
+    got = [(f.kind, f.value) for f in extract_figures(text)]
+    assert got == expected
+
+
 # ── vault index ───────────────────────────────────────────────────────────────
 
 PROFILE = {
@@ -185,6 +218,47 @@ def test_vault_index_attaches_adr046_receipts():
     assert target_unit.receipt_ids == ["rec-1"]
     other = next(u for u in index.units if u.path == "work_experience[0].achievements[1]")
     assert other.receipt_ids == []
+
+
+# ── #412 — the run-13 shape end-to-end through the vault index ──────────────
+RANGE_PROFILE = {
+    "personal_info": {"name": "Stefan Brandt"},
+    "projects": [
+        {
+            "id": "p1",
+            "name": "OEE-Programm",
+            "achievements": [
+                "OEE im Spritzguss stieg in 18 Monaten von 61 auf 73 %",
+            ],
+        }
+    ],
+}
+
+
+def test_percent_range_document_form_matches_vault_form():
+    """Document 'von 61 % auf 73 %' grounds on vault 'von 61 auf 73 %'."""
+    index = build_vault_index(RANGE_PROFILE)
+    claim = extract_figures(
+        "Steigerung der OEE im Spritzguss von 61 % auf 73 % in 18 Monaten"
+    )
+    result = match_figures(claim, index)
+    assert result.unmatched == []
+
+
+def test_percent_range_vault_keeps_bare_number_reading():
+    """A document citing the range start as a plain number still grounds
+    (pre-#412 vault behaviour preserved — vault-side widening only)."""
+    index = build_vault_index(RANGE_PROFILE)
+    assert ("number", "61") in index.figure_map
+    assert ("percent", "61") in index.figure_map
+
+
+def test_percent_range_claim_side_emits_percent_only():
+    """The claim side gets NO bare-number reading for a distributed range
+    start — otherwise 'von 61 auf 73 %' in a document could never ground on
+    a vault that wrote 'von 61 % auf 73 %' (the reverse direction)."""
+    got = [(f.kind, f.value) for f in extract_figures("von 61 auf 73 %")]
+    assert ("number", "61") not in got
 
 
 # ── figure matching ───────────────────────────────────────────────────────────
