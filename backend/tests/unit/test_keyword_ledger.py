@@ -1269,3 +1269,64 @@ def test_prefix_duplicate_german_concepts_are_merged():
     # Both sources and forms should be present
     assert canonical["fit_weight"] == 1.0  # required weight
     assert "Staff leadership" in canonical["surface_forms"] or "Führungsspanne" in canonical["surface_forms"]
+
+
+# ---------------------------------------------------------------------------
+# #434 (charter run 15) — merge-time evidence selection must not discard the
+# more specific member's evidence. The classifier was CORRECT: after the
+# interview it emitted `SAP` (declared basic), `SAP PP` and `SAP MM` (both
+# intermediate, from Key-User testimony). All three share status `partial`, so
+# the merge collapsed them, kept the shortest label — right, it is the cleaner
+# ATS anchor — and then took the evidence of whichever member happened to come
+# first. The intermediate evidence for the two sub-terms the JD actually asks
+# for was silently dropped, so the writers argued from the weakest of three
+# available facts. The ceiling is honoured per entry and defeated across them.
+# ---------------------------------------------------------------------------
+
+
+def test_prefix_merge_preserves_every_members_evidence():
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SAP", "partial", ["SAP"], evidence="Anwenderkenntnisse aus der Disposition"),
+            _cls("SAP PP", "partial", ["SAP PP"], evidence="Key-User für Fertigungsaufträge und Rückmeldungen"),
+            _cls("SAP MM", "partial", ["SAP MM"], evidence="tägliche Bestellanforderungen für Instandhaltungsmaterial"),
+        ],
+        required_skills=["SAP"],
+        nice_to_have_skills=["SAP PP", "SAP MM"],
+        keywords=[],
+    )
+    sap = [e for e in ledger if e["concept"].casefold().startswith("sap")]
+    assert len(sap) == 1, "the three SAP concepts collapse into one entry"
+    entry = sap[0]
+    assert entry["concept"] == "SAP", "shortest label stays the canonical ATS anchor"
+    evidence = entry["evidence"]
+    assert "Key-User" in evidence, (
+        "the more specific member's evidence was discarded — this is #434: the "
+        f"merge kept only what it saw first. Got: {evidence!r}"
+    )
+    assert "Instandhaltungsmaterial" in evidence, f"third member's evidence lost: {evidence!r}"
+    assert "Anwenderkenntnisse" in evidence, f"canonical member's evidence lost: {evidence!r}"
+
+
+def test_prefix_merge_evidence_is_order_independent_and_deduped():
+    """Same members, reversed — same evidence set, and a repeated evidence
+    string is not emitted twice."""
+    common = "gleiche Belegstelle"
+    forward = build_keyword_ledger(
+        classifications=[
+            _cls("SAP", "partial", ["SAP"], evidence=common),
+            _cls("SAP PP", "partial", ["SAP PP"], evidence=common),
+        ],
+        required_skills=["SAP"], nice_to_have_skills=["SAP PP"], keywords=[],
+    )
+    reverse = build_keyword_ledger(
+        classifications=[
+            _cls("SAP PP", "partial", ["SAP PP"], evidence=common),
+            _cls("SAP", "partial", ["SAP"], evidence=common),
+        ],
+        required_skills=["SAP"], nice_to_have_skills=["SAP PP"], keywords=[],
+    )
+    f = [e for e in forward if e["concept"].casefold().startswith("sap")][0]
+    r = [e for e in reverse if e["concept"].casefold().startswith("sap")][0]
+    assert f["evidence"].count(common) == 1, f"duplicate evidence emitted twice: {f['evidence']!r}"
+    assert f["evidence"] == r["evidence"], "merged evidence must not depend on member order"
