@@ -973,3 +973,148 @@ class TestCoverageProtectsTheSoleCarrier:
         assert "_cap_bullets" in lines[0]
         assert "work_entry_id='w1'" in lines[0]
         assert self.GENERIC in lines[0]
+
+
+class TestAttributionRoundWiredIntoBackgroundRender:
+    """ADR-071 clause 3, wired — the #413/#349/#378 shape driven through the
+    real chain with the REAL Oracle.
+
+    Nothing about the verdict is mocked here on purpose. The memory this guards
+    against is "a control that is structurally incapable of firing" (13
+    recorded instances): the deterministic attribution red flag has been
+    correct since Oracle v2, and every earlier attempt to act on it would have
+    been credited from a unit test that hand-built the report. This drives the
+    writer's own misplaced bullet through `_render_cv_background` and asserts
+    the writer was actually asked to move it.
+    """
+
+    SAP = ("Tägliche Arbeit mit SAP PP und MM (Disposition und "
+           "Bestellanforderungen für Instandhaltungsmaterial)")
+
+    def _profile(self) -> dict:
+        return {
+            "personal_info": {"name": "Max", "email": None},
+            "skills": [], "education": [], "languages": [], "projects": [],
+            "work_experience": [
+                {"id": "weberit", "company": "Weberit GmbH", "role": "Produktionsleiter",
+                 "start_date": "2017-04", "end_date": None, "is_current": True,
+                 "responsibilities": [self.SAP], "achievements": []},
+                {"id": "rasselstein", "company": "Rasselstein AG", "role": "Schichtleiter",
+                 "start_date": "2011-08", "end_date": "2017-03", "is_current": False,
+                 "responsibilities": ["Schichtführung im Walzwerk"], "achievements": []},
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_writer_is_asked_to_relocate_the_misplaced_bullet(self):
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        profile_json = self._profile()
+        cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        mock_cv = MagicMock(status="pending", target_pages=2)
+        mock_job = MagicMock(role_title="Produktionsleiter", required_skills=[],
+                             nice_to_have_skills=[], keywords=[], seniority_level="",
+                             company_culture_signals=[], language_requirement="")
+        mock_profile = MagicMock(profile_json=profile_json)
+        mock_gap = MagicMock(keyword_gaps=[], critical_gaps=[], keyword_ledger=[])
+
+        mock_db = AsyncMock()
+        mock_db.get.side_effect = lambda model, id_: {
+            cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+        }[id_]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_gap
+        mock_db.execute.return_value = mock_result
+
+        # The defect, exactly as run 13 produced it: a Weberit-owned fact
+        # written under the employer the candidate left in 2017.
+        draft = {
+            "summary": "Produktionsleiter.",
+            "work": [
+                {"id": "weberit", "bullets": ["Leitung der Fertigung"]},
+                {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk", self.SAP]},
+            ],
+            "skills": [],
+        }
+
+        provider = AsyncMock()
+        provider.aparse_json = AsyncMock(return_value={"not": "a draft"})
+
+        async def fake_fallback(*args, **kwargs):
+            return draft
+
+        with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+             patch("applire.services.cv.get_provider", return_value=provider), \
+             patch("applire.services.cv._tailor_cv_with_fallback", side_effect=fake_fallback), \
+             patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+             patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+             patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+             patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+            mock_session_local.return_value.__aenter__.return_value = mock_db
+            from applire.services.cv import _render_cv_background
+            await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+        prompts = [c.args[0] for c in provider.aparse_json.await_args_list if c.args]
+        relocation = [p for p in prompts if "ROLE OWNERSHIP" in p]
+        assert relocation, (
+            "the attribution round never fired — the deterministic misattribution "
+            "verdict reached no writer"
+        )
+        assert self.SAP in relocation[0]
+        assert "Weberit GmbH" in relocation[0] and "Rasselstein AG" in relocation[0]
+
+    @pytest.mark.asyncio
+    async def test_a_correctly_placed_bullet_costs_no_extra_call(self):
+        """The round is targeted, not routine. A clean draft must not spend a
+        generation call — the cost ADR-071 accepts is bounded to documents that
+        actually trip the verdict."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        profile_json = self._profile()
+        cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        mock_cv = MagicMock(status="pending", target_pages=2)
+        mock_job = MagicMock(role_title="Produktionsleiter", required_skills=[],
+                             nice_to_have_skills=[], keywords=[], seniority_level="",
+                             company_culture_signals=[], language_requirement="")
+        mock_profile = MagicMock(profile_json=profile_json)
+        mock_gap = MagicMock(keyword_gaps=[], critical_gaps=[], keyword_ledger=[])
+
+        mock_db = AsyncMock()
+        mock_db.get.side_effect = lambda model, id_: {
+            cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+        }[id_]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_gap
+        mock_db.execute.return_value = mock_result
+
+        draft = {
+            "summary": "Produktionsleiter.",
+            "work": [
+                {"id": "weberit", "bullets": [self.SAP]},
+                {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk"]},
+            ],
+            "skills": [],
+        }
+        provider = AsyncMock()
+        provider.aparse_json = AsyncMock(return_value={"not": "a draft"})
+
+        async def fake_fallback(*args, **kwargs):
+            return draft
+
+        with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+             patch("applire.services.cv.get_provider", return_value=provider), \
+             patch("applire.services.cv._tailor_cv_with_fallback", side_effect=fake_fallback), \
+             patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+             patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+             patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+             patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+            mock_session_local.return_value.__aenter__.return_value = mock_db
+            from applire.services.cv import _render_cv_background
+            await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+        prompts = [c.args[0] for c in provider.aparse_json.await_args_list if c.args]
+        assert not [p for p in prompts if "ROLE OWNERSHIP" in p]

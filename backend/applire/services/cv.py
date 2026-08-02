@@ -2271,6 +2271,49 @@ async def _render_cv_background(
                 chain_id="cv_tailoring",
             )
 
+            # ADR-071 clause 3: the Oracle's `misattributed` verdict gains a
+            # generation-side consumer. The audit is DETERMINISTIC-ONLY (no
+            # provider, no entailment) — the attribution red flag is an
+            # id-anchored comparison and needs no model. When it fires, at most
+            # ONE targeted cv_tailoring round asks the writer to RE-PLACE the
+            # bullet: never a strip, never a gate (see the module docstring).
+            #
+            # Runs HERE — after the review loop settles, before the language
+            # pass — for two reasons. The persisted self-audit in
+            # _update_ats_report is far too late (it runs after the whole
+            # deterministic tail, after `status = ready` and after
+            # `tailored_data` is written, with no writer left to ask). And
+            # placing it before _review_cv_language keeps that pass's "this is
+            # the LAST writer" property intact, so a relocated bullet is still
+            # language-checked and still watched by the US213 coverage gate.
+            #
+            # The audit needs the ASSEMBLED shape (claims are stamped with the
+            # rendered position's id), so a throwaway join is built for it. That
+            # join is pure and fail-closed on an unknown id; a failure here must
+            # never become a new way for generation to fail, so it only skips
+            # the round — the real assembly below reports the same error.
+            try:
+                from applire.services.attribution_round import run_attribution_round
+                from applire.services.oracle.selfaudit import build_self_audit_report
+
+                audit_view = assemble_tailored_cv(prose_draft, profile_json)
+                attribution_report = await build_self_audit_report(
+                    profile_json, tailored_data=audit_view,
+                )
+            except Exception:
+                logger.exception(
+                    "Attribution pre-audit failed for CV %s — the ADR-071 clause 3 "
+                    "round is skipped; generation continues", cv_id,
+                )
+            else:
+                prose_draft = await run_attribution_round(
+                    prose_draft,
+                    report=attribution_report,
+                    profile_json=profile_json,
+                    source_material=source_material,
+                    provider=provider,
+                )
+
             # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
             # are all in the target-job language (the directive alone leaks
             # discipline-skill phrases — #1). E049/ADR-067: runs on the PROSE shape,
