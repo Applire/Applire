@@ -68,6 +68,14 @@ LEAN = "Lean Management in der Fertigung eingeführt"
 PACKAGING_GROUP = ("Verpackungen", "Verpackungsindustrie")
 LEAN_GROUP = ("Lean Management", "Lean")
 
+# A SECOND carrier of the packaging concept. It must genuinely carry the surface
+# form, which German compounding makes easy to get wrong: "Verpackungslinien"
+# looks like packaging evidence to a human and matches NEITHER form, because the
+# compound diverges at "verpackung[s|en]". An earlier draft of these tests used
+# exactly that string, and the recompute mutation below survived the whole suite
+# as a result. `test_the_second_carrier_really_carries_the_concept` is the guard.
+PACKAGING_TWIN = "Umstellung der Linien auf recyclingfähige Verpackungen"
+
 
 # --- rank_cuts: the ranking itself ------------------------------------------
 
@@ -114,12 +122,25 @@ def test_a_sole_carrier_outranks_a_figure_bullet_carrying_no_claimable_concept()
     assert cuts[0].text == FIGURE_B
 
 
+def test_the_second_carrier_really_carries_the_concept():
+    """A fixture guard, not a behaviour test. The two tests below are only
+    meaningful if BOTH packaging bullets actually match a surface form — and a
+    German compound that reads as packaging evidence to a human ("
+    Verpackungslinien") matches neither. Without this assertion the
+    recompute test passes whether or not the recompute exists."""
+    from applire.services.bullet_cuts import _concepts_carried
+
+    groups = [list(PACKAGING_GROUP)]
+    assert _concepts_carried(PACKAGING, groups) == frozenset({0})
+    assert _concepts_carried(PACKAGING_TWIN, groups) == frozenset({0})
+
+
 def test_the_last_two_carriers_of_one_concept_are_never_both_cut():
     """The status is recomputed after every removal, not once up front. Two
     bullets carry the packaging concept, so NEITHER is a sole carrier at the
     start; a status computed once would cut both and lose the concept — the
     exact harm the clause exists to prevent."""
-    texts = [FIGURE_A, FIGURE_B, PACKAGING, "Verpackungslinien umgerüstet"]
+    texts = [FIGURE_A, FIGURE_B, PACKAGING, PACKAGING_TWIN]
     tiers = [(True, -0), (True, -1), (False, -2), (False, -3)]
     cuts = rank_cuts(
         texts, tiers, keep=2,
@@ -127,7 +148,7 @@ def test_the_last_two_carriers_of_one_concept_are_never_both_cut():
         external_text="",
     )
     survivors = {i for i in range(4)} - {c.index for c in cuts}
-    assert 2 in survivors or 3 in survivors, "the concept lost its last carrier"
+    assert survivors & {2, 3}, "the concept lost its last carrier"
     # Round 1 cuts the later of the two figure-less carriers; round 2 finds the
     # other one newly protected and takes a figure bullet instead.
     assert [c.index for c in cuts] == [3, 1]
@@ -255,13 +276,16 @@ def test_condense_sees_coverage_in_another_role_it_has_already_cut():
     data = {
         "contact": {"name": "X"}, "skills": [],
         "work_history": [
-            {"id": "r2", "bullets": ["Verpackungslinien umgerüstet", FIGURE_B]},
+            {"id": "r2", "bullets": [PACKAGING_TWIN, FIGURE_B]},
             {"id": "r1", "bullets": [FIGURE_A, PACKAGING]},
         ],
     }
     out, _ = condense_to_budget(data, _budget({"r2": 1, "r1": 1}, [PACKAGING_GROUP]), 1)
-    kept = out["work_history"][0]["bullets"] + out["work_history"][1]["bullets"]
-    assert any("Verpackung" in b or "Sauberraum" in b for b in kept)
+    # r2 is cut first and is the concept's other carrier: while BOTH survive
+    # neither is protected, so r2 loses its packaging bullet on figure ranking.
+    # r1 must then see the concept as uncovered and protect its own.
+    assert out["work_history"][0]["bullets"] == [FIGURE_B]
+    assert out["work_history"][1]["bullets"] == [PACKAGING]
 
 
 def test_condense_with_no_claimable_concepts_is_unchanged():
