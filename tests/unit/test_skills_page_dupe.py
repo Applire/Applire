@@ -120,3 +120,89 @@ def test_page_predicate_is_a_strict_superset_of_the_merge_predicate():
     # And the two predicates genuinely differ — the whole point of #386:
     assert not skills_near_dupe("MES", "MES (Maschinendaten- und Betriebsdatenerfassung)")
     assert skills_page_dupe("MES", "MES (Maschinendaten- und Betriebsdatenerfassung)")
+
+
+# --- ADR-072 clause 2/3: the compound-suffix arm needs TWO bare tags ---------
+#
+# Charter run D (2026-08-02, operations_marcus_de): 'Verpackungsindustrie' —
+# the candidate's ONLY packaging-domain skill, against a JD from a packaging
+# manufacturer — was dropped from the delivered CV as a page-duplicate of the
+# unrelated 'Industrie 4.0'. Pinned by replaying the run's real captured inputs
+# through the deterministic tail. The compound relation ('Schichtbetrieb' is the
+# head of 'Dreischichtbetrieb') only holds between two BARE tags; when the
+# shorter side carries extra tokens, that extra token is precisely the evidence
+# it is a different named concept that merely BEGINS with the head noun.
+
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("Verpackungsindustrie", "Industrie 4.0"),  # run D, the shipped defect
+        ("Lebensmittelindustrie", "Industrie 4.0"),
+        ("Automobilindustrie", "Industrie 4.0"),
+        ("Pharmaindustrie", "Industrie 4.0"),
+    ],
+)
+def test_compound_does_not_collide_with_a_multiword_tag_sharing_its_head(a, b):
+    """A domain compound is NOT a duplicate of a multi-word concept that merely
+    starts with the same head noun. Both directions — the predicate is symmetric
+    and the delivered order is whatever the writer happened to emit."""
+    assert not skills_page_dupe(a, b)
+    assert not skills_page_dupe(b, a)
+
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("Dreischichtbetrieb", "Schichtbetrieb"),  # #386's founding case
+        ("Mitarbeiterführung", "Führung"),
+    ],
+)
+def test_two_bare_tags_in_a_head_relation_are_still_page_dupes(a, b):
+    """The #386 cases must survive the narrowing — this is the regression that
+    proves the fix did not simply disable the arm."""
+    assert skills_page_dupe(a, b)
+    assert skills_page_dupe(b, a)
+
+
+def test_compound_survivor_is_the_more_specific_form_not_the_earlier_one():
+    """ADR-072 clause 3. A deterministic pass whose output depends on the
+    writer's emission order is a defect in its own right: the same vault and the
+    same JD must not yield different skills because the model listed them in a
+    different sequence."""
+    from applire.schemas.cv import TailoredCVData, TailoredContact
+    from applire.services.cv import _dedup_skills
+
+    def survivors(skills: list[str]) -> list[str]:
+        cv = TailoredCVData(
+            summary="s", contact=TailoredContact(), work_history=[], skills=skills
+        )
+        return list(_dedup_skills(cv).skills or [])
+
+    assert survivors(["Schichtbetrieb", "Dreischichtbetrieb"]) == ["Dreischichtbetrieb"]
+    assert survivors(["Dreischichtbetrieb", "Schichtbetrieb"]) == ["Dreischichtbetrieb"]
+
+
+def test_run_d_skills_list_keeps_the_packaging_domain_skill():
+    """End-to-end on the pass that actually dropped it, with the run's own
+    neighbours present. The bare predicate test above pins the mechanism; this
+    pins the delivered outcome."""
+    from applire.schemas.cv import TailoredCVData, TailoredContact
+    from applire.services.cv import _dedup_skills
+
+    cv = TailoredCVData(
+        summary="s",
+        contact=TailoredContact(),
+        work_history=[],
+        skills=[
+            "Lean Production",
+            "MES",
+            "Industrie 4.0",
+            "Hygienemanagement",
+            "Verpackungsindustrie",
+            "Sauberraum / Reinraum",
+        ],
+    )
+    kept = list(_dedup_skills(cv).skills or [])
+    assert "Verpackungsindustrie" in kept
+    assert "Industrie 4.0" in kept

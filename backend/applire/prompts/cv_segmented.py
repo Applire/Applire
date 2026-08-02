@@ -55,6 +55,11 @@ _CORE_RULES = """\
 - Do NOT add achievements, technologies, projects, metrics, or facts not explicitly present
   in the candidate material. Keep companies, roles, dates, degrees, and numbers EXACTLY as
   given. When in doubt, leave it out.
+- Grounding is PER ENTRY (ADR-071): a bullet under a work entry must trace to THAT ENTRY'S OWN
+  responsibilities, achievements or technologies. Evidence owned by a different position
+  belongs under that position — never move it, and never fuse facts from two employers into
+  one bullet. This governs work-entry bullets only; the summary and skills list legitimately
+  draw on the whole profile.
 - Claim-strength: mirror the source's verb strength; never upgrade "supported"/"assisted" to
   "led"/"owned", never enlarge team sizes/budgets/magnitudes, never assign a more senior title.
 - Output language: write ALL prose in the OUTPUT LANGUAGE stated in the user message,

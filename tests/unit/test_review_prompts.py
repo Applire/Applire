@@ -498,8 +498,9 @@ class TestCVTailoringGeneratorPrompts:
 
     def test_system_prompt_constrains_claim_strength(self):
         """US169 (JF-M-6.2) — generator-side prevention. The reviewer already flags
-        oversell (US142; check 4 OVERSTATED CLAIM STRENGTH under E049/ADR-067's
-        renumbering, was rule 6), but the *generator* prompt never told the model not
+        oversell (US142; check 5 OVERSTATED CLAIM STRENGTH after ADR-071's
+        renumbering — check 4 under E049/ADR-067, rule 6 before that), but the
+        *generator* prompt never told the model not
         to inflate. Prevention lowers O before the draft exists; detection alone leaves
         an unnecessary over-claim→reject→retry round-trip.
 
@@ -2099,3 +2100,97 @@ class TestCoverLetterReviewerPromptV2:
         misplacement as part of why v1 was overloaded."""
         low = self._prompt
         assert "the candidate's own stated inputs are true by definition" in low
+
+
+class TestPerEntryGroundingAndRoleOwnership:
+    """ADR-071 clauses 1 & 2 — attachment is a contract between a bullet and the
+    position it is rendered under.
+
+    #413 / #349 / the generator half of #378 are ONE bullet: a current-employer
+    fact ("Tägliche Arbeit mit SAP PP und MM …", owned by Weberit 2017–today)
+    rendered under Rasselstein (08/2011–03/2017). Both blind reviewers read it,
+    unprompted, as the single place the documents looked embellished. The vault
+    stores it correctly, and the misattribution is present in the FIRST,
+    unreviewed generator output — so no post-pass explains it.
+
+    Six reviews missed it because the instruction was never written: rule 1
+    required a bullet to trace to "something in CANDIDATE PROFILE",
+    document-wide, and none of the reviewer's numbered checks named ownership.
+    """
+
+    def _writer(self):
+        from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+        return SYSTEM_PROMPT
+
+    def _reviewer(self):
+        from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT
+        return REVIEW_SYSTEM_PROMPT
+
+    # --- clause 1: the writer's stated rule ---------------------------------
+
+    def test_grounding_binds_a_bullet_to_its_own_entry(self):
+        p = self._writer()
+        assert "PER ENTRY" in p
+        assert "THAT ENTRY'S OWN" in p
+        low = p.lower()
+        assert "belongs under that position" in low
+        assert "never fuse facts from two employers" in low
+
+    def test_the_per_entry_rule_exempts_the_summary_and_skills(self):
+        """The risk ADR-071 names explicitly: read too literally, a per-entry
+        rule suppresses a legitimately career-spanning summary sentence. The
+        exemption is stated in the rule itself, not left to inference."""
+        low = self._writer().lower()
+        assert "work-entry bullets only" in low
+        assert "draw on the whole profile" in low
+
+    def test_the_segmented_path_carries_the_same_clause(self):
+        """ADR-066 parity. The segmented outline call sees the WHOLE profile
+        even though each section writer is scoped to one entry, so the rule
+        cannot live only in the single-shot prompt."""
+        from applire.prompts.cv_segmented import _CORE_RULES
+        low = _CORE_RULES.lower()
+        assert "per entry" in low
+        assert "that entry's own" in low
+        assert "two employers" in low
+
+    # --- clause 2: the reviewer's numbered check ----------------------------
+
+    def test_role_ownership_is_a_numbered_check(self):
+        p = self._reviewer()
+        assert "2. ROLE OWNERSHIP" in p
+
+    def test_role_ownership_sits_inside_the_mandate(self):
+        """"Those checks are the whole of your mandate" — a check placed after
+        that sentence is outside it. review_severity.py already listed
+        MISATTRIBUTED and six reviews still missed the bullet, which is the
+        evidence that a severity LABEL is not an instruction."""
+        p = self._reviewer()
+        assert p.index("2. ROLE OWNERSHIP") < p.index("WHAT IS BLOCKING IN THIS PASS")
+
+    def test_role_ownership_is_distinguished_from_bullet_order(self):
+        """The prompt calls bullet order "minor BY DEFINITION". Without the
+        distinction the new check reads as an invitation to re-edit ordering,
+        which is precisely the churn that exhausted the loop in run 10."""
+        p = self._reviewer()
+        assert "not about bullet ORDER" in p
+        assert "bullet order" in p  # the minor-by-definition list is intact
+
+    def test_the_reviewer_checks_stay_contiguously_numbered(self):
+        """Structural, not textual: the renumbering after the insert is the
+        kind of edit that silently produces two check 4s."""
+        import re
+
+        p = self._reviewer()
+        numbers = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. [A-Z]", p, re.M)]
+        assert numbers == list(range(1, len(numbers) + 1))
+        assert len(numbers) == 6
+
+    def test_the_check_names_both_positions_so_feedback_is_actionable(self):
+        """The feedback contract is referential (ADR-021 amended 2026-06-29):
+        the corrector re-reads the profile itself, so the reviewer must say
+        WHERE, not paste evidence."""
+        import re
+
+        low = re.sub(r"\s+", " ", self._reviewer().lower())
+        assert "name the entry it is under and the entry the profile says owns it" in low

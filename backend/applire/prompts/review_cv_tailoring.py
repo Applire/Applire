@@ -22,6 +22,15 @@
 #   never fail and, worse, rejects every draft for the absence of what it guards
 #   (SF-WRITE.16: full retry exhaustion → the draft ships unreviewed, run 10
 #   measured 5/5 exhaustion on exactly this churn, #385). See the SHAPE NOTE.)
+# Prompt version: v4 (ADR-071 clause 2 — ROLE OWNERSHIP inserted as check 2, next
+#   to FABRICATED BULLETS because it is that check's sibling: a misattributed
+#   bullet is grounded and misplaced. #413/#349/#378 are one bullet — a
+#   current-employer SAP fact rendered under an employer left in 2017 — that
+#   survived five cv_tailoring rounds and one cv_language round untouched. The
+#   word "misattributed" was already in this prompt, but only in the mandate
+#   sentence and in review_severity's shared vocabulary: a LABEL for a finding
+#   is not an instruction to look for one, and no numbered check named it. The
+#   later checks are renumbered, not reworded.)
 # v2 was US142 — named FMEA failure classes: certifications, oversell.
 # Used by: services/cv.py → reviewer.review_and_refine
 
@@ -42,18 +51,27 @@ Check for ALL of the following:
 1. FABRICATED BULLETS: Every bullet in every work entry must be grounded in the CANDIDATE
    PROFILE. Flag any bullet that claims a technology, achievement, project, metric, or
    responsibility not explicitly present in the source material.
-2. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
+2. ROLE OWNERSHIP (misattribution): a bullet can be perfectly true of the candidate and still
+   be a defect because it sits under the wrong employer. For each work entry, check that its
+   bullets describe what the candidate did AT THAT POSITION, using the profile's own
+   per-position responsibilities/achievements/technologies. Flag a bullet whose evidence the
+   profile assigns to a DIFFERENT position — a current-employer tool or duty written under a
+   former employer, a former role's project claimed under the current one, or one bullet
+   fusing facts from two employers. This is not about bullet ORDER or which achievement leads
+   an entry (those are minor); it is about which employer the evidence belongs to. Name the
+   entry it is under and the entry the profile says owns it.
+3. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
    explicitly supported by the candidate's work history or skills. Flag any keyword added
    without clear supporting evidence in the source material.
-3. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, degree or formal
+4. FABRICATED CERTIFICATIONS / QUALIFICATIONS: Every certification, license, degree or formal
    qualification named anywhere in the output must appear in the CANDIDATE PROFILE. Flag any
    certification or qualification not explicitly present in the source — these are the most
    damaging fabrications because a recruiter can verify them.
-4. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
+5. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
    beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
    or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
    profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
-5. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
+6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
    gaps NOT in the profile). Two checks:
    (a) VERIFIED COVERAGE (US213, #122): do NOT scan for absent claimable keywords yourself — a

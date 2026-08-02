@@ -127,6 +127,14 @@ class BudgetResult:
     # Empty when the relevance signal is void (no claimable ledger); condense then
     # treats every bullet as a no-hit bullet, which is the correct fallback ordering.
     claimable_forms: tuple[str, ...] = ()
+    # The SAME retention forms, but one group per claimable ledger entry rather
+    # than flattened (ADR-072 clause 1). A group is one competence: flattening
+    # makes every sibling surface form an independent carrier, which would let a
+    # single bullet's two forms read as two carriers and defeat the sole-carrier
+    # test the cut ranking is built on (the #386 lesson, applied to counting).
+    # Empty alongside ``claimable_forms`` — nothing is protected and the cut
+    # order falls back exactly to #377's figure ranking.
+    claimable_concepts: tuple[tuple[str, ...], ...] = ()
 
 
 def _tier_table(target_pages: int, region: str) -> dict[TierName, BulletTier]:
@@ -243,6 +251,31 @@ def _flatten_claimable_forms(claimable_ledger: list[dict[str, Any]]) -> tuple[st
     return tuple(flat)
 
 
+def _group_claimable_forms(
+    claimable_ledger: list[dict[str, Any]],
+) -> tuple[tuple[str, ...], ...]:
+    """The same retention forms as :func:`_flatten_claimable_forms`, kept one
+    GROUP PER ENTRY for the ADR-072 clause 1 cut ranking.
+
+    Same source, same positioning-only rule, deliberately not the same shape:
+    the flat list answers "does this bullet hit anything claimable?", this one
+    answers "how many bullets carry THIS concept?" — and only the second can
+    tell a sole carrier from one of several. An entry contributing no usable
+    form is dropped rather than yielding an empty group, so a group index always
+    denotes a real concept.
+    """
+    from applire.services.keyword_ledger import retention_forms
+
+    groups: list[tuple[str, ...]] = []
+    for led in claimable_ledger:
+        forms = tuple(dict.fromkeys(
+            f for f in retention_forms(led) if isinstance(f, str) and f.strip()
+        ))
+        if forms:
+            groups.append(forms)
+    return tuple(groups)
+
+
 def _hit_count(entry_text_norm: str, claimable_ledger: list[dict[str, Any]]) -> int:
     """Count of claimable ledger entries whose retention forms are present in
     ``entry_text_norm`` via the shared ATS presence predicate.
@@ -279,12 +312,25 @@ def attach_projects(work_entries: list[dict[str, Any]], projects: list[dict[str,
         by_id.setdefault(key, []).append(p)
         by_company.setdefault(key.lower(), []).append(p)
 
+    # ADR-072 clause 5: a company name that matches more than one work entry
+    # identifies no single owner, so its projects are attached to NONE of them.
+    # Attaching to all — the shipped behaviour — was worse than the sibling
+    # defect in ``_nest_projects``: that one rendered a project under the wrong
+    # tenure, this one counted its text toward BOTH tenures' ``_hit_count``,
+    # inflating the relevance tier and therefore the bullet budget of a role
+    # that does not own the evidence (reproduced 2026-08-02).
+    ambiguous = {
+        c
+        for c in by_company
+        if sum(1 for w in work_entries if (w.get("company") or "").strip().lower() == c) > 1
+    }
+
     enriched: list[dict[str, Any]] = []
     for w in work_entries:
         wid = str(w.get("id") or "")
         company = (w.get("company") or "").strip().lower()
         assoc = list(by_id.get(wid) or [])
-        if company:
+        if company and company not in ambiguous:
             for p in by_company.get(company, []):
                 if p not in assoc:
                     assoc.append(p)
@@ -328,6 +374,7 @@ def compute_bullet_budgets(
         e for e in (keyword_ledger or []) if e.get("claimable") and not is_scope_entry(e)
     ]
     claimable_forms = _flatten_claimable_forms(claimable)
+    claimable_concepts = _group_claimable_forms(claimable)
     latest_start_id = _latest_start_id(work_entries)
 
     hit_counts: dict[str, int] = {}
@@ -366,6 +413,7 @@ def compute_bullet_budgets(
         target_pages=target_pages,
         region=region,
         claimable_forms=claimable_forms,
+        claimable_concepts=claimable_concepts,
     )
 
 
@@ -421,7 +469,15 @@ def condense_to_budget(
     Cut order, applied per role until its total bullet count (role bullets + nested
     project bullets) meets the ceiling:
 
-    1. bullets carrying NO quantified figure go first
+    0. a bullet that is the SOLE carrier of a claimable ledger concept is cut
+       last (ADR-072 clause 1, ranked by :mod:`applire.services.bullet_cuts`) —
+       above the figure criterion, because #423's only packaging evidence
+       carried no figure and was listed last, so every criterion below
+       condemned it. Coverage is a presence FACT, not a strength judgement:
+       a bullet whose concept is carried elsewhere in the document gets no
+       protection at all, which is what separates this from the keyword-hit
+       ranking #377 retired,
+    1. bullets carrying NO quantified figure go next
        (:func:`applire.services.load_bearing.bullet_carries_figure`, #377 /
        ADR-067 clause 4 — a FACT computed via the shared extractor, not a
        keyword-ledger proxy: deterministic code may cap and order, but it may
@@ -430,6 +486,12 @@ def condense_to_budget(
     2. then, among equal figure-status, nested PROJECT bullets before ROLE bullets,
     3. within an equal (figure-status, project/role) group the later-listed bullet
        is cut first, so the earliest (typically strongest) bullets survive.
+
+    Every removal is logged (ADR-072 clause 4) — the pass name, the role, the
+    ceiling, the ranking tier and the removed text. A cut that takes a
+    PROTECTED bullet anyway (the ceiling is tighter than the protected set)
+    logs at WARNING: clause 1 could not be honoured, and that is a constraint
+    conflict rather than routine trimming.
 
     "Oldest roles collapse toward one-liners" is not a separate step — it falls out
     of the tier ceilings (bottom tier == 1, and 0 at iteration 2).
@@ -449,11 +511,15 @@ def condense_to_budget(
     """
     import copy
 
+    from applire.services.bullet_cuts import log_cuts, log_deletion, rank_cuts
+    from applire.services.load_bearing import stringify_draft
+
     data = copy.deepcopy(tailored_data)
     work = data.get("work_history")
     if not isinstance(work, list):
         return data, False
 
+    concept_groups = budgets.claimable_concepts
     changed = False
 
     for entry in work:
@@ -489,19 +555,43 @@ def condense_to_budget(
         if len(items) <= ceiling:
             continue
 
-        # Remove the most-expendable first: figure-less before figure-bearing
-        # (#377 / ADR-067 clause 4); within that, project before role; within
-        # that, later-listed before earlier (keep the earliest).
-        removal_order = sorted(
-            items, key=lambda it: (it["carries_figure"], it["is_role"], -it["order"])
-        )
-        removed = {id(it) for it in removal_order[: len(items) - ceiling]}
+        # Everything this call cannot cut: the summary, the skills list, and
+        # every OTHER role's bullets AS THEY STAND RIGHT NOW. Roles earlier in
+        # this loop have already been trimmed, so their removals are correctly
+        # absent from the coverage picture — a concept whose only other carrier
+        # was just cut from a previous role is protected here.
+        external = ""
+        if concept_groups:
+            saved_bullets, saved_projects = entry.get("bullets"), entry.get("projects")
+            entry["bullets"], entry["projects"] = [], []
+            external = stringify_draft(data)
+            entry["bullets"], entry["projects"] = saved_bullets, saved_projects
 
-        entry["bullets"] = [it["text"] for it in items if it["is_role"] and id(it) not in removed]
+        # Remove the most-expendable first. Coverage outranks everything
+        # (ADR-072 clause 1 — the sole carrier of a claimable concept goes
+        # last); then figure-less before figure-bearing (#377 / ADR-067
+        # clause 4); then project before role; then later-listed before
+        # earlier, so the earliest bullets survive.
+        cuts = rank_cuts(
+            [it["text"] for it in items],
+            [(it["carries_figure"], it["is_role"], -it["order"]) for it in items],
+            keep=ceiling,
+            concept_groups=concept_groups,
+            external_text=external,
+        )
+        log_cuts(
+            "condense_to_budget", cuts,
+            role_id=str(entry.get("id") or ""), ceiling=ceiling, iteration=iteration,
+        )
+        removed = {c.index for c in cuts}
+
+        entry["bullets"] = [
+            it["text"] for it in items if it["is_role"] and it["order"] not in removed
+        ]
 
         kept_by_proj: dict[int, list[str]] = {}
         for it in items:
-            if it["is_role"] or id(it) in removed:
+            if it["is_role"] or it["order"] in removed:
                 continue
             kept_by_proj.setdefault(it["proj_idx"], []).append(it["text"])
 
@@ -514,6 +604,10 @@ def condense_to_budget(
             kept = kept_by_proj.get(pi, [])
             if had_bullets and not kept:
                 # Every bullet of this project was cut — drop the now-empty project.
+                log_deletion(
+                    "condense_to_budget", "project lost every bullet",
+                    proj.get("name") or proj, role_id=str(entry.get("id") or ""),
+                )
                 continue
             proj["bullets"] = kept
             surviving_projects.append(proj)

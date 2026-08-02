@@ -865,3 +865,360 @@ class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
         final_bullets = mock_cv.tailored_data["work_history"][0]["bullets"]
         for h in hits:
             assert h in final_bullets, f"dropped JD-matching vault bullet was not restored: {h!r}"
+
+
+class TestCoverageProtectsTheSoleCarrier:
+    """#423 / ADR-072 clause 1 — the run-A shape, end to end through the pass
+    that actually deleted the content.
+
+    Charter run A (2026-08-01 13:07): the Weberit role's logged ceiling was
+    ``max 5 (tier: top)`` and the settled draft carried 6 bullets. Nothing was
+    restorable, so ``_restore_ledger_bullets`` fell to its unconditional
+    ceiling branch and ``_cap_bullets`` deleted the candidate's ONLY packaging
+    evidence against a packaging manufacturer's JD. There was no LLM call
+    between the last reviewer's approval and this deletion, and no prompt
+    change could have reached it.
+    """
+
+    PACKAGING = (
+        "Verantwortung für den Sauberraumbereich "
+        "(Kunststoff- und Kosmetik-Verpackungen) seit 2021"
+    )
+    GENERIC = "Schichtplanung für drei Schichten koordiniert"
+    BULLETS = [
+        "Ausschussquote von 4,1 % auf 1,8 % gesenkt",
+        "Rüstzeiten um 35 % reduziert",
+        "Einführung von Lean Management in der Fertigung",
+        GENERIC,
+        "OEE von 62 % auf 78 % gesteigert",
+        PACKAGING,
+    ]
+
+    def _fixture(self, *, with_concepts: bool):
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        ledger = [
+            {"concept": "Verpackungen", "surface_forms": ["Verpackungsindustrie"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Sauberraum Kosmetik-Verpackungen"},
+            {"concept": "Lean Management", "surface_forms": ["Lean"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Lean in der Fertigung"},
+        ]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit", "role": "Produktionsleiter",
+                "start_date": "2021-01", "end_date": None, "is_current": True,
+                "responsibilities": list(self.BULLETS), "achievements": [],
+            }],
+            "projects": [],
+        }
+        concepts = (("Verpackungsindustrie", "Verpackungen"), ("Lean", "Lean Management"))
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={"top": BulletTier("top", 5, 4), "mid": BulletTier("mid", 3, 2),
+                   "bottom": BulletTier("bottom", 1, 0)},
+            target_pages=2, region="DACH",
+            claimable_forms=("Verpackungsindustrie", "Verpackungen", "Lean", "Lean Management"),
+            claimable_concepts=concepts if with_concepts else (),
+        )
+        # "Lean Management" also sits in the skills list — that is what makes the
+        # Lean bullet COVERED and therefore unprotected, while the packaging
+        # bullet is the concept's only carrier anywhere in the document.
+        tailored = _tailored_cv(self.BULLETS)
+        tailored = tailored.model_copy(update={"skills": ["Lean Management", "Six Sigma"]})
+        return tailored, profile_json, ledger, budget
+
+    def test_the_cap_keeps_the_only_packaging_evidence(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+        assert len(bullets) == 5
+        assert self.PACKAGING in bullets, "#423: the sole packaging carrier was cut again"
+        # The generic bullet is the correct casualty: figure-less like the
+        # packaging one, but carrying no claimable concept at all.
+        assert self.GENERIC not in bullets
+
+    def test_without_the_concept_groups_the_old_cut_reproduces_the_bug(self):
+        """The negative control. Same fixture, coverage signal removed — the
+        pass deletes the packaging bullet exactly as run A did, which is what
+        makes the assertion above a real gate rather than a coincidence of
+        ordering."""
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=False)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        assert self.PACKAGING not in result.work_history[0].bullets
+
+    def test_the_surviving_bullets_keep_the_writers_order(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+        assert bullets == [b for b in self.BULLETS if b in set(bullets)]
+
+    def test_the_deletion_is_logged_with_the_pass_and_the_role(self, caplog):
+        import logging
+
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture(with_concepts=True)
+        with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
+            _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        lines = [r.getMessage() for r in caplog.records if "TAIL_DELETE" in r.getMessage()]
+        assert len(lines) == 1
+        assert "_cap_bullets" in lines[0]
+        assert "work_entry_id='w1'" in lines[0]
+        assert self.GENERIC in lines[0]
+
+
+class TestAttributionRoundWiredIntoBackgroundRender:
+    """ADR-071 clause 3, wired — the #413/#349/#378 shape driven through the
+    real chain with the REAL Oracle.
+
+    Nothing about the verdict is mocked here on purpose. The memory this guards
+    against is "a control that is structurally incapable of firing" (13
+    recorded instances): the deterministic attribution red flag has been
+    correct since Oracle v2, and every earlier attempt to act on it would have
+    been credited from a unit test that hand-built the report. This drives the
+    writer's own misplaced bullet through `_render_cv_background` and asserts
+    the writer was actually asked to move it.
+    """
+
+    SAP = ("Tägliche Arbeit mit SAP PP und MM (Disposition und "
+           "Bestellanforderungen für Instandhaltungsmaterial)")
+
+    def _profile(self) -> dict:
+        return {
+            "personal_info": {"name": "Max", "email": None},
+            "skills": [], "education": [], "languages": [], "projects": [],
+            "work_experience": [
+                {"id": "weberit", "company": "Weberit GmbH", "role": "Produktionsleiter",
+                 "start_date": "2017-04", "end_date": None, "is_current": True,
+                 "responsibilities": [self.SAP], "achievements": []},
+                {"id": "rasselstein", "company": "Rasselstein AG", "role": "Schichtleiter",
+                 "start_date": "2011-08", "end_date": "2017-03", "is_current": False,
+                 "responsibilities": ["Schichtführung im Walzwerk"], "achievements": []},
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_writer_is_asked_to_relocate_the_misplaced_bullet(self):
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        profile_json = self._profile()
+        cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        mock_cv = MagicMock(status="pending", target_pages=2)
+        mock_job = MagicMock(role_title="Produktionsleiter", required_skills=[],
+                             nice_to_have_skills=[], keywords=[], seniority_level="",
+                             company_culture_signals=[], language_requirement="")
+        mock_profile = MagicMock(profile_json=profile_json)
+        mock_gap = MagicMock(keyword_gaps=[], critical_gaps=[], keyword_ledger=[])
+
+        mock_db = AsyncMock()
+        mock_db.get.side_effect = lambda model, id_: {
+            cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+        }[id_]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_gap
+        mock_db.execute.return_value = mock_result
+
+        # The defect, exactly as run 13 produced it: a Weberit-owned fact
+        # written under the employer the candidate left in 2017.
+        draft = {
+            "summary": "Produktionsleiter.",
+            "work": [
+                {"id": "weberit", "bullets": ["Leitung der Fertigung"]},
+                {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk", self.SAP]},
+            ],
+            "skills": [],
+        }
+
+        provider = AsyncMock()
+        provider.aparse_json = AsyncMock(return_value={"not": "a draft"})
+
+        async def fake_fallback(*args, **kwargs):
+            return draft
+
+        with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+             patch("applire.services.cv.get_provider", return_value=provider), \
+             patch("applire.services.cv._tailor_cv_with_fallback", side_effect=fake_fallback), \
+             patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+             patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+             patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+             patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+            mock_session_local.return_value.__aenter__.return_value = mock_db
+            from applire.services.cv import _render_cv_background
+            await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+        prompts = [c.args[0] for c in provider.aparse_json.await_args_list if c.args]
+        relocation = [p for p in prompts if "ROLE OWNERSHIP" in p]
+        assert relocation, (
+            "the attribution round never fired — the deterministic misattribution "
+            "verdict reached no writer"
+        )
+        assert self.SAP in relocation[0]
+        assert "Weberit GmbH" in relocation[0] and "Rasselstein AG" in relocation[0]
+
+    @pytest.mark.asyncio
+    async def test_a_correctly_placed_bullet_costs_no_extra_call(self):
+        """The round is targeted, not routine. A clean draft must not spend a
+        generation call — the cost ADR-071 accepts is bounded to documents that
+        actually trip the verdict."""
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        profile_json = self._profile()
+        cv_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        mock_cv = MagicMock(status="pending", target_pages=2)
+        mock_job = MagicMock(role_title="Produktionsleiter", required_skills=[],
+                             nice_to_have_skills=[], keywords=[], seniority_level="",
+                             company_culture_signals=[], language_requirement="")
+        mock_profile = MagicMock(profile_json=profile_json)
+        mock_gap = MagicMock(keyword_gaps=[], critical_gaps=[], keyword_ledger=[])
+
+        mock_db = AsyncMock()
+        mock_db.get.side_effect = lambda model, id_: {
+            cv_id: mock_cv, job_id: mock_job, profile_id: mock_profile,
+        }[id_]
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_gap
+        mock_db.execute.return_value = mock_result
+
+        draft = {
+            "summary": "Produktionsleiter.",
+            "work": [
+                {"id": "weberit", "bullets": [self.SAP]},
+                {"id": "rasselstein", "bullets": ["Schichtführung im Walzwerk"]},
+            ],
+            "skills": [],
+        }
+        provider = AsyncMock()
+        provider.aparse_json = AsyncMock(return_value={"not": "a draft"})
+
+        async def fake_fallback(*args, **kwargs):
+            return draft
+
+        with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+             patch("applire.services.cv.get_provider", return_value=provider), \
+             patch("applire.services.cv._tailor_cv_with_fallback", side_effect=fake_fallback), \
+             patch("applire.services.cv.review_and_refine", new=AsyncMock(side_effect=lambda **kw: kw["draft"])), \
+             patch("applire.services.cv._review_cv_language", new=AsyncMock(side_effect=lambda draft, *a, **kw: draft)), \
+             patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
+             patch("applire.services.cv_section_editor.build_content_snapshot", return_value={}):
+            mock_session_local.return_value.__aenter__.return_value = mock_db
+            from applire.services.cv import _render_cv_background
+            await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+        prompts = [c.args[0] for c in provider.aparse_json.await_args_list if c.args]
+        assert not [p for p in prompts if "ROLE OWNERSHIP" in p]
+
+
+class TestRestoreBranchHonoursCoverage:
+    """ADR-072 clause 1 on the OTHER ceiling path — found by this branch's own
+    adversarial pass, 2026-08-02.
+
+    ``_restore_ledger_bullets`` has two ceiling enforcers. The one reached when
+    nothing was restored delegates to ``_cap_bullets`` and therefore to the
+    shared ranking. The one reached when a restoration DID fire truncates
+    positionally instead, ordering by ``_is_hit`` — "does this bullet contain
+    any claimable surface form" — which cannot tell the SOLE carrier of a
+    concept from a bullet repeating a term the skills list already carries.
+
+    So restoring one concept could silently delete another concept's only
+    evidence, and because that path never computes sole-carrier status it also
+    never emitted clause 4's WARNING. Two enforcers of one rule, one of them
+    unaware of it — the ADR-066 shape this repository keeps re-learning.
+    """
+
+    SOLE = "Reinraumqualifizierung nach ISO 14644 verantwortet"
+    COMMON_1 = "Lean Management in der Montage etabliert"
+    COMMON_2 = "Lean Management auf die Logistik ausgeweitet"
+    RESTORABLE = "Sechs-Sigma-Projekte zur Ausschussreduktion geleitet"
+
+    def _fixture(self, max_bullets: int = 3):
+        from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+        ledger = [
+            {"concept": "ISO 14644", "surface_forms": ["Reinraumqualifizierung"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Reinraum"},
+            {"concept": "Lean Management", "surface_forms": ["Lean"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Lean"},
+            {"concept": "Six Sigma", "surface_forms": ["Sechs-Sigma"],
+             "claimable": True, "status": "direct", "sources": ["required"],
+             "fit_weight": 1.0, "evidence": "Sechs-Sigma"},
+        ]
+        profile_json = {
+            "work_experience": [{
+                "id": "w1", "company": "Weberit", "role": "Produktionsleiter",
+                "start_date": "2018-01", "end_date": None, "is_current": True,
+                "responsibilities": [self.COMMON_1, self.COMMON_2, self.SOLE,
+                                     self.RESTORABLE],
+                "achievements": [],
+            }],
+            "projects": [],
+        }
+        concepts = (("Reinraumqualifizierung", "ISO 14644"),
+                    ("Lean", "Lean Management"),
+                    ("Sechs-Sigma", "Six Sigma"))
+        budget = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top",
+                                    max_bullets=max_bullets)},
+            tiers={"top": BulletTier("top", 3, 2), "mid": BulletTier("mid", 3, 2),
+                   "bottom": BulletTier("bottom", 1, 0)},
+            target_pages=2, region="DACH",
+            claimable_forms=("Reinraumqualifizierung", "ISO 14644", "Lean",
+                             "Lean Management", "Sechs-Sigma", "Six Sigma"),
+            claimable_concepts=concepts,
+        )
+        # "Lean Management" also sits in the skills list, so BOTH Lean bullets
+        # are covered; the Reinraum bullet is its concept's only carrier and is
+        # listed LAST, which is what condemned it under positional truncation.
+        tailored = _tailored_cv([self.COMMON_1, self.COMMON_2, self.SOLE])
+        tailored = tailored.model_copy(update={"skills": ["Lean Management"]})
+        return tailored, profile_json, ledger, budget
+
+    def test_restoring_one_concept_does_not_delete_another_concepts_only_carrier(self):
+        from applire.services.cv import _restore_ledger_bullets
+
+        tailored, profile_json, ledger, budget = self._fixture()
+        result = _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        bullets = result.work_history[0].bullets
+
+        assert len(bullets) == 3
+        assert self.RESTORABLE in bullets, "the restoration itself did not happen"
+        assert self.SOLE in bullets, (
+            "restoring Six Sigma deleted the only Reinraum evidence — the "
+            "restore branch ignored the coverage ranking"
+        )
+        # One of the two interchangeable Lean bullets is the correct casualty.
+        assert (self.COMMON_1 in bullets) != (self.COMMON_2 in bullets)
+
+    def test_a_forced_cut_of_a_protected_bullet_still_logs_at_warning(self, caplog):
+        """Clause 4's promise applies to BOTH enforcers. When the ceiling is
+        tighter than the protected set the clause cannot be honoured, and that
+        is precisely the case that must not be silent."""
+        import logging
+
+        from applire.services.cv import _restore_ledger_bullets
+
+        # Two bullets are sole carriers (Reinraum, and the restored Six Sigma);
+        # the two Lean bullets are covered by the skills list. A ceiling of 1
+        # is therefore tighter than the protected set and the clause cannot be
+        # honoured -- which is exactly the case that must not be silent.
+        tailored, profile_json, ledger, budget = self._fixture(max_bullets=1)
+        with caplog.at_level(logging.INFO, logger="applire.services.bullet_cuts"):
+            _restore_ledger_bullets(tailored, profile_json, ledger, budget)
+        warned = [r for r in caplog.records
+                  if "TAIL_DELETE" in r.getMessage()
+                  and "sole_carrier=True" in r.getMessage()]
+        assert warned, "a protected bullet was deleted with no warning"
+        assert all(r.levelno == logging.WARNING for r in warned)
