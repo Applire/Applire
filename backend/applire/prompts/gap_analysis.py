@@ -15,6 +15,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (ADR-061 amended, 2026-08-02 — charter run 15 #427):
+#   - The RATIONALE and the PUBLISHED EVIDENCE are separate fields. v5's schema
+#     described `reason` as "the evidence" while the PROFICIENCY-CEILING rule below
+#     told the model to name the declared proficiency in that same `reason` — one
+#     field serving as both the grading audit trail and the text the document
+#     writers are handed as the candidate's claim. `services/gap.py` copies `reason`
+#     onto ledger `evidence` (by design, ADR-048) and four generation-facing
+#     renderers emit `evidence` verbatim into BOTH document chains, as writer input
+#     and as reviewer demand. Run 15: the ledger carried "SAP (basic proficiency) —
+#     unter der geforderten Tiefe", the letter reviewer demanded "Surface … 'SAP'
+#     (basic proficiency)", and the condense corrector complied — publishing
+#     "Grundkenntnisse in SAP PP/MM" over the round-1 writer's correct "arbeite
+#     täglich mit SAP PP und MM", for a candidate the vault shows using those
+#     modules daily and serving as Key-User. Both blind reviewers named it their
+#     only inconsistency. The mirror image of #304's inflation, on the same skill.
+#     The ceiling now goes to `classification_note`, which `gap.py` never reads.
+#
 # Prompt version: v5 (ADR-069, 2026-08-01 — charter run 12 #397):
 #   - PROFICIENCY-CEILING rule: `Skill.proficiency` had been present in the prompt
 #     payload since #304/#317 with NO rule weighing it — run 12 classified a skill
@@ -78,7 +95,13 @@ Rules:
     skill's "proficiency" field. Declared proficiency is a CEILING — the candidate's own
     declaration caps what may be claimed. A skill the profile declares at a basic/Anwender
     tier can NEVER be "direct" for a depth-worded requirement: classify it "partial" (below
-    the bar — omit adjacent_evidence) and name the declared proficiency in "reason". The
+    the bar — omit adjacent_evidence) and name the declared proficiency in
+    "classification_note" — NEVER in "reason". "reason" is shown to the CV and cover-letter
+    writers as what the candidate may claim; a ceiling is a fact about YOUR grading, not
+    about the candidate, and writing it into "reason" makes the documents understate them
+    (a real run published "Grundkenntnisse in SAP PP/MM" for a candidate who uses those
+    modules daily and was a Key-User). State in "reason" what the candidate genuinely CAN
+    claim for this requirement; put the cap and your grading logic in "classification_note". The
     skill's mere presence, or a years figure alone, is NOT depth evidence: years_experience
     measures how long ago the skill first appears in the profile, not how deeply it is used.
   - "partial" covers TWO different situations and you must distinguish them, because the document
@@ -138,7 +161,8 @@ Schema:
     {
       "requirement": "exact requirement string from REQUIREMENTS",
       "status": "direct|partial|gap",
-      "reason": "short justification grounded in the profile (this is the evidence)",
+      "reason": "PUBLISHED TO THE DOCUMENT WRITERS as the candidate's claimable evidence for this requirement: what the profile shows the candidate genuinely has. Never state a ceiling, a shortfall, or your grading logic here — those go in classification_note.",
+      "classification_note": "INTERNAL, never shown to any writer or reviewer: why this status follows — including any declared-proficiency ceiling you applied. Omit when you have nothing to add beyond reason.",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
       "surface_forms": ["literal aliases an ATS scans for, e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
     }

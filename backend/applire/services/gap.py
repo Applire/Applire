@@ -388,6 +388,48 @@ def _compute_embedding_similarity(
     return _cosine_similarity(job_embedding, profile_embedding)
 
 
+#: Classification keys that may become a keyword-ledger entry. Anything the
+#: classifier returns outside this set is INTERNAL and never reaches the ledger
+#: — which is what makes ADR-061's 2026-08-02 amendment structural rather than
+#: rule-dependent (see :func:`ledger_input_from_classification`).
+_LEDGER_PUBLISHABLE_KEYS = frozenset(
+    {"concept", "status", "evidence", "surface_forms", "adjacent_evidence"}
+)
+
+
+def ledger_input_from_classification(c: dict[str, Any]) -> dict[str, Any]:
+    """One classifier result → one keyword-ledger input row.
+
+    ADR-048: the ledger is the single source of truth for every JD expectation,
+    and the classification's ``reason`` is its grounding evidence — the text
+    both document writers are given as what the candidate can claim.
+
+    **ADR-061 amended 2026-08-02 (#427): `reason` carries ONLY that.** The
+    classifier also applies a declared-proficiency ceiling (clause 5), and the
+    prompt used to ask it to name that ceiling inside ``reason``. Because this
+    function copies ``reason`` onto ``evidence``, and four generation-facing
+    renderers emit ``evidence`` verbatim into both document chains, charter run
+    15 published the ceiling as the candidate's own words — "Grundkenntnisse in
+    SAP PP/MM" against a vault holding daily use of those modules and a
+    Key-User role. A cap is a fact about the *classification*, not about the
+    candidate. The ceiling now goes to ``classification_note``, which this
+    function does not read: the internal field has no path into the ledger at
+    all, so no renderer can reach it and no future renderer can be tempted to.
+    Its durable home is the LLM exchange log, which is already the artefact the
+    charter-run procedure reads.
+    """
+    return {
+        "concept": c.get("requirement", ""),
+        "status": c.get("status", "gap"),
+        "evidence": c.get("reason", ""),
+        "surface_forms": c.get("surface_forms"),
+        # ADR-048 am. 2026-07-27 — on a "partial", the vault item that IS the
+        # adjacent capability, so the writers can promote arc42 rather than
+        # being told to surface the JD's word "TOGAF".
+        "adjacent_evidence": c.get("adjacent_evidence"),
+    }
+
+
 async def _run_analysis(
     job: JobAnalysis,
     profile: MasterProfile,
@@ -449,22 +491,8 @@ async def _run_analysis(
         if isinstance(d, dict) and d.get("concept")
     ]
 
-    # ADR-048: the single source of truth for every JD expectation. `reason` from
-    # the classification serves as the grounding evidence for the ledger entry.
     keyword_ledger = build_keyword_ledger(
-        [
-            {
-                "concept": c.get("requirement", ""),
-                "status": c.get("status", "gap"),
-                "evidence": c.get("reason", ""),
-                "surface_forms": c.get("surface_forms"),
-                # ADR-048 am. 2026-07-27 — on a "partial", the vault item that
-                # IS the adjacent capability, so the writers can promote arc42
-                # rather than being told to surface the JD's word "TOGAF".
-                "adjacent_evidence": c.get("adjacent_evidence"),
-            }
-            for c in classifications
-        ],
+        [ledger_input_from_classification(c) for c in classifications],
         list(job.required_skills or []),
         list(job.nice_to_have_skills or []),
         list(job.keywords or []),

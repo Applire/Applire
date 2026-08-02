@@ -189,15 +189,30 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
         surface_forms: list[str] = []
         seen_forms: set[str] = set()
         sources: set[str] = set()
-        evidence = ""
+        # #434 (charter run 15): keep EVERY member's evidence, not the first
+        # non-empty one. The merged entry stands for all its members' surface
+        # forms, so dropping a member's evidence drops support for a term the
+        # entry still claims to cover. Run-15 ground truth: the classifier
+        # correctly emitted `SAP` (declared basic), `SAP PP` and `SAP MM` (both
+        # intermediate, from Key-User testimony); all three are `partial`, so
+        # the merge collapsed them and kept whichever came first — discarding
+        # the evidence for the two sub-terms the JD actually asks for. The
+        # ADR-061 ceiling was honoured per entry and defeated across entries.
+        # Deduped by normalized text (members frequently restate one fact) and
+        # ordered by member appearance, so the result is order-stable.
+        evidence_parts: list[str] = []
+        seen_evidence: set[str] = set()
         for m in members:
             for sf in m.get("surface_forms") or [m.get("concept", "")]:
                 if _norm(sf) and _norm(sf) not in seen_forms:
                     seen_forms.add(_norm(sf))
                     surface_forms.append(sf)
             sources |= set(m.get("sources", []))
-            if not evidence and m.get("evidence"):
-                evidence = m["evidence"]
+            ev = (m.get("evidence") or "").strip()
+            if ev and _norm(ev) not in seen_evidence:
+                seen_evidence.add(_norm(ev))
+                evidence_parts.append(ev)
+        evidence = "; ".join(evidence_parts)
         merged.append(
             {
                 "concept": canonical.get("concept", ""),
