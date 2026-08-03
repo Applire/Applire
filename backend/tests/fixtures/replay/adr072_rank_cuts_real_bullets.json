@@ -1,0 +1,23 @@
+{
+  "_contract": "See README.md in this directory. Synthetic personas only.",
+  "concept": "Spritzguss",
+  "provenance": {
+    "stage": "cv_tailoring",
+    "review_role": "generator",
+    "captured": [
+      "2026-08-01",
+      "2026-08-02"
+    ],
+    "case_family": "tests/files/panel_review_case (operations_marcus_de, controlling_emma_de)",
+    "personas": "synthetic — no real personal data"
+  },
+  "carrier_a": "Führung von 38 Mitarbeitenden über drei Schichtleiter im Dreischichtbetrieb für zwei Fertigungsbereiche (Spritzguss, Montage).",
+  "carrier_a_surface_forms": [
+    "Spritzguss"
+  ],
+  "carrier_b": "Projektleitung für Auswahl, Pilotlinie und Rollout der Maschinendaten- und Betriebsdatenerfassung an 14 Spritzgussmaschinen als Teil der Industrie-4.0-Roadmap.",
+  "carrier_b_surface_forms": [
+    "Spritzgussmaschinen"
+  ],
+  "non_carrier": "Reduzierung der Ausschussquote von 4,1 % auf 2,3 % durch Einführung von Shopfloor-Management und KVP-Routinen."
+}

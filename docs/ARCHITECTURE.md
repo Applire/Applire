@@ -881,8 +881,39 @@ A cluster of Community rendering decisions a contributor will encounter in the C
 | 11434 | Ollama — only when started with `docker compose --profile ollama up` |
 | 3000 / 8001 | Frontend / backend **only when run standalone in development** (`next dev` / `uvicorn --port 8001`). In the Docker stack these stay internal (`expose`d, not published) and are reached through nginx on port 80. |
 
----
+### ADR-073 — What a Test Tier Is Responsible for Proving (accepted 2026-08-03)
 
+**Decision.** Every test instrument is answerable for named failure modes, and no failure mode is
+left unassigned without saying so. Four instruments: a **replay tier** (real captured model output,
+selected by pipeline seam, failing closed) for reachability and input realism; **mutation
+verification**, scoped to the controls the risk analysis credits; **metamorphic/invariant tests**
+for the truthfulness surface, where the correct answer is not knowable; and **property-based tests**
+for the pure deterministic passes, where German compound morphology is the input space a generator
+explores better than an author does.
+
+**Why.** 3991 tests passed while a mutation that deleted a guard's behaviour went unnoticed — by the
+test whose name claimed to guard it. Investigating the pattern found six recorded failure modes, and
+**five of the six are about the test never reaching the behaviour, or reaching it with input that
+does not resemble production** — not about the assertion being wrong. A sample of the truthfulness
+area found mostly strong assertions and no tautological test at all, so "write stronger assertions"
+treats the wrong thing. Line coverage is not the instrument either: the mutated code stayed fully
+covered.
+
+**The rule that has teeth.** A test credited with reducing a detection score must be
+**mutation-verified**, and *the mutation must target that control's own stated failure mode*. Being
+code-verified proves a control exists; mutation-verified proves the test would notice if it stopped
+working. The second half matters because both controls that failed this check were strong, correct
+tests credited for the wrong thing — one asserted a component renders correctly when given data,
+while the failure it was credited against was the page never passing the data in.
+
+**Consequences.** Mutation verification is policy applied to a short list, not a build step, so a
+dead gate elsewhere still looks green. A replay fixture is a recording and ages: fixtures used for
+input *realism* stay valid across prompt changes, fixtures asserting what the model *returns* do
+not, and that distinction is currently held by a convention rather than a machine. Committed
+fixtures are restricted to synthetic personas, enforced by a test, because the capture corpus
+contains real profile data and this repository is public.
+
+---
 ## 4. Data Model Highlights
 
 ### Master Profile JSONB Shape
@@ -982,17 +1013,50 @@ This repository is the Community Edition. The table below documents what is and 
 
 ## 6. Testing Strategy Summary
 
-Three tiers (see `docs/TESTING.md` for full details):
+**Two orthogonal axes, not one model (ADR-073).** The three tiers below are a **gating** axis —
+*when a thing runs and whether it blocks*. `docs/TESTING.md`'s five tiers (Unit → Integration →
+IQ → OQ → PQ) are a **kind** axis — *what a thing proves*. `.github/workflows/test.yml` is the
+authority for what CI actually executes.
 
 | Tier | When | Blocking |
 |---|---|---|
-| Unit tests (`pytest tests/unit/`) | Local, pre-commit | No (advisory) |
+| Unit tests (`pytest tests/unit/ backend/tests/unit/`) | Local, pre-commit | No (advisory — deliberately; a blocking pre-commit hook gets bypassed, and a bypassed gate is worse than an absent one) |
 | CI: unit + integration + E2E | GitHub Actions, post-commit | **Yes** |
 | Manual QA | Pre-rollout | **Yes** |
 
-Coverage gate: `≥75%` backend unit coverage (`--cov-fail-under=75`).
+Coverage gate: `≥75%` backend unit coverage (`--cov-fail-under=75`), **measured over every module —
+there is no omit list.** An exemption is only acceptable if it names a CI job that exists and a path
+that exists; the previous one named neither, and removing it cost nothing (actual coverage is ~91%).
 
 **All CI tests mock LLM providers** — never call real Mistral/OpenAI/OpenRouter in CI. Unit tests run without Docker. Integration tests spin up the full Docker stack automatically.
+
+> ⚠️ **Running the suite locally is not equivalent to CI.** A real provider key in `.env` makes unit
+> tests silently call the live LLM and pass. Use the CI-equivalent invocation:
+> `mv .env .env.hide; LLM_PROVIDER=mistral PYTHONPATH=backend python3 -m pytest tests/unit/ backend/tests/unit/ -rs; mv .env.hide .env`
+> Nothing enforces this yet, and forgetting produces a *green* result.
+
+### Replay tier (ADR-073)
+
+Some tests take their inputs from **verbatim captured model output** rather than hand-written
+fixtures. `ReplayLLMProvider` (`backend/applire/providers/llm/replay.py`) serves recorded responses
+selected by pipeline seam — `(stage, review_role)` — never by matching prompt text, and **fails
+closed** on a seam it has no recording for.
+
+The tier exists because a hand-written fixture can fail to reach the code it claims to guard, and
+nothing goes red. The worked case: a regression test kept passing after the behaviour it guarded was
+deleted, because its fixture's "second carrier" was `Verpackungen` against a first carrier saying
+`Verpackungslinien` — German compounding diverges at `Verpackung[s|en]`, so the fixture never had two
+carriers. A human writing fixtures does not naturally produce that divergence; the model does.
+
+**Contributing a replay fixture:** fixtures live in `backend/tests/fixtures/replay/` and may only be
+cut from runs against the synthetic cases in `tests/files/panel_review_case/`. This is enforced, not
+advisory — `test_replay_corpus_provenance.py` fails the build on any identity outside the synthetic
+allowlist. Read that directory's `README.md` before adding one.
+
+**Writing a fixture-dependent test:** do **not** gate it on the fixture's presence. A missing fixture
+means the tier is broken, not that the test is inapplicable. Where a test genuinely needs data that
+cannot be committed, write a synthetic *hermetic twin* that runs unconditionally in CI (the pattern
+established by `backend/tests/unit/services/test_jd_excerpt_hermetic.py`).
 
 **Module system:** All JavaScript/TypeScript uses ES modules (`"type": "module"` in both root and `frontend/package.json`). Never use `require()` in test files.
 
