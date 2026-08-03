@@ -86,6 +86,24 @@ def set_stage(label: str) -> None:
     _stage.set(label)
 
 
+def current_call_site() -> tuple[str, str | None, int | None]:
+    """The ``(stage, review_role, review_attempt)`` labelling the current call.
+
+    Public because the recorder is not the only legitimate reader. The replay
+    provider (``providers/llm/replay.py``) matches recorded responses on exactly
+    this triple — the same key the recorder writes — so a replayed test selects
+    output by *pipeline seam* rather than by fingerprinting the prompt text.
+
+    That distinction is the point. ``MockLLMProvider`` identifies its caller by
+    substring-matching the system prompt ("HR analyst", "outcome critic", …),
+    which #362 showed is not merely brittle but ambiguous: both real extraction
+    prompts open with the identical sentence, so the mock cannot tell the flat
+    import door from the split one even in principle. This triple is set by the
+    caller and cannot collide that way.
+    """
+    return _stage.get(), _review_role.get(), _review_attempt.get()
+
+
 def set_review_call_meta(role: str | None, attempt: int | None) -> None:
     """Label the NEXT LLM call(s) in this task with their review-loop ``role``
     ("reviewer" or "generator") and 1-based ``attempt`` number (#264).

@@ -1,19 +1,28 @@
 [run]
-# Modules excluded from unit test coverage measurement.
-# These are covered by integration tests (tests/test_iter*.py, tests/integration/)
-# which require a live Docker stack and are run in the backend-integration-tests CI job.
-# Paths are relative to the repo root (where pytest is invoked from).
-omit =
-    backend/applire/routers/*
-    backend/applire/retention/*
-    backend/applire/ocr/*
-    backend/applire/services/thumbnails.py
-    backend/applire/services/session.py
-
-[report]
-omit =
-    backend/applire/routers/*
-    backend/applire/retention/*
-    backend/applire/ocr/*
-    backend/applire/services/thumbnails.py
-    backend/applire/services/session.py
+# No omit list — deliberately. Every module under `applire` is measured by the
+# >=75% gate that the `backend-unit-tests` job enforces (--cov-fail-under=75,
+# .github/workflows/test.yml).
+#
+# History, so this is not "simplified" back in: until 2026-08-03 this file
+# omitted routers/*, retention/*, ocr/*, services/thumbnails.py and
+# services/session.py, justified by the comment "covered by integration tests
+# (tests/test_iter*.py, tests/integration/) ... run in the
+# backend-integration-tests CI job". BOTH halves of that were false. There is no
+# `backend-integration-tests` job (the real one is `integration-and-e2e-tests`),
+# and no tests/test_iter*.py exists any more. Five modules -- including every
+# router -- were exempt from the gate on a promise of coverage nobody was
+# delivering in the form described.
+#
+# Removing the omit list costs nothing. Measured 2026-08-03 on exactly the trees
+# CI runs (tests/unit/ backend/tests/unit/), TOTAL coverage with NO omit is 91%
+# against a 75% gate. The exemption was not load-bearing, it was vestigial.
+#
+# What the gate now sees, and where it is genuinely thin (2026-08-03 baseline):
+#   services/session.py 92% . retention/worker.py 83% . routers/settings.py 92%
+#   routers/jobs.py 89% . routers/documents.py 85% . routers/cv_color.py 82%
+#   routers/session.py 74% . routers/cover_letter.py 72% . routers/flow.py 72%
+#   routers/profile_enrich.py 71% . routers/cv.py 61% . routers/job.py 52%
+#   routers/profile.py 44% . routers/application.py 39%
+#   ocr/mistral_vision.py 47% . ocr/tesseract.py 36%
+# Those thin routers are the real remaining gap. They are now inside the gate
+# instead of exempted from it, so the number can only move deliberately.
