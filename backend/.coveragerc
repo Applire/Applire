@@ -7,11 +7,16 @@
 # omitted routers/*, retention/*, ocr/*, services/thumbnails.py and
 # services/session.py, justified by the comment "covered by integration tests
 # (tests/test_iter*.py, tests/integration/) ... run in the
-# backend-integration-tests CI job". BOTH halves of that were false. There is no
-# `backend-integration-tests` job (the real one is `integration-and-e2e-tests`),
-# and no tests/test_iter*.py exists any more. Five modules -- including every
-# router -- were exempt from the gate on a promise of coverage nobody was
-# delivering in the form described.
+# backend-integration-tests CI job". BOTH halves of that were false, and the
+# second is worse than "stale":
+#   * There is no `backend-integration-tests` job. The real one is
+#     `integration-and-e2e-tests`. Zero matches for the cited name in .github/.
+#   * Nothing exists at `tests/test_iter*.py`. The test_iter* files that DO
+#     exist are `backend/tests/unit/test_iter2*.py` -- i.e. already inside the
+#     UNIT run this very config measures. They were never an integration tier,
+#     so the exemption pointed at coverage the unit gate was already counting.
+# Five modules -- including every router -- were exempt from the gate on a
+# promise of coverage nobody was delivering in the form described.
 #
 # Removing the omit list costs nothing. Measured 2026-08-03 on exactly the trees
 # CI runs (tests/unit/ backend/tests/unit/), TOTAL coverage with NO omit is 91%
