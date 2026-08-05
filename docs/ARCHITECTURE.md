@@ -701,7 +701,9 @@ On a direct-level denial of a JD-critical requirement, the interview asks **exac
 
 A probe can **never un-deny**. The original denial stands permanently and is never claimable. What a probe can produce is separate, directly attested evidence, which makes the *requirement* partial. Stated as the rule an implementation must satisfy: **partial by attested adjacent evidence, never partial by inference over a denial.**
 
-Answer choices gain a **coverage** rule alongside their truthfulness rules: where the question admits them, one option at each level, and the denial option is always present and never softened.
+Answer choices gain a **coverage** rule alongside their truthfulness rules: where the question admits them, one option at each level, and the denial option is never softened into a hedge.
+
+**Amended 2026-08-05 (#347):** the first real-provider run showed the originally *unconditional* denial option denying experience the candidate provably had — a one-click path to a false denial recorded as the candidate's own testimony. The denial option now carries the same evidence condition as the direct option, mirrored: it is offered only when at least one of the question's constituent concepts is unevidenced in the current profile, and it names only those unevidenced concepts — never a concept the profile or the conversation already evidences, and never an area broader than the question covers. A deterministic guard additionally drops any drafted denial choice that contradicts current profile evidence. Suppressing a choice never blocks a denial: choices only pre-fill the free-text answer, and denials are detected from the submitted text.
 
 **Why:** The ledger has had a `partial` state since the keyword-ledger work shipped, and the interview could never produce it. Trace one candidate: asked "5+ years of TOGAF?", holding eight years of Zachman, they answer "No". The reconciler records a denial, the interview's gap cursor advances on any denial, the denial persists, and a ledger floor bars the entry from ever rising above "gap". The Zachman question is never asked, and that evidence could not register even if it arrived by another route.
 
