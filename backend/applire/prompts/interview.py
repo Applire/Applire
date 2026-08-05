@@ -97,8 +97,36 @@
 #     this prompt, including its "do not keep probing a gap the candidate has
 #     explicitly ruled out" rule, was never wired back in. Do not resurrect
 #     it as the fix for a denial-follow-up bug; see services/session.py.
+#
+# ADR-064 clause 6 amendment (2026-08-05, #347) changes vs above:
+#   - _CHOICE_COVERAGE_RULES: the denial choice is no longer unconditional.
+#     The first real-LLM charter run (2026-07-29) showed the "always present"
+#     slot forcing a FALSE denial on every evidence-bearing cluster — wrong
+#     3/3, always toward denying provable experience, twice contradicting the
+#     model's own sibling chip in the same response (LLM log records 30/47).
+#     The denial choice now carries the SAME evidence condition as the direct
+#     choice, mirrored, scoped to name exactly the unevidenced constituent
+#     concepts — never a broader area, never a concept the profile or this
+#     conversation evidences. New truthfulness bullet in BOTH generator
+#     prompts: the candidate's earlier answers in this conversation are
+#     evidence; no choice at any level may contradict them.
+#   - build_question_prompt: the Category-C gap-type hint is recomputed at
+#     build time against the CURRENT profile via
+#     services/choice_grounding.constituent_evidence (mid-session reconcile
+#     updates the profile every turn; the session-start snapshot asserted
+#     "no signal was found" while the same prompt's profile summary carried
+#     the concept as a confirmed skill — record 30). The choices hint states
+#     the unevidenced constituents as a fact (ADR-062: facts to the model).
+#   - build_denial_probe_question_prompt: profile summary widened to the
+#     shared _capped_profile_summary (was bare company/role pairs, which
+#     made any evidence condition unsatisfiable on the probe).
+#   - services/choice_grounding.py gained the earned deterministic mirror
+#     guard for the same defect (_contradicted_denial_terms) — a denial chip
+#     naming an evidenced concept is dropped, never delivered.
 
 import json
+
+from applire.services.choice_grounding import constituent_evidence
 
 _LANG_NAMES = {"de": "German", "en": "English"}
 
@@ -136,17 +164,26 @@ def language_name(lang: str) -> str:
 # where partial-versus-denial is the entire point cannot have a subtly
 # different rule text. Extracted once so the two can never drift apart.
 _CHOICE_COVERAGE_RULES = """\
-Choice coverage rules (ADR-064 — the choices must span levels of experience, not several \
-flavours of "yes"):
+Choice coverage rules (ADR-064, amended 2026-08-05 / #347 — the choices must span the levels \
+the evidence allows, not several flavours of "yes"):
 - Where the question admits 2-3 choices, they must span the levels: one at the DIRECT level \
 — ONLY WHEN THE CANDIDATE PROFILE SUMMARY BELOW ACTUALLY EVIDENCES IT (the candidate has this \
-experience themselves); if it does not, omit DIRECT and offer PARTIAL + DENIAL only — one at \
-the PARTIAL level (adjacent, transferable, or partial exposure), and one DENIAL (no experience \
-with this specific concept).
-- The denial choice is ALWAYS present whenever choices are generated, and it is NEVER softened \
-into a hedge. "I haven't worked with X" is a denial. "I have limited exposure to X" is NOT a \
-denial — that is a partial-level claim dressed as a denial. Keep the denial choice honest and \
-unambiguous, never watered down to sound more agreeable.
+experience themselves); if it does not, omit DIRECT — one at the PARTIAL level (adjacent, \
+transferable, or partial exposure), and one DENIAL under the mirror condition below.
+- The DENIAL choice carries the same evidence condition as the DIRECT choice, mirrored: offer \
+it ONLY when at least one of the question's constituent concepts has NO evidence in the \
+candidate profile summary below and none in the candidate's earlier answers in this \
+conversation. Scope it to exactly those unevidenced concepts, naming them ("I haven't worked \
+with X or Y") — never paraphrase them into a broader area ("I haven't worked with that field \
+at all"), so the candidate sees precisely what selecting it would deny. A denial choice must \
+NEVER deny, name, or sweep over a concept the profile summary or the candidate's earlier \
+answers evidence.
+- If EVERY constituent concept is evidenced, offer NO denial choice: the spanning set is then \
+DIRECT + PARTIAL, and there is nothing honest left for a denial to say.
+- A denial choice that IS offered is NEVER softened into a hedge. "I haven't worked with X" \
+is a denial. "I have limited exposure to X" is NOT a denial — that is a partial-level claim \
+dressed as a denial. Keep the denial choice honest and unambiguous, never watered down to \
+sound more agreeable.
 - This coverage rule does NOT relax the truthfulness rules above — they are unchanged and still \
 bind without exception. A DIRECT-level choice may only be offered when the candidate profile \
 summary below actually evidences it. So on a genuine gap (the profile shows NO evidence for the \
@@ -191,6 +228,9 @@ haven't worked with X directly, but ..."). For one the profile DOES evidence (ev
 lead with that real evidence honestly instead of denying it — do not blanket-deny the whole \
 cluster just because it is Category C. Never draft an affirmative claim for a concept the \
 profile shows no evidence for.
+- The candidate's earlier answers in this conversation are evidence exactly like the profile \
+summary: never draft a choice, at ANY level, that contradicts something the candidate already \
+said in the Recent conversation below.
 
 """ + _CHOICE_COVERAGE_RULES + """
 
@@ -220,6 +260,41 @@ Schema:
 # a once-per-application call; this one is not.
 _QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE = 4
 _QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE = 3
+
+
+def _capped_profile_summary(profile: dict) -> str:
+    """The bounded profile summary shared by BOTH choice-generating prompts
+    (Mode A and the ADR-064 transfer probe; one implementation, ADR-066).
+
+    #347 (2026-08-05): the probe previously sent bare company/role pairs —
+    no bullets, no technologies — which made the coverage rules' evidence
+    conditions unsatisfiable on the one question where partial-versus-denial
+    is the entire point. Both prompts now see the same capped evidence.
+    """
+    return json.dumps(
+        {
+            "skills": profile.get("skills", []),
+            # Technologies AND a bounded slice of each role's own bullets, so
+            # choices can be grounded in real per-role substance (#110, #236) —
+            # company/role/technologies alone gave the model a noun with no
+            # narrative, so it invented one.
+            "work_experience": [
+                {
+                    "company": e.get("company"),
+                    "role": e.get("role"),
+                    "technologies": e.get("technologies") or [],
+                    "responsibilities": (e.get("responsibilities") or [])[
+                        :_QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE
+                    ],
+                    "achievements": (e.get("achievements") or [])[
+                        :_QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE
+                    ],
+                }
+                for e in profile.get("work_experience", [])
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 # US265 — at most ONE quantification/availability add-on per cluster question;
@@ -262,30 +337,7 @@ def build_question_prompt(
         lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
         history = "\n\nRecent conversation:\n" + "\n".join(lines)
 
-    profile_summary = json.dumps(
-        {
-            "skills": profile.get("skills", []),
-            # Technologies AND a bounded slice of each role's own bullets, so
-            # choices can be grounded in real per-role substance (#110, #236) —
-            # company/role/technologies alone gave the model a noun with no
-            # narrative, so it invented one.
-            "work_experience": [
-                {
-                    "company": e.get("company"),
-                    "role": e.get("role"),
-                    "technologies": e.get("technologies") or [],
-                    "responsibilities": (e.get("responsibilities") or [])[
-                        :_QUESTION_PROMPT_MAX_RESPONSIBILITIES_PER_ROLE
-                    ],
-                    "achievements": (e.get("achievements") or [])[
-                        :_QUESTION_PROMPT_MAX_ACHIEVEMENTS_PER_ROLE
-                    ],
-                }
-                for e in profile.get("work_experience", [])
-            ],
-        },
-        ensure_ascii=False,
-    )
+    profile_summary = _capped_profile_summary(profile)
 
     cluster_label = cluster.get("label", cluster.get("id", "unknown"))
     constituent_gaps = cluster.get("gaps", [])
@@ -293,11 +345,29 @@ def build_question_prompt(
     jd_context = cluster.get("jd_context", "")
     num_gaps = len(constituent_gaps)
 
+    # #347 (ADR-064 amendment, 2026-08-05): the gap-type hint and the denial
+    # scope are recomputed against the CURRENT profile at build time.
+    # Mid-session reconciliation updates the profile every turn; the
+    # session-start category snapshot once asserted "no signal was found"
+    # while this very prompt's profile summary carried the concept as a
+    # confirmed skill (charter run 2026-07-29, record 30). Same predicate as
+    # the choice_grounding mirror guard, so hint and guard cannot disagree.
+    signal = constituent_evidence(cluster, profile)
+    evidenced = [t for t, ok in signal.items() if ok]
+    unevidenced = [t for t, ok in signal.items() if not ok]
+
     if gap_category == "B":
         gap_type_hint = (
             f"Gap type: CONFIRMATION (Category B) — "
             f"the system inferred the candidate likely has experience with '{cluster_label}'. "
             f"Generate a confirmation question that acknowledges this likelihood and asks for concrete specifics."
+        )
+    elif evidenced:
+        gap_type_hint = (
+            f"Gap type: EXPLORATORY (Category C) at analysis time — but the CURRENT profile "
+            f"summary below now evidences: {', '.join(evidenced)}. "
+            f"Still unevidenced: {', '.join(unevidenced) if unevidenced else 'none'}. "
+            f"Ask openly about the unevidenced concepts; never deny or re-question the evidenced ones."
         )
     else:
         gap_type_hint = (
@@ -306,11 +376,25 @@ def build_question_prompt(
             f"Generate an open question to uncover any relevant experience."
         )
 
-    choices_hint = (
-        f"Generate 2-3 choices (num_gaps={num_gaps}, category={gap_category or 'C'})."
-        if (num_gaps >= 2 or gap_category == "B")
-        else "Set choices to null."
-    )
+    if num_gaps >= 2 or gap_category == "B":
+        if not signal:
+            denial_fact = ""
+        elif unevidenced:
+            denial_fact = (
+                " Unevidenced constituent concepts — the only valid scope for a "
+                f"denial choice: {', '.join(unevidenced)}."
+            )
+        else:
+            denial_fact = (
+                " Every constituent concept is evidenced in the profile summary "
+                "below — offer NO denial choice (DIRECT + PARTIAL only)."
+            )
+        choices_hint = (
+            f"Generate 2-3 choices (num_gaps={num_gaps}, category={gap_category or 'C'})."
+            f"{denial_fact}"
+        )
+    else:
+        choices_hint = "Set choices to null."
 
     cluster_context = f"Cluster: {cluster_label}"
     if constituent_gaps:
@@ -563,6 +647,9 @@ profile does not show.
 achievements below actually state. Do not invent a task, context, industry detail, or urgency \
 for that employer that its bullets do not say — even when the underlying skill/tool IS real for \
 that employer. Ground the NARRATIVE, not just the noun.
+- The candidate's earlier answers in this conversation are evidence exactly like the profile \
+summary: never draft a choice, at ANY level, that contradicts something the candidate already \
+said in the Recent conversation below.
 
 """ + _CHOICE_COVERAGE_RULES + """
 
@@ -600,16 +687,10 @@ def build_denial_probe_question_prompt(
         lines = [f"{m['role'].capitalize()}: {m['content']}" for m in recent_messages[-4:]]
         history = "\n\nRecent conversation:\n" + "\n".join(lines)
 
-    profile_summary = json.dumps(
-        {
-            "skills": profile.get("skills", []),
-            "work_experience": [
-                {"company": e.get("company"), "role": e.get("role")}
-                for e in profile.get("work_experience", [])
-            ],
-        },
-        ensure_ascii=False,
-    )
+    # #347 (2026-08-05): the probe used to send bare company/role pairs, so
+    # the coverage rules' evidence conditions had nothing to check against.
+    # It now shares Mode A's capped summary — one implementation (ADR-066).
+    profile_summary = _capped_profile_summary(profile)
 
     return (
         f"Gap not yet addressed: {gap}\n"
