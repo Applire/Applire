@@ -75,10 +75,36 @@ def test_prompt_names_the_three_levels():
     assert "denial" in low
 
 
-def test_prompt_denial_is_always_present_and_never_softened():
+def test_prompt_denial_is_evidence_conditioned_and_never_softened():
+    # ADR-064 clause 6 as amended 2026-08-05 (#347): the denial choice is no
+    # longer unconditional — it mirrors the DIRECT choice's evidence
+    # condition and is scoped to the unevidenced constituents. The
+    # never-softened half of the original rule is unchanged.
     low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
-    assert "always present" in low
+    assert "always present" not in low
+    assert "same evidence condition as the direct choice" in low
     assert "never softened into a hedge" in low
+
+
+def test_prompt_denial_scope_forbids_broader_areas_and_evidenced_concepts():
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert "never paraphrase them into a broader area" in low
+    assert "never deny, name, or sweep over a concept" in low
+
+
+def test_prompt_all_evidenced_cluster_offers_no_denial_choice():
+    low = _collapsed(QUESTION_SYSTEM_PROMPT).lower()
+    assert "offer no denial choice" in low
+    assert "nothing honest left for a denial to say" in low
+
+
+def test_prompt_conversation_answers_count_as_evidence():
+    # #347 record 30: the offered denial contradicted the candidate's answer
+    # from one turn earlier. Both generator prompts must bind choices to the
+    # conversation, not only to the profile summary.
+    for prompt in (QUESTION_SYSTEM_PROMPT, DENIAL_PROBE_QUESTION_SYSTEM_PROMPT):
+        low = _collapsed(prompt).lower()
+        assert "earlier answers in this conversation are evidence" in low
 
 
 def test_prompt_gives_the_denial_vs_hedge_example():

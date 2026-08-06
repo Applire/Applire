@@ -190,6 +190,26 @@ def _cluster_terms(cluster: dict[str, Any]) -> list[str]:
     return terms
 
 
+def constituent_evidence(cluster: dict[str, Any], profile: dict[str, Any]) -> dict[str, bool]:
+    """Per-constituent-gap surface-evidence flags against the CURRENT profile.
+
+    The one implementation (ADR-066) of "is this constituent concept
+    evidenced" shared by the prompt builder's gap-type-hint recompute
+    (ADR-064 amendment 2026-08-05, #347 — the session-start hint asserted
+    "no signal" against a profile that mid-session reconciliation had
+    already updated) and this module's mirror guard: both read the same
+    corpus with the same predicate, so the hint the model sees and the
+    guard that polices its output cannot disagree.
+    """
+    evidence = _evidence_norm(profile)
+    flags: dict[str, bool] = {}
+    for gap in cluster.get("gaps") or []:
+        term = str(gap).strip()
+        if term:
+            flags[term] = surface_present(term, evidence)
+    return flags
+
+
 def _level_of(choice: Any) -> tuple[str, str | None]:
     """Read a choice's text and declared level (FACT, per ADR-062 clause 6).
 
@@ -258,6 +278,42 @@ def _split_denial_choice(text: str) -> tuple[str, str | None]:
         return text, None  # pure denial — no affirmative clause to check
 
     return text[:pivot_start], text[pivot_end:]
+
+
+def _contradicted_denial_terms(
+    denial_norm: str, terms: list[str], evidence: str
+) -> list[str]:
+    """Cluster/JD terms the denial clause names that the CURRENT profile
+    evidences — the ADR-064 mirror check (amended 2026-08-05, #347).
+
+    Provenance (the guard is earned, per ADR-062): the deny-side prompt rule
+    ("do not blanket-deny ... lead with real evidence instead of denying it")
+    existed and was violated twice in the 2026-07-29 charter run (LLM log
+    records 30/47) — the model drafted a correct direct/partial chip and a
+    denial contradicting it in the same response, because the coverage
+    rule's unconditional denial slot forced one to exist.
+
+    Both halves of the check are facts: which terms the clause names
+    (``surface_present`` against the clause) and which of those the profile
+    evidences (``surface_present`` against the profile corpus). Longest-match
+    scoping keeps the legitimate compound shape alive (#351's trap): a term
+    contained in a longer term the clause also names is not independently
+    denied — "I haven't worked with Tailwind CSS" denies Tailwind CSS, not
+    the CSS the profile may well evidence.
+    """
+    mentioned = [t for t in terms if surface_present(t, denial_norm)]
+    contradicted: list[str] = []
+    for term in mentioned:
+        term_norm = _norm(term)
+        is_subterm = any(
+            other is not term and term_norm != _norm(other) and term_norm in _norm(other)
+            for other in mentioned
+        )
+        if is_subterm:
+            continue
+        if surface_present(term, evidence):
+            contradicted.append(term)
+    return contradicted
 
 
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
@@ -599,6 +655,37 @@ def filter_ungrounded_choices(
             continue
 
         denial_clause, affirmative = _split_denial_choice(text)
+
+        # ADR-064 mirror check (amended 2026-08-05, #347): a denial clause
+        # that names a cluster/JD term the CURRENT profile evidences is a
+        # contradicted denial — one click would record a false denial as the
+        # candidate's own immutable testimony. Dropping is safe: chips only
+        # pre-fill an always-editable answer, and the reconciler detects
+        # denials from the submitted text regardless of offered chips.
+        #
+        # Scoped to clauses naming NO known employer. An employer-scoped
+        # clause ("I haven't worked with Kubernetes at NordPharm", "at
+        # Applire I deployed Kubernetes") is not an absolute denial of the
+        # term — profile evidence elsewhere does not contradict it, and
+        # those chips are governed by the employer-scoped guard below.
+        # Both #347 false denials (records 30/47) named no employer.
+        # Documented residual: an employer-free affirmative-first bridging
+        # chip whose pre-pivot clause claims an evidenced term is dropped
+        # too (the F2 clause-polarity limit); that costs one truthful
+        # scaffold chip, never an honest denial for an unevidenced concept.
+        mirror_norm = _norm(_fold_quotes(denial_clause))
+        if not _match_employers(mirror_norm, work_experience):
+            contradicted = _contradicted_denial_terms(mirror_norm, terms, evidence)
+            if contradicted:
+                logger.warning(
+                    "choice_grounding: dropped a 'denial'-tagged choice that "
+                    "denies concept(s) the profile evidences (#347 mirror "
+                    "check, %s): %r",
+                    ", ".join(contradicted),
+                    text,
+                )
+                continue
+
         if affirmative is not None:
             # Bridging denial: the affirmative remainder is a real assertion
             # and runs the full pipeline exactly like a "partial" choice.
