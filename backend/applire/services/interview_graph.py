@@ -359,6 +359,16 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
     reviewed draft has a different NUMBER of choices than the pre-review
     draft, positional mapping isn't safe at all (the reviewer dropped or
     added a choice) — fall back to the reviewed output exactly as before.
+
+    ``denied_terms`` (#451, ADR-064 amended 2026-08-06) gets the SAME
+    fill-in-only carry, at introduction time rather than after the
+    regression: the language-refinement prompt's output schema is exactly the
+    drift point that already cost ``level`` its F1 bug, and a dropped
+    ``denied_terms`` silently reverts an honest partial chip to the full
+    grounding pipeline — issue #451 reintroduced, intermittently, whenever
+    the language loop fires. Same fail-safe asymmetry: a missing list is only
+    ever FILLED IN from the same index (losing it over-drops, the safe
+    direction); a reviewed choice carrying its own list is trusted.
     """
     if not isinstance(reviewed_choices, list) or not isinstance(pre_review_choices, list):
         return reviewed_choices
@@ -367,23 +377,33 @@ def _carry_levels_by_index(pre_review_choices: Any, reviewed_choices: Any) -> An
 
     carried: list = []
     for reviewed, pre in zip(reviewed_choices, pre_review_choices):
-        if isinstance(reviewed, dict) and reviewed.get("level") in _VALID_CHOICE_LEVELS:
-            carried.append(reviewed)  # the level rode with its own text — trust it
-            continue
-
         pre_level = pre.get("level") if isinstance(pre, dict) else None
-        if pre_level is None:
-            carried.append(reviewed)  # nothing to carry — leave as reviewed produced it
-            continue
+        pre_denied = pre.get("denied_terms") if isinstance(pre, dict) else None
+
         if isinstance(reviewed, dict):
+            needs_level = reviewed.get("level") not in _VALID_CHOICE_LEVELS and pre_level is not None
+            needs_denied = not isinstance(reviewed.get("denied_terms"), list) and isinstance(pre_denied, list)
+            if not needs_level and not needs_denied:
+                carried.append(reviewed)  # everything rode with its own text — trust it
+                continue
             merged = dict(reviewed)
-            merged["level"] = pre_level
+            if needs_level:
+                merged["level"] = pre_level
+            if needs_denied:
+                merged["denied_terms"] = pre_denied
             carried.append(merged)
-        else:
+        elif pre_level is not None or isinstance(pre_denied, list):
             # Reviewed choice came back as a bare string (schema drift) —
-            # reattach the pre-review level at this position rather than
+            # reattach the pre-review metadata at this position rather than
             # letting it fall back to the unrecognised-level safe default.
-            carried.append({"text": reviewed, "level": pre_level})
+            rebuilt: dict = {"text": reviewed}
+            if pre_level is not None:
+                rebuilt["level"] = pre_level
+            if isinstance(pre_denied, list):
+                rebuilt["denied_terms"] = pre_denied
+            carried.append(rebuilt)
+        else:
+            carried.append(reviewed)  # nothing to carry — leave as reviewed produced it
     return carried
 
 
