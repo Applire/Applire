@@ -606,3 +606,125 @@ async def test_condense_pass_also_receives_load_bearing_fn(seeded):
     # Both calls share the SAME closure (built once, from the same ledger
     # snapshot) — never re-derived per call.
     assert calls[0]["load_bearing_fn"] is calls[1]["load_bearing_fn"]
+
+
+# --- #306: the corrector must be told the coverage it already holds -----------
+#
+# backend/logs/llm/2026-08-06.jsonl, chain=cover_letter, 13:57-14:05 UTC (real
+# provider): the loop's own deterministic coverage scan reported
+# {Shopfloor-Management, Deutsch, SAP MM, Englisch} at round 1, {Deutsch,
+# Englisch} at round 2, and {SMED, KVP} at round 3 — neither ever demanded
+# before, both present in drafts 0 AND 1. Round 2's reviewer asked for an
+# employer anchor on one sentence; the corrector's rewrite of that sentence
+# deleted the clause carrying KVP (4,1 % -> 2,3 %) and the sentence carrying
+# SMED (87 % -> 96 %). Rounds 3-4 went on recovering what draft 1 already had,
+# and the chain exhausted at 5/5. The per-round coverage state existed all
+# along — it was computed for the REVIEWER only.
+
+_COVERAGE_LEDGER = [
+    {
+        "concept": "SMED",
+        "status": "direct",
+        "claimable": True,
+        "surface_forms": ["SMED"],
+        "evidence": "9 Jahre SMED, Ruestworkshops",
+    }
+]
+
+
+@pytest.mark.asyncio
+async def test_primary_loop_corrector_prompt_carries_the_coverage_it_holds(seeded):
+    """#306: the primary loop's generator_prompt_fn must append the deterministic
+    "already surfaced, do not drop" block for the draft being patched — proven
+    behaviourally by calling the wired function, not by identity."""
+    db, job, profile, cl = seeded
+
+    from applire.models.gap import GapAnalysis
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    db.add(GapAnalysis(job_analysis_id=job.id, profile_id=profile.id,
+                       keyword_ledger=_COVERAGE_LEDGER))
+    await db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(return_value=_letter(["Dear team,", "Sincerely,"]))
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert calls, "review_and_refine was not called"
+    gen_fn = calls[0]["generator_prompt_fn"]
+    holds = gen_fn(_letter(["We ran SMED workshops."]), "fix the anchor", "src")
+    drops = gen_fn(_letter(["We ran workshops."]), "fix the anchor", "src")
+    # The retention INSTRUCTION, not the echoed PREVIOUS OUTPUT block — that
+    # block quotes the term either way, and is exactly what the real corrector
+    # ignored on 2026-08-06.
+    assert "COVERAGE ALREADY ACHIEVED" in holds
+    assert "SMED" in holds.split("COVERAGE ALREADY ACHIEVED", 1)[1]
+    assert "COVERAGE ALREADY ACHIEVED" not in drops
+
+
+@pytest.mark.asyncio
+async def test_condense_loop_corrector_prompt_carries_it_too(seeded):
+    """The condense pass is a fresh rewrite under length pressure — the chain
+    that lost SMED at round 2 on 2026-08-06 — so it needs the same block."""
+    db, job, profile, cl = seeded
+
+    from applire.models.gap import GapAnalysis
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    db.add(GapAnalysis(job_analysis_id=job.id, profile_id=profile.id,
+                       keyword_ledger=_COVERAGE_LEDGER))
+    await db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),
+            _letter(["Dear team,", "condensed closing"]),
+        ]
+    )
+
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert len(calls) == 2, "expected primary + condense review_and_refine calls"
+    for call in calls:
+        gen_fn = call["generator_prompt_fn"]
+        prompt = gen_fn(_letter(["We ran SMED workshops."]), "fb", "src")
+        assert "COVERAGE ALREADY ACHIEVED" in prompt
+        assert "SMED" in prompt.split("COVERAGE ALREADY ACHIEVED", 1)[1]

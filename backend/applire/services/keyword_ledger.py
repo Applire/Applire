@@ -800,6 +800,29 @@ def verified_missing_claimable(
     no pointer and is still demanded: the candidate really does have that
     skill, just less of it than the JD asked for.
     """
+    return _coverage_split(draft, keyword_ledger)[1]
+
+
+def claimable_present_entries(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Claimable ledger entries the draft verifiably ALREADY surfaces (#306).
+
+    The exact complement of :func:`verified_missing_claimable` over the same
+    universe and the same presence predicate — one scan, one definition
+    (ADR-066), so the "already covered" half can never disagree with the
+    "still absent" half about a term.
+    """
+    return _coverage_split(draft, keyword_ledger)[0]
+
+
+def _coverage_split(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """``(present, missing)`` claimable entries for a draft — THE single
+    coverage scan both halves read (see the two callers above)."""
     from applire.services.ats_audit import _norm as ats_norm, surface_present
 
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
@@ -809,16 +832,16 @@ def verified_missing_claimable(
         e for e in claimable if not is_positioning_only(e) and not is_scope_entry(e)
     ]
     if not claimable:
-        return []
+        return [], []
     text_norm = ats_norm("\n".join(_draft_strings(draft)))
+    present: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     for entry in claimable:
         forms = list(entry.get("surface_forms") or [])
         if entry.get("concept"):
             forms.append(entry["concept"])
-        if not any(surface_present(f, text_norm) for f in forms):
-            missing.append(entry)
-    return missing
+        (present if any(surface_present(f, text_norm) for f in forms) else missing).append(entry)
+    return present, missing
 
 
 # ── #315 — the shared "load-bearing claim" vocabulary ──────────────────────
@@ -999,6 +1022,87 @@ def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | 
                 [e.get("concept", "") for e in missing],
             )
             prompt = f"{prompt}\n\n{render_verified_coverage_block(missing)}"
+        return prompt
+
+    return fn
+
+
+def render_coverage_retention_block(entries: list[dict[str, Any]]) -> str:
+    """Render, for the CORRECTOR, the claimable terms the draft it is patching
+    ALREADY surfaces (#306). Returns "" when empty.
+
+    The reviewer half of this scan has existed since US213: every round,
+    :func:`verified_missing_claimable` is computed and injected into the
+    REVIEWER prompt as ground truth. The corrector was never told the other
+    half, and a corrector rewrite is where coverage is lost — so the loop
+    re-demanded, round after round, terms an earlier draft already carried.
+
+    ADR-062 clause 4: this block and :func:`render_verified_coverage_block`
+    reach the same loop, so they state ONE precedence in the same words —
+    grounding strictly outranks coverage. A term is never kept by writing
+    something untrue; the reviewer's grounding complaint about a claim always
+    wins over this retention floor.
+    """
+    if not entries:
+        return ""
+    forms = []
+    for entry in entries:
+        surface = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
+        forms.append(f"  - {entry.get('concept', '')} [forms: {surface}]")
+    return "\n".join(
+        [
+            "COVERAGE ALREADY ACHIEVED (deterministic literal scan of the PREVIOUS "
+            "OUTPUT above — this is ground truth, do not re-derive it). The draft you "
+            "are patching already surfaces these claimable keywords:",
+            *forms,
+            "",
+            "Your corrected draft MUST still contain every one of them. Fixing what "
+            "the review flagged is not a licence to drop a term that is already on "
+            "the page — a rewritten sentence must carry its grounded content over. "
+            "EXCEPTION — the grounding waiver: if the review shows a claim is "
+            "ungrounded, correct the claim; grounding strictly outranks coverage, and "
+            "no term may be kept by writing something untrue.",
+        ]
+    )
+
+
+def coverage_corrector_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | None):
+    """Wrap a ``generator_prompt_fn`` so every CORRECTOR retry sees the coverage
+    the draft it is patching already holds (#306 — the loop's twin of
+    :func:`coverage_reviewer_prompt_fn`).
+
+    Evidence (``backend/logs/llm/2026-08-06.jsonl``, chain ``cover_letter``,
+    13:57–14:05 UTC, real provider): the deterministic coverage scan reported
+    ``Shopfloor-Management, Deutsch, SAP MM, Englisch`` at round 1, ``Deutsch,
+    Englisch`` at round 2 — and ``SMED, KVP`` at round 3. Neither had ever been
+    demanded; both were present in drafts 0 and 1. Round 2's reviewer had asked
+    for an employer anchor on one sentence, and the corrector's rewrite of that
+    sentence deleted the clause carrying ``KVP`` (with ``4,1 % -> 2,3 %``) and
+    the sentence carrying ``SMED`` (with ``87 % -> 96 %``). Both terms were in
+    the ``PREVIOUS OUTPUT`` block of that very prompt, verbatim: seeing content
+    quoted back is not an instruction to keep it. Rounds 3–4 were then spent
+    recovering ground draft 1 already held, and the chain exhausted at 5/5. Five
+    further chains on 2026-08-02/06 show the same signature.
+
+    ``review_and_refine`` calls ``generator_prompt_fn(previous_draft, feedback,
+    source)`` on every retry, so the list is recomputed per round against the
+    draft actually being patched and disappears as soon as there is nothing to
+    retain. Deterministic (ADR-062 clause 1: literal presence is a FACT), no new
+    LLM call and no new pass — the same instrument already computed for the
+    reviewer, threaded into the prompt that can act on it (ADR-058 freeze).
+    """
+
+    def fn(previous_draft: dict[str, Any], feedback: str, source: str) -> str:
+        prompt = base_fn(previous_draft, feedback, source)
+        present = claimable_present_entries(previous_draft, keyword_ledger)
+        if present:
+            logger.info(
+                "coverage retention: %d claimable term(s) already surfaced in the "
+                "draft being corrected: %s",
+                len(present),
+                [e.get("concept", "") for e in present],
+            )
+            prompt = f"{prompt}\n\n{render_coverage_retention_block(present)}"
         return prompt
 
     return fn

@@ -981,6 +981,7 @@ async def _render_cover_letter_background(
             # DETERMINISTIC verified-coverage state of the current draft (LLM detection
             # retired — the reviewer only arbitrates grounding waivers).
             from applire.services.keyword_ledger import (
+                coverage_corrector_prompt_fn,
                 coverage_reviewer_prompt_fn,
                 render_ledger_reviewer_block,
             )
@@ -1042,10 +1043,29 @@ async def _render_cover_letter_background(
             # for the shared "load-bearing claim" definition.
             load_bearing_fn = load_bearing_fn_from_ledger(keyword_ledger)
 
+            # #306: the CORRECTOR half of the coverage scan. Every round the
+            # loop already computes verified_missing_claimable and hands it to
+            # the REVIEWER (coverage_reviewer_prompt_fn above); the writer that
+            # can act on it was never told the other half — which terms the
+            # draft it is patching already holds. So a corrector rewrite of one
+            # flagged sentence silently deleted grounded, coverage-bearing
+            # content in it, and the loop spent the next rounds re-demanding
+            # what an earlier draft already had (2026-08-06 chain=cover_letter:
+            # round 1 {Shopfloor-Management, Deutsch, SAP MM, Englisch} →
+            # round 2 {Deutsch, Englisch} → round 3 {SMED, KVP}, neither ever
+            # demanded before and both present in drafts 0 AND 1 — exhausted
+            # 5/5). Same instrument, same ledger, no new LLM call and no new
+            # pass (ADR-058 freeze); literal presence is a FACT (ADR-062
+            # clause 1) and the block states the SAME grounding-outranks-
+            # coverage precedence the reviewer block does (ADR-062 clause 4).
+            corrector_prompt_fn = coverage_corrector_prompt_fn(
+                build_retry_prompt, keyword_ledger
+            )
+
             letter_data = await review_and_refine(
                 source=grounding_source,
                 draft=letter_data,
-                generator_prompt_fn=build_retry_prompt,
+                generator_prompt_fn=corrector_prompt_fn,
                 generator_system=COVER_LETTER_REFINEMENT_PROMPT,
                 reviewer_prompt_fn=reviewer_prompt_fn,
                 reviewer_system=REVIEW_SYSTEM_PROMPT,
@@ -1173,7 +1193,12 @@ async def _render_cover_letter_background(
                         condensed = await review_and_refine(
                             source=grounding_source,
                             draft=condensed,
-                            generator_prompt_fn=build_retry_prompt,
+                            # #306: same corrector-side coverage retention as
+                            # the primary loop — the condense pass is a fresh
+                            # rewrite under length pressure, and on 2026-08-06
+                            # the cover_letter_condense chain lost SMED at
+                            # round 2 exactly as the primary chain did.
+                            generator_prompt_fn=corrector_prompt_fn,
                             generator_system=COVER_LETTER_REFINEMENT_PROMPT,
                             reviewer_prompt_fn=reviewer_prompt_fn,
                             reviewer_system=REVIEW_SYSTEM_PROMPT,
