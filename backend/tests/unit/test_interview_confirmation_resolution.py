@@ -152,3 +152,111 @@ async def test_merge_skill_resolves_without_stray_separate_skill(async_db):
     # appended as a distinct entry.
     docker_family = [n for n in names if "docker" in n.lower()]
     assert len(docker_family) == 1, f"expected a single merged skill, got {docker_family}"
+
+
+# --- #353: TWO confirmations in ONE turn -------------------------------------
+
+_MODULES_ANSWER = (
+    "Ich arbeite taeglich mit SAP PP, SAP MM und SAP SD — das sind drei "
+    "unterschiedliche Module mit unterschiedlichen Aufgaben."
+)
+
+
+async def _seed_sap_session(async_db):
+    """A profile with a single 'SAP' skill + an active 2-gap targeted session."""
+    profile_data = MasterProfileData.model_validate(
+        {
+            "personal_info": {"name": "Test User"},
+            "skills": [
+                {"name": "SAP", "category": "technical", "proficiency": "advanced"}
+            ],
+        }
+    )
+    profile = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    async_db.add(profile)
+    await async_db.commit()
+    await async_db.refresh(profile)
+
+    gaps = ["cluster-erp", "cluster-testing"]
+    state = _build_state(
+        mode="targeted",
+        job_id=None,
+        gap_analysis_id=None,
+        profile_id=profile.id,
+        critical_gaps=gaps,
+        gap_categories={g: "B" for g in gaps},
+        gap_clusters_by_id={
+            g: {"id": g, "label": g, "gaps": [], "jd_skills": [], "jd_context": ""}
+            for g in gaps
+        },
+        current_question="Which SAP modules do you work with?",
+        hard_ceiling=12,
+    )
+    state["current_question"] = "Which SAP modules do you work with?"
+    state["questions_asked"] = 1
+    state["messages"] = [
+        {"role": "assistant", "content": "Which SAP modules do you work with?"}
+    ]
+
+    record = InterviewSession(
+        job_analysis_id=None,
+        gap_analysis_id=None,
+        profile_id=profile.id,
+        mode="targeted",
+        status="active",
+        state=state,
+        hard_ceiling=12,
+        questions_asked=1,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+    async_db.add(record)
+    await async_db.commit()
+    await async_db.refresh(record)
+    return profile, record
+
+
+@pytest.mark.asyncio
+async def test_every_confirmation_of_the_same_turn_is_asked_not_dropped(async_db):
+    """#353 — a turn owing N confirmations must ask ALL of them.
+
+    Answering the first must surface the SECOND question (not advance past it),
+    answering that one the THIRD, and every skill must end up on the profile.
+    Before the fix only ``pending_confirmations[0]`` was persisted, so the
+    second and third questions were never asked again and their skills were
+    lost with no error and no re-ask."""
+    provider = MockLLMProvider()
+    profile, record = await _seed_sap_session(async_db)
+
+    r1 = await send_message(record.id, _MODULES_ANSWER, async_db, provider)
+    assert len(r1.pending_confirmations or []) == 3, (
+        "turn 1 must surface ALL THREE containment confirmations"
+    )
+    first_question = r1.question
+    assert "SAP PP" in (first_question or "")
+
+    # Answer the FIRST confirmation only.
+    r2 = await send_message(
+        record.id, "Add 'SAP PP' as a separate skill", async_db, provider
+    )
+    assert r2.question != first_question
+    assert "SAP MM" in (r2.question or ""), (
+        f"expected the SAP MM confirmation, got {r2.question!r}"
+    )
+
+    # ... then the SECOND: the third must still be owed, not swallowed with it.
+    r3 = await send_message(
+        record.id, "Add 'SAP MM' as a separate skill", async_db, provider
+    )
+    assert "SAP SD" in (r3.question or ""), (
+        f"expected the SAP SD confirmation, got {r3.question!r}"
+    )
+
+    # Answering the last one advances the interview.
+    r4 = await send_message(
+        record.id, "Add 'SAP SD' as a separate skill", async_db, provider
+    )
+    assert not r4.pending_confirmations, "all confirmations are resolved"
+
+    names = await _reload_skill_names(async_db, profile.id)
+    for expected in ("SAP", "SAP PP", "SAP MM", "SAP SD"):
+        assert expected in names, f"{expected} must survive the turn, got {names}"

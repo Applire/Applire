@@ -488,6 +488,62 @@ def _apply_interview_confirmation(
     return profile.model_dump(mode="json")
 
 
+async def _ask_queued_confirmation(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    queue: list[dict],
+    current_idx: int,
+) -> SessionMessageResponse:
+    """Ask the next confirmation the SAME turn already owed the candidate (#353).
+
+    The head of ``queue`` becomes the new ``pending_interview_confirmation``, so
+    the next answer is resolved by the same deterministic handler (#187) — no LLM
+    re-run, no reconciler pass that could fail to re-emit it."""
+    head, tail = queue[0], queue[1:]
+    state["resolving_confirmation"] = True
+    state["pending_interview_confirmation"] = head
+    state["pending_interview_confirmation_queue"] = tail
+    question = head.get("question", "")
+    options = list(head.get("options") or [])
+    state["current_question"] = question
+    state["current_choices"] = options
+    state["messages"].append({"role": "assistant", "content": question})
+    state["questions_asked"] = state.get("questions_asked", 0) + 1
+    record.questions_asked = state["questions_asked"]
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=question,
+        gaps_remaining=gaps_remaining,
+        choices=options,
+        pending_confirmations=[
+            ConfirmationPrompt(
+                question=c.get("question", ""),
+                options=list(c.get("options") or []),
+                context=dict(c.get("context") or {}),
+            )
+            for c in queue
+        ],
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+    )
+
+
+def _confirmation_state(confirmation) -> dict:
+    """The JSONB-safe session-state shape of one reconciler ``RequestConfirmation``."""
+    return {
+        "question": confirmation.question,
+        "options": list(confirmation.options),
+        "context": dict(confirmation.context),
+    }
+
+
 async def _handle_interview_confirmation_answer(
     record: InterviewSession,
     state: InterviewState,
@@ -536,6 +592,14 @@ async def _handle_interview_confirmation_answer(
     # Consume the pending confirmation AND the one-shot flag — the loop is closed.
     state.pop("pending_interview_confirmation", None)
     state.pop("resolving_confirmation", None)
+
+    # #353 — the SAME turn may have owed more than one confirmation. Promote the
+    # next one from the queue and ask it instead of advancing: every question the
+    # reconciler raised is answered by the candidate, none is dropped in silence.
+    queue = list(state.get("pending_interview_confirmation_queue") or [])
+    if queue:
+        return await _ask_queued_confirmation(record, state, db, queue, current_idx)
+    state.pop("pending_interview_confirmation_queue", None)
 
     current_gap = state["critical_gaps"][current_idx]
     if current_gap not in state.get("addressed_gaps", []):
@@ -638,16 +702,24 @@ async def _ask_confirmation(
     so the NEXT turn resolves it DETERMINISTICALLY (no LLM re-run), mirroring the
     import-time ``_handle_confirmation_answer`` mechanism. Without this the
     stateless reconciler re-emits the identical confirmation every turn and the
-    interview loops forever."""
+    interview loops forever.
+
+    #353 — a turn may owe the candidate MORE THAN ONE confirmation (two skills
+    of the same family, e.g. 'SAP PP' and 'SAP MM' against an existing 'SAP').
+    Only ``[0]`` used to be persisted, so every further confirmation was shown
+    once in the response DTO and then existed nowhere: the next turn found no
+    pending confirmation and advanced, losing the candidate's second skill with
+    no error (ADR-061 — silent loss becomes visible state). The head is asked
+    now; the tail is persisted in
+    ``pending_interview_confirmation_queue`` and promoted one at a time by
+    ``_handle_interview_confirmation_answer``."""
+    confirmations = [_confirmation_state(c) for c in turn.pending_confirmations]
     confirmation = turn.pending_confirmations[0]
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
     state["resolving_confirmation"] = True
-    state["pending_interview_confirmation"] = {
-        "question": confirmation.question,
-        "options": list(confirmation.options),
-        "context": dict(confirmation.context),
-    }
+    state["pending_interview_confirmation"] = confirmations[0]
+    state["pending_interview_confirmation_queue"] = confirmations[1:]
     state["current_question"] = confirmation.question
     state["current_choices"] = list(confirmation.options)
     state["messages"].append({"role": "assistant", "content": confirmation.question})
