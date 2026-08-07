@@ -45,7 +45,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
@@ -614,6 +614,7 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
         return hits[0] if len(hits) == 1 else None
 
     from applire.services.ats_audit import _norm as _ats_norm
+    from applire.services.bullet_cuts import log_deletion
 
     standalone: list[dict] = []
     for proj in source_projects:
@@ -621,6 +622,16 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
         if not name:
             continue
         entry = TailoredProjectEntry(name=name, bullets=_project_bullets(proj)).model_dump()
+        if not project_has_content(entry):
+            # #312: a vault project with no description, responsibilities or
+            # achievements has nothing to put under its heading, and every
+            # template renders the heading unconditionally. Nesting it would
+            # only manufacture the orphan bold line for the render guard to
+            # remove again.
+            log_deletion(
+                "_nest_projects", "source project carries no bullet text", name,
+            )
+            continue
 
         parent_ref = proj.get("associated_experience")
         target_idx: int | None = None
@@ -658,7 +669,14 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
     _suppress_duplicate_project_bullets(work_history)
 
     data["work_history"] = work_history
-    data["projects"] = (data.get("projects") or []) + standalone
+    # #312: the writer's own standalone projects (build_projects_prompt) can also
+    # arrive with an empty `bullets` list — the response schema permits it. Same
+    # rule, same predicate: no bullets, no heading.
+    data["projects"] = [
+        p
+        for p in (data.get("projects") or []) + standalone
+        if project_has_content(p)
+    ]
     return TailoredCVData.model_validate(data)
 
 
@@ -668,24 +686,50 @@ def _suppress_duplicate_project_bullets(work_history: list[dict]) -> None:
     emits ``bullets`` and ``projects`` in one JSON, so overlap is structural). Drop
     each nested-project bullet whose normalized form equals any of the PARENT role's
     own bullets. Deterministic; reuses ``ats_audit._norm`` (NFKC + dash→space +
-    casefold) so "Code-Review" ≡ "code review". The project entry is kept even when
-    all its bullets are suppressed (US187: the heading still carries the project).
-    Mutates ``work_history`` in place; standalone projects are never touched.
+    casefold) so "Code-Review" ≡ "code review".
+
+    **#312 (2026-08-07) — a project this pass empties is now DROPPED.** The
+    original rule kept it ("US187: the heading still carries the project"), and
+    charter run #7 showed what that produces: ``SAP-Rollout bei Rasselstein``
+    as a bold heading over nothing, one line under the role bullet that had
+    just absorbed its only sentence. A heading carries nothing; the fact is not
+    lost, it is on the parent role. ``cv_budget.condense_to_budget`` already
+    drops a project whose last bullet it cuts — this is the same rule at the
+    other pass that can empty one. Both log the deletion (never silent).
+
+    Mutates ``work_history`` in place; standalone projects are never deduped
+    against a role, but a standalone project that arrives content-free is
+    dropped by the same #312 rule in the caller / render guard.
     """
     from applire.services.ats_audit import _norm
+    from applire.services.bullet_cuts import log_deletion
 
     for w in work_history:
         role_norms = {
             _norm(b) for b in (w.get("bullets") or []) if isinstance(b, str) and b.strip()
         }
-        if not role_norms:
-            continue
+        surviving: list[dict] = []
         for proj in w.get("projects") or []:
-            proj["bullets"] = [
-                b
-                for b in (proj.get("bullets") or [])
-                if not (isinstance(b, str) and _norm(b) in role_norms)
-            ]
+            if not isinstance(proj, dict):
+                surviving.append(proj)
+                continue
+            if role_norms:
+                proj["bullets"] = [
+                    b
+                    for b in (proj.get("bullets") or [])
+                    if not (isinstance(b, str) and _norm(b) in role_norms)
+                ]
+            if not project_has_content(proj):
+                log_deletion(
+                    "_suppress_duplicate_project_bullets",
+                    "project left with no bullet text",
+                    proj.get("name") or proj,
+                    role_id=str(w.get("id") or ""),
+                )
+                continue
+            surviving.append(proj)
+        if w.get("projects") is not None:
+            w["projects"] = surviving
 
 
 def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
@@ -2148,6 +2192,60 @@ async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Render-context guard (#312)
+# ---------------------------------------------------------------------------
+
+
+def project_has_content(project: Any) -> bool:
+    """True when a project carries at least one non-blank bullet.
+
+    The single predicate behind #312 (ADR-066: one logical operation, one
+    implementation). ``bullets == []`` and ``bullets == ["  "]`` are the same
+    thing on the page — a heading with nothing under it.
+    """
+    bullets = project.bullets if hasattr(project, "bullets") else (project or {}).get("bullets")
+    return any(isinstance(b, str) and b.strip() for b in (bullets or []))
+
+
+def strip_empty_projects(tailored: TailoredCVData) -> TailoredCVData:
+    """Remove every bullet-less project from the RENDER context (#312).
+
+    Charter run #7 delivered a CV whose ``PROJEKTE`` section held a bold
+    ``SAP-Rollout bei Rasselstein`` heading with zero bullets under it, styled
+    exactly like the populated heading above — a section that reads as having
+    failed to render, on a document whose whole job is to survive a skeptical
+    scan.
+
+    All seven templates gate only the ``<ul>`` (``{% if project.bullets %}``)
+    and emit ``project.name`` unconditionally, in both render paths (nested
+    under a position, and the standalone ``cv.projects`` section). Guarding
+    fourteen Jinja sites would be fourteen implementations of one rule, and the
+    next template would ship without it; guarding the context guards every
+    template, present and future, at one site. Removing the ENTRY (rather than
+    blanking it) also collapses the ``Projekte`` sub-label and the standalone
+    section title, which are gated on the list being non-empty.
+
+    This is the guard the issue calls "the one that makes it impossible to
+    ship": the generation-side guards in ``_nest_projects`` /
+    ``_suppress_duplicate_project_bullets`` do not run on the ADR-054 agent
+    door, which persists caller-authored content verbatim.
+
+    Returns a copy; ``tailored`` is left unmutated (the caller may still be
+    holding the record's own validated data).
+    """
+    work_history = [
+        w.model_copy(update={"projects": [p for p in w.projects if project_has_content(p)]})
+        if any(not project_has_content(p) for p in w.projects)
+        else w
+        for w in tailored.work_history
+    ]
+    return tailored.model_copy(update={
+        "work_history": work_history,
+        "projects": [p for p in tailored.projects if project_has_content(p)],
+    })
+
+
+# ---------------------------------------------------------------------------
 # GET /api/cv/{cv_id}/html  (requires status=ready)
 # ---------------------------------------------------------------------------
 
@@ -2161,6 +2259,8 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
     tailored = apply_overrides_to_tailored(
         tailored, record.content_snapshot, record.section_overrides
     )
+    # #312: never hand a template a project with nothing under its heading.
+    tailored = strip_empty_projects(tailored)
 
     # Resolve stored photo path → inline base64 data URI for Playwright / srcDoc.
     # If the file is missing (deleted after CV was generated) the photo is silently omitted.

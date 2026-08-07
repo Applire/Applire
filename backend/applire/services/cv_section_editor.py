@@ -287,6 +287,11 @@ async def patch_cv_section(
     tailored_with_overrides = apply_overrides_to_tailored(
         tailored, record.content_snapshot, overrides
     )
+    # #312: the live-preview render is the second (and only other) place a user's
+    # CV reaches a template — the same orphan-heading guard applies here as in
+    # cv.get_cv_html, from the same implementation (ADR-066).
+    from applire.services.cv import strip_empty_projects
+    tailored_with_overrides = strip_empty_projects(tailored_with_overrides)
     color_ctx = await resolve_color_context(record, db)
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
