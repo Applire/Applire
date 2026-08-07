@@ -89,6 +89,46 @@ _MODE_B_EXTENDED_SECTIONS = ["publications", "volunteer_activities"]
 
 
 # ---------------------------------------------------------------------------
+# Gap identity — id for the machine, label for the model (#301)
+# ---------------------------------------------------------------------------
+
+
+def resolve_gap_cluster(state: InterviewState, gap_id: str) -> dict:
+    """The cluster record behind a ``critical_gaps`` entry.
+
+    ``gap_clusters_by_id`` carries every id the plan can hold — the clustering
+    LLM's clusters plus the US163 gate clusters (session.py merges both). MODE B
+    sections and MODE C ``field:label`` entries are not clusters and fall
+    through to the stub, whose id is already human-readable.
+    """
+    clusters_by_id = state.get("gap_clusters_by_id") or {}
+    cluster = clusters_by_id.get(gap_id)
+    if isinstance(cluster, dict) and cluster:
+        return cluster
+    return {"id": gap_id, "label": gap_id, "gaps": [], "jd_skills": [], "jd_context": ""}
+
+
+def gap_display_label(state: InterviewState, gap_id: str) -> str:
+    """The human-readable name of a gap — the ONLY form that may enter prompt text.
+
+    #301 (charter run #7, 2026-07-27): a ``critical_gaps`` entry is an internal
+    identifier. The clustering schema mints it as ``cluster-<kebab-label>``
+    (prompts/gap_clustering.py), so the id for *Financial Data Modeling* is
+    ``cluster-data-modeling``. session.py interpolated that raw id into the
+    retry follow-up's hint while this module resolved the label for the very
+    same prompt's ``gap`` line — one prompt, two names for one gap. The
+    follow-up prompt commands the model to lead with the hinted domain and to
+    name a concrete technology, so it led with ``cluster-``, read it as
+    machine-learning clustering, and asked a payments-backend candidate about
+    K-means and DBSCAN — a requirement in neither the JD nor the profile.
+
+    One implementation (ADR-066): every prompt-bound rendering of a gap goes
+    through here, so an id can never again reach the model as a domain name.
+    """
+    return str(resolve_gap_cluster(state, gap_id).get("label") or gap_id)
+
+
+# ---------------------------------------------------------------------------
 # Node: GapDetector — MODE A
 # ---------------------------------------------------------------------------
 
@@ -444,12 +484,8 @@ async def question_generator_with_profile(
 
     if follow_up_hint:
         cluster_id = state["critical_gaps"][state["current_gap_index"]]
-        clusters_by_id = state.get("gap_clusters_by_id") or {}
-        cluster = clusters_by_id.get(
-            cluster_id,
-            {"id": cluster_id, "label": cluster_id, "gaps": [], "jd_skills": [], "jd_context": ""},
-        )
-        gap_label = cluster.get("label", cluster_id)
+        cluster = resolve_gap_cluster(state, cluster_id)
+        gap_label = gap_display_label(state, cluster_id)
 
         if denial_probe:
             # M8 finding-fix (2026-07-29) — the ADR-064 transfer probe drafts

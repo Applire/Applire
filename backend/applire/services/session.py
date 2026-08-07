@@ -88,6 +88,7 @@ from applire.services.interview_graph import (
     filter_answered_concepts,
     gap_detector,
     gap_detector_mode_b,
+    gap_display_label,
     interpret_conflict_answer,
     interpret_gate_answer,
     is_confirmation_cluster,
@@ -2104,7 +2105,14 @@ async def send_message(
         qpg[current_gap] = questions_for_gap + 1
         state["questions_per_gap"] = qpg
 
-        follow_up_hint = f"ask for a more specific or concrete example related to {current_gap}"
+        # #301: the hint is prompt text the follow-up prompt tells the model to
+        # LEAD with, so it must carry the gap's label, never its internal id
+        # (`cluster-data-modeling` was read as ML clustering — see
+        # interview_graph.gap_display_label for the run-7 evidence).
+        follow_up_hint = (
+            "ask for a more specific or concrete example related to "
+            f"{gap_display_label(state, current_gap)}"
+        )
         gap_category = (state.get("gap_categories") or {}).get(current_gap)
 
         follow_up_data = await question_generator_with_profile(

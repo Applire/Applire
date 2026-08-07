@@ -1794,6 +1794,81 @@ class TestSendMessage:
         assert result.gaps_remaining == 2
 
     @pytest.mark.asyncio
+    async def test_retry_follow_up_hint_carries_the_label_never_the_cluster_id(
+        self, sqlite_session
+    ):
+        """#301: the retry follow-up's hint is prompt text — it must name the
+        cluster the way a human would, never Applire's internal cluster id.
+
+        Charter run #7 (2026-07-27, LLM log record 48) shows the whole defect
+        in one exchange: the SAME prompt carried the resolved label on one
+        line and the raw id on the next —
+
+            Gap not yet addressed: Financial Data Modeling
+            Follow-up direction: ask for a more specific or concrete example
+                                 related to cluster-data-modeling
+
+        FOLLOW_UP_QUESTION_SYSTEM_PROMPT then instructs "Lead with the
+        adjacent domain suggested in the follow-up hint" and "Be concrete:
+        name the technology", so the model led with the only domain it was
+        given — read ``cluster-`` as machine-learning clustering — and asked
+        the payments-backend candidate about K-means and DBSCAN. The invented
+        requirement is a leaked identifier, not a hallucination.
+
+        Note the fixtures elsewhere in this file use ``id == label``, which is
+        exactly why nothing caught this: production ids are
+        ``cluster-<kebab-label>`` (prompts/gap_clustering.py's schema).
+        """
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(
+            job.id,
+            profile.id,
+            state={
+                "critical_gaps": ["cluster-data-modeling"],
+                "gap_categories": {"cluster-data-modeling": "C"},
+                "gap_clusters_by_id": {
+                    "cluster-data-modeling": {
+                        "id": "cluster-data-modeling",
+                        "label": "Financial Data Modeling",
+                        "gaps": ["Financial data modelling"],
+                        "jd_skills": ["PostgreSQL"],
+                        "jd_context": "",
+                    },
+                },
+            },
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _unaddressed_turn(profile.profile_json)
+        gen = AsyncMock(return_value={"question": "Say more?", "choices": None})
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile", new=gen),
+        ):
+            await send_message(
+                session_record.id, "I model data sometimes.",
+                sqlite_session, _mock_provider()
+            )
+
+        hint = gen.await_args.kwargs["follow_up_hint"]
+        assert "cluster-data-modeling" not in hint, (
+            f"internal cluster id leaked into prompt text: {hint!r}"
+        )
+        assert "Financial Data Modeling" in hint, (
+            f"hint does not name the cluster the candidate was asked about: {hint!r}"
+        )
+
+    @pytest.mark.asyncio
     async def test_second_unproductive_answer_forces_advance_after_one_retry(
         self, sqlite_session
     ):
