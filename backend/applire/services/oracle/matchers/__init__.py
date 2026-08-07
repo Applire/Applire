@@ -8,10 +8,17 @@ ADR-048/US212) — never a fourth near-dupe implementation (ADR-046 lesson).
 from applire.services.oracle.matchers.attribution import find_foreign_owner
 from applire.services.oracle.matchers.figures import (
     Figure,
+    TenureClaim,
     extract_figures,
     extract_spelled_figures,
+    extract_tenure_claims,
 )
-from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex, build_vault_index
+from applire.services.oracle.matchers.vault import (
+    EvidenceUnit,
+    VaultIndex,
+    build_vault_index,
+    derive_tenure_ceiling_years,
+)
 from applire.services.oracle.matchers.grounding import (
     GroundingResult,
     ground_skill_claim,
@@ -23,12 +30,15 @@ from applire.services.oracle.matchers.grounding import (
 
 __all__ = [
     "Figure",
+    "TenureClaim",
     "extract_figures",
     "extract_spelled_figures",
+    "extract_tenure_claims",
     "find_foreign_owner",
     "EvidenceUnit",
     "VaultIndex",
     "build_vault_index",
+    "derive_tenure_ceiling_years",
     "GroundingResult",
     "ground_skill_claim",
     "ground_text_claim",
