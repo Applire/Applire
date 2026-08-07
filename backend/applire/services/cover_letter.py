@@ -64,7 +64,10 @@ from applire.prompts.review_cover_letter import (
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import log_letter_over_budget
-from applire.services.letter_figure_guard import guard_letter_figures
+from applire.services.letter_figure_guard import (
+    figure_ownership_reviewer_prompt_fn,
+    guard_letter_figures,
+)
 from applire.services.letter_outcome_guard import guard_letter_outcome_preference
 from applire.services.load_bearing import load_bearing_fn_from_ledger
 from applire.services.reviewer import review_and_refine
@@ -1019,6 +1022,20 @@ async def _render_cover_letter_background(
             )
             reviewer_prompt_fn = word_floor_reviewer_prompt_fn(
                 reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
+            )
+            # #299 (ADR-062 clause 2): a FOURTH deterministic wrapper — each
+            # reviewer iteration also carries the vault OWNERSHIP of every
+            # grounded figure in the CURRENT draft ("figure N appears in the
+            # vault only under X"). That is a data-structure lookup, a FACT;
+            # deciding which employer the sentence carrying it is ABOUT is a
+            # judgement about prose, and it now belongs to the reviewer — which
+            # can re-anchor or rewrite the claim, where the post-loop guard
+            # (below, still the floor) can only delete the sentence. Same
+            # composition as the three wrappers above: no new LLM call, no new
+            # pass, no new loop (ADR-058 freeze amended 2026-07-24 — threading
+            # existing vault data into an existing prompt is bugfix-grade).
+            reviewer_prompt_fn = figure_ownership_reviewer_prompt_fn(
+                reviewer_prompt_fn, profile.profile_json if profile else {}
             )
             # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
             # structural-only tie-break over drafts retain_if already accepts.

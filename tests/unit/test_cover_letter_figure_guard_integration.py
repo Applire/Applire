@@ -197,15 +197,17 @@ async def test_corrector_borrowed_figure_is_stripped_before_persist(seeded):
     # of engineers" to a hiring manager in charter run #7
     assert "5+" not in body_text
     assert "mentoring teams of" not in body_text
-    # The honestly-grounded figure in the SAME letter survives — and note it
-    # survives via the #296 carry-forward, since its own sentence names no
-    # employer at all: without that, this figure would have been dropped too.
+    # The honestly-grounded figure in the SAME letter survives — its own
+    # sentence names no employer, and since #299 an unanchored sentence is not
+    # the floor's to cut (the fact goes to the reviewer instead).
     assert "70%" in body_text
     # Known limitation of a sentence-sized removal unit, pinned rather than
     # hidden: the dropped sentence carried the only "At Vector Analytics", so
     # the surviving sentence's "there" now points at nothing. Deterministic
-    # code cannot repair an anaphor; the review-loop remedy (follow-up issue)
-    # is what fixes this class, and this expectation flips when it lands.
+    # code cannot repair an anaphor, and #299 does not claim to — it moves the
+    # fact one round earlier so the reviewer can prevent the state that reaches
+    # the floor. The floor itself still deletes when the loop failed, so this
+    # cost stands, visible, and is prompt-effect work a charter run must judge.
     assert "Vector Analytics" not in body_text
 
 
@@ -257,3 +259,46 @@ async def test_condense_pass_output_is_also_guarded(seeded):
     body_text = " ".join(cl.letter_data["body"]["paragraphs"])
     assert "5+" not in body_text
     assert "70%" in body_text
+
+
+@pytest.mark.asyncio
+async def test_the_reviewer_prompt_carries_the_figures_vault_ownership(seeded):
+    """#299 / ADR-062 clause 2: the fact reaches the ADR-021 review loop.
+
+    The wiring is what CI can pin — whether the reviewer ACTS on the fact is a
+    prompt effect and needs a real-provider charter run (ADR-062 clause 7). So
+    this captures the composed ``reviewer_prompt_fn`` the service hands to
+    ``review_and_refine`` and calls it on a draft carrying the borrowed
+    headcount, exactly as the loop would.
+    """
+    db, job, profile, cl = seeded
+
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(return_value={"body": {"paragraphs": []}})
+    captured: dict = {}
+
+    async def _capture(**kwargs):
+        captured.update(kwargs)
+        return _fabricated_letter()
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", AsyncMock(side_effect=_capture)),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    reviewer_prompt = captured["reviewer_prompt_fn"]("source", _fabricated_letter())
+    assert "FIGURE OWNERSHIP" in reviewer_prompt
+    # the borrowed headcount's REAL owner, named to the reviewer
+    assert "DataCore Systems" in reviewer_prompt
+    # and the honestly-owned figure in the same letter, so the reviewer is not
+    # handed a pre-selected verdict to rubber-stamp
+    assert "Vector Analytics" in reviewer_prompt

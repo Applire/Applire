@@ -32,7 +32,10 @@ if str(_backend) not in sys.path:
 
 from applire.services.letter_figure_guard import (  # noqa: E402
     _extract_letter_figures,
+    figure_ownership_facts,
+    figure_ownership_reviewer_prompt_fn,
     guard_letter_figures,
+    render_figure_ownership_block,
 )
 
 # ── the live #254 shape ──────────────────────────────────────────────────────
@@ -221,10 +224,17 @@ def test_unanchored_clause_cleared_when_letter_names_the_true_owner_elsewhere():
     assert "five" in body_text
 
 
-def test_unanchored_clause_dropped_when_letter_names_two_employers_and_neither_clause_says_which():
-    """The #248 laundering shape: two employers named in the letter, but the
-    figure-bearing clause names neither — genuinely undecidable, so the SAFE
-    action is to strip it."""
+def test_an_unanchored_sentence_is_the_reviewers_call_not_the_floors():
+    """The #248 shape, re-pinned by #299: two employers named in the letter,
+    the figure-bearing sentence naming neither.
+
+    The floor used to strip it. Which employer an unanchored sentence is about
+    is a judgement about prose (ADR-062 clause 1) — the same judgement that,
+    computed deterministically, deleted six grounded sentences in run #8 and
+    every Cargonaut figure in #296. The protection is not dropped, it MOVES:
+    the reviewer is told the vault owner of the very same figure and can
+    re-anchor or remove the claim, which deterministic code cannot do.
+    """
     letter = _letter(
         [
             "At DataCore Systems, I led platform strategy.",
@@ -233,8 +243,10 @@ def test_unanchored_clause_dropped_when_letter_names_two_employers_and_neither_c
         ]
     )
     result = guard_letter_figures(letter, PROFILE)
-    body_text = " ".join(result["body"]["paragraphs"])
-    assert "5+" not in body_text
+    assert result["body"]["paragraphs"] == letter["body"]["paragraphs"]
+    # …and the fact the floor no longer acts on reaches the reviewer instead.
+    block = render_figure_ownership_block(figure_ownership_facts(letter, PROFILE))
+    assert "DataCore Systems" in block
 
 
 # ── #283 shape: multi-employer letter, achievement paragraph unanchored ─────
@@ -273,14 +285,17 @@ MULTI_ROLE_PROFILE = {
 }
 
 
-def test_unanchored_achievement_paragraph_drops_the_figures_pinned_shape():
-    """The pinned #283 defect, reproduced with invented data: paragraph 2
-    names Northwind Labs; paragraph 3 carries the LIMS achievement but names
-    NO employer of its own, and the letter separately names a second employer
-    (Riverstone) — so neither the sentence anchor nor the whole-letter
-    single-employer escape can resolve ownership, and the figures are
-    dropped. This is the guard working AS INTENDED — the fix belongs in the
-    letter's anchoring (prompt level), not in relaxing this guard."""
+def test_the_283_achievement_paragraph_now_goes_to_the_reviewer_intact():
+    """The #283 shape: paragraph 1 names Northwind Labs, paragraph 2 carries
+    the LIMS achievement and names nobody, and the letter also names Riverstone.
+
+    The old pin asserted the achievement sentence was deleted and called that
+    "the guard working AS INTENDED — the fix belongs at the prompt level". #299
+    is that prompt-level fix, so the pin turns over: the figures survive the
+    floor and the reviewer gets the ownership fact. The two figures here are
+    the candidate's OWN, honestly earned at the employer the paragraph above
+    names — deleting them is the #296 damage, not a protection.
+    """
     letter = _letter(
         [
             "At Northwind Labs, I currently serve as Director of Platform "
@@ -293,15 +308,11 @@ def test_unanchored_achievement_paragraph_drops_the_figures_pinned_shape():
         ]
     )
     result = guard_letter_figures(letter, MULTI_ROLE_PROFILE)
-    # The whole achievement sentence goes (#296). Blanking its two figures in
-    # place produced exactly the run-#7 wreckage — "the LIMS rollout in months
-    # across sites" — and the old pin below it demanded that remainder survive.
-    assert result["body"]["paragraphs"] == [
-        "At Northwind Labs, I currently serve as Director of Platform "
-        "Engineering.",
-        "As founder of Riverstone, I also built an open-source developer "
-        "platform.",
-    ]
+    assert result["body"]["paragraphs"] == letter["body"]["paragraphs"]
+    block = render_figure_ownership_block(
+        figure_ownership_facts(letter, MULTI_ROLE_PROFILE)
+    )
+    assert "Northwind Labs" in block
 
 
 def test_same_sentence_anchor_lets_the_figures_survive():
@@ -345,17 +356,19 @@ def test_cross_role_borrowed_figure_still_dropped_even_when_anchored_elsewhere()
     assert "3 sites" not in body_text
 
 
-# ── #296: the paragraph's running anchor ────────────────────────────────────
-# This is the part of #296 that stops most removals from being necessary at
-# all. Charter run #7's letter named two employers, so the whole-letter
+# ── #296: prose does not restate the employer in every sentence ────────────
+# Charter run #7's letter named two employers, so the whole-letter
 # single-employer escape could never fire, and every figure in every sentence
-# that did not itself restate the employer was dropped. Prose does not restate
-# it: "At Acme I owned the platform. I cut deploy time from 45 to 8 minutes."
+# that did not itself restate the employer was dropped: "At Acme I owned the
+# platform. I cut deploy time from 45 to 8 minutes." #296 answered this with a
+# paragraph-scoped running anchor; #299 replaced that heuristic with fail-open
+# (the reviewer judges), which covers the same shape and the cross-paragraph
+# one the carry-forward never reached.
 
-def test_running_anchor_carries_the_employer_to_the_next_sentence():
-    """A follow-on sentence in the SAME paragraph inherits the anchor, exactly
-    as a human reader resolves it — so a legitimately-owned figure survives
-    without the writer having to restate the employer in every sentence."""
+def test_a_follow_on_sentence_keeps_a_legitimately_owned_figure():
+    """A follow-on sentence in the same paragraph names no employer, and a
+    legitimately-owned figure in it survives — without the writer having to
+    restate the employer in every sentence."""
     letter = _letter(
         [
             "At Northwind Labs, I currently serve as Director of Platform "
@@ -371,11 +384,10 @@ def test_running_anchor_carries_the_employer_to_the_next_sentence():
     assert "3 sites" in body_text
 
 
-def test_running_anchor_never_survives_a_topic_change():
-    """The carry-forward may only fill genuine silence. The moment a later
-    sentence anchors somewhere ELSE, the borrowed figure must still be caught —
-    otherwise the anchor becomes a laundering channel wider than the
-    whole-letter escape it sits in front of."""
+def test_a_sentence_that_names_its_own_employer_is_still_checked_against_it():
+    """The floor's own shape: the second sentence names Riverstone in its own
+    words, and the LIMS figures are Northwind's, so it still goes. This is the
+    #254 catch, and it is what survives #299's demotion."""
     letter = _letter(
         [
             "At Northwind Labs, I currently serve as Director of Platform "
@@ -450,9 +462,16 @@ def test_a_truthful_figure_in_the_same_sentence_is_collateral():
     70% reduction in checkout latency" mixes a BORROWED DataCore headcount with
     a genuine Vector Analytics figure. Deterministic code cannot keep the
     second without rebuilding the sentence around it, so the floor takes both.
-    Recovering the truthful half needs the writer, not the guard: the review
-    loop rewrites rather than the guard cutting (follow-up issue), at which
-    point this test's expectation changes on purpose.
+
+    #299 predicted this expectation would flip when the review loop got the
+    ownership fact. It does NOT, and the reason is worth pinning: the sentence
+    NAMES its employer, so this is the fact-grade case the floor still acts on
+    — and the floor has to stay, because ``review_and_refine`` ships the last
+    corrector draft unreviewed on exhaustion, cycle-stop and reviewer failure
+    (the #254 vector). What #299 changed is upstream of here: the reviewer is
+    told "5 is DataCore's" every round and can rewrite the sentence, so this
+    state should reach the floor far less often. When it does reach it, the
+    honest half is still collateral. Prompt effect, charter run, not CI.
     """
     letter = _letter(
         [
@@ -553,6 +572,24 @@ def test_tenure_exemption_covers_spelled_and_english_forms():
         assert tenure_value not in values, text
 
 
+def test_the_plus_form_of_a_tenure_figure_is_exempt_too():
+    """The one-character gap flagged during #214: "12+ years of experience" is
+    the SAME duration as "12 years of experience", but ``_TENURE_RE`` required
+    the unit to follow the digits directly and the "+" broke the adjacency —
+    so the growth-quantifier form fell through to ``_PLUS_RE`` and was matched
+    against every unrelated vault count containing 12.
+
+    The Oracle's twin extractor (``oracle/matchers/figures._TENURE_RE``) closed
+    this in #459; this is the same ``\\+?``, ported rather than re-derived.
+    """
+    for text in (
+        "12+ years of Python experience",
+        "12+ Jahre Erfahrung in der Fertigung",
+        "meine 14+-jährige Expertise",
+    ):
+        assert [f.value for f in _extract_letter_figures(text)] == [], text
+
+
 def test_a_headcount_is_still_not_a_tenure_figure():
     """The exemption keys on the UNIT, so it must not swallow a bare count in
     the same sentence — otherwise it would disarm the #254 catch."""
@@ -562,14 +599,17 @@ def test_a_headcount_is_still_not_a_tenure_figure():
     assert [(f.kind, f.value) for f in figs] == [("number", "14")]
 
 
-def test_a_project_at_the_employer_does_not_clear_the_carry_forward():
-    """The four grounded achievement figures run #8 deleted.
+def test_the_four_run8_achievement_figures_survive():
+    """The four grounded achievement figures run #8 deleted, kept as the
+    regression they are.
 
-    Sentence 1 names Weberit and resolves to exactly one id. Sentence 2 names
-    nobody and must inherit it. Before the fix the inheritance was cleared by
-    sentence 1 itself: w-weberit appeared in the candidate list twice — once as
-    the company, once as its nested MES project — so one employer counted as
-    two and the carry was dropped.
+    Run #8's cause was the carry-forward counting NAMES: w-weberit appeared in
+    the candidate list twice — once as the company, once as its nested MES
+    project — so one employer counted as two and the inheritance was cleared by
+    the very sentence that established it. #299 deleted the carry-forward
+    outright, so sentence 2 now survives because it names no employer at all
+    and attribution there is not a fact. Same four figures, same letter, a
+    mechanism with one fewer thing to get wrong.
     """
     para = (
         "Bei der Weberit Kunststofftechnik GmbH verantworte ich seit 2017 als "
@@ -585,15 +625,224 @@ def test_a_project_at_the_employer_does_not_clear_the_carry_forward():
         assert figure in body, f"{figure} was removed"
 
 
-def test_the_carry_forward_still_stops_at_a_second_employer():
-    """The fix must not widen the carry beyond its purpose: a sentence naming
-    TWO employers still resolves nothing, so a following sentence inherits
-    nothing and a foreign figure is still caught."""
+def test_a_german_unanchored_sentence_after_a_two_employer_one_also_goes_to_the_reviewer():
+    """The carry-forward's own boundary case, re-pinned by #299 (German, the
+    run-8 profile): a sentence naming TWO employers resolves nothing, so the
+    sentence after it is unanchored — and an unanchored sentence is no longer
+    the floor's to cut. The reviewer is told that the 14 is Rasselstein's."""
     para = (
         "Bei Weberit Kunststofftechnik GmbH und Rasselstein Umformtechnik GmbH "
         "habe ich Fertigungsverantwortung getragen. Ich führte eine Schicht "
         "mit 14 Mitarbeitenden."
     )
-    result = guard_letter_figures(_letter([para]), RUN8_PROFILE)
-    body = " ".join(result["body"]["paragraphs"])
-    assert "14 Mitarbeitenden" not in body
+    letter = _letter([para])
+    result = guard_letter_figures(letter, RUN8_PROFILE)
+    assert result["body"]["paragraphs"] == [para]
+    block = render_figure_ownership_block(figure_ownership_facts(letter, RUN8_PROFILE))
+    assert "Rasselstein Umformtechnik GmbH" in block
+
+
+# ── #296 (charter run #7, `it_backend_daniel`, EN) ──────────────────────────
+# The issue's own reproduction case, with the letter's delivered prose verbatim
+# and a vault shaped like the case's CV plus the Kubernetes gap interview
+# (dossier: "12 services over 9 months", "deploy time 45 -> 8 minutes",
+# "99.9% availability target" — all Cargonaut facts).
+DANIEL_PROFILE = {
+    "personal_info": {"name": "Daniel Kovač"},
+    "professional_summary": {
+        "en": "Backend engineer designing and operating Python services."
+    },
+    "work_experience": [
+        {
+            "id": "w-cargonaut",
+            "company": "Cargonaut Logistics GmbH",
+            "role": "Senior Backend Engineer",
+            "is_current": True,
+            "achievements": [
+                "Design and operate the shipment-tracking backend (Python, Django, "
+                "PostgreSQL) serving ~40k daily active logistics customers.",
+                "Own the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD "
+                "pipelines for four services.",
+                "Led the migration from ECS to Kubernetes (EKS): 12 services over "
+                "9 months, cutting deploy time from 45 to 8 minutes.",
+                "Built Prometheus/Grafana observability with a 99.9% availability "
+                "target for the tracking API.",
+            ],
+        },
+        {
+            "id": "w-finleap",
+            "company": "Finleap Build GmbH",
+            "role": "Backend Engineer",
+            "achievements": [
+                "Implemented the invoice-dunning workflow engine processing ~200k "
+                "invoices/month.",
+            ],
+        },
+    ],
+}
+
+DANIEL_DELIVERED_PARAGRAPH = (
+    "At Cargonaut Logistics GmbH, I designed and operated a Python/Django backend "
+    "serving ~40k daily active logistics customers, ensuring correctness-critical "
+    "data handling with PostgreSQL. I led the migration from ECS to Kubernetes on "
+    "EKS for 12 services, reducing deploy time from 45 to 8 minutes using Helm, "
+    "ArgoCD, and GitOps. Additionally, I built a Prometheus and Grafana "
+    "observability stack, established SLOs with error budgets for a 99.9% "
+    "availability target, and implemented an Apache Kafka pipeline with idempotent "
+    "consumers to prevent double-billing. My experience also includes AWS "
+    "deployment (RDS, S3) and CI/CD ownership for four services."
+)
+
+DANIEL_FINLEAP_PARAGRAPH = (
+    "At Finleap Build GmbH, I built REST APIs for a B2B invoicing product and "
+    "implemented the dunning workflow engine processing ~200k invoices/month."
+)
+
+
+def test_the_delivered_run7_paragraph_keeps_every_grounded_figure():
+    """#296 as it shipped: four grounded Cargonaut figures (12, 45, 8, 99.9%)
+    in continuation sentences of the Cargonaut-anchored paragraph. Wave-8's
+    ``_distinct_employers`` fix already covers this shape — pinned here on the
+    issue's verbatim prose so it stays covered."""
+    letter = _letter(
+        [
+            "Dear Hiring Team,",
+            DANIEL_DELIVERED_PARAGRAPH,
+            DANIEL_FINLEAP_PARAGRAPH,
+            "Sincerely,",
+        ]
+    )
+    result = guard_letter_figures(letter, DANIEL_PROFILE)
+    assert result["body"]["paragraphs"] == letter["body"]["paragraphs"]
+
+
+def test_the_same_sentences_survive_when_the_writer_splits_them_into_paragraphs():
+    """#296's residual after wave 8: the SAME sentences, same vault, same
+    employer — one per paragraph, which is ordinary letter shape.
+
+    The running anchor is paragraph-scoped, so nothing crosses the break and
+    every figure below was removed although the employer that owns them is
+    named in the paragraph directly above. The employer a paragraph is about
+    is a judgement about prose (ADR-062); the floor no longer makes it, and
+    the fact goes to the reviewer instead.
+    """
+    letter = _letter(
+        [
+            "At Cargonaut Logistics GmbH, I designed and operated a Python/Django "
+            "backend serving ~40k daily active logistics customers.",
+            "I led the migration from ECS to Kubernetes on EKS for 12 services, "
+            "reducing deploy time from 45 to 8 minutes using Helm, ArgoCD, and "
+            "GitOps.",
+            "Additionally, I established SLOs with error budgets for a 99.9% "
+            "availability target.",
+            DANIEL_FINLEAP_PARAGRAPH,
+        ]
+    )
+    result = guard_letter_figures(letter, DANIEL_PROFILE)
+    assert result["body"]["paragraphs"] == letter["body"]["paragraphs"]
+
+
+# ── #299 / ADR-062 clause 2: the fact goes to the reviewer ──────────────────
+# "Figure N appears in the vault only under owners X, Y, Z" is a data-structure
+# lookup — a FACT. Which employer a sentence is ABOUT is a judgement, and it now
+# belongs to the reviewer, which sees the prose, the vault owners and the reason.
+
+def test_ownership_facts_name_the_owners_of_every_grounded_figure_in_the_draft():
+    letter = _letter(
+        [
+            "At Vector Analytics, I have experience mentoring teams of 5+ "
+            "engineers.",
+            "I delivered a 70% reduction in checkout latency.",
+        ]
+    )
+    facts = figure_ownership_facts(letter, PROFILE)
+    assert {(f.kind, f.value, f.owners) for f in facts} == {
+        ("number", "5", ("DataCore Systems",)),
+        ("percent", "70", ("Vector Analytics",)),
+    }
+
+
+def test_a_figure_with_no_vault_backing_is_not_a_fact_this_module_owns():
+    """Unbacked figures are the Oracle's verdict, not this module's — telling
+    the reviewer "17 is owned by nobody" would invite it to strip a legitimate
+    derived claim (the guard's own long-standing scope rule)."""
+    facts = figure_ownership_facts(_letter(["I shipped 17 major releases."]), PROFILE)
+    assert facts == []
+
+
+def test_a_role_agnostic_figure_carries_no_ownership_constraint():
+    """A figure also backed by role-agnostic evidence (e.g. the professional
+    summary) belongs to no position in particular, so there is no attribution
+    question to hand over."""
+    profile = {
+        **PROFILE,
+        "professional_summary": {"en": "Delivered 42 major platform migrations."},
+    }
+    facts = figure_ownership_facts(_letter(["I delivered 42 migrations."]), profile)
+    assert facts == []
+
+
+def test_a_tenure_figure_is_never_handed_to_the_reviewer_as_owned():
+    """The exemption is the same one the floor applies — otherwise the reviewer
+    would be told "14 belongs to Rasselstein" about the candidate's own tenure
+    (the run-8 closing-paragraph defect, moved into the prompt)."""
+    letter = _letter(["Meine 14-jährige Expertise bringe ich gerne ein."])
+    assert figure_ownership_facts(letter, RUN8_PROFILE) == []
+
+
+def test_the_reviewer_block_states_the_fact_and_the_narrow_instruction():
+    letter = _letter(
+        [
+            "At Vector Analytics, I have experience mentoring teams of 5+ "
+            "engineers.",
+        ]
+    )
+    block = render_figure_ownership_block(figure_ownership_facts(letter, PROFILE))
+    # the fact: the figure, and the position the vault backs it under
+    assert '"5+"' in block
+    assert "DataCore Systems" in block
+    # the judgement is explicitly the model's, and both remedies are offered —
+    # #299's case (b) (the achievement is real here, only the number was
+    # borrowed) must not be treated like case (a) (the claim is not this
+    # employer's at all), because deleting the sentence is right for one and
+    # wrong for the other.
+    assert "re-anchor" in block.lower()
+    assert "DROP the number" in block
+    # the #299 laundering trap, stated as a requirement rather than implied: a
+    # rewritten claim that survives WITHOUT naming its employer escapes this
+    # guard (no figure left) and the Oracle's find_foreign_owner (fail open on
+    # unanchored claims) alike.
+    assert "MUST name" in block
+
+
+def test_the_block_is_empty_when_there_is_no_ownership_fact_to_state():
+    assert render_figure_ownership_block([]) == ""
+
+
+def test_the_reviewer_wrapper_appends_the_block_to_the_base_prompt():
+    """Composes exactly like the ledger/word-floor wrappers: same
+    ``fn(source, draft)`` contract, recomputed per review iteration against the
+    CURRENT draft, no new LLM call."""
+    def base(source, draft):
+        return "BASE PROMPT"
+
+    fn = figure_ownership_reviewer_prompt_fn(base, PROFILE)
+
+    # No owned figure in the draft -> nothing to state, prompt untouched.
+    assert fn("src", _letter(["I am excited to apply."])) == "BASE PROMPT"
+
+    # Every owned figure is stated, correctly attributed ones included: which
+    # ones are misattributed is the reviewer's judgement, so the block may not
+    # pre-select them (that selection IS the heuristic #299 retires).
+    flagged = fn(
+        "src",
+        _letter(
+            [
+                "At Vector Analytics, I mentored teams of 5+ engineers and "
+                "delivered a 70% reduction in checkout latency."
+            ]
+        ),
+    )
+    assert flagged.startswith("BASE PROMPT")
+    assert "DataCore Systems" in flagged
+    assert "Vector Analytics" in flagged
