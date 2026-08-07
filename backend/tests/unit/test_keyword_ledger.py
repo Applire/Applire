@@ -166,6 +166,28 @@ def test_keyword_only_honest_gaps_returns_only_fit_zero_unclaimable_concepts():
     assert keyword_only_honest_gaps(ledger) == ["microservices"]
 
 
+def test_keyword_only_honest_gaps_excludes_denied_concepts():
+    # #383, second seam of the same class: an honest gap is UNKNOWN — never
+    # "the candidate was asked and said no" (ADR-048 §1 amended 2026-07-27).
+    # This list is the interview's routing input (gap.askable_gap_inputs →
+    # cluster_gaps), so a denied concept reaching it re-asks a question the
+    # candidate has already answered, which ADR-059's 2026-07-26 amendment
+    # (clause 3) forbids of any automatic path. Concept is verbatim from
+    # charter run #7.
+    from applire.services.keyword_ledger import keyword_only_honest_gaps
+
+    ledger = [
+        {"concept": "microservices", "fit_weight": 0.0, "claimable": False, "status": "gap"},
+        {
+            "concept": "BaFin supervision",
+            "fit_weight": 0.0,
+            "claimable": False,
+            "status": "denied",
+        },
+    ]
+    assert keyword_only_honest_gaps(ledger) == ["microservices"]
+
+
 def test_keyword_only_honest_gaps_is_none_safe():
     from applire.services.keyword_ledger import keyword_only_honest_gaps
 

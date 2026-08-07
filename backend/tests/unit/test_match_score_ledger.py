@@ -180,3 +180,65 @@ def test_nice_to_have_partial_quarter_credit():
     out = compute_match_score_from_ledger(ledger)
     assert round(out["match_score"], 4) == round(1.25 / 1.5, 4)
     assert "N" in out["minor_gaps"]
+
+
+# --- #383: a `denied` ledger entry is not a `gap` ---------------------------
+#
+# The ledger-sourced twin of the same seam. ADR-048's 2026-07-27 amendment
+# (clause 1) gave the entry four statuses; this consumer switched on three and
+# swept `denied` into the trailing `# gap` arm, so an explicitly denied
+# requirement re-entered the pipeline as an open critical gap. Entries are
+# built by hand rather than through `build_keyword_ledger` so this pins the
+# CONSUMER, not the denial-recording machinery.
+
+
+def _entry(concept, status, fit_weight=1.0, source="required"):
+    return {
+        "concept": concept,
+        "surface_forms": [concept],
+        "sources": [source],
+        "fit_weight": fit_weight,
+        "status": status,
+        "evidence": "",
+        "claimable": status in ("direct", "partial"),
+    }
+
+
+def test_denied_ledger_entry_never_enters_critical_gaps():
+    ledger = [
+        _entry("BaFin supervision", "denied"),
+        _entry("PSD2/PSP integration", "denied"),
+        _entry("Python", "direct"),
+    ]
+    out = compute_match_score_from_ledger(ledger)
+    assert out["critical_gaps"] == []
+
+
+def test_denied_ledger_entry_is_not_a_category_c_gap():
+    ledger = [
+        _entry("BaFin supervision", "denied"),
+        _entry("Python", "direct"),
+    ]
+    out = compute_match_score_from_ledger(ledger)
+    assert out["category_c"] == []
+    assert out["category_a"] == ["Python"]
+
+
+def test_denied_nice_to_have_ledger_entry_never_enters_minor_gaps():
+    ledger = [
+        _entry("Python", "direct"),
+        _entry("BaFin supervision", "denied", fit_weight=0.5, source="nice_to_have"),
+    ]
+    out = compute_match_score_from_ledger(ledger)
+    assert out["minor_gaps"] == []
+
+
+def test_denied_ledger_entry_still_earns_zero_and_keeps_its_slot():
+    ledger = [
+        _entry("BaFin supervision", "denied"),
+        _entry("PSD2/PSP integration", "denied"),
+        _entry("Python", "direct"),
+    ]
+    out = compute_match_score_from_ledger(ledger)
+    assert round(out["match_score"], 4) == round(1 / 3, 4)
+    assert [b["status"] for b in out["requirement_breakdown"]].count("denied") == 2
