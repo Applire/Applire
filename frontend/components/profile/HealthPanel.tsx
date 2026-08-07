@@ -24,7 +24,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
-export type HealthThread = "conflict" | "accuracy";
+// "confirmation" (#333): an N-option ambiguity the reconciler parked for the
+// human — resolved by the profile-review interview, not by a 2-value pick.
+export type HealthThread = "conflict" | "accuracy" | "confirmation";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -58,9 +60,13 @@ const SEVERITY_LABEL: Record<HealthSeverity, "severityCritical" | "severityRevie
   info: "severityInfo",
 };
 
-const THREAD_LABEL: Record<HealthThread, "threadConflict" | "threadAccuracy"> = {
+const THREAD_LABEL: Record<
+  HealthThread,
+  "threadConflict" | "threadAccuracy" | "threadConfirmation"
+> = {
   conflict: "threadConflict",
   accuracy: "threadAccuracy",
+  confirmation: "threadConfirmation",
 };
 
 function IssueCard({

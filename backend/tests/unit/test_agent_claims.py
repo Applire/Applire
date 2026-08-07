@@ -334,7 +334,11 @@ async def test_updated_at_touched_but_metadata_recompute_stays_import_only(async
 async def test_import_replace_preserves_agent_parked_items(async_db):
     """Adversarial M2: the import path replaces both pending metadata lists
     wholesale each round — agent-parked items must survive a subsequent CV
-    import, or the next upload silently destroys candidate-facing review items."""
+    import, or the next upload silently destroys candidate-facing review items.
+
+    #333 widened the guard from `source == "agent_interview"` to every still-open
+    parked item, so the previous-round `cv_upload` assertions below now assert
+    survival too (they asserted deletion, which was the defect)."""
     from unittest.mock import AsyncMock, patch
 
     from applire.schemas.profile import (
@@ -407,13 +411,13 @@ async def test_import_replace_preserves_agent_parked_items(async_db):
     conf_by_q = {c["question"]: c["source"] for c in meta["pending_confirmations"]}
     assert "agent-parked?" in conf_by_q  # survived
     assert "new import round?" in conf_by_q  # latest round present
-    assert "old import?" not in conf_by_q  # non-agent items still replaced
+    assert "old import?" in conf_by_q  # #333 — an earlier round's open ask too
     conflict_sources = {
         (c["existing_value"], c["source"]) for c in meta["pending_conflicts"]
     }
     assert ("a", "agent_interview") in conflict_sources
     assert ("x", "cv_upload") in conflict_sources
-    assert ("c", "cv_upload") not in conflict_sources
+    assert ("c", "cv_upload") in conflict_sources  # #333
 
 
 @pytest.mark.asyncio

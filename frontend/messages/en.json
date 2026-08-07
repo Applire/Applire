@@ -678,7 +678,8 @@
     "severityReview": "Review",
     "severityInfo": "Info",
     "threadConflict": "Conflict",
-    "threadAccuracy": "Accuracy"
+    "threadAccuracy": "Accuracy",
+    "threadConfirmation": "Open question"
   },
   "profileReview": {
     "title": "Review profile",

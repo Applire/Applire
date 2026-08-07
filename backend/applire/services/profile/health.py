@@ -26,6 +26,9 @@ DB access**, so the Master Profile Health hub (US164) and the JD-gap interview
 Sources (epic Task 5):
   - **conflict** thread  ← unresolved ``metadata.pending_conflicts`` (ADR-013),
                            severity-tagged by ``classify_conflict``.
+  - **confirmation**     ← unresolved ``metadata.pending_confirmations`` (#333) —
+                           N-option ambiguities parked by import, testimony or
+                           agent claims, always ``review``.
   - **accuracy** thread  ← merge ``enrichment_history`` records, severity from
                            ``escalate(classify_reconciliation, classify_confidence)``
                            (US161 data-loss delta + low merge confidence; US162).
@@ -46,6 +49,7 @@ from applire.schemas.profile import (
     EnrichmentRecord,
     HealthIssue,
     MasterProfileData,
+    PendingConfirmation,
     ProfileHealthResponse,
 )
 from applire.services.profile.completeness import field_gaps as completeness_field_gaps
@@ -70,6 +74,31 @@ def _conflict_issue(conflict: Conflict) -> HealthIssue:
         ),
         field_ref=conflict.field,
         source_record_ref=conflict.source,
+    )
+
+
+def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
+    """#333 — a parked reconciler ambiguity, surfaced so the human can reach it.
+
+    Parked confirmations were write-only: `submit_testimony` and CV import both
+    persist them, but the hub composed its read from `pending_conflicts` alone,
+    so nothing rendered and the hub's "Resolve" entry point into the
+    profile-review interview never existed for them. The interview itself has
+    walked and resolved confirmations since E037 PQ #4 (`_open_confirmations` →
+    `build_confirmation_clusters` → `resolve_confirmation`); only the read that
+    makes them visible was missing.
+
+    Severity is always ``review``: an unanswered identity question is real and
+    actionable but never blocks a document — ADR-041 amended reclassified the
+    equivalent conflict class down from ``critical`` for the same reason.
+    """
+    return HealthIssue(
+        id=f"confirmation:{confirmation.confirmation_id}",
+        thread="confirmation",
+        profile_mismatch_severity="review",
+        summary=confirmation.question,
+        field_ref=None,
+        source_record_ref=confirmation.source or None,
     )
 
 
@@ -138,6 +167,11 @@ def assess_health(
         issues.extend(
             _conflict_issue(c)
             for c in metadata.pending_conflicts
+            if not c.resolved
+        )
+        issues.extend(
+            _confirmation_issue(c)
+            for c in metadata.pending_confirmations
             if not c.resolved
         )
         for record in metadata.enrichment_history:

@@ -64,12 +64,14 @@ from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 from applire.schemas.profile import (
     CompletenessBlock,
+    Conflict,
     ConflictSummary,
     CVUploadResponse,
     EnrichmentRecord,
     FieldChange,
     MasterProfileData,
     MasterProfileResponse,
+    PendingConfirmation,
     ProfileChangesResponse,
     ProfileHealthResponse,
     ProfileMetadata,
@@ -234,19 +236,69 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
     )
 
 
-def _agent_parked_items(
+def _parked_identity(value: object) -> str:
+    """A stable, hashable identity string for an arbitrary parked-item value.
+
+    Conflict values are `Any` (str, dict, list), so they cannot go straight into
+    a set. JSON with sorted keys is order-insensitive for dicts and cheap."""
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _confirmation_key(confirmation: PendingConfirmation) -> tuple:
+    return (confirmation.question.strip().casefold(), tuple(confirmation.options))
+
+
+def _conflict_key(conflict: Conflict) -> tuple:
+    return (
+        conflict.section,
+        conflict.field,
+        _parked_identity(conflict.existing_value),
+        _parked_identity(conflict.incoming_value),
+    )
+
+
+def _surviving_parked_items(
     existing_data: MasterProfileData,
-) -> tuple[list, list]:
-    """E045 (adversarial M2): items `submit_claims` parked for the Health hub
-    must survive import rounds — both import doors replace the pending metadata
-    lists wholesale each round, which would silently destroy them on every CV
-    upload. Returns (conflicts, confirmations) with source `agent_interview`."""
+    round_conflicts: list[Conflict],
+    round_confirmations: list[PendingConfirmation],
+) -> tuple[list[Conflict], list[PendingConfirmation]]:
+    """The pending metadata lists an import round may write, preserving every
+    still-open item parked by an earlier round or another write path.
+
+    E045 (adversarial M2) established that both import doors replace
+    `metadata.pending_conflicts` / `pending_confirmations` wholesale each round.
+    The guard it added preserved exactly one source (`agent_interview`), which
+    left every other parked item — `testimony` (`submit_testimony`), and any
+    unanswered ambiguity from a *previous* import — destroyed by the next CV
+    upload (#333). A parked item is the human's open question; discarding it is
+    indistinguishable from silently dropping the claim it stands for.
+
+    So: every unresolved existing item survives, whatever its source, and the
+    round's own items are appended only where they are not the same open
+    question again (`_confirmation_key` / `_conflict_key`) — otherwise a repeat
+    upload would accumulate one duplicate per round. The preserved item wins the
+    tie so its `confirmation_id`/`conflict_id` stays live for an in-flight
+    resolve. Resolved items are not carried forward; both resolve paths delete
+    rather than flag, so this only ever drops history that is already answered.
+    """
     meta = existing_data.metadata
     if meta is None:
-        return [], []
+        return list(round_conflicts), list(round_confirmations)
+
+    kept_conflicts = [c for c in meta.pending_conflicts if not c.resolved]
+    kept_confirmations = [c for c in meta.pending_confirmations if not c.resolved]
+    seen_conflicts = {_conflict_key(c) for c in kept_conflicts}
+    seen_confirmations = {_confirmation_key(c) for c in kept_confirmations}
+
     return (
-        [c for c in meta.pending_conflicts if c.source == "agent_interview"],
-        [c for c in meta.pending_confirmations if c.source == "agent_interview"],
+        kept_conflicts
+        + [c for c in round_conflicts if _conflict_key(c) not in seen_conflicts],
+        kept_confirmations
+        + [
+            c
+            for c in round_confirmations
+            if _confirmation_key(c) not in seen_confirmations
+        ],
     )
 
 
@@ -356,7 +408,9 @@ async def _import_from_text(
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=created_via)
 
-        agent_conflicts, agent_confirmations = _agent_parked_items(existing_data)
+        parked_conflicts, parked_confirmations = _surviving_parked_items(
+            existing_data, merge_result.conflicts, merge_result.pending_confirmations
+        )
 
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
@@ -365,20 +419,18 @@ async def _import_from_text(
                 created_at=existing.created_at,
                 last_updated=now,
                 enrichment_history=[enrichment],
-                pending_conflicts=agent_conflicts + merge_result.conflicts,
-                pending_confirmations=agent_confirmations
-                + merge_result.pending_confirmations,
+                pending_conflicts=parked_conflicts,
+                pending_confirmations=parked_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
-            # Replace pending conflicts with latest round (user resolves via endpoint)
-            merged.metadata.pending_conflicts = agent_conflicts + merge_result.conflicts
+            # #333 — this round's items PLUS every still-open item parked earlier
+            # (the lists are replaced wholesale, so anything not re-listed is lost).
+            merged.metadata.pending_conflicts = parked_conflicts
             # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = (
-                agent_confirmations + merge_result.pending_confirmations
-            )
+            merged.metadata.pending_confirmations = parked_confirmations
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(
@@ -967,7 +1019,9 @@ async def _apply_merge(
         # the stored record, and the response all agree (US168 / ADR-042).
         enrichment.id = str(enrichment_id)
 
-        agent_conflicts, agent_confirmations = _agent_parked_items(existing_data)
+        parked_conflicts, parked_confirmations = _surviving_parked_items(
+            existing_data, merge_result.conflicts, merge_result.pending_confirmations
+        )
 
         if merged.metadata is None:
             merged.metadata = ProfileMetadata(
@@ -976,19 +1030,18 @@ async def _apply_merge(
                 created_at=existing.created_at,
                 last_updated=now,
                 enrichment_history=[enrichment],
-                pending_conflicts=agent_conflicts + merge_result.conflicts,
-                pending_confirmations=agent_confirmations
-                + merge_result.pending_confirmations,
+                pending_conflicts=parked_conflicts,
+                pending_confirmations=parked_confirmations,
             )
         else:
             merged.metadata.completeness_score = merged.calculate_completeness()
             merged.metadata.last_updated = now
             merged.metadata.enrichment_history.append(enrichment)
-            merged.metadata.pending_conflicts = agent_conflicts + merge_result.conflicts
+            # #333 — dual-door rule: the browser /upload door preserves the same
+            # still-open parked items as import_from_text.
+            merged.metadata.pending_conflicts = parked_conflicts
             # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = (
-                agent_confirmations + merge_result.pending_confirmations
-            )
+            merged.metadata.pending_confirmations = parked_confirmations
 
         # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
         await capture_pre_merge_snapshot(

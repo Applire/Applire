@@ -864,7 +864,10 @@ class HealthIssue(BaseModel):
     """
 
     id: str                                       # stable, deterministic
-    thread: Literal["conflict", "accuracy"]
+    # ``confirmation`` (#333) is its own thread because it resolves differently
+    # from a ``conflict``: not a 2-value existing/incoming pick, but the parked
+    # question + its options, which the profile-review interview already walks.
+    thread: Literal["conflict", "accuracy", "confirmation"]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     summary: str
     field_ref: str | None = None
