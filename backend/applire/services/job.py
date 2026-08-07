@@ -271,6 +271,44 @@ def _coerce_scope_requirements(raw: object, jd_text: str) -> list[dict]:
     return kept
 
 
+_LEADERSHIP_EMPHASIS_VALUES = ("leadership_led", "balanced", "hands_on_led")
+
+
+def _coerce_leadership_emphasis(raw: object, jd_text: str) -> dict | None:
+    """#271's deterministic floor on the extracted leadership weighting.
+
+    Facts only (ADR-062 clause 1 — the JUDGEMENT "does this posting weight
+    leadership" is the model's and stays the model's; this checks structure,
+    nothing else). Mirrors :func:`_coerce_scope_requirements`: ``emphasis`` in
+    its closed set, ``quote`` a non-empty string that actually occurs in the
+    posting (whitespace-folded — the reviewer judges wording, this checks
+    presence). Anything else is dropped whole and logged, never repaired and
+    never invented, so a fabricated weighting cannot reach the ORM.
+
+    Returns exactly the two consumed fields; keys the model volunteers are not
+    persisted. ``None`` means "no weighting stored" — which the selection seam
+    resolves at use time, because it is also what every pre-migration row holds.
+    """
+    if not isinstance(raw, dict):
+        return None
+    emphasis = raw.get("emphasis")
+    quote = raw.get("quote")
+    ok = (
+        emphasis in _LEADERSHIP_EMPHASIS_VALUES
+        and isinstance(quote, str)
+        and quote.strip()
+        and " ".join(quote.split()).casefold() in " ".join(jd_text.split()).casefold()
+    )
+    if not ok:
+        logger.warning(
+            "analyze_jd: dropping structurally invalid leadership_emphasis %r "
+            "(#271 floor — closed emphasis set, quote present in the posting).",
+            raw,
+        )
+        return None
+    return {"emphasis": emphasis, "quote": quote.strip()}
+
+
 async def analyze_jd(
     text: str,
     db: AsyncSession,
@@ -406,6 +444,9 @@ async def analyze_jd(
         keywords=data.get("keywords", []),
         scope_requirements=_coerce_scope_requirements(
             data.get("scope_requirements"), text
+        ),
+        leadership_emphasis=_coerce_leadership_emphasis(
+            data.get("leadership_emphasis"), text
         ),
         seniority_level=data.get("seniority_level") or "",
         company_culture_signals=data.get("company_culture_signals", []),

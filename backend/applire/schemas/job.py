@@ -67,6 +67,27 @@ class ScopeRequirement(BaseModel):
     level: Literal["required", "nice_to_have"] = "required"
 
 
+class LeadershipEmphasis(BaseModel):
+    """#271 — how the posting weights people-leadership against hands-on work.
+
+    Model-extracted in the same ``analyze_jd`` call: whether a posting weights
+    leadership over hands-on execution is a reading of prose, which ADR-062
+    clause 1 puts in the model's half and never in a marker-word list. Emitted
+    only when the posting itself names a people-leadership responsibility; the
+    verbatim ``quote`` is the facet's identity and its whole grounding, exactly
+    as ``ScopeRequirement.quote`` is (ADR-069 clause 1).
+
+    Both fields have a consumer, deliberately: ``emphasis`` sets the leadership
+    sub-cap in ``services/vault_evidence.py`` (a stored value read as data), and
+    ``quote`` travels into both writer prompts so the writer positions against
+    the posting's own sentence — "~60% technical leadership / 40% hands-on" —
+    instead of against a boolean.
+    """
+
+    emphasis: Literal["leadership_led", "balanced", "hands_on_led"]
+    quote: str
+
+
 class JobAnalysisResponse(BaseModel):
     id: uuid.UUID
     role_title: str
@@ -85,6 +106,9 @@ class JobAnalysisResponse(BaseModel):
     # ADR-069 — quantified scope bars (team size, budget). Empty for legacy rows
     # (nullable column) and for postings that state no numeric scope bar.
     scope_requirements: list[ScopeRequirement] = Field(default_factory=list)
+    # #271 — the posting's leadership-vs-hands-on weighting. None for legacy rows
+    # (nullable column) and for postings that name no leadership responsibility.
+    leadership_emphasis: Optional[LeadershipEmphasis] = None
     # E039/US220 (journey Branch F): set when this JD matches one of the user's
     # existing applications — a repost recognition hint, never a block. Enriched
     # by the caller (router / MCP tool), not by analyze_jd itself: the service

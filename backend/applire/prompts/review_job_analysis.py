@@ -25,6 +25,10 @@
 # reverts undeclared moves — the ADR-064 state-the-fact/code-compares pattern);
 # scope_requirements quote-grounding check.
 #
+# Prompt version: v4 (#271, 2026-08-07): leadership_emphasis quote-grounding check —
+# the same control ADR-069 clause 1 gave the scope quote, so an invented weighting is
+# bounded by a sentence the reviewer can find in the posting.
+#
 # Prompt version: v2 (Wave-6: concept-term shape rule for required_skills/
 # nice_to_have_skills/keywords, reconciled with the verbatim-grounding rule)
 # Used by: services/job.py -> analyze_jd() -> reviewer.review_and_refine
@@ -130,6 +134,17 @@ Check for these defects:
    scope entry ("mindestens 8 Jahre" as kind team_size) is fabricated-in-kind: instruct
    its removal — but never flag the ABSENCE of a scope entry for a vague magnitude with
    no stated number ("im dreistelligen Bereich"): omission is the correct handling there.
+2d. LEADERSHIP EMPHASIS GROUNDING (leadership_emphasis only, #271): when this field is
+   not null, its "quote" must appear in the source posting (allowing whitespace/
+   line-break differences) and must be a sentence that actually names a PEOPLE-
+   leadership responsibility (leading, line-managing, mentoring, growing a team). A
+   non-null leadership_emphasis on a posting that names no leadership responsibility at
+   all is fabricated — instruct its removal (null). An "emphasis" of "leadership_led" or
+   "hands_on_led" asserts the posting states which side is the larger part; when the
+   posting names leadership but weighs nothing, the correct value is "balanced", and a
+   dominance the posting never states is an overreach. Never flag a NULL
+   leadership_emphasis: omission is the correct handling for a posting that does not
+   mention leading people.
 3. FABRICATED KEYWORDS: an ATS keyword with no textual basis in the posting.
 4. INVENTED TITLE OR COMPANY: a role_title or company_name not present in the source
    text. If the posting genuinely does not name a company, company_name must be null —

@@ -918,6 +918,12 @@ async def _render_cover_letter_background(
                     jd_excerpt,
                     # ADR-061 clause 3: unconfirmed vault content is not evidence.
                     exclude_unconfirmed(profile.profile_json) if profile else {},
+                    # #271: the posting's own leadership-vs-hands-on weighting,
+                    # extracted at analyse time. Drives rule 3's trigger, its
+                    # sub-cap and the quote the writer positions against; None
+                    # on a pre-migration-0056 row falls back to the legacy JD
+                    # marker check inside the selector.
+                    leadership_emphasis=getattr(job, "leadership_emphasis", None),
                 )
             )
             user_prompt = build_cover_letter_prompt(
