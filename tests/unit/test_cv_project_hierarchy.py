@@ -287,7 +287,21 @@ def test_nest_projects_drops_dash_and_case_variant_bullet():
     )
 
 
-def test_nest_projects_keeps_project_when_all_bullets_suppressed():
+def test_nest_projects_drops_project_when_all_bullets_suppressed():
+    """#312 — INVERTS the former ``test_nest_projects_keeps_project_when_all_
+    bullets_suppressed``, whose premise ("US187: the heading still carries the
+    project") this issue overturns.
+
+    Charter run #7 delivered the consequence: a bold ``SAP-Rollout bei
+    Rasselstein`` heading with zero bullets under it, one line below the role
+    bullet that had just absorbed its only sentence — a section that reads to a
+    hiring manager as content that failed to render. A heading carries nothing.
+    The fact is not lost; it is on the parent role, which is exactly why the
+    #169 suppression fired in the first place.
+
+    Full coverage of the render side lives in
+    ``tests/unit/test_cv_empty_project_orphan_heading.py``.
+    """
     from applire.services.cv import _nest_projects
 
     tailored = _tailored_role_with_bullets(["Owned the rollout"])
@@ -305,10 +319,10 @@ def test_nest_projects_keeps_project_when_all_bullets_suppressed():
     }
     nested = _nest_projects(tailored, profile_json)
     acme = next(w for w in nested.work_history if w.company == "Acme GmbH")
-    assert [p.name for p in acme.projects] == ["Rollout Project"], (
-        "US187: the project heading survives even when all its bullets are suppressed"
+    assert acme.projects == [], (
+        "#312: a project the #169 suppression emptied must not survive as a bare heading"
     )
-    assert acme.projects[0].bullets == []
+    assert acme.bullets == ["Owned the rollout"], "the fact stays on the role"
 
 
 def test_nest_projects_does_not_dedupe_standalone_against_role():
