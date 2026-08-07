@@ -462,9 +462,16 @@ def test_a_truthful_figure_in_the_same_sentence_is_collateral():
     70% reduction in checkout latency" mixes a BORROWED DataCore headcount with
     a genuine Vector Analytics figure. Deterministic code cannot keep the
     second without rebuilding the sentence around it, so the floor takes both.
-    Recovering the truthful half needs the writer, not the guard: the review
-    loop rewrites rather than the guard cutting (follow-up issue), at which
-    point this test's expectation changes on purpose.
+
+    #299 predicted this expectation would flip when the review loop got the
+    ownership fact. It does NOT, and the reason is worth pinning: the sentence
+    NAMES its employer, so this is the fact-grade case the floor still acts on
+    — and the floor has to stay, because ``review_and_refine`` ships the last
+    corrector draft unreviewed on exhaustion, cycle-stop and reviewer failure
+    (the #254 vector). What #299 changed is upstream of here: the reviewer is
+    told "5 is DataCore's" every round and can rewrite the sentence, so this
+    state should reach the floor far less often. When it does reach it, the
+    honest half is still collateral. Prompt effect, charter run, not CI.
     """
     letter = _letter(
         [
