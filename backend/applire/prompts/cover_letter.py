@@ -125,6 +125,21 @@ Rules:
   deterministic guard before the letter is sent, which only makes the claim vaguer and weaker
   ("in months across sites"), never safer. Anchor it correctly instead of letting it go
   unattributed.
+- THE CANDIDATE'S OWN JOB TITLES ARE NAMES, NOT DESCRIPTIONS (#321 — a delivered letter
+  called the candidate "Bereichsverantwortlicher" at a position the profile records as
+  "Produktionsleiter", having lifted the noun out of that same position's own achievement
+  line): when a sentence names the role the candidate holds or held at one of THEIR OWN
+  employers, use that position's title from the Recent experience list VERBATIM, and only
+  for the position it is listed under. A title is a name — copy it exactly; never
+  translate, shorten, generalise, upgrade or downgrade it (where the profile records two,
+  "Fertigungsmeister / Schichtleiter", the whole string or one of its named halves is
+  correct). A responsibility, achievement, certification or ledger term is a DESCRIPTION:
+  say what the candidate did or is responsible for, but never turn it into a title they
+  held. Where no recorded title fits the sentence, describe the work and assert no title
+  at all. A title that understates the recorded one is as false as one that inflates it —
+  the employer's own record is what a reference call returns, and the CV states that same
+  recorded title. (This governs the candidate's OWN positions only; the job being applied
+  for is governed by the TARGET ROLE line in PRE-GENERATION INPUTS.)
 - Write the ENTIRE letter in the language given in the LANGUAGE line of the user message (DE = German, EN = English).
   Never mirror the language of the job description or the candidate profile when it differs from LANGUAGE.
 - For German letters: use formal Sie-form, classic Bewerbungsschreiben structure. Respect German

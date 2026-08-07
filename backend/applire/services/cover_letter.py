@@ -991,6 +991,30 @@ async def _render_cover_letter_background(
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 grounding_source = f"{grounding_source}\n\n{ledger_block}"
+            # #321 (ADR-062 clause 2): the vault's own recorded job titles, as
+            # FACTS — "this position is recorded as 'Produktionsleiter'". Run #8
+            # delivered a letter naming the candidate "Bereichsverantwortlicher"
+            # at that position, a noun lifted from the same position's ISO-9001
+            # achievement line, so every coverage-based check passed it. Deciding
+            # whether a sentence STATES a title is a judgement about prose and
+            # stays with the model (no title-marker list exists anywhere).
+            # This goes into the grounding SOURCE rather than a reviewer-only
+            # wrapper (as FIGURE OWNERSHIP does) for two reasons: it does not
+            # depend on the draft, and review_and_refine hands `source` to the
+            # CORRECTOR as well — which is the call that has to restate the
+            # title. Both letter loops below share this string, so the condense
+            # pass carries it too. No new LLM call, no new pass (ADR-058 freeze
+            # amended 2026-07-24: threading existing vault data into an existing
+            # prompt is bugfix-grade).
+            from applire.services.cover_letter_positioning import (
+                render_role_titles_block,
+                vault_role_titles,
+            )
+            role_titles_block = render_role_titles_block(
+                vault_role_titles(profile.profile_json if profile else {})
+            )
+            if role_titles_block:
+                grounding_source = f"{grounding_source}\n\n{role_titles_block}"
             # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
             # SECOND deterministic wrapper — each reviewer iteration also carries the JD
             # hard requirements the CURRENT draft has not addressed, recomputed fresh
