@@ -906,14 +906,14 @@ async def _render_cover_letter_background(
             # selected independently of what cv_data's tailoring
             # condensation kept — so a fact present in the vault but
             # dropped by tailoring can still reach the letter.
-            from applire.services.letter_evidence import (
-                render_letter_evidence_block,
-                select_letter_evidence,
+            from applire.services.vault_evidence import (
+                render_vault_evidence_block,
+                select_vault_evidence,
             )
             from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
-            vault_evidence_block = render_letter_evidence_block(
-                select_letter_evidence(
+            vault_evidence_block = render_vault_evidence_block(
+                select_vault_evidence(
                     keyword_ledger,
                     jd_excerpt,
                     # ADR-061 clause 3: unconfirmed vault content is not evidence.

@@ -11,7 +11,7 @@ run-5 NordPharm entry survived tailoring with only 3 bullets, so
 need two to three review rounds, while the right LLMs pass the first
 round" — never reached the CV or the letter, even though both run-4 blind
 panel reviewers named it as the invite-flipping fact. See
-``services.letter_evidence`` module docstring for the full selection design.
+``services.vault_evidence`` module docstring for the full selection design.
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-from applire.services.letter_evidence import (
+from applire.services.vault_evidence import (
     DEFAULT_DIGEST_CAP,
     EvidenceDigestItem,
     jd_signals_leadership,
-    render_letter_evidence_block,
-    select_letter_evidence,
+    render_vault_evidence_block,
+    select_vault_evidence,
 )
 
 _FIXTURE_DIR = Path(__file__).parents[4] / ".run5fixture"
@@ -57,7 +57,7 @@ def test_run5_digest_surfaces_review_rounds_sentence_never_in_cv_or_letter():
     profile, ledger, jd_raw = _load_run5()
     jd_excerpt = build_jd_excerpt(jd_raw)
 
-    items = select_letter_evidence(ledger, jd_excerpt, profile)
+    items = select_vault_evidence(ledger, jd_excerpt, profile)
 
     review_rounds = [i for i in items if i.path == "work_experience[0].achievements[3]"]
     assert review_rounds, "achievements[3] (the review-rounds sentence) must be selected"
@@ -80,7 +80,7 @@ def test_run5_digest_surfaces_leadership_arc_when_jd_states_leadership_weighting
     jd_excerpt = build_jd_excerpt(jd_raw)
     assert jd_signals_leadership(jd_excerpt)
 
-    items = select_letter_evidence(ledger, jd_excerpt, profile)
+    items = select_vault_evidence(ledger, jd_excerpt, profile)
     paths = {i.path for i in items}
     assert "work_experience[0].responsibilities[14]" in paths  # "Leads a distributed team..."
 
@@ -90,7 +90,7 @@ def test_run5_digest_never_exceeds_default_cap():
     from applire.services.jd_excerpt import build_jd_excerpt
 
     profile, ledger, jd_raw = _load_run5()
-    items = select_letter_evidence(ledger, build_jd_excerpt(jd_raw), profile)
+    items = select_vault_evidence(ledger, build_jd_excerpt(jd_raw), profile)
     assert len(items) <= DEFAULT_DIGEST_CAP
 
 
@@ -103,9 +103,9 @@ def _profile(work_experience=None, **extra):
     return {"work_experience": work_experience or [], **extra}
 
 
-def test_select_letter_evidence_none_and_empty_tolerant():
-    assert select_letter_evidence(None, "", None) == []
-    assert select_letter_evidence([], "", {}) == []
+def test_select_vault_evidence_none_and_empty_tolerant():
+    assert select_vault_evidence(None, "", None) == []
+    assert select_vault_evidence([], "", {}) == []
 
 
 def test_claimable_concept_anchor_selected_verbatim_with_path():
@@ -127,7 +127,7 @@ def test_claimable_concept_anchor_selected_verbatim_with_path():
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     assert len(items) == 1
     assert items[0].path == "work_experience[0].achievements[0]"
     assert items[0].text == "Migrated the fleet to Kubernetes, cutting deploy time by half."
@@ -147,7 +147,7 @@ def test_non_claimable_ledger_entry_never_anchors():
             {"id": "w1", "role": "Eng", "company": "Acme", "achievements": ["Worked with Kubernetes."]}
         ]
     )
-    assert select_letter_evidence(ledger, "", profile) == []
+    assert select_vault_evidence(ledger, "", profile) == []
 
 
 def test_measured_outcome_preferred_over_target_anchor():
@@ -175,7 +175,7 @@ def test_measured_outcome_preferred_over_target_anchor():
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     paths = {i.path: i for i in items}
     # The bare target (achievements[0]) must never be the surfaced anchor...
     assert "work_experience[0].achievements[0]" not in paths
@@ -220,7 +220,7 @@ def test_hermetic_same_initiative_evidence_reaches_digest_without_its_own_concep
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     paths = {i.path: i for i in items}
     assert "work_experience[0].achievements[0]" in paths
     same_initiative = paths.get("work_experience[0].achievements[1]")
@@ -263,7 +263,7 @@ def test_hermetic_same_initiative_evidence_never_pulled_from_a_sibling_project()
             }
         ],
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     # The finance-tool achievement shares the employer via associated_experience
     # (owner_ids = {"p1", "w1"}), which is NOT a subset of the anchor's
     # {"w1"} — it must never surface via the same-initiative extension.
@@ -289,7 +289,7 @@ def test_leadership_evidence_absent_when_jd_does_not_signal_leadership():
     )
     jd_no_leadership = "We are hiring a hands-on individual contributor to run our Kubernetes fleet."
     assert not jd_signals_leadership(jd_no_leadership)
-    items = select_letter_evidence(ledger, jd_no_leadership, profile)
+    items = select_vault_evidence(ledger, jd_no_leadership, profile)
     # Channel 2 (same-initiative figures) is independent of the leadership
     # gate and may still surface this text on its own merits — what must
     # NEVER happen is the LEADERSHIP channel itself firing.
@@ -313,7 +313,7 @@ def test_leadership_evidence_eligible_when_jd_states_leadership_weighting():
     )
     jd_with_leadership = "This role carries significant leadership responsibility, managing a growing team."
     assert jd_signals_leadership(jd_with_leadership)
-    items = select_letter_evidence(ledger, jd_with_leadership, profile)
+    items = select_vault_evidence(ledger, jd_with_leadership, profile)
     assert any(i.path == "work_experience[0].responsibilities[0]" for i in items)
 
 
@@ -336,8 +336,8 @@ def test_cap_is_enforced_and_drop_is_logged_not_silent(caplog):
             }
         ]
     )
-    with caplog.at_level(logging.INFO, logger="applire.services.letter_evidence"):
-        items = select_letter_evidence(ledger, "", profile, cap=5)
+    with caplog.at_level(logging.INFO, logger="applire.services.vault_evidence"):
+        items = select_vault_evidence(ledger, "", profile, cap=5)
     assert len(items) == 5
     assert any("capped digest" in r.message for r in caplog.records)
 
@@ -361,7 +361,7 @@ def test_cap_is_enforced_and_drop_is_logged_not_silent(caplog):
 # the qualifier (not the headline it explains) is the one silently dropped.
 # Real-world verdict: BOTH blind run-4 panel reviewers named exactly this
 # fact as what would change their minds — losing it to cap arithmetic is the
-# #271 defect, even though ``select_letter_evidence`` in principle already
+# #271 defect, even though ``select_vault_evidence`` in principle already
 # "knows" the two achievements are linked.
 # ---------------------------------------------------------------------------
 
@@ -411,7 +411,7 @@ def test_measured_outcome_qualifier_survives_cap_crowding_ahead_of_its_own_headl
             },
         ]
     )
-    items = select_letter_evidence(ledger, "", profile, cap=3)
+    items = select_vault_evidence(ledger, "", profile, cap=3)
     paths = {i.path for i in items}
     assert len(items) == 3
     qualifier_path = "work_experience[1].achievements[1]"
@@ -460,7 +460,7 @@ def test_measured_outcome_qualifier_never_added_when_no_pairing_exists():
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     assert len(items) == 1
     assert items[0].path == "work_experience[0].responsibilities[0]"
     assert items[0].reason == "claimable-concept"
@@ -492,7 +492,7 @@ def test_measured_outcome_qualifier_never_duplicates_an_already_swapped_target_a
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     matching = [i for i in items if i.concept == "cost reduction"]
     assert len(matching) == 1
     assert matching[0].reason == "measured-outcome-preferred"
@@ -527,17 +527,17 @@ def test_measured_outcome_qualifier_skips_self_match_when_anchor_is_itself_an_ac
             }
         ]
     )
-    items = select_letter_evidence(ledger, "", profile)
+    items = select_vault_evidence(ledger, "", profile)
     matching = [i for i in items if i.path == "work_experience[0].achievements[1]"]
     assert len(matching) == 1, "must appear exactly once, never duplicated"
     assert matching[0].reason == "same-initiative-evidence"
 
 
-def test_render_letter_evidence_block_empty_for_no_items():
-    assert render_letter_evidence_block([]) == ""
+def test_render_vault_evidence_block_empty_for_no_items():
+    assert render_vault_evidence_block([]) == ""
 
 
-def test_render_letter_evidence_block_wording_and_verbatim_content():
+def test_render_vault_evidence_block_wording_and_verbatim_content():
     items = [
         EvidenceDigestItem(
             concept="Kubernetes",
@@ -546,10 +546,118 @@ def test_render_letter_evidence_block_wording_and_verbatim_content():
             text="Migrated the fleet to Kubernetes, cutting deploy time by half.",
         )
     ]
-    block = render_letter_evidence_block(items)
+    block = render_vault_evidence_block(items)
     assert "STRONGEST VAULT EVIDENCE" in block
     assert "Migrated the fleet to Kubernetes, cutting deploy time by half." in block
     assert "work_experience[0].achievements[0]" in block
     low = block.lower()
     assert "additional" in low and "not content that must all appear" in low
     assert "never overrides" in low or "grounding contract" in low
+
+
+# ── #303 — owner scoping for the segmented CV path ────────────────────────
+
+
+def _owned(path: str, owners: set[str]) -> EvidenceDigestItem:
+    return EvidenceDigestItem(
+        concept="Budgetverantwortung",
+        reason="claimable-concept",
+        path=path,
+        text=f"evidence at {path}",
+        owner_ids=frozenset(owners),
+    )
+
+
+def test_select_vault_evidence_carries_the_owner_ids_of_each_unit():
+    """The digest is useless to a per-entry writer without the owner. Pins that
+    selection populates it rather than leaving the default empty set."""
+    ledger = [
+        {"concept": "Kubernetes", "surface_forms": ["Kubernetes"], "claimable": True,
+         "status": "direct"},
+    ]
+    profile = {
+        "work_experience": [
+            {"id": "w-alpha", "company": "Acme", "role": "SRE",
+             "start_date": "2020-01", "end_date": None,
+             "responsibilities": ["Ran the Kubernetes fleet across three regions."],
+             "achievements": []},
+        ],
+    }
+    items = select_vault_evidence(ledger, "", profile)
+    assert items
+    assert all(i.owner_ids for i in items), "every selected item must name its owner"
+    assert any("w-alpha" in i.owner_ids for i in items)
+
+
+def test_filter_vault_evidence_for_owner_keeps_only_that_entrys_evidence():
+    """ADR-071: a per-entry writer offered another employer's achievement is
+    being invited to misattribute it."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    mine = _owned("work_experience[0].achievements[0]", {"w1"})
+    theirs = _owned("work_experience[1].achievements[0]", {"w2"})
+    nested = _owned("projects[0].description", {"w1", "p9"})
+    out = filter_vault_evidence_for_owner([mine, theirs, nested], "w1")
+    assert out == [mine, nested]
+
+
+def test_filter_vault_evidence_for_owner_fails_closed_on_missing_owner():
+    """An unknown or absent owner id must yield nothing — never everything."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    items = [_owned("work_experience[0].achievements[0]", {"w1"})]
+    assert filter_vault_evidence_for_owner(items, None) == []
+    assert filter_vault_evidence_for_owner(items, "") == []
+    assert filter_vault_evidence_for_owner(items, "w-unknown") == []
+    assert filter_vault_evidence_for_owner([], "w1") == []
+
+
+def test_filter_vault_evidence_for_owner_drops_ownerless_units():
+    """Summary/certification-level units belong to no work entry."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    ownerless = EvidenceDigestItem(
+        concept="x", reason="claimable-concept",
+        path="professional_summary.en", text="A summary line.",
+    )
+    assert filter_vault_evidence_for_owner([ownerless], "w1") == []
+
+
+def test_render_vault_evidence_block_rejects_an_unknown_chain():
+    items = [_owned("work_experience[0].achievements[0]", {"w1"})]
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        render_vault_evidence_block(items, chain="resume")
+
+
+def test_select_vault_evidence_does_not_mutate_the_profile_it_is_given():
+    """``select_vault_evidence`` documents itself as pure, and its caller on the
+    CV chain hands it the very ``profile_json`` that is then serialised as the
+    ADR-021 reviewer's source of truth (#303).
+
+    It is not pure by default: ``build_vault_index`` coerces via
+    ``MasterProfileData.model_validate``, whose ``mode="before"``
+    ``_migrate_legacy_fields`` validator rewrites its input dict IN PLACE
+    (``data.pop("work_history")``, ``data["skills"] = [...]``). A legacy-shaped
+    profile handed to this function would therefore come back normalised, and
+    the reviewer would be grounding against a document the vault never stored.
+    """
+    import json as _json
+
+    legacy_profile = {
+        "work_history": [
+            {"company": "Acme", "role": "Dev", "start_date": "2020",
+             "end_date": None, "bullets": ["Ran the Kubernetes fleet."]},
+        ],
+        "skills": ["Python"],
+        "contact": {"name": "Max", "linkedin": "https://example.invalid/max"},
+    }
+    before = _json.dumps(legacy_profile, ensure_ascii=False, sort_keys=True)
+    select_vault_evidence(
+        [{"concept": "Kubernetes", "surface_forms": ["Kubernetes"],
+          "claimable": True, "status": "direct"}],
+        "",
+        legacy_profile,
+    )
+    assert _json.dumps(legacy_profile, ensure_ascii=False, sort_keys=True) == before

@@ -15,7 +15,33 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""#271 Task 2/3 — strongest-vault-evidence digest for the letter.
+"""#271 Task 2/3 — strongest-vault-evidence digest, shared by BOTH document
+chains (renamed from ``letter_evidence`` for #303, 2026-08-07).
+
+**Why it is no longer letter-only (ADR-066 — one logical operation, one
+implementation).** "Select the vault's strongest JD-relevant evidence and hand
+it to the writer verbatim, with the vault entry that owns it" is one logical
+operation. #271 built it and wired it to the cover-letter writer only; #271's
+own closure note recorded the CV half as still open, and #303 is that half.
+The CV writer does receive the whole profile JSON, so this block adds no NEW
+data there — it adds the two things the CV writer never had: the MAPPING from
+each claimable ledger concept to the specific vault sentence that answers it,
+and that sentence's OWNER path. Until now the CV writer's only concept→evidence
+pointer was the ledger's ``evidence`` field, which is the gap classifier's
+free-text ``reason`` (``services.gap.ledger_input_from_classification``) — a
+paraphrase of why the classifier graded the row, carrying no vault quote, no
+owner and no figure. That is why a `direct`/claimable concept could reach the
+delivered CV as a bare skills-list keyword while the letter, which HAS this
+block, named the vault's own sentence: charter runs #7 (`Budgetverantwortung`
+/ `6 Mio. €`), 13 (#415, `Jahresabschluss`), 17 and 18 (#452, and run 18's
+surviving `~90 MA` residual) all show that same CV-vs-letter asymmetry, and
+every blind panel read it as `aufgeblasen`.
+
+The digest OFFERS evidence to a writer; it never decides what the delivered
+document contains, never gates, and never deletes. It is therefore not the
+keyword-proxy STRENGTH ranking ADR-067 clause 4 retired (that clause governs
+deterministic code choosing which of the writer's own bullets survives a cap —
+``bullet_cuts``/``condense_to_budget``, whose cut order is a figure fact).
 
 Ground truth (charter run #5): the letter's CANDIDATE PROFILE block is built
 from ``cv_data`` (the TAILORED CV's ``tailored_data``), condensed to
@@ -104,6 +130,7 @@ for determinism.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -214,6 +241,14 @@ class EvidenceDigestItem:
     reason: str
     path: str
     text: str
+    # #303: the vault entry id(s) that OWN this unit
+    # (:attr:`~applire.services.oracle.matchers.vault.EvidenceUnit.owner_ids`,
+    # the #196/#244 attribution machinery). Carried so the segmented CV path
+    # can hand each work-section prompt ONLY its own entry's evidence — a
+    # whole-vault digest inside a per-entry prompt is an invitation to the
+    # ADR-071 misattribution class. Defaulted so nothing that constructs an
+    # item positionally has to change.
+    owner_ids: frozenset[str] = frozenset()
 
 
 def _anchor_for_concept(
@@ -233,7 +268,7 @@ def _anchor_for_concept(
     return max(candidates, key=lambda u: (len(u.text), u.path))
 
 
-def select_letter_evidence(
+def select_vault_evidence(
     keyword_ledger: list[dict[str, Any]] | None,
     jd_excerpt: str,
     profile_json: dict[str, Any] | Any,
@@ -246,6 +281,20 @@ def select_letter_evidence(
     See the module docstring for the three selection channels and their
     priority order under the ``cap`` bound.
     """
+    # "Pure" has to be true, not aspirational (#303). ``build_vault_index``
+    # coerces a dict through ``MasterProfileData.model_validate``, and that
+    # model's ``mode="before"`` ``_migrate_legacy_fields`` validator rewrites
+    # its input IN PLACE (``data.pop("work_history")``,
+    # ``data["skills"] = [...]``, ``data.pop("contact")``). The CV chain hands
+    # this function the very ``profile_json`` it then serialises as the
+    # ADR-021 reviewer's source of truth, so a legacy-shaped vault would have
+    # its reviewer grounded against a normalised rewrite it never stored.
+    # Copied here rather than at each call site: the mutation belongs to this
+    # function's own dependency, and a caller cannot be expected to know.
+    # (The in-place validator is a defect in its own right; it is left alone
+    # deliberately — every other caller's behaviour is unchanged by this.)
+    if isinstance(profile_json, dict):
+        profile_json = copy.deepcopy(profile_json)
     index = build_vault_index(profile_json or {})
     selected: list[EvidenceDigestItem] = []
     selected_paths: set[str] = set()
@@ -274,7 +323,8 @@ def select_letter_evidence(
             anchor_owner_sets.append(anchor.owner_ids)
         if anchor.path in selected_paths:
             continue
-        selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path, text=anchor.text))
+        selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path,
+                                          text=anchor.text, owner_ids=anchor.owner_ids))
         selected_paths.add(anchor.path)
 
         # #271 run-6 follow-up — MEASURED-OUTCOME QUALIFIER, placed
@@ -319,6 +369,7 @@ def select_letter_evidence(
                         reason="measured-outcome-qualifier",
                         path=qualifier.path,
                         text=qualifier.text,
+                        owner_ids=qualifier.owner_ids,
                     )
                 )
                 selected_paths.add(qualifier.path)
@@ -370,12 +421,13 @@ def select_letter_evidence(
                     reason="same-initiative-evidence",
                     path=u.path,
                     text=u.text,
+                    owner_ids=u.owner_ids,
                 )
             )
             selected_paths.add(u.path)
         if drop:
             logger.info(
-                "select_letter_evidence: dropped %d same-initiative candidate(s) for "
+                "select_vault_evidence: dropped %d same-initiative candidate(s) for "
                 "owner set %s beyond the per-anchor cap: %s",
                 len(drop), sorted(anchor_owners), [u.path for u in drop],
             )
@@ -412,12 +464,13 @@ def select_letter_evidence(
                     reason="leadership-eligible",
                     path=u.path,
                     text=u.text,
+                    owner_ids=u.owner_ids,
                 )
             )
             selected_paths.add(u.path)
         if drop:
             logger.info(
-                "select_letter_evidence: dropped %d leadership candidate(s) beyond the "
+                "select_vault_evidence: dropped %d leadership candidate(s) beyond the "
                 "cap: %s",
                 len(drop), [u.path for u in drop],
             )
@@ -426,7 +479,7 @@ def select_letter_evidence(
     if len(selected) > cap:
         kept, dropped = selected[:cap], selected[cap:]
         logger.info(
-            "select_letter_evidence: capped digest at %d, dropped %d lower-priority "
+            "select_vault_evidence: capped digest at %d, dropped %d lower-priority "
             "item(s): %s",
             cap, len(dropped), [d.path for d in dropped],
         )
@@ -435,7 +488,7 @@ def select_letter_evidence(
     return selected
 
 
-_BLOCK_INSTRUCTION = (
+_LETTER_BLOCK_INSTRUCTION = (
     "The items below are the candidate's OWN strongest JD-relevant material, "
     "selected deterministically from their vault (not the tailored CV, which "
     "may have compressed some of it away). Surface an item where it "
@@ -448,17 +501,98 @@ _BLOCK_INSTRUCTION = (
     "license to state something beyond what it says."
 )
 
+# #303. Deliberately NOT the letter wording: that text names "the letter's
+# flow" and contrasts the digest with "the tailored CV", neither of which
+# means anything to the writer of the CV itself.
+#
+# Two clauses carry the whole point of the block on this chain:
+#   * the SOURCE path. Grounding rules 1 and 2 of the CV writer prompt are
+#     per-ENTRY ("a bullet under a work entry must trace to THAT ENTRY'S OWN
+#     …"), and an evidence item without its owner is exactly the input that
+#     produces the ADR-071 misattribution class.
+#   * "selectivity is expected". The same prompt carries a hard ROLE BULLET
+#     BUDGETS ceiling; a block that demanded every item appear would be a
+#     second instruction contradicting the first about the same entry, which
+#     is what ADR-062 clause 4 forbids and what drove the reverted 2026-07-30
+#     #303 fix to full review-loop exhaustion.
+_CV_BLOCK_INSTRUCTION = (
+    "The items below are the candidate's OWN strongest JD-relevant material, "
+    "selected deterministically from their vault: for each claimable "
+    "Keyword-Ledger concept, the vault's own sentence that actually answers "
+    "it. Each item's (source: …) names the vault entry that OWNS it — a "
+    "bullet drawn from an item belongs under THAT work entry and nowhere "
+    "else. Quote or closely paraphrase; never fuse two items into one claim "
+    "and never invent a connection that is not stated verbatim in either. "
+    "This is evidence to choose from within the ROLE BULLET BUDGETS ceiling, "
+    "not content that must all appear — selectivity is expected, and an item "
+    "whose substance another bullet already carries needs no second one. "
+    "These lines are EVIDENCE. They are never work-entry ids: the only ids "
+    "you may key a response to are the ones in ROLE BULLET BUDGETS."
+)
 
-def render_letter_evidence_block(items: list[EvidenceDigestItem]) -> str:
-    """Render the digest for the WRITER prompt (threaded via
-    ``build_cover_letter_prompt``'s new ``vault_evidence_block`` kwarg).
+_CHAIN_INSTRUCTIONS = {"cv": _CV_BLOCK_INSTRUCTION, "letter": _LETTER_BLOCK_INSTRUCTION}
+
+
+def filter_vault_evidence_for_owner(
+    items: list[EvidenceDigestItem], owner_id: str | None
+) -> list[EvidenceDigestItem]:
+    """The subset of ``items`` owned by one vault entry (#303, segmented path).
+
+    The segmented CV path builds one prompt per work entry, so it must be
+    handed that entry's evidence only — a whole-vault digest inside a
+    per-entry prompt is an invitation to write another employer's achievement
+    under this one (ADR-071 clause 1/3). Order is preserved. An item with no
+    ``owner_ids`` (a summary/certification-level unit) belongs to no entry and
+    is never emitted here. Empty/unknown ``owner_id`` → ``[]``, so the caller
+    adds nothing rather than adding everything.
+    """
+    if not owner_id:
+        return []
+    return [i for i in items if owner_id in i.owner_ids]
+
+
+def render_vault_evidence_block(
+    items: list[EvidenceDigestItem], *, chain: str = "letter"
+) -> str:
+    """Render the digest for a WRITER prompt.
+
+    ``chain`` selects the instruction wording: ``"letter"`` (threaded via
+    ``build_cover_letter_prompt``'s ``vault_evidence_block`` kwarg, #271) or
+    ``"cv"`` (``prompts.cv_tailoring.build_user_prompt`` /
+    ``prompts.cv_segmented.build_work_section_prompt``, #303). The selected
+    ITEMS are identical on both chains — one selector, one implementation
+    (ADR-066); only the sentence telling the writer what to do with them
+    differs, because the two writers are producing different documents.
 
     Returns ``""`` when ``items`` is empty so a JD with no claimable
     concepts / no leadership trigger adds nothing.
     """
     if not items:
         return ""
-    lines = ["=== STRONGEST VAULT EVIDENCE (deterministic — #271) ===", _BLOCK_INSTRUCTION]
+    try:
+        instruction = _CHAIN_INSTRUCTIONS[chain]
+    except KeyError:  # pragma: no cover - programmer error, fail loudly
+        raise ValueError(
+            f"unknown chain {chain!r}; expected one of {sorted(_CHAIN_INSTRUCTIONS)}"
+        ) from None
+    lines = ["=== STRONGEST VAULT EVIDENCE (deterministic — #271) ===", instruction]
     for item in items:
-        lines.append(f"  - [{item.concept}] {item.text} (source: {item.path})")
+        if chain == "cv":
+            # Deliberately NOT the letter's "  - [<label>] …" shape (PR #473).
+            # ``cv_budget.render_budget_table`` owns that shape on this chain —
+            # "  - [<work_entry_id>] <company> — <role>: max N" is the
+            # ADR-067 clause 3 id channel, and the system prompt tells the
+            # writer to key its response to the id it finds there. Rendering a
+            # concept label in the same shape a few lines above it hands the
+            # writer two things that look like ids; the integration stack's
+            # mock writer duly returned prose keyed to the concept "Python",
+            # and a real model reading the same two blocks can conflate them
+            # for the same reason. The letter prompt has no id channel, so its
+            # rendering is left byte-identical (charter-verified, run 18).
+            lines.append(
+                f"  EVIDENCE (concept: {item.concept} | source: {item.path})\n"
+                f"      \u201c{item.text}\u201d"
+            )
+        else:
+            lines.append(f"  - [{item.concept}] {item.text} (source: {item.path})")
     return "\n".join(lines)

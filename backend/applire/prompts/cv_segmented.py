@@ -151,7 +151,16 @@ def build_work_section_prompt(
     keyword_ledger: list[dict] | None = None,
     budget: "BudgetResult | None" = None,
     scope_positioning_block: str | None = None,
+    vault_evidence_block: str | None = None,
 ) -> str:
+    """One work entry's tailoring prompt (segmented path).
+
+    ``vault_evidence_block`` (#303) must already be OWNER-SCOPED to this entry
+    (:func:`applire.services.vault_evidence.filter_vault_evidence_for_owner`);
+    a whole-vault digest here would offer this writer another employer's
+    achievement, which is exactly the ADR-071 misattribution class. Optional;
+    omitted/empty leaves the prompt byte-identical.
+    """
     from applire.services.cv_budget import role_budget_line
 
     theme = (directive.get("per_role_themes") or {}).get(entry.get("id"), "")
@@ -161,6 +170,7 @@ def build_work_section_prompt(
     # block the single-call writer receives — the attested bullet belongs in ITS
     # matching role, and only the writer of that entry can place it.
     scope_section = f"{scope_positioning_block}\n\n" if scope_positioning_block else ""
+    evidence_section = f"{vault_evidence_block}\n\n" if vault_evidence_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"EMPHASIS THEME FOR THIS ENTRY: {theme or '(use the summary angle)'}\n"
@@ -169,6 +179,7 @@ def build_work_section_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"THIS WORK ENTRY:\n{json.dumps(entry, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
+        f"{evidence_section}"
         f"{scope_section}"
         f"KEYWORD GAPS (use only where explicitly supported by this entry):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"

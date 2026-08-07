@@ -252,7 +252,7 @@ def build_cover_letter_prompt(
         transfer argument or a brief de-emphasis), never silence. Optional so legacy/
         degraded callers do not break; omitted/empty → adds nothing.
     vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
-        :func:`applire.services.letter_evidence.render_letter_evidence_block`) — the
+        :func:`applire.services.vault_evidence.render_vault_evidence_block`) — the
         vault's strongest JD-relevant material, selected independently of what
         ``cv_data``'s tailoring condensation kept, so a fact present in the vault but
         absent from the tailored CV can still reach this prompt (Task 3, the run-5
@@ -384,7 +384,7 @@ def build_cover_letter_prompt(
     # independently of what cv_data's tailoring condensation kept above —
     # additional material to choose from, never required, never a licence
     # to exceed the grounding contract. Threaded ONLY when genuinely found
-    # (services.letter_evidence.select_letter_evidence); absent → adds
+    # (services.vault_evidence.select_vault_evidence); absent → adds
     # nothing.
     if vault_evidence_block:
         lines += ["", vault_evidence_block]

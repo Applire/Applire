@@ -116,6 +116,7 @@ def build_user_prompt(
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
+    vault_evidence_block: str | None = None,
 ) -> str:
     """Build the single-call CV tailoring user prompt.
 
@@ -124,6 +125,16 @@ def build_user_prompt(
     gaps rule 4 forbids disclosing, and under active budgets the tension made
     the writer self-censor its strongest quantified evidence (#384). Gap
     handling is rule 4's job, driven by the KEYWORD LEDGER.
+
+    vault_evidence_block: the strongest-vault-evidence digest
+        (:func:`applire.services.vault_evidence.render_vault_evidence_block`,
+        ``chain="cv"``) — for each claimable ledger concept, the vault's OWN
+        sentence answering it plus the entry that owns it. #303: the ledger
+        block above gives the writer the concept and the gap classifier's
+        free-text rationale, never the vault sentence, so a `direct` concept
+        could ship as a bare skills keyword while the letter — which has had
+        this digest since #271 — named the sentence. Optional so legacy /
+        pre-E037 callers do not break; omitted/empty → adds nothing.
 
     stated_limits_block: the candidate's persisted denial statements rendered verbatim
         (:func:`applire.services.cross_document.render_stated_limits_block`) — the
@@ -139,6 +150,10 @@ def build_user_prompt(
 
     ledger_block = render_ledger_prompt_block(keyword_ledger)
     ledger_section = f"{ledger_block}\n\n" if ledger_block else ""
+    # #303: immediately after the ledger, because it is the ledger's missing
+    # half — the concept→vault-sentence mapping the ledger's own `evidence`
+    # field (the gap classifier's rationale) does not carry.
+    evidence_section = f"{vault_evidence_block}\n\n" if vault_evidence_block else ""
     # #277 (#270 Fix D inverted): the vault-derived scoped-boundary block — a claimable
     # concept the vault ALSO holds an explicit stated limit on. Never a bare denial,
     # never an unqualified claim; render the scoped form naming both halves. Empty →
@@ -163,6 +178,7 @@ def build_user_prompt(
         f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
+        f"{evidence_section}"
         f"{stated_limits_section}"
         f"{scope_section}"
         f"{budget_section}"

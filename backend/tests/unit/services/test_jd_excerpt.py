@@ -24,7 +24,7 @@ _FIXTURE = Path(__file__).parents[4] / ".run5fixture" / "jd.txt"
 # Scoped PER FUNCTION, never module-level: half of this file's tests need no
 # fixture at all, and a module-scoped `pytestmark` silently skipped those in CI
 # too — which is how build_jd_excerpt ended up with zero CI coverage. Mirrors
-# the per-function pattern in test_letter_evidence.py.
+# the per-function pattern in test_vault_evidence.py.
 run5_fixture = pytest.mark.skipif(
     not _FIXTURE.exists(), reason="run-5 charter fixture not present in this checkout"
 )

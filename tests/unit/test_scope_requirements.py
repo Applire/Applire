@@ -662,8 +662,8 @@ class TestClause5SeamPredicates:
         result = find_unaddressed_hard_requirements([gap], None)
         assert result == []
 
-    def test_letter_evidence_never_anchors_a_scope_entry(self):
-        from applire.services.letter_evidence import _claimable_entries
+    def test_vault_evidence_never_anchors_a_scope_entry(self):
+        from applire.services.vault_evidence import _claimable_entries
 
         assert _claimable_entries([_scope_entry("partial")]) == []
 
