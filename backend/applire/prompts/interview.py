@@ -123,6 +123,22 @@
 #   - services/choice_grounding.py gained the earned deterministic mirror
 #     guard for the same defect (_contradicted_denial_terms) — a denial chip
 #     naming an evidenced concept is dropped, never delivered.
+#
+# ADR-064 amendment 2026-08-06 (#451) changes vs above:
+#   - Every choice also declares "denied_terms" — the constituent concepts it
+#     explicitly denies, [] when none — in the coverage rules AND both schema
+#     literals (Mode A and the transfer probe; they are separate strings, and
+#     the run-17 adversarial pass found only Mode A test-pinned). Run 17: the
+#     #347 rules require a partial chip to NAME the concepts it denies, and
+#     filter_ungrounded_choices' polarity-blind term check then dropped every
+#     such chip — 4 of 6 choice-bearing turns delivered denial-ONLY sets
+#     (LLM log 2026-08-06 records 30/42/46/50). The filter reads the field as
+#     a fact (ADR-062 clause 6, same pattern as "level"): declared-denied
+#     terms are exempt from term evidence when the chip also carries a pivot
+#     marker, the #347 mirror check extends to them, and
+#     interview_graph._carry_levels_by_index carries the field through the
+#     language pass. Replay-verified: the captured run-17 turn-1 generation
+#     emits denied_terms with the exact constituent names.
 
 import json
 
@@ -190,6 +206,11 @@ summary below actually evidences it. So on a genuine gap (the profile shows NO e
 concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
 that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
 third slot.
+- Every choice also declares "denied_terms": the constituent concepts THIS choice explicitly \
+denies, copied exactly as the concept names appear in the question context ([] when the choice \
+denies none). A PARTIAL choice that honestly bridges ("..., aber keine Erfahrung mit X oder Y") \
+lists X and Y; a DENIAL choice lists every concept it denies; a DIRECT choice lists []. Like \
+"level", this is a statement of fact about the choice you just drafted, not an extra rule.
 - Every choice you draft must declare its own level in its "level" field — "direct", "partial", \
 or "denial" — matching exactly what you just reasoned about above for that choice. This is a \
 statement of fact about the choice you are drafting, not an extra rule: state it truthfully."""
@@ -244,8 +265,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"text": "Option A", "level": "direct" | "partial" | "denial"},
-    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+    {"text": "Option A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
+    {"text": "Option B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
   ] or null
 }"""
 
@@ -663,8 +684,8 @@ Schema:
 {
   "question": "The question text",
   "choices": [
-    {"text": "Option A", "level": "direct" | "partial" | "denial"},
-    {"text": "Option B", "level": "direct" | "partial" | "denial"}
+    {"text": "Option A", "level": "direct" | "partial" | "denial", "denied_terms": [string]},
+    {"text": "Option B", "level": "direct" | "partial" | "denial", "denied_terms": [string]}
   ] or null
 }""")
 

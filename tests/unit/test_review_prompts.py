@@ -2136,6 +2136,22 @@ class TestPerEntryGroundingAndRoleOwnership:
         assert "belongs under that position" in low
         assert "never fuse facts from two employers" in low
 
+    def test_selection_rules_from_run_17(self):
+        """ADR-071 amended 2026-08-06 (#452): the writer's selection gap —
+        claimable entry-owned evidence surfacing only as skill tags, signature
+        stories never mentioned, project content duplicated into entry
+        bullets — is closed by rule, not by guard. Deliberately absent: any
+        claim that project bullets sit outside the budget ceiling
+        (cv_budget.condense_to_budget flattens both against one ceiling)."""
+        p = self._writer()
+        low = p.lower()
+        assert "must reach that entry's bullets" in low
+        assert "signature_stories" in p
+        assert "every story's measured outcome figure must appear" in low
+        assert "never duplicated into the entry's bullets" in low
+        assert "outside the ceiling" not in low
+        assert "never park it under a different employer" in low
+
     def test_the_per_entry_rule_exempts_the_summary_and_skills(self):
         """The risk ADR-071 names explicitly: read too literally, a per-entry
         rule suppresses a legitimately career-spanning summary sentence. The
@@ -2168,12 +2184,17 @@ class TestPerEntryGroundingAndRoleOwnership:
         p = self._reviewer()
         assert p.index("2. ROLE OWNERSHIP") < p.index("WHAT IS BLOCKING IN THIS PASS")
 
-    def test_role_ownership_is_distinguished_from_bullet_order(self):
-        """The prompt calls bullet order "minor BY DEFINITION". Without the
-        distinction the new check reads as an invitation to re-edit ordering,
-        which is precisely the churn that exhausted the loop in run 10."""
+    def test_role_ownership_is_visibility_only(self):
+        """ADR-071 amended 2026-08-06 (#452, run 17): the model-side ownership
+        scan produced 13 false blocking findings in 5 rounds — each
+        regeneration destroying grounded content — while the deterministic
+        clause-3 audit found zero misattribution. The check stays for
+        visibility and may NEVER block or drive the corrector."""
         p = self._reviewer()
-        assert "not about bullet ORDER" in p
+        assert "VISIBILITY ONLY, NEVER BLOCKING" in p
+        assert 'severity "minor"' in p
+        assert "never instruct the corrector to move, remove, or re-home" in p
+        assert "EXCEPT check 2" in p  # the mandate line carves it out of blocking
         assert "bullet order" in p  # the minor-by-definition list is intact
 
     def test_the_reviewer_checks_stay_contiguously_numbered(self):
@@ -2186,11 +2207,17 @@ class TestPerEntryGroundingAndRoleOwnership:
         assert numbers == list(range(1, len(numbers) + 1))
         assert len(numbers) == 6
 
-    def test_the_check_names_both_positions_so_feedback_is_actionable(self):
-        """The feedback contract is referential (ADR-021 amended 2026-06-29):
-        the corrector re-reads the profile itself, so the reviewer must say
-        WHERE, not paste evidence."""
+    def test_the_check_states_the_profile_shape_facts(self):
+        """Run 17's reviewer misread the MES *project* id as a foreign
+        employer and demanded content be "moved" to it. The facts it invented
+        around are now stated in the check itself (ADR-062: facts to the
+        model), and the skills list gets its own scope with the denial-text
+        boundary — a concept is never affirmed by its own denial."""
         import re
 
         low = re.sub(r"\s+", " ", self._reviewer().lower())
-        assert "name the entry it is under and the entry the profile says owns it" in low
+        assert "a project id is never an employer" in low
+        assert "`associated_experience`" in low
+        assert "skills-list scope" in low
+        assert "never affirmed by its own denial" in low
+        assert "do not claim concept in the skills list is a fabrication" in low

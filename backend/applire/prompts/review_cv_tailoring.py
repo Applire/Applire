@@ -22,6 +22,21 @@
 #   never fail and, worse, rejects every draft for the absence of what it guards
 #   (SF-WRITE.16: full retry exhaustion → the draft ships unreviewed, run 10
 #   measured 5/5 exhaustion on exactly this churn, #385). See the SHAPE NOTE.)
+# Prompt version: v5 (#452 / ADR-071 amended 2026-08-06 — check 2 demoted to
+#   VISIBILITY-ONLY, replay-verified against the captured run-17 rounds before
+#   shipping. Run 17: this reviewer raised 13 blocking findings across 5 rounds, ALL
+#   false — profile-listed `confirmed` skills flagged as "fabricated keywords"; the MES
+#   *project* id misread as a foreign employer although its `associated_experience`
+#   names the very entry the draft rendered it under, with feedback ordering content
+#   "moved" to that project id (obeyed — an invalid work entry was minted); ledger-
+#   CLAIMABLE `Verpackungsindustrie` flagged as forbidden. Each regeneration destroyed
+#   grounded content (the MES bullet, both OEE 61→73 figures); the loop exhausted; the
+#   deterministic ADR-071 clause-3 audit then found ZERO misattribution. Ownership
+#   enforcement is that audit alone; check 2 reports at "minor" for visibility. New
+#   SKILLS-LIST SCOPE paragraph with two hard boundaries (denial text never grounds;
+#   DO-NOT-CLAIM unchanged for skills — the adversarial pass's corrections). Replay:
+#   attempts 1/2/4 re-review clean (5 samples, 0 findings); an injected IFS/BRC bullet
+#   AND an injected IFS skills-list entry still block.)
 # Prompt version: v4 (ADR-071 clause 2 — ROLE OWNERSHIP inserted as check 2, next
 #   to FABRICATED BULLETS because it is that check's sibling: a misattributed
 #   bullet is grounded and misplaced. #413/#349/#378 are one bullet — a
@@ -51,15 +66,17 @@ Check for ALL of the following:
 1. FABRICATED BULLETS: Every bullet in every work entry must be grounded in the CANDIDATE
    PROFILE. Flag any bullet that claims a technology, achievement, project, metric, or
    responsibility not explicitly present in the source material.
-2. ROLE OWNERSHIP (misattribution): a bullet can be perfectly true of the candidate and still
-   be a defect because it sits under the wrong employer. For each work entry, check that its
-   bullets describe what the candidate did AT THAT POSITION, using the profile's own
-   per-position responsibilities/achievements/technologies. Flag a bullet whose evidence the
-   profile assigns to a DIFFERENT position — a current-employer tool or duty written under a
-   former employer, a former role's project claimed under the current one, or one bullet
-   fusing facts from two employers. This is not about bullet ORDER or which achievement leads
-   an entry (those are minor); it is about which employer the evidence belongs to. Name the
-   entry it is under and the entry the profile says owns it.
+2. ROLE OWNERSHIP (misattribution) — VISIBILITY ONLY, NEVER BLOCKING: a bullet can be true of
+   the candidate and still sit under the wrong employer. A deterministic, id-anchored attribution
+   audit runs AFTER this loop and is the ENFORCEMENT for ownership — it resolves entry ids
+   exactly; you are reading prose and can misread them. If you suspect a bullet sits under the
+   wrong employer, report it with severity "minor" so it stays visible; NEVER raise it as
+   "blocking", and never instruct the corrector to move, remove, or re-home content for
+   ownership reasons. Facts about the profile's shape you must respect: an entry in the profile's
+   `projects` section belongs to the work entry named in its `associated_experience` — a project
+   id is NEVER an employer, and project content rendered under that owning work entry is NOT
+   misattributed; a skill's `experience_refs` is optional metadata that may name PROJECT ids —
+   it is never a grounding requirement.
 3. UNGROUNDED KEYWORD GAPS: Keyword gaps may only appear in the output where they are
    explicitly supported by the candidate's work history or skills. Flag any keyword added
    without clear supporting evidence in the source material.
@@ -86,10 +103,22 @@ Check for ALL of the following:
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
        something the candidate has, has done, or knows, flag it — this is a fabrication.
 
-WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above, and nothing
-else. Those checks are the whole of your mandate — they are the ways this CV can be untrue,
-misattributed, or incomplete against what the ledger required. Anything else you notice is
-"minor" BY DEFINITION: bullet wording, bullet order, which achievement leads an entry,
+SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the WHOLE profile
+by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
+profile states it AS SOMETHING THE CANDIDATE HAS OR DID: in its skills section, an entry's
+responsibilities/achievements/technologies, a project, or a signature story. Never flag such a
+skill as fabricated, ungrounded, or a certification, and never demand per-position evidence or
+`experience_refs` for it. Two hard boundaries: text inside STATED LIMITS or any denial record
+NEVER grounds anything — a concept is never affirmed by its own denial — and check 6(b) applies
+to the skills list unchanged: a DO NOT CLAIM concept in the skills list is a fabrication no
+matter where its text appears in the profile. A term the KEYWORD LEDGER lists as CLAIMABLE is
+never a forbidden claim.
+
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT check 2
+(role ownership is visibility-only — its enforcement is the deterministic audit that follows),
+and nothing else. Those checks are the whole of your mandate — they are the ways this CV can be
+untrue, misattributed, or incomplete against what the ledger required. Anything else you notice
+is "minor" BY DEFINITION: bullet wording, bullet order, which achievement leads an entry,
 summary phrasing, length, repetition. You are not the CV's editor. You are the check on
 whether it tells the truth.
 

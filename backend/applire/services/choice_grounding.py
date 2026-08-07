@@ -76,6 +76,23 @@ denial is exempt from, because a denial names the term to deny it; there is
 nothing to ground. See ``_level_of`` and the "denial" branch of
 ``filter_ungrounded_choices`` for the exact scope of that exemption.
 
+Declared per-term polarity (#451, ADR-064 amended 2026-08-06): the #347
+coverage rules REQUIRE a partial chip to name the exact unevidenced concepts
+it denies — and the polarity-blind term-evidence check then read each such
+mention as an assertion and dropped the chip, delivering denial-ONLY choice
+sets on 4 of 6 choice-bearing turns of charter run 17. The generator now also
+states, per choice, ``denied_terms`` — the constituent concepts the choice
+explicitly denies — and this module reads that declaration as a fact, exactly
+as it reads ``level``: a declared-denied term is exempt from term evidence
+(``_declared_denied_exemptions``: pivot-marker precondition so a bald
+assertion gets no exemption, #351 subterm scoping so a declared compound
+never exempts an independently-mentioned shorter term), the #347 mirror check
+extends to the declared terms (employer-free scope), and a chip without the
+field runs the unchanged full pipeline. Documented residual, accepted as with
+the ``level`` tag: a chip that asserts an unevidenced concept while declaring
+it denied AND carrying a pivot marker passes — no fact-only signal closes it
+without re-creating the deleted ``_is_honesty_frame`` judgement.
+
 Denial-clause scoping (adversarial pass 2026-07-23, preserved under the level
 tag): a chip can combine a denial with a bridging affirmative claim — "I
 haven't used Tailwind CSS directly, but I've worked with React and Next.js
@@ -232,6 +249,26 @@ def _level_of(choice: Any) -> tuple[str, str | None]:
     return str(choice).strip(), None
 
 
+def _denied_terms_of(choice: Any) -> list[str]:
+    """Read a choice's declared ``denied_terms`` (FACT, per ADR-062 clause 6 —
+    ADR-064 amended 2026-08-06, #451).
+
+    The generator states, per choice, which constituent concepts the choice
+    explicitly DENIES — the per-term polarity that ``level`` alone cannot
+    carry, and that no deterministic reading of the text may guess (the
+    deleted ``_is_honesty_frame`` lesson). Defensive like ``_level_of``: a
+    bare-string choice, a missing key, a non-list value, or non-string items
+    all collapse to ``[]`` — which downstream means "no exemption", the safe
+    pre-existing full-pipeline behaviour.
+    """
+    if not isinstance(choice, dict):
+        return []
+    raw = choice.get("denied_terms")
+    if not isinstance(raw, list):
+        return []
+    return [str(t).strip() for t in raw if isinstance(t, str) and str(t).strip()]
+
+
 # ── denial-clause scoping — denial→affirmation pivot ─────────────────────────
 # Deterministic pivot phrases (EN + DE) that separate a denial clause from an
 # affirmative remainder in the "I haven't worked with X directly, but ..."
@@ -314,6 +351,73 @@ def _contradicted_denial_terms(
         if surface_present(term, evidence):
             contradicted.append(term)
     return contradicted
+
+
+def _declared_denied_exemptions(text: str, terms: list[str], denied_terms: list[str]) -> list[str]:
+    """Cluster/JD terms this chip's own ``denied_terms`` declaration exempts
+    from the term-evidence requirement (ADR-064 amended 2026-08-06, #451).
+
+    Both conditions are facts, never text interpretation:
+
+    1. **Pivot precondition.** The chip's text must contain a
+       ``_PIVOT_MARKERS`` phrase. A bald assertion ("Ich habe X eingeführt.")
+       carries none, so a declaration alone cannot exempt it — the
+       adversarial-pass bypass (assert X in text, declare X denied) narrowed
+       to chips that at least carry the honest bridging shape the #347
+       coverage rules mandate. Presence of a phrase is a fact; which clause
+       denies is the model's declaration, not this module's guess.
+    2. **#351 longest-match subterm scoping**, mirrored from
+       ``_contradicted_denial_terms``: a term that is a subterm of a longer
+       term the chip also mentions is not independently asserted — its
+       surface presence comes from the longer term — and, in the other
+       direction, a declared "SAP PP" never exempts a bare "SAP".
+
+    Returns the exempt terms (possibly empty). Callers log each non-empty
+    exemption so the drafted-vs-delivered diff can see the guard's reasoning.
+    """
+    if not denied_terms:
+        return []
+    folded = _fold_for_split(text)
+    if not any(marker in folded for marker in _PIVOT_MARKERS):
+        return []
+    chip_norm = _norm(_fold_quotes(text))
+    denied_norms = [_norm(_fold_quotes(d)) for d in denied_terms]
+    mentioned = [t for t in terms if surface_present(t, chip_norm)]
+    exempt: list[str] = []
+    for term in mentioned:
+        term_norm = _norm(term)
+        is_subterm = any(
+            other is not term and term_norm != _norm(other) and term_norm in _norm(other)
+            for other in mentioned
+        )
+        if is_subterm:
+            continue
+        if any(surface_present(term, d) for d in denied_norms):
+            exempt.append(term)
+    # A mentioned SUBTERM whose ONLY surface presence rides inside an
+    # exempted compound ("SAP" appearing solely within a denied "SAP PP") is
+    # exempt too — demanding evidence for it would re-drop the honest
+    # compound-denial shape this function exists to keep. Decided as a fact:
+    # strip the exempted compounds out of the chip text and re-check; a
+    # subterm still present afterwards is independently asserted and keeps
+    # its evidence requirement ("Ich nutze SAP täglich, aber keine Erfahrung
+    # mit SAP PP" — SAP survives the strip and is NOT exempt). The reverse
+    # direction stays closed above: a declared shorter term never exempts a
+    # longer independently-mentioned one.
+    exempt_norms = [_norm(e) for e in exempt]
+    stripped = chip_norm
+    for en in exempt_norms:
+        if en:
+            stripped = re.sub(r"\b" + re.escape(en) + r"\b", " ", stripped)
+    for term in mentioned:
+        if term in exempt:
+            continue
+        term_norm = _norm(term)
+        if any(term_norm != en and term_norm in en for en in exempt_norms) and not surface_present(
+            term, stripped
+        ):
+            exempt.append(term)
+    return exempt
 
 
 # ── #236 — employer-scoped attribution guard ─────────────────────────────────
@@ -478,6 +582,7 @@ def _passes_employer_scoped_guard(
     profile: dict,
     *,
     require_asserted_for_content_check: bool = False,
+    exempt_terms: frozenset[str] = frozenset(),
 ) -> bool:
     """Rule A.1 (tech×employer) + A.2 (fabricated-context coverage), #236.
 
@@ -495,8 +600,12 @@ def _passes_employer_scoped_guard(
     scoped_evidence = _employer_scoped_evidence(matched_entries, profile)
 
     # A.1 — cluster/JD terms the chip asserts must be evidenced under THIS
-    # employer specifically, not merely somewhere in the whole profile.
-    asserted = [t for t in terms if surface_present(t, choice_norm)]
+    # employer specifically, not merely somewhere in the whole profile. A
+    # term the chip's own denied_terms declaration exempts (#451, ADR-064
+    # amended 2026-08-06) is named to be DENIED, not asserted — it is
+    # excluded here and stripped from the A.2 content below, mirroring how
+    # _passes_content_coverage_only strips terms before coverage.
+    asserted = [t for t in terms if t not in exempt_terms and surface_present(t, choice_norm)]
     if not all(surface_present(t, scoped_evidence) for t in asserted):
         return False
 
@@ -507,7 +616,12 @@ def _passes_employer_scoped_guard(
     # threshold against the employer's own bullets (catches invented context
     # built from real-but-unrelated tokens, e.g. the #236 trace chip).
     strip_bases = {_employer_base(str(e.get("company") or "")) for e in matched_entries}
-    content = _content_tokens(choice_norm, strip_bases)
+    coverage_norm = choice_norm
+    for term in exempt_terms:
+        term_norm = _norm(term)
+        if term_norm:
+            coverage_norm = re.sub(r"\b" + re.escape(term_norm) + r"\b", " ", coverage_norm)
+    content = _content_tokens(coverage_norm, strip_bases)
     if not content:
         return True  # nothing left to falsify — no specific claim beyond the terms above
     corpus_tokens = frozenset(scoped_evidence.split())
@@ -628,18 +742,29 @@ def filter_ungrounded_choices(
     terms = _cluster_terms(cluster)
     work_experience = profile.get("work_experience") or []
 
-    def _run_pipeline(candidate_text: str, *, require_asserted_for_content_check: bool = False) -> bool:
-        """The pre-existing full grounding pipeline (unchanged): employer-scoped
-        guard when a known employer is named, else the whole-profile cluster-
-        term evidence check. Returns True when the text may be kept."""
+    def _run_pipeline(
+        candidate_text: str,
+        *,
+        require_asserted_for_content_check: bool = False,
+        exempt_terms: frozenset[str] = frozenset(),
+    ) -> bool:
+        """The pre-existing full grounding pipeline: employer-scoped guard
+        when a known employer is named, else the whole-profile cluster-term
+        evidence check. Returns True when the text may be kept.
+        ``exempt_terms`` (#451, ADR-064 amended 2026-08-06) removes a chip's
+        declared-denied terms from the assertion set — empty reproduces the
+        pre-existing behaviour exactly."""
         candidate_norm = _norm(_fold_quotes(candidate_text))
         matched_entries = _match_employers(candidate_norm, work_experience)
         if matched_entries:
             return _passes_employer_scoped_guard(
                 candidate_norm, terms, matched_entries, profile,
                 require_asserted_for_content_check=require_asserted_for_content_check,
+                exempt_terms=exempt_terms,
             )
-        asserted = [t for t in terms if surface_present(t, candidate_norm)]
+        asserted = [
+            t for t in terms if t not in exempt_terms and surface_present(t, candidate_norm)
+        ]
         return all(surface_present(t, evidence) for t in asserted)
 
     kept: list[str] = []
@@ -649,9 +774,43 @@ def filter_ungrounded_choices(
             continue
 
         if level != "denial":
-            # "direct" / "partial" / unknown — full pipeline, unchanged.
-            if _run_pipeline(text):
+            # "direct" / "partial" / unknown — full pipeline, with the #451
+            # declared-polarity exemption (ADR-064 amended 2026-08-06): a
+            # cluster/JD term this chip's own denied_terms declaration covers
+            # is named to be DENIED, not asserted, and is exempt from term
+            # evidence — under two fact-only preconditions computed in
+            # _declared_denied_exemptions (pivot-marker presence; #351
+            # subterm scoping). Without the field the pipeline is unchanged.
+            exempt = _declared_denied_exemptions(text, terms, _denied_terms_of(choice))
+            if exempt:
+                # ADR-064 mirror condition, extended to declared denials of
+                # non-"denial" chips (same employer-free scoping as the
+                # denial-chip mirror check above): declaring a denial of a
+                # concept the CURRENT profile evidences is a contradicted
+                # denial — one click would record it as testimony.
+                chip_norm = _norm(_fold_quotes(text))
+                if not _match_employers(chip_norm, work_experience):
+                    contradicted = [t for t in exempt if surface_present(t, evidence)]
+                    if contradicted:
+                        logger.warning(
+                            "choice_grounding: dropped a %r-level choice whose "
+                            "declared denied_terms contradict profile evidence "
+                            "(#347 mirror check extended by #451, %s): %r",
+                            level, ", ".join(contradicted), text,
+                        )
+                        continue
+                logger.info(
+                    "choice_grounding: term-evidence exemption via declared "
+                    "denied_terms (#451) for %s on %r-level choice: %r",
+                    ", ".join(exempt), level, text,
+                )
+            if _run_pipeline(text, exempt_terms=frozenset(exempt)):
                 kept.append(text)
+            else:
+                logger.warning(
+                    "choice_grounding: dropped a %r-level choice that failed "
+                    "the grounding pipeline: %r", level, text,
+                )
             continue
 
         denial_clause, affirmative = _split_denial_choice(text)

@@ -690,7 +690,7 @@ One more correction worth knowing, because it changes what the committer is: **i
 
 ---
 
-### ADR-064 — A Denial Is Scoped to the Level It Denies (accepted 2026-07-29)
+### ADR-064 — A Denial Is Scoped to the Level It Denies (accepted 2026-07-29, amended 2026-08-05 / 2026-08-06)
 
 **Decision:** A denial records *which level* it denies, as `denial_level: "direct" | "partial" | None`. It is stored on the denial record itself (`ProfileMetadata.denied_concepts[]`) and mirrored onto the Keyword Ledger entry, which is rebuilt from scratch on every gap analysis. The four-value `status` enum is unchanged.
 
@@ -704,6 +704,8 @@ A probe can **never un-deny**. The original denial stands permanently and is nev
 Answer choices gain a **coverage** rule alongside their truthfulness rules: where the question admits them, one option at each level, and the denial option is never softened into a hedge.
 
 **Amended 2026-08-05 (#347):** the first real-provider run showed the originally *unconditional* denial option denying experience the candidate provably had — a one-click path to a false denial recorded as the candidate's own testimony. The denial option now carries the same evidence condition as the direct option, mirrored: it is offered only when at least one of the question's constituent concepts is unevidenced in the current profile, and it names only those unevidenced concepts — never a concept the profile or the conversation already evidences, and never an area broader than the question covers. A deterministic guard additionally drops any drafted denial choice that contradicts current profile evidence. Suppressing a choice never blocks a denial: choices only pre-fill the free-text answer, and denials are detected from the submitted text.
+
+**Amended 2026-08-06 (#451):** the 2026-08-05 rules require a *partial* choice to name the exact concepts it denies — and the grounding filter, which cannot see polarity, read each such mention as an unsupported claim and deleted the chip. In one full evaluation run, four of six choice-bearing turns delivered only the denial option while every drafted set had spanned the levels honestly. Every choice now also declares `denied_terms` — the concepts it explicitly denies — and the filter exempts exactly those from the evidence requirement, under two deterministic conditions: the chip's own text must contain a denial-pivot phrase (a bare assertion gets no exemption), and a declared term never exempts a shorter term contained in it. A declared-denied concept the profile actually evidences still drops the chip (the mirrored guard above, extended). The field is carried through the language-review pass by the same deterministic fill-in that already protects `level`, and a chip without it runs the unchanged pipeline. The public API still returns plain strings.
 
 **Why:** The ledger has had a `partial` state since the keyword-ledger work shipped, and the interview could never produce it. Trace one candidate: asked "5+ years of TOGAF?", holding eight years of Zachman, they answer "No". The reconciler records a denial, the interview's gap cursor advances on any denial, the denial persists, and a ledger floor bars the entry from ever rising above "gap". The Zachman question is never asked, and that evidence could not register even if it arrived by another route.
 
@@ -816,7 +818,7 @@ Concretely (as implemented): both CV generation paths return the same prose-only
 
 ---
 
-### ADR-071 — Attachment Is a Per-Entry Contract (accepted 2026-08-02)
+### ADR-071 — Attachment Is a Per-Entry Contract (accepted 2026-08-02, amended 2026-08-06)
 
 **Problem:** A CV bullet stating a fact about the candidate's *current* job was rendered under a previous employer whose tenure ended years earlier. The fact was true and correctly stored in the profile; only its placement was wrong. Blind reviewers read it as embellishment — which is exactly right, because a reader has no way to tell a misplaced true claim from an invented one, and the candidate ends up defending in an interview a claim they never made. Three separate evaluation runs reported it as three different bugs.
 
@@ -829,6 +831,8 @@ So the gap was neither detection nor display: **nothing in the generation loop c
 **Why:** A control that computes the right answer and is read by nobody in the loop is worth very little, and adding a *second* detector would have been the wrong instinct. Binding a bullet to its source evidence in the output format would make attachment checkable instead of judged; that is recorded as an open question rather than quietly deferred.
 
 **Amended during implementation (2026-08-02):** the revision round's own output is itself a model re-emission of the whole document, so it carries the risk it was written to remedy. Checking that the set of position ids survived is not evidence the *content* did — a response keeping every position and emptying every one of them passes that check. It now also has to return roughly the content it was given, and any rejection falls back to the draft that went in. Nothing here can block delivery.
+
+**Amended 2026-08-06 (#452):** a captured run showed decision (2) — the model-side reviewer check — failing in the harmful direction: across five review rounds it raised thirteen blocking findings, every one false (profile-listed skills flagged as fabricated; a *project* id misread as a foreign employer, with the corrector instructed to "move" content to it), and each forced regeneration shed correct content, while the deterministic audit found the settled draft clean. The reviewer check is demoted to visibility-only: it may note a suspected misplacement, but it never blocks, and enforcement is the deterministic id-anchored audit alone. The reviewer prompt now states the profile-shape facts it was inventing around (a project belongs to the position its record names; the skills list draws on the whole profile, though text inside a recorded denial never grounds anything), and the corrector must change only what the feedback names. The same run's other half — the writer never *selecting* the profile's job-critical facts for the CV that the letter then asserts — is closed in the writer's instructions: claimable evidence owned by a position must reach that position's bullets, every signature story's measured outcome appears in the document, and project content is never duplicated into position bullets.
 
 ---
 

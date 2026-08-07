@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (#452 / ADR-071 amended 2026-08-06 — three selection rules added,
+#   replay-verified against the captured run-17 writer input before shipping:
+#   rule 2 gains narrative carriage (claimable entry-owned ledger evidence must reach
+#   that entry's bullets, compound clauses allowed, never parked under another employer —
+#   the run-17 draft surfaced daily SAP PP/MM and Kosmetik-Verpackungen only as skill
+#   tags, and the letter then asserted them, both blind reviewers' "aufgeblasen" driver);
+#   rule 3 gains signature stories (EVERY story's outcome figure must appear — LTIF
+#   8,2→3,1 and OEE 61→73 are signature stories, not ledger entries, and no rule ever
+#   mentioned them); rule 9 gains project dedup (the run-17 draft spent a work bullet
+#   duplicating the MES project's own bullets). The refinement prompt's preserve rule is
+#   made content-level the same day (the run-17 corrector deleted the OEE bullet while
+#   fixing a skills-list complaint). NOTE deliberately absent: no claim that project
+#   bullets sit outside the budget ceiling — cv_budget.condense_to_budget flattens role
+#   and project bullets against one ceiling (adversarial-pass refutation, 2026-08-06).
 # Prompt version: v7 (E049 / ADR-067 — rebuilt as a prose-craft brief)
 # Used by: services/cv.py → LLMProvider.aparse_json + reviewer.review_and_refine
 #
@@ -56,9 +70,9 @@ Your job is to make true things read well, and land for THIS job.
 1. GROUNDING — PER ENTRY. Every bullet must trace to something in CANDIDATE PROFILE, and a bullet under a work entry must trace to THAT ENTRY'S OWN responsibilities, achievements or technologies. Evidence owned by a different position belongs under that position: never move it, never restate a former employer's work under the current one (or the reverse), and never fuse facts from two employers into one bullet. If a fact matters and the entry that owns it is in the CV, write it there. Rephrase, re-emphasise and sharpen — never add an achievement, technology, project, metric or responsibility that is not there. Quantify only with figures the profile actually states; never infer, round or invent a number.
    This per-entry rule governs work-entry BULLETS only. The summary (rule 5) and the skills list (rule 7) legitimately draw on the whole profile — a career-spanning summary sentence is not a misplacement.
 
-2. RELEVANCE. Within each entry, lead with what this job cares about. Strong, concrete verbs; each bullet should say what the candidate did and what changed because of it. Prefer one specific bullet over two vague ones.
+2. RELEVANCE. Within each entry, lead with what this job cares about. Strong, concrete verbs; each bullet should say what the candidate did and what changed because of it. Prefer one specific bullet over two vague ones. Every CLAIMABLE Keyword-Ledger concept whose evidence lives in a work entry's own responsibilities or achievements must reach that entry's bullets — nice-to-have concepts exactly like required ones — not only the skills list. A skills tag no work-history line supports reads as unbacked to a hiring reviewer, and the cover letter built on this same profile will assert exactly those facts — a letter claim with no CV counterpart is what makes honest documents read as inflated. The bullet belongs under the entry that OWNS the evidence (rule 1): when that entry's budget is full, fold the fact into a related bullet there as a compound clause — two related facts in one bullet cost one slot — and NEVER park it under a different employer to make room.
 
-3. MEASURED OVER PROJECTED. Where the profile carries both a target and a measured outcome for the same initiative, write the measured one. "Reduced scrap from 4,1 % to 2,3 %" beats "aimed to reduce scrap". A quantified, measured achievement is the strongest evidence an entry has — under a tight bullet budget it is the LAST thing to cut, never the first.
+3. MEASURED OVER PROJECTED. Where the profile carries both a target and a measured outcome for the same initiative, write the measured one. "Reduced scrap from 4,1 % to 2,3 %" beats "aimed to reduce scrap". A quantified, measured achievement is the strongest evidence an entry has — under a tight bullet budget it is the LAST thing to cut, never the first. The profile's signature_stories are curated for exactly this: EVERY story's measured outcome figure must appear in the document, in the work entry or nested project that owns it — a story whose figure is missing is the strongest evidence cut first, the exact mistake this rule forbids.
 
 4. UNMET AND PARTLY-MET REQUIREMENTS. "Do not claim it" is not a complete instruction; each kind gets a different action.
    - ADJACENT (the KEYWORD LEDGER names an adjacent capability for a required concept): give the ADJACENT capability real prominence — a skills-list position and, where the profile supports one, a bullet showing it in use. Present it as itself, on its own merits. Never write the JD's own term as though the candidate held it, and never pair the two as equivalents.
@@ -76,7 +90,7 @@ Your job is to make true things read well, and land for THIS job.
 8. LANGUAGE. Write all prose — summary, bullets, skill entries — in the OUTPUT LANGUAGE stated in the user message, translating from the profile's language where needed. Translating is not inventing.
    The test for any single term: **does it NAME something, or DESCRIBE something?** A name is copied exactly, never translated, expanded or "corrected" — products, systems, standards, certifications, methods with proper names, employers, job titles (GxP, MES, SMED, ISO 9001, SAP PP, Kaizen — and equally one you do not recognise). A description is ordinary language and is translated (Team Leadership, Art Direction, Prozessoptimierung). Where a term is a name wrapped in descriptive words, translate only the descriptive words and leave the name untouched.
 
-9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out.
+9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in the project's own nested bullets ONCE — never duplicated into the entry's bullets: duplication spends budget the entry should spend on evidence nothing else in the document carries.
 
 Respond ONLY with a valid JSON object — no markdown, no explanation:
 
@@ -192,8 +206,13 @@ Rules:
   the source of truth — re-read it to ground any correction. Restrict your changes to
   deletions, nullifications, and rewordings supported by that profile.
 - Keep every entry's `id` exactly as given — ids address vault entries and are never
-  invented, dropped, or reassigned.
-- Preserve all fields that the reviewer did not flag.
+  invented, dropped, or reassigned. Never add a work entry the previous draft does not
+  have, whatever the feedback asks — if a correction seems to need an id that is not in
+  the draft's work entries, leave the content where it is.
+- Fix ONLY what the feedback names. Every bullet, clause, figure, project and skill the
+  feedback does not name must survive into your output unchanged — fixing a skills-list
+  issue never removes a bullet or a figure, and fixing one bullet never rewrites its
+  neighbours.
 - Output ONLY the corrected prose JSON in the same schema as the input — no markdown,
   no commentary.
 """

@@ -21,6 +21,16 @@
 #          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
 #          so `source` binds to `required_language` (e.g. "English", "German").
 #
+# v3 changes vs v2 (#451 / ADR-064 amended 2026-08-06):
+#   - Choices also carry "denied_terms": a list of concept names the choice
+#     explicitly denies (services/choice_grounding.py reads it as a fact,
+#     exactly like "level"). Concept names are NOT translatable content —
+#     both prompts preserve the list verbatim, the review prompt never flags
+#     it as a language mismatch, and the refinement schema names the field so
+#     the rewrite cannot silently strip it (the exact drift that cost "level"
+#     its F1 bug; interview_graph._carry_levels_by_index is the deterministic
+#     backstop for both fields).
+#
 # v2 changes vs v1 (ADR-062 fix, 2026-07-29):
 #   - "choices" is now a list of {"text": str, "level": str} objects, not bare
 #     strings (services/choice_grounding.py reads "level" as a fact instead of
@@ -40,9 +50,10 @@ Your sole responsibility is to verify that a drafted question and every answer c
 are written entirely in the required language.
 Judge ONLY language — not quality, tone, or correctness of content.
 
-Each choice may carry a "level" field ("direct", "partial", or "denial") alongside its "text". \
-"level" is a FIXED ENGLISH ENUM, not translatable content — never flag it as a language mismatch \
-and never suggest changing it. Judge only each choice's "text".
+Each choice may carry a "level" field ("direct", "partial", or "denial") and a "denied_terms" \
+list alongside its "text". "level" is a FIXED ENGLISH ENUM and "denied_terms" holds verbatim \
+concept names — neither is translatable content; never flag either as a language mismatch and \
+never suggest changing them. Judge only each choice's "text".
 
 WHAT IS BLOCKING IN THIS PASS: any "text" still in the wrong language. In this pass every
 genuine language mismatch is blocking — that is the one thing you are here to catch. Use
@@ -61,10 +72,12 @@ naming the required language.
 Rewrite the question and every choice's "text" into that language, preserving meaning, intent, \
 and structure exactly.
 Do not add, remove, or reorder choices. Each choice's "level" field ("direct", "partial", or \
-"denial") is a fixed English enum, not translatable content — copy it through UNCHANGED, \
-byte-for-byte, for every choice. Never translate, omit, or invent a "level".
+"denial") is a fixed English enum and its "denied_terms" list holds verbatim concept names — \
+neither is translatable content. Copy BOTH through UNCHANGED, byte-for-byte, for every choice. \
+Never translate, omit, or invent a "level" or a "denied_terms" entry.
 Output ONLY the corrected JSON in the same schema \
-{"question": str, "choices": [{"text": str, "level": str}] | null} — no markdown, no commentary.
+{"question": str, "choices": [{"text": str, "level": str, "denied_terms": [str]}] | null} — no \
+markdown, no commentary.
 """
 
 
@@ -82,7 +95,7 @@ def build_question_language_review_prompt(required_language: str, draft: dict) -
         f"Question: {draft.get('question', '')}\n"
         f"Choices: {json.dumps(choices, ensure_ascii=False)}\n\n"
         f"Are the question and every choice's \"text\" written entirely in {required_language}? "
-        "Ignore any \"level\" field — it is a fixed English enum, not translatable content. "
+        "Ignore any \"level\" or \"denied_terms\" field — fixed metadata, not translatable content. "
         "Respond with JSON only."
     )
 
@@ -101,6 +114,6 @@ def build_question_language_refinement_prompt(
     return (
         f"Reviewer feedback: {feedback}\n\n"
         f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
-        f"Rewrite into the required language{target}. Preserve every choice's \"level\" field "
-        "unchanged. Output the corrected JSON only."
+        f"Rewrite into the required language{target}. Preserve every choice's \"level\" and "
+        "\"denied_terms\" fields unchanged. Output the corrected JSON only."
     )
