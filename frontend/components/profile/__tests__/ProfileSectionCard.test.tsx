@@ -246,6 +246,54 @@ describe("ProfileSectionCard — languages read the vault field (#113c)", () => 
   });
 });
 
+// #113(d) — an education entry whose start date is unknown rendered
+// "— → 2006". The DACH convention already shipped in the CV templates
+// (lebenslauf.html.j2: no start ⇒ end date alone, no dash) is the reference.
+describe("ProfileSectionCard — open-ended periods (#113d)", () => {
+  it("renders an unknown education start as the end date alone, never an em-dash placeholder", () => {
+    const education = [
+      {
+        degree: "Diplom",
+        field: "Chemie",
+        institution: "TU Musterstadt",
+        end_date: "2006",
+      },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="education" value={education} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("2006")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("→");
+  });
+
+  it("renders an ongoing education entry with the present label, not an em-dash", () => {
+    const education = [
+      { degree: "PhD", institution: "TU Musterstadt", start_date: "2023-09" },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="education" value={education} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText(/2023-09 → present/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+  });
+
+  it("renders an unknown work start as the end date alone", () => {
+    const work = [
+      { role: "Laborleiter", company: "Labsynth", end_date: "2011-08", is_current: false },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("2011-08")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("→");
+  });
+});
+
 describe("resolveSummary — language-aware summary check (F9.2)", () => {
   it("prefers the UI language when present", () => {
     const r = resolveSummary({ de: "Deutsch", en: "English" }, "de");

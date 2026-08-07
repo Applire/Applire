@@ -160,15 +160,20 @@ function formatPeriod(
   isCurrent?: boolean | null,
 ): string | null {
   if (!nonEmpty(start) && !nonEmpty(end)) return null;
-  const left = nonEmpty(start) ? start : "—";
+  const left = nonEmpty(start) ? start : null;
+  const explicitEnd = nonEmpty(end) ? end : null;
   // #155 — an explicit is_current === true always renders the present label;
   // an empty end keeps the existing present-label fallback.
   const right =
     isCurrent === true
-      ? (presentLabel ?? "—")
-      : nonEmpty(end)
-        ? end
-        : (presentLabel ?? "—");
+      ? (presentLabel ?? explicitEnd)
+      : (explicitEnd ?? presentLabel ?? null);
+  // #113(d) — a missing side is rendered by omission, never by an em-dash
+  // standing in for data we do not have ("— → 2006"). Mirrors the DACH
+  // convention already shipped in the CV templates (lebenslauf.html.j2: an
+  // education entry without a start date renders the end date alone, no dash).
+  if (!left) return right;
+  if (!right) return left;
   return `${left} → ${right}`;
 }
 
@@ -284,8 +289,10 @@ export function ProfileSectionBody({
       <div className="space-y-3">
         {entries.map((e, i) => {
           const heading = [e.degree, e.field].filter(nonEmpty).join(", ");
+          // #113(d) — education gets the same present label as work: an
+          // ongoing degree reads "2023-09 → present", not a dangling dash.
           const period =
-            formatPeriod(e.start_date, e.end_date) ??
+            formatPeriod(e.start_date, e.end_date, t("present")) ??
             (nonEmpty(e.year) ? e.year : null);
           return (
             <div key={i} className="border-l-2 border-teal/40 pl-3">
