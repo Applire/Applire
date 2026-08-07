@@ -188,6 +188,20 @@ class SetSummary(BaseModel):
 
 
 class FlagConflict(BaseModel):
+    """A two-value dispute the model raises instead of overwriting.
+
+    ``field`` names either a SCALAR field of the ``target`` entity (``company``,
+    ``end_date``, …) or — #218 — one of its BULLET LISTS (``responsibilities`` /
+    ``achievements``), in which case ``existing``/``incoming`` carry the two
+    contradicting bullet texts verbatim rather than field values. Both shapes
+    land on the same ``Conflict`` channel; the applier attaches the resolved
+    entity's id so the resolution endpoint can write back to that bullet.
+
+    Deciding that two differently-worded bullets contradict is the reconciler
+    model's judgement (ADR-062 clause 1) — no deterministic matcher may make it,
+    which is why this is an op the model emits and not a post-pass.
+    """
+
     op: Literal["flag_conflict"] = "flag_conflict"
     target: str
     field: str

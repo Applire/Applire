@@ -1115,6 +1115,13 @@ def _apply_flag_conflict(op, resolve, source, conflicts):
         Conflict(
             section=section,
             field=op.field,
+            # #218 — carry the entity identity through, so the resolution
+            # endpoint writes back to THIS role's field/bullet rather than
+            # guessing at the first entry that still matches. The applier
+            # itself never re-decides the dispute (`op.field` may name a
+            # bullet list — whether two bullets contradict is the reconciler
+            # model's judgement, ADR-062 clause 1); it only routes the verdict.
+            entity_id=getattr(entity, "id", None),
             existing_value=op.existing,
             incoming_value=op.incoming,
             source=source,

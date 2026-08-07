@@ -302,6 +302,98 @@ def _surviving_parked_items(
     )
 
 
+# ── #218 — writing a resolved conflict back to the value it disputes ──────────
+# A conflict is only worth surfacing if answering it changes the vault. Before
+# this, the resolution path could address a dict section (`personal_info`,
+# `professional_summary`) and — for `work_experience` only — the FIRST entry
+# whose scalar field still equalled the old value. Neither reaches one string
+# inside a role's `responsibilities` / `achievements` list, so a bullet-level
+# dispute resolved into nothing and the rejected variant stayed in the vault.
+#
+# All three helpers are fact-level: they locate a named entity and rewrite a
+# named string. No similarity matching, no judgement about whether two bullets
+# say the same thing — that verdict is the reconciler model's (ADR-062 clause 1)
+# and arrives on the Conflict record.
+
+
+def _conflict_norm(value: object) -> str:
+    """The applier's bullet-comparison normalisation (``reconcile.apply._norm``)."""
+    return (str(value) if value is not None else "").strip().casefold()
+
+
+def _entry_for_conflict(entries: list[dict], conflict: Conflict) -> dict | None:
+    """The list entry a conflict belongs to: by ``entity_id``, else by value."""
+    if conflict.entity_id:
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("id") == conflict.entity_id:
+                return entry
+        return None
+    # Conflicts parked before `entity_id` existed carry no identity — fall back
+    # to the pre-#218 behaviour: the first entry still holding the old value.
+    old = _conflict_norm(conflict.existing_value)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        current = entry.get(conflict.field)
+        if isinstance(current, list):
+            if any(_conflict_norm(item) == old for item in current):
+                return entry
+        elif current == conflict.existing_value:
+            return entry
+    return None
+
+
+def _rewrite_bullet_list(
+    bullets: list, existing: object, incoming: object, chosen: object
+) -> list:
+    """Leave the chosen wording in place of the contested pair, order preserved.
+
+    Both disputed variants may be stored (the reconciler's bullet dedup is exact-
+    string, so two wordings of one fact both survive an import — #453). Resolving
+    the dispute must therefore also remove the variant the candidate rejected;
+    otherwise the vault keeps serving the figure they just ruled out.
+    """
+    contested = {_conflict_norm(existing), _conflict_norm(incoming)} - {""}
+    chosen_key = _conflict_norm(chosen)
+    result: list = []
+    placed = False
+    for bullet in bullets:
+        key = _conflict_norm(bullet)
+        if key in contested:
+            if chosen_key and not placed:
+                result.append(chosen)
+                placed = True
+            continue  # the losing variant is dropped, not left alongside
+        if chosen_key and key == chosen_key and placed:
+            continue  # never leave the chosen wording twice
+        result.append(bullet)
+    if chosen_key and not placed and chosen_key not in {_conflict_norm(b) for b in result}:
+        # The disputed wording is no longer stored (edited away, or the incoming
+        # variant was never merged). The candidate's choice still has to land.
+        result.append(chosen)
+    return result
+
+
+def _apply_resolution_to_list_section(
+    entries: list, conflict: Conflict, chosen: object
+) -> None:
+    """Write ``chosen`` onto the entry the conflict names, in place."""
+    entry = _entry_for_conflict(entries, conflict)
+    if entry is None:
+        return
+    # A `field` the schema has no slot for needs no guard here: the write lands
+    # on the dumped dict and `MasterProfileData.model_validate` drops it (pydantic
+    # `extra="ignore"`), so the resolution is a quiet no-op either way. Pinned by
+    # test_resolve_conflict_on_an_unknown_field_is_a_no_op.
+    current = entry.get(conflict.field)
+    if isinstance(current, list):
+        entry[conflict.field] = _rewrite_bullet_list(
+            current, conflict.existing_value, conflict.incoming_value, chosen
+        )
+    else:
+        entry[conflict.field] = chosen
+
+
 async def import_from_pdf(
     file_bytes: bytes,
     db: AsyncSession,
@@ -658,7 +750,7 @@ async def resolve_conflict(
     else:
         raise ValueError(f"Invalid resolution '{resolution}'. Must be existing, incoming, or manual.")
 
-    # Apply the chosen value to the profile (only for non-list sections with a single field)
+    # Apply the chosen value to the profile.
     section = conflict.section
     field_name = conflict.field
     profile_dict = profile_data.model_dump(mode="json")
@@ -667,14 +759,12 @@ async def resolve_conflict(
     if isinstance(section_data, dict):
         section_data[field_name] = chosen
         profile_dict[section] = section_data
-    # For list-type sections (work_experience etc.) date conflicts reference a specific entry;
-    # we update the first matching entry. Caller may PATCH the section directly for complex edits.
-    elif isinstance(section_data, list) and section == "work_experience":
-        # Best effort: update the first entry that still has the old value on that field
-        for entry in section_data:
-            if entry.get(field_name) == conflict.existing_value:
-                entry[field_name] = chosen
-                break
+    # #218 — every entity section (work_experience, projects, volunteer_activities)
+    # resolves the same way: find the entry the conflict names, then write the
+    # chosen value onto its field — replacing the contested string in place when
+    # that field is a bullet list.
+    elif isinstance(section_data, list):
+        _apply_resolution_to_list_section(section_data, conflict, chosen)
         profile_dict[section] = section_data
 
     updated = MasterProfileData.model_validate(profile_dict)

@@ -933,3 +933,239 @@ class TestNewProfileServiceDB:
         result = await resolve_conflict(conflict_id, "manual", "custom@example.com", sqlite_session)
         assert result is not None
         assert result.merge_conflicts == []
+
+    # ── #218 — resolving a bullet-level conflict writes back to THAT bullet ───
+    # A conflict the reconciler raises between two contradicting bullets is only
+    # worth surfacing if answering it changes the vault. The generic resolution
+    # path wrote `section_data[field] = chosen` (dict sections) or matched the
+    # first work entry whose scalar field equalled the old value — neither can
+    # address one string inside a role's `achievements` list, so the decision
+    # resolved into nothing.
+
+    _OLD_BULLET = "Reduced processing time by 60% for individualized cancer treatments"
+    _NEW_BULLET = "Reduced processing time by 80% for individualized cancer treatments"
+
+    @staticmethod
+    def _profile_with_bullet_conflict(resolution_target: str = "achievements"):
+        """Two roles carrying the same bullet + a conflict naming one of them."""
+        import uuid as _uuid
+
+        from applire.schemas.profile import Conflict, MasterProfileData, ProfileMetadata
+
+        other_id = str(_uuid.uuid4())
+        work_id = str(_uuid.uuid4())
+        profile_json = _minimal_profile_json()
+        profile_json["work_experience"] = [
+            {
+                "id": other_id,
+                "company": "Globex",
+                "role": "Dev",
+                "achievements": [TestNewProfileServiceDB._OLD_BULLET],
+            },
+            {
+                "id": work_id,
+                "company": "Acme",
+                "role": "Dev",
+                "achievements": [TestNewProfileServiceDB._OLD_BULLET],
+            },
+        ]
+        conflict = Conflict(
+            conflict_id=str(_uuid.uuid4()),
+            section="work_experience",
+            field=resolution_target,
+            entity_id=work_id,
+            existing_value=TestNewProfileServiceDB._OLD_BULLET,
+            incoming_value=TestNewProfileServiceDB._NEW_BULLET,
+            source="cv_upload",
+        )
+        now = datetime.now(timezone.utc)
+        profile_data = MasterProfileData.model_validate(profile_json)
+        profile_data.metadata = ProfileMetadata(
+            completeness_score=0.0,
+            created_via="cv_upload",
+            created_at=now,
+            last_updated=now,
+            enrichment_history=[],
+            pending_conflicts=[conflict],
+        )
+        return profile_data, conflict, work_id, other_id
+
+    @pytest.mark.asyncio
+    async def test_resolve_bullet_conflict_incoming_replaces_that_bullet(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import resolve_conflict
+
+        profile_data, conflict, work_id, other_id = self._profile_with_bullet_conflict()
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "incoming", None, sqlite_session)
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        # The chosen variant replaces the loser IN PLACE on the named role…
+        assert by_id[work_id].achievements == [self._NEW_BULLET]
+        # …and the same-worded bullet on a different role is untouched.
+        assert by_id[other_id].achievements == [self._OLD_BULLET]
+        assert result.merge_conflicts == []
+
+    @pytest.mark.asyncio
+    async def test_resolve_bullet_conflict_existing_keeps_that_bullet(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import resolve_conflict
+
+        profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict()
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "existing", None, sqlite_session)
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        assert by_id[work_id].achievements == [self._OLD_BULLET]
+
+    @pytest.mark.asyncio
+    async def test_resolve_bullet_conflict_drops_the_losing_variant_if_both_are_stored(
+        self, sqlite_session
+    ):
+        """#453's sibling: when the merge already appended both wordings, the
+        resolution must leave exactly the chosen one behind — otherwise the
+        vault still serves the figure the candidate just rejected."""
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import resolve_conflict
+
+        profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict()
+        for entry in profile_data.work_experience:
+            if entry.id == work_id:
+                entry.achievements = [self._OLD_BULLET, "Unrelated win", self._NEW_BULLET]
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "incoming", None, sqlite_session)
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        assert by_id[work_id].achievements == [self._NEW_BULLET, "Unrelated win"]
+
+    @pytest.mark.asyncio
+    async def test_resolve_bullet_conflict_manual_value_lands_on_the_bullet(self, sqlite_session):
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import resolve_conflict
+
+        profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict()
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(
+            conflict.conflict_id, "manual", "Reduced processing time by 70%", sqlite_session
+        )
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        assert by_id[work_id].achievements == ["Reduced processing time by 70%"]
+
+    @pytest.mark.asyncio
+    async def test_resolve_scalar_conflict_uses_the_entity_id_when_present(self, sqlite_session):
+        """The pre-#218 list branch updated the FIRST entry still holding the old
+        value — with two roles sharing a company name it wrote to the wrong one."""
+        import uuid as _uuid
+
+        from applire.models.profile import MasterProfile
+        from applire.schemas.profile import Conflict, MasterProfileData, ProfileMetadata
+        from applire.services.profile import resolve_conflict
+
+        other_id, work_id = str(_uuid.uuid4()), str(_uuid.uuid4())
+        profile_json = _minimal_profile_json()
+        profile_json["work_experience"] = [
+            {"id": other_id, "company": "Acme", "role": "Dev"},
+            {"id": work_id, "company": "Acme", "role": "Lead"},
+        ]
+        conflict = Conflict(
+            conflict_id=str(_uuid.uuid4()),
+            section="work_experience",
+            field="company",
+            entity_id=work_id,
+            existing_value="Acme",
+            incoming_value="Acme GmbH",
+            source="cv_upload",
+        )
+        now = datetime.now(timezone.utc)
+        profile_data = MasterProfileData.model_validate(profile_json)
+        profile_data.metadata = ProfileMetadata(
+            completeness_score=0.0,
+            created_via="cv_upload",
+            created_at=now,
+            last_updated=now,
+            enrichment_history=[],
+            pending_conflicts=[conflict],
+        )
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "incoming", None, sqlite_session)
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        assert by_id[work_id].company == "Acme GmbH"
+        assert by_id[other_id].company == "Acme"
+
+    @pytest.mark.asyncio
+    async def test_resolve_bullet_conflict_on_a_project_writes_back(self, sqlite_session):
+        """`projects` and `volunteer_activities` carry bullets too; the old list
+        branch only ever handled `work_experience`."""
+        import uuid as _uuid
+
+        from applire.models.profile import MasterProfile
+        from applire.schemas.profile import Conflict, MasterProfileData, ProfileMetadata
+        from applire.services.profile import resolve_conflict
+
+        project_id = str(_uuid.uuid4())
+        profile_json = _minimal_profile_json()
+        profile_json["projects"] = [
+            {"id": project_id, "name": "Oncology Pipeline", "achievements": [self._OLD_BULLET]}
+        ]
+        conflict = Conflict(
+            conflict_id=str(_uuid.uuid4()),
+            section="projects",
+            field="achievements",
+            entity_id=project_id,
+            existing_value=self._OLD_BULLET,
+            incoming_value=self._NEW_BULLET,
+            source="cv_upload",
+        )
+        now = datetime.now(timezone.utc)
+        profile_data = MasterProfileData.model_validate(profile_json)
+        profile_data.metadata = ProfileMetadata(
+            completeness_score=0.0,
+            created_via="cv_upload",
+            created_at=now,
+            last_updated=now,
+            enrichment_history=[],
+            pending_conflicts=[conflict],
+        )
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "incoming", None, sqlite_session)
+        assert result.profile.projects[0].achievements == [self._NEW_BULLET]
+
+    @pytest.mark.asyncio
+    async def test_resolve_conflict_on_an_unknown_field_is_a_no_op(self, sqlite_session):
+        """The `field` on a conflict is the reconciler model's own string. One
+        that the schema has no slot for must resolve quietly, never 500."""
+        from applire.models.profile import MasterProfile
+        from applire.services.profile import resolve_conflict
+
+        profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict(
+            resolution_target="outcomes"
+        )
+        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        sqlite_session.add(record)
+        await sqlite_session.commit()
+
+        result = await resolve_conflict(conflict.conflict_id, "incoming", None, sqlite_session)
+
+        by_id = {w.id: w for w in result.profile.work_experience}
+        assert by_id[work_id].achievements == [self._OLD_BULLET]
+        assert result.merge_conflicts == []

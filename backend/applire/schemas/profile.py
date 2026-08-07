@@ -408,9 +408,22 @@ class ProjectEntry(ExperienceBase):
 # ─── Merge conflict model (stored in metadata, resolved by user) ──────────────
 
 class Conflict(BaseModel):
+    """A two-value dispute parked for the candidate (ADR-013 / ADR-046).
+
+    #218 — ``entity_id`` names the work / project / volunteer entry the disputed
+    value hangs off, when there is one. ``section`` + ``field`` alone cannot
+    address it: ``work_experience`` / ``achievements`` is true of every role, so
+    the resolution path had to guess (it updated the FIRST entry still holding
+    the old value) and could not reach a bullet inside a list at all. Optional
+    and defaulted to ``None`` — profile-level disputes (``professional_summary``,
+    ``personal_info``) have no entity, and conflicts written before this field
+    existed load unchanged.
+    """
+
     conflict_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     section: str
     field: str
+    entity_id: str | None = None
     existing_value: Any
     incoming_value: Any
     source: str  # which CV/import caused this

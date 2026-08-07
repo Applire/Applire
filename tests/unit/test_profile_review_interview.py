@@ -141,6 +141,80 @@ class TestConflictClusterHelpers:
         assert interpret_conflict_answer("what do you mean?", "A", "B") == "unclear"
         assert interpret_conflict_answer("", "A", "B") == "unclear"
 
+    # ── #218 — a bullet is a whole sentence, and sentences carry stray verbs ──
+
+    _BULLET_OLD = "Replaced the legacy ERP with a new platform"
+    _BULLET_NEW = "Replaced the legacy ERP with a new platform in 14 months"
+
+    def test_a_clicked_choice_beats_a_word_collision_inside_the_value(self):
+        """The keep/use intent words are scanned over the WHOLE answer, and a
+        rendered choice embeds the disputed value. A scalar rarely collides; a
+        bullet is a sentence and routinely does ("… with a new platform" puts a
+        use-word inside the *keep* button). Both word sets then match, the answer
+        reads "unclear", and the drawer re-asks the question the user just
+        answered by clicking — forever. An answer that IS one of the offered
+        choices is decided by which button it is, not by its prose."""
+        from applire.services.interview_graph import (
+            conflict_question,
+            interpret_conflict_answer,
+        )
+
+        q = conflict_question(
+            "work_experience", "achievements", self._BULLET_OLD, self._BULLET_NEW
+        )
+        keep_choice, use_choice = q["choices"]
+        # Without the offered choices this is genuinely ambiguous…
+        assert interpret_conflict_answer(
+            keep_choice, self._BULLET_OLD, self._BULLET_NEW
+        ) == "unclear"
+        # …but the caller knows what it offered.
+        assert interpret_conflict_answer(
+            keep_choice, self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
+        ) == "existing"
+        assert interpret_conflict_answer(
+            use_choice, self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
+        ) == "incoming"
+
+    def test_free_text_still_falls_through_to_intent_words(self):
+        from applire.services.interview_graph import (
+            conflict_question,
+            interpret_conflict_answer,
+        )
+
+        q = conflict_question(
+            "work_experience", "achievements", self._BULLET_OLD, self._BULLET_NEW
+        )
+        assert interpret_conflict_answer(
+            "keep the current one", self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
+        ) == "existing"
+        assert interpret_conflict_answer(
+            "no idea", self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
+        ) == "unclear"
+
+    def test_a_bullet_conflict_becomes_a_two_choice_cluster(self):
+        """#218 end-to-end shape: a conflict whose `field` names a bullet list
+        travels the existing channel unchanged — `_open_conflicts` shape → cluster
+        → the drawer's two buttons — with both bullet texts intact."""
+        from applire.services.interview_graph import build_conflict_clusters
+
+        cid = uuid.uuid4().hex[:12]
+        ids, _categories, by_id = build_conflict_clusters(
+            [{
+                "conflict_id": cid,
+                "section": "work_experience",
+                "field": "achievements",
+                "existing_value": self._BULLET_OLD,
+                "incoming_value": self._BULLET_NEW,
+            }],
+            lang="en",
+        )
+        entry = by_id[ids[0]]
+        assert entry["conflict_id"] == cid
+        assert entry["field"] == "achievements"
+        assert self._BULLET_OLD in entry["question"]
+        assert self._BULLET_NEW in entry["question"]
+        assert len(entry["choices"]) == 2
+
 
 # ===========================================================================
 # Part 1b — confirmation-cluster helpers (E037 PQ #4, N-option import ambiguity)
