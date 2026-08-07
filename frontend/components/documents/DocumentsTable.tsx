@@ -39,14 +39,18 @@ export interface DocumentItem {
 type StatusFilter = "all" | "ready" | "generating" | "expiring";
 type SortMode = "newest" | "oldest" | "company";
 
-const TEMPLATE_LABELS: Record<string, string> = {
-  classic_german:   "Classic German",
-  modern_swiss:     "Modern Swiss",
-  executive:        "Executive",
-  tech_developer:   "Tech Developer",
-  creative_sidebar: "Creative Sidebar",
-  academic:         "Academic",
-  compact_pro:      "Compact Pro",
+// Template id → next-intl key in the `cv` namespace — the same mapping
+// TemplateSelector.tsx and DossierDocumentsZone.tsx use. #311: this was a
+// hard-coded English Record, so the German documents table showed
+// "Compact Pro" beside otherwise-German prose.
+const TEMPLATE_NAME_KEYS: Record<string, string> = {
+  classic_german:   "templateClassic",
+  modern_swiss:     "templateModern",
+  executive:        "templateExecutive",
+  tech_developer:   "templateTech",
+  creative_sidebar: "templateCreative",
+  academic:         "templateAcademic",
+  compact_pro:      "templateCompact",
 };
 
 function daysUntilExpiry(expiresAt: string): number {
@@ -68,7 +72,14 @@ interface DocumentsTableProps {
 export function DocumentsTable({ items, total, page, pageSize, onPageChange }: DocumentsTableProps) {
   const t = useTranslations("documents");
   const tApp = useTranslations("applications");
+  const tCv = useTranslations("cv");
   const router = useRouter();
+
+  const templateLabel = (template: string): string => {
+    const key = TEMPLATE_NAME_KEYS[template];
+    return key ? tCv(key) : template;
+  };
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("newest");
@@ -202,7 +213,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="text-[11px] font-semibold px-2 py-1 rounded-md bg-surface-container text-gray-600">
-                        {TEMPLATE_LABELS[item.template] ?? item.template}
+                        {templateLabel(item.template)}
                       </span>
                       {item.origin === "agent" && (
                         <span

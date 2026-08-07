@@ -83,6 +83,34 @@ describe("ContentTab", () => {
     expect(screen.getByText("1")).toBeTruthy();
   });
 
+  // #311: the backend labels the two static sections in English ("Introduction",
+  // "Skills"). The German UI must not show them untranslated.
+  it("Browse mode: static section labels are localised, de", async () => {
+    render(withIntl(<ContentTab {...BASE_PROPS} />, "de"));
+    await waitFor(() => expect(screen.getByText("Einleitung")).toBeTruthy());
+    expect(screen.getByText("Fähigkeiten")).toBeTruthy();
+    expect(screen.queryByText("Introduction")).toBeNull();
+    expect(screen.queryByText("Skills")).toBeNull();
+  });
+
+  it("Browse mode: position section labels keep the backend value", async () => {
+    const positionSections = [
+      {
+        section_id: "position::11111111-1111-1111-1111-111111111111",
+        label: "Senior Engineer — SAP",
+        content: "Built things",
+        has_override: false,
+        gaps: [],
+      },
+    ];
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sections: positionSections, general_gaps: [] }),
+    } as Response);
+    render(withIntl(<ContentTab {...BASE_PROPS} />, "de"));
+    await waitFor(() => expect(screen.getByText("Senior Engineer — SAP")).toBeTruthy());
+  });
+
   it("Browse mode: clicking section transitions to Edit mode", async () => {
     render(withIntl(<ContentTab {...BASE_PROPS} />));
     await waitFor(() => expect(screen.getByText("Skills")).toBeTruthy());

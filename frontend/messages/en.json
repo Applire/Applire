@@ -252,6 +252,8 @@
     "defaultColor": "Default color",
     "generalGaps": "General gaps",
     "noSections": "No sections available",
+    "sectionIntroduction": "Introduction",
+    "sectionSkills": "Skills",
     "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel",
@@ -931,6 +933,9 @@
     "matchScore": "Match score",
     "strengthPrefix": "✓ {label}",
     "gapPrefix": "✗ {label}",
+    "bandStrongFit": "Strong Fit",
+    "bandModerateFit": "Moderate Fit",
+    "bandNeedsWork": "Needs Work",
     "runGapAnalysis": "Run gap analysis →",
     "errorLoadFailed": "Failed to load job matches. Please try again.",
     "errorBackendUnreachable": "Could not reach the server. Is the backend running?"
