@@ -130,6 +130,7 @@ for determinism.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -240,6 +241,14 @@ class EvidenceDigestItem:
     reason: str
     path: str
     text: str
+    # #303: the vault entry id(s) that OWN this unit
+    # (:attr:`~applire.services.oracle.matchers.vault.EvidenceUnit.owner_ids`,
+    # the #196/#244 attribution machinery). Carried so the segmented CV path
+    # can hand each work-section prompt ONLY its own entry's evidence — a
+    # whole-vault digest inside a per-entry prompt is an invitation to the
+    # ADR-071 misattribution class. Defaulted so nothing that constructs an
+    # item positionally has to change.
+    owner_ids: frozenset[str] = frozenset()
 
 
 def _anchor_for_concept(
@@ -272,6 +281,20 @@ def select_vault_evidence(
     See the module docstring for the three selection channels and their
     priority order under the ``cap`` bound.
     """
+    # "Pure" has to be true, not aspirational (#303). ``build_vault_index``
+    # coerces a dict through ``MasterProfileData.model_validate``, and that
+    # model's ``mode="before"`` ``_migrate_legacy_fields`` validator rewrites
+    # its input IN PLACE (``data.pop("work_history")``,
+    # ``data["skills"] = [...]``, ``data.pop("contact")``). The CV chain hands
+    # this function the very ``profile_json`` it then serialises as the
+    # ADR-021 reviewer's source of truth, so a legacy-shaped vault would have
+    # its reviewer grounded against a normalised rewrite it never stored.
+    # Copied here rather than at each call site: the mutation belongs to this
+    # function's own dependency, and a caller cannot be expected to know.
+    # (The in-place validator is a defect in its own right; it is left alone
+    # deliberately — every other caller's behaviour is unchanged by this.)
+    if isinstance(profile_json, dict):
+        profile_json = copy.deepcopy(profile_json)
     index = build_vault_index(profile_json or {})
     selected: list[EvidenceDigestItem] = []
     selected_paths: set[str] = set()
@@ -300,7 +323,8 @@ def select_vault_evidence(
             anchor_owner_sets.append(anchor.owner_ids)
         if anchor.path in selected_paths:
             continue
-        selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path, text=anchor.text))
+        selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path,
+                                          text=anchor.text, owner_ids=anchor.owner_ids))
         selected_paths.add(anchor.path)
 
         # #271 run-6 follow-up — MEASURED-OUTCOME QUALIFIER, placed
@@ -345,6 +369,7 @@ def select_vault_evidence(
                         reason="measured-outcome-qualifier",
                         path=qualifier.path,
                         text=qualifier.text,
+                        owner_ids=qualifier.owner_ids,
                     )
                 )
                 selected_paths.add(qualifier.path)
@@ -396,6 +421,7 @@ def select_vault_evidence(
                     reason="same-initiative-evidence",
                     path=u.path,
                     text=u.text,
+                    owner_ids=u.owner_ids,
                 )
             )
             selected_paths.add(u.path)
@@ -438,6 +464,7 @@ def select_vault_evidence(
                     reason="leadership-eligible",
                     path=u.path,
                     text=u.text,
+                    owner_ids=u.owner_ids,
                 )
             )
             selected_paths.add(u.path)
@@ -461,7 +488,7 @@ def select_vault_evidence(
     return selected
 
 
-_BLOCK_INSTRUCTION = (
+_LETTER_BLOCK_INSTRUCTION = (
     "The items below are the candidate's OWN strongest JD-relevant material, "
     "selected deterministically from their vault (not the tailored CV, which "
     "may have compressed some of it away). Surface an item where it "
@@ -474,17 +501,79 @@ _BLOCK_INSTRUCTION = (
     "license to state something beyond what it says."
 )
 
+# #303. Deliberately NOT the letter wording: that text names "the letter's
+# flow" and contrasts the digest with "the tailored CV", neither of which
+# means anything to the writer of the CV itself.
+#
+# Two clauses carry the whole point of the block on this chain:
+#   * the SOURCE path. Grounding rules 1 and 2 of the CV writer prompt are
+#     per-ENTRY ("a bullet under a work entry must trace to THAT ENTRY'S OWN
+#     …"), and an evidence item without its owner is exactly the input that
+#     produces the ADR-071 misattribution class.
+#   * "selectivity is expected". The same prompt carries a hard ROLE BULLET
+#     BUDGETS ceiling; a block that demanded every item appear would be a
+#     second instruction contradicting the first about the same entry, which
+#     is what ADR-062 clause 4 forbids and what drove the reverted 2026-07-30
+#     #303 fix to full review-loop exhaustion.
+_CV_BLOCK_INSTRUCTION = (
+    "The items below are the candidate's OWN strongest JD-relevant material, "
+    "selected deterministically from their vault: for each claimable "
+    "Keyword-Ledger concept, the vault's own sentence that actually answers "
+    "it. Each item's (source: …) names the vault entry that OWNS it — a "
+    "bullet drawn from an item belongs under THAT work entry and nowhere "
+    "else. Quote or closely paraphrase; never fuse two items into one claim "
+    "and never invent a connection that is not stated verbatim in either. "
+    "This is evidence to choose from within the ROLE BULLET BUDGETS ceiling, "
+    "not content that must all appear — selectivity is expected, and an item "
+    "whose substance another bullet already carries needs no second one."
+)
 
-def render_vault_evidence_block(items: list[EvidenceDigestItem]) -> str:
-    """Render the digest for the WRITER prompt (threaded via
-    ``build_cover_letter_prompt``'s new ``vault_evidence_block`` kwarg).
+_CHAIN_INSTRUCTIONS = {"cv": _CV_BLOCK_INSTRUCTION, "letter": _LETTER_BLOCK_INSTRUCTION}
+
+
+def filter_vault_evidence_for_owner(
+    items: list[EvidenceDigestItem], owner_id: str | None
+) -> list[EvidenceDigestItem]:
+    """The subset of ``items`` owned by one vault entry (#303, segmented path).
+
+    The segmented CV path builds one prompt per work entry, so it must be
+    handed that entry's evidence only — a whole-vault digest inside a
+    per-entry prompt is an invitation to write another employer's achievement
+    under this one (ADR-071 clause 1/3). Order is preserved. An item with no
+    ``owner_ids`` (a summary/certification-level unit) belongs to no entry and
+    is never emitted here. Empty/unknown ``owner_id`` → ``[]``, so the caller
+    adds nothing rather than adding everything.
+    """
+    if not owner_id:
+        return []
+    return [i for i in items if owner_id in i.owner_ids]
+
+
+def render_vault_evidence_block(
+    items: list[EvidenceDigestItem], *, chain: str = "letter"
+) -> str:
+    """Render the digest for a WRITER prompt.
+
+    ``chain`` selects the instruction wording: ``"letter"`` (threaded via
+    ``build_cover_letter_prompt``'s ``vault_evidence_block`` kwarg, #271) or
+    ``"cv"`` (``prompts.cv_tailoring.build_user_prompt`` /
+    ``prompts.cv_segmented.build_work_section_prompt``, #303). The selected
+    ITEMS are identical on both chains — one selector, one implementation
+    (ADR-066); only the sentence telling the writer what to do with them
+    differs, because the two writers are producing different documents.
 
     Returns ``""`` when ``items`` is empty so a JD with no claimable
     concepts / no leadership trigger adds nothing.
     """
     if not items:
         return ""
-    lines = ["=== STRONGEST VAULT EVIDENCE (deterministic — #271) ===", _BLOCK_INSTRUCTION]
+    try:
+        instruction = _CHAIN_INSTRUCTIONS[chain]
+    except KeyError:  # pragma: no cover - programmer error, fail loudly
+        raise ValueError(
+            f"unknown chain {chain!r}; expected one of {sorted(_CHAIN_INSTRUCTIONS)}"
+        ) from None
+    lines = ["=== STRONGEST VAULT EVIDENCE (deterministic — #271) ===", instruction]
     for item in items:
         lines.append(f"  - [{item.concept}] {item.text} (source: {item.path})")
     return "\n".join(lines)

@@ -281,6 +281,7 @@ async def generate_cv_segmented(
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
+    vault_evidence_items: "list | None" = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -305,6 +306,15 @@ async def generate_cv_segmented(
     ``stated_limits_block`` — the candidate's persisted denial statements rendered
     verbatim (:func:`applire.services.cross_document.render_stated_limits_block`), threaded
     into the summary and skills section calls so neither contradicts a stated limit.
+
+    ``vault_evidence_items`` (#303) — the strongest-vault-evidence digest as
+    ITEMS rather than a rendered block, because this path must scope them per
+    work entry before rendering
+    (:func:`applire.services.vault_evidence.filter_vault_evidence_for_owner`).
+    The single-call writer sees every entry at once and can resolve ownership
+    from each item's source path; a per-entry writer cannot, so handing it the
+    whole digest would offer it another employer's achievement (ADR-071). An
+    entry with no owned items gets no block, exactly as before.
     """
     from applire.prompts.cv_segmented import (
         OUTLINE_SYSTEM_PROMPT,
@@ -338,12 +348,22 @@ async def generate_cv_segmented(
         max_tokens=token_budget,
     )
 
+    from applire.services.vault_evidence import (
+        filter_vault_evidence_for_owner,
+        render_vault_evidence_block,
+    )
+
     work_entries: list[dict] = []
     for w in work_src:
+        owned_evidence = render_vault_evidence_block(
+            filter_vault_evidence_for_owner(vault_evidence_items or [], w.get("id")),
+            chain="cv",
+        ) or None
         section = await provider.aparse_json(
             build_work_section_prompt(
                 w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger,
                 budget, scope_positioning_block=scope_positioning_block,
+                vault_evidence_block=owned_evidence,
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
@@ -405,6 +425,8 @@ async def _tailor_cv_with_fallback(
     budget: "BudgetResult | None" = None,
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
+    vault_evidence_block: str | None = None,
+    vault_evidence_items: "list | None" = None,
 ) -> dict:
     """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
     the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
@@ -429,6 +451,7 @@ async def _tailor_cv_with_fallback(
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
+            vault_evidence_items=vault_evidence_items,
         )
     try:
         return await provider.aparse_json(
@@ -439,6 +462,7 @@ async def _tailor_cv_with_fallback(
                 budget=budget,
                 stated_limits_block=stated_limits_block,
                 scope_positioning_block=scope_positioning_block,
+                vault_evidence_block=vault_evidence_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -455,6 +479,7 @@ async def _tailor_cv_with_fallback(
             keyword_ledger=keyword_ledger, budget=budget,
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
+            vault_evidence_items=vault_evidence_items,
         )
 
 
@@ -2421,6 +2446,55 @@ async def _render_cv_background(
                 keyword_ledger, resolve_jd_language(job)
             ) or None
 
+            # #303 (#271's CV half): the strongest-vault-evidence digest — for
+            # each claimable ledger concept, the vault's OWN sentence that
+            # answers it, verbatim, with the entry that owns it. The letter
+            # chain has had this since #271; the CV chain never did, and its
+            # only concept→evidence pointer was the ledger's `evidence` field
+            # — the gap classifier's free-text rationale, which quotes no vault
+            # text and names no owner. That asymmetry is why the letter kept
+            # naming figures and daily-use sentences the CV had reduced to a
+            # bare skills keyword (charter runs #7/13/17/18), which every blind
+            # panel read as `aufgeblasen`. Same selector, same items as the
+            # letter (ADR-066); only the instruction wording differs.
+            #
+            # This OFFERS evidence to the writer. It gates nothing, deletes
+            # nothing, and demands no surface form appear anywhere — the
+            # 2026-07-30 revert (ADR-060 amended; #377) is the standing reason
+            # a presence PREDICATE may not be built here.
+            from applire.services.jd_excerpt import build_jd_excerpt
+            from applire.services.vault_evidence import (
+                render_vault_evidence_block,
+                select_vault_evidence,
+            )
+
+            # Fail-safe by construction: this block only ADDS context to a
+            # prompt, so losing it degrades quality and nothing else. It must
+            # never become a new way for CV generation to fail — the same
+            # boundary guarantee the ADR-071 attribution round below is given,
+            # enforced here rather than trusted to the callee.
+            vault_evidence_items: list = []
+            vault_evidence_block: str | None = None
+            try:
+                jd_raw = job.raw_text if isinstance(job.raw_text, str) else ""
+                vault_evidence_items = select_vault_evidence(
+                    keyword_ledger,
+                    build_jd_excerpt(jd_raw),
+                    # Already `exclude_unconfirmed`-filtered above (ADR-061
+                    # clause 3) — an unconfirmed entry cannot back a CV line
+                    # and must not be offered as evidence either.
+                    profile_json,
+                )
+                vault_evidence_block = (
+                    render_vault_evidence_block(vault_evidence_items, chain="cv") or None
+                )
+            except Exception:
+                logger.exception(
+                    "strongest-vault-evidence selection failed for CV %s — the writer "
+                    "runs without the digest (#303)", cv_id,
+                )
+                vault_evidence_items = []
+
             provider: LLMProvider = get_provider()
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
@@ -2436,6 +2510,8 @@ async def _render_cv_background(
                 budget=budget,
                 stated_limits_block=stated_limits_block,
                 scope_positioning_block=scope_positioning_block,
+                vault_evidence_block=vault_evidence_block,
+                vault_evidence_items=vault_evidence_items,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)

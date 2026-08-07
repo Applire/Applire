@@ -553,3 +553,111 @@ def test_render_vault_evidence_block_wording_and_verbatim_content():
     low = block.lower()
     assert "additional" in low and "not content that must all appear" in low
     assert "never overrides" in low or "grounding contract" in low
+
+
+# ── #303 — owner scoping for the segmented CV path ────────────────────────
+
+
+def _owned(path: str, owners: set[str]) -> EvidenceDigestItem:
+    return EvidenceDigestItem(
+        concept="Budgetverantwortung",
+        reason="claimable-concept",
+        path=path,
+        text=f"evidence at {path}",
+        owner_ids=frozenset(owners),
+    )
+
+
+def test_select_vault_evidence_carries_the_owner_ids_of_each_unit():
+    """The digest is useless to a per-entry writer without the owner. Pins that
+    selection populates it rather than leaving the default empty set."""
+    ledger = [
+        {"concept": "Kubernetes", "surface_forms": ["Kubernetes"], "claimable": True,
+         "status": "direct"},
+    ]
+    profile = {
+        "work_experience": [
+            {"id": "w-alpha", "company": "Acme", "role": "SRE",
+             "start_date": "2020-01", "end_date": None,
+             "responsibilities": ["Ran the Kubernetes fleet across three regions."],
+             "achievements": []},
+        ],
+    }
+    items = select_vault_evidence(ledger, "", profile)
+    assert items
+    assert all(i.owner_ids for i in items), "every selected item must name its owner"
+    assert any("w-alpha" in i.owner_ids for i in items)
+
+
+def test_filter_vault_evidence_for_owner_keeps_only_that_entrys_evidence():
+    """ADR-071: a per-entry writer offered another employer's achievement is
+    being invited to misattribute it."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    mine = _owned("work_experience[0].achievements[0]", {"w1"})
+    theirs = _owned("work_experience[1].achievements[0]", {"w2"})
+    nested = _owned("projects[0].description", {"w1", "p9"})
+    out = filter_vault_evidence_for_owner([mine, theirs, nested], "w1")
+    assert out == [mine, nested]
+
+
+def test_filter_vault_evidence_for_owner_fails_closed_on_missing_owner():
+    """An unknown or absent owner id must yield nothing — never everything."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    items = [_owned("work_experience[0].achievements[0]", {"w1"})]
+    assert filter_vault_evidence_for_owner(items, None) == []
+    assert filter_vault_evidence_for_owner(items, "") == []
+    assert filter_vault_evidence_for_owner(items, "w-unknown") == []
+    assert filter_vault_evidence_for_owner([], "w1") == []
+
+
+def test_filter_vault_evidence_for_owner_drops_ownerless_units():
+    """Summary/certification-level units belong to no work entry."""
+    from applire.services.vault_evidence import filter_vault_evidence_for_owner
+
+    ownerless = EvidenceDigestItem(
+        concept="x", reason="claimable-concept",
+        path="professional_summary.en", text="A summary line.",
+    )
+    assert filter_vault_evidence_for_owner([ownerless], "w1") == []
+
+
+def test_render_vault_evidence_block_rejects_an_unknown_chain():
+    items = [_owned("work_experience[0].achievements[0]", {"w1"})]
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        render_vault_evidence_block(items, chain="resume")
+
+
+def test_select_vault_evidence_does_not_mutate_the_profile_it_is_given():
+    """``select_vault_evidence`` documents itself as pure, and its caller on the
+    CV chain hands it the very ``profile_json`` that is then serialised as the
+    ADR-021 reviewer's source of truth (#303).
+
+    It is not pure by default: ``build_vault_index`` coerces via
+    ``MasterProfileData.model_validate``, whose ``mode="before"``
+    ``_migrate_legacy_fields`` validator rewrites its input dict IN PLACE
+    (``data.pop("work_history")``, ``data["skills"] = [...]``). A legacy-shaped
+    profile handed to this function would therefore come back normalised, and
+    the reviewer would be grounding against a document the vault never stored.
+    """
+    import json as _json
+
+    legacy_profile = {
+        "work_history": [
+            {"company": "Acme", "role": "Dev", "start_date": "2020",
+             "end_date": None, "bullets": ["Ran the Kubernetes fleet."]},
+        ],
+        "skills": ["Python"],
+        "contact": {"name": "Max", "linkedin": "https://example.invalid/max"},
+    }
+    before = _json.dumps(legacy_profile, ensure_ascii=False, sort_keys=True)
+    select_vault_evidence(
+        [{"concept": "Kubernetes", "surface_forms": ["Kubernetes"],
+          "claimable": True, "status": "direct"}],
+        "",
+        legacy_profile,
+    )
+    assert _json.dumps(legacy_profile, ensure_ascii=False, sort_keys=True) == before
