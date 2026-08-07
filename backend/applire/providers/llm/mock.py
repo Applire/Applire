@@ -201,6 +201,13 @@ _CV_TAILORING_BULLETS: list[list[str]] = [
     ],
 ]
 
+# The id channel's own header (``cv_budget.render_budget_table``), anchored at
+# LINE START: prompt prose legitimately names the block mid-sentence (the #303
+# evidence digest tells the writer "within the ROLE BULLET BUDGETS ceiling"),
+# and a bare substring search would start the block at that mention and sweep
+# in every bulleted line beneath it. Matching is scoped to the block — see
+# ``_budget_block``.
+_BUDGET_HEADER_RE = re.compile(r"^ROLE BULLET BUDGETS", re.MULTILINE)
 _BUDGET_ID_RE = re.compile(r"^\s*-\s*\[([^\]]+)\]", re.MULTILINE)
 _PROFILE_BLOCK_RE = re.compile(
     r"CANDIDATE PROFILE[^\n]*:\n(?P<json>\{.*?\})\s*(?:\n\n[A-Z]|\Z)", re.DOTALL
@@ -208,16 +215,36 @@ _PROFILE_BLOCK_RE = re.compile(
 _ID_RE = re.compile(r'"id"\s*:\s*"([^"]+)"')
 
 
+def _budget_block(prompt: str) -> str:
+    """The ROLE BULLET BUDGETS block only, or "" when the prompt has none.
+
+    The id channel is a BLOCK, not a line shape, and reading it as a line
+    shape is how PR #473's integration stack came to key CV prose to the
+    work-entry id ``'Python'``: ``_BUDGET_ID_RE`` was run over the whole
+    prompt, so any other block leading its items with ``- [label]`` was read
+    as ids. The mock is what the entire integration tier's determinism rests
+    on, so it fails closed (no block → no ids → the assembled CV keeps every
+    vault entry with empty bullets) rather than guessing from stray text.
+    """
+    m = _BUDGET_HEADER_RE.search(prompt)
+    if m is None:
+        return ""
+    start = m.start()
+    end = prompt.find("\n\n", start)
+    return prompt[start:] if end < 0 else prompt[start:end]
+
+
 def _prompt_work_ids(prompt: str) -> list[str]:
     """Extract the vault work-entry ids the real writer would key its response to.
 
-    Priority: (1) ROLE BULLET BUDGETS lines (`- [<id>] ...` — the production id
-    channel, ADR-067 clause 3); (2) the CANDIDATE PROFILE JSON block's
+    Priority: (1) the ROLE BULLET BUDGETS block's `- [<id>] ...` lines — the
+    production id channel, ADR-067 clause 3, matched inside that block only
+    (see :func:`_budget_block`); (2) the CANDIDATE PROFILE JSON block's
     work_experience ids; (3) any `"id": "..."` occurrences as a last resort.
     Deduped, order-preserving. Empty when the prompt carries no ids at all —
     the assembled CV then keeps every vault entry with empty bullets.
     """
-    ids = _BUDGET_ID_RE.findall(prompt)
+    ids = _BUDGET_ID_RE.findall(_budget_block(prompt))
     if not ids:
         m = _PROFILE_BLOCK_RE.search(prompt)
         if m:

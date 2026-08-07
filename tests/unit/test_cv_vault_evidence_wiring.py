@@ -242,3 +242,62 @@ async def test_segmented_path_gives_each_work_entry_only_its_own_evidence():
     assert "Walzstrasse mit 40 Mitarbeitenden" not in _digest(weberit)
     assert "Walzstrasse mit 40 Mitarbeitenden" in _digest(rasselstein)
     assert _VAULT_SENTENCE not in _digest(rasselstein)
+
+
+@pytest.mark.asyncio
+async def test_the_mock_writer_keys_its_prose_to_vault_ids_with_the_digest_present():
+    """In-process reproduction of PR #473's Integration & E2E failure.
+
+    CI (docker stack, MockLLMProvider) raised
+    ``UnknownWorkEntryIdError: CV writer returned prose for unknown work-entry
+    id 'Python'`` from ``assemble_tailored_cv`` in ``_render_cv_background``.
+    Root cause was the digest rendering its items in the ``  - [<label>] …``
+    shape that ``cv_budget.render_budget_table`` owns as the ADR-067 clause 3
+    id channel.
+
+    This exercises the same path without docker: the real prompt builder, the
+    real ``MockLLMProvider``, the real budget table, the real digest — then
+    the real assembly, which is where CI blew up.
+    """
+    from applire.providers.llm.mock import MockLLMProvider
+    from applire.services.cv import _tailor_cv_with_fallback, assemble_tailored_cv
+    from applire.services.cv_budget import compute_bullet_budgets
+    from applire.services.vault_evidence import (
+        render_vault_evidence_block,
+        select_vault_evidence,
+    )
+
+    profile = _profile_json()
+    # Ledger concepts deliberately including one that is also a canned mock
+    # skill token, which is how 'Python' reached the assembly in CI.
+    ledger = [
+        {"concept": "Python", "surface_forms": ["Python"], "claimable": True,
+         "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+         "evidence": _CLASSIFIER_REASON},
+        {"concept": "Budgetverantwortung", "surface_forms": ["Budgetverantwortung"],
+         "claimable": True, "status": "direct", "sources": ["required"],
+         "fit_weight": 1.0, "evidence": _CLASSIFIER_REASON},
+    ]
+    profile["work_experience"][0]["responsibilities"].append(
+        "Automatisierte Auswertungen in Python gebaut."
+    )
+    items = select_vault_evidence(ledger, "", profile)
+    assert items, "fixture must produce a digest"
+    block = render_vault_evidence_block(items, chain="cv")
+    budget = compute_bullet_budgets(profile["work_experience"], ledger, 2)
+
+    prose = await _tailor_cv_with_fallback(
+        {"role_title": "Werkleiter"}, profile, [],
+        output_language="de", provider=MockLLMProvider(),
+        keyword_ledger=ledger, budget=budget,
+        vault_evidence_block=block, vault_evidence_items=items,
+    )
+
+    vault_ids = {w["id"] for w in profile["work_experience"]}
+    returned = [w.get("id") for w in prose.get("work") or []]
+    assert returned, "the mock writer returned no work entries"
+    assert set(returned) <= vault_ids, (
+        f"writer keyed prose to non-vault ids {sorted(set(returned) - vault_ids)}"
+    )
+    # The assembly is where CI raised — it must not.
+    assemble_tailored_cv(prose, profile)

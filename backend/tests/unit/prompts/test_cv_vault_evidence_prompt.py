@@ -163,3 +163,57 @@ def test_the_letter_rendering_is_unchanged():
     letter_block = render_vault_evidence_block(_ITEMS, chain="letter")
     assert "the letter's flow" in letter_block
     assert _VAULT_SENTENCE in letter_block
+
+
+# ── PR #473 CI: the digest's line shape collided with the id channel ───────
+#
+# The integration stack failed with
+# ``UnknownWorkEntryIdError: CV writer returned prose for unknown work-entry
+# id 'Python'``. ``cv_budget.render_budget_table`` owns the production id
+# channel and writes ``  - [<work_entry_id>] <company> — <role>: max N``
+# (ADR-067 clause 3); the digest was rendering ``  - [<concept>] <text>``,
+# the same shape, ABOVE it in the same prompt. The mock writer reads the id
+# channel with ``^\s*-\s*\[([^\]]+)\]`` over the whole prompt and duly keyed
+# its response to ``Python``.
+#
+# The mock's parser is fragile and is fixed separately, but the rendering is
+# the real defect: the system prompt tells the writer "Each work-history
+# entry is addressed by the id given in ROLE BULLET BUDGETS. Return bullets
+# under that id", and a real model reading ``- [Python] …`` a few lines above
+# ``- [8bae58e9-…] Acme — Engineer: max 5`` can conflate the two exactly as
+# the mock did. A concept label must never be presentable as an entry id.
+
+_BUDGET_ID_SHAPE = __import__("re").compile(r"^\s*-\s*\[([^\]]+)\]", __import__("re").M)
+
+
+def _full_cv_prompt() -> tuple[str, list[str]]:
+    from applire.services.cv_budget import compute_bullet_budgets, render_budget_table
+
+    budget = compute_bullet_budgets(_PROFILE["work_experience"], _LEDGER, 2)
+    prompt = build_user_prompt(
+        _JOB, _PROFILE, [], _LEDGER,
+        budget=budget,
+        vault_evidence_block=_CV_BLOCK,
+    )
+    assert render_budget_table(budget) in prompt, "fixture must carry a budget table"
+    return prompt, list(budget.roles)
+
+
+def test_only_the_budget_table_speaks_the_entry_id_line_shape():
+    """The ``- [x]`` line shape is the ROLE BULLET BUDGETS id channel. Every
+    such token in the assembled writer prompt must be a real vault work-entry
+    id — otherwise the writer is handed two things that look like ids."""
+    prompt, vault_ids = _full_cv_prompt()
+    found = _BUDGET_ID_SHAPE.findall(prompt)
+    assert found, "fixture must contain the budget id lines"
+    assert set(found) <= set(vault_ids), (
+        f"non-id tokens rendered in the entry-id line shape: {sorted(set(found) - set(vault_ids))}"
+    )
+
+
+def test_the_digest_still_names_its_concept_and_source():
+    """The collision is fixed by changing the SHAPE, not by dropping content —
+    the concept label is why the item is there and the source is the owner."""
+    assert "Budgetverantwortung" in _CV_BLOCK
+    assert _VAULT_SENTENCE in _CV_BLOCK
+    assert "work_experience[0]" in _CV_BLOCK

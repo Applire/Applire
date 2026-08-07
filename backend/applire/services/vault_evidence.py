@@ -525,7 +525,9 @@ _CV_BLOCK_INSTRUCTION = (
     "and never invent a connection that is not stated verbatim in either. "
     "This is evidence to choose from within the ROLE BULLET BUDGETS ceiling, "
     "not content that must all appear — selectivity is expected, and an item "
-    "whose substance another bullet already carries needs no second one."
+    "whose substance another bullet already carries needs no second one. "
+    "These lines are EVIDENCE. They are never work-entry ids: the only ids "
+    "you may key a response to are the ones in ROLE BULLET BUDGETS."
 )
 
 _CHAIN_INSTRUCTIONS = {"cv": _CV_BLOCK_INSTRUCTION, "letter": _LETTER_BLOCK_INSTRUCTION}
@@ -575,5 +577,22 @@ def render_vault_evidence_block(
         ) from None
     lines = ["=== STRONGEST VAULT EVIDENCE (deterministic — #271) ===", instruction]
     for item in items:
-        lines.append(f"  - [{item.concept}] {item.text} (source: {item.path})")
+        if chain == "cv":
+            # Deliberately NOT the letter's "  - [<label>] …" shape (PR #473).
+            # ``cv_budget.render_budget_table`` owns that shape on this chain —
+            # "  - [<work_entry_id>] <company> — <role>: max N" is the
+            # ADR-067 clause 3 id channel, and the system prompt tells the
+            # writer to key its response to the id it finds there. Rendering a
+            # concept label in the same shape a few lines above it hands the
+            # writer two things that look like ids; the integration stack's
+            # mock writer duly returned prose keyed to the concept "Python",
+            # and a real model reading the same two blocks can conflate them
+            # for the same reason. The letter prompt has no id channel, so its
+            # rendering is left byte-identical (charter-verified, run 18).
+            lines.append(
+                f"  EVIDENCE (concept: {item.concept} | source: {item.path})\n"
+                f"      \u201c{item.text}\u201d"
+            )
+        else:
+            lines.append(f"  - [{item.concept}] {item.text} (source: {item.path})")
     return "\n".join(lines)
