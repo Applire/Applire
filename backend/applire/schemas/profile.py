@@ -309,25 +309,78 @@ class Skill(BaseModel):
                 return lowered
             # Unknown category string — default to technical rather than raising
             # (e.g. an LLM/import emitting a free-text category like "Cloud
-            # Platforms"); mirrors normalize_proficiency's robustness.
+            # Platforms").
+            #
+            # #319 asked whether this twin should follow proficiency's fall to
+            # the lowest tier. It does NOT, deliberately: `category` is a
+            # NOMINAL enum (what kind of thing this is), not an ordinal one, so
+            # ADR-061's asymmetry — "on uncertainty, never the more permissive
+            # state" — has no direction to point in. There is no "lower" among
+            # technical/soft/language/domain, and calling an unrecognised skill
+            # a "language" to be safe would be a false statement about its kind:
+            # a truthfulness cost with nothing on the other side of the ledger.
+            #
+            # Recorded so the next reader need not re-derive it: this default is
+            # not neutral in ONE place. services/skill_enrichment.py gates
+            # duration derivation on category — "technical" sits in both
+            # _MATCHABLE_CATEGORIES and _ESTIMABLE_CATEGORIES, i.e. it is the
+            # most derivation-permissive of the four, so an unrecognised
+            # category makes the skill eligible for an ESTIMATED
+            # years_experience. That number is a fact carrying its own
+            # provenance (clause 7, "llm_estimated") and can no longer become a
+            # proficiency (clause 6), which is why it is not treated as a
+            # ceiling breach here — but it is a derivation the vault would not
+            # otherwise have run, and it is the thing to look at first if this
+            # default is ever revisited.
             return "technical"
         return v
 
     @field_validator("proficiency", mode="before")
     @classmethod
     def normalize_proficiency(cls, v: object) -> object:
+        # Two different questions land here and they get two different answers
+        # (#319, PO decision 2026-08-07).
+        #
+        # THE PAGE SAID NOTHING (None, or the field omitted so the model default
+        # applies) — still "intermediate". Whether a never-stated proficiency
+        # deserves a distinct not-stated state is deferred to #316's consumer
+        # audit (they touch the same consumers); until then this stays put.
         if v is None:
             return "intermediate"
         if isinstance(v, str):
-            normalized = _PROFICIENCY_ALIASES.get(v.lower())
+            normalized = _PROFICIENCY_ALIASES.get(v.strip().lower())
             if normalized:
                 return normalized
-            # Unknown proficiency string — default to intermediate rather than
-            # raising a validation error (e.g. future LinkedIn/Xing terminology).
             _valid = {"basic", "intermediate", "advanced", "expert"}
-            if v.lower() not in _valid:
+            lowered = v.strip().lower()
+            if lowered in _valid:
+                return lowered
+            # An empty slot is the page saying nothing, not the page saying
+            # something we could not read — path 1 above, not path 2 below.
+            if not lowered:
                 return "intermediate"
-            return v.lower()
+            # THE PAGE SAID SOMETHING WE DO NOT RECOGNISE (tomorrow's Xing
+            # wording, a CEFR level, an LLM emitting free text) — fall to
+            # "basic", the lowest tier, and never raise a validation error.
+            #
+            # This was "intermediate", i.e. rank 1 of 4, so a stated tier was
+            # routinely normalised UPWARD and was gone before any of #317's
+            # ratchet sites could apply it as the ceiling ADR-061 clause 5
+            # requires. The direction is that ADR's asymmetry: on uncertainty,
+            # never the more permissive state (cf. clause 3's `unconfirmed`,
+            # and clause 2's adjudication-failure fallback). A wrongly
+            # downgraded genuine declaration is recoverable — extend
+            # _PROFICIENCY_ALIASES above, and the candidate sees the tier on
+            # their own profile page — whereas a silent upgrade defeats the
+            # ceiling and leaves nothing downstream able to detect it.
+            #
+            # ADR-061 as amended 2026-08-02: this value is a CLASSIFICATION
+            # input. It may cap what the gap classifier calls a requirement and
+            # be recorded in that classification's internal note; it may never
+            # be handed to a document writer or reviewer as the candidate's own
+            # claim. That constraint binds harder here than for a real
+            # declaration — this tier is not the candidate's word at all.
+            return "basic"
         return v
 
 
