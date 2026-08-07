@@ -15,6 +15,31 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (#375, 2026-08-07 — check 5's SCOPE is corrected and its
+#   reattached-figure case named, folded with v6's #289 clause into ONE instruction.
+#   Both additions opened with the same stem — "find the profile statement it comes from
+#   and read X" — which is one prompt saying one thing twice differently (ADR-062
+#   clause 4). They are now a single stem, EVERY FIGURE IS READ AGAINST THE PROFILE
+#   STATEMENT IT COMES FROM, with the two questions that stem answers (what is the number
+#   a quantity OF; what relationship does the statement give the candidate) and v6's #283
+#   boundary as the shared closer for both — this reviewer is the loop that can
+#   over-correct either finding into a dropped figure.
+#   No seventh check, deliberately: this reviewer's blocking surface is being de-escalated
+#   (v5 demoted check 2 after run 17 exhausted the loop on 13 false findings), so #375
+#   lands as a scope correction of an existing check, never a new mandate.
+#   #375's miss was not a model failure. Across three charter runs (2026-07-29,
+#   2026-08-02, 2026-08-06) this reviewer produced ~40 findings over 15 rounds and NOT ONE
+#   named the summary — every finding addressed work[i].bullets[j] or skills. It could
+#   not: check 5 read "Flag BULLETS that overstate…", and the WHAT IS BLOCKING paragraph
+#   listed "summary phrasing" as minor BY DEFINITION. The vault sentence and the
+#   strengthened summary were both in this prompt's input, verbatim, every round. So
+#   check 5 now reads "ANY line of the draft — the SUMMARY sentence as much as a bullet",
+#   and the minor entry is narrowed to "summary phrasing that does not change what is
+#   claimed" (clause 4 again: one prompt may not contradict itself about one location).
+#   WATCH ITEM for the charter run: check 5 is BLOCKING, and both #289 and #375 widen it.
+#   If the loop starts exhausting on summary or framing findings, the disposition is v5's
+#   — demote, do not tune.
+#   ADR-062 clause 7: prompt effect; CI pins the wording only.)
 # Prompt version: v6 (#289, 2026-08-07 — check 5 gains AGENCY vs PROXIMITY, the
 #   reviewer-side half of the writer's new rule 6 clause. Charter run #5 Finding 7
 #   ("supporting €19bn revenue"): correctly owned, correctly grounded, and read by a
@@ -96,21 +121,31 @@ Check for ALL of the following:
    qualification named anywhere in the output must appear in the CANDIDATE PROFILE. Flag any
    certification or qualification not explicitly present in the source — these are the most
    damaging fabrications because a recruiter can verify them.
-5. OVERSTATED CLAIM STRENGTH (oversell): Flag bullets that overstate seniority, scope, or impact
-   beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
-   or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
+5. OVERSTATED CLAIM STRENGTH (oversell): Flag ANY line of the draft — the SUMMARY sentence as
+   much as a bullet or a skills entry — that overstates seniority, scope, or impact beyond what
+   the profile supports: e.g. "led" or "owned" where the source says "contributed to" or
+   "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
    profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
-   AGENCY vs PROXIMITY (#289): a figure can be entirely real, AND correctly owned by the very
-   employer and role the bullet sits under, and still be written as though the candidate caused
-   it. For every ORGANISATION-SCALE figure a bullet carries — the employer's or the unit's
-   revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work
-   produced — find the profile statement it comes from and read what relationship that statement
-   actually gives the candidate. Flag the bullet when it asserts more agency than its source does,
-   or when it leaves the relationship implicit so that a figure the candidate merely stood next to
-   reads as their own result. The correction you ask for is a FRAMING one: state the relationship
-   the profile states, or name the figure as the scale of the operation the work happened in.
-   NEVER ask for the figure to be removed, rounded away or made vaguer — a bullet vaguer than the
-   truth is the opposite defect and is equally damaging.
+   EVERY FIGURE IS READ AGAINST THE PROFILE STATEMENT IT COMES FROM. A number can be exactly
+   right, AND correctly owned by the very employer and role the line sits under, and still be
+   untrue as written — these are the cases every other control passes. So for each figure in the
+   draft, find the profile statement behind it and ask that statement two questions:
+   - A REATTACHED FIGURE (#375) — what is the number a quantity OF? Check the subject, not only
+     the digits: the profile's "14 Jahren Erfahrung in der diskreten Fertigung" rendered as
+     "14 Jahren Führungserfahrung" is an overstatement although "14" is correct. This is the
+     hardest case in this check to see, precisely because the number verifies and only the noun
+     moved, and it is likeliest in the summary, where a figure gets restated in the job's own
+     vocabulary.
+   - AGENCY vs PROXIMITY (#289) — what relationship does the statement actually give the
+     candidate? This bites on an ORGANISATION-SCALE figure: the employer's or the unit's revenue,
+     headcount, portfolio or user base, as opposed to a result the candidate's own work produced.
+     Flag the line when it asserts more agency than its source does, or when it leaves the
+     relationship implicit so that a figure the candidate merely stood next to reads as their own
+     result.
+   For both, the correction you ask for is a FRAMING one: write the profile's own subject, and
+   state the relationship the profile states or name the figure as the scale of the operation the
+   work happened in. NEVER ask for the figure to be removed, rounded away or made vaguer — a line
+   vaguer than the truth is the opposite defect and is equally damaging.
 6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
    gaps NOT in the profile). Two checks:
@@ -142,8 +177,8 @@ WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXC
 and nothing else. Those checks are the whole of your mandate — they are the ways this CV can be
 untrue, misattributed, or incomplete against what the ledger required. Anything else you notice
 is "minor" BY DEFINITION: bullet wording, bullet order, which achievement leads an entry,
-summary phrasing, length, repetition. You are not the CV's editor. You are the check on
-whether it tells the truth.
+summary phrasing that does not change what is claimed, length, repetition. You are not the CV's
+editor. You are the check on whether it tells the truth.
 
 """ + review_output_schema(
     issue_hint="specific issue with work_history index and description — empty array if nothing found",

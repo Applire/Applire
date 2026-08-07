@@ -15,6 +15,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10 (#375, 2026-08-07 — rule 6 gains A FIGURE KEEPS ITS OWN SUBJECT,
+#   folded with v9's #289 clause: both landed on rule 6 in the same flavour and are one
+#   policy, so they are stated as one — "a true figure can still be written untruthfully,
+#   in two ways", subject first (what is the number OF?) then relationship (what agency
+#   does the source give?), under ONE shared closing boundary. v9 ended its own clause
+#   with the #283 boundary ("never a reason to drop the figure"); that sentence is now the
+#   closer for both, because "the number and its subject move together, or neither moves"
+#   would otherwise read as licence to drop a figure — exactly the inverse defect #289's
+#   closer exists to prevent (ADR-062 clause 4: one prompt may not say one thing twice
+#   differently).
+#   #375 itself: category B, not C. The number was faithfully kept in all three captured
+#   runs (rule 1 governs the NUMBER), and rule 6's enumerated list — team size, budget,
+#   scope, user count, seniority — never contained "the noun a quantity is a quantity of",
+#   so nothing asked for the behaviour. Evidence, backend/logs/llm, one vault sentence,
+#   three renderings: "14 Jahren Erfahrung in der diskreten Fertigung" became "14 Jahren
+#   Führungserfahrung" (2026-07-29), "über 12 Jahren Führungserfahrung" (2026-08-02) and
+#   "14 Jahren Expertise" (2026-08-06, run 17, on v8 — live on this rule set). Rule 6's own
+#   scope is corrected from "a bullet" to every line the writer emits, because the defect
+#   landed in the SUMMARY. Rule 5 gains the counterweight where the pressure is created:
+#   "lead with the ledger's top claimable concepts" is what pulls a career-length figure
+#   into the JD's leadership vocabulary. No deterministic half — comparing predicates is a
+#   JUDGEMENT under ADR-062 clause 1, and the Oracle's tenure ceiling (#469/#403) already
+#   states that boundary; the vault sentence is likewise already in this prompt verbatim,
+#   so nothing needed threading. ADR-062 clause 7: needs charter-run verification.)
 # Prompt version: v9 (#289, 2026-08-07 — rule 6 gains AGENCY, NOT PROXIMITY.
 #   Charter run #5 Finding 7: the CV rendered "supporting €19bn revenue"; the blind
 #   hiring manager called it "a vague, unsubstantiated causal association rather than a
@@ -99,10 +123,13 @@ Your job is to make true things read well, and land for THIS job.
    - EXPLICITLY DENIED, or a plain UNKNOWN gap: omit it. A CV is not the place to disclose a gap — that is the cover letter's job. Never claim it, and never gesture at it with a hedge like "familiar with" or "exposure to".
    An absent required keyword is a truthful outcome. An asserted one the candidate cannot back is a fabrication, and the worst failure mode here.
 
-5. SUMMARY. 2–3 sentences, third person, aimed at THIS role. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile.
+5. SUMMARY. 2–3 sentences, third person, aimed at THIS role. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile. Leading with a concept never licenses re-labelling a fact into it: reach for evidence the profile already states in those terms, never for a fact restated in them (rule 6).
 
-6. CLAIM STRENGTH. Vivid, never inflated — a bullet drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
-   AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or the unit's revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work produced. Such a figure is the SETTING the work happened in, and must be written as one — either name the relationship the profile itself states (ran it, contributed to it, worked within it), or say plainly that this was the scale of the operation ("for a production line carrying €X in revenue", "in a business unit of that scale"). Never fuse the candidate's own action verb to an organisation-scale figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true. This is a FRAMING instruction and never a reason to drop the figure or to write around it — a bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
+6. CLAIM STRENGTH. Vivid, never inflated — any line you write, a summary sentence as much as a bullet, drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
+   A true figure can still be written untruthfully, in two ways. Ask both of every figure you carry.
+   A FIGURE KEEPS ITS OWN SUBJECT. Carrying a quantity from the profile means carrying what the profile says it is a quantity OF — the number and the thing it measures move together, or neither moves. "14 Jahren Erfahrung in der diskreten Fertigung" is fourteen years of EXPERIENCE; written as "14 Jahren Führungserfahrung", or as "14 Jahren Expertise", it is a claim the candidate never made. The danger is exactly that the number stays defensible: nothing else in the document contradicts it, no check on the figure can catch it, and the candidate meets the strengthened claim for the first time in the interview. This holds for every quantity — years, headcount, budget, volume, rate — and for narrowing as much as widening.
+   AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or the unit's revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work produced. Such a figure is the SETTING the work happened in, and must be written as one — either name the relationship the profile itself states (ran it, contributed to it, worked within it), or say plainly that this was the scale of the operation ("for a production line carrying €X in revenue", "in a business unit of that scale"). Never fuse the candidate's own action verb to an organisation-scale figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true.
+   Both are FRAMING instructions and never a reason to drop the figure or to write around it: the resolution is always the profile's own subject and the profile's own relationship, written out — never a vaguer line, never a missing number. A bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
 7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it.
    - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect.
