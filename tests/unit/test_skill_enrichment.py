@@ -100,6 +100,148 @@ class TestGermanProficiencyAliases:
 
 
 # ---------------------------------------------------------------------------
+# An UNRECOGNISED declared proficiency falls to "basic" (#319, PO decision
+# 2026-08-07 — path 2 only).
+#
+# #317 closed the German tier words clause 5 names by name. What remained is
+# the residue: a value the page DID state and the alias table does not know
+# ("Expertenkenntnisse", a CEFR level, tomorrow's Xing wording). That value was
+# replaced by the constant "intermediate" — rank 1 of 4 — so a declaration was
+# routinely normalised UPWARD and was gone before any of #317's four ratchet
+# sites could apply it as a ceiling (ADR-061 clause 5).
+#
+# The fallback direction is ADR-061's asymmetry: on uncertainty, never the more
+# permissive state (the same reading that gives clause 3 `unconfirmed` and the
+# clause-2 adjudication failure its `unconfirmed` fallback). Understating the
+# candidate is recoverable — extend _PROFICIENCY_ALIASES — and is caught by the
+# candidate reading their own profile; a silent upgrade defeats the ceiling and
+# nothing downstream can detect it.
+#
+# NOT in scope here (#316 / Stracciatella, sequenced with the `unconfirmed`
+# consumer audit): path 1, "the page said nothing". An explicit None and an
+# omitted field both still land on the "intermediate" field default — the tests
+# below pin that boundary so this change cannot drift into path 1.
+# ---------------------------------------------------------------------------
+
+class TestUnrecognisedProficiencyFallsToBasic:
+    @pytest.mark.parametrize("declared", [
+        "Expertenkenntnisse",   # the strongest German depth wording — the
+                                # costliest case for the decision, and the one
+                                # that shows a wrong fall is RECOVERABLE
+        "Fundierte Kenntnisse",
+        "Gute Kenntnisse",
+        "Sicherer Umgang",
+        "C1",                   # CEFR — unaliased today (follow-up, not here)
+        "working proficiency",  # LinkedIn-adjacent wording we never listed
+        "Cloud Platforms",      # an LLM/import emitting free text in the slot
+    ])
+    def test_unrecognised_declared_value_falls_to_basic(self, declared):
+        from applire.schemas.profile import Skill
+        skill = Skill(name="SAP", category="technical", proficiency=declared)
+        assert skill.proficiency == "basic"
+
+    def test_the_fallback_is_the_lowest_tier_not_a_middle_one(self):
+        """The asymmetry IS the assertion: whatever the fallback is, it must
+        rank at or below every tier the alias table can produce. A fallback of
+        "intermediate" (the defect) or "expert" (the inverted fix) fails here."""
+        from applire.schemas.profile import Skill, _PROFICIENCY_ALIASES
+        order = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
+        fallback = Skill(name="SAP", proficiency="Expertenkenntnisse").proficiency
+        assert order[fallback] == min(order.values())
+        assert all(order[fallback] <= order[t] for t in _PROFICIENCY_ALIASES.values())
+
+    def test_a_recognised_alias_is_unaffected(self):
+        """The fallback must not swallow the table — #317's words still win."""
+        from applire.schemas.profile import Skill
+        assert Skill(name="X", proficiency="Muttersprache").proficiency == "expert"
+        assert Skill(name="X", proficiency="Verhandlungssicher").proficiency == "advanced"
+        assert Skill(name="X", proficiency="EXPERT").proficiency == "expert"
+
+    # ── the path-1 boundary (#316 / Stracciatella) — must NOT move here ──
+    def test_explicit_none_still_lands_on_intermediate(self):
+        from applire.schemas.profile import Skill
+        assert Skill(name="SAP", proficiency=None).proficiency == "intermediate"
+
+    def test_omitted_field_still_lands_on_intermediate(self):
+        from applire.schemas.profile import Skill
+        assert Skill(name="SAP").proficiency == "intermediate"
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+    def test_a_blank_string_is_silence_not_an_unrecognised_declaration(self, blank):
+        """An empty slot is the page saying nothing, not the page saying
+        something we failed to read — it belongs to path 1, whose answer is
+        deferred. Falling it to "basic" would decide path 1 in this commit."""
+        from applire.schemas.profile import Skill
+        assert Skill(name="SAP", proficiency=blank).proficiency == "intermediate"
+
+    def test_unrecognised_declaration_reaches_the_vault_at_basic_end_to_end(self):
+        """The #304 shape one layer out: a stated-but-unknown tier must reach
+        the vault at "basic" through the JSONB load path, and the deterministic
+        enrichment ladder must not raise it from elapsed time (ADR-061 cl. 5/6).
+        15 years of dated SAP evidence is exactly what used to say "expert"."""
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.skill_enrichment import _match_and_enrich
+
+        profile = MasterProfileData.model_validate({
+            "skills": [{"name": "SAP", "category": "technical",
+                        "proficiency": "Expertenkenntnisse"}],
+            "work_experience": [
+                {"company": "Weberit", "role": "Schichtleiter",
+                 "start_date": "2011-08", "end_date": "2015-01",
+                 "technologies": ["SAP"]},
+                {"company": "Rheinwerk", "role": "Leiter Operations",
+                 "start_date": "2015-02", "end_date": None,
+                 "technologies": ["SAP"]},
+            ],
+        })
+        assert profile.skills[0].proficiency == "basic"
+
+        enriched, unmatched = _match_and_enrich(profile)
+        assert len(unmatched) == 0
+        assert enriched[0].years_experience == 15
+        assert enriched[0].proficiency == "basic"
+
+
+class TestFallbackTierIsNeverPublishedAsTheCandidatesClaim:
+    """ADR-061 amended 2026-08-02 — a proficiency tier is a CLASSIFICATION
+    input and may never reach a document writer as the candidate's own claim.
+    A code-chosen fallback inherits that constraint with more force than a
+    real declaration does: it is not the candidate's word at all. These pin
+    the two generation-facing seams that carry vault skills."""
+
+    def test_the_letter_prompts_candidate_profile_carries_skill_names_only(self):
+        from applire.prompts.cover_letter import build_cover_letter_prompt
+        prompt = build_cover_letter_prompt(
+            cv_data={
+                "contact": {"name": "Marcus Weber"},
+                "summary": "Operations lead.",
+                "skills": [{"name": "SAP", "proficiency": "basic"}],
+                "work_history": [],
+            },
+            jd_text="Operations Manager gesucht.",
+            pre_gen_inputs={},
+            detected_language="de",
+        )
+        assert "Key skills: SAP" in prompt
+        assert "proficiency" not in prompt.lower()
+
+    def test_no_cv_template_renders_a_proficiency_tier(self):
+        """The CV chain hands the writer the whole profile_json (services/cv.py
+        source_material), so the tier IS visible to the model — but its output
+        schema is `"skills": [string]` and no template has a slot for a level,
+        so there is no path from the field to a rendered claim. Locked here so
+        a future template cannot open one silently."""
+        from pathlib import Path
+        import applire.schemas.profile as _anchor
+        templates = Path(_anchor.__file__).parent.parent / "templates"
+        offenders = [
+            p.name for p in templates.glob("*.j2")
+            if "proficiency" in p.read_text(encoding="utf-8")
+        ]
+        assert offenders == []
+
+
+# ---------------------------------------------------------------------------
 # Task 2: Date parsing and range calculation
 # ---------------------------------------------------------------------------
 
