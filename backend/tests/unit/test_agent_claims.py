@@ -851,3 +851,65 @@ async def test_no_profile_raises_lookup_error(async_db):
             async_db,
             _QueueProvider([]),
         )
+
+
+@pytest.mark.asyncio
+async def test_compound_denial_does_not_fabricate_a_denial_of_the_head_noun(async_db):
+    """#351 — door parity for the containment carve-out (ADR-058/ADR-066).
+
+    A mixed claim denies "Tailwind CSS" and applies a real op, so the ledger
+    upgrade fires with the just-recorded denial live in the vault. "CSS" is a
+    bounded substring of the denied compound, and the vault independently
+    evidences CSS — so the seam may neither upgrade it (the statement is no
+    evidence FOR it) nor record it as denied (the candidate denied the
+    compound, not the head noun). Before this fix the agent door wrote
+    ``status="denied"`` with "Candidate explicitly stated a limit here" as the
+    evidence, terminally."""
+    record = MasterProfile(
+        profile_json={
+            "personal_info": {"full_name": "Anna Bauer"},
+            "skills": [{"name": "CSS", "category": "technical"}],
+            "metadata": {
+                "completeness_score": 10.0,
+                "created_via": "cv_upload",
+                "created_at": "2026-01-01T00:00:00Z",
+                "last_updated": "2026-01-01T00:00:00Z",
+            },
+        }
+    )
+    async_db.add(record)
+    await async_db.commit()
+
+    job_id = await _seed_job_with_ledger(async_db, ["CSS"])
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [
+                    {"op": "upsert_skill", "name": "Terraform", "category": "technical"}
+                ],
+                "ambiguities": [],
+                "denials": ["Tailwind CSS"],
+            }
+        ]
+    )
+    await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement=(
+                        "I run Terraform daily; Tailwind CSS I have never used."
+                    ),
+                    gap="CSS",
+                )
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    entry = {e["concept"]: e for e in row.keyword_ledger}["CSS"]
+    assert entry["status"] != "denied"
+    assert entry["evidence"] != DENIED_EVIDENCE
+    assert entry["claimable"] is False

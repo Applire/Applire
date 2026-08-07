@@ -1122,6 +1122,31 @@ def coverage_corrector_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] |
     return fn
 
 
+def _entry_is_denied(
+    concept: str,
+    forms: list[str],
+    denials: list[str],
+    corpus: str | None,
+) -> bool:
+    """Is a ledger ENTRY (its concept or any surface form) denied, judged
+    against ``corpus``?
+
+    ADR-062 clause 6 classification: a **fact** under clause 5's fail-safe
+    scrubbing exemption — string matching against the model's own declared
+    ``denials``, never a reading of prose. It decides nothing about whether a
+    sentence IS a denial (ADR-059 clause 4 keeps that with the LLM); it only
+    matches and enforces what the reconciler already flagged.
+
+    Mirrors ``_enforce_denial_stance``'s call shape exactly: ONE call against
+    the FULL joint denial list per corpus, so ``_independently_affirmed`` can
+    blank every denied phrase out of the corpus TOGETHER before looking for
+    independent evidence.
+    """
+    return is_denied_concept(concept, denials, corpus) or any(
+        is_denied_concept(f, denials, corpus) for f in forms
+    )
+
+
 def upgrade_ledger_for_concepts(
     keyword_ledger: list[dict[str, Any]] | None,
     concepts: list[str],
@@ -1130,6 +1155,7 @@ def upgrade_ledger_for_concepts(
     status: str = "direct",
     denied_concepts: list[str] | None = None,
     upgrade: bool = True,
+    vault_corpus: str | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -1186,6 +1212,64 @@ def upgrade_ledger_for_concepts(
     denial-only turn (and letting it upgrade an undenied concept off no
     evidence) and not running it at all; they chose the latter, which is #352.
 
+    GROUNDING THE CONTAINMENT BRANCH (#351). ``is_denied_concept``'s second
+    branch — the ledger concept is a bounded substring of a denied compound
+    ("CSS" ⊂ a denied "Tailwind CSS") — is a *containment* test standing in
+    for a question no string comparison answers ("does denying the compound
+    deny the head noun?"). It fail-closes to True when no grounding corpus is
+    passed, and floor 2 passed none, so a candidate who affirmed CSS and
+    denied Tailwind CSS in one sentence had CSS written to
+    ``status="denied"`` with :data:`DENIED_EVIDENCE` — a claim about their
+    testimony they never made, rendered verbatim to the letter writer
+    ("THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS",
+    ``cross_document``), and terminal (floor 1 blocks any later upgrade and
+    :func:`reevaluate_gap_ledger_against_vault` only re-examines ``"gap"``
+    rows). ADR-064's 2026-07-29 amendment requires the carve-out to be
+    applied "consistently in all three places that independently re-implement
+    'never upgrade a denied concept' … or the floor becomes inconsistent by
+    call path"; this was the one place it was not. Two corpora, because this
+    seam is the only one of the three that writes the turn's own words as
+    evidence:
+
+      * **the turn** (``evidence`` — the answer/statement being recorded)
+        decides whether this seam may UPGRADE a contained concept. Only a
+        concept the candidate affirms *outside* every denied compound, in
+        their own words, on this turn, may be flipped claimable with those
+        words as its evidence.
+      * **``vault_corpus``** (:func:`profile_literal_corpus`, threaded from
+        both doors — the same input ``_enforce_denial_stance`` takes) decides
+        whether a denial may be RECORDED (and, since #352, whether one may be
+        REVERSED). Vault evidence outside the denied compound contradicts the
+        containment reading, so the entry is left exactly as it stands — not
+        upgraded (the turn is not evidence for it), not denied and not
+        reversed (the candidate denied the compound, not the head noun). An
+        open entry stays a ``gap``, still healable by the corpus-aware vault
+        re-evaluation; an already-claimable one keeps the standing it earned.
+        ``None`` (no profile on hand) keeps the pre-#351 fail-closed default
+        for the vault half.
+
+    The narrowing is confined to the containment branch. A denial that NAMES
+    the concept, or a broader denial the concept falls under ("Azure" denying
+    "Microsoft Azure"), is the candidate's own declaration and is absolute
+    regardless of either corpus — including #352's reversal of a claimable
+    entry (ADR-040 never-claim; ADR-062 clause 5 keeps that floor
+    deterministic and deliberately over-broad).
+
+    HOW #351 AND #352 COMPOSE. #352 widened WHICH entries reach floor 2 (every
+    concept-matching one, claimable included) and #351 narrowed WHAT floor 2
+    concludes about them, so the two are orthogonal and both hold:
+
+      * a declared denial reverses a claimable entry exactly as #352 requires;
+      * a containment-only denial the vault contradicts reverses nothing — and
+        that is what makes #352's own invariant TIGHTER, not looser, because
+        ``_enforce_denial_stance`` (the rebuild this seam must agree with) has
+        always judged containment against ``vault_corpus``. Before #351 this
+        seam judged it corpus-blind, so a rebuild and a retraction turn could
+        still disagree on exactly the CSS/Tailwind-CSS shape;
+      * ``upgrade=False`` (a turn that applied no ops) and the containment
+        carve-out are independent gates: a retraction turn can still reverse a
+        declared denial, and still may not invent one from containment.
+
     Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
     the JSONB write. Pure; tolerant of ``None``/empty.
     """
@@ -1198,6 +1282,16 @@ def upgrade_ledger_for_concepts(
     upgrade_status = status if status in {"direct", "partial"} else "direct"
     ev = (evidence or "").strip()
     denials = [d for d in (denied_concepts or []) if _norm(d)]
+
+    # #351 — the two grounding corpora (see the docstring). Both are built
+    # HERE, from this function's own arguments plus the one optional caller
+    # input, so every door gets identical behaviour by construction and no
+    # door can quietly ground the floor differently (ADR-066: one logical
+    # operation, one implementation).
+    from applire.services.ats_audit import _norm as ats_norm
+
+    turn_corpus = ats_norm(ev)
+    full_corpus = " ".join(p for p in (vault_corpus or "", turn_corpus) if p) or None
 
     new_ledger: list[dict[str, Any]] = []
     changed = False
@@ -1233,10 +1327,29 @@ def upgrade_ledger_for_concepts(
         # Runs for a claimable entry too (#352): this is the seam that REVERSES
         # a prior upgrade, and it writes exactly what a rebuild of the row
         # would write (``_enforce_denial_stance``) so the two never disagree.
-        if denials and (
-            is_denied_concept(concept, denials)
-            or any(is_denied_concept(f, denials) for f in forms)
-        ):
+        # ONE call per corpus against the FULL joint denial list, never a loop
+        # of singleton calls (the _enforce_denial_stance regression, 2026-07-29:
+        # singletons blank only their own phrase and let a sibling denial's
+        # leftover text read as independent affirmation).
+        if denials and _entry_is_denied(concept, forms, denials, turn_corpus or None):
+            if not _entry_is_denied(concept, forms, denials, full_corpus):
+                # #351 — the turn denies this concept only by containment in a
+                # longer denied compound, and the vault affirms it outside that
+                # compound. Neither verdict is available: the turn is no
+                # evidence FOR it, and the candidate denied the compound, not
+                # this concept. Leave the entry exactly as it stands — which,
+                # composed with #352, also means a containment-only denial
+                # never REVERSES a standing upgrade. That is the same verdict
+                # the rebuild reaches: `_enforce_denial_stance` has always
+                # judged containment against this very corpus.
+                logger.info(
+                    "upgrade_ledger_for_concepts: left %r as it stands (%r/"
+                    "claimable=%r) — it is only contained in a denied compound "
+                    "and the vault affirms it independently (#351)",
+                    concept, e.get("status"), e.get("claimable"),
+                )
+                new_ledger.append(e)
+                continue
             logger.info(
                 "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
                 "claimable=%r) — the turn ADDRESSED this requirement by denying "

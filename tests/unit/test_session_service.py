@@ -4247,3 +4247,99 @@ class TestARetractionReversesTheLedgerUpgrade:
         assert cicd["claimable"] is False
         assert cicd["status"] == "denied"
         assert cicd["evidence"] == DENIED_EVIDENCE
+
+
+class TestInterviewDoorGroundsTheContainmentFloor:
+    """#351 — the interview door must thread the vault's literal corpus into
+    the #188 seam, so ``is_denied_concept``'s compound-containment branch is
+    judged against real evidence instead of fail-closing (ADR-064's
+    2026-07-29 "all three places" requirement)."""
+
+    @staticmethod
+    def _seed(denied, ledger_concept, vault_skills):
+        from applire.models.gap import GapAnalysis
+
+        job = _make_job()
+        profile = _make_profile(
+            completeness_json={
+                "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
+                "skills": [
+                    {"name": s, "category": "technical", "proficiency": "advanced"}
+                    for s in vault_skills
+                ],
+                "metadata": {
+                    "denied_concepts": [
+                        {"concept": d, "statement": "…", "source": "interview",
+                         "date": "2026-08-07"}
+                        for d in denied
+                    ]
+                },
+            }
+        )
+        cluster_id = "cluster-under-test"
+        gap = GapAnalysis(
+            match_score=0.6,
+            critical_gaps=[cluster_id], minor_gaps=[], strengths=[],
+            keyword_gaps=[], category_a=[], category_b=[], category_c=[cluster_id],
+            keyword_ledger=[
+                {"concept": ledger_concept, "surface_forms": [ledger_concept],
+                 "sources": ["required"], "fit_weight": 1.0, "status": "gap",
+                 "evidence": "", "claimable": False},
+            ],
+            gap_clusters=[{"id": cluster_id, "label": ledger_concept, "category": "C",
+                           "gaps": [ledger_concept], "jd_skills": [], "jd_context": ""}],
+        )
+        return job, profile, gap, cluster_id
+
+    async def _run(self, db, denied, concept, vault_skills, answer):
+        from applire.services.session import _upgrade_ledger_for_addressed_gap
+
+        job, profile, gap, cluster_id = self._seed(denied, concept, vault_skills)
+        db.add(job)
+        db.add(profile)
+        await db.flush()
+        gap.job_analysis_id, gap.profile_id = job.id, profile.id
+        db.add(gap)
+        await db.commit()
+
+        state = {
+            "profile_id": str(profile.id),
+            "gap_analysis_id": str(gap.id),
+            "gap_clusters_by_id": {cluster_id: {"id": cluster_id, "gaps": [concept]}},
+        }
+        await _upgrade_ledger_for_addressed_gap(state, cluster_id, answer, db)
+        await db.commit()
+        return (await _reload_ledger(db, gap.id))[0]
+
+    @pytest.mark.asyncio
+    async def test_vault_evidence_stops_a_fabricated_denial_on_the_head_noun(
+        self, sqlite_session
+    ):
+        """A pure denial of "Tailwind CSS" on a vault that evidences CSS must
+        leave the CSS requirement OPEN. Before #351 it was written to
+        ``status="denied"`` with "Candidate explicitly stated a limit here" as
+        its evidence — testimony the candidate never gave, and terminal (floor
+        1 blocks a later upgrade; the vault re-evaluation only re-examines
+        ``"gap"`` rows)."""
+        entry = await self._run(
+            sqlite_session, ["Tailwind CSS"], "CSS", ["CSS", "Python"],
+            "I have never used Tailwind CSS.",
+        )
+        assert entry["status"] == "gap"
+        assert entry["claimable"] is False
+        assert entry["evidence"] == ""
+
+    @pytest.mark.asyncio
+    async def test_a_denial_the_vault_does_not_contradict_is_still_recorded(
+        self, sqlite_session
+    ):
+        """The floor is narrowed, not disabled: nothing affirms RAG outside
+        the denied "RAG pipeline", so the denial is recorded as before."""
+        from applire.services.keyword_ledger import DENIED_EVIDENCE
+
+        entry = await self._run(
+            sqlite_session, ["RAG pipeline"], "RAG", ["Python"],
+            "I have never built a RAG pipeline.",
+        )
+        assert entry["status"] == "denied"
+        assert entry["evidence"] == DENIED_EVIDENCE

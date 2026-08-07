@@ -78,6 +78,7 @@ from applire.services.interview.sufficiency import (
 )
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
+    profile_literal_corpus,
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
@@ -1828,17 +1829,19 @@ async def _upgrade_ledger_for_addressed_gap(
     # concept without naming it simply does not upgrade here, and the ordinary
     # vault re-evaluation picks it up once the testimony lands.
     profile_record = await _load_profile(state["profile_id"], db)
+    profile_json = (profile_record.profile_json if profile_record else None) or {}
     denied_concepts = [
         d.get("concept", "")
-        for d in (
-            ((profile_record.profile_json if profile_record else None) or {}).get(
-                "metadata"
-            )
-            or {}
-        ).get("denied_concepts")
-        or []
+        for d in (profile_json.get("metadata") or {}).get("denied_concepts") or []
         if isinstance(d, dict) and d.get("concept")
     ]
+    # #351 — the vault's own literal text (denial testimony stripped), so the
+    # containment branch of the denial predicate can be judged against real
+    # evidence instead of fail-closing. Same instrument and same input
+    # `_enforce_denial_stance` and `reevaluate_gap_ledger_against_vault`
+    # already use; this door was the third of ADR-064's "all three places"
+    # and the only one that passed nothing.
+    vault_corpus = profile_literal_corpus(profile_json)
 
     answer_norm = ats_norm(answer or "")
     by_concept = {
@@ -1869,6 +1872,7 @@ async def _upgrade_ledger_for_addressed_gap(
         answer,
         denied_concepts=denied_concepts,
         upgrade=upgrade,
+        vault_corpus=vault_corpus,
     )
     if changed:
         # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a
