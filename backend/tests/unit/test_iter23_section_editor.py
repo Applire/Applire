@@ -598,3 +598,166 @@ async def test_save_section_to_profile_persists_json_serializable_dates(db_with_
     # ...and the whole persisted dict must be JSON-serializable (this is what
     # actually raises TypeError at DB flush when mode="json" is missing).
     json.dumps(profile.profile_json)
+
+
+# ---------------------------------------------------------------------------
+# #336 — the section editor's save-to-profile is a FieldEdit intake and must
+# not be a second implementation of one (ADR-063 clause 3, ADR-066).
+#
+# `patch_profile_section` is the FieldEdit intake the profile page and the MCP
+# door already share. The section editor wrote `master_profiles.profile_json`
+# itself instead, so the same logical operation had two implementations and the
+# editor's one carried none of the intake's invariants: no `EnrichmentRecord`
+# (ADR-063 Context finding 2 — one of the four trail-less writers, ADR-040's
+# "durable decision trail" with a hole in it), no completeness recompute, no
+# `last_updated`, no skill enrichment.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_saving_a_section_to_the_profile_appends_an_enrichment_record(
+    db_with_dated_profile,
+):
+    """#336 / ADR-063 — a vault write leaves a receipt, whichever intake made it.
+
+    The section editor was one of the four writers that construct no
+    `EnrichmentRecord`, so a save-to-profile was invisible in
+    `GET /api/profile/enrichment-history` and under-reported an Art. 15 access
+    request. The identical edit made on the profile page is receipted.
+    """
+    from applire.models.profile import MasterProfile
+    from applire.services.cv_section_editor import patch_cv_section
+
+    ctx = db_with_dated_profile
+    session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+
+    await patch_cv_section(cv_id, "skills", "Python\nKubernetes", True, session)
+
+    profile = await session.get(MasterProfile, profile_id)
+    history = ((profile.profile_json.get("metadata") or {}).get("enrichment_history")) or []
+    assert history, (
+        "saving a CV section to the master profile must append an "
+        "EnrichmentRecord — the vault write surface has one trail (#336)"
+    )
+    record = history[-1]
+    assert record["source"] == "manual_edit"
+    assert record["source_session_id"] == str(cv_id), (
+        "the receipt must say which CV the edit came from"
+    )
+    assert [c["section"] for c in record["changes"]] == ["skills"]
+
+
+@pytest.mark.asyncio
+async def test_saving_a_section_recomputes_completeness_and_last_updated(
+    db_with_dated_profile,
+):
+    """#336 / ADR-063 amendment (4) — completeness recompute is universal.
+
+    The section editor left `metadata.completeness_score` and
+    `metadata.last_updated` untouched, so the ADR-041 health hub read a stale
+    score after an edit that changed the profile's content.
+    """
+    from applire.models.profile import MasterProfile
+    from applire.services.cv_section_editor import patch_cv_section
+
+    ctx = db_with_dated_profile
+    session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+
+    await patch_cv_section(cv_id, "skills", "Python\nKubernetes", True, session)
+
+    profile = await session.get(MasterProfile, profile_id)
+    metadata = profile.profile_json.get("metadata") or {}
+    assert metadata.get("completeness_score"), (
+        "the intake recomputes completeness on every write (ADR-063 amendment 4)"
+    )
+    assert metadata.get("last_updated"), "the intake stamps last_updated"
+
+
+@pytest.mark.asyncio
+async def test_saved_introduction_goes_through_the_field_edit_intake(
+    db_with_dated_profile,
+):
+    """#336 — the introduction write is merge-patched, not section-replaced.
+
+    `professional_summary` is an object section: the intake merges the supplied
+    keys (#178) so writing the document's language slot can never wipe the
+    other one. Asserted here because routing this write through the shared
+    intake is what makes that guarantee apply to the section editor too.
+    """
+    from applire.models.profile import MasterProfile
+    from applire.services.cv_section_editor import patch_cv_section
+
+    ctx = db_with_dated_profile
+    session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+
+    await patch_cv_section(cv_id, "introduction", "Neue Zusammenfassung", True, session)
+
+    profile = await session.get(MasterProfile, profile_id)
+    summary = profile.profile_json["professional_summary"]
+    assert summary["de"] == "Neue Zusammenfassung"
+    history = ((profile.profile_json.get("metadata") or {}).get("enrichment_history")) or []
+    assert [c["section"] for c in history[-1]["changes"]] == ["professional_summary"]
+
+
+@pytest.mark.asyncio
+async def test_section_editor_save_never_revokes_a_denial(db_with_dated_profile):
+    """#336 / ADR-059 — typing a denied concept into the CV editor must not
+    un-deny it.
+
+    ADR-059's 2026-07-26 amendment: only an explicit candidate action revokes a
+    denial, the surface must show a prior denial is being reversed, and a
+    revoked denial returns the concept to *unproven* — never to claimable. The
+    section editor's scope dialog is neither of those things, so the write must
+    leave `metadata.denied_concepts` intact and must not produce claimable
+    evidence. Locks both halves against the laundering route this issue names:
+    Oracle rejects the claim on the document → the user types it into the
+    editor → it becomes ground truth.
+    """
+    from applire.models.profile import MasterProfile
+    from applire.services.cv_section_editor import patch_cv_section
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    ctx = db_with_dated_profile
+    session, cv_id, profile_id = ctx["db"], ctx["cv_id"], ctx["profile_id"]
+
+    profile = await session.get(MasterProfile, profile_id)
+    profile_json = dict(profile.profile_json)
+    profile_json["metadata"] = {
+        "denied_concepts": [
+            {
+                "concept": "Kubernetes",
+                "statement": "Kubernetes habe ich nie selbst betrieben.",
+                "source": "interview",
+                "date": "2026-08-01",
+            }
+        ]
+    }
+    profile.profile_json = profile_json
+    await session.commit()
+
+    await patch_cv_section(cv_id, "skills", "Kubernetes", True, session)
+
+    profile = await session.get(MasterProfile, profile_id)
+    metadata = profile.profile_json.get("metadata") or {}
+    assert [d["concept"] for d in metadata.get("denied_concepts") or []] == ["Kubernetes"], (
+        "the denial must survive the write — a section-editor save is not an "
+        "explicit revocation (ADR-059, 2026-07-26 amendment clause 3)"
+    )
+
+    saved = {s["name"]: s for s in profile.profile_json["skills"]}
+    assert saved["Kubernetes"]["status"] == "unconfirmed"
+
+    ledger = build_keyword_ledger(
+        [{"concept": "Kubernetes", "status": "direct", "evidence": "vault skill"}],
+        required_skills=["Kubernetes"],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=metadata.get("denied_concepts"),
+        profile_json=profile.profile_json,
+    )
+    entry = next(e for e in ledger if e["concept"] == "Kubernetes")
+    assert entry["status"] == "denied", entry
+    assert entry["claimable"] is False, (
+        "the ADR-059 floor must still suppress the concept after the vault "
+        "write — never-claim outranks claim (ADR-040)"
+    )
