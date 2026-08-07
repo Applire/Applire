@@ -1868,9 +1868,9 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     ``cv_data`` alone."""
     from applire.prompts.cover_letter import build_cover_letter_prompt
     from applire.services.jd_excerpt import build_jd_excerpt
-    from applire.services.letter_evidence import (
-        render_letter_evidence_block,
-        select_letter_evidence,
+    from applire.services.vault_evidence import (
+        render_vault_evidence_block,
+        select_vault_evidence,
     )
 
     profile = _json.loads((_RUN5_FIXTURE_DIR / "profile.json").read_text(encoding="utf-8"))
@@ -1895,8 +1895,8 @@ def test_run5_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     )
 
     jd_excerpt = build_jd_excerpt(jd_raw)
-    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
-    vault_evidence_block = render_letter_evidence_block(digest_items)
+    digest_items = select_vault_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_vault_evidence_block(digest_items)
 
     # Without the digest, the fact is absent from the prompt (the CV alone starves it).
     prompt_without_digest = build_cover_letter_prompt(
@@ -1935,9 +1935,9 @@ def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     """
     from applire.prompts.cover_letter import build_cover_letter_prompt
     from applire.services.jd_excerpt import build_jd_excerpt
-    from applire.services.letter_evidence import (
-        render_letter_evidence_block,
-        select_letter_evidence,
+    from applire.services.vault_evidence import (
+        render_vault_evidence_block,
+        select_vault_evidence,
     )
 
     distinctive_sentence = (
@@ -1948,7 +1948,7 @@ def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     # The vault carries the distinctive sentence as a same-initiative
     # achievement on the SAME work entry as the claimable-concept anchor
     # (mirrors run-5's achievements[3]: same owner/initiative, no literal
-    # keyword match of its own — see services.letter_evidence's
+    # keyword match of its own — see services.vault_evidence's
     # SAME-INITIATIVE EXTENSION).
     profile = {
         "work_experience": [
@@ -1995,8 +1995,8 @@ def test_hermetic_vault_only_fact_reaches_writer_prompt_via_evidence_digest():
     assert distinctive_sentence not in work_snippet_bullets
 
     jd_excerpt = build_jd_excerpt(jd_raw)
-    digest_items = select_letter_evidence(ledger, jd_excerpt, profile)
-    vault_evidence_block = render_letter_evidence_block(digest_items)
+    digest_items = select_vault_evidence(ledger, jd_excerpt, profile)
+    vault_evidence_block = render_vault_evidence_block(digest_items)
     assert distinctive_sentence in vault_evidence_block, (
         "precondition failed: the digest never selected the distinctive "
         "sentence in the first place"

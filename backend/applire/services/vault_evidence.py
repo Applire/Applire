@@ -15,7 +15,33 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""#271 Task 2/3 — strongest-vault-evidence digest for the letter.
+"""#271 Task 2/3 — strongest-vault-evidence digest, shared by BOTH document
+chains (renamed from ``letter_evidence`` for #303, 2026-08-07).
+
+**Why it is no longer letter-only (ADR-066 — one logical operation, one
+implementation).** "Select the vault's strongest JD-relevant evidence and hand
+it to the writer verbatim, with the vault entry that owns it" is one logical
+operation. #271 built it and wired it to the cover-letter writer only; #271's
+own closure note recorded the CV half as still open, and #303 is that half.
+The CV writer does receive the whole profile JSON, so this block adds no NEW
+data there — it adds the two things the CV writer never had: the MAPPING from
+each claimable ledger concept to the specific vault sentence that answers it,
+and that sentence's OWNER path. Until now the CV writer's only concept→evidence
+pointer was the ledger's ``evidence`` field, which is the gap classifier's
+free-text ``reason`` (``services.gap.ledger_input_from_classification``) — a
+paraphrase of why the classifier graded the row, carrying no vault quote, no
+owner and no figure. That is why a `direct`/claimable concept could reach the
+delivered CV as a bare skills-list keyword while the letter, which HAS this
+block, named the vault's own sentence: charter runs #7 (`Budgetverantwortung`
+/ `6 Mio. €`), 13 (#415, `Jahresabschluss`), 17 and 18 (#452, and run 18's
+surviving `~90 MA` residual) all show that same CV-vs-letter asymmetry, and
+every blind panel read it as `aufgeblasen`.
+
+The digest OFFERS evidence to a writer; it never decides what the delivered
+document contains, never gates, and never deletes. It is therefore not the
+keyword-proxy STRENGTH ranking ADR-067 clause 4 retired (that clause governs
+deterministic code choosing which of the writer's own bullets survives a cap —
+``bullet_cuts``/``condense_to_budget``, whose cut order is a figure fact).
 
 Ground truth (charter run #5): the letter's CANDIDATE PROFILE block is built
 from ``cv_data`` (the TAILORED CV's ``tailored_data``), condensed to
@@ -233,7 +259,7 @@ def _anchor_for_concept(
     return max(candidates, key=lambda u: (len(u.text), u.path))
 
 
-def select_letter_evidence(
+def select_vault_evidence(
     keyword_ledger: list[dict[str, Any]] | None,
     jd_excerpt: str,
     profile_json: dict[str, Any] | Any,
@@ -375,7 +401,7 @@ def select_letter_evidence(
             selected_paths.add(u.path)
         if drop:
             logger.info(
-                "select_letter_evidence: dropped %d same-initiative candidate(s) for "
+                "select_vault_evidence: dropped %d same-initiative candidate(s) for "
                 "owner set %s beyond the per-anchor cap: %s",
                 len(drop), sorted(anchor_owners), [u.path for u in drop],
             )
@@ -417,7 +443,7 @@ def select_letter_evidence(
             selected_paths.add(u.path)
         if drop:
             logger.info(
-                "select_letter_evidence: dropped %d leadership candidate(s) beyond the "
+                "select_vault_evidence: dropped %d leadership candidate(s) beyond the "
                 "cap: %s",
                 len(drop), [u.path for u in drop],
             )
@@ -426,7 +452,7 @@ def select_letter_evidence(
     if len(selected) > cap:
         kept, dropped = selected[:cap], selected[cap:]
         logger.info(
-            "select_letter_evidence: capped digest at %d, dropped %d lower-priority "
+            "select_vault_evidence: capped digest at %d, dropped %d lower-priority "
             "item(s): %s",
             cap, len(dropped), [d.path for d in dropped],
         )
@@ -449,7 +475,7 @@ _BLOCK_INSTRUCTION = (
 )
 
 
-def render_letter_evidence_block(items: list[EvidenceDigestItem]) -> str:
+def render_vault_evidence_block(items: list[EvidenceDigestItem]) -> str:
     """Render the digest for the WRITER prompt (threaded via
     ``build_cover_letter_prompt``'s new ``vault_evidence_block`` kwarg).
 
