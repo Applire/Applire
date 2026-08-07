@@ -15,6 +15,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v9 (#289, 2026-08-07 — rule 6 gains AGENCY, NOT PROXIMITY.
+#   Charter run #5 Finding 7: the CV rendered "supporting €19bn revenue"; the blind
+#   hiring manager called it "a vague, unsubstantiated causal association rather than a
+#   measured contribution". Every existing control passed it — the figure guard (#254)
+#   because the figure's vault backing belongs to the very position the bullet anchors
+#   to, the Oracle because the number genuinely traces to vault evidence. Rule 6 passed
+#   it too: it forbids UPGRADING a verb and ENLARGING a figure, and the run did neither
+#   (the verb was mirrored, the number exact). Nothing asked the writer to state the
+#   candidate's RELATIONSHIP to an organisation-scale figure, so the relationship stayed
+#   implicit and the reader supplied the causation — prompt-first category B, never
+#   asked though perfectly emittable. Stated inside rule 6 rather than as a rule 10:
+#   ADR-067 clause 8 put claim-strength calibration in ONE place, and a second home for
+#   it is the accretion this prompt was rebuilt to remove. The standing pull the rule has
+#   to survive is rule 2's "what changed because of it" — a legitimate instruction that,
+#   applied to a figure measuring the ORGANISATION, is exactly what mints the defect; the
+#   rule therefore names the organisation-scale case explicitly instead of leaving rule 2
+#   to be read narrowly. The closing sentence is load-bearing in the other direction:
+#   #283 is the inverse failure (grounded figures dropped, prose left vaguer than the
+#   truth) and this rule must never read as licence to cause it. NEEDS CHARTER-RUN
+#   VERIFICATION (ADR-062 clause 7) — CI pins the wording, not the model's compliance.
 # Prompt version: v8 (#452 / ADR-071 amended 2026-08-06 — three selection rules added,
 #   replay-verified against the captured run-17 writer input before shipping:
 #   rule 2 gains narrative carriage (claimable entry-owned ledger evidence must reach
@@ -82,6 +102,7 @@ Your job is to make true things read well, and land for THIS job.
 5. SUMMARY. 2–3 sentences, third person, aimed at THIS role. Lead with the KEYWORD LEDGER's top claimable concepts — the terms the profile's evidence actually backs. Do not let an earlier, no-longer-central specialism dominate because it happens to fill more of the profile.
 
 6. CLAIM STRENGTH. Vivid, never inflated — a bullet drawn from a truthful source but with misleading emphasis is still a defect, and the candidate is the one exposed in the interview. Mirror the profile's own verb strength: if it says "supported", "contributed to" or "was part of", do not upgrade to "led", "owned" or "drove". Never enlarge a team size, budget, scope or user count, and never imply a more senior role than the profile states.
+   AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or the unit's revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work produced. Such a figure is the SETTING the work happened in, and must be written as one — either name the relationship the profile itself states (ran it, contributed to it, worked within it), or say plainly that this was the scale of the operation ("for a production line carrying €X in revenue", "in a business unit of that scale"). Never fuse the candidate's own action verb to an organisation-scale figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true. This is a FRAMING instruction and never a reason to drop the figure or to write around it — a bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
 7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it.
    - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect.

@@ -62,6 +62,12 @@ _CORE_RULES = """\
   draw on the whole profile.
 - Claim-strength: mirror the source's verb strength; never upgrade "supported"/"assisted" to
   "led"/"owned", never enlarge team sizes/budgets/magnitudes, never assign a more senior title.
+  Claim only as much agency as the source statement itself gives the candidate (#289): an
+  ORGANISATION-SCALE figure — the employer's or unit's revenue, headcount, portfolio, user base,
+  as opposed to a result the candidate's own work produced — is the setting the work happened in.
+  State the relationship the source states, or name it as the scale of the operation; never fuse
+  it to the candidate's own action verb and leave the causation to the reader. Framing only:
+  never drop the figure, a line vaguer than the truth is the opposite defect.
 - Output language: write ALL prose in the OUTPUT LANGUAGE stated in the user message,
   translating from the source where needed (translating is not inventing). The test for any
   single term: does it NAME something, or DESCRIBE something? A name is copied exactly, never

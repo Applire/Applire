@@ -15,6 +15,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#289, 2026-08-07 — check 5 gains AGENCY vs PROXIMITY, the
+#   reviewer-side half of the writer's new rule 6 clause. Charter run #5 Finding 7
+#   ("supporting €19bn revenue"): correctly owned, correctly grounded, and read by a
+#   blind hiring manager as unearned causation. NO new reviewer input is wired for it —
+#   ``build_review_prompt`` already hands this reviewer the WHOLE profile JSON verbatim
+#   as its source of truth, so the vault's own statement behind every figure is already
+#   in its hands; the seam closes with an instruction to READ it for agency. "Does this
+#   sentence overstate agency" is the textbook ADR-062 clause-1 judgement, so it is a
+#   reviewer instruction and never a deterministic verb list. The final sentence is the
+#   #283 boundary: this reviewer is the loop that could over-correct a proximity finding
+#   into a dropped figure, which is the inverse defect. NEEDS CHARTER-RUN VERIFICATION
+#   (ADR-062 clause 7).
 # Prompt version: v3 (E049 / ADR-067 — checks 2 (ENTRY COUNT) and 3 (FACTUAL
 #   MUTATIONS) DELETED, not reworded: the writer's response schema no longer
 #   carries employers, roles, dates, education or entry structure — those are
@@ -88,6 +100,17 @@ Check for ALL of the following:
    beyond what the profile supports — e.g. "led" or "owned" where the source says "contributed to"
    or "supported", inflated team sizes, budgets, or metrics, or a more senior title than the
    profile's. A claim drawn from a truthful source but with misleading emphasis is still a defect.
+   AGENCY vs PROXIMITY (#289): a figure can be entirely real, AND correctly owned by the very
+   employer and role the bullet sits under, and still be written as though the candidate caused
+   it. For every ORGANISATION-SCALE figure a bullet carries — the employer's or the unit's
+   revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work
+   produced — find the profile statement it comes from and read what relationship that statement
+   actually gives the candidate. Flag the bullet when it asserts more agency than its source does,
+   or when it leaves the relationship implicit so that a figure the candidate merely stood next to
+   reads as their own result. The correction you ask for is a FRAMING one: state the relationship
+   the profile states, or name the figure as the scale of the operation the work happened in.
+   NEVER ask for the figure to be removed, rounded away or made vaguer — a bullet vaguer than the
+   truth is the opposite defect and is equally damaging.
 6. KEYWORD LEDGER (ADR-048) — the source material ends with a KEYWORD LEDGER block listing
    CLAIMABLE keywords (terms the candidate truthfully supports) and a DO NOT CLAIM list (honest
    gaps NOT in the profile). Two checks:
