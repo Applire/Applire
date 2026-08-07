@@ -65,7 +65,8 @@ interface ProfileSection {
     year?: string;
   }>;
   skills?: string[];
-  languages?: Array<{ name?: string; level?: string }>;
+  // #113(c) — `language` is the vault's field; `name` is a tolerated legacy alias.
+  languages?: Array<{ language?: string; name?: string; level?: string }>;
   certifications?: Array<{ name?: string; issuer?: string; year?: string }>;
   photo_url?: string | null;
 }

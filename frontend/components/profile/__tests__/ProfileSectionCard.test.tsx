@@ -214,6 +214,38 @@ describe("ProfileSectionCard — signature stories (E046, ADR-055)", () => {
   });
 });
 
+// #113(c) — the vault stores a language as {language, level} (backend
+// `Language` in schemas/profile.py, `TailoredLanguage` in schemas/cv.py, and
+// `lang.language` in every CV template). The card read `l.name`, which is never
+// present, so a profile carrying German (Native) / English (C1) rendered
+// "Not provided" — the user's own data silently invisible.
+describe("ProfileSectionCard — languages read the vault field (#113c)", () => {
+  it("renders languages stored under the vault's `language` field", () => {
+    const languages = [
+      { language: "German", level: "Native", status: "confirmed" },
+      { language: "English", level: "C1", status: "confirmed" },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="languages" value={languages} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("German")).toBeInTheDocument();
+    expect(screen.getByText("Native")).toBeInTheDocument();
+    expect(screen.getByText("English")).toBeInTheDocument();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+    expect(screen.queryByText("Not provided")).not.toBeInTheDocument();
+  });
+
+  it("still renders the empty state when there genuinely are no languages", () => {
+    render(
+      withIntl(<ProfileSectionBody section="languages" value={[]} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
 describe("resolveSummary — language-aware summary check (F9.2)", () => {
   it("prefers the UI language when present", () => {
     const r = resolveSummary({ de: "Deutsch", en: "English" }, "de");

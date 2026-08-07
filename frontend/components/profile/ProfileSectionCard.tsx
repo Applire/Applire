@@ -111,7 +111,13 @@ interface SkillShape {
   proficiency?: string | null;
 }
 
+// #113(c) — the vault's canonical field is `language`, not `name`: backend
+// `Language` (schemas/profile.py), `TailoredLanguage` (schemas/cv.py) and every
+// CV template (`lang.language`) agree. Reading `name` made a profile carrying
+// German (Native) / English (C1) render as "Not provided". `name` stays as a
+// tolerated legacy alias so no hand-edited record goes invisible either.
 interface LanguageShape {
+  language?: string | null;
   name?: string | null;
   level?: string | null;
   proficiency?: string | null;
@@ -331,18 +337,19 @@ export function ProfileSectionBody({
 
   if (section === "languages") {
     const entries = Array.isArray(value) ? (value as LanguageShape[]) : [];
-    const named = entries.filter((l) => nonEmpty(l.name));
+    const named = entries.filter((l) => nonEmpty(l.language) || nonEmpty(l.name));
     if (named.length === 0) return empty;
     return (
       <div className="flex flex-wrap gap-2">
         {named.map((l, i) => {
           const level = l.level ?? l.proficiency;
+          const name = nonEmpty(l.language) ? l.language : l.name;
           return (
             <span
               key={i}
               className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-3 py-1 text-xs text-neutral-dark"
             >
-              <span className="font-medium">{l.name}</span>
+              <span className="font-medium">{name}</span>
               {nonEmpty(level) && <span className="text-gray-500">{level}</span>}
             </span>
           );
