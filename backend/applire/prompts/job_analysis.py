@@ -15,6 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#271, 2026-08-07 — charter run #5, both blind reviewers):
+#   - leadership_emphasis: the posting's own leadership-vs-hands-on weighting
+#     becomes data. Run 5's posting said "~60% technical leadership / 40%
+#     hands-on"; that sentence had no field to land in, so selection reduced the
+#     whole question to a 15-word substring check that cannot tell 10% from 90%,
+#     and the delivered letter was 100% technical narrative. Shape follows
+#     ADR-069's scope_requirements: verbatim quote as identity, null when the
+#     posting is silent, deterministic floor in services/job.py.
+#
 # Prompt version: v5 (ADR-069, 2026-08-01 — charter run 12 #397/#387/#350):
 #   - QUALIFIED REQUIREMENT DISPOSITION: decomposition, never demotion — "Sicherer
 #     Umgang mit SAP (idealerweise PP/MM)" keeps SAP at required and PP/MM become
@@ -56,7 +65,11 @@ Schema:
       "quote": "the posting's own sentence stating the figure, verbatim — this is the entry's identity",
       "level": "required|nice_to_have — per the posting's own wording"
     }
-  ]
+  ],
+  "leadership_emphasis": {
+    "emphasis": "leadership_led|balanced|hands_on_led — how the posting weighs PEOPLE-leadership against hands-on/individual-contributor work",
+    "quote": "the posting's own sentence that establishes it, verbatim — this is the facet's identity"
+  }
 }
 
 FIELD SHAPE — required_skills / nice_to_have_skills / keywords:
@@ -95,6 +108,29 @@ WHAT THE KINDS MEAN — team_size counts PEOPLE (Mitarbeitende, direct reports, 
 budget is a MONETARY amount. A DURATION is never a scope bar of any kind: "mindestens
 8 Jahre Führungserfahrung" is a years requirement, not a team size — years/tenure bars
 must NOT appear in scope_requirements at all (they are handled elsewhere).
+
+LEADERSHIP EMPHASIS (how the posting weighs leading PEOPLE against doing the work):
+Set "leadership_emphasis" to null unless the posting itself names a people-leadership
+responsibility — leading, line-managing, mentoring, coaching, growing or being
+responsible for a team (führen, Personalverantwortung, fachliche/disziplinarische
+Führung, mentoring, team lead). If the posting names none, it is null. Never infer one
+from the seniority level, the title, or what such a role "usually" involves.
+When it does name one, pick "emphasis" by how the posting itself weighs that against
+hands-on / individual-contributor work:
+  - "leadership_led"  — leadership is the larger part ("~60% technical leadership /
+    40% hands-on", "primarily leading the team, occasionally hands-on", "Ihre
+    Hauptaufgabe ist die Führung von 12 Mitarbeitenden").
+  - "hands_on_led"    — the role is mainly hands-on and leadership is the smaller
+    part ("80% hands-on engineering, plus mentoring two juniors", "in erster Linie
+    operativ tätig, mit fachlicher Anleitung von Werkstudierenden").
+  - "balanced"        — both are named and neither is stated as dominant, OR the
+    posting names leadership without weighting it against hands-on work at all.
+    "balanced" is the correct answer whenever the posting does not tell you which
+    side is larger — never guess a dominance the posting does not state.
+"quote" must be the posting's own sentence establishing the leadership responsibility
+(and its weighting, where the posting states one), copied VERBATIM. A quote that is not
+in the posting is a fabrication and the whole facet will be discarded. Emit exactly one
+leadership_emphasis object or null — never a list.
 
 For berufsbild_code, use the Klassifikation der Berufe 2020 (KldB 2020) from the Bundesagentur für Arbeit.
 Examples: '4311' for Softwareentwicklung, '4321' for IT-Systemanalyse, '7121' for Personalmanagement, '7211' for Finanzmanagement und Controlling.

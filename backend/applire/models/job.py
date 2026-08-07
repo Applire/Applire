@@ -55,6 +55,13 @@ class JobAnalysis(Base):
     # validated deterministically in services/job.py. NULL for pre-migration rows
     # and treated as [] everywhere.
     scope_requirements: Mapped[list | None] = mapped_column(_JSON, nullable=True)
+    # #271 — the posting's own leadership-vs-hands-on weighting:
+    # {emphasis: leadership_led|balanced|hands_on_led, quote: <verbatim JD sentence>},
+    # model-extracted in the same analyze_jd call, validated deterministically in
+    # services/job.py. NULL both for pre-migration rows and for postings naming no
+    # people-leadership responsibility, so the selection trigger is resolved at USE
+    # time (services/vault_evidence.py) — the jd_language pattern above.
+    leadership_emphasis: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # LLM-extracted best-effort; nullable (recruiter-anonymised JDs omit company)
     company_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     # DACH occupation classification — KldB 2020 (BA-Klassifikation der Berufe 2020).

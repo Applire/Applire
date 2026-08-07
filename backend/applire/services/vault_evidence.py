@@ -115,12 +115,23 @@ vault dump:
    is already selected by the qualifier rule above and skipped here as a
    duplicate).
 
-3. LEADERSHIP ELIGIBILITY (rule 3) — gated on the JD excerpt itself stating a
-   leadership weighting or leadership responsibilities (a fixed marker-word
-   check against the SAME de-chromed excerpt the writer/reviewer already
-   see, :mod:`applire.services.jd_excerpt` — never a hardcoded assumption
-   that every JD wants leadership evidence). Only then does vault text
-   carrying the SAME marker vocabulary become eligible.
+3. LEADERSHIP ELIGIBILITY (rule 3) — gated on the posting's OWN stated
+   leadership-vs-hands-on weighting, ``JobAnalysis.leadership_emphasis``
+   (#271, migration 0056): a facet the job-analysis model extracts in its
+   existing call, carrying the posting's verbatim sentence as its identity
+   and one of ``leadership_led``/``balanced``/``hands_on_led``. That value
+   is read as DATA here — it both triggers the channel and sets its sub-cap
+   (:data:`_LEADERSHIP_ITEMS_BY_EMPHASIS`), so a posting that is mostly
+   hands-on with a mentoring line no longer admits as much leadership
+   evidence as one that is 60% leadership. Until #271 this was a fixed
+   marker-word check over the JD excerpt, which could answer only "is the
+   word there" — a flat cap of 4 whether the posting said 10% or 90%, the
+   defect both charter-run-#5 blind reviewers named. The excerpt check
+   survives ONLY as the use-time fallback for rows written before migration
+   0056 (:func:`resolve_leadership_emphasis`), where it reproduces the
+   pre-#271 behaviour exactly. Only once triggered does vault text carrying
+   the leadership marker vocabulary become eligible; a posting that names no
+   people-leadership still selects none.
 
 Bounded to ``cap`` items (default 8); every dropped candidate is logged at
 info level (never a silent truncation) with a fixed, documented priority
@@ -147,7 +158,22 @@ DEFAULT_DIGEST_CAP = 10
 # initiative or a single JD trigger can never crowd out every other
 # concept's evidence.
 _MAX_SAME_INITIATIVE_PER_ANCHOR = 3
-_MAX_LEADERSHIP_ITEMS = 4
+
+# #271 — the leadership sub-cap, read off the posting's OWN stated weighting
+# (``JobAnalysis.leadership_emphasis.emphasis``, model-extracted, floored in
+# services/job.py). Mapping a stored value to a bound is a fact; the judgement
+# that produced the value is the model's (ADR-062 clause 1). Before this, the
+# cap was a flat 4 whether the posting said "10% leadership" or "90%" — the
+# defect #271's 2026-07-30 restatement names. The numbers straddle the old flat
+# value in both directions so no emphasis silently becomes the old behaviour,
+# and all three stay under DEFAULT_DIGEST_CAP: channel 3 runs last and the
+# global cap truncates from the tail, so raising this bound can never starve a
+# claimable-concept anchor — it only claims room the other channels left.
+_LEADERSHIP_ITEMS_BY_EMPHASIS = {
+    "leadership_led": 6,
+    "balanced": 4,
+    "hands_on_led": 2,
+}
 
 # Evidence-unit path fragments that carry a genuine work/initiative claim
 # (as opposed to identity/dates/technologies-list noise) — reused shape from
@@ -157,11 +183,21 @@ _MAX_LEADERSHIP_ITEMS = 4
 # team line) lives under ``responsibilities``, not ``achievements``.
 _INITIATIVE_PATH_MARKERS = (".achievements[", ".responsibilities[")
 
-# Deterministic, deliberately generic people-leadership vocabulary — shared
-# between the JD-trigger check and the vault-evidence check so a JD asking
-# for "leadership"/"managing"/"mentoring" and a vault line reading "Led a
-# team..."/"Leads a distributed team..."/"...now both project leads..." are
-# recognised as the same concept without inventing a second word list.
+# Deterministic, deliberately generic people-leadership vocabulary. ADR-062's
+# clause-1 survey names this list as a known violation site because it answered
+# TWO questions, one of which is a judgement about the posting.
+#
+# #271 retires the JD-side half: "does this posting want leadership, and how
+# much" is now answered by ``JobAnalysis.leadership_emphasis``, extracted by the
+# job-analysis model. :func:`jd_signals_leadership` survives ONLY as the
+# use-time resolution for rows that hold no facet — every ``job_analyses`` row
+# written before migration 0056 — so those keep the behaviour they have today
+# instead of silently losing channel 3. It is not consulted when a facet exists.
+#
+# The VAULT-side question ("does this candidate sentence show leadership") is
+# still answered here and is still the clause-1 violation the survey describes.
+# Retiring it is a separate change with a separate cost: it needs a per-sentence
+# judgement the vault has no channel for today, and #271 does not widen into it.
 _LEADERSHIP_MARKERS = (
     "leadership",
     "managing",
@@ -186,13 +222,64 @@ def _contains_any_marker(text_norm: str, markers: tuple[str, ...]) -> bool:
 
 
 def jd_signals_leadership(jd_excerpt: str) -> bool:
-    """True iff the (already de-chromed, :mod:`applire.services.jd_excerpt`)
-    JD excerpt itself states a leadership weighting or leadership
-    responsibility — the deterministic, JD-grounded trigger for rule 3.
-    Never fires on a JD that never mentions leadership at all."""
+    """LEGACY use-time fallback for a JD row that carries no
+    ``leadership_emphasis`` facet (#271) — every ``job_analyses`` row written
+    before migration 0056, which is not back-filled.
+
+    True iff the (already de-chromed, :mod:`applire.services.jd_excerpt`) JD
+    excerpt mentions leadership at all. It answers presence and nothing else:
+    it cannot tell a posting that is 90% leadership from one that mentions
+    mentoring in a footnote, which is precisely why it is no longer the primary
+    trigger. Never fires on a JD that never mentions leadership.
+    """
     if not jd_excerpt:
         return False
     return _contains_any_marker(jd_excerpt.lower(), _LEADERSHIP_MARKERS)
+
+
+def resolve_leadership_emphasis(
+    leadership_emphasis: dict[str, Any] | None, jd_excerpt: str
+) -> str | None:
+    """The rule-3 trigger, resolved at use time (#271).
+
+    Returns the emphasis the posting states, ``"balanced"`` when only the legacy
+    marker fallback fired (presence known, weighting unknown — the honest value,
+    and the one that reproduces today's flat cap of 4), or ``None`` when the
+    posting asks for no people-leadership at all.
+
+    Tolerant of a facet the floor did not produce (hand-written fixtures, an
+    older caller, a hand-edited row): an unrecognised ``emphasis`` is treated as
+    absent rather than trusted, so a malformed value can never widen selection.
+    """
+    if isinstance(leadership_emphasis, dict):
+        emphasis = leadership_emphasis.get("emphasis")
+        if emphasis in _LEADERSHIP_ITEMS_BY_EMPHASIS:
+            return emphasis
+        logger.warning(
+            "select_vault_evidence: ignoring unrecognised leadership_emphasis %r "
+            "— falling back to the legacy JD marker check (#271).",
+            leadership_emphasis,
+        )
+    return "balanced" if jd_signals_leadership(jd_excerpt) else None
+
+
+def _leadership_concept_label(leadership_emphasis: dict[str, Any] | None) -> str:
+    """What the writer prompts are told this evidence answers.
+
+    With a facet, the label carries the posting's OWN sentence verbatim, so the
+    writer positions against "~60% technical leadership / 40% hands-on" instead
+    of against a boolean — the input-threading half of #271. Without one (legacy
+    row) or with one the trigger rejected, the pre-#271 wording is kept
+    unchanged: a facet whose emphasis did not resolve contributes no quote
+    either, so a rejected facet is rejected whole.
+    """
+    if isinstance(leadership_emphasis, dict) and (
+        leadership_emphasis.get("emphasis") in _LEADERSHIP_ITEMS_BY_EMPHASIS
+    ):
+        quote = leadership_emphasis.get("quote")
+        if isinstance(quote, str) and quote.strip():
+            return f'leadership (the posting states: "{quote.strip()}")'
+    return "leadership (JD states a leadership weighting/responsibility)"
 
 
 def _is_leadership_evidence(unit: EvidenceUnit) -> bool:
@@ -274,12 +361,19 @@ def select_vault_evidence(
     profile_json: dict[str, Any] | Any,
     *,
     cap: int = DEFAULT_DIGEST_CAP,
+    leadership_emphasis: dict[str, Any] | None = None,
 ) -> list[EvidenceDigestItem]:
     """Select the vault's strongest JD-relevant evidence for the letter
     (#271 Tasks 2/3). Pure, deterministic; ``None``/empty tolerant.
 
     See the module docstring for the three selection channels and their
     priority order under the ``cap`` bound.
+
+    ``leadership_emphasis`` is the posting's own stated leadership-vs-hands-on
+    weighting (``JobAnalysis.leadership_emphasis``, #271) — it drives channel 3's
+    trigger, its sub-cap and its concept label. ``None`` (a pre-migration row, or
+    a posting that names no people-leadership) falls back to the legacy JD marker
+    check, which reproduces the pre-#271 behaviour exactly.
     """
     # "Pure" has to be true, not aspirational (#303). ``build_vault_index``
     # coerces a dict through ``MasterProfileData.model_validate``, and that
@@ -433,7 +527,12 @@ def select_vault_evidence(
             )
 
     # ── Channel 3: leadership eligibility ────────────────────────────────────
-    if jd_signals_leadership(jd_excerpt):
+    # #271: the trigger AND the bound come from the posting's own stated
+    # weighting, not from a substring check that cannot tell 10% from 90%.
+    resolved_emphasis = resolve_leadership_emphasis(leadership_emphasis, jd_excerpt)
+    if resolved_emphasis is not None:
+        max_leadership_items = _LEADERSHIP_ITEMS_BY_EMPHASIS[resolved_emphasis]
+        leadership_concept = _leadership_concept_label(leadership_emphasis)
         leadership_candidates = [
             u for u in index.units if u.path not in selected_paths and _is_leadership_evidence(u)
         ]
@@ -454,13 +553,13 @@ def select_vault_evidence(
             )
         )
         keep, drop = (
-            leadership_candidates[:_MAX_LEADERSHIP_ITEMS],
-            leadership_candidates[_MAX_LEADERSHIP_ITEMS:],
+            leadership_candidates[:max_leadership_items],
+            leadership_candidates[max_leadership_items:],
         )
         for u in keep:
             selected.append(
                 EvidenceDigestItem(
-                    concept="leadership (JD states a leadership weighting/responsibility)",
+                    concept=leadership_concept,
                     reason="leadership-eligible",
                     path=u.path,
                     text=u.text,
@@ -471,8 +570,9 @@ def select_vault_evidence(
         if drop:
             logger.info(
                 "select_vault_evidence: dropped %d leadership candidate(s) beyond the "
-                "cap: %s",
-                len(drop), [u.path for u in drop],
+                "%r sub-cap of %d: %s",
+                len(drop), resolved_emphasis, max_leadership_items,
+                [u.path for u in drop],
             )
 
     # ── Global bound ─────────────────────────────────────────────────────────

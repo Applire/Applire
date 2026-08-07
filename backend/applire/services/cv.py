@@ -2484,6 +2484,13 @@ async def _render_cv_background(
                     # clause 3) — an unconfirmed entry cannot back a CV line
                     # and must not be offered as evidence either.
                     profile_json,
+                    # #271: the posting's own leadership-vs-hands-on weighting,
+                    # extracted at analyse time. Drives rule 3's trigger, its
+                    # sub-cap and the quote the writer positions against; None
+                    # on a pre-migration-0056 row falls back to the legacy JD
+                    # marker check inside the selector. Same selector, same
+                    # facet as the letter (ADR-066).
+                    leadership_emphasis=getattr(job, "leadership_emphasis", None),
                 )
                 vault_evidence_block = (
                     render_vault_evidence_block(vault_evidence_items, chain="cv") or None
