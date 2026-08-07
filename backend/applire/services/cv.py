@@ -1730,6 +1730,35 @@ def _restore_narrative_named_skills(
     known name is present there but absent from the skills list (no near-dupe
     either, :func:`ats_audit.skills_near_dupe`), it is added.
 
+    **#219 — "known true" is resolved by the Oracle's own predicate, not by a
+    second one.** A ledger row's ``claimable`` flag is the gap-analysis LLM's
+    classification (``keyword_ledger.build_keyword_ledger``: ``claimable =
+    status in {direct, partial}``); no deterministic vault tie is computed
+    anywhere on that path. The Oracle audits the resulting chip with
+    :func:`applire.services.oracle.matchers.grounding.ground_skill_claim`
+    (``surface_present`` over the vault's evidence units, then
+    ``skills_near_dupe`` over its skill names). Two resolutions of one
+    question, so the generator could put a name on the page that its own
+    self-audit then rejected: the 2026-07-21 edge UAT (build 59f891f, finding
+    F5) shipped the chip "Technical leadership" — the ledger's concept string
+    — against a vault whose skill is "Team Leadership", and the Oracle marked
+    it ``unbacked`` in the generator's own output.
+
+    The two are converged here on the SELECTION side (ADR-066 clause 2: one
+    logical operation, one implementation) by calling ``ground_skill_claim``
+    itself before a name is added — never by loosening the Oracle. Loosening
+    would be the wrong direction twice over: ``skills_near_dupe`` deliberately
+    refuses this shape (``tests/unit/test_ats_audit.py``'s
+    ``_MUST_NOT_MERGE_PAIRS`` pins "Team Leadership"/"Project Leadership" as a
+    MUST-NOT-merge pair — same head noun, different modifier, genuinely
+    different skills), and ``test_oracle_matchers.py``'s
+    ``test_ground_skill_claim_strategic_planning_stays_unbacked`` pins that a
+    ledger verdict resting on LLM semantic adjacency is *correctly* left
+    unbacked by the Oracle's deterministic contract. A vault ``Skill`` row
+    grounds trivially under the same predicate (its own name IS a ``skills[i]``
+    evidence unit), so #376's reported SAP case is untouched; only the
+    adjacency-only ledger names are held back.
+
     Deliberately does NOT resolve an elided compound ("SAP PP und MM" implying
     "SAP MM") — reading what an elided sentence MEANS is a judgement under
     ADR-062 clause 1, and #376's own cover-letter instance is exactly that
@@ -1757,6 +1786,8 @@ def _restore_narrative_named_skills(
         _tailored_narrative_texts,
         claimable_surface_form_groups,
     )
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+    from applire.services.oracle.matchers.vault import build_vault_index
 
     existing = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
 
@@ -1796,14 +1827,34 @@ def _restore_narrative_named_skills(
         # visible duplicate of an entry already on the list is covered, not missing.
         return any(_norm(name) == _norm(s) or skills_page_dupe(name, s) for s in existing)
 
+    # #219: THE vault-backing predicate — the same one the Oracle audits the
+    # finished page with (ADR-066 clause 2). A name this cannot ground is a name
+    # the document's own truthfulness report would mark `unbacked`, so it is
+    # never added, however the ledger classified it.
+    vault_index = build_vault_index(profile_json or {})
+
+    def _oracle_backed(name: str) -> bool:
+        return ground_skill_claim(name, vault_index) is not None
+
     to_add: list[str] = []
     for group in groups:
         if any(_covered(f) for f in group):
             continue  # the competence is already on the page in some form
-        hit = next((f for f in group if surface_present(f, narrative_norm)), None)
-        if hit is not None:
-            to_add.append(hit)
-            existing = existing + [hit]  # later groups see this one as covered
+        narrated = [f for f in group if surface_present(f, narrative_norm)]
+        hit = next((f for f in narrated if _oracle_backed(f)), None)
+        if hit is None:
+            if narrated:
+                # Never a silent hold-back: this is the #219 case, and the
+                # ledger row that authorised the name is what to look at.
+                logger.info(
+                    "skills-list gap guard (#376): %r is narrated but no form of "
+                    "it grounds against the vault (#219, ground_skill_claim) — "
+                    "not added; the Oracle would audit the chip unbacked",
+                    narrated[0],
+                )
+            continue
+        to_add.append(hit)
+        existing = existing + [hit]  # later groups see this one as covered
 
     if not to_add:
         return tailored

@@ -104,6 +104,12 @@ class TestClaimableLedgerSurfaceFormsAlsoQualify:
     a claimable Keyword Ledger concept/surface form."""
 
     def test_claimable_ledger_concept_named_in_bullet_is_added(self):
+        # #219: the vault carries the evidence this ledger row cites. The
+        # fixture used to pass an EMPTY profile while claiming "vault
+        # evidence" -- which is precisely the shape #219 reports (a chip the
+        # generator adds and its own Oracle then marks `unbacked`), so the
+        # vault now actually holds what the row says it holds.
+        profile = {"skills": [{"name": "Kubernetes", "category": "technical"}]}
         ledger = [{
             "concept": "Kubernetes", "surface_forms": ["Kubernetes", "K8s"],
             "claimable": True, "status": "direct", "sources": ["required"],
@@ -113,7 +119,7 @@ class TestClaimableLedgerSurfaceFormsAlsoQualify:
             [], ["Migrated the platform onto Kubernetes across three regions."]
         )
 
-        result = _restore_narrative_named_skills(writer_output, {}, ledger)
+        result = _restore_narrative_named_skills(writer_output, profile, ledger)
 
         assert "Kubernetes" in result.skills
 
@@ -131,6 +137,109 @@ class TestClaimableLedgerSurfaceFormsAlsoQualify:
         result = _restore_narrative_named_skills(writer_output, {}, ledger)
 
         assert "Azure" not in result.skills
+
+
+class TestIssue219GeneratorOracleParity:
+    """#219 -- the generator must not emit a skill token its own Oracle rejects.
+
+    Ground truth (2026-07-21 edge UAT agent-channel run, build 59f891f, finding
+    F5): the generated CV carried the skill chip "Technical leadership", taken
+    from the gap ledger's own concept string; the Oracle's grounding checker
+    then marked that chip ``unbacked`` because the vault's actual skill is
+    "Team Leadership".
+
+    Two divergent resolutions of ONE question -- "is this skill token backed by
+    the vault?":
+
+    * ledger selection authorises a page entry on the ledger row's ``claimable``
+      flag, which is the gap-analysis LLM's classification
+      (``keyword_ledger.build_keyword_ledger``: ``claimable = status in
+      {direct, partial}``) -- no deterministic vault tie is ever computed;
+    * the Oracle resolves it deterministically via
+      :func:`applire.services.oracle.matchers.grounding.ground_skill_claim`
+      (``surface_present`` over the vault's evidence units, then
+      ``skills_near_dupe`` over the vault's skill names).
+
+    ``skills_near_dupe("Technical leadership", "Team Leadership")`` is False by
+    design -- ``tests/unit/test_ats_audit.py``'s ``_MUST_NOT_MERGE_PAIRS`` pins
+    the same shape ("Team Leadership" / "Project Leadership") as a MUST-NOT-
+    merge pair, and ``test_oracle_matchers.py``'s
+    ``test_ground_skill_claim_strategic_planning_stays_unbacked`` pins that an
+    LLM-adjacency-only ledger verdict is *correctly* left unbacked. So the
+    parity is restored on the SELECTION side (ADR-066 clause 2, one logical
+    operation / one implementation): this guard now asks the Oracle's own
+    predicate before putting a ledger-authorised name on the page.
+    """
+
+    _PROFILE = {
+        "personal_info": {"name": "Test Candidate"},
+        "skills": [{"name": "Team Leadership"}, {"name": "Python"}],
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Rheinwerk",
+                "role": "Head of Engineering",
+                "responsibilities": [
+                    "Led the platform team through the migration programme",
+                ],
+                "technologies": ["Python"],
+            }
+        ],
+    }
+    _LEDGER = [{
+        "concept": "Technical leadership",
+        "surface_forms": ["Technical leadership"],
+        "claimable": True, "status": "partial", "sources": ["required"],
+        "fit_weight": 1.0,
+        "evidence": "Vault skill 'Team Leadership'; led the platform team.",
+    }]
+    _BULLET = "Owned technical leadership for the platform migration programme."
+
+    def test_ledger_concept_the_oracle_cannot_ground_is_not_added(self):
+        writer_output = _tailored(["Python"], [self._BULLET])
+
+        result = _restore_narrative_named_skills(
+            writer_output, self._PROFILE, self._LEDGER
+        )
+
+        assert "Technical leadership" not in result.skills
+        assert result.skills == ["Python"]
+
+    def test_every_added_name_grounds_under_the_oracles_own_predicate(self):
+        """The parity property itself, stated over whatever this guard adds."""
+        from applire.services.oracle.matchers.grounding import ground_skill_claim
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        writer_output = _tailored(["Python"], [self._BULLET])
+        index = build_vault_index(self._PROFILE)
+
+        result = _restore_narrative_named_skills(
+            writer_output, self._PROFILE, self._LEDGER
+        )
+
+        added = [s for s in result.skills if s not in writer_output.skills]
+        for name in added:
+            assert ground_skill_claim(name, index) is not None, name
+
+    def test_vault_backed_ledger_concept_is_still_added(self):
+        """Regression lock in the other direction: a ledger concept the vault
+        genuinely backs must keep reaching the page -- the #376 guard is
+        narrowed to Oracle parity, not switched off."""
+        ledger = [{
+            "concept": "Team Leadership",
+            "surface_forms": ["Team Leadership"],
+            "claimable": True, "status": "direct", "sources": ["required"],
+            "fit_weight": 1.0, "evidence": "Vault skill 'Team Leadership'.",
+        }]
+        writer_output = _tailored(
+            ["Python"], ["Team Leadership of the platform migration programme."]
+        )
+
+        result = _restore_narrative_named_skills(
+            writer_output, self._PROFILE, ledger
+        )
+
+        assert "Team Leadership" in result.skills
 
 
 class TestConservativeGuardrails:
