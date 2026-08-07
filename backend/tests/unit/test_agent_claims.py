@@ -707,6 +707,138 @@ async def test_undenied_gap_still_upgrades(async_db):
 
 
 @pytest.mark.asyncio
+async def test_a_retraction_reverses_an_earlier_claims_upgrade(async_db):
+    """#352 — the issue's verbatim scenario, inside ONE `submit_claims` batch.
+
+    Claim 1 confirms Kubernetes (a real op) and flips the entry to
+    `direct`/`claimable`. Claim 2 is the candidate taking it straight back —
+    a pure denial, so it produces no ops, so the `applied.changes` gate kept
+    the whole ledger block from running for it. The floor could stop an
+    upgrade in flight and never reverse one, and the stale `claimable` row is
+    the one both writers read.
+
+    ADR-059 clause 3: polarity is consulted at EVERY ledger write seam; a
+    requirement addressed BY DENYING it sets `denied`. The durable floor
+    (`_enforce_denial_stance`) has always reversed a claimable entry — this
+    in-place seam is the one that could not.
+    """
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes"])
+    provider = _QueueProvider(
+        [
+            _skill_payload("Kubernetes"),
+            {"ops": [], "ambiguities": [], "denials": ["Kubernetes"]},
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="I administered Kubernetes clusters for 3 years.",
+                    gap="Kubernetes",
+                ),
+                ClaimItem(
+                    statement=(
+                        "Actually scratch that, I have never touched Kubernetes."
+                    ),
+                    gap="Kubernetes",
+                ),
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    entry = {e["concept"]: e for e in row.keyword_ledger}["Kubernetes"]
+    assert entry["claimable"] is False
+    assert entry["status"] == "denied"
+    assert entry["evidence"] == DENIED_EVIDENCE
+    assert "3 years" not in (entry["evidence"] or "")
+    # ...and the batch report must not still tell the agent the concept was
+    # accepted as a strength — `ledger_upgraded` is the wire half of the same
+    # state the issue lists as stale.
+    assert result.ledger_upgraded == []
+    assert [r.status for r in result.results] == ["applied", "denial_recorded"]
+
+
+@pytest.mark.asyncio
+async def test_a_retraction_leaves_unrelated_upgrades_standing(async_db):
+    """The reversal is concept-scoped, never batch-wide: retracting Kubernetes
+    must not un-do the Terraform upgrade filed in the same submission."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes", "Terraform"])
+    provider = _QueueProvider(
+        [
+            _skill_payload("Kubernetes"),
+            _skill_payload("Terraform"),
+            {"ops": [], "ambiguities": [], "denials": ["Kubernetes"]},
+        ]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="I administered Kubernetes clusters for 3 years.",
+                    gap="Kubernetes",
+                ),
+                ClaimItem(
+                    statement="I run Terraform daily.",
+                    gap="Terraform",
+                ),
+                ClaimItem(
+                    statement="Scratch the Kubernetes one — I have never touched it.",
+                    gap="Kubernetes",
+                ),
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    by_concept = {e["concept"]: e for e in row.keyword_ledger}
+    assert by_concept["Kubernetes"]["status"] == "denied"
+    assert by_concept["Terraform"]["status"] == "direct"
+    assert by_concept["Terraform"]["claimable"] is True
+    assert result.ledger_upgraded == ["Terraform"]
+
+
+@pytest.mark.asyncio
+async def test_a_denial_only_claim_never_upgrades_an_undenied_sibling_gap(async_db):
+    """Mutation guard for the widened gate: running the ledger seam on a turn
+    with NO applied ops must run the polarity floor ONLY. An undenied
+    honest-gap concept filed against a denial-only claim confirms nothing and
+    must stay a gap — the #188 addressed-gate's actual purpose, preserved."""
+    await _seed_profile(async_db)
+    job_id = await _seed_job_with_ledger(async_db, ["Kubernetes", "Terraform"])
+    provider = _QueueProvider(
+        [{"ops": [], "ambiguities": [], "denials": ["Kubernetes"]}]
+    )
+    result = await submit_agent_claims(
+        ClaimsSubmission(
+            claims=[
+                ClaimItem(
+                    statement="Kubernetes I have never touched.",
+                    gap="Terraform",
+                )
+            ]
+        ),
+        job_id,
+        async_db,
+        provider,
+    )
+
+    row = (await async_db.execute(select(GapAnalysis))).scalar_one()
+    by_concept = {e["concept"]: e for e in row.keyword_ledger}
+    assert by_concept["Terraform"]["status"] == "missing"
+    assert by_concept["Terraform"]["claimable"] is False
+    assert result.ledger_upgraded == []
+
+
+@pytest.mark.asyncio
 async def test_no_profile_raises_lookup_error(async_db):
     with pytest.raises(LookupError):
         await submit_agent_claims(

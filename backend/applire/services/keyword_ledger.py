@@ -1129,6 +1129,7 @@ def upgrade_ledger_for_concepts(
     *,
     status: str = "direct",
     denied_concepts: list[str] | None = None,
+    upgrade: bool = True,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -1167,6 +1168,24 @@ def upgrade_ledger_for_concepts(
         skipped — a denial is a real answer and must move the requirement's status,
         which is the whole point of the amendment.
 
+    REVERSAL (#352). Both floors used to sit BEHIND the upgrade's own eligibility
+    filter — a candidate entry had to be ``not claimable`` before either could
+    look at it — so the floor could stop an upgrade in flight and never reverse
+    one an earlier turn had already committed. The durable floor
+    (:func:`_enforce_denial_stance`) has always reversed a claimable entry (it
+    logs a warning when it does), so the two instruments ADR-059 clause 3
+    requires to agree disagreed: rebuilding the row produced ``denied``, this
+    seam kept ``direct``. Polarity is now evaluated for EVERY concept-matching
+    entry, and "already claimable" only bars the UPGRADE — never the floor.
+
+    ``upgrade`` is the gate the doors set from their own addressed-check
+    (``bool(applied.changes)``, the #188 addressed-gate). ``False`` means this
+    turn applied no ops and therefore confirmed nothing, so nothing may be
+    upgraded — but its denials must still be able to reverse. Without the
+    separation the doors had to choose between running the floor for a
+    denial-only turn (and letting it upgrade an undenied concept off no
+    evidence) and not running it at all; they chose the latter, which is #352.
+
     Returns ``(new_ledger, changed)``; ``changed`` False means the caller should skip
     the JSONB write. Pure; tolerant of ``None``/empty.
     """
@@ -1193,10 +1212,11 @@ def upgrade_ledger_for_concepts(
             new_ledger.append(e)
             continue
         concept_norm = _norm(e.get("concept", ""))
-        matched = (
-            concept_norm
-            and not e.get("claimable")
-            and any(_matches(concept_norm, cn) for cn in concept_norms)
+        # #352 — the claimable check is NOT part of the match. An entry an
+        # earlier turn upgraded must still reach both floors below; it is only
+        # barred from being upgraded AGAIN (after the floors, below).
+        matched = concept_norm and any(
+            _matches(concept_norm, cn) for cn in concept_norms
         )
         if not matched:
             new_ledger.append(e)
@@ -1210,20 +1230,31 @@ def upgrade_ledger_for_concepts(
         concept = e.get("concept", "")
         forms = e.get("surface_forms") or [concept]
         # Floor 2 — the candidate's live denials, via the shared predicate.
+        # Runs for a claimable entry too (#352): this is the seam that REVERSES
+        # a prior upgrade, and it writes exactly what a rebuild of the row
+        # would write (``_enforce_denial_stance``) so the two never disagree.
         if denials and (
             is_denied_concept(concept, denials)
             or any(is_denied_concept(f, denials) for f in forms)
         ):
-            if e.get("status") != "denied":
-                logger.info(
-                    "upgrade_ledger_for_concepts: recorded %r as denied — the turn "
-                    "ADDRESSED this requirement by denying it (ADR-059 clause 2)",
-                    concept,
-                )
-                e["status"] = "denied"
-                e["claimable"] = False
-                e["evidence"] = DENIED_EVIDENCE
-                changed = True
+            logger.info(
+                "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
+                "claimable=%r) — the turn ADDRESSED this requirement by denying "
+                "it (ADR-059 clause 2)",
+                concept,
+                e.get("status"),
+                e.get("claimable"),
+            )
+            e["status"] = "denied"
+            e["claimable"] = False
+            e["evidence"] = DENIED_EVIDENCE
+            changed = True
+            new_ledger.append(e)
+            continue
+
+        # Nothing to upgrade: this turn confirmed nothing (``upgrade=False``),
+        # or an earlier turn already made the entry claimable.
+        if not upgrade or e.get("claimable"):
             new_ledger.append(e)
             continue
 

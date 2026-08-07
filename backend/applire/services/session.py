@@ -1683,6 +1683,8 @@ async def _upgrade_ledger_for_addressed_gap(
     current_gap: str,
     answer: str,
     db: AsyncSession,
+    *,
+    upgrade: bool = True,
 ) -> None:
     """When an interview turn ADDRESSED a gap, upgrade the matching keyword_ledger
     entries on the persisted GapAnalysis row IN PLACE (#188) — no LLM re-run.
@@ -1702,6 +1704,13 @@ async def _upgrade_ledger_for_addressed_gap(
     and only honest-gap entries that normalize-match them are touched. NO-OP (never
     fabricate) when the session has no ledger (guided / Mode B — ``gap_analysis_id``
     is None), the cluster has no concepts, the row has no ledger, or nothing matches.
+
+    ``upgrade=False`` (#352) runs the ADR-059 polarity floor and NOTHING else:
+    the caller's turn applied no ops, so it confirmed nothing and may not
+    upgrade — but a denial-only turn is still a real answer that must be able to
+    REVERSE an upgrade an earlier turn committed. Before #352 the whole seam was
+    called only ``if addressed:`` (``bool(applied.changes)``), so the one turn
+    shape that is a retraction was the one shape the floor never saw.
     """
     gap_analysis_id = state.get("gap_analysis_id")
     if not gap_analysis_id:
@@ -1777,7 +1786,11 @@ async def _upgrade_ledger_for_addressed_gap(
         return
 
     new_ledger, changed = upgrade_ledger_for_concepts(
-        gap.keyword_ledger, eligible, answer, denied_concepts=denied_concepts
+        gap.keyword_ledger,
+        eligible,
+        answer,
+        denied_concepts=denied_concepts,
+        upgrade=upgrade,
     )
     if changed:
         # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a
@@ -1989,12 +2002,39 @@ async def send_message(
     # #259 sufficiency criterion (b): an explicit denial (#231) is a TERMINAL
     # answer — never re-asked. F8 (interview_bridge.py) deliberately keeps
     # `addressed` False on a denial-only turn (a denial must never read as a
-    # CONFIRMED strength / trigger the ledger upgrade below), but that turn
+    # CONFIRMED strength / trigger the ledger UPGRADE below), but that turn
     # still resolves the gap for advance purposes — it just falls into a
     # separate OR branch instead of widening `addressed` itself, so the F8
-    # ledger-upgrade guard immediately below is untouched by this.
+    # ledger-upgrade guard is untouched by this. #352 keeps that separation
+    # exactly: the seam below runs on `addressed or denial_recorded`, and
+    # `addressed` alone is what it passes as `upgrade=`.
     denial_recorded = turn.denial_recorded
     questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
+
+    # --- #188 / #352: the ledger polarity seam. A turn that ADDRESSED the
+    # current gap deterministically upgrades the matching keyword_ledger entry
+    # on the persisted GapAnalysis row IN PLACE, so a confirmed strength stops
+    # reading as an honest gap in the CV and cover letter (both read that one
+    # row). `addressed` is exactly `bool(applied.changes)` (interview_bridge)
+    # and still gates the UPGRADE — passed as `upgrade=`, so a turn that
+    # touched no field still cannot promote anything.
+    #
+    # #352 widened WHEN the seam runs, not what it may write. Calling it only
+    # `if addressed:` also gated the ADR-059 denial floor, and a retraction
+    # ("correction — I never actually owned that") is precisely the turn that
+    # produces no ops. So the floor could stop an upgrade in flight and never
+    # reverse one, and a stale `claimable` row outlived the candidate taking
+    # the claim back. ADR-059 clause 3: polarity at EVERY ledger write seam.
+    #
+    # Placed BEFORE the ADR-064 transfer probe, which `return`s: a denial that
+    # triggers a probe must still reverse on its own turn, not a turn later.
+    # A no-op for guided/Mode-B (no ledger) and for clusters whose concepts
+    # don't normalize-match any ledger entry. Runs before the advance/complete
+    # branch so the same turn's single commit persists it. ---
+    if addressed or denial_recorded:
+        await _upgrade_ledger_for_addressed_gap(
+            state, current_gap, message, db, upgrade=addressed
+        )
 
     # --- ADR-064: the denial transfer probe. A DIRECT-level denial of a
     # JD-critical concept gets exactly ONE follow-up aimed at the broader
@@ -2022,17 +2062,6 @@ async def send_message(
                 probe_concept, updated_profile, turn, questions_for_gap, lang,
                 profile_record,
             )
-
-    # --- #188: a turn that ADDRESSED the current gap deterministically upgrades
-    # the matching keyword_ledger entry on the persisted GapAnalysis row IN PLACE,
-    # so a confirmed strength stops reading as an honest gap in the CV and cover
-    # letter (both read that one row). `addressed` is exactly `bool(applied.changes)`
-    # (interview_bridge), so this fires only when the reconciler actually touched a
-    # field — never on a no-op turn. A no-op for guided/Mode-B (no ledger) and for
-    # clusters whose concepts don't normalize-match any ledger entry. Runs before
-    # the advance/complete branch so the same turn's single commit persists it. ---
-    if addressed:
-        await _upgrade_ledger_for_addressed_gap(state, current_gap, message, db)
 
     if (
         addressed
