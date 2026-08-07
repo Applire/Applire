@@ -48,6 +48,7 @@ from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import GapClusterSchema
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import (
+    assert_claimable_backed,
     build_keyword_ledger,
     downgrade_ledger_for_concepts,
     keyword_liabilities,
@@ -238,7 +239,19 @@ async def downgrade_keyword_liability(
         raise LookupError(f"No gap analysis found for job {job_id}")
 
     new_ledger, changed = downgrade_ledger_for_concepts(gap_analysis.keyword_ledger, [concept])
-    if changed:
+    # #318 / ADR-061 — this seam only ever REMOVES claimable, so it cannot
+    # create a violation of its own; it is still a persist seam, and a row that
+    # was already corrupt must not ride through it unhealed (`violations` alone
+    # is enough to make the write worth doing).
+    # The row's OWN profile (never "the latest") — that is the vault this
+    # ledger was classified against.
+    profile = await db.get(MasterProfile, gap_analysis.profile_id)
+    new_ledger, violations = assert_claimable_backed(
+        new_ledger,
+        profile.profile_json if profile else None,
+        seam="keyword-liability downgrade",
+    )
+    if changed or violations:
         # JSONB tracking gotcha (mirrors session.py's upgrade path): keyword_ledger
         # is a plain _JSON column, not a MutableList — reassign the WHOLE list.
         gap_analysis.keyword_ledger = new_ledger
@@ -512,6 +525,15 @@ async def _run_analysis(
     # be verified fail-closed and stored on bar.attested.
     keyword_ledger = keyword_ledger + build_scope_ledger_entries(
         scope_block, data.get("scope_classifications"), profile_json=profile.profile_json
+    )
+
+    # #318 / ADR-061 — THE affirmative invariant, on the row that is actually
+    # persisted: a `claimable` entry with no vault evidence must be impossible.
+    # Placed after the scope entries join (so the check sees the whole row) and
+    # BEFORE the score, so a healed entry can never leave a silently inflated
+    # match_score behind — the same ordering `downgrade_keyword_liability` uses.
+    keyword_ledger, _violations = assert_claimable_backed(
+        keyword_ledger, profile.profile_json, seam="gap-analysis build"
     )
 
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's

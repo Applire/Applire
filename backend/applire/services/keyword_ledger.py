@@ -1761,6 +1761,230 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     return ats_norm(" ".join(_draft_strings(_strip_denial_text(profile_json))))
 
 
+# ── #318 / ADR-061 — THE affirmative invariant ──────────────────────────────
+
+#: Why a claimable row failed the invariant. Ordered by precedence below:
+#: polarity is decided before evidence, and evidence before vault backing
+#: (ADR-059 amended 2026-07-27 clause 3 — polarity precedes; #352).
+_HEAL_TO_DENIED = frozenset({"denied_evidence", "denied_concept"})
+
+
+def _claimable_backing_violation(
+    entry: dict[str, Any],
+    denials: list[str],
+    vault_corpus: str | None,
+    vault_index: Any,
+) -> str | None:
+    """The invariant's predicate for ONE claimable row — ``None`` when the row
+    is backed, otherwise the reason string (see :data:`_HEAL_TO_DENIED`).
+
+    Every clause is a FACT under ADR-062 clause 1: a status-enum read, an
+    emptiness test, a string comparison against the one spelled sentinel, a
+    match against the model's own declared denials, and set membership over
+    the vault's evidence units. Nothing here reads prose for meaning, and
+    nothing re-judges the classifier's ``direct``/``partial`` call.
+    """
+    concept = entry.get("concept", "")
+    forms = [f for f in (entry.get("surface_forms") or []) if isinstance(f, str) and f.strip()]
+    probes = list(dict.fromkeys(([concept] if concept else []) + forms))
+
+    # 1 — polarity first (ADR-059 am. clause 3, #352): a denial outranks every
+    # affirmative signal, so it is decided before anything else is looked at.
+    evidence = (entry.get("evidence") or "").strip()
+    if evidence == DENIED_EVIDENCE:
+        return "denied_evidence"
+    if denials and probes and _entry_is_denied(concept, forms, denials, vault_corpus):
+        return "denied_concept"
+
+    # 2 — the row's own coherence.
+    if entry.get("status") not in {"direct", "partial"}:
+        return "status_not_claimable"
+    if not evidence:
+        return "no_evidence"
+
+    # 3 — the named exemptions (ADR-069 / ADR-048 am. 2026-07-27). Both are row
+    # shapes whose concept is NOT a claim about the vault: a scope entry's
+    # concept is a synthesised label carrying the JD's own figure, and a
+    # positioning-only entry explicitly means "the candidate does NOT have this
+    # term". Demanding a vault evidence unit for either contradicts the row's
+    # own definition; both remain subject to clauses 1 and 2 above.
+    if is_scope_entry(entry) or is_positioning_only(entry):
+        return None
+
+    # 4 — the affirmative floor: at least one vault evidence unit resolves this
+    # concept. THE Oracle's own predicate (ADR-066 clause 2 — one logical
+    # operation, one implementation), the same call the #219 selection guard
+    # makes before putting a name on the page. A concept this cannot ground is
+    # a concept the delivered document's own truthfulness report would mark
+    # `unbacked`, so the ledger may not authorise it, however it was classified.
+    if vault_index is None:
+        return None
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+    if any(ground_skill_claim(p, vault_index) is not None for p in probes):
+        return None
+    return "no_vault_evidence_unit"
+
+
+def assert_claimable_backed(
+    keyword_ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    *,
+    seam: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """THE affirmative invariant of ADR-061, checked at every ledger PERSIST
+    seam (#318): **a ``claimable`` row with no vault evidence must be
+    impossible.**
+
+    ADR-059's 2026-07-27 amendment made the NEGATIVE half explicit at every
+    write seam — polarity is consulted before any status moves. This is its
+    twin and, per #318, the one half of the doctrine that can be *asserted*
+    rather than argued. Today the affirmative half is emergent: four seams
+    (:func:`build_keyword_ledger`, :func:`upgrade_ledger_for_concepts`,
+    :func:`reevaluate_gap_ledger_against_vault`, ``scope_requirements.
+    build_scope_ledger_entries``) each apply their own local evidence rule, and
+    nothing states the joint property or checks it on the row that is actually
+    written.
+
+    **The measured divergence (charter run #7 case 2, ``operations_marcus_de``,
+    real provider).** The post-interview ledger gained ``MES`` and ``OEE`` as
+    ``direct``/``claimable`` while the interview added *zero* skills to the
+    vault — the ADR-046 stance guard had dropped the same turn's skill ops.
+    Two seams read one turn and reached opposite conclusions, and nothing
+    reconciled them. A CV writer acting on such a row produces a claim the
+    Oracle must then mark ``unbacked``: **the pipeline generating its own
+    truthfulness violation.** Run #7 case 1 is the other shape — eight denied
+    concepts at ``status="direct", claimable=True`` with the candidate's own
+    denial sentence stored as the backing evidence.
+
+    **What it checks** (:func:`_claimable_backing_violation`), in precedence
+    order — polarity, then coherence, then backing:
+
+      1. ``denied_evidence`` — the row carries :data:`DENIED_EVIDENCE`;
+      2. ``denied_concept`` — the concept matches a persisted denial, judged by
+         ``is_denied_concept`` against :func:`profile_literal_corpus`: the SAME
+         instrument ``_enforce_denial_stance`` and ``upgrade_ledger_for_
+         concepts`` already share, never a fourth matcher;
+      3. ``status_not_claimable`` — ``claimable`` set with a status that is not
+         ``direct``/``partial``;
+      4. ``no_evidence`` — empty/whitespace ``evidence``;
+      5. ``no_vault_evidence_unit`` — no vault evidence unit resolves the
+         concept or any surface form, via
+         :func:`applire.services.oracle.matchers.grounding.ground_skill_claim`.
+
+    **Why ``ground_skill_claim`` and not a new matcher.** It is the predicate
+    the Oracle audits the finished document with, and #219 already converged the
+    generator's *selection* side onto it for exactly this reason (ADR-066
+    clause 2). Asking the same question one layer up is what makes the two
+    instruments stop diverging; a second predicate here would recreate the
+    defect in a new place. The vault is filtered through
+    ``stance.exclude_unconfirmed`` first: ADR-061 clause 3 says an
+    ``unconfirmed`` entry backs nothing.
+
+    **The exemptions are the ones ADR-048/ADR-069 already name**, not new ones:
+    :func:`is_scope_entry` (the concept is a synthesised label carrying the JD's
+    own figure; its floor and citation check live in ``scope_requirements``) and
+    :func:`is_positioning_only` (the row's *meaning* is "the candidate does NOT
+    have this term" — demanding vault backing for it is the over-claim pressure
+    ADR-059 clause 6 exists to remove). Both stay subject to the polarity and
+    evidence clauses. ``profile_json is None`` makes the whole invariant vacuous
+    — a caller with no vault on hand must never raise a false violation
+    (mirrors :func:`_annotate_narrative_backed`).
+
+    **HEAL, not raise — and never silent.** A violating row is downgraded:
+    a polarity violation to ``denied``/:data:`DENIED_EVIDENCE` (byte-identical
+    to what a rebuild through ``_enforce_denial_stance`` writes, so the two can
+    never disagree), everything else to ``gap``/``""`` (byte-identical to what
+    the builder writes for an unclassified expectation). Both directions are
+    away from claimable, which is ADR-040's never-claim-beats-claim direction.
+    Raising was considered and rejected: this runs at a persist seam inside a
+    live interview turn or gap analysis, so an exception would convert one bad
+    row into a failed application-wide operation — trading a truthfulness
+    defect for an availability defect, and leaving the caller no path that both
+    keeps the good rows and drops the bad one. The gate criterion is "never
+    deliver on a corrupt row", which downgrading satisfies exactly. Every heal
+    logs at WARNING with the concept, the previous status and the reason, and
+    the violation list is returned so a caller can surface it.
+
+    Returns ``(healed_ledger, violations)``. ``violations`` is a list of
+    ``{concept, status, reason}`` dicts — empty when the ledger is clean. Pure:
+    the input list and its rows are never mutated. Deterministic, no LLM.
+    """
+    if not keyword_ledger:
+        return [], []
+    rows = list(keyword_ledger)
+    if profile_json is None:
+        return rows, []
+
+    # ADR-061 clause 3 — an `unconfirmed` skill/language/certification cannot
+    # back a CV bullet, a letter sentence or a `direct` ledger row, so it must
+    # not count as an evidence unit here either.
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+    confirmed = exclude_unconfirmed(profile_json)
+    # The polarity and coherence clauses need no schema — they read the ledger
+    # row and a flattened corpus. Only the affirmative floor needs the typed
+    # vault index, so only IT degrades when the vault will not validate.
+    vault_corpus = profile_literal_corpus(confirmed) or None
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+
+        vault_index = build_vault_index(confirmed)
+    except Exception as exc:
+        # Fail OPEN on clause 5 ONLY, and loudly. Fail-closed would purge every
+        # claimable row of a healthy ledger because one vault document would not
+        # validate — a larger truthfulness loss than the check is worth, and not
+        # recoverable from the candidate's side. Clauses 1-4 still run, so a
+        # denial can never survive an unparseable vault. Never silent.
+        vault_index = None
+        logger.warning(
+            "assert_claimable_backed[%s]: the vault could not be indexed (%s: %s) — "
+            "the affirmative floor (clause 5) is UNCHECKED for this write; the "
+            "polarity and evidence clauses still apply",
+            seam or "unnamed-seam",
+            type(exc).__name__,
+            exc,
+        )
+
+    denials = [
+        concept
+        for concept, _level in _denied_concept_entries(
+            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+        )
+    ]
+
+    healed: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = []
+    for entry in rows:
+        if not isinstance(entry, dict) or not entry.get("claimable"):
+            healed.append(entry)
+            continue
+        reason = _claimable_backing_violation(entry, denials, vault_corpus, vault_index)
+        if reason is None:
+            healed.append(entry)
+            continue
+        was = entry.get("status")
+        logger.warning(
+            "assert_claimable_backed[%s]: healed claimable concept %r (was %r) — %s. "
+            "ADR-061/#318: a claimable ledger row with no vault evidence is a "
+            "truthfulness violation the pipeline would generate against itself.",
+            seam or "unnamed-seam",
+            entry.get("concept"),
+            was,
+            reason,
+        )
+        violations.append(
+            {"concept": entry.get("concept", ""), "status": was, "reason": reason}
+        )
+        if reason in _HEAL_TO_DENIED:
+            healed.append(
+                {**entry, "status": "denied", "claimable": False, "evidence": DENIED_EVIDENCE}
+            )
+        else:
+            healed.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
+    return healed, violations
+
+
 def build_keyword_ledger(
     classifications: list[dict[str, Any]],
     required_skills: list[str],

@@ -43,6 +43,7 @@ from applire.schemas.claims import (
 from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
 from applire.services.keyword_ledger import (
     _norm,
+    assert_claimable_backed,
     profile_literal_corpus,
     upgrade_ledger_for_concepts,
 )
@@ -272,10 +273,22 @@ async def submit_agent_claims(
                     upgrade=bool(applied.changes),
                     vault_corpus=vault_corpus,
                 )
-                if changed:
+                # #318 / ADR-061 — the affirmative invariant, at this door too
+                # (ADR-058 door parity): a claimable row with no vault evidence
+                # must be impossible whichever door wrote it. `current` is the
+                # post-apply, pre-persist profile, so THIS claim's own new
+                # evidence counts — a claim whose ops landed still upgrades;
+                # one whose ops the stance guard dropped no longer does.
+                new_ledger, violations = assert_claimable_backed(
+                    new_ledger,
+                    current.model_dump(mode="json"),
+                    seam="agent submit_claims",
+                )
+                if changed or violations:
                     # Plain _JSON column — reassign the WHOLE attribute so
                     # SQLAlchemy flags it dirty (session.py:1278 parity).
                     gap_row.keyword_ledger = new_ledger
+                if changed:
                     # Echo the CANONICAL ledger concept, not the caller's
                     # casing (membership is normalized equality).
                     entry = next(
@@ -294,7 +307,11 @@ async def submit_agent_claims(
                     # the caller honestly, as a receipt FieldChange in
                     # ``changes``.
                     canonical = entry.get("concept", "") if entry else claim.gap
-                    if entry is not None and entry.get("status") == "denied":
+                    # `not claimable` covers both the ADR-059 floor writing
+                    # `denied` and the #318 invariant healing an unbacked row
+                    # to `gap`: neither is a strength the agent may be told it
+                    # gained.
+                    if entry is not None and not entry.get("claimable"):
                         # #352 — the reversal case: an EARLIER claim in this
                         # same batch put this concept into ``ledger_upgraded``.
                         # The wire report is part of the state the upgrade

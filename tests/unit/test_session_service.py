@@ -3938,6 +3938,23 @@ class TestAddressedGapUpgradesLedger:
 
         job = _make_job()
         profile = _make_profile()
+        # #318 / ADR-061 — the turn's testimony has to actually LAND in the
+        # vault. The real `reconcile_interview_turn` (mocked below) applies its
+        # ops and persists the profile; without the vault write the fixture
+        # reproduces the charter run-#7 divergence the affirmative invariant now
+        # heals — a `claimable` CI/CD row against a vault holding nothing that
+        # backs it. Confirming the turn and confirming the vault write are one
+        # decision now: either both seams accept the turn or neither does.
+        # Seeded BEFORE `_make_gap_with_ledger` so the row's `input_fingerprint`
+        # is computed over this same profile and the completion-time recompute
+        # still reuses the row instead of inserting a second one.
+        profile.profile_json = {
+            **profile.profile_json,
+            "skills": [
+                *profile.profile_json["skills"],
+                {"name": "CI/CD", "category": "technical"},
+            ],
+        }
         sqlite_session.add(job)
         sqlite_session.add(profile)
         await sqlite_session.flush()
@@ -3972,6 +3989,63 @@ class TestAddressedGapUpgradesLedger:
         assert python["claimable"] is True and python["evidence"] == "5y"
         # NO new GapAnalysis row was inserted — the upgrade is in place.
         assert await _count_gap_rows(sqlite_session) == rows_before == 1
+
+    @pytest.mark.asyncio
+    async def test_an_addressed_turn_the_vault_never_recorded_does_not_upgrade(
+        self, sqlite_session, caplog
+    ):
+        """#318 / ADR-061 — the charter run-#7 case-2 divergence, at its seam.
+
+        The turn is `addressed` and its answer literally names `CI/CD`, so the
+        #188 seam upgrades the row exactly as it always has. But the turn's
+        skill ops never reached the vault (charter run #7: the ADR-046 stance
+        guard dropped every one of them), so nothing backs the row. The
+        affirmative invariant heals it back to an honest gap before the write
+        lands: the two instruments either both accept the turn or neither does.
+
+        Without the heal a CV writer acting on this row produces a claim the
+        Oracle must then mark `unbacked` — the pipeline generating its own
+        truthfulness violation.
+        """
+        import logging
+
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()  # skills: Python only — no CI/CD, ever
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job, profile)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+        gap_id = gap.id
+
+        turn = _addressed_turn(profile.profile_json)
+        with (
+            caplog.at_level(logging.WARNING, logger="applire.services.keyword_ledger"),
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(session_record.id, _CICD_ANSWER, sqlite_session, _mock_provider())
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False
+        assert cicd["status"] == "gap"
+        assert cicd["evidence"] == ""
+        # Never silent — the heal names the concept and the reason.
+        blob = " ".join(r.getMessage() for r in caplog.records)
+        assert "CI/CD" in blob and "no_vault_evidence_unit" in blob
+        # The vault-backed sibling is untouched.
+        python = next(e for e in ledger if e["concept"] == "Python")
+        assert python["claimable"] is True and python["evidence"] == "5y"
 
     @pytest.mark.asyncio
     async def test_no_gap_analysis_id_is_a_noop(self, sqlite_session):
