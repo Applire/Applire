@@ -332,6 +332,24 @@ _RECONCILE_DOCKER_COMPOSE_RESPONSE: dict[str, Any] = {
     "ambiguities": [],
 }
 
+# #353 — ONE turn whose answer names SEVERAL skills that each bare-single-token-
+# contain the same existing skill ('SAP PP'/'SAP MM'/'SAP SD' vs an existing
+# 'SAP'). The applier emits a containment confirmation per op, so this fixture is
+# the deterministic mock-side reproduction of the charter-run shape where a
+# single turn owes the candidate MORE THAN ONE question (the run had two; three
+# keeps the queue itself — not just its head — under test).
+_RECONCILE_SAP_MODULES_RESPONSE: dict[str, Any] = {
+    "ops": [
+        {"op": "upsert_skill", "name": "SAP PP", "category": "technical",
+         "proficiency": "advanced", "evidence": []},
+        {"op": "upsert_skill", "name": "SAP MM", "category": "technical",
+         "proficiency": "advanced", "evidence": []},
+        {"op": "upsert_skill", "name": "SAP SD", "category": "technical",
+         "proficiency": "advanced", "evidence": []},
+    ],
+    "ambiguities": [],
+}
+
 _CLUSTERING_RESPONSE: list[dict] = [
     {
         "id": "cluster-python-experience",
@@ -562,6 +580,10 @@ class MockLLMProvider(LLMProvider):
             # interview confirmation-resolution loop is reproducible under the mock.
             if "docker compose" in prompt.lower():
                 return copy.deepcopy(_RECONCILE_DOCKER_COMPOSE_RESPONSE)
+            # #353 — one answer naming TWO modules of the same existing skill
+            # produces TWO containment confirmations in a SINGLE turn.
+            if "sap pp" in prompt.lower():
+                return copy.deepcopy(_RECONCILE_SAP_MODULES_RESPONSE)
             return copy.deepcopy(_RECONCILE_RESPONSE)
 
         # ADR-061 clause 2 — the stance-guard testimony adjudication call
