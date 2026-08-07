@@ -32,6 +32,43 @@ class ProfessionalSummary(BaseModel):
     en: str | None = None
 
 
+class RoleFactProjection(BaseModel):
+    """#328 (PO decision 2026-08-07, option 4) / #382 — the provenance of ONE
+    derived quantified role fact.
+
+    Option 4's doctrine: the candidate's own responsibility/achievement bullet
+    is where a stated figure LIVES; ``team_size`` / ``budget_managed`` /
+    ``industry_context`` are queryable **projections** of it. This model is what
+    makes that claim inspectable rather than aspirational — it records which
+    bullet the typed value was reconciled against, and, for #382, the unit the
+    bullet carries and the typed field's bare number had lost.
+
+    ``provenance`` is deliberately two-valued and never says ``attested``:
+
+    * ``derived`` — the entry's own prose states this figure (a FACT under
+      ADR-062 clause 1, settled by ``matchers.figures.extract_figures``).
+    * ``uncorroborated`` — the typed value is real testimony (an interview
+      answer is not less true for going unrepeated) but no bullet of this entry
+      states it, so nothing here may be presented as the candidate's wording.
+
+    ADR-070's ``attested`` facet ({entry, quote, unit}) is a different thing
+    with a deliberately identical-looking shape: it is MODEL-cited and
+    fail-closed verified, and it is the only quote channel that may lift a
+    scope row. A projection is code-derived and must never enter ``bar.attested``
+    (``test_role_facts_projection.py`` pins that boundary in both directions).
+    """
+
+    value: str
+    # #382: the unit/currency the corroborating bullet states ("€", "EUR") —
+    # None when the corroboration carries none (a bare headcount) or when the
+    # value is uncorroborated. NEVER invented.
+    unit: str | None = None
+    # The entry's own bullet, verbatim, that states the figure. None ⇒ nothing
+    # corroborates the typed value.
+    quote: str | None = None
+    provenance: Literal["derived", "uncorroborated"] = "uncorroborated"
+
+
 class PersonalInfo(BaseModel):
     name: str = ""
     email: str | None = None
@@ -135,6 +172,18 @@ class WorkEntry(ExperienceBase):
     industry_context: str | None = None
     team_size: int | None = None
     budget_managed: str | None = None
+    # #328 option 4 — provenance for the three typed fields above, keyed by
+    # field name. Recomputed from this entry's OWN bullets on every write
+    # (``services/profile/role_facts.py``, called from the single committer),
+    # so it is a projection and never a second, ageing store of the figure.
+    role_fact_projections: dict[str, RoleFactProjection] = Field(default_factory=dict)
+
+    @field_validator("role_fact_projections", mode="before")
+    @classmethod
+    def coerce_role_fact_projections(cls, v: object) -> object:
+        # A profile persisted before this field existed carries nothing here;
+        # a hand-edited JSONB blob could carry anything. Never fail the load.
+        return v if isinstance(v, dict) else {}
 
     def org_label(self) -> str:
         return self.company

@@ -45,6 +45,7 @@ from applire.schemas.profile import (
     WorkEntry,
 )
 from applire.schemas.profile_roles import AddRoleRequest, AddRoleResponse
+from applire.services.profile.role_facts import project_role_facts
 
 
 class AddRoleValidationError(ValueError):
@@ -87,6 +88,10 @@ def apply_add_role(profile: MasterProfileData, req: AddRoleRequest) -> AddRoleRe
         is_current=True,  # #155 — a just-started role IS the current position
         industry_context=req.industry,
     )
+    # #328 option 4 — this door constructs a WorkEntry directly rather than
+    # through the op applier, so it must project too: every persisted entry
+    # carries an honest provenance map, or the marking means nothing.
+    project_role_facts(new_entry)
     profile.work_experience.insert(0, new_entry)
 
     closed_ids: list[str] = []

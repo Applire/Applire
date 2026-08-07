@@ -52,6 +52,8 @@ from applire.schemas.profile import (
     _coerce_partial_date,
 )
 
+from applire.services.profile.role_facts import project_profile_role_facts
+
 from applire.services.profile.reconcile.dedupe import (
     classify_certification_dupe,
     classify_dupe,
@@ -319,6 +321,14 @@ def apply_ops(
             _apply_flag_conflict(op, resolve, source, conflicts)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
+
+    # #328 (option 4) / #382 — the quantified role facts are DERIVED
+    # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
+    # the single committer (ADR-063), after every op has landed: the write path
+    # is the only place that can guarantee they never drift from the prose they
+    # project. Unconditional and idempotent — it must also correct an entry an
+    # unrelated op merely touched, and an entry no op touched at all.
+    project_profile_role_facts(new_profile)
 
     # Defense in depth (ADR-046): the write-time coercion above is the real fix,
     # but apply_ops must NEVER hand back a profile that won't re-load. Round-trip

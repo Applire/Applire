@@ -132,6 +132,13 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     reports in that one role, while a JD figure may be a total organisational span). A value
     measuring a different quantity than the bar supports at most "partial"; state in "reason"
     which quantities you compared.
+  - PROVENANCE (#328): every candidate value also carries "provenance", and a budget value
+    carries the "unit" its figure states. "derived" means that entry's OWN responsibilities/
+    achievements prose states this figure — code checked it, you did not. "uncorroborated"
+    means the value is the candidate's stated testimony that no bullet of that entry
+    repeats: still a real typed value, still eligible for "direct", but do NOT describe it
+    in "reason" as something the CV says. Provenance never substitutes for
+    "attested_evidence" below — that citation is yours to make and is verified separately.
   - "direct" requires a candidate value that meets the bar ON THE SAME quantity, and you MUST
     set "cited_entry" to that value's "entry" string exactly as given.
   - "partial" — BELOW THE BAR: a candidate value measuring the SAME quantity that falls short

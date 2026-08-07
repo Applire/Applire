@@ -121,12 +121,40 @@ def scope_concept_label(req: dict[str, Any], jd_language: str | None) -> str:
     return f"{label} {number}{unit}"
 
 
+def _projection_facets(entry: dict[str, Any], field: str) -> dict[str, Any]:
+    """#328 option 4 / #382 — the provenance facets of one typed value.
+
+    Reports ``provenance`` (``derived`` = this entry's OWN bullet states the
+    figure; ``uncorroborated`` = real testimony no bullet of this entry
+    repeats) and, for a budget, the ``unit`` the corroborating bullet carries —
+    without which "6000000" cannot be told from six million forints, which is
+    the ambiguity #382 filed.
+
+    It deliberately does NOT report the projection's ``quote``. ADR-070's
+    attestation is the one quote-bearing scope channel: it is MODEL-cited,
+    fail-closed verified (:func:`verify_attested_evidence`), and it alone may
+    lift a row's status. Giving a code-derived value a quote channel in the
+    same block would make the two indistinguishable to the judge — so the
+    distinction is structural here, not a label a later prompt edit can blur.
+    """
+    projection = (entry.get("role_fact_projections") or {}).get(field)
+    if not isinstance(projection, dict):
+        return {"provenance": "uncorroborated", "unit": None}
+    return {
+        "provenance": (
+            "derived" if projection.get("provenance") == "derived" else "uncorroborated"
+        ),
+        "unit": projection.get("unit"),
+    }
+
+
 def collect_candidate_values(
     profile_json: dict[str, Any] | None, kind: str
 ) -> list[dict[str, Any]]:
     """The candidate's typed vault values for one scope kind, verbatim, each
-    carrying its entry label and its field semantics (#328's fields, finally
-    confronted with the JD side)."""
+    carrying its entry label, its field semantics (#328's fields, finally
+    confronted with the JD side) and its projection provenance (#328 option 4 —
+    the typed value projects the candidate's own bullet, and says so)."""
     values: list[dict[str, Any]] = []
     for entry in (profile_json or {}).get("work_experience") or []:
         if not isinstance(entry, dict):
@@ -142,6 +170,7 @@ def collect_candidate_values(
                         "value": raw,
                         "entry": label,
                         "semantics": _KIND_SEMANTICS["team_size"],
+                        **_projection_facets(entry, "team_size"),
                     }
                 )
         elif kind == "budget":
@@ -152,6 +181,7 @@ def collect_candidate_values(
                         "value": raw.strip(),
                         "entry": label,
                         "semantics": _KIND_SEMANTICS["budget"],
+                        **_projection_facets(entry, "budget_managed"),
                     }
                 )
     return values
