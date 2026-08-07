@@ -708,11 +708,25 @@ def keyword_only_honest_gaps(keyword_ledger: list[dict[str, Any]] | None) -> lis
     weight (keyword-only). Required/nice_to_have honest gaps already reach the
     interview via ``category_c`` (compute_match_score_from_ledger), so they are
     excluded here to avoid double-routing. Pure; tolerant of ``None``/empty.
+
+    ``denied`` entries are EXCLUDED (#383, the fit-weighted twin of the same
+    seam in ``match_score``). "Honest gap" here means **unknown** — no signal
+    (ADR-048 §1 amended 2026-07-27); a denial is not an absence of signal but
+    the candidate's answer. This list is the enrichment interview's routing
+    input (``gap.askable_gap_inputs`` → ``cluster_gaps``), and re-asking a
+    denied concept is precisely what ADR-059's 2026-07-26 amendment (clause 3)
+    forbids of an automatic path — a denial is reversible only by an explicit
+    candidate correction. Nothing is lost: the entry keeps ``status: "denied"``
+    and reaches the writers through ``split_ledger_for_prompt``'s positioning
+    block. ADR-062 clause 1/6: a status-enum read is a FACT, not a judgement.
     """
     return [
         entry.get("concept", "")
         for entry in (keyword_ledger or [])
-        if not entry.get("claimable") and not entry.get("fit_weight") and entry.get("concept")
+        if not entry.get("claimable")
+        and entry.get("status") != "denied"
+        and not entry.get("fit_weight")
+        and entry.get("concept")
     ]
 
 
