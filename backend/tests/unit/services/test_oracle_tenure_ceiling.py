@@ -43,6 +43,18 @@ from applire.services.oracle.matchers.vault import derive_tenure_ceiling_years
 _THIS_YEAR = date.today().year
 
 
+def _years_since(year: int, month: int = 1) -> float:
+    """Independent date arithmetic for expected spans (NOT the code under test).
+
+    The original assertions used ``_THIS_YEAR - year`` with ``abs=0.6`` — a
+    bound the real span crosses mid-year (2026-08-08: 2015-01 -> today is
+    11.601 years, one day past ``11 +/- 0.6``), so the suite went red on a
+    date rollover with no code change. Expected values are now derived the
+    calendar way and compared tightly.
+    """
+    return (date.today() - date(year, month, 1)).days / 365.25
+
+
 def _profile_started(year: int, month: str = "01") -> dict:
     """A one-role vault whose single span runs from ``year`` to today."""
     return {
@@ -110,7 +122,7 @@ def test_ceiling_is_the_envelope_not_the_de_overlapped_union():
     }
     years = derive_tenure_ceiling_years(profile)
     assert years is not None
-    assert years == pytest.approx(_THIS_YEAR - 2004 + 0.5, abs=0.6)
+    assert years == pytest.approx(_years_since(2004, 7), abs=0.1)
 
 
 def test_ceiling_is_none_when_no_span_is_dated():
@@ -132,7 +144,7 @@ def test_an_undated_entry_never_lowers_the_ceiling():
 
 def test_ceiling_reaches_the_vault_index():
     index = build_vault_index(_profile_started(2015))
-    assert index.derivable_tenure_years == pytest.approx(_THIS_YEAR - 2015, abs=0.6)
+    assert index.derivable_tenure_years == pytest.approx(_years_since(2015), abs=0.1)
 
 
 # ── the verdict path: an overclaim lands unbacked ───────────────────────────
