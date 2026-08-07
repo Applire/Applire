@@ -78,6 +78,92 @@ _NUMBER_RE = re.compile(
 # exclusion above for any other context.
 _PLUS_QUANTIFIER_RE = re.compile(r"\b([1-9])\+")
 
+# ── #214 — a DURATION IN YEARS is not a quantified claim ───────────────────
+#
+# Charter run #8 (2026-07-28), German letter, real provider: "mit 14 Jahren
+# Expertise" and "zehn Jahre ISO-9001-Audit-Praxis" were both true and both
+# graded not-grounded — and the first was worse than unbacked. The vault
+# carried two unrelated counts containing 14 ("Führung einer Schicht mit 14
+# Mitarbeitenden", "Rollout auf 14 Spritzgussmaschinen"), so the per-figure
+# attribution check (audit.py §2b) declared the tenure figure foreign-owned.
+# A duration and a headcount sharing a digit is a coincidence; treating it as
+# evidence about ownership is a category error.
+#
+# Tenure is exempt for exactly the reason ``_YEAR_RE`` figures already are
+# (audit.py §2b/§2c skip ``kind == "year"``): it is ambient, it spans every
+# position at once, and it is DERIVED from date spans rather than stored as a
+# literal anywhere in the vault — so it can never have backing of its own,
+# and any backing it does find is coincidental. "Years are exempt" was only
+# ever implemented for CALENDAR years.
+#
+# PORTED, not re-derived, from ``services/letter_figure_guard.py``'s
+# ``_TENURE_RE`` (#299), which fixed the identical blindness in the guard's
+# own extractor. The two extractors stay separate on purpose — the Oracle's
+# recall floor is deliberately narrower (US244, module docstring) — but the
+# exemption is the same rule and is now implemented on both sides. One
+# addition over the guard's copy: the "N+ years" quantifier form (#220's
+# "12+ years of experience"), which the guard's regex does not reach.
+#
+# ADR-062 classification: FACT. "Does the token after this number name a unit
+# of years?" is settled by two adjacent tokens — no reading for meaning, no
+# judgement about the surrounding claim. Group 1 is the number itself; the
+# unit is only the evidence that the number is a duration.
+_TENURE_UNIT = r"(?:jahr(?:e|en|es)?|jährig\w*|jaehrig\w*|years?|yrs?)"
+_TENURE_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\+?\s*[-–]?\s*" + _TENURE_UNIT + r"\b",
+    re.IGNORECASE,
+)
+
+# ── #220 — a date fragment is not a quantified figure ──────────────────────
+#
+# ``build_vault_index`` indexes ``work_experience[i].dates`` as a span
+# ("2024-12 – present") through this same extractor, so ``_NUMBER_RE`` read
+# the "12" of "2024-12" as a bare ``number`` figure. A claim figure of the
+# same kind could then "ground" on it by pure digit coincidence, and the
+# evidence excerpt shown to the user was literally "2024-12" — a right
+# verdict with meaningless provenance, which is what #220 reports.
+#
+# NARROW by construction: only a 1-2 digit month/day component immediately
+# joined to a FOUR-DIGIT calendar year by "-" or "/" is excluded. The #377
+# decision stands untouched — "1.5." (day.month, no year) stays a number,
+# because there the form is genuinely ambiguous with a single-digit decimal
+# and this module carries no calendar awareness. Here the adjacent year
+# settles it with two tokens.
+#
+# ADR-062 classification: FACT.
+_DATE_FRAGMENT_RE = re.compile(
+    r"(?:19|20)\d{2}[-/](\d{1,2})(?:[-/](\d{1,2}))?"
+    r"|(\d{1,2})[-/](?:19|20)\d{2}"
+)
+
+
+def _exempt_number_spans(text: str) -> list[tuple[int, int]]:
+    """Digit spans that are durations (#214) or date fragments (#220).
+
+    Both are fact-level exclusions under ADR-062 clause 1 — each is settled
+    by the token immediately adjacent to the number, never by reading the
+    surrounding prose for meaning. Consumed by the number-kind passes so the
+    span is neither emitted as a figure nor re-read by a later pass.
+    """
+    spans = [m.span(1) for m in _TENURE_RE.finditer(text)]
+    for m in _DATE_FRAGMENT_RE.finditer(text):
+        for group in (1, 2, 3):
+            if m.group(group) is not None:
+                spans.append(m.span(group))
+    return spans
+
+
+def _overlaps(span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
+    """True when ``span`` intersects any span in ``spans``.
+
+    THE single overlap test for every exclusion in this module (identifiers
+    #374, durations #214, date fragments #220) — ADR-066: one logical
+    operation, one implementation.
+    """
+    start, end = span
+    return any(not (end <= s or start >= e) for s, e in spans)
+
+
 _GROUPED_RE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
 
 # #412 (charter run 13 ground truth, operations_marcus_de): German states a
@@ -157,11 +243,6 @@ def _identifier_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _overlaps_identifier(span: tuple[int, int], identifier_spans: list[tuple[int, int]]) -> bool:
-    start, end = span
-    return any(not (end <= a or start >= b) for a, b in identifier_spans)
-
-
 def _canonical_number(s: str) -> str:
     """Normalize separators: '1.000'/'1,000' → '1000'; '12,5' → '12.5'."""
     s = s.strip()
@@ -184,6 +265,21 @@ def extract_figures(text: str) -> list[Figure]:
 
     A span consumed by a higher-priority kind is invisible to lower ones, so
     "70%" yields one percent figure, not a percent plus a number.
+
+    Four things are NOT figures, and each exclusion is a **fact** under
+    ADR-062 clause 1 — settled by the tokens immediately adjacent to the
+    number, never by reading the surrounding prose for meaning (this
+    function's output reaches the audit report and, through the ledger, a
+    prompt, so clause 6 requires the classification to be stated here):
+
+    * a standard/regulation identifier's digits — "ISO 15189" (#374)
+    * a duration in years — "14 Jahren", "12+ years", "14-jährige" (#214)
+    * a date fragment — the "12" of "2024-12" (#220)
+    * a single bare digit — the pre-existing US244 signal floor
+
+    The exclusions live here, in the ONE extractor both the claim side and
+    ``build_vault_index`` call, so each is fixed in both directions by
+    construction rather than in either caller.
     """
     figures: list[Figure] = []
     consumed: list[tuple[int, int]] = []
@@ -191,6 +287,11 @@ def extract_figures(text: str) -> list[Figure]:
     # guarded (a standard body never prefixes a percentage or a currency
     # amount), only the year- and number-kind matches consult it.
     identifier_spans = _identifier_spans(text)
+    # #214/#220: durations in years and date fragments are not quantified
+    # figures. Computed once here and consulted only by the number-kind
+    # passes — a percent or a currency symbol next to the number already
+    # proves it is neither a tenure span nor a date component.
+    exempt_spans = _exempt_number_spans(text)
 
     def _free(start: int, end: int) -> bool:
         return all(end <= s or start >= e for s, e in consumed)
@@ -224,7 +325,7 @@ def extract_figures(text: str) -> list[Figure]:
     for m in _YEAR_RE.finditer(text):
         if not _free(*m.span()):
             continue
-        if _overlaps_identifier(m.span(), identifier_spans):
+        if _overlaps(m.span(), identifier_spans):
             # #374: "ISO 2015" must not become a year figure either — mark
             # the span consumed so the number-kind pass below does not pick
             # it up as a plain number instead.
@@ -236,7 +337,10 @@ def extract_figures(text: str) -> list[Figure]:
     for m in _NUMBER_RE.finditer(text):
         if not _free(*m.span()):
             continue
-        if _overlaps_identifier(m.span(), identifier_spans):
+        if _overlaps(m.span(), identifier_spans):
+            consumed.append(m.span())
+            continue
+        if _overlaps(m.span(), exempt_spans):
             consumed.append(m.span())
             continue
         figures.append(Figure("number", _canonical_number(m.group(0)), m.group(0)))
@@ -244,6 +348,9 @@ def extract_figures(text: str) -> list[Figure]:
 
     for m in _PLUS_QUANTIFIER_RE.finditer(text):
         if not _free(*m.span()):
+            continue
+        if _overlaps(m.span(1), exempt_spans):
+            consumed.append(m.span())
             continue
         figures.append(Figure("number", m.group(1), m.group(0)))
         consumed.append(m.span())
@@ -320,10 +427,20 @@ def extract_spelled_figures(text: str) -> list[Figure]:
     much further because its job is "was this ever said", a much lower bar
     than becoming a citable figure. "one"/"eins" excluded (article
     ambiguity, fail-closed).
+
+    #214: the tenure exemption reaches this path too — "zehn Jahre
+    ISO-9001-Audit-Praxis" is as tenure-ambient as "10 Jahre", and without
+    the filter a duration in the candidate's OWN prose keeps seeding
+    ("number", "10") into ``figure_map``, where it grounds an unrelated
+    document count of ten by coincidence. Same fact, same regex, same
+    ADR-062 classification as in :func:`extract_figures`.
     """
     figures: list[Figure] = []
     lowered = text.lower()
+    tenure_spans = [m.span(1) for m in _TENURE_RE.finditer(lowered)]
     for m in _WORD_RE.finditer(lowered):
+        if _overlaps(m.span(), tenure_spans):
+            continue
         tok = m.group(0)
         small = _SMALL_WORDS.get(tok)
         if small is not None:
