@@ -76,11 +76,20 @@
       color: var(--muted);
       letter-spacing: 0.05em;
       margin-bottom: 8pt;
+      /* #357 — a section heading never orphans at the foot of a page. */
+      break-after: avoid;
+      page-break-after: avoid;
     }
 
     .section-label::before { content: "// "; color: var(--border); }
 
-    .entry { margin-bottom: 10pt; }
+    .entry {
+      margin-bottom: 10pt;
+      /* #357 — a position block (role, employer, dates, bullets) is one unit
+         in DACH convention; splitting it reads as an assembly error. */
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
 
     .entry-header {
       display: flex;

@@ -667,3 +667,148 @@ async def test_letter_signature_block_never_splits_across_pages(template):
         f"orphaned onto page {len(pages)}. This is #429: the block must be "
         f"atomic (break-inside: avoid)."
     )
+
+
+# ---------------------------------------------------------------------------
+# #357 — a position block is atomic across the page break. The reported defect:
+# a 3-page Lebenslauf split one position so 3 of its 5 bullets sat on page 1
+# and 2 on page 2, with no visual link back to the heading; the worst shape is
+# a role heading alone at the bottom of a page. German CV convention treats
+# (role, employer, dates, bullets) as one unit, so a split reads as an
+# assembly failure to a DACH reviewer. Same class as #429 on the letter side.
+#
+# Fixture design follows the #429 lesson: do NOT assert an absolute page count
+# or tune one entry onto a boundary — both depend on the renderer's font
+# metrics, and this suite BLOCKS the build. Instead render enough entries to
+# span several pages (so several boundaries exist wherever they land) and
+# assert the metric-independent relative invariant: whichever page an entry's
+# heading lands on, that entry's whole body is on it too. Post-fix this holds
+# structurally for any font (`break-inside: avoid` on `.entry`); pre-fix it
+# fails because a boundary falling inside an entry is near-certain once the
+# document is several pages long.
+# ---------------------------------------------------------------------------
+
+_WORK_357 = [
+    ("Alpha Präzisionswerke GmbH", "Leiter Prüfmittelmanagement Kennung01"),
+    ("Berger Maschinenbau AG", "Teamleiter Serienprüfung Kennung02"),
+    ("Cordes Fertigungstechnik GmbH", "Qualitätsingenieur Messtechnik Kennung03"),
+    ("Dörfler Systemtechnik KG", "Prozessingenieur Fertigung Kennung04"),
+    ("Eckhardt Werkzeugbau GmbH", "Auditor Lieferantenqualität Kennung05"),
+    ("Fassbender Industrietechnik AG", "Fachreferent Prüfplanung Kennung06"),
+    ("Gerlach Antriebstechnik GmbH", "Gruppenleiter Wareneingang Kennung07"),
+    ("Hübner Umformtechnik AG", "Ingenieur Serienbetreuung Kennung08"),
+    ("Imhoff Feinmechanik GmbH", "Referent Qualitätsplanung Kennung09"),
+    ("Jansen Präzisionsguss AG", "Werksingenieur Gussteile Kennung10"),
+    ("Köhler Verfahrenstechnik GmbH", "Spezialist Messsysteme Kennung11"),
+    ("Lindner Blechbearbeitung AG", "Koordinator Erstmuster Kennung12"),
+    ("Möller Kunststofftechnik GmbH", "Fachplaner Prüfprozesse Kennung13"),
+    ("Neuhaus Zerspanungstechnik AG", "Sachbearbeiter Prüfmittel Kennung14"),
+]
+
+
+def _bullets_357(n: int) -> list[str]:
+    tag = f"{n:02d}"
+    return [
+        f"Verantwortung Beleg{tag}A für die statistische Prozesslenkung "
+        f"der Serienfertigung über drei Fertigungslinien im Dreischichtbetrieb.",
+        f"Verantwortung Beleg{tag}B für die Erstmusterprüfberichte nach "
+        f"VDA-Standard über mehrere Produktfamilien der Baureihe hinweg.",
+        f"Verantwortung Beleg{tag}C für die Schulung der Prüfer in "
+        f"Messtechnik, Dokumentationsdisziplin und Prüfmittelüberwachung.",
+        f"Verantwortung Beleg{tag}D für die Auditvorbereitung sowie die "
+        f"Nachverfolgung sämtlicher vereinbarter Korrekturmaßnahmen.",
+    ]
+
+
+CV_357 = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Jörg Müller-Lüdenscheidt",
+            "email": "joerg.mueller@example.de",
+            "phone": "+49 89 1234567",
+            "location": "München",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        "summary": (
+            "Erfahrener Qualitätsingenieur mit langjähriger Verantwortung für "
+            "Prozessoptimierung und Projektmanagement in der Präzisionsfertigung."
+        ),
+        "work_history": [
+            {
+                "company": company,
+                "role": role,
+                "start_date": f"{2024 - 2 * n:04d}-04",
+                "end_date": f"{2026 - 2 * n:04d}-03",
+                "bullets": _bullets_357(n + 1),
+            }
+            for n, (company, role) in enumerate(_WORK_357)
+        ],
+        "skills": ["Python", "Kubernetes", "Projektmanagement", "Messtechnik"],
+        "education": [
+            {
+                "institution": "Technische Universität München Ausbildung31",
+                "degree": "Dipl.-Ing. Maschinenbau Abschluss31",
+                "field": "Fertigungstechnik",
+                "start_date": "1998-10",
+                "end_date": "2003-03",
+            },
+            {
+                "institution": "Fachhochschule Rosenheim Ausbildung32",
+                "degree": "Techniker Feinwerktechnik Abschluss32",
+                "field": "Feinwerktechnik",
+                "start_date": "1995-09",
+                "end_date": "1998-07",
+            },
+        ],
+        "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
+    }
+)
+
+
+def _pdf_pages_norm(pdf: bytes) -> list[str]:
+    import io
+
+    from pypdf import PdfReader
+
+    return [_norm_probe(p.extract_text() or "") for p in PdfReader(io.BytesIO(pdf)).pages]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_position_block_never_splits_across_pages(template):
+    """#357 — every work and education entry renders wholly on one page."""
+    html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_357, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html)
+    pages = _pdf_pages_norm(pdf)
+
+    assert len(pages) >= 2, (
+        f"{template}: fixture rendered {len(pages)} page(s) — it must span a page "
+        f"break for this invariant to mean anything"
+    )
+
+    entries: list[tuple[str, list[str]]] = []
+    for job in CV_357.work_history:
+        entries.append((job.role, [job.role, *job.bullets]))
+    for edu in CV_357.education:
+        entries.append((edu.degree, [edu.degree, edu.institution]))
+
+    for label, probes in entries:
+        located = {}
+        for probe in probes:
+            needle = _norm_probe(probe)
+            hits = [i for i, page in enumerate(pages) if needle in page]
+            assert hits, f"{template}: '{probe}' dropped from the rendered PDF"
+            located[probe] = hits[0]
+
+        distinct = sorted(set(located.values()))
+        assert len(distinct) == 1, (
+            f"{template}: the position block '{label}' is split across pages "
+            f"{[p + 1 for p in distinct]} — "
+            + "; ".join(
+                f"'{probe[:40]}' on page {page + 1}" for probe, page in located.items()
+            )
+            + ". This is #357: the entry must be atomic (break-inside: avoid)."
+        )

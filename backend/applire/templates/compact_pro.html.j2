@@ -70,9 +70,18 @@
       border-bottom: 1px solid var(--cv-primary);
       padding-bottom: 1.5pt;
       margin-bottom: 5pt;
+      /* #357 — a section heading never orphans at the foot of a page. */
+      break-after: avoid;
+      page-break-after: avoid;
     }
 
-    .entry { margin-bottom: 6pt; }
+    .entry {
+      margin-bottom: 6pt;
+      /* #357 — a position block (role, employer, dates, bullets) is one unit
+         in DACH convention; splitting it reads as an assembly error. */
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
 
     .entry-header {
       display: flex;
