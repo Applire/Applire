@@ -87,6 +87,9 @@
       align-items: baseline;
       gap: 8pt;
       margin-bottom: 8pt;
+      /* #357 — a section heading never orphans at the foot of a page. */
+      break-after: avoid;
+      page-break-after: avoid;
     }
 
     .section-title-en {
@@ -114,6 +117,10 @@
     .entry {
       margin-bottom: 10pt;
       padding-left: 2pt;
+      /* #357 — a position block (role, employer, dates, bullets) is one unit
+         in DACH convention; splitting it reads as an assembly error. */
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .entry-meta {
