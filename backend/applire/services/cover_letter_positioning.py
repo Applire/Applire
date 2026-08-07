@@ -30,6 +30,7 @@ and makes no LLM call itself. Mirrors the no-LLM style of
 """
 
 import re
+from dataclasses import dataclass
 
 _TOKEN_RE = re.compile(r"\b[a-zA-ZÀ-ÿ0-9.#+\-]{2,}\b")
 
@@ -319,3 +320,149 @@ def word_floor_reviewer_prompt_fn(base_fn, word_floor: int):
         return prompt
 
     return fn
+
+
+# ---------------------------------------------------------------------------
+# #321 — the candidate's OWN recorded job titles, as facts (ADR-062 clause 2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RoleTitle:
+    """One position the vault records, and the title(s) it is recorded under.
+
+    ADR-062 classification: **FACT**. "Which title does the vault carry for this
+    position" is settled by the profile's own structure — a field read, no prose
+    is interpreted. The judgement this deliberately does NOT make is the one
+    #321 turns on: *whether a given letter sentence states a title at all*.
+    German prose can name a role without asserting it as a title ("ich
+    verantworte den ISO-9001-Bereich"), and separating the two requires reading
+    what a sentence means. That belongs to the reviewer (clause 2), which is why
+    there is no title-marker list anywhere in this module.
+    """
+
+    title: str  # the vault's own string, verbatim
+    aliases: tuple[str, ...]  # WorkEntry.role_aliases — equally legitimate titles
+    org: str  # employer / organisation / project the title is recorded under
+    span: str  # "2017-04 – present"; "" when the vault records no dates
+
+
+def _title_span(entry: dict) -> str:
+    """"2017-04 – present" / "2011-08 – 2017-03" / "" — the position's own dates.
+
+    ``is_current`` is tri-state (#155): ``False`` means *known ended*, so an
+    entry that carries it must never be rendered as ongoing merely because its
+    end date is missing.
+    """
+    start = (entry.get("start_date") or "").strip()
+    end = (entry.get("end_date") or "").strip()
+    current = entry.get("is_current")
+    if not end and current is not False and (current or (start and entry.get("end_date") is None)):
+        end = "present"
+    return " – ".join(part for part in (start, end) if part)
+
+
+def vault_role_titles(profile_json: dict | None) -> list[RoleTitle]:
+    """Every title the vault records for the candidate, in vault order.
+
+    Work experience first, then volunteer activities, then projects — each
+    labelled with the organisation a reader would recognise (the same
+    ``org_label()`` split the profile schema makes: company / organization /
+    project name). A position with no recorded title contributes nothing:
+    there is no fact to state about it, and inventing one is the defect.
+
+    ``role_aliases`` are carried because the vault's own schema defines them as
+    *"all role titles ever used for this position"* — omitting them would let
+    the reviewer flag a letter that used one of the candidate's own legitimate
+    titles.
+
+    ADR-062 classification: FACT (see :class:`RoleTitle`). Pure read, no LLM,
+    no I/O.
+    """
+    if not isinstance(profile_json, dict):
+        return []
+    titles: list[RoleTitle] = []
+    for section, org_field in (
+        ("work_experience", "company"),
+        ("volunteer_activities", "organization"),
+        ("projects", "name"),
+    ):
+        for entry in profile_json.get(section) or []:
+            if not isinstance(entry, dict):
+                continue
+            title = (entry.get("role") or "").strip()
+            if not title:
+                continue
+            aliases = tuple(
+                a.strip()
+                for a in (entry.get("role_aliases") or [])
+                if isinstance(a, str) and a.strip() and a.strip() != title
+            )
+            titles.append(
+                RoleTitle(
+                    title=title,
+                    aliases=aliases,
+                    org=(entry.get(org_field) or "").strip(),
+                    span=_title_span(entry),
+                )
+            )
+    return titles
+
+
+def render_role_titles_block(titles: list[RoleTitle]) -> str:
+    """The RECORDED JOB TITLES block — facts, then one narrow rule (#321).
+
+    ADR-062 clause 2 applied the way ``render_figure_ownership_block`` applies
+    it: hand over the underlying facts verbatim, plus the narrowest instruction
+    that keeps them from being over-read. The facts are the vault's own title
+    strings; the instruction distinguishes the two cases a deterministic rule
+    cannot tell apart — a sentence that *describes* what the candidate is
+    responsible for (fine) and one that *names* a title they never held (the
+    #321 defect, where the invented title was assembled out of the same
+    position's own achievement text and therefore traced to the vault by every
+    coverage check the system has).
+
+    Stated in both directions on purpose: run #8's invented title *understated*
+    the real one, so neither blind panel reviewer flagged it, and the Oracle
+    graded the sentence ``grounded`` on the real headcount around it. A title
+    the employer's record contradicts is a false statement about the candidate
+    whichever way it drifts (ADR-057: positioning must ground).
+
+    Returns "" when the vault records no title at all.
+    """
+    if not titles:
+        return ""
+    lines = [
+        "RECORDED JOB TITLES (deterministic vault lookup — this is ground truth, "
+        "do not re-derive it). These are the only titles the candidate has held, "
+        "each with the position it is recorded under:",
+    ]
+    for t in titles:
+        where = " — ".join(part for part in (t.org, f"({t.span})" if t.span else "") if part)
+        line = f'  - "{t.title}"'
+        if where:
+            line += f" — {where}"
+        if t.aliases:
+            also = ", ".join(f'"{a}"' for a in t.aliases)
+            line += f"; also recorded for this same position as {also}"
+        lines.append(line)
+    lines += [
+        "",
+        "Whether a sentence states a TITLE for the candidate is YOUR judgement, "
+        "from the letter's own prose — describing what the candidate is "
+        "responsible for is not a title claim, and must never be flagged as "
+        "one. But where the letter does name the role the candidate holds or "
+        "held at one of their own positions, that name must be one of the "
+        "titles above, for that same position, character for character. A "
+        "title assembled out of a responsibility, an achievement, a "
+        "certification or a ledger term is ungrounded even though every word "
+        "of it appears somewhere in the vault: set approved=false and name the "
+        "recorded title the writer must use instead.",
+        "This holds in BOTH directions. A title that understates the recorded "
+        "one is as false as one that inflates it — the employer's own record is "
+        "what a reference call or an Arbeitszeugnis returns, and the CV, built "
+        "from this same vault, states the recorded title. Titles are names: "
+        "never ask for one to be translated into the letter's language, and "
+        "never ask for a title this list does not carry.",
+    ]
+    return "\n".join(lines)

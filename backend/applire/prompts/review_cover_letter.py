@@ -84,9 +84,10 @@ another:
 - ``job_description`` (inside the source) — the only basis for a claim about the
   EMPLOYER: their product, market, domain, or achievements.
 - Any DETERMINISTIC BLOCK appended to the source (VERIFIED COVERAGE CHECK, UNADDRESSED
-  HARD REQUIREMENTS) — computed before you ran, and GROUND TRUTH. Do not re-derive,
-  second-guess, or extend it. Each states a FACT: whether a string is present, what
-  status the ledger holds. None of them tells you what a sentence MEANS — that is yours.
+  HARD REQUIREMENTS, RECORDED JOB TITLES) — computed before you ran, and GROUND
+  TRUTH. Do not re-derive, second-guess, or extend it. Each states a FACT: whether a
+  string is present, what status the ledger holds, which title the vault records for a
+  position. None of them tells you what a sentence MEANS — that is yours.
 
 THE SUBJECT TEST — apply this before every other judgement. Every sentence is about
 someone. Ask only: WHO?
