@@ -99,7 +99,26 @@ async def seeded_gap_analysis(db):
         company_culture_signals=[],
         language_requirement="DE",
     )
-    profile = MasterProfile(id=uuid.uuid4(), profile_json={"skills": [{"name": "RAG"}]})
+    # #318 / ADR-061: both ledger rows below are `claimable`, so the vault has
+    # to be able to back both — a claimable row with no vault evidence is now
+    # healed away at every persist seam, this one included. `RAG` keeps the
+    # keyword-LIABILITY shape (a bare skills-list entry, no narrative anywhere:
+    # `narrative_backed: False`); `Python` is the ordinary backed row this test
+    # needs to stay untouched.
+    profile = MasterProfile(
+        id=uuid.uuid4(),
+        profile_json={
+            "skills": [{"name": "RAG"}, {"name": "Python"}],
+            "work_experience": [
+                {
+                    "id": "w1",
+                    "company": "Acme",
+                    "position": "Engineer",
+                    "responsibilities": ["Built backend services in Python for five years"],
+                }
+            ],
+        },
+    )
     db.add_all([job, profile])
     await db.commit()
 

@@ -78,6 +78,7 @@ from applire.services.interview.sufficiency import (
 )
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
+    assert_claimable_backed,
     profile_literal_corpus,
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
@@ -1109,7 +1110,15 @@ async def _create_targeted_session(
     new_ledger, ledger_changed = reevaluate_gap_ledger_against_vault(
         gap_analysis.keyword_ledger, profile_record.profile_json
     )
-    if ledger_changed:
+    # #318 / ADR-061 — the affirmative invariant on the row actually written.
+    # This seam is the widest net in the system (it runs at every session
+    # start, over the whole ledger, whatever door wrote it), so it is also
+    # where a row corrupted by an EARLIER build is caught: `violations` alone
+    # is enough to make the write worth doing.
+    new_ledger, ledger_violations = assert_claimable_backed(
+        new_ledger, profile_record.profile_json, seam="interview vault re-evaluation"
+    )
+    if ledger_changed or ledger_violations:
         gap_analysis.keyword_ledger = new_ledger
 
     # #259 — pass the profile so gap_detector can promote a JD-required
@@ -1874,7 +1883,18 @@ async def _upgrade_ledger_for_addressed_gap(
         upgrade=upgrade,
         vault_corpus=vault_corpus,
     )
-    if changed:
+    # #318 / ADR-061 — the affirmative invariant, at the seam that produced the
+    # measured divergence. `_evidenced` above only proves the ANSWER names the
+    # concept; charter run #7 case 2 upgraded `MES`/`OEE` on exactly that
+    # evidence while the same turn's skill ops were dropped by the stance
+    # guard, so the vault ended the turn with neither. `profile_json` is read
+    # AFTER this turn's ops were applied, so a turn whose testimony genuinely
+    # landed still upgrades — the two seams either both accept the turn or
+    # neither does, which is the reconciliation #318 exists for.
+    new_ledger, violations = assert_claimable_backed(
+        new_ledger, profile_json, seam="interview #188 upgrade"
+    )
+    if changed or violations:
         # JSONB tracking gotcha: keyword_ledger is a plain _JSON column, NOT a
         # MutableList — mutating a dict inside the list in place would not be
         # flagged dirty. Reassign the WHOLE attribute (a freshly built list) so
