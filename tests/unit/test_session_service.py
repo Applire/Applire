@@ -4075,3 +4075,175 @@ class TestAddressedGapUpgradesLedger:
         ledger = await _reload_ledger(sqlite_session, gap_id)
         cicd = next(e for e in ledger if e["concept"] == "CI/CD")
         assert cicd["claimable"] is False and cicd["status"] == "gap"
+
+
+class TestARetractionReversesTheLedgerUpgrade:
+    """#352 — the interview door's half of the same defect.
+
+    `_upgrade_ledger_for_addressed_gap` is called only `if addressed:`, and
+    `addressed` is exactly `bool(applied.changes)` (interview_bridge, the #188
+    gate). A denial-only turn produces no ops, so the seam never runs for it —
+    the ADR-059 floor inside `upgrade_ledger_for_concepts` could stop an
+    upgrade in flight but never reverse one an earlier turn had committed to
+    the persisted row both writers read.
+
+    ADR-059 clause 3 (2026-07-27): polarity is consulted at EVERY ledger write
+    seam, and a requirement addressed BY DENYING it sets `denied`.
+    """
+
+    @staticmethod
+    def _gap_with_claimable_cicd(job, profile):
+        gap = _make_gap_with_ledger(job, profile)
+        gap.keyword_ledger = [
+            {**e, "status": "direct", "claimable": True,
+             "evidence": "I built the CI/CD pipelines at Acme end-to-end."}
+            if e["concept"] == "CI/CD"
+            else e
+            for e in gap.keyword_ledger
+        ]
+        return gap
+
+    @pytest.mark.asyncio
+    async def test_denial_only_turn_reverses_a_prior_upgrade(self, sqlite_session):
+        from applire.services.keyword_ledger import DENIED_EVIDENCE
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = self._gap_with_claimable_cicd(job, profile)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _denied_turn(profile.profile_json, denied_concepts=["CI/CD"])
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session._select_denial_probe_concept",
+                  new=AsyncMock(return_value=None)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(
+                session_record.id,
+                "Correction — I have never actually owned CI/CD.",
+                sqlite_session,
+                _mock_provider(),
+            )
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False
+        assert cicd["status"] == "denied"
+        assert cicd["evidence"] == DENIED_EVIDENCE
+        # The unrelated claimable entry is untouched — concept-scoped, never
+        # a batch-wide wipe.
+        python = next(e for e in ledger if e["concept"] == "Python")
+        assert python["claimable"] is True and python["evidence"] == "5y"
+
+    @pytest.mark.asyncio
+    async def test_denial_only_turn_never_upgrades_an_undenied_gap(self, sqlite_session):
+        """Mutation guard for the widened gate: the denial-only turn now
+        reaches the seam, so the seam must run the polarity floor ONLY.
+
+        The answer NAMES the cluster's own concept — clearing the
+        `surface_present` eligibility check inside the seam — while denying a
+        different one. That is the shape that would flip CI/CD to
+        `direct`/`claimable` off a sentence saying the candidate never owned
+        it, if `upgrade=addressed` were dropped. A turn that applied no ops
+        confirmed nothing."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap_with_ledger(job, profile)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _denied_turn(profile.profile_json, denied_concepts=["Ansible"])
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session._select_denial_probe_concept",
+                  new=AsyncMock(return_value=None)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "next?", "choices": None})),
+        ):
+            await send_message(
+                session_record.id,
+                "I have never used Ansible — someone else always owned CI/CD.",
+                sqlite_session,
+                _mock_provider(),
+            )
+
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False
+        assert cicd["status"] == "gap"
+        assert cicd["evidence"] == ""
+
+    @pytest.mark.asyncio
+    async def test_a_denial_that_triggers_a_transfer_probe_still_reverses_now(
+        self, sqlite_session
+    ):
+        """The seam sits BEFORE the ADR-064 transfer probe, which `return`s.
+
+        A DIRECT-level denial of a JD-critical concept gets one follow-up
+        instead of advancing — and that early return used to be reached with
+        the stale `claimable` row still on the persisted GapAnalysis. The row
+        both writers read must be correct on the turn the candidate retracts,
+        not a turn later (and not never, if the session ends there)."""
+        from applire.services.keyword_ledger import DENIED_EVIDENCE
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = self._gap_with_claimable_cicd(job, profile)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _cicd_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        gap_id = gap.id
+        turn = _denied_turn(profile.profile_json, denied_concepts=["CI/CD"])
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session._select_denial_probe_concept",
+                  new=AsyncMock(return_value="CI/CD")),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "probe?", "choices": None})),
+        ):
+            response = await send_message(
+                session_record.id,
+                "Correction — I have never actually owned CI/CD.",
+                sqlite_session,
+                _mock_provider(),
+            )
+
+        assert response.question == "probe?"  # the probe DID fire and returned
+        ledger = await _reload_ledger(sqlite_session, gap_id)
+        cicd = next(e for e in ledger if e["concept"] == "CI/CD")
+        assert cicd["claimable"] is False
+        assert cicd["status"] == "denied"
+        assert cicd["evidence"] == DENIED_EVIDENCE

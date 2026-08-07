@@ -31,6 +31,7 @@ denial sentence stored as their backing evidence.
 """
 
 from applire.services.keyword_ledger import (
+    DENIED_EVIDENCE,
     _enforce_denial_stance,
     build_keyword_ledger,
     upgrade_ledger_for_concepts,
@@ -155,3 +156,120 @@ class TestADR059Clause2ADenialNeverUpgrades:
         assert out[0]["status"] == "direct"
         assert out[0]["claimable"] is True
         assert out[0]["evidence"] == answer
+
+
+class TestADR059ARetractionReversesAnUpgrade:
+    """#352 — the floor could guard a write in flight but never reverse one.
+
+    ``upgrade_ledger_for_concepts`` filtered candidate entries on
+    ``not claimable`` BEFORE either denial floor ran, so an entry an earlier
+    turn had already flipped to ``direct``/``claimable`` was skipped outright
+    and the candidate's own retraction could not reach it. The durable floor
+    (:func:`_enforce_denial_stance`) has always reversed a claimable entry —
+    it logs a warning when it does — so the two instruments ADR-059 clause 3
+    requires to agree ("polarity is consulted at EVERY ledger write seam")
+    disagreed: one rebuild of the same row produced ``denied``, the in-place
+    seam kept ``direct``.
+    """
+
+    UPGRADED = "I administered Kubernetes clusters for 3 years."
+    RETRACTION = "Actually scratch that, I have never touched Kubernetes."
+
+    def test_a_denial_reverses_an_entry_an_earlier_turn_upgraded(self):
+        ledger = [
+            _entry("Kubernetes", status="direct", claimable=True, evidence=self.UPGRADED)
+        ]
+        out, changed = upgrade_ledger_for_concepts(
+            ledger,
+            ["Kubernetes"],
+            self.RETRACTION,
+            denied_concepts=["Kubernetes"],
+        )
+        assert changed is True
+        assert out[0]["status"] == "denied"
+        assert out[0]["claimable"] is False
+        assert out[0]["evidence"] == DENIED_EVIDENCE
+        assert self.UPGRADED not in (out[0]["evidence"] or ""), (
+            "the reversed entry must not keep the evidence that backed the "
+            "claim the candidate has just taken back"
+        )
+        assert self.RETRACTION not in (out[0]["evidence"] or "")
+
+    def test_the_in_place_seam_and_the_durable_floor_agree(self):
+        """ADR-059 clause 3's actual requirement: one instrument, two seams.
+        Whatever a rebuild of this row would produce, the in-place seam must
+        produce too — otherwise the next ``analyze_gaps`` silently corrects
+        (or contradicts) the row the writers already consumed."""
+        ledger = [
+            _entry("Kubernetes", status="direct", claimable=True, evidence=self.UPGRADED)
+        ]
+        in_place, _ = upgrade_ledger_for_concepts(
+            ledger, ["Kubernetes"], self.RETRACTION, denied_concepts=["Kubernetes"]
+        )
+        durable = _enforce_denial_stance(ledger, ["Kubernetes"])
+        for field in ("status", "claimable", "evidence"):
+            assert in_place[0][field] == durable[0][field], field
+
+    def test_a_reversal_never_touches_an_undenied_claimable_entry(self):
+        """Concept-scoped, never topic-radius: an unrelated denial in the same
+        turn leaves a standing upgrade standing."""
+        ledger = [
+            _entry("Terraform", status="direct", claimable=True, evidence="4y IaC")
+        ]
+        out, changed = upgrade_ledger_for_concepts(
+            ledger, ["Terraform"], "no comment", denied_concepts=["Kubernetes"]
+        )
+        assert changed is False
+        assert out[0]["status"] == "direct"
+        assert out[0]["claimable"] is True
+        assert out[0]["evidence"] == "4y IaC"
+
+    def test_upgrade_false_runs_the_floor_only(self):
+        """The gate #352 has to widen. A turn that applied NO ops confirmed
+        nothing, so it may not upgrade — but its denial must still be able to
+        reverse. ``upgrade=False`` is that seam: floors on, upgrade off."""
+        ledger = [
+            _entry("Kubernetes", status="direct", claimable=True, evidence=self.UPGRADED),
+            _entry("Terraform"),
+        ]
+        out, changed = upgrade_ledger_for_concepts(
+            ledger,
+            ["Kubernetes", "Terraform"],
+            self.RETRACTION,
+            denied_concepts=["Kubernetes"],
+            upgrade=False,
+        )
+        assert changed is True
+        assert out[0]["status"] == "denied"
+        assert out[0]["claimable"] is False
+        # The undenied honest gap confirmed nothing and must not move.
+        assert out[1]["status"] == "gap"
+        assert out[1]["claimable"] is False
+        assert out[1]["evidence"] == ""
+
+    def test_upgrade_false_with_no_denial_is_a_pure_noop(self):
+        ledger = [_entry("Kubernetes")]
+        out, changed = upgrade_ledger_for_concepts(
+            ledger, ["Kubernetes"], "some answer", upgrade=False
+        )
+        assert changed is False
+        assert out == ledger
+
+    def test_a_scope_entry_is_still_exempt_from_the_reversal_seam(self):
+        """ADR-069 / ADR-048 (2026-08-01): a bar-carrying entry's status moves
+        only via the clause-2 judgement or elicited testimony, never at this
+        seam — in either direction."""
+        ledger = [
+            _entry(
+                "team size",
+                status="direct",
+                claimable=True,
+                evidence="12 reports",
+                bar={"kind": "team_size", "value": 10, "comparator": "gte"},
+            )
+        ]
+        out, changed = upgrade_ledger_for_concepts(
+            ledger, ["team size"], self.RETRACTION, denied_concepts=["team size"]
+        )
+        assert changed is False
+        assert out[0]["status"] == "direct"

@@ -218,11 +218,26 @@ async def submit_agent_claims(
                     changes=receipt_changes,
                 )
             )
-            # Ledger upgrade — gated exactly like the interview's addressed-gate
-            # (#188): only a claim that actually changed the profile may flip
-            # its (pre-validated, exact-member) concept. A denial-only receipt
-            # must NEVER upgrade a ledger entry — gate stays on applied.changes.
-            if applied.changes and claim.gap and gap_row is not None and gap_row.keyword_ledger:
+            # Ledger polarity seam. The #188 addressed-gate — only a claim that
+            # actually changed the profile may flip its (pre-validated,
+            # exact-member) concept — is preserved EXACTLY, but it has moved
+            # from the door's `if` into `upgrade=`: it now gates the upgrade,
+            # not the whole block.
+            #
+            # #352: gating the block on `applied.changes` also gated the ADR-059
+            # denial floor, and a pure denial ("actually scratch that, I have
+            # never touched Kubernetes") produces no ops. So the one claim that
+            # is a retraction was the one claim the floor never saw, and an
+            # entry an earlier claim in the SAME batch had already flipped to
+            # `direct`/`claimable` survived the candidate taking it back — the
+            # stale row being the one both writers read. ADR-059 clause 3:
+            # polarity is consulted at EVERY ledger write seam.
+            if (
+                claim.gap
+                and gap_row is not None
+                and gap_row.keyword_ledger
+                and (applied.changes or denial_changes)
+            ):
                 # #341 — door parity (ADR-058 clause 2). The interview door
                 # (session.py) passes the candidate's live denials into this
                 # call; this door never did, so ``upgrade_ledger_for_concepts``'
@@ -243,6 +258,7 @@ async def submit_agent_claims(
                     [claim.gap],
                     claim.statement,
                     denied_concepts=denied_concepts,
+                    upgrade=bool(applied.changes),
                 )
                 if changed:
                     # Plain _JSON column — reassign the WHOLE attribute so
@@ -265,10 +281,19 @@ async def submit_agent_claims(
                     # its claim was accepted as a strength. The denial reaches
                     # the caller honestly, as a receipt FieldChange in
                     # ``changes``.
-                    if entry is None or entry.get("status") != "denied":
-                        ledger_upgraded.append(
-                            entry.get("concept", "") if entry else claim.gap
-                        )
+                    canonical = entry.get("concept", "") if entry else claim.gap
+                    if entry is not None and entry.get("status") == "denied":
+                        # #352 — the reversal case: an EARLIER claim in this
+                        # same batch put this concept into ``ledger_upgraded``.
+                        # The wire report is part of the state the upgrade
+                        # wrote, so the retraction has to reach it too — a
+                        # batch that ends with a denied entry must not still
+                        # report the concept as upgraded.
+                        ledger_upgraded[:] = [
+                            c for c in ledger_upgraded if _norm(c) != _norm(canonical)
+                        ]
+                    else:
+                        ledger_upgraded.append(canonical)
 
         result = ClaimResult(
             index=index,
