@@ -438,7 +438,7 @@ def render_role_titles_block(titles: list[RoleTitle]) -> str:
         "each with the position it is recorded under:",
     ]
     for t in titles:
-        where = " — ".join(part for part in (t.org, f"({t.span})" if t.span else "") if part)
+        where = " ".join(part for part in (t.org, f"({t.span})" if t.span else "") if part)
         line = f'  - "{t.title}"'
         if where:
             line += f" — {where}"
