@@ -501,8 +501,10 @@ async def test_denial_only_claim_is_recorded_not_dropped(async_db):
 
 @pytest.mark.asyncio
 async def test_redenial_updates_in_place_case_insensitively(async_db):
-    """Re-denying the same concept (different casing) refreshes statement/date
-    in place rather than duplicating the vault entry."""
+    """Re-denying the same concept (different casing) refreshes the existing
+    vault entry in place rather than duplicating it — and (#348) leaves the
+    first submission's verbatim statement untouched: through the agent door
+    too, a later claim may never rewrite testimony already in the vault."""
     record = await _seed_profile(async_db)
     provider = _QueueProvider(
         [
@@ -523,7 +525,7 @@ async def test_redenial_updates_in_place_case_insensitively(async_db):
     await async_db.refresh(record)
     denied = record.profile_json["metadata"]["denied_concepts"]
     assert len(denied) == 1, "a re-denial must update in place, never duplicate"
-    assert denied[0]["statement"] == "Confirmed: still no embeddings work."
+    assert denied[0]["statement"] == "No embeddings work."
 
 
 @pytest.mark.asyncio
