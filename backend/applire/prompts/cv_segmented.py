@@ -62,6 +62,10 @@ _CORE_RULES = """\
   draw on the whole profile.
 - Claim-strength: mirror the source's verb strength; never upgrade "supported"/"assisted" to
   "led"/"owned", never enlarge team sizes/budgets/magnitudes, never assign a more senior title.
+  A figure keeps its own subject (#375): carry the thing the source says the number is a quantity
+  OF, not only the number — "14 Jahren Erfahrung in der diskreten Fertigung" written as "14 Jahren
+  Führungserfahrung" is an overstatement even though "14" is right, and the number staying
+  defensible is exactly what stops any other check catching it.
   Claim only as much agency as the source statement itself gives the candidate (#289): an
   ORGANISATION-SCALE figure — the employer's or unit's revenue, headcount, portfolio, user base,
   as opposed to a result the candidate's own work produced — is the setting the work happened in.
