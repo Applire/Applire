@@ -639,7 +639,13 @@ async def _handle_conflict_answer(
     EnrichmentRecord) and advances; an ambiguous answer re-asks the same
     question (safe default: never guess a factual correction)."""
     decision = interpret_conflict_answer(
-        message, conflict_entry["existing_value"], conflict_entry["incoming_value"]
+        message,
+        conflict_entry["existing_value"],
+        conflict_entry["incoming_value"],
+        # #218 — the drawer submits the offered choice verbatim; trust the button
+        # over the prose inside it (a bullet-valued choice collides with the
+        # keep/use word sets and would re-ask forever).
+        choices=conflict_entry.get("choices"),
     )
 
     if decision == "unclear":

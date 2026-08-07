@@ -264,6 +264,104 @@ def test_flag_conflict_both_sides_differ_still_recorded():
     assert result.conflicts[0].incoming_value == "Globex"
 
 
+# ── #218 — a bullet-level contradiction is visible state, not a silent winner ──
+# Two CVs of the same role state the same achievement with different figures.
+# Neither is a scalar field, so nothing in the profile is overwritten: one
+# variant simply wins (exact-string dedup keeps both, or the model omits one)
+# and the candidate never learns the vault holds a stale number. ADR-061: the
+# loss becomes visible state. ADR-062 clause 1: whether two bullets contradict
+# is a JUDGEMENT and belongs to the reconciler model — the applier only routes
+# the verdict it is handed onto the existing conflict channel.
+
+_BULLET_OLD = "Reduced processing time by 60% for individualized cancer treatments"
+_BULLET_NEW = "Reduced processing time by 80% for individualized cancer treatments"
+
+
+def test_a_bullet_level_contradiction_is_parked_as_a_conflict():
+    work = WorkEntry(company="Acme", role="Dev", achievements=[_BULLET_OLD])
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        FlagConflict(
+            target=work.id,
+            field="achievements",
+            existing=_BULLET_OLD,
+            incoming=_BULLET_NEW,
+        )
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+
+    assert len(result.conflicts) == 1
+    conflict = result.conflicts[0]
+    assert conflict.section == "work_experience"
+    assert conflict.field == "achievements"
+    assert conflict.existing_value == _BULLET_OLD
+    assert conflict.incoming_value == _BULLET_NEW
+    assert conflict.source == SOURCE
+    # The applier never decides a contested bullet — the stored list is untouched.
+    assert result.profile.work_experience[0].achievements == [_BULLET_OLD]
+    assert not [c for c in result.changes if c.field == "achievements"]
+
+
+def test_a_bullet_conflict_names_the_entity_it_belongs_to():
+    """Section + field alone cannot address a bullet: ``work_experience`` /
+    ``achievements`` is true of every role. Without the entity id the resolution
+    endpoint has no way to find the right list, so the conflict would surface and
+    then resolve into nothing."""
+    other = WorkEntry(company="Globex", role="Dev", achievements=[_BULLET_OLD])
+    work = WorkEntry(company="Acme", role="Dev", achievements=[_BULLET_OLD])
+    profile = MasterProfileData(work_experience=[other, work])
+    ops = [
+        FlagConflict(
+            target=work.id,
+            field="achievements",
+            existing=_BULLET_OLD,
+            incoming=_BULLET_NEW,
+        )
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.conflicts[0].entity_id == work.id
+
+
+def test_a_scalar_conflict_also_names_its_entity():
+    work = WorkEntry(company="Acme", role="Dev")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        FlagConflict(target=work.id, field="company", existing="Acme", incoming="Globex")
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.conflicts[0].entity_id == work.id
+
+
+def test_a_profile_level_conflict_has_no_entity_id():
+    profile = MasterProfileData()
+    profile.professional_summary.de = "Erfahrener Entwickler."
+    result = apply_ops(profile, [SetSummary(lang="de", text="Senior Engineer.")], SOURCE)
+    assert result.conflicts[0].entity_id is None
+
+
+def test_a_reworded_bullet_with_no_changed_claim_is_not_a_conflict():
+    """The existing absence/equality guards hold for a bullet field too — a
+    verbatim restatement (case/whitespace) is not a dispute."""
+    work = WorkEntry(company="Acme", role="Dev", achievements=[_BULLET_OLD])
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        FlagConflict(
+            target=work.id,
+            field="achievements",
+            existing=_BULLET_OLD,
+            incoming=f"  {_BULLET_OLD.upper()}  ",
+        ),
+        FlagConflict(
+            target=work.id, field="achievements", existing=_BULLET_OLD, incoming=""
+        ),
+        FlagConflict(
+            target=work.id, field="achievements", existing=None, incoming=_BULLET_NEW
+        ),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.conflicts == []
+
+
 def test_request_confirmation_collected():
     profile = MasterProfileData()
     ops = [RequestConfirmation(question="Same employer?", options=["yes", "no"])]

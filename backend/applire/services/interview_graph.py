@@ -916,13 +916,30 @@ def build_confirmation_clusters(
     return cluster_ids, categories, by_id
 
 
-def interpret_conflict_answer(answer: str, existing_value, incoming_value) -> str:
+def interpret_conflict_answer(
+    answer: str, existing_value, incoming_value, choices: list[str] | None = None
+) -> str:
     """Map an answer to ``"existing" | "incoming" | "unclear"``.
 
-    First tries keep/use intent words; falls back to a verbatim match of the
-    answer against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+    An answer that IS one of the two offered ``choices`` is decided by which
+    button it is; otherwise keep/use intent words are tried, then a verbatim
+    match against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+
+    #218 — the choice check comes first because the intent words are scanned
+    over the whole answer and a rendered choice embeds the disputed value. A
+    bullet is a full sentence, so the *keep* button can easily contain a
+    use-word ("Keep current: Replaced the legacy ERP with a new platform"):
+    both sets match, the click reads "unclear", and the drawer re-asks the
+    question the user just answered. Exact equality with what we offered is a
+    fact, not a guess about intent.
     """
     text = (answer or "").strip()
+    if choices and len(choices) == 2 and text:
+        keep_choice, use_choice = (str(c).strip() for c in choices)
+        if text == keep_choice and text != use_choice:
+            return "existing"
+        if text == use_choice and text != keep_choice:
+            return "incoming"
     tokens = set(re.findall(r"\w+", text.casefold()))
     keep = bool(tokens & _KEEP_WORDS)
     use = bool(tokens & _USE_WORDS)

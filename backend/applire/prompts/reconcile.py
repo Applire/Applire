@@ -112,10 +112,16 @@ Operations:
 
 - set_summary — set the professional summary. Fields: lang ("de" or "en"), text.
 
-- flag_conflict — the new information CONTRADICTS an existing non-empty value.
-  Fields: target, field, existing (the current value), incoming (the new value).
-  Emit this INSTEAD of set_field whenever the new value would overwrite a
-  different, already-populated value.
+- flag_conflict — the new information CONTRADICTS something the profile already
+  states. Fields: target, field, existing (the value already on the profile),
+  incoming (the new value). It has two shapes:
+    * a SCALAR field (company, end_date, team_size, …): emit this INSTEAD of
+      set_field whenever the new value would overwrite a different,
+      already-populated value.
+    * a BULLET: set "field" to the bullet list's own name ("responsibilities"
+      or "achievements") and put the two contradicting bullets — verbatim and
+      in full — in "existing" and "incoming". See rule 13.
+  Copy both sides verbatim; the user is shown them side by side and picks one.
 
 - request_confirmation — a targeted yes/no (or short-choice) question for the
   user. Fields: question, options (list of short answers), context (a dict with
@@ -158,7 +164,8 @@ Operations:
    "role" set to the new title — the system records it as an alternate title.
    Reserve add_bullets for genuinely NEW responsibilities, achievements, or
    technologies; never use add_bullets merely to restate a title or the same
-   fact in different words.
+   fact in different words. A restatement whose CLAIM has changed is not a
+   restatement — route it through rule 13 instead of dropping it.
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",
@@ -218,6 +225,27 @@ Operations:
     shorten it to a bare label (e.g. keep "Budgetverantwortung ca. 6 Mio. EUR" verbatim; never
     demote it to just "Budgetverantwortung") merely because the same number is also being lifted
     into `team_size` / `budget_managed` / `industry_context` structurally.
+
+13. CONTRADICTING BULLETS. Two bullets can contradict each other without any
+    scalar field being touched: the profile already carries "Reduced processing
+    time by 60% for individualized cancer treatments" and the new information
+    states "… by 80% …" for the SAME achievement of the SAME entity. Whether two
+    differently-worded bullets assert the same underlying fact is YOUR judgement
+    — nothing downstream can make it, and if you say nothing the profile simply
+    keeps one version and the user never learns the other existed. So: when both
+    bullets assert the same fact but state it DIFFERENTLY IN SUBSTANCE (a changed
+    figure, scale, scope, outcome or timeframe), emit
+      {"op": "flag_conflict", "target": <the entity's id>,
+       "field": "responsibilities" | "achievements",
+       "existing": <the existing bullet, verbatim>,
+       "incoming": <the new bullet, verbatim>}
+    and do NOT also emit add_bullets for that bullet — the conflict itself
+    carries the new wording, and the user decides which one stands. Two limits:
+    a pure REWORDING that changes no claim (a translation, a synonym, a
+    tightening) is NOT a conflict — stay silent; and a bullet describing a
+    genuinely DIFFERENT achievement is not a conflict either — that is an
+    ordinary add_bullets. Never settle such a contradiction yourself by quietly
+    dropping one of the two versions.
 """
 
 

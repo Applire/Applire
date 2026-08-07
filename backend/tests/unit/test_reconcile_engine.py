@@ -91,6 +91,25 @@ async def test_reconcile_one_call_with_thinking_enabled() -> None:
     assert provider.last_kwargs.get("system") == RECONCILE_SYSTEM_PROMPT
 
 
+def test_system_prompt_asks_for_bullet_level_contradictions() -> None:
+    """#218 — the prompt half. `flag_conflict` was described only as the
+    scalar-field alternative to `set_field`, so a contradiction between two
+    BULLETS had no rule asking for it and the model silently kept one wording.
+    Rule 13 names the bullet-list fields as legal `field` values and forbids
+    settling the contradiction by dropping a version.
+
+    A prompt-effect change is evidenced by a real-provider run (ADR-062
+    clause 7): this asserts the rule is present, never that the model obeys it.
+    """
+    lowered = RECONCILE_SYSTEM_PROMPT.lower()
+    assert "profile reconciler" in lowered  # mock fingerprint (mock.py keys on it)
+    assert "contradicting bullets" in lowered
+    assert '"responsibilities" | "achievements"' in RECONCILE_SYSTEM_PROMPT
+    # …and the prohibition the defect turned on: the model settled the
+    # contradiction itself by keeping one wording and dropping the other.
+    assert "never settle such a contradiction yourself" in lowered
+
+
 @pytest.mark.asyncio
 async def test_reconcile_drops_malformed_op_keeps_valid() -> None:
     provider = _StubProvider(
