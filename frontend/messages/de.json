@@ -678,7 +678,8 @@
     "severityReview": "Zu prüfen",
     "severityInfo": "Hinweis",
     "threadConflict": "Konflikt",
-    "threadAccuracy": "Datenabgleich"
+    "threadAccuracy": "Datenabgleich",
+    "threadConfirmation": "Offene Rückfrage"
   },
   "profileReview": {
     "title": "Profil prüfen",

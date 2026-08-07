@@ -48,6 +48,22 @@ const CRITICAL_HEALTH: ProfileHealth = {
   completeness: { score: 0.5, gaps: [], field_gaps: [] },
 };
 
+// #333 — a parked reconciler ambiguity (testimony or import). Its "Resolve" is
+// the only route into the profile-review interview that can answer it.
+const CONFIRMATION_HEALTH: ProfileHealth = {
+  issues: [
+    {
+      id: "confirmation:c-1",
+      thread: "confirmation",
+      profile_mismatch_severity: "review",
+      summary: "Is 'Projektleiter' the same role as 'Project Lead'?",
+      field_ref: null,
+      source_record_ref: "testimony",
+    },
+  ],
+  completeness: { score: 0.9, gaps: [], field_gaps: [] },
+};
+
 const HEALTHY: ProfileHealth = {
   issues: [],
   completeness: { score: 1.0, gaps: [], field_gaps: [] },
@@ -75,6 +91,25 @@ describe("HealthPanel", () => {
     // Thread + severity labels are translated chrome, not raw enum values.
     expect(screen.getByText(/Conflict/i)).toBeInTheDocument();
     expect(screen.getByText(/Review/i)).toBeInTheDocument();
+  });
+
+  it("renders a parked confirmation as a resolvable card with a translated thread label", () => {
+    const onResolve = vi.fn();
+    const { unmount } = render(
+      withIntl(<HealthPanel health={CONFIRMATION_HEALTH} onResolve={onResolve} />, "en"),
+    );
+
+    expect(screen.getAllByTestId("health-issue")).toHaveLength(1);
+    expect(screen.getByText(/Projektleiter/)).toBeInTheDocument();
+    expect(screen.getByText("Open question")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("health-resolve"));
+    expect(onResolve).toHaveBeenCalledWith(CONFIRMATION_HEALTH.issues[0]);
+    unmount();
+
+    render(
+      withIntl(<HealthPanel health={CONFIRMATION_HEALTH} onResolve={vi.fn()} />, "de"),
+    );
+    expect(screen.getByText("Offene Rückfrage")).toBeInTheDocument();
   });
 
   it("calls onResolve with the issue when Resolve is clicked", () => {
