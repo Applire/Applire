@@ -25,7 +25,28 @@ _MULTIPLIERS = {
     "m": "m", "mio": "m", "million": "m", "millionen": "m",
     "mrd": "b", "b": "b", "billion": "b", "milliarden": "b",
 }
-_MULT_RE = r"(?:k|tsd\.?|tausend|m|mio\.?|million(?:en)?|mrd\.?|b|billion|milliarden)"
+# #215: the alternation is generated LONGEST-FIRST from the table above, and
+# must stay that way. Hand-written, the single-character "m"/"b" alternatives
+# sat before "mio"/"mrd"/"million(en)"/"milliarden"/"billion", and Python's
+# regex alternation is first-match, not longest-match. For the SYMBOL-
+# PREFIXED currency form ("€7 Mrd.") nothing downstream forces the engine to
+# backtrack past the trivial "M", so the figure canonicalised to "7m" — a
+# factor of 1000 wrong, reported to the candidate as "No vault evidence for
+# figure(s): €7 M." (The digit-then-symbol form "7 Mrd. €" was correct only
+# by accident: the required trailing currency symbol forces backtracking.)
+# Same lesson, same subsystem: ``oracle/extract.py``'s ``_ABBREVIATIONS`` is
+# sorted longest-first for exactly this reason (#292).
+#
+# ADR-062 classification: FACT. Which magnitude token follows a number is
+# settled by the two tokens alone — no reading for meaning.
+_MULT_RE = (
+    "(?:"
+    + "|".join(
+        re.escape(tok) + r"\.?"
+        for tok in sorted(_MULTIPLIERS, key=lambda t: (-len(t), t))
+    )
+    + ")"
+)
 
 _PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*%")
 _CURRENCY_RE = re.compile(

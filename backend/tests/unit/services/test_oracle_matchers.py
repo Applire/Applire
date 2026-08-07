@@ -6,6 +6,7 @@ import pytest
 from applire.services.oracle.matchers import (
     build_vault_index,
     extract_figures,
+    extract_spelled_figures,
     ground_skill_claim,
     ground_text_claim,
     match_figures,
@@ -482,3 +483,176 @@ def test_story_owner_ids_dangling_ref_kept_verbatim():
     index = build_vault_index(profile)
     story_unit = next(u for u in index.units if u.path == "signature_stories[0].outcome")
     assert story_unit.owner_ids == frozenset({"ghost-id"})
+
+
+# ── #214 — a DURATION IN YEARS is not a quantified claim ────────────────────
+#
+# Charter run #8 (2026-07-28), German letter, real provider: "mit 14 Jahren
+# Expertise" and "zehn Jahre ISO-9001-Audit-Praxis" — both true, both graded
+# not-grounded, and the first one WORSE than unbacked: the vault carries two
+# unrelated counts containing 14 ("Schicht mit 14 Mitarbeitenden", "Rollout
+# auf 14 Spritzgussmaschinen"), so the attribution checker declared the
+# tenure figure foreign-owned. A duration and a headcount sharing a digit is
+# a coincidence, not evidence about ownership.
+#
+# The identical rule already exists in ``services/letter_figure_guard.py``
+# (``_TENURE_RE``, #299); this ports it, it does not re-derive it.
+# ADR-062 classification: FACT — "does the token after this number name a
+# unit of years?" is settled by two adjacent tokens.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # run-8 verbatim, digit path (DE)
+        (
+            "Als erfahrener Produktionsleiter mit 14 Jahren Expertise in der "
+            "Kunststofftechnik",
+            [],
+        ),
+        # the original #214 symptom
+        ("über 15 Jahren Erfahrung", []),
+        # adjectival DE form (the run-8 closing sentence)
+        ("meine 14-jährige Expertise", []),
+        ("meine 11-jährige Führungserfahrung", []),
+        # EN forms, incl. the #220 "N+ years" quantifier
+        ("12+ years of experience", []),
+        ("11 years of leadership experience", []),
+        ("over 20 yrs of experience", []),
+        # the exemption keys on the UNIT — a headcount in the same sentence
+        # is still a figure (otherwise the #254 catch is disarmed)
+        (
+            "In 14 Jahren führte ich eine Schicht mit 14 Mitarbeitenden.",
+            [("number", "14")],
+        ),
+        # a duration in MONTHS is not covered by the ported rule (#412's
+        # "in 18 Monaten" must keep its plain-number reading)
+        ("Steigerung in 18 Monaten", [("number", "18")]),
+        # a calendar year is unaffected (it already had its own exemption)
+        ("seit 2015 im Unternehmen", [("year", "2015")]),
+    ],
+)
+def test_extract_figures_tenure_exemption(text, expected):
+    got = [(f.kind, f.value) for f in extract_figures(text)]
+    assert got == expected
+
+
+def test_spelled_german_tenure_is_not_a_vault_figure():
+    """The run-8 second claim, "sowie zehn Jahre ISO-9001-Audit-Praxis".
+
+    The spelled path is VAULT-SIDE ONLY (``extract_spelled_figures``), so the
+    exemption has to reach it there too — otherwise a tenure sentence in the
+    candidate's own prose keeps seeding ("number", "10") into ``figure_map``
+    and grounds an unrelated document count of ten by coincidence.
+    """
+    got = [(f.kind, f.value) for f in extract_spelled_figures(
+        "…sowie zehn Jahre ISO-9001-Audit-Praxis"
+    )]
+    assert got == []
+
+
+def test_spelled_number_that_is_not_a_duration_still_indexes():
+    """Control for the test above — the #237 "team of five" bridge stands."""
+    got = [(f.kind, f.value) for f in extract_spelled_figures(
+        "a team of five tech leads"
+    )]
+    assert got == [("number", "5")]
+
+
+def test_a_tenure_claim_no_longer_attributes_to_an_unrelated_headcount():
+    """The run-8 category error, end to end through the matcher pair.
+
+    Both counts containing 14 belong to positions the claim is not about; a
+    duration must not match either of them.
+    """
+    profile = {
+        "personal_info": {"name": "Marcus Weber"},
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Rasselstein",
+                "position": "Schichtleiter",
+                "achievements": ["Führung einer Schicht mit 14 Mitarbeitenden"],
+            },
+            {
+                "id": "w2",
+                "company": "Weberit",
+                "position": "Produktionsleiter",
+                "achievements": ["Rollout auf 14 Spritzgussmaschinen"],
+            },
+        ],
+    }
+    index = build_vault_index(profile)
+    figures = extract_figures(
+        "Als erfahrener Produktionsleiter mit 14 Jahren Expertise in der "
+        "Kunststofftechnik und im Mehrschichtbetrieb"
+    )
+    result = match_figures(figures, index)
+    assert result.matched == []
+    assert result.unmatched == []
+
+
+# ── #220 — a date fragment is not a quantified figure ───────────────────────
+#
+# ``work_experience[i].dates`` is indexed as a span ("2024-12 – present") and
+# ran through the same ``extract_figures`` as claim text, so the "12" inside
+# "2024-12" became a bare ``number`` figure and could ground a tenure claim
+# of the same kind by pure digit coincidence — the evidence excerpt shown to
+# the user was literally "2024-12".
+#
+# NARROW by construction: only a month/day component immediately joined to a
+# FOUR-DIGIT calendar year by "-" or "/" is excluded. The #377 decision above
+# ("1.5." day.month stays a number, this module carries no calendar
+# awareness) is untouched — there the year is absent and the form is
+# genuinely ambiguous; here the adjacent year settles it with two tokens.
+# ADR-062 classification: FACT.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("2024-12 – present", [("year", "2024")]),
+        ("2019-03 – 2024-11", [("year", "2019"), ("year", "2024")]),
+        ("2024-12-01", [("year", "2024")]),
+        ("12/2024", [("year", "2024")]),
+        ("seit 03/2019 bis 11/2024", [("year", "2019"), ("year", "2024")]),
+        # controls — the exclusion must not eat real figures
+        ("2024: 12 Werke in Betrieb", [("year", "2024"), ("number", "12")]),
+        ("Beginn am 1.5. im Werk", [("number", "1.5")]),
+        ("supported 1.000 clients", [("number", "1000")]),
+    ],
+)
+def test_extract_figures_date_fragment_exclusion(text, expected):
+    got = [(f.kind, f.value) for f in extract_figures(text)]
+    assert got == expected
+
+
+# ── #215 — _MULT_RE alternation order ──────────────────────────────────────
+#
+# The single-character "m"/"b"/"k" alternatives sat BEFORE "mio"/"mrd"/
+# "milliarden", so for the SYMBOL-PREFIXED currency form nothing downstream
+# forced the engine to backtrack past the trivial one-character match:
+# "€7 Mrd." canonicalised to "7m" (raw "€7 M") — a factor of 1000 wrong, and
+# the reported "No vault evidence for figure(s): €7 M." The digit-then-symbol
+# form worked only by accident (the required trailing currency symbol forces
+# backtracking). Precedent: ``oracle/extract.py``'s ``_ABBREVIATIONS`` is
+# already sorted longest-first for exactly this reason (#292).
+@pytest.mark.parametrize(
+    "text,expected_value,expected_raw_fragment",
+    [
+        ("Produktion mit €7 Mrd. Umsatzwirkung", "7b", "Mrd"),
+        ("$7 Mrd", "7b", "Mrd"),
+        ("€3 Milliarden Umsatz", "3b", "Milliarden"),
+        ("€15 Mio. Budget", "15m", "Mio"),
+        ("€500 Tsd. Investition", "500k", "Tsd"),
+        ("€2 Millionen Umsatz", "2m", "Millionen"),
+        ("€4 tausend", "4k", "tausend"),
+        # digit-then-symbol forms keep working
+        ("7 Mrd. €", "7b", "Mrd"),
+        ("rund 15 Mio. €", "15m", "Mio"),
+        # the bare single-character multipliers are unchanged
+        ("saved €1.2M annually", "1.2m", "M"),
+        ("budget of 500k €", "500k", "k"),
+    ],
+)
+def test_mult_re_longest_alternative_wins(text, expected_value, expected_raw_fragment):
+    figures = [f for f in extract_figures(text) if f.kind == "currency"]
+    assert len(figures) == 1, text
+    assert figures[0].value == expected_value, text
+    assert expected_raw_fragment in figures[0].raw, figures[0].raw
