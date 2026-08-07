@@ -41,7 +41,11 @@ from applire.schemas.claims import (
     SubmissionResult,
 )
 from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
-from applire.services.keyword_ledger import _norm, upgrade_ledger_for_concepts
+from applire.services.keyword_ledger import (
+    _norm,
+    profile_literal_corpus,
+    upgrade_ledger_for_concepts,
+)
 from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
@@ -253,12 +257,20 @@ async def submit_agent_claims(
                 denied_concepts = [
                     d.concept for d in current.metadata.denied_concepts if d.concept
                 ]
+                # #351 — same door parity, one level down: the containment
+                # branch of the denial predicate needs the vault's own literal
+                # text to judge against, or it fail-closes and records a
+                # denial of every concept merely CONTAINED in a denied
+                # compound. Built from `current` (post-apply, pre-persist), so
+                # this claim's own new evidence counts.
+                vault_corpus = profile_literal_corpus(current.model_dump(mode="json"))
                 new_ledger, changed = upgrade_ledger_for_concepts(
                     gap_row.keyword_ledger,
                     [claim.gap],
                     claim.statement,
                     denied_concepts=denied_concepts,
                     upgrade=bool(applied.changes),
+                    vault_corpus=vault_corpus,
                 )
                 if changed:
                     # Plain _JSON column — reassign the WHOLE attribute so
