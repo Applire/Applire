@@ -916,6 +916,10 @@ def test_record_denials_persists_and_writes_a_receipt_change() -> None:
 
 
 def test_record_denials_redenial_updates_in_place_case_insensitively() -> None:
+    """The dedupe half: a case-insensitive re-denial lands on the SAME record
+    rather than appending a second one, and refreshes its `date`. (#348 made
+    `statement` write-once — the content half is pinned by
+    `test_record_denials_never_overwrites_an_existing_verbatim_statement`.)"""
     from datetime import datetime, timezone
 
     from applire.schemas.profile import ProfileMetadata
@@ -931,7 +935,7 @@ def test_record_denials_redenial_updates_in_place_case_insensitively() -> None:
         source="agent_interview", when=datetime(2026, 7, 24, tzinfo=timezone.utc),
     )
     assert len(meta.denied_concepts) == 1, "re-denial must update, never duplicate"
-    assert meta.denied_concepts[0].statement == "Confirmed: no embeddings work."
+    assert meta.denied_concepts[0].statement == "No embeddings work."
     assert meta.denied_concepts[0].date == "2026-07-24"
     assert len(changes2) == 1
     assert changes2[0].action == "updated"
@@ -943,10 +947,10 @@ def test_record_denials_redenial_never_clears_probe_asked() -> None:
     transfer probe has been issued for a concept, a later re-denial of that
     SAME concept must never clear it back to False. This is the same class
     of bug as the `denial_level` no-downgrade rule: `record_denials`
-    mutates the existing `DeniedConcept` object's `statement`/`source`/
-    `date`/`denial_level` fields in place rather than replacing it, so any
-    field it does not explicitly touch — `probe_asked` included — survives
-    untouched across every re-denial call."""
+    mutates the existing `DeniedConcept` object's `date`/`denial_level`
+    fields in place rather than replacing it, so any field it does not
+    explicitly touch — `probe_asked` and (since #348) `statement`/`source`
+    included — survives untouched across every re-denial call."""
     from datetime import datetime, timezone
 
     from applire.schemas.profile import ProfileMetadata
@@ -969,9 +973,7 @@ def test_record_denials_redenial_never_clears_probe_asked() -> None:
     assert meta.denied_concepts[0].probe_asked is True, (
         "probe_asked must survive a re-denial — it is not testimony to overwrite"
     )
-    assert meta.denied_concepts[0].statement == (
-        "No, still nothing GCP-related, I checked again."
-    )
+    assert meta.denied_concepts[0].statement == "No, I have never touched GCP."
 
     # And again on the "second denial -> partial" escalation path.
     record_denials(
@@ -982,6 +984,89 @@ def test_record_denials_redenial_never_clears_probe_asked() -> None:
     )
     assert meta.denied_concepts[0].denial_level == "partial"
     assert meta.denied_concepts[0].probe_asked is True
+
+
+def test_record_denials_never_overwrites_an_existing_verbatim_statement() -> None:
+    """#348 — a later turn's re-denial must NOT rewrite an earlier concept's
+    verbatim testimony with that later turn's (unrelated) answer.
+
+    Charter run ADR-064 (Marcus/DE, 2026-07-29): turn 5 recorded a denial of
+    "formale Investitionsplanung" with the candidate's turn-5 words. Turn 6 was
+    about ISO 45001, and its reconcile spuriously re-emitted the turn-5 concept
+    among its own `denials`. `record_denials` then refreshed `statement` in
+    place, so the vault ended up holding the ISO-45001 sentence filed under
+    "formale Investitionsplanung" — one person's words attached to the wrong
+    subject, still schema-valid, surfaced nowhere.
+
+    ADR-059 (2026-07-26 amendment, clause 4): a correction is a NEW fact about
+    the record, never a rewrite of it; ADR-064's `level_only` finding-fix
+    already made the escalation path treat `statement` as immutable. This is
+    the same invariant on the ordinary re-denial path: `statement`/`source` are
+    write-once, and only `date`/`denial_level` may move.
+    """
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    turn5 = (
+        "Eine klassische Investitionsplanung mit CAPEX-Verantwortung wie ein "
+        "Controller hatte ich nicht."
+    )
+    turn6 = (
+        "Bei ISO 45001 habe ich echte Erfahrung: Ich bin ausgebildeter "
+        "Sicherheitsbeauftragter."
+    )
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["formale Investitionsplanung"], statement=turn5,
+        source="interview", when=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    # Turn 6 denies its OWN concept and spuriously re-emits turn 5's.
+    record_denials(
+        meta, ["ISO 45001 Auditierung", "formale Investitionsplanung"],
+        statement=turn6, source="interview",
+        when=datetime(2026, 7, 30, tzinfo=timezone.utc),
+    )
+
+    by_concept = {d.concept: d for d in meta.denied_concepts}
+    assert set(by_concept) == {"formale Investitionsplanung", "ISO 45001 Auditierung"}
+    assert by_concept["formale Investitionsplanung"].statement == turn5, (
+        "an earlier concept's verbatim testimony must survive a later turn's "
+        "re-denial — the candidate's words are write-once"
+    )
+    # The turn-6 concept is fresh, so it legitimately carries the turn-6 words.
+    assert by_concept["ISO 45001 Auditierung"].statement == turn6
+
+
+def test_record_denials_redenial_receipts_and_refreshes_date_without_rewriting() -> None:
+    """#348 — the re-denial is still a visible event (ADR-059 clause 1: an
+    honest "no" is never reported as "nothing happened", ADR-061: no silent
+    state), so it still returns an "updated" receipt and moves `date`. What it
+    must not do is move `statement`/`source`.
+    """
+    from datetime import datetime, timezone
+
+    from applire.schemas.profile import ProfileMetadata
+    from applire.services.profile.reconcile.stance import record_denials
+
+    meta = ProfileMetadata()
+    record_denials(
+        meta, ["Embeddings"], statement="No embeddings work.",
+        source="agent_interview", when=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    changes = record_denials(
+        meta, ["embeddings"], statement="Confirmed: no embeddings work.",
+        source="interview", when=datetime(2026, 7, 24, tzinfo=timezone.utc),
+    )
+    assert len(meta.denied_concepts) == 1, "re-denial must update, never duplicate"
+    assert meta.denied_concepts[0].statement == "No embeddings work."
+    assert meta.denied_concepts[0].source == "agent_interview"
+    assert meta.denied_concepts[0].date == "2026-07-24"
+    assert len(changes) == 1
+    assert changes[0].action == "updated"
 
 
 def test_record_denials_empty_or_blank_is_a_noop() -> None:

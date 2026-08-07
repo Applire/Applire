@@ -468,9 +468,19 @@ class DeniedConcept(BaseModel):
     ``concept`` is the reconciler's own denied-token verdict (``rc.denials`` —
     the same list ``enforce_stance`` already uses to strip a same-turn op);
     ``statement`` is the verbatim testimony, kept for the transparency
-    receipt. Re-denying the same concept (case-insensitively) refreshes
-    ``statement``/``date`` in place rather than duplicating the entry —
-    matched by ``services.profile.reconcile.stance.record_denials``.
+    receipt. Re-denying the same concept (case-insensitively) refreshes the
+    existing record in place rather than duplicating the entry — matched by
+    ``services.profile.reconcile.stance.record_denials``.
+
+    #348 — ``statement``/``source`` are **write-once**: only the concept's own
+    FIRST denial sets them, and no later re-denial may rewrite them. They are
+    the candidate's own words, and the record is a citable vault path (the
+    Oracle's denial rail, the letter's STATED LIMIT block, the transfer
+    bridge), so a rewrite silently re-files one turn's testimony under another
+    turn's subject. A re-denial may move only ``date`` and ``denial_level``
+    (direct -> partial, never back). The only sanctioned way the content of a
+    denial record changes is ADR-059's 2026-07-26 candidate-correction path,
+    which is receipted rather than overwritten.
 
     ADR-064 — ``denial_level``: "direct" = the named form is ruled out,
     adjacent coverage is still unknown; "partial" = adjacent is ruled out

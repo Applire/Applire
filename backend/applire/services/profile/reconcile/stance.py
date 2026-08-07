@@ -286,7 +286,7 @@ def record_denials(
     denied concept via adjacency (F8).
 
     Deduplicated case-insensitively: re-denying the same concept refreshes its
-    ``statement``/``date`` in place rather than appending a duplicate entry.
+    existing record in place rather than appending a duplicate entry.
     Returns one ``FieldChange`` per NEW-or-refreshed denial so the caller can
     fold it into the turn's ``EnrichmentRecord`` receipt even when nothing
     else in the profile changed — a denial-only turn must not go silently
@@ -299,8 +299,36 @@ def record_denials(
     caller that simply didn't run the follow-up) must never erase that
     elicitation was already exhausted on an earlier turn. A re-denial at
     ``"direct"`` of a concept already at ``"partial"`` leaves it at
-    ``"partial"``, and still refreshes ``statement``/``date`` like any other
-    re-denial.
+    ``"partial"``, and still refreshes ``date`` like any other re-denial.
+
+    **``statement``/``source`` are WRITE-ONCE (#348).** They are the
+    candidate's verbatim testimony, and only the concept's OWN first denial
+    may set them. A re-denial — of the same concept or of anything else in the
+    same call — refreshes ``date`` and may upgrade ``denial_level``, and
+    touches nothing else.
+
+    The defect this closes: on the ADR-064 charter run (2026-07-29) a turn-6
+    reconcile spuriously re-emitted a turn-5 concept among its own ``denials``,
+    and the in-place refresh filed the turn-6 ISO-45001 sentence under the
+    turn-5 concept "formale Investitionsplanung". The record stayed
+    schema-valid, so nothing surfaced it — and ``DeniedConcept.statement`` is a
+    citable vault path for the Oracle (``oracle/matchers/vault.py``), the
+    letter's STATED LIMIT block (``cross_document.collect_stated_limits``) and
+    the transfer bridge (``cover_letter_positioning``), so the wrong words then
+    propagated into generated documents.
+
+    Why write-once rather than "validate that the new statement concerns the
+    concept": deciding whether a sentence is *about* a concept is a judgement,
+    and ADR-062 clause 1 forbids deterministic code from making one. Immutable
+    testimony needs no judgement. This also makes the ordinary path agree with
+    the ``level_only`` path below, which has treated ``statement`` as immutable
+    since the ADR-064 F1 finding-fix, and with ADR-059's 2026-07-26 amendment
+    clause 4 ("a correction is a new fact about the record, not a rewrite of
+    it") — the amendment's explicit candidate-correction path is the ONLY
+    sanctioned way a denial record's content changes, and it is receipted
+    rather than overwritten. ADR-059's original clause 1 wording ("re-denial
+    refreshes in place") is therefore read as *the record* is refreshed in
+    place — no duplicate entry — not *the testimony* is overwritten.
 
     ``level_only`` (F1 finding-fix, 2026-07-29): the ADR-064 transfer-probe
     escalation (a SECOND denial of the SAME probed concept bumps its durable
@@ -375,13 +403,13 @@ def record_denials(
             )
             continue
 
-        content_changed = existing.statement != statement or existing.source != source
-        if not content_changed and not level_upgraded:
+        # #348 — `statement`/`source` are WRITE-ONCE. A re-denial refreshes the
+        # record (date, and a direct -> partial level move); it never rewrites
+        # the testimony. See the ADR-059 note in this function's docstring.
+        restated = existing.statement != statement or existing.source != source
+        if not restated and not level_upgraded:
             continue
 
-        if content_changed:
-            existing.statement = statement
-            existing.source = source
         existing.date = date_str
         if level_upgraded:
             existing.denial_level = "partial"
