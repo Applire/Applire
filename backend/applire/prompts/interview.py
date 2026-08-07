@@ -147,20 +147,43 @@ from applire.services.choice_grounding import constituent_evidence
 _LANG_NAMES = {"de": "German", "en": "English"}
 
 
+# #311 — the German UI mixed du and Sie on adjacent screens: the interview
+# input said „Tippe deine Antwort" directly under a question that said „Haben
+# Sie …". Prompt-first triage (2026-08-07) puts this in category B — no rule
+# anywhere asked for a register, so the model defaulted to formal Sie. The rule
+# lives here rather than in each of the four question prompts because all four
+# already pass through with_language() (ADR-066: one logical operation, one
+# implementation). German only: English has no du/Sie distinction, and naming
+# "Sie" inside an English prompt would only invite it.
+# Needs charter-run verification (ADR-062 clause 7) — CI mocks the provider.
+_DE_REGISTER_DIRECTIVE = (
+    "\n\nIMPORTANT — GERMAN REGISTER: Address the candidate in the informal "
+    'Du-form ("du", "dein", "dir") throughout the question and every answer '
+    'choice. Never use the formal Sie-form ("Sie", "Ihr", "Ihnen") to address '
+    "the candidate. This holds even when the job description, the candidate's "
+    "profile, or an earlier turn uses Sie."
+)
+
+
 def with_language(system_prompt: str, lang: str) -> str:
     """Append an explicit output-language directive to a question system prompt.
 
     The directive is placed at the end of the system prompt and instructs the
     model to write the question (and choices) in the UI language regardless of
     the language of any context — overriding the JD-language ``jd_context``.
+
+    For German it also pins the address register to Du (BRAND.md §2.3, #311).
     """
     name = _LANG_NAMES.get(lang, "English")
-    return system_prompt + (
+    directive = (
         f"\n\nIMPORTANT — OUTPUT LANGUAGE: Write the question and any answer "
         f"choices in {name}. This is fixed regardless of the language of the "
         f"candidate's profile, the job description, or any context provided "
         f"below. Translate any context as needed; never mirror its language."
     )
+    if lang == "de":
+        directive += _DE_REGISTER_DIRECTIVE
+    return system_prompt + directive
 
 
 def language_name(lang: str) -> str:

@@ -248,12 +248,22 @@ async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession) -> bool:
 
 
 def _question_prompt(section_label: str, section_content: str, gap_id: str) -> str:
+    """Kaile's assist question — German prose the candidate reads directly.
+
+    #311: the register clause is category B (never asked, so the model
+    defaulted to Sie). BRAND.md §2.3 pins the product UI to Du. Only the
+    *question* carries it; ``_suggestion_prompt``/``_rewrite_prompt`` write CV
+    section prose, which addresses nobody and must stay register-free.
+    Needs charter-run verification (ADR-062 clause 7).
+    """
     return (
         f"Abschnitt: {section_label}\n"
         f"Aktueller Inhalt:\n{section_content}\n\n"
         f"Identifizierte Lücke: {gap_id}\n\n"
         "Stelle eine einzige, kurze, konkrete Frage auf Deutsch, die dem Nutzer hilft, "
         "Informationen zu liefern, mit denen diese Lücke im Lebenslauf geschlossen werden kann. "
+        "Sprich den Nutzer dabei in der Du-Form an („du\", „dein\", „dir\") — "
+        "niemals in der Sie-Form. "
         "Nur die Frage, keine Erklärung."
     )
 
