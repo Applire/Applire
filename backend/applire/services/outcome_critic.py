@@ -287,27 +287,30 @@ def compute_presence_facts(
 # the narrative the user reads is assembled HERE, from the verified quotes
 # only, so the advisory always states the fact it rests on.
 _MESSAGES: dict[str, dict[str, str]] = {
+    # #311: Du-form throughout — this advisory is product UI addressed to the
+    # candidate, so BRAND.md §2.3 applies (the Sie in the *cover letter* is a
+    # different addressee and stays).
     "de": {
         "letter_only": (
-            'Ihr Anschreiben nennt "{letter_state}" (zu {concept}); '
-            "Ihr Lebenslauf erwähnt dies nicht."
+            'Dein Anschreiben nennt "{letter_state}" (zu {concept}); '
+            "dein Lebenslauf erwähnt dies nicht."
         ),
         "letter_richer": (
-            'Ihr Anschreiben nennt zu {concept} "{letter_state}"; Ihr Lebenslauf '
+            'Dein Anschreiben nennt zu {concept} "{letter_state}"; dein Lebenslauf '
             'nennt {concept} nur ohne diese Angabe ("{cv_state}").'
         ),
         "numeric_inconsistency": (
-            'Zu {concept} nennt Ihr Lebenslauf "{cv_state}", Ihr Anschreiben '
+            'Zu {concept} nennt dein Lebenslauf "{cv_state}", dein Anschreiben '
             'dagegen "{letter_state}" — die Angaben unterscheiden sich.'
         ),
         "internal_inconsistency": (
-            'Ihr Lebenslauf sagt zu {concept} "{cv_state}"; die zugehörige '
+            'Dein Lebenslauf sagt zu {concept} "{cv_state}"; die zugehörige '
             'Detailangabe lautet "{cv_detail}" — die Zusammenfassung geht über '
             "das Detail hinaus."
         ),
         "advice": (
-            "Es wurde nichts verändert — Sie entscheiden, ob Sie das Dokument "
-            "anpassen oder es so lassen."
+            "Es wurde nichts verändert — du entscheidest, ob du das Dokument "
+            "anpasst oder es so lässt."
         ),
     },
     "en": {

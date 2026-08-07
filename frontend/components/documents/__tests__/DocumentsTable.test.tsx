@@ -86,6 +86,24 @@ describe("DocumentsTable", () => {
     expect(screen.getByText("Director of QA")).toBeInTheDocument();
   });
 
+  // #311: template names were a hard-coded English Record here, so the German
+  // documents table showed "Compact Pro" / "Modern Swiss" next to German prose.
+  // The mocked translator echoes the key, so the key itself is the assertion.
+  it("renders template names through the cv catalog, not hard-coded English", () => {
+    renderTable();
+    expect(screen.getAllByText("templateClassic").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("templateModern").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Classic German")).not.toBeInTheDocument();
+    expect(screen.queryByText("Modern Swiss")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the raw template id for an unknown template", () => {
+    renderTable({
+      items: [{ ...ITEMS[0], cv_id: "cv-x", template: "some_future_template" }],
+    });
+    expect(screen.getByText("some_future_template")).toBeInTheDocument();
+  });
+
   // E044/US252 (ADR-054): agent-rendered documents are never presented as
   // Applire-authored — origin='agent' rows carry a badge, pipeline rows don't.
   it("shows the agent-authored badge only for origin='agent' rows", () => {

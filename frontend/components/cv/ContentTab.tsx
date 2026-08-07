@@ -42,6 +42,17 @@ export interface SectionItem {
   gaps: GapHintItem[];
 }
 
+/**
+ * The backend names the two static sections in English ("Introduction",
+ * "Skills") because the section id is the API contract, not display text.
+ * Position sections carry user data ("Senior Engineer — SAP") and are shown
+ * verbatim. #311 — the static labels used to leak English into the German UI.
+ */
+const STATIC_SECTION_LABEL_KEYS: Record<string, string> = {
+  introduction: "sectionIntroduction",
+  skills: "sectionSkills",
+};
+
 interface FlowStateSummary {
   job_summary: string | null;
   gap_summary: {
@@ -76,6 +87,12 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
   const router = useRouter();
+
+  const sectionLabel = (section: SectionItem): string => {
+    const key = STATIC_SECTION_LABEL_KEYS[section.section_id];
+    return key ? t(key) : section.label;
+  };
+
   const [mode, setMode] = useState<"browse" | "edit">("browse");
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [preSelectedGapIds, setPreSelectedGapIds] = useState<string[]>([]);
@@ -193,7 +210,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
         </button>
 
         <h3 className="text-sm font-medium text-neutral-dark">
-          {activeSection.label}
+          {sectionLabel(activeSection)}
         </h3>
 
         <SectionEditor
@@ -361,7 +378,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
             onClick={() => handleSectionEdit(section.section_id)}
             className="text-left text-sm flex items-center justify-between border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
           >
-            <span className="text-neutral-darker">{section.label}</span>
+            <span className="text-neutral-darker">{sectionLabel(section)}</span>
             {section.gaps.length > 0 ? (
               <span className="text-xs bg-gold-container text-gold-dim px-1.5 py-0.5 rounded-full">
                 {section.gaps.length}

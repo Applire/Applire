@@ -91,12 +91,17 @@ export function GenerateCoverLetterModal({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error((data as { detail?: string }).detail ?? "Generation failed");
+        // #311: a hard-coded English default here always won over the
+        // translated fallback below (a thrown Error is always an Error, so
+        // err.message was never empty). An empty message defers to t().
+        const detail = (data as { detail?: string }).detail;
+        throw new Error(detail?.trim() ? detail : "");
       }
       const data = await res.json();
       onGenerated((data as { cover_letter_id: string }).cover_letter_id);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("errorGenerationFailed"));
+      const message = err instanceof Error ? err.message : "";
+      setError(message || t("errorGenerationFailed"));
     } finally {
       setLoading(false);
     }

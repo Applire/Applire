@@ -19,6 +19,7 @@
 
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface ScoreCircleProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -28,25 +29,27 @@ interface ScoreCircleProps extends React.HTMLAttributes<HTMLDivElement> {
   label?: string;
 }
 
-function getScoreColor(score: number): { ring: string; bg: string; label: string } {
+/** Colour ring plus the `match` catalog key naming the band (#311 — the band
+ *  label used to be hard-coded English and leaked into the German UI). */
+function getScoreBand(score: number): { ring: string; bg: string; labelKey: string } {
   if (score >= 70) {
     return {
       ring: "text-success",
       bg: "bg-success",
-      label: "Strong Fit",
+      labelKey: "bandStrongFit",
     };
   }
   if (score >= 40) {
     return {
       ring: "text-warning",
       bg: "bg-warning",
-      label: "Moderate Fit",
+      labelKey: "bandModerateFit",
     };
   }
   return {
     ring: "text-critical",
     bg: "bg-critical",
-    label: "Needs Work",
+    labelKey: "bandNeedsWork",
   };
 }
 
@@ -58,10 +61,11 @@ function ScoreCircle({
   className,
   ...props
 }: ScoreCircleProps) {
+  const t = useTranslations("match");
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (score / 100) * circumference;
-  const colorConfig = getScoreColor(score);
+  const colorConfig = getScoreBand(score);
 
   const [displayScore, setDisplayScore] = React.useState(0);
 
@@ -129,7 +133,7 @@ function ScoreCircle({
         </div>
       </div>
       <span className="text-xs font-semibold text-gray-600 mt-2">
-        {label ?? colorConfig.label}
+        {label ?? t(colorConfig.labelKey)}
       </span>
     </div>
   );

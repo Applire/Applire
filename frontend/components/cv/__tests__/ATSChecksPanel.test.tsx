@@ -330,7 +330,7 @@ describe("ATSChecksPanel", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />, "de"));
     const advisoryRow = screen.getByTestId("ats-advisory-page-length");
     expect(advisoryRow.textContent).toContain(
-      "3 Seiten — entspricht Ihrem gewählten Ziel von 3; die DACH-Norm sind 2 Seiten",
+      "3 Seiten — entspricht deinem gewählten Ziel von 3; die DACH-Norm sind 2 Seiten",
     );
     expect(advisoryRow.textContent).not.toContain("meets your chosen target");
   });
@@ -399,7 +399,7 @@ describe("ATSChecksPanel", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_TARGET_MISSED} />, "de"));
     const failRow = screen.getByTestId("ats-check-page-length");
     expect(failRow.textContent).toContain(
-      "konnte ohne Kürzung relevanter Inhalte nicht auf Ihr Ziel von 2 Seiten gebracht werden",
+      "konnte ohne Kürzung relevanter Inhalte nicht auf dein Ziel von 2 Seiten gebracht werden",
     );
     expect(failRow.textContent).not.toContain("couldn't condense");
   });
