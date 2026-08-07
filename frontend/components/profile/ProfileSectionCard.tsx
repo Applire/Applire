@@ -111,7 +111,13 @@ interface SkillShape {
   proficiency?: string | null;
 }
 
+// #113(c) — the vault's canonical field is `language`, not `name`: backend
+// `Language` (schemas/profile.py), `TailoredLanguage` (schemas/cv.py) and every
+// CV template (`lang.language`) agree. Reading `name` made a profile carrying
+// German (Native) / English (C1) render as "Not provided". `name` stays as a
+// tolerated legacy alias so no hand-edited record goes invisible either.
 interface LanguageShape {
+  language?: string | null;
   name?: string | null;
   level?: string | null;
   proficiency?: string | null;
@@ -154,15 +160,20 @@ function formatPeriod(
   isCurrent?: boolean | null,
 ): string | null {
   if (!nonEmpty(start) && !nonEmpty(end)) return null;
-  const left = nonEmpty(start) ? start : "—";
+  const left = nonEmpty(start) ? start : null;
+  const explicitEnd = nonEmpty(end) ? end : null;
   // #155 — an explicit is_current === true always renders the present label;
   // an empty end keeps the existing present-label fallback.
   const right =
     isCurrent === true
-      ? (presentLabel ?? "—")
-      : nonEmpty(end)
-        ? end
-        : (presentLabel ?? "—");
+      ? (presentLabel ?? explicitEnd)
+      : (explicitEnd ?? presentLabel ?? null);
+  // #113(d) — a missing side is rendered by omission, never by an em-dash
+  // standing in for data we do not have ("— → 2006"). Mirrors the DACH
+  // convention already shipped in the CV templates (lebenslauf.html.j2: an
+  // education entry without a start date renders the end date alone, no dash).
+  if (!left) return right;
+  if (!right) return left;
   return `${left} → ${right}`;
 }
 
@@ -278,8 +289,10 @@ export function ProfileSectionBody({
       <div className="space-y-3">
         {entries.map((e, i) => {
           const heading = [e.degree, e.field].filter(nonEmpty).join(", ");
+          // #113(d) — education gets the same present label as work: an
+          // ongoing degree reads "2023-09 → present", not a dangling dash.
           const period =
-            formatPeriod(e.start_date, e.end_date) ??
+            formatPeriod(e.start_date, e.end_date, t("present")) ??
             (nonEmpty(e.year) ? e.year : null);
           return (
             <div key={i} className="border-l-2 border-teal/40 pl-3">
@@ -331,18 +344,19 @@ export function ProfileSectionBody({
 
   if (section === "languages") {
     const entries = Array.isArray(value) ? (value as LanguageShape[]) : [];
-    const named = entries.filter((l) => nonEmpty(l.name));
+    const named = entries.filter((l) => nonEmpty(l.language) || nonEmpty(l.name));
     if (named.length === 0) return empty;
     return (
       <div className="flex flex-wrap gap-2">
         {named.map((l, i) => {
           const level = l.level ?? l.proficiency;
+          const name = nonEmpty(l.language) ? l.language : l.name;
           return (
             <span
               key={i}
               className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-3 py-1 text-xs text-neutral-dark"
             >
-              <span className="font-medium">{l.name}</span>
+              <span className="font-medium">{name}</span>
               {nonEmpty(level) && <span className="text-gray-500">{level}</span>}
             </span>
           );

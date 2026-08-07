@@ -214,6 +214,86 @@ describe("ProfileSectionCard — signature stories (E046, ADR-055)", () => {
   });
 });
 
+// #113(c) — the vault stores a language as {language, level} (backend
+// `Language` in schemas/profile.py, `TailoredLanguage` in schemas/cv.py, and
+// `lang.language` in every CV template). The card read `l.name`, which is never
+// present, so a profile carrying German (Native) / English (C1) rendered
+// "Not provided" — the user's own data silently invisible.
+describe("ProfileSectionCard — languages read the vault field (#113c)", () => {
+  it("renders languages stored under the vault's `language` field", () => {
+    const languages = [
+      { language: "German", level: "Native", status: "confirmed" },
+      { language: "English", level: "C1", status: "confirmed" },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="languages" value={languages} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("German")).toBeInTheDocument();
+    expect(screen.getByText("Native")).toBeInTheDocument();
+    expect(screen.getByText("English")).toBeInTheDocument();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+    expect(screen.queryByText("Not provided")).not.toBeInTheDocument();
+  });
+
+  it("still renders the empty state when there genuinely are no languages", () => {
+    render(
+      withIntl(<ProfileSectionBody section="languages" value={[]} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
+// #113(d) — an education entry whose start date is unknown rendered
+// "— → 2006". The DACH convention already shipped in the CV templates
+// (lebenslauf.html.j2: no start ⇒ end date alone, no dash) is the reference.
+describe("ProfileSectionCard — open-ended periods (#113d)", () => {
+  it("renders an unknown education start as the end date alone, never an em-dash placeholder", () => {
+    const education = [
+      {
+        degree: "Diplom",
+        field: "Chemie",
+        institution: "TU Musterstadt",
+        end_date: "2006",
+      },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="education" value={education} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("2006")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("→");
+  });
+
+  it("renders an ongoing education entry with the present label, not an em-dash", () => {
+    const education = [
+      { degree: "PhD", institution: "TU Musterstadt", start_date: "2023-09" },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="education" value={education} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText(/2023-09 → present/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+  });
+
+  it("renders an unknown work start as the end date alone", () => {
+    const work = [
+      { role: "Laborleiter", company: "Labsynth", end_date: "2011-08", is_current: false },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="work_experience" value={work} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("2011-08")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("→");
+  });
+});
+
 describe("resolveSummary — language-aware summary check (F9.2)", () => {
   it("prefers the UI language when present", () => {
     const r = resolveSummary({ de: "Deutsch", en: "English" }, "de");

@@ -314,7 +314,7 @@ def apply_ops(
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, changes)
         elif isinstance(op, SetSummary):
-            _apply_set_summary(op, new_profile, changes)
+            _apply_set_summary(op, new_profile, source, changes, conflicts)
         elif isinstance(op, FlagConflict):
             _apply_flag_conflict(op, resolve, source, conflicts)
         elif isinstance(op, RequestConfirmation):
@@ -1052,16 +1052,45 @@ def _apply_set_personal_info(op, profile, changes):
     changes.append(_updated("personal_info", op.field, current, value))
 
 
-def _apply_set_summary(op, profile, changes):
+def _apply_set_summary(op, profile, source, changes, conflicts):
+    # #113(b) / ADR-061. This was the one write in this applier with no
+    # "already populated" gate — its SetField and SetPersonalInfo siblings both
+    # have one — so a second CV import replaced the stored summary outright.
+    # The summary is editable prose (PATCH /api/profile/{section}), so the text
+    # being overwritten can be the candidate's own words: a silent loss of user
+    # content. It becomes visible state instead.
+    #
+    # The model cannot raise this itself — FlagConflict is entity-targeted
+    # (`target` resolves to a work/project/volunteer entry) and the summary
+    # hangs off the profile, not an entity — so the gate belongs here. It is a
+    # fact-level test (is the stored value non-empty, and does it differ?), not
+    # a judgement about which summary is better; that judgement is the user's,
+    # taken on the existing conflict channel: pending_conflicts →
+    # ProfileReviewDrawer → POST /api/profile/conflicts/{id}/resolve, whose
+    # generic dict-section branch writes straight back into
+    # professional_summary[lang]. No new confirmation path is invented.
     old = getattr(profile.professional_summary, op.lang)
+    if _is_empty(op.text):
+        return  # absence is not an update, and not a conflict either
+    if not _is_empty(old):
+        if _norm(old) == _norm(op.text):
+            return  # a restatement of what is already stored
+        conflicts.append(
+            Conflict(
+                section="professional_summary",
+                field=op.lang,
+                existing_value=old,
+                incoming_value=op.text,
+                source=source,
+            )
+        )
+        return
     setattr(profile.professional_summary, op.lang, op.text)
-    # Summaries are regenerated wholesale — replace, don't gate on emptiness.
-    action = "updated" if old else "added"
     changes.append(
         FieldChange(
             section="professional_summary",
             field=op.lang,
-            action=action,
+            action="added",
             old_value=old,
             new_value=op.text,
             rationale="Set professional summary via reconciliation.",

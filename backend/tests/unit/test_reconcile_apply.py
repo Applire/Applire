@@ -802,12 +802,71 @@ def test_set_personal_info_ignored_when_present():
     assert result.profile.personal_info.phone == "existing"
 
 
-def test_set_summary_replaces():
+# #113(b) — a second CV import silently replaced the professional summary the
+# user already had, offering no choice. `_apply_set_summary` was the one write
+# in this applier with no "already populated" gate, while its `set_field` and
+# `set_personal_info` siblings both have one. The summary is editable prose
+# (PATCH /api/profile/{section}), so the overwritten text can be the candidate's
+# own words. ADR-061: a write that would drop the user's content becomes
+# visible state, never a silent loss.
+
+
+def test_set_summary_fills_an_empty_summary():
     profile = MasterProfileData()
-    profile.professional_summary.de = "alt"
-    ops = [SetSummary(lang="de", text="neu")]
-    result = apply_ops(profile, ops, SOURCE)
+    result = apply_ops(profile, [SetSummary(lang="de", text="neu")], SOURCE)
     assert result.profile.professional_summary.de == "neu"
+    assert result.conflicts == []
+    assert any(
+        c.section == "professional_summary" and c.action == "added" for c in result.changes
+    )
+
+
+def test_set_summary_restating_the_same_text_is_a_no_op():
+    profile = MasterProfileData()
+    profile.professional_summary.de = "Erfahrener Entwickler."
+    ops = [SetSummary(lang="de", text="  Erfahrener Entwickler.  ")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.professional_summary.de == "Erfahrener Entwickler."
+    assert result.conflicts == []
+    assert result.changes == []
+
+
+def test_set_summary_never_silently_replaces_an_existing_summary():
+    profile = MasterProfileData()
+    profile.professional_summary.de = "Erfahrener Entwickler mit 10 Jahren."
+    ops = [SetSummary(lang="de", text="Senior Engineer, Plattformteams.")]
+    result = apply_ops(profile, ops, SOURCE)
+
+    # The stored text survives the import untouched…
+    assert result.profile.professional_summary.de == "Erfahrener Entwickler mit 10 Jahren."
+    # …and the incoming text is parked as a decision, not discarded.
+    conflict = next(c for c in result.conflicts if c.section == "professional_summary")
+    assert conflict.field == "de"
+    assert conflict.existing_value == "Erfahrener Entwickler mit 10 Jahren."
+    assert conflict.incoming_value == "Senior Engineer, Plattformteams."
+    assert conflict.source == SOURCE
+    # No change record may claim an update that did not happen.
+    assert not [c for c in result.changes if c.section == "professional_summary"]
+
+
+def test_set_summary_conflicts_are_per_language():
+    profile = MasterProfileData()
+    profile.professional_summary.de = "Deutsche Fassung."
+    ops = [SetSummary(lang="en", text="English version.")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.professional_summary.en == "English version."
+    assert result.profile.professional_summary.de == "Deutsche Fassung."
+    assert result.conflicts == []
+
+
+def test_a_summary_conflict_is_shaped_for_the_generic_resolution_channel():
+    """`resolve_conflict` writes ``profile_dict[section][field] = chosen`` for
+    any dict-shaped section. professional_summary is such a section, so the
+    conflict this applier records is resolvable through the existing endpoint
+    and the review drawer — no new confirmation path is invented."""
+    dumped = MasterProfileData().model_dump(mode="json")
+    assert isinstance(dumped["professional_summary"], dict)
+    assert {"de", "en"} <= set(dumped["professional_summary"])
 
 
 def test_upsert_work_new_creates_entry():
