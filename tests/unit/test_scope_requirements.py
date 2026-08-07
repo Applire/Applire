@@ -119,12 +119,18 @@ class TestFactLayer:
         assert "direct reports" in values[0]["semantics"]
 
     def test_budget_values_stay_raw_strings(self):
+        # #328 option 4 / #382: the value stays the candidate's own string, now
+        # accompanied by its projection provenance. This fixture's entries carry
+        # no `role_fact_projections` (a profile written before the projection
+        # existed), so the facets read as unbacked — never as `derived`.
         values = collect_candidate_values(_MARCUS_PROFILE, "budget")
         assert values == [
             {
                 "value": "6 Mio. €",
                 "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
                 "semantics": "budget managed in that one role, as the candidate stated it (free text)",
+                "provenance": "uncorroborated",
+                "unit": None,
             }
         ]
 
