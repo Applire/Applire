@@ -84,6 +84,7 @@ from applire.services.oracle.matchers import (
     VaultIndex,
     build_vault_index,
     extract_figures,
+    extract_tenure_claims,
     find_foreign_owner,
     ground_skill_claim,
     ground_text_claim,
@@ -419,6 +420,90 @@ async def _run_judgement_batches(
                     c.seam,
                 )
     return results
+
+
+# ── #469 — the tenure ceiling ────────────────────────────────────────────────
+#
+# The rounding slack a stated duration is allowed above the derived span.
+# Two sources, both real and both one-sided toward NOT accusing:
+#
+#   1. Idiomatic rounding. Someone at 13.6 years who writes "14 Jahre" is
+#      speaking normally, not inflating. #469 names this case explicitly.
+#   2. Date granularity. Vault dates are routinely year-only ("2011") or
+#      month-only ("2011-08"); ``_coerce_partial_date`` expands both to the
+#      FIRST of the period, so a span's true END can sit up to twelve months
+#      later than the stored value — the derived ceiling is systematically
+#      too LOW by up to a year, and a tolerance below 1.0 would turn that
+#      storage artefact into an accusation.
+#
+# One year is therefore the smallest value that covers (2); (1) fits inside
+# it. Larger would start excusing real inflation: the class this check exists
+# for ("25 Jahre" on a 11-year career) clears any plausible tolerance by a
+# wide margin, so nothing is bought by widening further.
+_TENURE_TOLERANCE_YEARS = 1.0
+
+
+def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
+    """A stated tenure above the vault's derivable span (#469, #403).
+
+    The predicate: **claimed years ≤ derivable years + tolerance**, where
+    "derivable" is the envelope of the vault's own dated spans
+    (:func:`matchers.vault.derive_tenure_ceiling_years`). ``None`` when the
+    claim states no duration, when the vault has no dated span at all, or
+    when the claim sits at or below the ceiling.
+
+    **Direction.** Only the OVERCLAIM direction is decidable. A duration
+    BELOW the derivable span is not a false statement about the span, and a
+    rule that fired on it would be inventing a limit on the candidate — the
+    ADR-061 clause-5 error in its deflation direction. Understatements and
+    document-vs-document mismatches ("14 Jahren" in the CV, "11-jährige" in
+    the letter — charter run 17) are a CROSS-DOCUMENT INCONSISTENCY, not a
+    vault contradiction, and belong to the critic's ``numeric_inconsistency``
+    advisory (#403/#417). This function is deliberately silent on them.
+
+    **Scope boundary.** A scope claim ("X Jahre Erfahrung in <domain>")
+    bounds the domain as well as the total, but *which roles count toward
+    domain X* is a JUDGEMENT under ADR-062 clause 1 — it cannot be settled
+    without reading prose for meaning. The ceiling therefore uses the TOTAL
+    derivable span, which is a valid upper bound for every domain subset: a
+    domain claim ABOVE the total career length is decidably false, while
+    domain-scoped inflation BELOW it is not deterministically decidable and
+    is left to the critic and the other judgement seams. Widening this to
+    per-domain spans would require exactly the semantic matching ADR-062
+    clause 3 says to delete rather than tune.
+
+    **Why this is not the #214 mechanism returning.** #214 was right: a
+    duration is derived from date spans, never stored as a literal, so
+    matching it against vault FIGURES attributed "14 Jahren Expertise" to a
+    shift headcount that happened to share the digits. Durations stay out of
+    ``extract_figures``/``figure_map``. This compares a duration against the
+    only corpus that can actually contain one — the vault's dates.
+
+    ADR-062 classification: **FACT** on both sides — a closed number-word
+    table plus the unit token on the claim side (``extract_tenure_claims``),
+    date arithmetic on the vault side. ADR-061 clause 5 (as amended
+    2026-08-02): the derived ceiling is a classification input; it names
+    itself in the Oracle's own audit note, which is report/UI-facing only,
+    and is never handed to a writer or reviewer as the candidate's claim.
+    """
+    ceiling = index.derivable_tenure_years
+    if ceiling is None:
+        return None
+    allowed = ceiling + _TENURE_TOLERANCE_YEARS
+    for tenure in extract_tenure_claims(text):
+        if tenure.years <= allowed:
+            continue
+        return ClaimVerdict(
+            verdict="unbacked",
+            checker="numbers",
+            detail=(
+                f'Claimed duration "{tenure.raw.strip()}" exceeds the '
+                f"{ceiling:.1f} years derivable from the vault's own dated "
+                "spans (earliest recorded start to the latest end; an "
+                "open-ended span counts to today)."
+            ),
+        )
+    return None
 
 
 def _attribution_red_flag(
@@ -984,6 +1069,17 @@ async def verify_claim(
             claim.text, idx, document_language, skill_candidates, deny, judgement_sink
         )
         return seam if seam is not None else deny
+
+    # ── 1a. tenure ceiling (deterministic red flag, #469) ───────────────────
+    # Runs FIRST of the numeric passes, deliberately: every branch below can
+    # return early (an unmatched figure, a denial-absorbed figure, a grounded
+    # figure set), and #469 is precisely the report of a red that became
+    # unreachable because the sentence's OTHER figures grounded. See
+    # :func:`_tenure_ceiling_flag` for the predicate, its direction, and the
+    # judgement boundary it deliberately does not cross.
+    tenure_flag = _tenure_ceiling_flag(claim.text, idx)
+    if tenure_flag is not None:
+        return tenure_flag
 
     # ── 1. number/date provenance (deterministic red flag) ──────────────────
     figures = extract_figures(claim.text)

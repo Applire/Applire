@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, _coerce_partial_date
 from applire.services.ats_audit import _norm
 from applire.services.oracle.extract import _core_company_name
 from applire.services.oracle.matchers.figures import (
@@ -83,6 +84,15 @@ class VaultIndex:
     # judgement seam's trigger: a document written in a DIFFERENT language
     # than this one.
     dominant_language: str = "de"
+    # #469 — years derivable from the vault's own dated spans, the CEILING a
+    # stated tenure ("14 Jahren Expertise") may not exceed. Computed ONCE per
+    # audit by :func:`derive_tenure_ceiling_years`; ``None`` when no span in
+    # the vault is dated, which disables the check (fail open). Deliberately
+    # NOT a figure and NOT in ``figure_map``: #214 removed durations from
+    # figure matching because digit-coincidence attribution is a category
+    # error, and that stays removed — this is a different predicate against a
+    # different corpus, checked in ``audit._tenure_ceiling_flag``.
+    derivable_tenure_years: float | None = None
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -117,6 +127,64 @@ def _receipt_blobs(profile: MasterProfileData) -> list[tuple[str, str]]:
 # Receipts are only attached to units long enough to be distinctive — a bare
 # year or a two-letter fragment would "match" nearly every record blob.
 _RECEIPT_MIN_CHARS = 8
+
+
+_DAYS_PER_YEAR = 365.25
+
+
+def derive_tenure_ceiling_years(
+    profile: MasterProfileData | dict[str, Any],
+) -> float | None:
+    """Years derivable from the vault's own dated spans — the #469 ceiling.
+
+    The ENVELOPE: earliest dated start in the whole profile to the latest
+    dated end, with an open-ended span ("present"/heute — no ``end_date``)
+    counting to today. Deliberately the envelope and NOT the de-overlapped
+    union that ``gap_inference._total_experience_years`` computes for
+    seniority: a career break makes the union smaller than the span a
+    candidate honestly describes ("seit 2004 in der Branche"), and this
+    value is used to ACCUSE. Every choice here therefore resolves toward the
+    larger, more permissive number.
+
+    Read from every engagement (work, projects, volunteering — ADR-044's
+    ``all_experiences``) plus education, because the claim this bounds is
+    "years of experience" in the broadest sense the candidate might mean.
+    An entry with no parseable ``start_date`` is skipped entirely, so an
+    undated role can never LOWER the ceiling; a vault with no dated span at
+    all returns ``None``, which disables the check (fail open — the Oracle
+    never manufactures an accusation out of missing data).
+
+    Open-ended spans use ``date.today()``. There is no audit-time "now" in
+    the Oracle to derive it from: ``TruthfulnessReport`` stamps its own
+    ``generated_at`` only after every verdict is decided, and
+    ``gap_inference`` — the codebase's other date-arithmetic site — uses
+    ``date.today()`` for exactly this case.
+
+    ADR-062 classification: **FACT.** Date arithmetic over stored date
+    fields; no prose is read. ADR-061 (clause 5, as amended 2026-08-02): the
+    derived value is a CLASSIFICATION input — it may decide a verdict and
+    appear in the Oracle's own audit note, and it may never be handed to a
+    writer or reviewer as the candidate's claim. Nothing here reaches a
+    prompt: ``ClaimVerdict.detail`` is report/UI-facing only.
+    """
+    p = _coerce_profile(profile)
+    entries: list[Any] = [*p.all_experiences, *p.education]
+    starts: list[date] = []
+    ends: list[date] = []
+    for entry in entries:
+        start = _coerce_partial_date(getattr(entry, "start_date", None))
+        if not isinstance(start, date):
+            continue
+        end = _coerce_partial_date(getattr(entry, "end_date", None))
+        if not isinstance(end, date):
+            # No end date = still running (``is_current``, "heute", or simply
+            # unrecorded) — the permissive reading, per the docstring.
+            end = date.today()
+        starts.append(start)
+        ends.append(max(end, start))
+    if not starts:
+        return None
+    return max(0.0, (max(ends) - min(starts)).days / _DAYS_PER_YEAR)
 
 
 def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex:
@@ -375,4 +443,6 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         # ADR-068 clause 2a — corpus-level, once, over the SAME normalized
         # blob every grounding matcher already shares (never per-unit).
         dominant_language=detect_language(all_text_norm),
+        # #469 — once per audit, from the typed profile's date fields.
+        derivable_tenure_years=derive_tenure_ceiling_years(p),
     )

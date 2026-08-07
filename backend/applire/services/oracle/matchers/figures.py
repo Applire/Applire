@@ -19,6 +19,20 @@ class Figure:
     raw: str  # verbatim substring for report details
 
 
+@dataclass(frozen=True)
+class TenureClaim:
+    """A stated duration in years — deliberately NOT a :class:`Figure`.
+
+    #469: a tenure span stays exempt from figure matching (#214) and is
+    checked against a DERIVED ceiling instead of against vault literals, so
+    it must never enter ``figure_map`` or ``match_figures``. A separate type
+    makes that separation structural rather than a rule to remember.
+    """
+
+    years: float
+    raw: str  # verbatim substring for report details
+
+
 # Multiplier suffixes folded into the canonical value (DE + EN).
 _MULTIPLIERS = {
     "k": "k", "tsd": "k", "tausend": "k",
@@ -418,6 +432,61 @@ _DE_UND_RE = re.compile(
 _WORD_RE = re.compile(r"[a-zäöüß]+")
 
 
+def _spelled_small_number(token: str) -> int | None:
+    """EN/DE spelled small number word -> value, or None if it is not one.
+
+    THE single resolution of a spelled number token in this module (ADR-066:
+    one logical operation, one implementation) — shared by the vault-side
+    figure bridge (:func:`extract_spelled_figures`, #237) and the tenure
+    ceiling's claim-side extractor (:func:`extract_tenure_claims`, #469), so
+    "zehn Jahre" and "ten years" cannot mean one thing on one side of the
+    Oracle and another on the other.
+    """
+    small = _SMALL_WORDS.get(token)
+    if small is not None:
+        return small
+    de = _DE_UND_RE.match(token)
+    if de:
+        return _DE_COMPOUND_UNITS[de.group(1)] + _DE_TENS[de.group(2)]
+    return None
+
+
+def extract_tenure_claims(text: str) -> list[TenureClaim]:
+    """Every stated duration in years, as a NUMBER OF YEARS (#469).
+
+    Reuses ``_TENURE_RE`` — the very regex whose #214 exemption removed
+    tenure from figure matching — so detection and exemption can never drift
+    apart: the same two adjacent tokens that make a number invisible to the
+    figure passes make it visible here, and group 1 is the number itself.
+    Both the digit path ("14 Jahren", "11-jährige", "12+ years") and the
+    spelled path ("zehn Jahre", "twenty years") are covered; a word that is
+    not a number word ("in den letzten Jahren", "seit Jahren") yields
+    nothing, and no other reading of the sentence is attempted.
+
+    ADR-062 classification: **FACT.** "Does the token after this number name
+    a unit of years, and what number is it?" is settled by two adjacent
+    tokens and a closed number-word table — no reading of the surrounding
+    prose for meaning. What the durations are then COMPARED against is the
+    vault's own date arithmetic (:func:`matchers.vault
+    .derive_tenure_ceiling_years`), which is equally a fact; the judgement
+    this deliberately does not attempt is stated in
+    ``audit._tenure_ceiling_flag``.
+    """
+    claims: list[TenureClaim] = []
+    for m in _TENURE_RE.finditer(text):
+        token = m.group(1)
+        if token[0].isdigit():
+            try:
+                claims.append(TenureClaim(float(_canonical_number(token)), m.group(0)))
+            except ValueError:  # pragma: no cover - _TENURE_RE cannot produce it
+                continue
+            continue
+        value = _spelled_small_number(token.lower())
+        if value is not None:
+            claims.append(TenureClaim(float(value), m.group(0)))
+    return claims
+
+
 def extract_spelled_figures(text: str) -> list[Figure]:
     """Vault-side-only figures from EN/DE spelled-out small number words.
 
@@ -442,13 +511,8 @@ def extract_spelled_figures(text: str) -> list[Figure]:
         if _overlaps(m.span(), tenure_spans):
             continue
         tok = m.group(0)
-        small = _SMALL_WORDS.get(tok)
-        if small is not None:
-            figures.append(Figure("number", str(small), tok))
-            continue
-        de = _DE_UND_RE.match(tok)
-        if de:
-            value = _DE_COMPOUND_UNITS[de.group(1)] + _DE_TENS[de.group(2)]
+        value = _spelled_small_number(tok)
+        if value is not None:
             figures.append(Figure("number", str(value), tok))
     return figures
 
