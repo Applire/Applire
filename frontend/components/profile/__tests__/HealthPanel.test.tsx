@@ -64,6 +64,25 @@ const CONFIRMATION_HEALTH: ProfileHealth = {
   completeness: { score: 0.9, gaps: [], field_gaps: [] },
 };
 
+// #382 (PO decision 2026-08-08, Option A) — a budget figure with no unit is
+// omitted from every generated document. The omission must never be silent, so
+// it arrives here as its own thread. The panel translates it rather than
+// printing the backend's summary: the user is being ASKED something, in their
+// own language, not shown a data-quality log line.
+const UNIT_HEALTH: ProfileHealth = {
+  issues: [
+    {
+      id: "unit:budget_managed:Produktionsleiter @ Weberit GmbH",
+      thread: "unit",
+      profile_mismatch_severity: "review",
+      summary: "budget_managed: '6000000' states no unit, so it is omitted",
+      field_ref: "work_experience.budget_managed",
+      source_record_ref: "Produktionsleiter @ Weberit GmbH",
+    },
+  ],
+  completeness: { score: 0.8, gaps: [], field_gaps: [] },
+};
+
 const HEALTHY: ProfileHealth = {
   issues: [],
   completeness: { score: 1.0, gaps: [], field_gaps: [] },
@@ -217,5 +236,23 @@ describe("HealthPanel", () => {
       ),
     );
     expect(screen.getByTestId("health-improve")).toBeInTheDocument();
+  });
+
+  it("renders a unit-thread issue with a translated ask, not the backend summary", () => {
+    render(withIntl(<HealthPanel health={UNIT_HEALTH} onResolve={vi.fn()} />, "en"));
+
+    expect(screen.getAllByTestId("health-issue")).toHaveLength(1);
+    // The affected entry is named, so the user knows WHICH budget is meant.
+    expect(screen.getByText(/Produktionsleiter @ Weberit GmbH/)).toBeInTheDocument();
+    // The raw backend wording never reaches the user.
+    expect(screen.queryByText(/states no unit/)).not.toBeInTheDocument();
+  });
+
+  it("is resolvable like any other issue — the omission is never a dead end", () => {
+    const onResolve = vi.fn();
+    render(withIntl(<HealthPanel health={UNIT_HEALTH} onResolve={onResolve} />, "en"));
+
+    fireEvent.click(screen.getByTestId("health-resolve"));
+    expect(onResolve).toHaveBeenCalledWith(UNIT_HEALTH.issues[0]);
   });
 });

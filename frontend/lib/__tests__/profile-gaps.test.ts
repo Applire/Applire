@@ -16,7 +16,11 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, expect, it } from "vitest";
-import { countWorkEntryGaps } from "../profile-gaps";
+import {
+  budgetUnitIssueLabels,
+  countWorkEntryGaps,
+  workEntryLabel,
+} from "../profile-gaps";
 
 // #155 — the per-entry Enrich affordance must mirror the backend end_date
 // presence predicate: missing end_date is a gap UNLESS is_current === true.
@@ -83,5 +87,68 @@ describe("countWorkEntryGaps", () => {
         is_current: true,
       }),
     ).toBe(0);
+  });
+});
+
+
+// #382 (PO decision 2026-08-08, Option A) — a budget figure with no unit is
+// omitted from generated documents, and the omission must be addressed to the
+// user AT THE FIELD on the master profile page. The backend owns the rule
+// (ADR-066) and states the affected entries as `unit`-thread health issues;
+// these two helpers only JOIN that answer to the entry on screen.
+describe("workEntryLabel", () => {
+  it("matches the backend entry label exactly (`role @ company`)", () => {
+    expect(workEntryLabel({ role: "Produktionsleiter", company: "Weberit GmbH" })).toBe(
+      "Produktionsleiter @ Weberit GmbH",
+    );
+  });
+
+  it("strips the dangling separator when one side is missing", () => {
+    // Mirrors Python's `f"{role} @ {company}".strip(" @")`.
+    expect(workEntryLabel({ role: "", company: "Weberit GmbH" })).toBe("Weberit GmbH");
+    expect(workEntryLabel({ role: "Produktionsleiter", company: "" })).toBe(
+      "Produktionsleiter",
+    );
+    expect(workEntryLabel({})).toBe("");
+  });
+
+  it("accepts `title` as the legacy alias for `role`, like the backend does", () => {
+    expect(workEntryLabel({ title: "Werkstudent", company: "Acme" })).toBe(
+      "Werkstudent @ Acme",
+    );
+  });
+});
+
+describe("budgetUnitIssueLabels", () => {
+  const UNIT_ISSUE = {
+    id: "unit:budget_managed:Produktionsleiter @ Weberit GmbH",
+    thread: "unit" as const,
+    profile_mismatch_severity: "review" as const,
+    summary: "budget_managed: '6000000' states no unit",
+    field_ref: "work_experience.budget_managed",
+    source_record_ref: "Produktionsleiter @ Weberit GmbH",
+  };
+
+  it("collects the labels of entries whose budget needs a unit", () => {
+    expect(budgetUnitIssueLabels([UNIT_ISSUE])).toEqual(
+      new Set(["Produktionsleiter @ Weberit GmbH"]),
+    );
+  });
+
+  it("ignores every other thread — the affordance is not a generic issue badge", () => {
+    expect(
+      budgetUnitIssueLabels([
+        {
+          ...UNIT_ISSUE,
+          id: "conflict:1",
+          thread: "conflict" as const,
+        },
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("is empty for no health data at all, so the page renders nothing extra", () => {
+    expect(budgetUnitIssueLabels(undefined).size).toBe(0);
+    expect(budgetUnitIssueLabels([]).size).toBe(0);
   });
 });

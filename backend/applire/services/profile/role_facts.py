@@ -71,22 +71,19 @@ from typing import Any
 
 from applire.schemas.profile import RoleFactProjection, WorkEntry
 from applire.services.oracle.matchers.figures import Figure, extract_figures
+from applire.utils.budget_unit import budget_unit
 
 # The entry's own prose. Same two nodes ADR-070 clause 1 allows an attested
 # quote to resolve against (``scope_requirements._ATTESTED_PROSE_FIELDS``) —
 # one real bullet, never a concatenation.
 _PROSE_FIELDS = ("responsibilities", "achievements")
 
-# The currency tokens ``figures._CURRENCY_RE`` itself recognises. Longest-first
-# so "EUR" is never read as a bare "E"-less match — the #215 lesson, applied to
-# a much smaller table.
-_CURRENCY_TOKEN_RE = re.compile(r"EUR|USD|CHF|GBP|[€$£]", re.IGNORECASE)
-
 # ``Figure.value`` is canonical. Since #215 the magnitude is folded in as a
 # NUMERIC factor ("6 Mio. €" → "6000000"), so the ``[kmb]`` suffix branch below
 # is a tolerated legacy form (the extractor's fail-closed path for a degenerate
 # digit run) rather than the normal case — this stays a table lookup either
-# way, never a reading.
+# way, never a reading. The currency-token table lives in
+# ``applire.utils.budget_unit`` (#382 — one implementation, ADR-066).
 _MAGNITUDE_FACTORS = {"": 1.0, "k": 1e3, "m": 1e6, "b": 1e9}
 _CANONICAL_RE = re.compile(r"^(\d+(?:\.\d+)?)([kmb]?)$")
 
@@ -139,9 +136,14 @@ def _corroborating_figure(
 
 
 def _unit_of(raw: str) -> str | None:
-    """The currency token the bullet itself wrote, verbatim. Never invented."""
-    m = _CURRENCY_TOKEN_RE.search(raw)
-    return m.group(0) if m else None
+    """The currency token the bullet itself wrote, verbatim. Never invented.
+
+    Delegates to ``utils.budget_unit`` — the SAME vocabulary the CV furniture
+    line, the template filter and profile completeness ask "does this budget
+    carry a unit" with (#382, ADR-066). One table, so a unit this projection
+    records is exactly a unit a document is allowed to print.
+    """
+    return budget_unit(raw)
 
 
 def _project_budget(entry: WorkEntry, prose: list[str]) -> RoleFactProjection | None:

@@ -982,7 +982,12 @@ class HealthIssue(BaseModel):
     # ``confirmation`` (#333) is its own thread because it resolves differently
     # from a ``conflict``: not a 2-value existing/incoming pick, but the parked
     # question + its options, which the profile-review interview already walks.
-    thread: Literal["conflict", "accuracy", "confirmation"]
+    # ``unit`` (#382, PO decision 2026-08-08) is its own thread because nothing
+    # about it is a mismatch: the stored value is exactly what the candidate
+    # said, and only the unit that would let a document state it is missing.
+    # Option A omits such a value from every delivered document; this thread is
+    # the standing condition on that omission — it must reach the user.
+    thread: Literal["conflict", "accuracy", "confirmation", "unit"]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     summary: str
     field_ref: str | None = None

@@ -39,7 +39,8 @@ vi.mock("@/components/profile/ProfileReviewDrawer", () => ({
     ) : null,
 }));
 vi.mock("@/components/profile/EnrichmentDrawer", () => ({
-  EnrichmentDrawer: () => null,
+  EnrichmentDrawer: ({ open, scope }: { open: boolean; scope?: string }) =>
+    open ? <div data-testid="stub-enrich-scope">{scope ?? "all"}</div> : null,
 }));
 vi.mock("@/components/profile/PhotoManager", () => ({
   PhotoManager: () => null,
@@ -73,6 +74,19 @@ const PROFILE = {
   updated_at: "2026-06-24T00:00:00Z",
 };
 
+// #382 (PO decision 2026-08-08, Option A) — the budget figure is in the vault
+// but omitted from every generated document because it states no unit. The PO
+// condition on that omission: it is addressed to the user AT THE FIELD on the
+// master profile page, not only in the Health hub.
+const UNIT_ISSUE = {
+  id: "unit:budget_managed:Senior Software Engineer @ Logivia",
+  thread: "unit",
+  profile_mismatch_severity: "review",
+  summary: "budget_managed: '6000000' states no unit, so it is omitted",
+  field_ref: "work_experience.budget_managed",
+  source_record_ref: "Senior Software Engineer @ Logivia",
+};
+
 const HEALTH = {
   issues: [
     {
@@ -87,11 +101,11 @@ const HEALTH = {
   completeness: { score: 0.99, gaps: [], field_gaps: [] },
 };
 
-function mockFetch() {
+function mockFetch(health: unknown = HEALTH) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/api/profile/health"))
-      return { ok: true, json: async () => HEALTH };
+      return { ok: true, json: async () => health };
     if (url.includes("/api/profile/enrichment-history"))
       return { ok: true, json: async () => [] };
     if (url.includes("/api/profile"))
@@ -146,6 +160,51 @@ describe("ProfilePage", () => {
         String(c[0]).includes("/api/profile/health"),
       ).length;
       expect(after).toBeGreaterThan(healthCallsBefore);
+    });
+  });
+
+  describe("budget-unit omission (#382)", () => {
+    const UNIT_HEALTH = {
+      issues: [UNIT_ISSUE],
+      completeness: { score: 0.9, gaps: [], field_gaps: [] },
+    };
+
+    it("shows the fix affordance on the affected work entry", async () => {
+      global.fetch = mockFetch(UNIT_HEALTH) as unknown as typeof fetch;
+      render(withIntl(<ProfilePage />, "en"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("budget-unit-hint")).toBeInTheDocument(),
+      );
+      // Names the entry, so the hint is unambiguous on a multi-role profile.
+      expect(screen.getByTestId("budget-unit-hint").textContent).toContain(
+        "Senior Software Engineer",
+      );
+    });
+
+    it("offers the fix where the data lives — scoped to that entry", async () => {
+      global.fetch = mockFetch(UNIT_HEALTH) as unknown as typeof fetch;
+      render(withIntl(<ProfilePage />, "en"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("budget-unit-hint")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("budget-unit-hint"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("stub-enrich-scope").textContent).toBe(
+          "work_experience:Logivia:Senior Software Engineer",
+        ),
+      );
+    });
+
+    it("shows nothing when every budget states its unit", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+
+      await waitFor(() =>
+        expect(screen.getAllByText("Senior Software Engineer").length).toBeGreaterThan(0),
+      );
+      expect(screen.queryByTestId("budget-unit-hint")).not.toBeInTheDocument();
     });
   });
 });

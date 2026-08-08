@@ -661,7 +661,8 @@
     "proficiency_expert": "Expert",
     "reviewMergeCta": "See what changed",
     "importLogTitle": "What changed in your profile",
-    "importLogEmpty": "Your latest import and edits will be summarised here."
+    "importLogEmpty": "Your latest import and edits will be summarised here.",
+    "budgetNeedsUnit": "Add unit"
   },
   "health": {
     "title": "Profile health",
@@ -679,7 +680,9 @@
     "severityInfo": "Info",
     "threadConflict": "Conflict",
     "threadAccuracy": "Accuracy",
-    "threadConfirmation": "Open question"
+    "threadConfirmation": "Open question",
+    "threadUnit": "Missing unit",
+    "unitBudgetIssue": "Your budget figure needs a unit — until then we leave it out of your documents ({entry})."
   },
   "profileReview": {
     "title": "Review profile",
