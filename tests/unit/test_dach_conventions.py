@@ -24,9 +24,10 @@ ground truth each test is pinned against:
 2. The Anschreiben's Anrede ran into the opening sentence as one paragraph.
 3. The Grußformel carried a comma, which German does not take.
 
-A fourth convention (adversarial pass, 2026-07-30) joined this file for the
-same reason: ``budget_managed`` is a render-side formatting bug, not a vault
-defect — see the ``budget_display`` tests below.
+A fourth convention joined this file for the same reason: what a
+``budget_managed`` value may become on the page is a render-side decision, not
+a vault one. Its rule changed (#382, PO 2026-08-08) but its LOCATION did not —
+see the ``budget_display`` tests below.
 """
 import sys
 from pathlib import Path
@@ -143,36 +144,41 @@ def test_no_cv_template_renders_a_raw_date():
     assert not offenders, "date interpolated without |month_year:\n" + "\n".join(offenders)
 
 
-# ── 4. budget_managed renders formatted, not as a raw digit string ─────────
+# ── 4. budget_managed states a unit or says nothing ────────────────────────
 #
 # Adversarial pass (2026-07-30): GET /api/cv/{id}/html rendered
 # "Budget: 6000000" as furniture two lines above the writer's own prose
 # ("Budgetverantwortung von ca. 6 Mio. € pro Jahr") — the same figure twice,
-# once formatted and once looking like a data-quality bug. The VAULT value is
-# a correct queryable projection (a bare number); only the DISPLAY was wrong.
-# DACH thousands-grouped (``.``) for German, comma-grouped for everything
-# else — chosen over a "6 Mio." magnitude form because it is always exact (no
-# rounding decision for a non-round figure) and needs no per-language
-# magnitude-word table, mirroring month_year's own reasoning against a
-# localised-month table.
+# once formatted and once looking like a data-quality bug. That pass fixed the
+# legibility by thousands-grouping the figure.
+#
+# #382, PO decision 2026-08-08 (Option A), SUPERSEDES the grouping: "6.000.000"
+# is exactly as ambiguous as "6000000" — six million of what? — and furniture
+# is read as authoritative structured data, not as prose a reader discounts.
+# So a unit-less budget is omitted from the document altogether. The vault
+# keeps it and the user is asked for the unit; a currency is never invented.
 
 
 @pytest.mark.parametrize(
-    "stored,lang,rendered",
+    "stored,lang",
     [
-        ("6000000", "de", "6.000.000"),
-        ("6000000", "en", "6,000,000"),
-        ("50000", "de", "50.000"),
-        # Already DACH-grouped input is still entirely-a-number — reformatted,
-        # not passed through blind (idempotent on the target convention).
-        ("1.800.000", "de", "1.800.000"),
-        ("1,800,000", "en", "1,800,000"),
-        # Small figures don't need a separator, but must still render.
-        ("500", "de", "500"),
+        # The shape actually seen in practice (the reconciler's int -> str
+        # coercion), in every spelling a formatting pass could produce.
+        ("6000000", "de"),
+        ("6000000", "en"),
+        ("50000", "de"),
+        ("1.800.000", "de"),
+        ("1,800,000", "en"),
+        # A small figure is no less ambiguous than a large one.
+        ("500", "de"),
+        # Wording without a unit is still unit-less: a magnitude word or a
+        # tilde says how MUCH, never of what.
+        ("~6m", "de"),
+        ("mid six figures", "en"),
     ],
 )
-def test_a_bare_number_budget_is_grouped_for_the_document_language(stored, lang, rendered):
-    assert budget_display(stored, lang) == rendered
+def test_a_unit_less_budget_renders_as_nothing(stored, lang):
+    assert budget_display(stored, lang) == ""
 
 
 @pytest.mark.parametrize(
@@ -180,26 +186,24 @@ def test_a_bare_number_budget_is_grouped_for_the_document_language(stored, lang,
     [
         "ca. 6 Mio. EUR",
         "ca. 6 Mio. €",
-        "~6m",
         "EUR 50m",
         "€200k",
         "6 Mio. €",
     ],
 )
-def test_an_already_worded_budget_is_passed_through_untouched(value):
-    """A value that already carries human wording (a magnitude word, a
-    currency symbol, a tilde, ...) must never be reformatted or have a
-    currency invented for it — the writer already said what it meant."""
+def test_a_unit_bearing_budget_is_passed_through_untouched(value):
+    """A value that says what it means renders verbatim in every language.
+    Option A omits; it never reformats or re-words what the candidate wrote —
+    the same reasoning month_year gives against a localised-month table."""
     assert budget_display(value, "de") == value
     assert budget_display(value, "en") == value
 
 
 def test_budget_display_never_invents_a_currency():
-    """The stored value carries no currency — the filter must format the
-    magnitude only, never guess EUR/USD/CHF."""
-    assert "€" not in budget_display("6000000", "de")
-    assert "EUR" not in budget_display("6000000", "de")
-    assert "$" not in budget_display("6000000", "en")
+    """The rejected alternative, pinned so it cannot return as a "helpful"
+    default: a bare figure must not acquire a unit on the way to the page."""
+    for lang in ("de", "en"):
+        assert budget_display("6000000", lang) == ""
 
 
 def test_budget_display_none_and_empty_render_empty():
@@ -229,6 +233,24 @@ def test_no_cv_template_renders_a_raw_budget_number():
                     offenders.append(f"{tpl.name}:{lineno}: {expr.strip()}")
     assert not offenders, "budget_managed interpolated without |budget_display:\n" + "\n".join(
         offenders
+    )
+
+
+def test_every_template_guards_on_the_RENDERED_budget_not_the_raw_value():
+    """#382 Option A renders an omitted budget as the empty string, so a
+    template that still guards on ``job.budget_managed`` would emit a dangling
+    "Budget: " label with no value. Every template must test what the filter
+    returned. Closes the class: a new template added without the guard fails
+    here rather than shipping the dangling label."""
+    templates = Path(__file__).parent.parent.parent / "backend" / "applire" / "templates"
+    offenders = []
+    for tpl in sorted(templates.glob("*.html.j2")):
+        for lineno, line in enumerate(tpl.read_text(encoding="utf-8").splitlines(), 1):
+            if "{% if job.budget_managed %}" in line:
+                offenders.append(f"{tpl.name}:{lineno}")
+    assert not offenders, (
+        "template guards on the raw budget value instead of the rendered one:\n"
+        + "\n".join(offenders)
     )
 
 

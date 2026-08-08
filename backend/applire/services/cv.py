@@ -95,6 +95,7 @@ from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
 from applire.services.load_bearing import bullet_carries_figure
 from applire.services.reviewer import review_and_refine
+from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.language_detection import resolve_jd_language
 from applire.services.profile.merge import _sort_work_by_date
 from applire.constants import (
@@ -845,7 +846,18 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
         # reports"), and the vault is authoritative without being trusted to be
         # well-typed. ``bool`` is an int subclass and is not a headcount.
         team_size = team_size if isinstance(team_size, int) and not isinstance(team_size, bool) else None
+        # #382 (PO decision 2026-08-08, Option A): a budget wording that states
+        # no unit does not reach the document at all. "6000000" is six million of
+        # *something*, and this line is furniture — read as authoritative
+        # structured data rather than as prose a reader discounts — so the only
+        # honest renderings are "ask" and "say nothing"; a guessed currency would
+        # be fabrication. The VAULT keeps the value (real testimony; the ADR-069
+        # scope floor still counts it) and it re-enters this line the moment a
+        # unit is confirmed. The omission is never silent: the Health hub raises
+        # it and the master profile page offers the fix at the field.
         budget_managed = vault_entry.get("budget_managed") or None
+        if budget_needs_unit(budget_managed):
+            budget_managed = None
         industry_context = vault_entry.get("industry_context") or None
 
         if (w.team_size, w.budget_managed, w.industry_context) == (

@@ -30,18 +30,14 @@ import re
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from applire.utils.budget_unit import budget_needs_unit
+
 __all__ = ["month_year", "budget_display", "register_filters", "build_template_env"]
 
 # "2017-04", "2017-04-01", "2017/04" — the shapes the extractor and the reconciler
 # actually produce. Anything else is passed through untouched (see month_year).
 _ISO_MONTH_RE = re.compile(r"^\s*(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?\s*$")
 _YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
-
-# A value that is ENTIRELY a number — digits plus the separators a human or a
-# reconciler might already have put in (thousands ``.``/``,``/space, at most
-# one decimal ``.``/``,``) — vs. one that carries wording (a magnitude word,
-# a currency symbol, a tilde, ...). Only the former is ours to reformat.
-_BARE_NUMBER_RE = re.compile(r"^\d[\d.,\s]*$")
 
 
 def month_year(value: object) -> str:
@@ -90,42 +86,52 @@ def month_year(value: object) -> str:
 
 
 def budget_display(value: object, lang: str = "de") -> str:
-    """Render a stored ``budget_managed`` value for display (adversarial pass,
-    2026-07-30, finding 1).
+    """Render a stored ``budget_managed`` value as document furniture — or
+    render NOTHING when it states no unit (#382, PO decision 2026-08-08).
 
-    ``GET /api/cv/{id}/html`` shipped ``Budget: 6000000`` as document
-    furniture two lines above the writer's own prose quoting the SAME figure
-    formatted ("ca. 6 Mio. € pro Jahr") — the vault value (a bare digit
-    string, ``_apply_role_facts``'s correct, unconditional passthrough of
-    what the reconciler stored, ADR-062 clause 1) is a fine queryable
-    projection; nothing formatted it for a human reader.
+    ``GET /api/cv/{id}/html`` shipped ``Budget: 6000000`` as document furniture
+    two lines above the writer's own prose quoting the SAME figure formatted
+    ("ca. 6 Mio. € pro Jahr"). The vault value is a bare digit string with no
+    unit — the reconciler's own ``str(int)``/``str(float)`` coercion (see
+    ``test_reconcile_apply.py``'s "Field-type coercion" section), and the shape
+    actually seen in practice.
 
-    A value that is **entirely a number** (optionally already carrying
-    thousands separators or a decimal comma/point — the reconciler's own
-    ``str(int)``/``str(float)`` coercion, see ``test_reconcile_apply.py``'s
-    "Field-type coercion" section, is the shape actually seen in practice) is
-    grouped for the document's language: ``.`` thousands-separated for
-    German, ``,`` for everything else. A value that already carries human
-    wording — a magnitude word ("Mio."), a currency symbol/code ("€", "EUR"),
-    a tilde ("~6m") — is **passed through untouched**: the writer already
-    said what it meant, and reformatting prose is not this filter's job.
+    The first fix (2026-07-30, finding 1) grouped it — ``6.000.000`` — which
+    made the number legible without making it *meaningful*: six million of what?
+    **Option A supersedes it.** A budget wording that carries no unit is omitted
+    from the delivered document entirely, because the three alternatives were
+    each rejected on the record:
 
-    Chosen over a "6 Mio." magnitude form: grouping is always exact for any
-    figure (a magnitude form needs a rounding decision the moment the number
-    isn't a clean multiple of a million) and needs no per-language
-    magnitude-word table — the same reasoning :func:`month_year` gives for
-    not localising month names.
+    * rendering the bare magnitude — ambiguous, and furniture reads as
+      authoritative structured data rather than as prose a reader discounts;
+    * grouping it — the same ambiguity, better dressed;
+    * supplying a unit — fabrication. ``"6000000"`` never said €.
 
-    Never invents a currency: the output is digits and separators only, even
-    when the stored value carries none — inventing "€6.000.000" from a bare
-    "6000000" would assert a fact (the currency) the vault never stated.
+    The empty string is what makes the omission clean at the call site: every
+    template guards the *rendered* value, so the label, the value and the
+    surrounding separator disappear together instead of leaving ``Budget: ``.
 
-    >>> budget_display("6000000", "de")
-    '6.000.000'
-    >>> budget_display("6000000", "en")
-    '6,000,000'
+    **The value is not deleted, and this filter is not the only guard.** The
+    vault keeps it (it is real testimony) and ``services.cv._apply_role_facts``
+    already drops it before it reaches a freshly tailored CV. This filter is the
+    fail-safe for the case that pass cannot cover: a CV persisted BEFORE this
+    change, re-rendered straight from stored ``tailored_data``. The figure
+    re-enters the line the moment a unit is confirmed — the Health hub and the
+    master profile page both ask for one (``utils.budget_unit``).
+
+    Wording the candidate wrote is otherwise passed through untouched, in any
+    language: reformatting prose is not this filter's job — the same reasoning
+    :func:`month_year` gives for not localising month names. ``lang`` is
+    therefore unused today and kept in the signature deliberately, as the one
+    place a future per-language budget convention would attach; every template
+    already threads it in.
+
     >>> budget_display("ca. 6 Mio. EUR", "de")
     'ca. 6 Mio. EUR'
+    >>> budget_display("6000000", "de")
+    ''
+    >>> budget_display("6.000.000", "en")
+    ''
     >>> budget_display(None)
     ''
     """
@@ -134,35 +140,9 @@ def budget_display(value: object, lang: str = "de") -> str:
     text = str(value).strip()
     if not text:
         return ""
-
-    if not _BARE_NUMBER_RE.match(text):
-        # Already worded — a magnitude word, a currency symbol, a tilde, ...
-        # Never reformatted, never stripped.
-        return text
-
-    segments = [s for s in re.split(r"[.,\s]", text) if s]
-    if not segments:
-        # All separators, no actual digits (malformed) — fail open, same
-        # policy as month_year's unrecognised-value branch.
-        return text
-
-    # A trailing 1- or 2-digit segment is a decimal fraction; anything else —
-    # including a trailing 3-digit segment — is a thousands group, because an
-    # already-grouped whole number (the overwhelmingly common shape here) is
-    # far more likely than a budget figure carrying cents.
-    if len(segments) > 1 and len(segments[-1]) in (1, 2):
-        integer_part, fraction = "".join(segments[:-1]), segments[-1]
-    else:
-        integer_part, fraction = "".join(segments), ""
-    if not integer_part:
-        return text
-
-    thousands_sep = "." if lang == "de" else ","
-    grouped = f"{int(integer_part):,}".replace(",", thousands_sep)
-    if fraction:
-        decimal_sep = "," if lang == "de" else "."
-        grouped = f"{grouped}{decimal_sep}{fraction}"
-    return grouped
+    if budget_needs_unit(text):
+        return ""
+    return text
 
 
 def register_filters(env) -> None:
