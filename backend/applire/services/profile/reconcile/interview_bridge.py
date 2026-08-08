@@ -96,7 +96,10 @@ async def reconcile_interview_turn(
     updated = applied.profile.model_dump(mode="json")
     # The interview's profile is JSONB-dict at this point, so the enrichment
     # trail is appended dict-side here (callers no longer write it themselves).
-    receipt_changes = applied.changes + denial_changes
+    # #485 — the demotion receipts ride WITH the turn's receipt (ADR-059
+    # clause 1: negative testimony is receipted like positive) but stay OFF
+    # every addressed/upgrade gate below, which read `applied.changes` alone.
+    receipt_changes = applied.changes + denial_changes + applied.demotions
     if receipt_changes:
         meta = dict(updated.get("metadata") or {})
         history = list(meta.get("enrichment_history") or [])

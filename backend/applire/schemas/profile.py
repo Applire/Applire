@@ -328,10 +328,24 @@ class Skill(BaseModel):
     # surfaced this skill. Renamed from work_entry_refs (US172 / ADR-044) now
     # that experiences are unified; legacy JSONB with the old key still loads.
     experience_refs: list[str] = Field(default_factory=list)
-    # ADR-061 clause 3 — see Certification.status for the full contract. Set
-    # by ``reconcile/stance.py::enforce_stance`` at the interview seam; every
-    # other write path (CV import, manual edit) defaults to "confirmed".
-    status: Literal["confirmed", "unconfirmed"] = "confirmed"
+    # ADR-061 clause 3 — see Certification.status for the "confirmed" vs
+    # "unconfirmed" contract. Set by ``reconcile/stance.py::enforce_stance`` at
+    # the interview seam; every other write path (CV import, manual edit)
+    # defaults to "confirmed".
+    #
+    # "denied" (ADR-061 amended 2026-08-08, #485): the candidate RETRACTED a
+    # skill the vault held as confirmed. Mark, don't delete — the entry stays
+    # with its history, only the status moves, written by the ADR-063 clause
+    # 8(e) ``demote_skill`` op. A denied entry is excluded from every claim
+    # surface (``reconcile/stance.py::exclude_unconfirmed``), and NOTHING
+    # promotes it back except the explicit ADR-059 un-denial act — which does
+    # not exist yet, so in code no ordinary op ever moves a denied entry
+    # (``apply.py::_promote_to_confirmed``).
+    #
+    # Skills only: #485 scopes the retraction path to skills, and the
+    # reconciler's ``denials`` array carries no entity kind, so minting the
+    # value for Certification/Language would create a state nothing can reach.
+    status: Literal["confirmed", "unconfirmed", "denied"] = "confirmed"
 
     @model_validator(mode="before")
     @classmethod

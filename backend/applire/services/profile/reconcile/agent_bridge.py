@@ -215,7 +215,10 @@ async def submit_agent_claims(
             source=_SOURCE,
             when=datetime.now(timezone.utc),
         )
-        receipt_changes = applied.changes + denial_changes
+        # #485 — the demotion receipts ride WITH the turn's receipt (ADR-059
+        # clause 1: negative testimony is receipted like positive) but stay OFF
+        # every addressed/upgrade gate below, which read `applied.changes` alone.
+        receipt_changes = applied.changes + denial_changes + applied.demotions
 
         if receipt_changes:
             current.metadata.enrichment_history.append(
