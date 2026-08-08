@@ -1442,7 +1442,14 @@ async def test_letter_overrun_with_section_overrides_skips_condense(db_with_cove
     assert review_calls.count("cover_letter_condense") == 0, (
         f"expected zero condense-chain reviews, got {review_calls}"
     )
-    assert mock_provider.aparse_json.call_count == 1, "the LLM must not be called again for condense"
+    # The Oracle's pre-grading sentence-triage self-audit call (ADR-068
+    # amended 2026-08-08) is not a condense call — count only the others.
+    non_triage_calls = [
+        c
+        for c in mock_provider.aparse_json.call_args_list
+        if "sentence triage" not in (c.kwargs.get("system") or "").lower()
+    ]
+    assert len(non_triage_calls) == 1, "the LLM must not be called again for condense"
     mock_extract.assert_not_called()
 
     cl = await session.get(GeneratedCoverLetter, cl_id)

@@ -191,10 +191,44 @@ def _mock_provider(judgement_side_effect):
     """A provider whose FIRST aparse_json call is the writer's initial draft
     (irrelevant — review_and_refine is mocked to hand back the real settled
     draft regardless) and whose SECOND+ call(s) are the critic's OWN
-    judgement call(s)."""
+    judgement call(s).
+
+    The Oracle's pre-grading ``sentence_triage`` seam (ADR-068 amended
+    2026-08-08) also runs inside the generation self-audit, so it is answered
+    here OUT OF BAND — recognised by its own system prompt and never
+    consuming a scripted response — which keeps the scripted sequence
+    meaning exactly what its name says.
+    """
+    from applire.prompts.oracle_triage import ORACLE_TRIAGE_ITEM_RE
+
+    scripted = [{"body": {"paragraphs": []}}, *judgement_side_effect]
+
+    async def _answer(prompt, *, system=None, **kwargs):
+        if "sentence triage" in (system or "").lower():
+            # Permissive-safe: classify nothing out of the audit.
+            return {
+                "items": [
+                    {
+                        "index": int(i),
+                        "classification": "candidate-claim",
+                        "sentence_quote": text,
+                    }
+                    for i, text in ORACLE_TRIAGE_ITEM_RE.findall(prompt)
+                ]
+            }
+        nxt = scripted.pop(0)
+        if isinstance(nxt, BaseException):
+            raise nxt
+        return nxt
+
     provider = MagicMock()
-    provider.aparse_json = AsyncMock(
-        side_effect=[{"body": {"paragraphs": []}}, *judgement_side_effect]
+    provider.aparse_json = AsyncMock(side_effect=_answer)
+    provider.judgement_calls = lambda: len(
+        [
+            c
+            for c in provider.aparse_json.await_args_list
+            if "sentence triage" not in (c.kwargs.get("system") or "").lower()
+        ]
     )
     return provider
 
@@ -337,7 +371,9 @@ async def test_one_round_cap_holds_by_default(seeded):
     assert cl.critic_report["ran"] is True
     assert cl.critic_report["reason"] == "judgement_error"
     # ONE writer call + ONE judgement attempt — never a silent retry loop.
-    assert provider.aparse_json.await_count == 2
+    # (The Oracle's sentence-triage self-audit call is answered out of band
+    # and excluded here; it is not a critic retry.)
+    assert provider.judgement_calls() == 2
 
 
 @pytest.mark.asyncio
