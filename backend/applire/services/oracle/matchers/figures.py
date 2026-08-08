@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 
 @dataclass(frozen=True)
@@ -269,9 +270,51 @@ def _canonical_number(s: str) -> str:
 
 
 def _canonical_multiplier(suffix: str | None) -> str:
+    """The magnitude LETTER a written multiplier token folds to ('Mrd.' → 'b')."""
     if not suffix:
         return ""
     return _MULTIPLIERS.get(suffix.lower().rstrip("."), "")
+
+
+# #215 (re-scoped, PO decision 2026-08-08): a multiplier folds into the digits
+# as a NUMERIC FACTOR, never as a trailing letter. Appending the letter made
+# "€1.5 Mrd." canonicalise to "1.5b" and "€1500 Mio." to "1500m" — the same
+# amount, two canonical strings — and ``match_figures`` keys on (kind, value),
+# so a vault stating the amount one way could not ground a document stating it
+# the other. Multiplying instead makes equal amounts canonicalise EQUAL by
+# construction, and folds the separator-grouped form in too ("€1.200.000" and
+# "€1,2 Mio." are now one key).
+#
+# This widens the VALUE side only. The KIND side is untouched on purpose: the
+# same PO decision REFUSES cross-kind (currency↔number) matching, because a
+# bare vault digit string vouching for any € figure sharing its digits is the
+# coincidence-grounding disease #214 exists to prevent. See
+# ``test_bare_vault_number_does_not_ground_currency_claim``.
+#
+# ADR-062 classification: FACT. Multiplying a number by the factor its own
+# adjacent magnitude token names is arithmetic — no reading for meaning.
+_MULTIPLIER_FACTORS = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
+
+
+def _fold_multiplier(digits: str, suffix: str | None) -> str:
+    """``digits`` (already separator-normalized) scaled by ``suffix``'s factor.
+
+    ``Decimal`` rather than ``float``: the canonical value is a dictionary KEY,
+    so "1,1 Mio." and "1100000" have to produce byte-identical strings, and
+    binary floating point does not (1.1 * 1e6 == 1100000.0000000001).
+    """
+    letter = _canonical_multiplier(suffix)
+    if not letter:
+        return digits
+    try:
+        scaled = Decimal(digits) * _MULTIPLIER_FACTORS[letter]
+    except InvalidOperation:
+        # A degenerate digit run the currency regex tolerates but arithmetic
+        # cannot ("€1.2.3 Mio."). Fail closed to the pre-#215 letter form: the
+        # figure keeps its magnitude and simply matches nothing, which is
+        # strictly better than silently dropping a factor of a billion.
+        return digits + letter
+    return format(scaled.normalize(), "f")
 
 
 def extract_figures(text: str) -> list[Figure]:
@@ -332,8 +375,8 @@ def extract_figures(text: str) -> list[Figure]:
         if not _free(*m.span()):
             continue
         digits = m.group(1) or m.group(3)
-        mult = _canonical_multiplier(m.group(2) or m.group(4))
-        figures.append(Figure("currency", _canonical_number(digits) + mult, m.group(0).strip()))
+        value = _fold_multiplier(_canonical_number(digits), m.group(2) or m.group(4))
+        figures.append(Figure("currency", value, m.group(0).strip()))
         consumed.append(m.span())
 
     for m in _YEAR_RE.finditer(text):

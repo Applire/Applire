@@ -21,9 +21,10 @@ from applire.services.oracle.matchers import (
         ("Reduced effort by 70%.", [("percent", "70")]),
         ("targets a ~70% reduction", [("percent", "70")]),
         ("cut costs by 12,5 %", [("percent", "12.5")]),
-        ("saved €1.2M annually", [("currency", "1.2m")]),
-        ("budget of 500k €", [("currency", "500k")]),
-        ("managed a $2 Mio budget", [("currency", "2m")]),
+        # #215: the magnitude folds into the digits as a numeric factor
+        ("saved €1.2M annually", [("currency", "1200000")]),
+        ("budget of 500k €", [("currency", "500000")]),
+        ("managed a $2 Mio budget", [("currency", "2000000")]),
         ("from 2019 to 2023", [("year", "2019"), ("year", "2023")]),
         ("migrated 200 users", [("number", "200")]),
         ("supported 1.000 clients", [("number", "1000")]),
@@ -636,19 +637,21 @@ def test_extract_figures_date_fragment_exclusion(text, expected):
 @pytest.mark.parametrize(
     "text,expected_value,expected_raw_fragment",
     [
-        ("Produktion mit €7 Mrd. Umsatzwirkung", "7b", "Mrd"),
-        ("$7 Mrd", "7b", "Mrd"),
-        ("€3 Milliarden Umsatz", "3b", "Milliarden"),
-        ("€15 Mio. Budget", "15m", "Mio"),
-        ("€500 Tsd. Investition", "500k", "Tsd"),
-        ("€2 Millionen Umsatz", "2m", "Millionen"),
-        ("€4 tausend", "4k", "tausend"),
+        # (values are the #215 numeric fold — the shadow "m" reading of "Mrd."
+        # would produce a value 1000× smaller, so these pin the ORDERING too)
+        ("Produktion mit €7 Mrd. Umsatzwirkung", "7000000000", "Mrd"),
+        ("$7 Mrd", "7000000000", "Mrd"),
+        ("€3 Milliarden Umsatz", "3000000000", "Milliarden"),
+        ("€15 Mio. Budget", "15000000", "Mio"),
+        ("€500 Tsd. Investition", "500000", "Tsd"),
+        ("€2 Millionen Umsatz", "2000000", "Millionen"),
+        ("€4 tausend", "4000", "tausend"),
         # digit-then-symbol forms keep working
-        ("7 Mrd. €", "7b", "Mrd"),
-        ("rund 15 Mio. €", "15m", "Mio"),
+        ("7 Mrd. €", "7000000000", "Mrd"),
+        ("rund 15 Mio. €", "15000000", "Mio"),
         # the bare single-character multipliers are unchanged
-        ("saved €1.2M annually", "1.2m", "M"),
-        ("budget of 500k €", "500k", "k"),
+        ("saved €1.2M annually", "1200000", "M"),
+        ("budget of 500k €", "500000", "k"),
     ],
 )
 def test_mult_re_longest_alternative_wins(text, expected_value, expected_raw_fragment):
@@ -656,3 +659,107 @@ def test_mult_re_longest_alternative_wins(text, expected_value, expected_raw_fra
     assert len(figures) == 1, text
     assert figures[0].value == expected_value, text
     assert expected_raw_fragment in figures[0].raw, figures[0].raw
+
+
+# ── #215 (re-scoped, PO decision 2026-08-08) — a multiplier folds to a
+# NUMERIC FACTOR, not a letter ─────────────────────────────────────────────
+#
+# Pre-fix, ``_canonical_multiplier`` appended the magnitude LETTER to the
+# digits: "€1.5 Mrd." → "1.5b", "€1500 Mio." → "1500m". Those are the same
+# amount written two ways, and ``match_figures`` keys on the canonical string,
+# so a candidate whose vault says "€1500 Mio." could not ground a document
+# that says "€1.5 Mrd." — a false ``unbacked`` on a figure the vault fully
+# backs. Folding the multiplier into the digits (1.5 × 10⁹ = 1500 × 10⁶ =
+# 1500000000) makes equal amounts canonicalise equal by construction.
+#
+# WITHIN-KIND ONLY — see ``test_bare_vault_number_does_not_ground_currency_
+# claim`` below for the direction this deliberately does NOT open.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("€1.5 Mrd.", "1500000000"),
+        ("€1500 Mio.", "1500000000"),
+        # German decimal comma, both word orders
+        ("€1,5 Mrd.", "1500000000"),
+        ("1,5 Mrd. €", "1500000000"),
+        ("€7 Mrd.", "7000000000"),
+        ("rund 15 Mio. €", "15000000"),
+        ("saved €1.2M annually", "1200000"),
+        ("budget of 500k €", "500000"),
+        ("€4 tausend", "4000"),
+        # a grouped-separator amount with no multiplier is untouched, and now
+        # canonicalises IDENTICALLY to its magnitude-word twin
+        ("€1.200.000", "1200000"),
+        ("€1,2 Mio.", "1200000"),
+    ],
+)
+def test_multiplier_folds_to_numeric_factor(text, expected):
+    figures = [f for f in extract_figures(text) if f.kind == "currency"]
+    assert len(figures) == 1, text
+    assert figures[0].value == expected, text
+
+
+def test_degenerate_digit_run_with_multiplier_fails_closed():
+    """A digit run the currency regex tolerates but arithmetic cannot.
+
+    ``\\d[\\d.,]*`` accepts "1.2.3", which is not a number. The fold must not
+    raise, and must not silently drop the magnitude either — it falls back to
+    the pre-#215 letter form, which simply matches nothing.
+    """
+    figures = [f for f in extract_figures("€1.2.3 Mio.") if f.kind == "currency"]
+    assert [f.value for f in figures] == ["1.2.3m"]
+
+
+def test_equal_amounts_in_different_magnitude_words_match():
+    """A vault written in 'Mio.' grounds a document written in 'Mrd.'.
+
+    The reported #215 sub-case: equal amounts, different magnitude words.
+    """
+    profile = {
+        "personal_info": {"name": "Anna Bauer"},
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Acme GmbH",
+                "role": "CFO",
+                "achievements": ["Portfolio von €1500 Mio. verantwortet."],
+            }
+        ],
+    }
+    index = build_vault_index(profile)
+    result = match_figures(extract_figures("Verantwortung für €1.5 Mrd."), index)
+    assert result.unmatched == []
+
+
+def test_bare_vault_number_does_not_ground_currency_claim():
+    """A unit-less vault number must NOT ground a currency claim (#215).
+
+    PO decision 2026-08-08 on #215: **no cross-kind matching.** The matcher
+    keeps keying on ``(kind, value)``. Letting a bare vault digit string
+    ground a € figure sharing the same digits reopens exactly the
+    coincidence-grounding disease #214 exists to prevent — a "15000000"
+    anywhere in the vault would vouch for any €15 Mio. claim regardless of
+    what the number actually counted. The numeric fold above changes the
+    VALUE side only; it must never merge the KIND side. This test pins that
+    policy, not an implementation detail.
+    """
+    profile = {
+        "personal_info": {"name": "Anna Bauer"},
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Acme GmbH",
+                "role": "Werkleiter",
+                "budget_managed": "15000000",
+            }
+        ],
+    }
+    index = build_vault_index(profile)
+    assert ("number", "15000000") in index.figure_map
+    assert ("currency", "15000000") not in index.figure_map
+
+    claim = extract_figures("Ich verantwortete rund 15 Mio. €.")
+    assert [(f.kind, f.value) for f in claim] == [("currency", "15000000")]
+    result = match_figures(claim, index)
+    assert result.matched == []
+    assert [f.value for f in result.unmatched] == ["15000000"]
