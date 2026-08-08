@@ -82,9 +82,11 @@ _PROSE_FIELDS = ("responsibilities", "achievements")
 # a much smaller table.
 _CURRENCY_TOKEN_RE = re.compile(r"EUR|USD|CHF|GBP|[€$£]", re.IGNORECASE)
 
-# ``Figure.value`` is canonical: digits with the magnitude suffix folded in
-# ("6 Mio. €" → "6m"). Comparing a bare "6000000" against it needs the suffix
-# expanded — a table lookup, not a reading.
+# ``Figure.value`` is canonical. Since #215 the magnitude is folded in as a
+# NUMERIC factor ("6 Mio. €" → "6000000"), so the ``[kmb]`` suffix branch below
+# is a tolerated legacy form (the extractor's fail-closed path for a degenerate
+# digit run) rather than the normal case — this stays a table lookup either
+# way, never a reading.
 _MAGNITUDE_FACTORS = {"": 1.0, "k": 1e3, "m": 1e6, "b": 1e9}
 _CANONICAL_RE = re.compile(r"^(\d+(?:\.\d+)?)([kmb]?)$")
 

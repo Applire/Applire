@@ -36,8 +36,8 @@ from applire.services.ats_audit import skill_tokens
 # provider, 2026-08-01): the letter sentence "…rollierenden Forecast für 78
 # Mio. € Umsatz als Key-Userin in SAP CO/FI." split after "Mio.", orphaning
 # "€" into the next fragment — extract_figures then produced Figure(number,
-# "78") instead of Figure(currency, "78m"), which never matched the vault's
-# indexed currency/78m entry and produced a false "No vault evidence for
+# "78") instead of Figure(currency, "78000000"), which never matched the
+# vault's indexed currency entry and produced a false "No vault evidence for
 # figure(s): 78". "Mr."/"Mrs."/"Ms." close the separately-tracked sibling bug
 # (same board item) — a bare "Mr." also split a sentence in half.
 #

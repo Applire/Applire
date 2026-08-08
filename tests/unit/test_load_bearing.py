@@ -91,8 +91,9 @@ def test_stringify_draft_handles_lists_and_scalars():
 
 def test_universe_only_includes_direct_claimable_evidence():
     universe = load_bearing_universe_from_ledger(LEDGER)
-    # 6 Mio. € from the direct+claimable budget concept.
-    assert "currency:6m" in universe
+    # 6 Mio. € from the direct+claimable budget concept (#215: the
+    # magnitude folds into the digits as a numeric factor).
+    assert "currency:6000000" in universe
     # 61 and 73 (percent) from the direct+claimable OEE concept.
     assert "percent:61" in universe
     assert "percent:73" in universe
@@ -101,7 +102,7 @@ def test_universe_only_includes_direct_claimable_evidence():
     assert "number:18" in universe
     # The gap concept (Six Sigma) contributes nothing — it is not claimable.
     # The partial concept (SAP) contributes nothing either — only "direct".
-    assert universe == frozenset({"currency:6m", "percent:61", "percent:73", "number:18"})
+    assert universe == frozenset({"currency:6000000", "percent:61", "percent:73", "number:18"})
 
 
 def test_universe_is_empty_for_empty_or_none_ledger():
@@ -159,13 +160,13 @@ def test_universe_scope_entry_without_attestation_contributes_nothing():
 
 def test_figures_present_extracts_percent_and_currency():
     present = figures_present("Budget von 6 Mio. € und OEE von 61 % auf 73 %.")
-    assert "currency:6m" in present
+    assert "currency:6000000" in present
     assert "percent:61" in present
     assert "percent:73" in present
 
 
 def test_retained_load_bearing_figures_is_a_pure_intersection():
-    universe = frozenset({"percent:61", "percent:73", "currency:6m"})
+    universe = frozenset({"percent:61", "percent:73", "currency:6000000"})
     text = "Die OEE stieg von 61 % auf 73 %."  # no budget figure in this text
     retained = retained_load_bearing_figures(text, universe)
     assert retained == frozenset({"percent:61", "percent:73"})

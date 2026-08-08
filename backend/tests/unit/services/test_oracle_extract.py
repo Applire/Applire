@@ -54,8 +54,9 @@ class _SpyProvider:
         ("   ", []),
         # #398 / charter run 12 (real provider, 2026-08-01): "Mio." split the
         # sentence, orphaning "€" — extract_figures then produced a plain
-        # ``number`` figure ("78") instead of a ``currency`` figure ("78m"),
-        # which never matched the vault's indexed currency/78m entry and
+        # ``number`` figure ("78") instead of a ``currency`` figure
+        # ("78000000"), which never matched the vault's indexed currency
+        # entry and
         # produced a false "No vault evidence for figure(s): 78".
         (
             "Ich verantwortete den rollierenden Forecast für 78 Mio. € "
@@ -149,7 +150,8 @@ def test_split_sentences_run13_degree_abbreviation_survives_as_one_sentence():
 def test_split_sentences_run12_currency_survives_into_one_currency_figure():
     """#398 / charter run 12 ground truth: the whole "78 Mio. €" span must
     stay inside a single sentence so ``extract_figures`` classifies it as a
-    ``currency`` figure ("78m"), never a bare ``number`` ("78") that can
+    ``currency`` figure ("78000000" — #215 folds the magnitude into the
+    digits), never a bare ``number`` ("78") that can
     never match the vault's indexed currency entry."""
     text = (
         "Ich verantwortete den rollierenden Forecast für 78 Mio. € Umsatz "
@@ -158,7 +160,7 @@ def test_split_sentences_run12_currency_survives_into_one_currency_figure():
     sentences = split_sentences(text)
     assert len(sentences) == 1
     figures = extract_figures(sentences[0])
-    assert ("currency", "78m") in [(f.kind, f.value) for f in figures]
+    assert ("currency", "78000000") in [(f.kind, f.value) for f in figures]
     assert ("number", "78") not in [(f.kind, f.value) for f in figures]
 
 
