@@ -23,6 +23,7 @@ from applire.services.oracle.audit import (
     ClaimVerdict,
 )
 from applire.services.oracle.matchers.vault import EvidenceUnit
+from tests.unit.services.oracle_triage_stub import is_triage_call, triage_answer
 
 # ── fixtures shared by the cross-language tests ──────────────────────────────
 # The real #394 pair: a German vault, an English CV skill claim.
@@ -239,9 +240,17 @@ def _restatement_claim(report):
 
 
 class _RestatementDenyProvider:
-    """corresponds=false, citing the owning unit's real text verbatim."""
+    """corresponds=false, citing the owning unit's real text verbatim.
+
+    Letter fixtures also hit the pre-grading ``sentence_triage`` seam
+    (ADR-068 amended 2026-08-08), so this stub answers that chain too — with
+    the permissive default, ``candidate-claim`` for everything, which leaves
+    the restatement seam under test reachable exactly as before.
+    """
 
     async def aparse_json(self, prompt, *, system=None, **kwargs):
+        if is_triage_call(system):
+            return triage_answer(prompt)
         return {
             "items": [
                 {
@@ -258,6 +267,8 @@ class _RestatementDenyProvider:
 
 class _RestatementUncertainProvider:
     async def aparse_json(self, prompt, *, system=None, **kwargs):
+        if is_triage_call(system):
+            return triage_answer(prompt)
         return {
             "items": [
                 {
@@ -471,9 +482,9 @@ def test_resolve_seam_candidate_malformed_entry_is_unavailable():
 
 
 def test_report_version_bumped_and_judgement_unavailable_serializes():
-    assert ORACLE_REPORT_VERSION == "1.3"
+    assert ORACLE_REPORT_VERSION == "1.4"
     report = TruthfulnessReport.from_results("cv", [], judgement_unavailable=2)
-    assert report.version == "1.3"
+    assert report.version == "1.4"
     dumped = report.model_dump(mode="json")
     assert dumped["judgement_unavailable"] == 2
     # counts math is unaffected by the new field

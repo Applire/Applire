@@ -9,8 +9,19 @@ warning (``TruthfulnessPanel.tsx``'s ``isUnverifiableDominant``) fires on a
 truthful letter. Two verified causes, both fixed deterministically:
 
 (a) courtesy boilerplate ("I am writing to express my interest…", "Thank
-    you for your time and consideration.") counted as unverifiable claims —
-    see ``extract.py``'s formula filter.
+    you for your time and consideration.") counted as unverifiable claims.
+    RENEGOTIATED 2026-08-08 (ADR-068's sentence-triage amendment, #309 +
+    #373): the deterministic formula filter that used to DROP these is
+    retired — a phrase list cannot answer "does this assert anything about
+    the candidate?" (ADR-062 clause 1/3). The courtesy sentences are now
+    extracted and answered by the ``sentence_triage`` seam with a VISIBLE,
+    quoted ``not_applicable`` verdict, which leaves the denominator exactly
+    as the drop did — but is shown to the user instead of vanishing. This
+    fixture therefore audits WITH the seam wired (a targeted stub, per
+    ADR-062 clause 7 a mock can only pin wiring); with the seam DOWN the
+    same letter is audited sentence by sentence and may read amber again —
+    the degradation cost the amendment names explicitly, self-identified via
+    ``judgement_unavailable``.
 (b) truthful multi-skill enumeration clauses ("My experience includes
     designing and implementing RESTful APIs with Python, FastAPI") failed
     single-unit grounding — see ``grounding.py``'s skill-union fallback.
@@ -25,6 +36,7 @@ from __future__ import annotations
 import pytest
 
 from applire.services.oracle import audit_document
+from tests.unit.services.oracle_triage_stub import TriageStubProvider
 
 PROFILE = {
     "personal_info": {"name": "Anna Bauer"},
@@ -52,7 +64,7 @@ LETTER = {
     "header": {"name": "Anna Bauer"},
     "body": {
         "paragraphs": [
-            # Pure courtesy opener — must not become a claim at all.
+            # Pure courtesy opener — extracted, then triaged out visibly.
             "I am writing to express my interest in the Senior Backend "
             "Engineer position at your company.",
             # A truthful, figure-carrying, employer-anchored achievement.
@@ -63,7 +75,7 @@ LETTER = {
             "APIs with Python, FastAPI.",
             "I have also worked with PostgreSQL, SQLAlchemy, and Docker.",
             "I automated CI/CD workflows using Git and GitHub Actions.",
-            # Pure courtesy closer — must not become a claim at all.
+            # Pure courtesy closer — extracted, then triaged out visibly.
             "Thank you for your time and consideration.",
         ]
     },
@@ -71,9 +83,20 @@ LETTER = {
 }
 
 
+def _seam() -> TriageStubProvider:
+    """The triage seam, available and classifying this fixture's courtesy
+    opener/closer as ``epistolary-form``. Marker-driven test wiring, never a
+    classifier: correctness is charter-run evidence (ADR-062 clause 7)."""
+    return TriageStubProvider(
+        epistolary=("express my interest", "thank you for your time")
+    )
+
+
 @pytest.mark.asyncio
 async def test_honest_letter_audits_grounded_dominated_no_amber():
-    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=LETTER, provider=_seam()
+    )
 
     # (1) the frontend amber trigger (counts.unverifiable > counts.grounded)
     # must not fire on this entirely truthful letter.
@@ -82,10 +105,19 @@ async def test_honest_letter_audits_grounded_dominated_no_amber():
     assert report.counts["inflated"] == 0
     assert report.counts["unbacked"] == 0
 
-    # (2) the courtesy opener/closer never became claims at all.
-    all_texts = " ".join(r.claim.text.lower() for r in report.claims)
-    assert "express my interest" not in all_texts
-    assert "thank you for your time" not in all_texts
+    # (2) the courtesy opener/closer carry a VISIBLE, quoted verdict now —
+    # extracted, never silently dropped, and out of the denominator.
+    courtesy = [
+        r
+        for r in report.claims
+        if "express my interest" in r.claim.text.lower()
+        or "thank you for your time" in r.claim.text.lower()
+    ]
+    assert len(courtesy) >= 2, [r.claim.text for r in report.claims]
+    for r in courtesy:
+        assert r.verdict.verdict == "not_applicable", (r.claim.text, r.verdict)
+        assert r.verdict.checker == "sentence_triage", r.verdict
+        assert r.claim.text in (r.verdict.detail or "")
 
     # (3) the enumeration clauses ground via the skill union.
     by_text = {r.claim.text: r.verdict for r in report.claims}

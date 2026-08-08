@@ -69,7 +69,15 @@ const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
 // verdict is a BOUNDED MODEL JUDGEMENT (e.g. translation equivalence,
 // restatement-vs-fabrication), not a literal vault-string match. A model's
 // opinion must never render identically to a literal grounding hit.
-const JUDGEMENT_CHECKERS = new Set(["cross_language_judgement", "restatement_judgement"]);
+// `sentence_triage` (ADR-068 amended 2026-08-08, #309 + #373) is the third:
+// a model's opinion that a sentence asserts nothing about the candidate and
+// therefore needs no check at all. Its permissive polarity makes the chip
+// matter MORE here, not less — a wrong judgement exempts a real claim.
+const JUDGEMENT_CHECKERS = new Set([
+  "cross_language_judgement",
+  "restatement_judgement",
+  "sentence_triage",
+]);
 
 function isJudgementChecker(checker: string): boolean {
   return JUDGEMENT_CHECKERS.has(checker);

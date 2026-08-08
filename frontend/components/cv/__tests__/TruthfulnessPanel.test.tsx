@@ -395,6 +395,42 @@ describe("TruthfulnessPanel — ADR-068 judgement-checker provenance chip (SF-OR
       "KI-beurteilt",
     );
   });
+
+  // ADR-068 amended 2026-08-08 (#309 + #373): the sentence-triage seam is the
+  // third bounded model judgement. Its not_applicable verdicts must carry the
+  // same provenance chip — a model's opinion that a sentence needs no check
+  // must never render like a deterministic fact.
+  it("a sentence-triage exemption gets the judgement badge in the drawer", () => {
+    const report: TruthfulnessReport = {
+      version: "1.4",
+      document_kind: "cover_letter",
+      claims: [
+        {
+          claim: {
+            text: "Ich freue mich auf ein persönliches Gespräch.",
+            location: "body.paragraphs[3][0]",
+            kind: "sentence",
+          },
+          verdict: {
+            verdict: "not_applicable",
+            checker: "sentence_triage",
+            evidence: [],
+            detail:
+              'Letter form or courtesy. Sentence triage class epistolary-form: ' +
+              '"Ich freue mich auf ein persönliches Gespräch."',
+          },
+        },
+      ],
+      counts: { grounded: 0, unverifiable: 0, not_applicable: 1 },
+      stated_limit: "This report verifies document-vault consistency only.",
+    };
+    render(withIntl(<TruthfulnessPanel report={report} />));
+    fireEvent.click(screen.getByTestId("truthfulness-details-button"));
+    const claimRow = screen.getByTestId(
+      "truthfulness-drawer-claim-body.paragraphs[3][0]",
+    );
+    expect(within(claimRow).getByTestId("truthfulness-judgement-badge")).toBeInTheDocument();
+  });
 });
 
 // ADR-068 clause 2 (SF-ORACLE.3 report-side control): `judgement_unavailable`

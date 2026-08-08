@@ -65,6 +65,7 @@ import re
 import pytest
 
 from applire.services.oracle import audit_document
+from tests.unit.services.oracle_triage_stub import is_triage_call, triage_answer
 
 # ADR-068 (2026-08-01) amendment: ``_owner_scoped_coverage <
 # _UNATTRIBUTABLE_CONTENT_FLOOR`` (root cause 4 below) no longer decides
@@ -83,8 +84,29 @@ _ITEM_RE = re.compile(
 _EVIDENCE_LINE_RE = re.compile(r"^\s*\[\d+\] (.+)$", re.MULTILINE)
 
 
+# The letter fixture's epistolary sentences — the courtesy opener, the
+# availability line and the closer. ADR-068's 2026-08-08 amendment retired
+# the deterministic formula list that used to DROP them; the seam answers
+# them now, and this marker list is TEST WIRING for that answer, never a
+# classifier (ADR-062 clause 7: only a charter run proves classification).
+_RUN4_EPISTOLARY = (
+    "excited to apply",
+    "available to discuss my notice period",
+    "contributing to your organization",
+)
+
+
 class _DenyRestatementProvider:
     async def aparse_json(self, prompt, *, system=None, **kwargs):
+        if is_triage_call(system):
+            return triage_answer(
+                prompt,
+                lambda text: (
+                    "epistolary-form"
+                    if any(m in text.lower() for m in _RUN4_EPISTOLARY)
+                    else "candidate-claim"
+                ),
+            )
         items = []
         for idx_str, evidence_block in _ITEM_RE.findall(prompt):
             lines = _EVIDENCE_LINE_RE.findall(evidence_block)
@@ -268,7 +290,22 @@ async def test_run4_honest_nordpharm_paragraph_grounds_at_clause_granularity():
 
 
 @pytest.mark.asyncio
-async def test_run4_pure_courtesy_closer_is_not_extracted_as_a_claim():
-    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
-    texts = [r.claim.text.lower() for r in report.claims]
-    assert not any("contributing to your organization" in t for t in texts), texts
+async def test_run4_pure_courtesy_closer_gets_a_visible_verdict_not_a_drop():
+    """RENEGOTIATED 2026-08-08 (ADR-068's sentence-triage amendment, #309 +
+    #373). This used to pin that the closer was NOT EXTRACTED — the retired
+    formula list dropped it silently, with no verdict the user could see.
+    The closer is extracted now and the seam answers it: a visible,
+    sentence-quoting ``not_applicable`` that leaves the
+    ``unverifiable_dominated`` denominator exactly as the drop did."""
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=LETTER, provider=_DenyRestatementProvider()
+    )
+    closer = [
+        r for r in report.claims
+        if "contributing to your organization" in r.claim.text.lower()
+    ]
+    assert closer, [r.claim.text for r in report.claims]
+    for r in closer:
+        assert r.verdict.verdict == "not_applicable", (r.claim.text, r.verdict)
+        assert r.verdict.checker == "sentence_triage", r.verdict
+        assert r.claim.text in (r.verdict.detail or "")

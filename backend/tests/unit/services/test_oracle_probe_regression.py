@@ -40,8 +40,17 @@ near-verbatim per the coordinator's explicit allowance):
    discuss how my background in X, Y, and Z aligns with your needs."
    carries a real, checkable competence list buried in a courtesy
    preamble. Fixed: ``extract._strip_formula_prefix`` trims the recognized
-   courtesy PREFIX from the stored claim text (never drops the clause
-   outright — that stays ``_is_pure_formula_clause``'s call).
+   courtesy PREFIX from the stored claim text (it never drops a clause; the
+   all-or-nothing drop that used to live beside it was retired on
+   2026-08-08 with ADR-068's sentence-triage amendment).
+
+RENEGOTIATED 2026-08-08 (#309 + #373): the pure courtesy sentences in this
+fixture are no longer dropped at extraction — they are extracted and
+answered by the ``sentence_triage`` seam with a visible, quoted
+``not_applicable``. This fixture therefore audits WITH the seam wired (a
+targeted stub — per ADR-062 clause 7 a mock can only pin wiring, never
+classification); with the seam down the same letter is audited sentence by
+sentence, the degradation cost the amendment names.
 
 This fixture pins the combined effect: the report must not be
 unverifiable-dominated, the one genuine misattribution risk must not
@@ -52,6 +61,7 @@ from __future__ import annotations
 import pytest
 
 from applire.services.oracle import audit_document
+from tests.unit.services.oracle_triage_stub import TriageStubProvider
 
 # Sanitized: real name/email/phone/address removed. Company, role, and
 # responsibility text kept near-verbatim (coordinator-approved) — this is
@@ -151,9 +161,19 @@ LETTER = {
 }
 
 
+def _seam() -> TriageStubProvider:
+    """The triage seam, available, answering this fixture's courtesy opener
+    and closer. Marker-driven test wiring, never a classifier."""
+    return TriageStubProvider(
+        epistolary=("i am writing to express my interest", "thank you for your time")
+    )
+
+
 @pytest.mark.asyncio
 async def test_probe_letter_report_is_not_unverifiable_dominated():
-    report = await audit_document("cover_letter", PROFILE, letter_data=LETTER)
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=LETTER, provider=_seam()
+    )
     assert report.unverifiable_dominated is False, report.counts
 
 

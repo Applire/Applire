@@ -48,8 +48,10 @@ ORACLE_STATED_LIMIT = (
 # round-3, employer-fact claims). 1.3 = ADR-068 bounded equivalence
 # judgement: the additive ``judgement_unavailable`` field (a claim COUNT, not
 # a verdict — the verdict taxonomy itself is unchanged) and the two new
-# ``CheckerId`` values below.
-ORACLE_REPORT_VERSION = "1.3"
+# ``CheckerId`` values below. 1.4 = ADR-068's 2026-08-08 amendment: the
+# ``sentence_triage`` CheckerId (#309 + #373) — again additive, again no new
+# verdict (triage's exemptions reuse ``not_applicable``).
+ORACLE_REPORT_VERSION = "1.4"
 
 Verdict = Literal[
     "grounded", "inflated", "misattributed", "unbacked", "unverifiable",
@@ -70,6 +72,13 @@ CheckerId = Literal[
     "extraction",
     "cross_language_judgement",
     "restatement_judgement",
+    # ADR-068 amended 2026-08-08 (#309 + #373) — the PRE-GRADING sentence
+    # triage seam: a letter sentence classified ``employer-fact`` or
+    # ``epistolary-form`` is exempted from vault grading and carries this
+    # checker on its visible, quoted ``not_applicable`` verdict. Permissive
+    # polarity: a mis-classification exempts a real claim, so unavailability
+    # of any kind audits the sentence instead of exempting it.
+    "sentence_triage",
 ]
 
 Stance = Literal["aspirational", "achieved"]
@@ -177,11 +186,16 @@ class TruthfulnessReport(BaseModel):
     # same judgement. ``False`` for an empty report — no claims, nothing
     # dominates.
     unverifiable_dominated: bool = False
-    # ADR-068 — count of claims whose bounded equivalence judgement (the
-    # cross-language or restatement seam) could not run to a decided,
-    # citation-verified answer: provider failure or absence, the per-document
-    # judgement budget exhausted, or the model's own ``vault_quote`` failing
-    # citation verification. NOT a verdict — every one of these claims still
+    # ADR-068 — count of JUDGEMENT RESOLUTIONS that could not run to a
+    # decided, citation-verified answer: provider failure or absence, the
+    # per-document judgement budget exhausted, or the model's own quote
+    # failing citation verification. Covers the cross-language and
+    # restatement seams AND (amendment of 2026-08-08) the pre-grading
+    # sentence-triage seam, so one claim can contribute more than once when
+    # both its triage and a vault-side seam went unresolved. The MAGNITUDE
+    # semantics changed with triage: an outage counts a letter's FULL triage
+    # set, not seams A/B's residual few — panel copy must not assume the
+    # count is small. NOT a verdict — every one of these claims still
     # carries a real ``Verdict`` (the clause-3 fail-safe, normally
     # ``unverifiable``); this is a transparency count, so a report consumer
     # can tell "the deterministic layer was silent AND the judgement layer

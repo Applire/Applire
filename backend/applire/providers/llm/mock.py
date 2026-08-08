@@ -39,6 +39,8 @@ System prompt fingerprints:
   "strict verification function"   → Oracle narrow entailment (#404 retrofit) (aparse_json → dict)
   "truthfulness oracle's equivalence judge" → ADR-068 bounded equivalence judgement
                                      (cross-language + restatement seams) (aparse_json → dict, prompt-keyed)
+  "truthfulness oracle's sentence triage classifier" → ADR-068 (2026-08-08) sentence
+                                     triage seam (aparse_json → dict, prompt-keyed)
   (acomplete, any)                 → interview question    (acomplete → str)
 """
 
@@ -47,6 +49,12 @@ import json
 import re
 from typing import Any
 
+from applire.prompts.oracle_triage import (
+    # ADR-068 (2026-08-08) — the sentence-triage user prompt's item shape,
+    # imported rather than re-declared: the caller's citation check compares
+    # against exactly the sentence this regex lifts back out.
+    ORACLE_TRIAGE_ITEM_RE as _TRIAGE_ITEM_RE,
+)
 from applire.providers.llm.base import LLMProvider
 
 
@@ -535,6 +543,31 @@ def _mock_oracle_judgement(prompt: str) -> dict[str, Any]:
     }
 
 
+def _mock_oracle_triage(prompt: str) -> dict[str, Any]:
+    """ADR-068 (amended 2026-08-08) — the pre-grading sentence-triage seam.
+
+    Hermetically stable and ALWAYS PERMISSIVE-SAFE: every sentence comes back
+    ``candidate-claim``, echoed verbatim so the caller's document-side
+    citation verifies honestly. That is this seam's own fail-safe direction —
+    a wrong answer here EXEMPTS a claim from audit, so the mock must never
+    hand out exemptions it cannot justify; a mock-stack run that granted them
+    would make CI green on a hole in the Oracle. Tests needing an
+    ``employer-fact``/``epistolary-form`` outcome use a targeted stub provider
+    (the ADR-061/ADR-068 precedent) — this mock only proves the CHAIN is
+    recognised, never substitutes for a real judgement.
+    """
+    return {
+        "items": [
+            {
+                "index": int(index),
+                "classification": "candidate-claim",
+                "sentence_quote": text,
+            }
+            for index, text in _TRIAGE_ITEM_RE.findall(prompt)
+        ]
+    }
+
+
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
 
@@ -613,6 +646,14 @@ class MockLLMProvider(LLMProvider):
         # run (the #264 lesson).
         if "truthfulness oracle's equivalence judge" in system_lower:
             return _mock_oracle_judgement(prompt)
+
+        # ADR-068 (amended 2026-08-08) — the pre-grading sentence-triage seam
+        # (services/oracle/audit.py's ``_run_sentence_triage``). Same #264
+        # lesson: unrecognised here, every mock-stack letter audit would run
+        # with the seam permanently "unavailable" and the gate would never be
+        # exercised by IQ/OQ/PQ at all.
+        if "truthfulness oracle's sentence triage classifier" in system_lower:
+            return _mock_oracle_triage(prompt)
 
         # #404 retrofit — the Oracle's narrow entailment call
         # (services/oracle/audit.py's ``_entailment``) had NO ``system=`` at
