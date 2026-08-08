@@ -105,6 +105,40 @@ class UpsertSkill(BaseModel):
     status: Literal["confirmed", "unconfirmed"] = "confirmed"
 
 
+class DemoteSkill(BaseModel):
+    """ADR-063 clause 8(e) (amended 2026-08-08) — the candidate retracts a skill
+    their vault holds as ``confirmed``; its ``status`` moves to ``denied``
+    (ADR-061 amended 2026-08-08, #485).
+
+    **Mark, don't delete.** The entry stays in the vault with its name,
+    provenance and history — the record that the skill was once claimed is
+    preserved per ADR-059's correction-is-a-new-fact rule — and the applier
+    receipts the move like any other write.
+
+    **Never emitted by the reconciler LLM.** Demotion is an *assert*-class act
+    (it writes a negative statement about the candidate), so its trigger is a
+    deterministic read of the model's own atomic ``denials`` declarations
+    against the persisted vault — a fact, per ADR-062 clause 1 — computed by
+    ``stance.demote_ops_for_denials`` inside the shared reconcile core. That is
+    also why this ships as its own op rather than as ``UpsertSkill(status=
+    "denied")``, the parametrised form ADR-063 leaves open: widening the
+    upsert's status Literal would put ``denied`` in the *model's* vocabulary,
+    where one hallucinated field could mint a denial nobody testified to. Ops
+    the model emits are validated against this union, so an ``upsert_skill``
+    carrying ``status: "denied"`` still fails validation and is dropped —
+    fail-closed.
+
+    ``name`` is the PERSISTED entry's own name, never the declared term, so the
+    applier matches exactly and a demotion can never widen by containment.
+    ``declared_denial`` records WHICH declared term demoted it (longest match
+    first) for the receipt's provenance.
+    """
+
+    op: Literal["demote_skill"] = "demote_skill"
+    name: str
+    declared_denial: str | None = None
+
+
 class UpsertCertification(BaseModel):
     op: Literal["upsert_certification"] = "upsert_certification"
     name: str
@@ -225,6 +259,7 @@ ReconcileOp = Annotated[
         UpsertVolunteer,
         AddBullets,
         UpsertSkill,
+        DemoteSkill,
         UpsertCertification,
         UpsertLanguage,
         UpsertEducation,

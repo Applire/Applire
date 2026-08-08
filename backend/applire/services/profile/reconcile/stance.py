@@ -77,10 +77,16 @@ from applire.prompts.stance_adjudication import (
     STANCE_ADJUDICATION_SYSTEM_PROMPT,
     build_stance_adjudication_prompt,
 )
-from applire.schemas.profile import DeniedConcept, FieldChange, ProfileMetadata
+from applire.schemas.profile import (
+    DeniedConcept,
+    FieldChange,
+    MasterProfileData,
+    ProfileMetadata,
+)
 from applire.services.ats_audit import _fold_variants, _norm, surface_present
 from applire.services.profile.reconcile.ops import (
     AddBullets,
+    DemoteSkill,
     ReconcileOp,
     UpsertCertification,
     UpsertLanguage,
@@ -936,9 +942,57 @@ async def enforce_stance(
     return result
 
 
+# THE set of vault statuses that back nothing. `unconfirmed` — the reconciler's
+# own inference, never the candidate's testimony (ADR-061 clause 3). `denied` —
+# the candidate RETRACTED it (ADR-061 amended 2026-08-08, #485). One tuple, so
+# "which statuses may not reach a claim surface" is answered in one place and a
+# future member cannot land at four of five sites.
+_UNCLAIMABLE_STATUSES = frozenset({"unconfirmed", "denied"})
+
+
+def entry_is_claimable(entry: Any) -> bool:
+    """Can this raw vault entry (a skill/language/certification dict, or a bare
+    legacy string) back an outbound claim?
+
+    THE literal status check — :func:`exclude_unconfirmed`,
+    :func:`claimable_skill_names` and every ad hoc filter that used to inline
+    ``entry.get("status") == "unconfirmed"`` call this instead. A non-dict
+    entry (legacy JSONB stored skills as bare strings) carries no status and is
+    claimable by default, matching the pre-status behaviour.
+    """
+    if not isinstance(entry, dict):
+        return True
+    return entry.get("status") not in _UNCLAIMABLE_STATUSES
+
+
+def claimable_skill_names(profile_json: dict[str, Any] | None) -> list[str]:
+    """The vault's claimable skill NAMES, in profile order, verbatim.
+
+    ADR-061 amendment 2026-08-08 clause 2: five helpers inside ``services/cv.py``
+    each open-coded "iterate ``profile_json['skills']``, skip the unclaimable
+    ones, take the name" with their own copy of the status literal, bypassing
+    the shared predicate. They are consolidated here — the ADR's "one place"
+    is made true rather than assumed. Callers keep their own downstream logic
+    (dedupe, grouping, near-dupe matching); only the *pool* is shared.
+
+    Tolerates ``None``/malformed input and legacy bare-string skill entries.
+    Never mutates the input.
+    """
+    names: list[str] = []
+    for entry in (profile_json or {}).get("skills") or []:
+        if not entry_is_claimable(entry):
+            continue
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.strip():
+            names.append(name.strip())
+    return names
+
+
 def exclude_unconfirmed(profile_json: dict[str, Any] | None) -> dict[str, Any]:
-    """A shallow COPY of ``profile_json`` with every ``status="unconfirmed"``
-    skill/language/certification entry removed (ADR-061 clause 3).
+    """A shallow COPY of ``profile_json`` with every UNCLAIMABLE
+    skill/language/certification entry removed — ``status="unconfirmed"``
+    (ADR-061 clause 3) and ``status="denied"`` (ADR-061 amended 2026-08-08,
+    #485).
 
     Consumer-facing filter for anything that hands the vault to a document
     generator — an LLM prompt (the CV/cover-letter "CANDIDATE PROFILE" block)
@@ -949,6 +1003,18 @@ def exclude_unconfirmed(profile_json: dict[str, Any] | None) -> dict[str, Any]:
     persisted profile — callers pass this filtered copy downstream only, so
     the candidate's own unconfirmed entries stay intact in the vault and
     remain visible/promotable via the profile UI.
+
+    **The name is kept deliberately.** It reads narrower than it is now, but a
+    rename ripples through ten-plus call sites across three services for no
+    behavioural gain, and the ADR amendment itself names this function as the
+    one that "extends to ``denied`` in one edit". The honest statement of what
+    it excludes is :data:`_UNCLAIMABLE_STATUSES`; this docstring, and
+    :func:`entry_is_claimable`, are where a reader finds it.
+
+    A ``denied`` entry additionally composes with #480 step 1: every corpus
+    feeding the ADR-059 denial floor is built through this filter, so a
+    retracted skill can never become the independent affirmation that releases
+    a persisted denial.
 
     Deliberately narrow: only the three entity lists clause 3 names are
     filtered. Everything else (work/project history, denied_concepts,
@@ -962,8 +1028,47 @@ def exclude_unconfirmed(profile_json: dict[str, Any] | None) -> dict[str, Any]:
     for field in ("skills", "languages", "certifications"):
         entries = out.get(field)
         if isinstance(entries, list):
-            out[field] = [
-                e for e in entries
-                if not (isinstance(e, dict) and e.get("status") == "unconfirmed")
-            ]
+            out[field] = [e for e in entries if entry_is_claimable(e)]
     return out
+
+
+def demote_ops_for_denials(
+    profile: MasterProfileData, denials: list[str]
+) -> list[DemoteSkill]:
+    """#485 — the demote op's EMISSION RULE: which persisted vault skills this
+    turn's retraction takes back (ADR-063 clause 8(e) amended 2026-08-08).
+
+    Demotion is an **assert-class** act — it writes a negative statement about
+    the candidate into their vault — so it fires on the DECLARED denial only
+    (:func:`declared_denial_matches`, longest match first), never on the
+    compound-containment branch: a retraction of "Tailwind CSS" is no statement
+    whatsoever about the vault's bare "CSS", and demoting it would fabricate
+    testimony (ADR-059 amended 2026-08-08, the assert/refuse split of #486).
+    The refuse half keeps containment; only this half narrows.
+
+    Scoped to ``confirmed`` skills, per #485's decided scope: an ``unconfirmed``
+    entry is the reconciler's own inference and already backs nothing (ADR-061
+    clause 3), and a ``denied`` one is already there. Certifications and
+    languages are OUT of scope — the reconciler's ``denials`` array is a flat
+    list of concept strings carrying no entity kind, so extending demotion to
+    them would be inventing semantics the emission path cannot declare.
+
+    Deterministic and pure: a fact read off the vault plus the model's own
+    atomic declarations, never a judgement (ADR-062 clause 1), and the profile
+    is never mutated — the write happens in ``apply_ops`` like every other op
+    (ADR-066).
+    """
+    ops: list[DemoteSkill] = []
+    for skill in profile.skills:
+        if skill.status != "confirmed":
+            continue
+        matches = declared_denial_matches(skill.name, denials)
+        if not matches:
+            continue
+        logger.info(
+            "reconcile stance: demoting vault skill %r to denied — the "
+            "candidate declared %r (#485, ADR-061 amended 2026-08-08)",
+            skill.name, matches[0],
+        )
+        ops.append(DemoteSkill(name=skill.name, declared_denial=matches[0]))
+    return ops

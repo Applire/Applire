@@ -142,6 +142,7 @@ async def _reconcile_import_batched(
     current = existing
     changes: list = []
     conflicts: list[Conflict] = []
+    demotions: list = []
     ambiguities: list[RequestConfirmation] = []
     for slice_info in _slice_incoming(incoming):
         result = await reconcile(current, slice_info, source, provider, lang)
@@ -149,9 +150,16 @@ async def _reconcile_import_batched(
         current = applied.profile
         changes.extend(applied.changes)
         conflicts.extend(applied.conflicts)
+        # #485 — an import slice that carries a retraction demotes like any
+        # other door; the receipt accumulates on its own list (see
+        # ApplyResult.demotions) so the import's `added` summary keeps meaning
+        # "what this document ADDED".
+        demotions.extend(applied.demotions)
         ambiguities.extend(result.ambiguities)
         ambiguities.extend(applied.pending_confirmations)
-    accumulated = ApplyResult(profile=current, changes=changes, conflicts=conflicts)
+    accumulated = ApplyResult(
+        profile=current, changes=changes, conflicts=conflicts, demotions=demotions
+    )
     return accumulated, ambiguities
 
 
@@ -304,7 +312,10 @@ async def reconcile_import(
         merged_profile=applied.profile,
         added=added,
         conflicts=conflicts,
-        changes=applied.changes,
+        # #485 — demotion receipts ride with the merge's change trail (ADR-059
+        # clause 1) but stay out of `added` above, which is the "what did this
+        # document contribute" summary.
+        changes=applied.changes + applied.demotions,
         reconciliation=compute_merge_reconciliation(incoming, applied.profile),
         pending_confirmations=pending_confirmations,
     )

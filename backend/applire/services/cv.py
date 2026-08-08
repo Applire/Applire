@@ -770,11 +770,15 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
 
     ADR-061 clause 3: an ``unconfirmed`` certification is excluded — it cannot
     back a CV line. Never fabricated as a drop either; the candidate's own
-    profile-confirmation action is what promotes it, not a CV render.
+    profile-confirmation action is what promotes it, not a CV render. The
+    status check is THE shared one (``stance.entry_is_claimable``), not a local
+    copy of the literal (ADR-061 amended 2026-08-08 clause 2).
     """
+    from applire.services.profile.reconcile.stance import entry_is_claimable
+
     source_certs = [
         c for c in (profile_json.get("certifications") or [])
-        if not (isinstance(c, dict) and c.get("status") == "unconfirmed")
+        if entry_is_claimable(c)
     ]
     if not source_certs:
         return tailored
@@ -1251,8 +1255,17 @@ def _prefer_measured_outcomes(
     """
     from applire.services.oracle.matchers import build_vault_index
     from applire.services.outcome_preference import prefer_measured_outcomes_for_owner
+    from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
-    index = build_vault_index(profile_json)
+    # ADR-061 amendment 2026-08-08 clause 2 — this pass REWRITES a delivered
+    # bullet against the vault index, so it is a claim surface and takes the
+    # same filtered vault as every other one: an `unconfirmed` entry backs
+    # nothing (clause 3) and a `denied` one was retracted. The measured-outcomes
+    # helper the amendment lists among the five never carried the status
+    # literal at all — its defect is an ABSENT filter, so "consolidating" it
+    # means giving it the shared predicate rather than leaving it the one
+    # unfiltered reader in the file.
+    index = build_vault_index(exclude_unconfirmed(profile_json))
 
     changed = False
     new_work: list[TailoredWorkEntry] = []
@@ -1402,6 +1415,7 @@ def _tailor_skills_to_jd(
         skill_tokens,
         skills_page_dupe,
     )
+    from applire.services.profile.reconcile.stance import claimable_skill_names
 
     tailored_skills = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
     # Master-profile skills are stored as objects ({"name": ..., "category": ...}), not bare
@@ -1409,15 +1423,12 @@ def _tailor_skills_to_jd(
     # so JD-required skills the writer dropped (React/Node.js/JavaScript) were never re-added.
     # Extract the display name (dict → .name, or a plain string for legacy/mock data), keeping
     # the profile's own spelling verbatim — never fabricated. Mirrors gap_inference/choice_grounding.
-    profile_skills: list[str] = []
-    for s in profile_json.get("skills") or []:
-        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line — never
-        # guarantee-restored, even when it maps to a JD-required term.
-        if isinstance(s, dict) and s.get("status") == "unconfirmed":
-            continue
-        name = s.get("name") if isinstance(s, dict) else s
-        if isinstance(name, str) and name.strip():
-            profile_skills.append(name.strip())
+    #
+    # ADR-061 clause 3 + the 2026-08-08 amendment: an `unconfirmed` skill cannot
+    # back a CV line and a `denied` one was retracted outright — neither is ever
+    # guarantee-restored, even when it maps to a JD-required term. The pool comes
+    # from THE shared predicate, not a local copy of the status literal.
+    profile_skills: list[str] = claimable_skill_names(profile_json)
 
     required, nice, keyword = _jd_skill_terms(job_dict, keyword_ledger)
     req_toks = [t for t in (skill_tokens(x) for x in required) if t]
@@ -1537,20 +1548,16 @@ def _drop_ungrounded_jd_echo_skills(
     object) when nothing is dropped.
     """
     from applire.services.ats_audit import skills_page_dupe
+    from applire.services.profile.reconcile.stance import claimable_skill_names
 
     original = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
     if not original:
         return tailored
 
-    vault_forms: list[str] = []
-    for s in profile_json.get("skills") or []:
-        # ADR-061 clause 3: an unconfirmed skill grants no "vault tie" either —
-        # a tag that only matches an unconfirmed entry is not backed.
-        if isinstance(s, dict) and s.get("status") == "unconfirmed":
-            continue
-        name = s.get("name") if isinstance(s, dict) else s
-        if isinstance(name, str) and name.strip():
-            vault_forms.append(name.strip())
+    # ADR-061 clause 3 + the 2026-08-08 amendment: an `unconfirmed` skill grants
+    # no "vault tie" either, and a `denied` one grants less than none — a tag
+    # that only matches such an entry is not backed. THE shared predicate.
+    vault_forms: list[str] = claimable_skill_names(profile_json)
     # #386: WorkEntry.technologies are attested vault data too — transcribed at
     # import, carried through reconciliation. A tag they back is not an echo.
     for w in profile_json.get("work_experience") or []:
@@ -1715,21 +1722,17 @@ def _restore_skill_spelling(tailored: TailoredCVData, profile_json: dict | None)
     ``None``/malformed and ``tailored.skills`` being empty.
     """
     from applire.services.ats_audit import _norm
+    from applire.services.profile.reconcile.stance import claimable_skill_names
 
     original = list(tailored.skills or [])
     if not original:
         return tailored
 
-    vault_skills: list[str] = []
-    for entry in (profile_json or {}).get("skills") or []:
-        # ADR-061 clause 3: an unconfirmed skill is not a restoration target —
-        # spelling a surviving tag toward an unclaimable entry still implies
-        # the vault backs it.
-        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
-            continue
-        name = entry.get("name") if isinstance(entry, dict) else entry
-        if isinstance(name, str) and name.strip():
-            vault_skills.append(name.strip())
+    # ADR-061 clause 3 + the 2026-08-08 amendment: an `unconfirmed` skill is not
+    # a restoration target — spelling a surviving tag toward an unclaimable
+    # entry still implies the vault backs it — and neither is a `denied` one.
+    # THE shared predicate.
+    vault_skills: list[str] = claimable_skill_names(profile_json)
     if not vault_skills:
         return tailored
 
@@ -1869,6 +1872,10 @@ def _restore_narrative_named_skills(
     )
     from applire.services.oracle.matchers.grounding import ground_skill_claim
     from applire.services.oracle.matchers.vault import build_vault_index
+    from applire.services.profile.reconcile.stance import (
+        claimable_skill_names,
+        exclude_unconfirmed,
+    )
 
     existing = [s for s in (tailored.skills or []) if isinstance(s, str) and s.strip()]
 
@@ -1880,16 +1887,14 @@ def _restore_narrative_named_skills(
     groups: list[list[str]] = []
     seen_norm: set[str] = set()
 
-    for entry in (profile_json or {}).get("skills") or []:
-        # ADR-061 clause 3: an unconfirmed skill cannot back a CV line.
-        if isinstance(entry, dict) and entry.get("status") == "unconfirmed":
-            continue
-        name = entry.get("name") if isinstance(entry, dict) else entry
-        if isinstance(name, str) and name.strip():
-            n = _norm(name)
-            if n and n not in seen_norm:
-                seen_norm.add(n)
-                groups.append([name.strip()])
+    # ADR-061 clause 3 + the 2026-08-08 amendment: an `unconfirmed` skill cannot
+    # back a CV line, and a `denied` one was retracted outright. THE shared
+    # predicate.
+    for name in claimable_skill_names(profile_json):
+        n = _norm(name)
+        if n and n not in seen_norm:
+            seen_norm.add(n)
+            groups.append([name])
 
     for group in claimable_surface_form_groups(keyword_ledger):
         fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()]
@@ -1911,8 +1916,12 @@ def _restore_narrative_named_skills(
     # #219: THE vault-backing predicate — the same one the Oracle audits the
     # finished page with (ADR-066 clause 2). A name this cannot ground is a name
     # the document's own truthfulness report would mark `unbacked`, so it is
-    # never added, however the ledger classified it.
-    vault_index = build_vault_index(profile_json or {})
+    # never added, however the ledger classified it. Filtered through THE shared
+    # predicate (ADR-061 amendment 2026-08-08 clause 2): the ledger-concept half
+    # of `groups` does not come from the vault, so without this a claimable row
+    # could still be grounded by a `denied`/`unconfirmed` entry and put the
+    # retracted name back on the page.
+    vault_index = build_vault_index(exclude_unconfirmed(profile_json or {}))
 
     def _oracle_backed(name: str) -> bool:
         return ground_skill_claim(name, vault_index) is not None

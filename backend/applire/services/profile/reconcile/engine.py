@@ -48,7 +48,10 @@ from applire.services.profile.reconcile.ops import (
     ReconcileResult,
     RequestConfirmation,
 )
-from applire.services.profile.reconcile.stance import enforce_stance
+from applire.services.profile.reconcile.stance import (
+    demote_ops_for_denials,
+    enforce_stance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,20 @@ async def reconcile(
     # silently land on a DIFFERENT employer's entity — deterministic backstop
     # on top of the model's own (occasionally wrong) target choice.
     ops = enforce_attribution(ops, profile=profile, new_info=new_info, source=source)
+    # #485 / ADR-063 clause 8(e) (amended 2026-08-08) — a retraction of a skill
+    # the vault already holds as `confirmed` emits a `demote_skill` op, so the
+    # status move flows through the ONE write path (`apply_ops`) like every
+    # other op instead of becoming a fourth bespoke vault write.
+    #
+    # HERE, and not in the three doors that call `record_denials`: ADR-066 puts
+    # the emission rule in the core, not per door. Every caller of this function
+    # (`interview_bridge`, `testimony_bridge`, `agent_bridge`, `import_bridge`)
+    # already hands `result.ops` straight to `apply_ops`, so one edit gives all
+    # four doors the identical rule with no seam at which they can drift.
+    #
+    # Appended LAST so a mixed turn ("Docker ja, Kubernetes nie angefasst")
+    # resolves in the retraction's favour — never-claim beats claim (ADR-040).
+    ops = list(ops) + demote_ops_for_denials(profile, denials)
     return ReconcileResult(ops=ops, ambiguities=ambiguities, denials=denials)
 
 

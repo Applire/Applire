@@ -61,6 +61,7 @@ from applire.services.profile.reconcile.dedupe import (
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
+    DemoteSkill,
     FlagConflict,
     ReconcileOp,
     RequestConfirmation,
@@ -79,6 +80,39 @@ from applire.services.profile.reconcile.ops import (
 )
 
 _PROFICIENCY_ORDER = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
+
+
+def _promote_to_confirmed(entity: Any, op_status: str) -> bool:
+    """THE promote-only merge rule, in one place — used by all four merge sites
+    (skill user-confirmed merge, skill near-dupe auto-merge, certification
+    merge, language merge). Returns True iff it moved ``entity.status``.
+
+    ADR-061 clause 3: a merge only ever PROMOTES an existing entry to
+    ``confirmed``, never demotes one — a later, weaker mention must not erase
+    an already-established vault fact.
+
+    ADR-061 amended 2026-08-08 (#485), and this is why the rule is a function
+    rather than four copies of an ``if``: with ``denied`` in the skill status
+    vocabulary, the original condition (``existing.status != "confirmed"``)
+    reads a retracted entry as merely "not yet confirmed" and silently
+    resurrects it — a CV re-import naming the skill suffices, which is the
+    live vector the adversarial pass found. **Nothing leaves ``denied`` except
+    the explicit ADR-059 un-denial act**, which does not exist yet, so no
+    ordinary op may move a denied entry at all.
+
+    The certification and language sites cannot hold ``denied`` today (#485
+    scopes the taxonomy change to skills), but they call the same helper: the
+    invariant is stated once, so a later widening of the taxonomy cannot land
+    with three of the four sites still promoting out of it.
+    """
+    if op_status != "confirmed":
+        return False
+    if entity.status == "confirmed":
+        return False
+    if entity.status == "denied":
+        return False
+    entity.status = "confirmed"
+    return True
 
 
 def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
@@ -114,6 +148,23 @@ class ApplyResult(BaseModel):
     changes: list[FieldChange] = []
     conflicts: list[Conflict] = []
     pending_confirmations: list[RequestConfirmation] = []
+    # #485 — receipts for `demote_skill` ops, kept OFF `changes` on purpose.
+    #
+    # `bool(applied.changes)` is read by four gates that all mean the same
+    # thing: "this turn produced positive, gap-addressing content" — the
+    # interview's `addressed` flag (F8: a denial must never read as "resolved
+    # this gap"), the `_derive_status` wire status on both agent doors, and —
+    # sharpest — `agent_bridge`'s `upgrade=bool(applied.changes)` ledger gate,
+    # where a pure retraction counting as a change would request an upgrade
+    # with the candidate's own denial sentence as the backing evidence (the
+    # ADR-059 run-#7 blocker, #352).
+    #
+    # A demotion is the exact opposite of gap-addressing content, so it gets
+    # its own list — the same separation #231 already makes for `record_denials`
+    # receipts, one layer down. Callers FOLD this into the turn's
+    # `EnrichmentRecord` (ADR-059 clause 1: negative testimony is receipted
+    # like positive) and must never fold it into an addressed/upgrade gate.
+    demotions: list[FieldChange] = []
 
 
 def _norm(value: object) -> str:
@@ -271,6 +322,7 @@ def apply_ops(
     changes: list[FieldChange] = []
     conflicts: list[Conflict] = []
     pending: list[RequestConfirmation] = []
+    demotions: list[FieldChange] = []  # #485 — see ApplyResult.demotions
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -301,6 +353,8 @@ def apply_ops(
             _apply_add_bullets(op, resolve, changes, pending)
         elif isinstance(op, UpsertSkill):
             _apply_upsert_skill(op, new_profile, resolve, changes, pending)
+        elif isinstance(op, DemoteSkill):
+            _apply_demote_skill(op, new_profile, demotions)
         elif isinstance(op, UpsertCertification):
             _apply_upsert_certification(op, new_profile, changes, pending)
         elif isinstance(op, UpsertLanguage):
@@ -342,6 +396,7 @@ def apply_ops(
         changes=changes,
         conflicts=conflicts,
         pending_confirmations=pending,
+        demotions=demotions,
     )
 
 
@@ -728,11 +783,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 existing.proficiency = _merge_declared_proficiency(
                     existing.proficiency, op.proficiency.lower()
                 )
-            # ADR-061 clause 3: a merge only ever PROMOTES an existing skill to
-            # confirmed, never demotes one — never lets a later, weaker mention
-            # erase an already-established vault fact.
-            if op.status == "confirmed" and existing.status != "confirmed":
-                existing.status = "confirmed"
+            # ADR-061 clause 3 + the 2026-08-08 amendment (#485) — promote-only,
+            # and never OUT of `denied`. See _promote_to_confirmed.
+            _promote_to_confirmed(existing, op.status)
             # Keep the more-specific/longer name only when the incoming strictly
             # contains the existing tokens (mirrors the near==1 auto-merge below).
             if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -813,10 +866,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing.proficiency = _merge_declared_proficiency(
                 existing.proficiency, op.proficiency.lower()
             )
-        # ADR-061 clause 3: promote-only (see the user_confirmed=="merge" branch
-        # above for the full rationale).
-        if op.status == "confirmed" and existing.status != "confirmed":
-            existing.status = "confirmed"
+        # ADR-061 clause 3 + the 2026-08-08 amendment: promote-only, and never
+        # out of `denied` (see _promote_to_confirmed for the full rationale).
+        _promote_to_confirmed(existing, op.status)
         # Keep the more-specific/longer name ONLY when the incoming strictly
         # contains the existing tokens; otherwise the existing name stays.
         if skill_tokens(op.name) > skill_tokens(existing.name):
@@ -833,6 +885,48 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         skill_kwargs["proficiency"] = op.proficiency
     profile.skills.append(Skill(**skill_kwargs))
     changes.append(_added("skills", "name", op.name))
+
+
+def _apply_demote_skill(op, profile, demotions):
+    """ADR-063 clause 8(e) / ADR-061 amended 2026-08-08 (#485) — mark the
+    retracted skill ``denied``. Mark, DON'T delete: the entry keeps its name,
+    category, proficiency and ``experience_refs``; only ``status`` moves, and
+    the move is receipted like every other write (ADR-059 clause 1 — negative
+    testimony is receipted exactly like positive).
+
+    Matching is EXACT on the normalised name, never the near-dupe predicate the
+    upsert path uses: ``op.name`` is copied verbatim off the persisted entry by
+    the emitter, so there is nothing to fuzzy-match, and a demotion that
+    widened by similarity would assert testimony the candidate never gave
+    (the ADR-059 assert/refuse split, #486).
+
+    Idempotent: an entry already ``denied`` is left alone and produces no
+    receipt, so a re-retraction does not litter the enrichment history.
+    """
+    target = _norm(op.name)
+    for skill in profile.skills:
+        if _norm(skill.name) != target:
+            continue
+        if skill.status == "denied":
+            return
+        old = skill.status
+        skill.status = "denied"
+        demotions.append(
+            FieldChange(
+                section="skills",
+                field="status",
+                action="updated",
+                old_value=old,
+                new_value="denied",
+                rationale=(
+                    f"Retracted: {skill.name} marked denied — the candidate "
+                    f"stated they have no experience with "
+                    f"'{op.declared_denial or skill.name}' (their own "
+                    "testimony). The entry and its history are kept."
+                ),
+            )
+        )
+        return
 
 
 def _apply_upsert_certification(op, profile, changes, pending):
@@ -859,9 +953,8 @@ def _apply_upsert_certification(op, profile, changes, pending):
         })
         # ADR-061 clause 3: a merge only ever PROMOTES to confirmed, never
         # demotes an already-confirmed entry — mirrors the near-dupe skill
-        # merge's own one-directional trust rule (see _apply_upsert_skill).
-        if op.status == "confirmed" and verdict.match.status != "confirmed":
-            verdict.match.status = "confirmed"
+        # merge's own one-directional trust rule (see _promote_to_confirmed).
+        if _promote_to_confirmed(verdict.match, op.status):
             changed = True
         if changed:
             changes.append(_merged("certifications", "name", None, verdict.match.name))
@@ -902,8 +995,7 @@ def _apply_upsert_language(op, profile, changes, pending):
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {"level": op.level})
         # ADR-061 clause 3: promote-only, same rule as certifications.
-        if op.status == "confirmed" and verdict.match.status != "confirmed":
-            verdict.match.status = "confirmed"
+        if _promote_to_confirmed(verdict.match, op.status):
             changed = True
         if changed:
             changes.append(_merged("languages", "language", None, verdict.match.language))
