@@ -242,8 +242,9 @@ _FORMULA_FRAMING_WORDS = frozenset(
 
 def _strip_formula_prefix(text: str) -> str:
     """Trim a RECOGNIZED courtesy/framing PREFIX from a clause, keeping any
-    substantive remainder as the claim text (#237 round-3) — the partial
-    counterpart of :func:`_is_pure_formula_clause`'s all-or-nothing drop.
+    substantive remainder as the claim text (#237 round-3) — historically the
+    partial counterpart of ``_is_pure_formula_clause``'s all-or-nothing drop,
+    which the ADR-068 sentence-triage seam retired on 2026-08-08.
 
     "I would welcome the opportunity to discuss how my background in
     backend engineering, production LLM applications, and mentoring aligns
@@ -260,8 +261,8 @@ def _strip_formula_prefix(text: str) -> str:
     punctuation/casing, only the recognized prefix itself is dropped.
     Returns ``text`` unchanged when no prefix matches, or when the
     remainder would carry no real content (fails safe to the original,
-    unmodified clause — the drop decision stays ``_is_pure_formula_clause``'s
-    alone).
+    unmodified clause — this function NEVER drops a claim; since the triage
+    seam landed, nothing on this path does).
     """
     normalized = _normalize_punct(text)
     for pattern in _FORMULA_SEED_PATTERNS:
@@ -344,8 +345,8 @@ def _is_pure_denial_clause(text: str) -> bool:
     """True when ``text`` is ENTIRELY a denial/delegation statement — no
     smuggled positive claim riding along in the same clause (#282).
 
-    Conservative by construction, mirroring ``_is_pure_formula_clause``'s
-    shape: the clause must name at least one denial marker at all, must not
+    Conservative by construction, mirroring the shape of the retired
+    ``_is_pure_formula_clause`` (ADR-068 sentence triage, 2026-08-08): the clause must name at least one denial marker at all, must not
     be a passive OWNERSHIP claim in disguise (``_SELF_DELEGATION_RE``), AND
     none of its comma/semicolon-delimited segments may look like an
     independent, non-negated first-person clause. A segment that itself
