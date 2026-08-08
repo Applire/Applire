@@ -210,6 +210,53 @@ def _bounded_present(form: str, text_norm: str) -> bool:
     return any(_word_present(v, text_norm) for v in _fold_variants(n))
 
 
+def _declares(denial: str, token_forms: frozenset[str]) -> bool:
+    """The DECLARED branch, alone: the denied term itself names the token (or a
+    broader term the token falls under — "Azure" declares "Microsoft Azure",
+    "Kubernetes" declares "K8s" via the token's alias form).
+
+    Never the compound-containment branch below. See
+    :func:`declared_denial_matches` for why the two are separable.
+    """
+    return any(_bounded_present(denial, tf) for tf in token_forms)
+
+
+def declared_denial_matches(token: str, denials: list[str]) -> list[str]:
+    """The denied terms that DECLARE ``token`` — longest first, never the
+    compound-containment branch (ADR-059 amended 2026-08-08, #486).
+
+    ``is_denied_concept`` answers ONE question ("may this concept be claimed?")
+    with two branches of opposite polarity, and the ledger floor was using it
+    for two different acts:
+
+    * **refusing a claim** — a false positive claims LESS (ADR-062 clause 5's
+      sanctioned direction), so containment is the right instrument and keeps
+      the whole predicate;
+    * **asserting a denial** — writing ``status="denied"`` +
+      ``DENIED_EVIDENCE`` is *testimony*, a statement that the candidate said
+      they lack this. A declared "Tailwind CSS" is no statement whatsoever
+      about bare "CSS", so asserting one fabricates testimony.
+
+    This function is the assert half's matcher: the declared term must itself
+    name the token. Matching is the SAME machinery as the full predicate
+    (unicode-folded ``_norm``, word-boundary ``_bounded_present``, the ``#207``
+    alias groups) — one instrument, one branch dropped, never a second matcher
+    that could quietly disagree with the never-upgrade half about what a denial
+    even is.
+
+    Longest first (the ``#451``/ADR-064 subterm-scoping precedent) so a caller
+    that must pick ONE matching denial picks the most specific one. No corpus
+    parameter: the declared branch is corpus-independent by construction —
+    ``_independently_affirmed`` exists only to ground the containment reading.
+    """
+    token_norm = _norm(token)
+    if not token_norm:
+        return []
+    token_forms = _alias_forms(token_norm)
+    matches = [d for d in denials if _norm(d) and _declares(d, token_forms)]
+    return sorted(matches, key=lambda d: len(_norm(d)), reverse=True)
+
+
 def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     """Is the token covered by the model's own denial verdict?
 
@@ -228,6 +275,10 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
     2026-07-23 fix) — a bare substring search let short/ambiguous tokens
     ('ai', 'ml', 'css') false-match inside unrelated words in EITHER
     direction ('ai' ⊂ 'training'; a short denial 'ai' ⊂ 'maintenance').
+
+    The first branch is :func:`_declares` — shared verbatim with
+    :func:`declared_denial_matches`, so the never-upgrade half and the assert
+    half can never disagree about what "the candidate declared this" means.
     """
     token_norm = _norm(token)
     if not token_norm:
@@ -237,7 +288,7 @@ def _is_denied(token: str, denials: list[str], corpus: str | None) -> bool:
         d_norm = _norm(d)
         if not d_norm:
             continue
-        if any(_bounded_present(d, tf) for tf in token_forms):
+        if _declares(d, token_forms):
             return True
         if _bounded_present(token, d_norm):
             if corpus is None or not _independently_affirmed(token, denials, corpus):
