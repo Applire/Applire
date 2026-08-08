@@ -56,12 +56,20 @@ from applire.constants import (
     ORACLE_ENTAILMENT_MAX_TOKENS,
     ORACLE_MAX_ENTAILMENT_CALLS,
     ORACLE_MAX_JUDGEMENT_CALLS,
+    ORACLE_MAX_TRIAGE_CALLS,
 )
 from applire.prompts.oracle_judgement import (
     ORACLE_JUDGEMENT_BATCH_SIZE,
     ORACLE_JUDGEMENT_SYSTEM_PROMPT,
     build_judgement_user_prompt,
     judgement_call_max_tokens,
+)
+from applire.prompts.oracle_triage import (
+    ORACLE_TRIAGE_BATCH_SIZE,
+    ORACLE_TRIAGE_SYSTEM_PROMPT,
+    TRIAGE_CLASSES,
+    build_triage_user_prompt,
+    triage_call_max_tokens,
 )
 from applire.services.ats_audit import _norm, skill_tokens, surface_present
 from applire.services.citation import citation_present
@@ -420,6 +428,162 @@ async def _run_judgement_batches(
                     c.seam,
                 )
     return results
+
+
+# ── ADR-068 (amended 2026-08-08) — the sentence-triage seam (#309 + #373) ───
+#
+# The third judgement seam, and the first shaped as a GATE: seams A/B above
+# escalate on residual deterministic misses, triage classifies EVERY letter
+# claim before any grading happens. Only ``candidate-claim`` proceeds to
+# vault grading; ``employer-fact`` and ``epistolary-form`` emit a visible,
+# quoted ``not_applicable`` verdict and leave the ``unverifiable_dominated``
+# denominator (``schemas/oracle.py``'s ``from_results`` already excludes
+# ``not_applicable``).
+#
+# Polarity is PERMISSIVE — inverted against seams A/B. A mis-classification
+# exempts a real claim from audit (a hole in the Oracle), never accuses, so
+# every unavailability audits the sentence instead: no provider, provider
+# error, budget exhaustion, malformed item, or a quote that does not verify
+# all fail TO AUDIT. Fail-to-exempt was rejected — it would turn an outage
+# into a silent audit hole.
+#
+# The deterministic three-signal employer-fact pre-filter
+# (``extract.py``'s ``Claim.is_employer_fact``) is RETAINED and runs FIRST:
+# claims it already decided (like ``is_denial`` claims) never enter the
+# triage batch, which is what makes seam-down degrade to today's behaviour
+# rather than worse.
+
+_TRIAGE_EXEMPT_DETAIL = {
+    "employer-fact": (
+        "Statement about the hiring organisation or the advertised role, not "
+        "about the candidate — outside the vault's scope (checked against the "
+        "job description elsewhere, not here). Sentence triage class "
+        'employer-fact: "{sentence}"'
+    ),
+    "epistolary-form": (
+        "Letter form or courtesy — a salutation, statement of interest, "
+        "motivation or availability — asserting nothing about the candidate's "
+        'past that the vault could confirm. Sentence triage class '
+        'epistolary-form: "{sentence}"'
+    ),
+}
+
+
+async def _run_sentence_triage(
+    claims: list[Claim], provider: Any
+) -> tuple[dict[int, ClaimVerdict], int]:
+    """Classify every letter claim before grading (ADR-068, 2026-08-08).
+
+    Returns ``(exemptions, unavailable)`` — ``exemptions`` maps a claim's
+    index in *claims* to the visible ``not_applicable`` verdict that replaces
+    its grading, and ``unavailable`` counts the triage resolutions that never
+    landed (each of which leaves its sentence to be audited normally).
+
+    Never raises: every failure path degrades to auditing.
+    """
+    pending: list[tuple[int, Claim]] = [
+        (i, c)
+        for i, c in enumerate(claims)
+        # The retained deterministic pre-filter (and the #282 denial rail)
+        # already decided these — no judgement to make, no tokens to spend.
+        if not c.is_employer_fact and not c.is_denial
+    ]
+    if not pending:
+        return {}, 0
+    if provider is None:
+        logger.info(
+            "ORACLE_JUDGEMENT_UNAVAILABLE reason=no_provider seam=sentence_triage "
+            "sentences=%d",
+            len(pending),
+        )
+        return {}, len(pending)
+
+    exemptions: dict[int, ClaimVerdict] = {}
+    unavailable = 0
+    calls_made = 0
+    for start in range(0, len(pending), ORACLE_TRIAGE_BATCH_SIZE):
+        batch = pending[start : start + ORACLE_TRIAGE_BATCH_SIZE]
+        if calls_made >= ORACLE_MAX_TRIAGE_CALLS:
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=budget_exhausted "
+                "seam=sentence_triage sentences=%d",
+                len(batch),
+            )
+            unavailable += len(batch)
+            continue
+        calls_made += 1
+        prompt = build_triage_user_prompt([c.text for _, c in batch])
+        try:
+            response = await provider.aparse_json(
+                prompt,
+                system=ORACLE_TRIAGE_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=triage_call_max_tokens(len(batch)),
+            )
+        except Exception:
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=provider_error "
+                "seam=sentence_triage sentences=%d",
+                len(batch),
+            )
+            unavailable += len(batch)
+            continue
+
+        raw_items = response.get("items") if isinstance(response, dict) else None
+        if not isinstance(raw_items, list):
+            logger.info(
+                "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_response "
+                "seam=sentence_triage sentences=%d",
+                len(batch),
+            )
+            unavailable += len(batch)
+            continue
+
+        by_index: dict[int, Any] = {}
+        for entry in raw_items:
+            if isinstance(entry, dict) and isinstance(entry.get("index"), int):
+                by_index[entry["index"]] = entry
+
+        for j, (claim_idx, claim) in enumerate(batch):
+            entry = by_index.get(j)
+            if entry is None and j < len(raw_items):
+                entry = raw_items[j]  # positional fallback (bad/missing index)
+            if not isinstance(entry, dict):
+                logger.info(
+                    "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_item "
+                    "seam=sentence_triage"
+                )
+                unavailable += 1
+                continue
+            classification = entry.get("classification")
+            if classification not in TRIAGE_CLASSES:
+                logger.info(
+                    "ORACLE_JUDGEMENT_UNAVAILABLE reason=malformed_item "
+                    "seam=sentence_triage class=%r",
+                    classification,
+                )
+                unavailable += 1
+                continue
+            # Clause-4 amendment: the citation basis is the DOCUMENT sentence
+            # itself, verified against THIS item's own sentence — which is
+            # what makes it catch batch-index drift and non-verbatim echo.
+            if not citation_present(entry.get("sentence_quote"), [claim.text]):
+                logger.info(
+                    "ORACLE_JUDGEMENT_CITATION_DROP seam=sentence_triage span=%r",
+                    entry.get("sentence_quote"),
+                )
+                unavailable += 1
+                continue
+            if classification == "candidate-claim":
+                continue  # graded exactly as before — the gate opens
+            exemptions[claim_idx] = ClaimVerdict(
+                verdict="not_applicable",
+                checker="sentence_triage",
+                detail=_TRIAGE_EXEMPT_DETAIL[classification].format(
+                    sentence=claim.text
+                ),
+            )
+    return exemptions, unavailable
 
 
 # ── #469 — the tenure ceiling ────────────────────────────────────────────────
@@ -1435,6 +1599,24 @@ async def audit_document(
     else:
         claims = await extract_claims_from_text(text or "", provider=provider)
 
+    # ADR-068 (amended 2026-08-08) — the PRE-GRADING sentence-triage seam,
+    # letter path only (a tailored-CV bullet is not a letter sentence). It
+    # runs BEFORE the grading loop because it GATES it: an exempted sentence
+    # is never graded at all. Fail-safe end-to-end — an unexpected error here
+    # leaves every sentence to be audited, exactly as an outage does.
+    triage_exemptions: dict[int, ClaimVerdict] = {}
+    triage_unavailable = 0
+    if letter_data is not None:
+        try:
+            triage_exemptions, triage_unavailable = await _run_sentence_triage(
+                claims, provider
+            )
+        except Exception:
+            logger.exception(
+                "Oracle sentence triage failed — every sentence is audited"
+            )
+            triage_exemptions, triage_unavailable = {}, len(claims)
+
     index = build_vault_index(profile)
     budget = _EntailmentBudget(limit=ORACLE_MAX_ENTAILMENT_CALLS if entailment else 0)
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
@@ -1443,7 +1625,11 @@ async def audit_document(
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
     results: list[ClaimResult] = []
-    for claim in claims:
+    for claim_index, claim in enumerate(claims):
+        exemption = triage_exemptions.get(claim_index)
+        if exemption is not None:
+            results.append(ClaimResult(claim=claim, verdict=exemption))
+            continue
         verdict = await verify_claim(
             claim,
             profile,
@@ -1462,7 +1648,7 @@ async def audit_document(
         else:
             results.append(ClaimResult(claim=claim, verdict=verdict))
 
-    judgement_unavailable = 0
+    judgement_unavailable = triage_unavailable
     try:
         resolved = await _run_judgement_batches(judgement_sink, provider)
     except Exception:

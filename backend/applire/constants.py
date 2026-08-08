@@ -278,6 +278,20 @@ ORACLE_JUDGEMENT_MAX_TOKENS: int = int(os.environ.get("ORACLE_JUDGEMENT_MAX_TOKE
 # beyond the budget degrade to the clause-3 fail-safe (judgement_unavailable).
 ORACLE_MAX_JUDGEMENT_CALLS: int = int(os.environ.get("ORACLE_MAX_JUDGEMENT_CALLS", "5"))
 
+# ── Oracle sentence triage (ADR-068 amended 2026-08-08, #309 + #373) ─────────
+# Per-item token budget for the batched PRE-GRADING triage call. Its item
+# carries a verbatim sentence quote, so the one-verdict-sized
+# ORACLE_ENTAILMENT_MAX_TOKENS must not be reused here either; the actual call
+# cap is ``max(400, ORACLE_TRIAGE_MAX_TOKENS * batch_size)`` — see
+# ``prompts.oracle_triage.triage_call_max_tokens``.
+ORACLE_TRIAGE_MAX_TOKENS: int = int(os.environ.get("ORACLE_TRIAGE_MAX_TOKENS", "160"))
+# Hard cap on triage BATCH calls per audited document. Unlike the seams above,
+# triage GATES every letter claim, so exhausting this budget does not merely
+# leave a few claims undecided — every sentence in the truncated sub-batch is
+# audited as a candidate-claim (fail-to-audit) and counted in
+# ``judgement_unavailable``.
+ORACLE_MAX_TRIAGE_CALLS: int = int(os.environ.get("ORACLE_MAX_TRIAGE_CALLS", "3"))
+
 # #379 — target_pages upper bound. The floor (>= 1) was validated everywhere it
 # enters the system; the ceiling was not, so a captured real run with
 # target_pages=999 fed straight into the per-role bullet-budget math and produced

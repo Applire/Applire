@@ -134,6 +134,37 @@ async def test_mock_recognises_the_oracle_judgement_chain():
 
 
 @pytest.mark.asyncio
+async def test_mock_recognises_the_oracle_sentence_triage_chain():
+    """ADR-068 amended 2026-08-08 (#309 + #373) — the PRE-GRADING sentence
+    triage seam. Unrecognised, it falls to the generic ``{"mock": ...}``
+    fallback, which fails the caller's "items" check: every mock-stack letter
+    audit would then run with the gate permanently unavailable (every
+    sentence audited, ``judgement_unavailable`` equal to the whole triage
+    set) and IQ/OQ/PQ would never exercise the seam at all."""
+    from applire.prompts.oracle_triage import (
+        ORACLE_TRIAGE_SYSTEM_PROMPT as TRIAGE_SYSTEM,
+        build_triage_user_prompt,
+    )
+
+    sentence = "Ich habe ein Analytiklabor geleitet."
+    result = await MockLLMProvider().aparse_json(
+        build_triage_user_prompt([sentence]), system=TRIAGE_SYSTEM
+    )
+    assert "mock" not in result, (
+        "MockLLMProvider does not recognise the Oracle sentence-triage chain "
+        "— it fell through to the generic fallback. Add a system-prompt "
+        "match in providers/llm/mock.py."
+    )
+    items = result.get("items")
+    assert isinstance(items, list) and items
+    assert items[0]["index"] == 0
+    # Permissive-safe: the mock never hands out an exemption, and it echoes
+    # the sentence verbatim so the caller's document-side citation verifies.
+    assert items[0]["classification"] == "candidate-claim"
+    assert items[0]["sentence_quote"] == sentence
+
+
+@pytest.mark.asyncio
 async def test_mock_recognises_the_oracle_entailment_chain():
     """#404 retrofit — the Oracle's narrow entailment call
     (``services/oracle/audit.py``'s ``_entailment``) went through

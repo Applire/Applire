@@ -155,15 +155,29 @@ def _mentions_company(text: str, company: str | None) -> bool:
     return bool(pattern.search(_normalize_punct(text)))
 
 
-# ── courtesy/meta formula filter (adversarial-pass residual, 2026-07-23) ────
-# An entirely honest letter still scored unverifiable-dominated because pure
-# courtesy openers/closers ("I am writing to express my interest…", "Thank
-# you for your time and consideration.") were extracted as claims and, having
-# no vault-checkable content, piled into the unverifiable bucket. These are
-# formulas, not factual claims about the candidate, so they must never be
-# extracted at all — but conservatively: a clause that ALSO carries a factual
-# assertion keeps its full original text as a real claim (see
-# ``_is_pure_formula_clause`` below).
+# ── courtesy/meta formula vocabulary (adversarial-pass residual, 2026-07-23;
+#    the JUDGEMENT it once carried retired 2026-08-08) ────────────────────────
+#
+# RETIRED (ADR-062 note of 2026-08-08, riding ADR-068's sentence-triage
+# amendment): ``_is_pure_formula_clause`` — "does this sentence assert
+# anything about the candidate?" answered by a phrase list, whose match
+# silently DROPPED the claim with no verdict at all. Word-order variance
+# defeated it on #309's own real-world phrasing ("Gerne stehe ich für ein
+# persönliches Gespräch zur Verfügung." never matched while its re-ordered
+# twin did), and a phrase list cannot answer a judgement. That question now
+# belongs to the ``sentence_triage`` seam (``prompts/oracle_triage.py``),
+# whose answers are visible, quoted ``not_applicable`` verdicts. Deletion,
+# not tuning — ADR-062 clause 3.
+#
+# What SURVIVES here is not that judgement. ``_strip_formula_prefix`` trims a
+# recognized courtesy PREFIX from a clause's stored TEXT, keeping the
+# substantive remainder; it drops nothing, it fails safe to the untouched
+# clause, and the RETAINED deterministic employer-fact pre-filter depends on
+# it (#282's fused-opener re-classification at the bottom of
+# ``extract_claims_from_letter`` keys off "a prefix was actually stripped").
+# Deleting the vocabulary with the judgement would therefore have made
+# seam-down degrade to WORSE than today's behaviour — the opposite of what
+# the amendment retains the pre-filter for.
 #
 # Each pattern's own bounded tail (where present) consumes the typical
 # short "for/in the {role} at {company}" framing that belongs to the SAME
@@ -224,29 +238,6 @@ _FORMULA_FRAMING_WORDS = frozenset(
         "damen", "herren", "und", "sowie",
     }
 )
-
-
-def _is_pure_formula_clause(text: str) -> bool:
-    """True when ``text`` is a courtesy/meta formula with no substantive claim.
-
-    Conservative by construction: only clauses that match at least one known
-    formula seed are considered at all, and even then only when NO content
-    tokens survive after stripping the matched seed(s) and the reader-facing
-    framing words (reusing ``skill_tokens`` — the shared tokenizer, never a
-    fork). A clause naming no formula seed, or one that keeps a real fact
-    after the formula is removed, is left untouched and extracted as usual.
-    """
-    normalized = _normalize_punct(text)
-    residual = normalized
-    matched = False
-    for pattern in _FORMULA_SEED_PATTERNS:
-        new_residual, n = pattern.subn(" ", residual)
-        if n:
-            matched = True
-            residual = new_residual
-    if not matched:
-        return False
-    return not (skill_tokens(residual) - _FORMULA_FRAMING_WORDS)
 
 
 def _strip_formula_prefix(text: str) -> str:
@@ -891,8 +882,6 @@ def extract_claims_from_letter(
             run_state_for_next_sentence = sentence_is_employer_fact
             for ci, clause in enumerate(clauses):
                 if len(clause) < _MIN_CLAIM_CHARS:
-                    continue
-                if _is_pure_formula_clause(clause):
                     continue
                 clause_anchor = effective_anchor
                 if clause_anchor is None and multi:
