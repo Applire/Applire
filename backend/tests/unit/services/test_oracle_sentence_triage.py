@@ -317,10 +317,11 @@ async def test_provider_outage_counts_the_full_triage_set_as_unavailable():
     report = await audit_document(
         "cover_letter", PROFILE, letter_data=LETTER, provider=_ExplodingProvider()
     )
-    triaged = [r for r in report.claims if r.verdict.verdict != "not_applicable"]
-    assert report.judgement_unavailable >= len(triaged), (
+    # No sentence in this fixture is caught by the deterministic pre-filter,
+    # so the full triage set is the whole claim list.
+    assert report.judgement_unavailable >= len(report.claims), (
         report.judgement_unavailable,
-        len(triaged),
+        len(report.claims),
     )
 
 
