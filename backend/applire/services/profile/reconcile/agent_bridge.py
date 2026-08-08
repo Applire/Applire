@@ -50,7 +50,10 @@ from applire.services.keyword_ledger import (
 from applire.services.profile.reconcile.apply import apply_ops
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
-from applire.services.profile.reconcile.stance import record_denials
+from applire.services.profile.reconcile.stance import (
+    exclude_unconfirmed,
+    record_denials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -255,8 +258,13 @@ async def submit_agent_claims(
                 # otherwise flip its own denied concept to claimable with the
                 # denial sentence as the backing evidence — the exact ADR-059
                 # run-#7 blocker, one door over.
+                # ADR-064/#486 — the raw DeniedConcept shape, so this seam
+                # asserts the durable denial's own `denial_level` instead of
+                # defaulting every denial it records to "direct".
                 denied_concepts = [
-                    d.concept for d in current.metadata.denied_concepts if d.concept
+                    d.model_dump(mode="json")
+                    for d in current.metadata.denied_concepts
+                    if d.concept
                 ]
                 # #351 — same door parity, one level down: the containment
                 # branch of the denial predicate needs the vault's own literal
@@ -264,7 +272,12 @@ async def submit_agent_claims(
                 # denial of every concept merely CONTAINED in a denied
                 # compound. Built from `current` (post-apply, pre-persist), so
                 # this claim's own new evidence counts.
-                vault_corpus = profile_literal_corpus(current.model_dump(mode="json"))
+                # #480 step 1 — the CONFIRMED vault only: an `unconfirmed`
+                # entry backs nothing (ADR-061 clause 3) and must not be the
+                # independent affirmation that releases a persisted denial.
+                vault_corpus = profile_literal_corpus(
+                    exclude_unconfirmed(current.model_dump(mode="json"))
+                )
                 new_ledger, changed = upgrade_ledger_for_concepts(
                     gap_row.keyword_ledger,
                     [claim.gap],

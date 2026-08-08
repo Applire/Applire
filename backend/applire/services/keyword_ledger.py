@@ -32,7 +32,11 @@ import logging
 import re
 from typing import Any
 
-from applire.services.profile.reconcile.stance import is_denied_concept
+from applire.services.profile.reconcile.stance import (
+    declared_denial_matches,
+    exclude_unconfirmed,
+    is_denied_concept,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +60,19 @@ _VALID_STATUS = {"direct", "partial", "gap", "denied"}
 # The one place the honest marker is spelled, so the floor and every write seam
 # that records a denial cite identical evidence text.
 DENIED_EVIDENCE = "Candidate explicitly stated a limit here (interview)."
+
+# ADR-059 amended 2026-08-08 (#486) — the floor's OTHER outcome, and the reason
+# it needs its own marker. A concept reached only by CONTAINMENT in a denied
+# compound ("CSS" inside a denied "Tailwind CSS") is floored — never claimable —
+# but the candidate never named it, so writing DENIED_EVIDENCE for it would put
+# testimony in the ledger that was never given (and render it verbatim into a
+# letter: "THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS"). This
+# marker states exactly what is known: no evidence, and a related limit — a fact
+# about the ledger, not a quotation of the candidate.
+DENIAL_FLOOR_EVIDENCE = (
+    "Not claimable: no vault evidence for this concept outside a related limit "
+    "the candidate stated (no statement was made about this term itself)."
+)
 
 
 def _norm(s: str) -> str:
@@ -310,6 +327,101 @@ def _denied_concept_entries(
     return out
 
 
+def _declared_denial_level(
+    concept: str,
+    forms: list[str],
+    entries: list[tuple[str, str]],
+) -> str | None:
+    """The ``denial_level`` to assert for this ledger entry, or ``None`` when
+    NO denied concept declares it (ADR-059 amended 2026-08-08, #486).
+
+    ``None`` is the whole point: it is the answer "this entry is floored by
+    containment, and the candidate never named it" — the case in which a
+    denial may be *refused* but never *asserted*.
+
+    The entry's concept and every surface form are probed against the persisted
+    ``DeniedConcept.concept`` strings through
+    :func:`applire.services.profile.reconcile.stance.declared_denial_matches`
+    (declared branch only, longest match first). Among the declared matches
+    ``"partial"`` wins over ``"direct"`` — the pre-existing
+    ``_enforce_denial_stance`` tie-break, kept verbatim: the product rule is
+    EXACTLY ONE PROBE PER CONCEPT and it is terminal, so once any matching
+    denial was probed to exhaustion the concept is treated as exhausted. That
+    rule is about elicitation, not about which term was declared, so
+    longest-match-first orders the matches without overriding it.
+    """
+    if not entries:
+        return None
+    by_concept: dict[str, str] = {}
+    for d_concept, level in entries:
+        by_concept.setdefault(_norm(d_concept), level)
+    all_denied = [d_concept for d_concept, _level in entries]
+    probes = list(dict.fromkeys([concept, *(forms or [])]))
+    matched: list[str] = []
+    for probe in probes:
+        for match in declared_denial_matches(probe, all_denied):
+            if match not in matched:
+                matched.append(match)
+    if not matched:
+        return None
+    matched_levels = [by_concept.get(_norm(m), "direct") for m in matched]
+    return "partial" if "partial" in matched_levels else "direct"
+
+
+def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
+    """THE one shape a denied ledger row is written in — the assert half of the
+    floor (ADR-059 amended 2026-08-08 clause (b), #486).
+
+    Three writers record a denial: the rebuild floor
+    (:func:`_enforce_denial_stance`), the in-place upgrade seam
+    (:func:`upgrade_ledger_for_concepts`) and #318's persist-seam heal
+    (:func:`assert_claimable_backed`). They used to hold three copies of this
+    dict literal, and the copies had ALREADY diverged — the heal never wrote
+    ``denial_level``, so a rebuild and a heal of the same row produced
+    different entries. One function, one shape, and a lockstep test that fails
+    the moment a fourth copy appears.
+
+    Never called for a containment-only match: writing :data:`DENIED_EVIDENCE`
+    is testimony, and testimony needs a declared term (:func:`_floored_row` is
+    that case's write).
+    """
+    return {
+        **entry,
+        # ADR-059 amended 2026-07-27: the floor writes the STATUS, not merely
+        # the flag. Forcing "gap" here discarded the reason the concept is
+        # unclaimable — downstream could no longer tell a requirement nobody
+        # asked about from one the candidate refused.
+        "status": "denied",
+        "claimable": False,
+        "evidence": DENIED_EVIDENCE,
+        # ADR-064 — mirror the durable denial's level onto the ledger (the
+        # ledger is rebuilt from scratch every run; the DeniedConcept is the
+        # durable home).
+        "denial_level": denial_level,
+    }
+
+
+def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """THE one shape a CONTAINMENT-floored ledger row is written in — the
+    never-upgrade half without the assert half (ADR-059 amended 2026-08-08).
+
+    The concept is reached only by containment in a denied compound and nothing
+    affirms it independently, so it must not be claimed — and the candidate
+    never named it, so nothing may be stated about their testimony. ``gap``
+    (ADR-048's "unknown"), not claimable, with :data:`DENIAL_FLOOR_EVIDENCE`
+    instead of :data:`DENIED_EVIDENCE`.
+
+    ``denial_level`` is deliberately absent (and stripped if the row carried
+    one): the level describes a denial the candidate gave, and this row records
+    none. The row stays eligible for the corpus-aware vault re-evaluation,
+    which keeps its own containment floor — it can only be upgraded by real
+    vault evidence outside the denied compound.
+    """
+    out = {**entry, "status": "gap", "claimable": False, "evidence": DENIAL_FLOOR_EVIDENCE}
+    out.pop("denial_level", None)
+    return out
+
+
 def _enforce_denial_stance(
     ledger: list[dict[str, Any]],
     denied_concepts: list[dict[str, Any]] | list[str] | None,
@@ -336,8 +448,27 @@ def _enforce_denial_stance(
     could quietly disagree (concept-scoped, NOT topic-radius: denying
     "hands-on embeddings config" does not touch an unrelated "RAG" entry).
 
-    ``vault_corpus`` (#249 run-4, 2026-07-24): the profile's own literal text
-    (:func:`profile_literal_corpus`), threaded through to
+    TWO ACTS, TWO WIDTHS (ADR-059 amended 2026-08-08, #486). One predicate was
+    serving two acts of opposite polarity:
+
+      * **refusing the claim** (``claimable: False``) keeps ``is_denied_concept``
+        whole, containment branch included. A false positive here claims LESS,
+        which is ADR-062 clause 5's sanctioned failure direction;
+      * **asserting the denial** (``status="denied"`` + :data:`DENIED_EVIDENCE`)
+        is *testimony* — the ledger stating the candidate said they lack this,
+        rendered verbatim into a letter ("THE CANDIDATE WAS ASKED AND STATED
+        THEY DO NOT HAVE THIS"). It narrows to the DECLARED term
+        (:func:`_declared_denial_level` → ``stance.declared_denial_matches``),
+        never the compound-containment branch. A declared "Tailwind CSS" keeps
+        its own row's ``denied``/``DENIED_EVIDENCE``; a "CSS" row reached only
+        by containment is floored to a non-claimable ``gap`` with
+        :data:`DENIAL_FLOOR_EVIDENCE` (:func:`_floored_row`) — floored, never
+        asserted. Fabricated testimony about a term the candidate never named
+        is the failure that closes.
+
+    ``vault_corpus`` (#249 run-4, 2026-07-24; narrowed by #480 step 1,
+    2026-08-08): the CONFIRMED profile's own literal text
+    (``exclude_unconfirmed`` → :func:`profile_literal_corpus`), threaded through to
     ``is_denied_concept`` so its compound-containment rule ("RAG" is a whole
     word strictly inside the denied "RAG pipeline") can independently affirm
     a BROAD term against real vault evidence instead of always fail-closing
@@ -350,11 +481,15 @@ def _enforce_denial_stance(
     ``denied_concepts`` accepts either the raw ``DeniedConcept`` dicts (which
     carry ``denial_level``, ADR-064) or a plain ``list[str]`` (every caller
     before ADR-064, treated as level ``"direct"``) — see
-    :func:`_denied_concept_entries`. Whichever denied concept matches an
+    :func:`_denied_concept_entries`. Whichever denied concept DECLARES an
     entry, its level is mirrored onto ``denial_level`` on the forced row; when
-    more than one denied concept matches the same ledger entry, ``"partial"``
+    more than one denied concept declares the same ledger entry, ``"partial"``
     wins (the stronger signal — elicitation was exhausted on at least one of
     the matching denials).
+
+    An ``unconfirmed`` vault entry never reaches ``vault_corpus`` (#480 step 1,
+    ADR-061 clause 3): the reconciler's own inference backs nothing, so it may
+    not be the independent affirmation that releases a persisted denial.
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
@@ -389,36 +524,23 @@ def _enforce_denial_stance(
                 "ADR-040 never-claim-beats-claim outranks adjacency inference)",
                 concept,
             )
-        # Second pass: which denied concept(s) contributed, for the sole
-        # purpose of picking ``denial_level`` (never to decide denial itself
-        # — that is already settled above). ``corpus`` is intentionally
-        # omitted here: without it, the compound-containment branch of
-        # ``is_denied_concept`` fail-closes to True on any containment match,
-        # so a per-concept singleton call can only find MORE matches than a
-        # corpus-aware one would, never fewer — safe for a tie-break whose
-        # input entry is already known to be denied.
-        matched_levels = [
-            level
-            for d_concept, level in entries
-            if is_denied_concept(concept, [d_concept], None)
-            or any(is_denied_concept(f, [d_concept], None) for f in forms)
-        ]
-        result.append(
-            {
-                **entry,
-                # ADR-059 amended 2026-07-27: the floor writes the STATUS, not
-                # merely the flag. Forcing "gap" here discarded the reason the
-                # concept is unclaimable — downstream could no longer tell a
-                # requirement nobody asked about from one the candidate refused.
-                "status": "denied",
-                "claimable": False,
-                "evidence": DENIED_EVIDENCE,
-                # ADR-064 — mirror the durable denial's level onto the ledger
-                # (the ledger is rebuilt from scratch every run; the
-                # DeniedConcept is the durable home).
-                "denial_level": "partial" if "partial" in matched_levels else "direct",
-            }
-        )
+        # Second pass — the ASSERT half (ADR-059 amended 2026-08-08, #486).
+        # The entry is floored either way; this decides whether the floor may
+        # also state that the candidate SAID SO. Only a declared denial (the
+        # persisted DeniedConcept naming this concept) may, and it also
+        # supplies the ``denial_level``. A containment-only match is floored
+        # and left silent about testimony that was never given.
+        level = _declared_denial_level(concept, forms, entries)
+        if level is None:
+            logger.info(
+                "_enforce_denial_stance: floored %r without asserting a denial — "
+                "it is only contained in a denied compound the candidate named, "
+                "and no denial names this concept (#486)",
+                concept,
+            )
+            result.append(_floored_row(entry))
+            continue
+        result.append(_denied_row(entry, level))
     return result
 
 
@@ -1255,6 +1377,16 @@ def upgrade_ledger_for_concepts(
     entry (ADR-040 never-claim; ADR-062 clause 5 keeps that floor
     deterministic and deliberately over-broad).
 
+    WHAT A CONTAINMENT-ONLY MATCH MAY WRITE (ADR-059 amended 2026-08-08, #486).
+    The verdicts above are unchanged; what changes is the WRITE. Recording
+    ``denied`` + :data:`DENIED_EVIDENCE` is testimony, and only the DECLARED
+    denial (:func:`_declared_denial_level`) licenses it. A containment-only
+    match with nothing affirming the concept is floored through
+    :func:`_floored_row` instead — non-claimable, honest about being a floor,
+    silent about a statement that was never made. Both writes go through the
+    ONE shared helper this seam, the rebuild floor and #318's heal share, so
+    the three instruments cannot drift apart (clause (b) of that amendment).
+
     HOW #351 AND #352 COMPOSE. #352 widened WHICH entries reach floor 2 (every
     concept-matching one, claimable included) and #351 narrowed WHAT floor 2
     concludes about them, so the two are orthogonal and both hold:
@@ -1281,7 +1413,11 @@ def upgrade_ledger_for_concepts(
 
     upgrade_status = status if status in {"direct", "partial"} else "direct"
     ev = (evidence or "").strip()
-    denials = [d for d in (denied_concepts or []) if _norm(d)]
+    # ADR-064/#486 — the SAME dict-or-str normaliser the rebuild floor uses, so
+    # this seam can assert the durable denial's own ``denial_level`` instead of
+    # guessing "direct". A bare ``list[str]`` caller keeps working unchanged.
+    denial_entries = _denied_concept_entries(denied_concepts)
+    denials = [d_concept for d_concept, _level in denial_entries]
 
     # #351 — the two grounding corpora (see the docstring). Both are built
     # HERE, from this function's own arguments plus the one optional caller
@@ -1331,6 +1467,26 @@ def upgrade_ledger_for_concepts(
         # of singleton calls (the _enforce_denial_stance regression, 2026-07-29:
         # singletons blank only their own phrase and let a sibling denial's
         # leftover text read as independent affirmation).
+        # The ASSERT half first (ADR-059 amended 2026-08-08, #486): a DECLARED
+        # denial names this concept, so recording the candidate's own statement
+        # is honest and absolute — corpus-independent by construction, exactly
+        # as before (both containment checks below are True for a declared
+        # match, so hoisting it changes no verdict, only what may be written).
+        declared_level = _declared_denial_level(concept, forms, denial_entries)
+        if denials and declared_level is not None:
+            logger.info(
+                "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
+                "claimable=%r) — the turn ADDRESSED this requirement by denying "
+                "it (ADR-059 clause 2)",
+                concept,
+                e.get("status"),
+                e.get("claimable"),
+            )
+            denied = _denied_row(e, declared_level)
+            changed = changed or denied != e
+            new_ledger.append(denied)
+            continue
+
         if denials and _entry_is_denied(concept, forms, denials, turn_corpus or None):
             if not _entry_is_denied(concept, forms, denials, full_corpus):
                 # #351 — the turn denies this concept only by containment in a
@@ -1350,19 +1506,22 @@ def upgrade_ledger_for_concepts(
                 )
                 new_ledger.append(e)
                 continue
+            # Containment only, and nothing affirms the concept outside the
+            # denied compound — not the turn, not the vault. The never-upgrade
+            # half fires (the entry is floored, and a standing claim is
+            # reversed, #352) but the assert half does not: the candidate named
+            # the compound, never this concept (#486).
             logger.info(
-                "upgrade_ledger_for_concepts: recorded %r as denied (was %r/"
-                "claimable=%r) — the turn ADDRESSED this requirement by denying "
-                "it (ADR-059 clause 2)",
+                "upgrade_ledger_for_concepts: floored %r (was %r/claimable=%r) "
+                "without asserting a denial — it is only contained in a denied "
+                "compound and nothing affirms it independently (#486)",
                 concept,
                 e.get("status"),
                 e.get("claimable"),
             )
-            e["status"] = "denied"
-            e["claimable"] = False
-            e["evidence"] = DENIED_EVIDENCE
-            changed = True
-            new_ledger.append(e)
+            floored = _floored_row(e)
+            changed = changed or floored != e
+            new_ledger.append(floored)
             continue
 
         # Nothing to upgrade: this turn confirmed nothing (``upgrade=False``),
@@ -1419,6 +1578,19 @@ def reevaluate_gap_ledger_against_vault(
     docstring). ``is_denied_concept`` is checked independently as a second,
     belt-and-braces floor on top of the stripped corpus.
 
+    SKIP-ONLY BY DESIGN (ADR-059 amended 2026-08-08, #486). This function never
+    flips an entry to ``denied`` — it only refuses to upgrade one — so it holds
+    the never-upgrade half and NOTHING of the assert half: containment matching
+    stays whole here, and the declared/containment split has no work to do. Its
+    delegate call to ``upgrade_ledger_for_concepts`` passes no
+    ``denied_concepts`` precisely so that seam's write path stays out of reach.
+    Adding an assert half here would invent testimony from a vault read.
+
+    #480 step 1: the presence corpus is built from the CONFIRMED vault only
+    (``exclude_unconfirmed``) — an unconfirmed entry backs nothing, so it may
+    neither heal a gap here nor release a denial through the containment
+    branch's independent-affirmation check.
+
     Conservative by construction (at least as conservative as #188):
 
     * only ``status == "gap"`` entries are eligible — a ``partial`` entry is
@@ -1440,7 +1612,12 @@ def reevaluate_gap_ledger_against_vault(
     from applire.services.ats_audit import _norm as ats_norm
     from applire.services.ats_audit import surface_present
 
-    stripped_profile = _strip_denial_text(profile_json or {})
+    # #480 step 1 — the presence corpus this floor consults is the CONFIRMED
+    # vault only (ADR-061 clause 3): an `unconfirmed` entry backs nothing, so
+    # it can neither heal a gap here nor release a denial through the
+    # containment branch's independent-affirmation check. Same build-time
+    # filter as `build_keyword_ledger`'s `vault_corpus`.
+    stripped_profile = _strip_denial_text(exclude_unconfirmed(profile_json) or {})
     strings = [s for s in _draft_strings(stripped_profile) if s and s.strip()]
     corpus = ats_norm(" ".join(strings))
 
@@ -1892,10 +2069,15 @@ def assert_claimable_backed(
     (mirrors :func:`_annotate_narrative_backed`).
 
     **HEAL, not raise — and never silent.** A violating row is downgraded:
-    a polarity violation to ``denied``/:data:`DENIED_EVIDENCE` (byte-identical
-    to what a rebuild through ``_enforce_denial_stance`` writes, so the two can
-    never disagree), everything else to ``gap``/``""`` (byte-identical to what
-    the builder writes for an unclassified expectation). Both directions are
+    a polarity violation through :func:`_denied_row` — THE shared denied-write
+    the rebuild floor and the upgrade seam also call, so the three cannot
+    disagree (ADR-059 amended 2026-08-08 clause (b): this heal's "byte-identical
+    to the rebuild" claim was already false — it never wrote ``denial_level``,
+    which ``_enforce_denial_stance`` has always set) — and everything else to
+    ``gap``/``""`` (byte-identical to what the builder writes for an
+    unclassified expectation). A polarity violation reached only by CONTAINMENT
+    heals through :func:`_floored_row` instead: the heal may not write testimony
+    a rebuild of the same row would now refuse to write (#486). Both directions are
     away from claimable, which is ADR-040's never-claim-beats-claim direction.
     Raising was considered and rejected: this runs at a persist seam inside a
     live interview turn or gap analysis, so an exception would convert one bad
@@ -1918,9 +2100,9 @@ def assert_claimable_backed(
 
     # ADR-061 clause 3 — an `unconfirmed` skill/language/certification cannot
     # back a CV bullet, a letter sentence or a `direct` ledger row, so it must
-    # not count as an evidence unit here either.
-    from applire.services.profile.reconcile.stance import exclude_unconfirmed
-
+    # not count as an evidence unit here either. Since #480 step 1 this is the
+    # SHARED pattern, not this seam's local habit: every corpus feeding the
+    # floor/release predicate is built from the confirmed vault.
     confirmed = exclude_unconfirmed(profile_json)
     # The polarity and coherence clauses need no schema — they read the ledger
     # row and a flattened corpus. Only the affirmative floor needs the typed
@@ -1946,12 +2128,10 @@ def assert_claimable_backed(
             exc,
         )
 
-    denials = [
-        concept
-        for concept, _level in _denied_concept_entries(
-            ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
-        )
-    ]
+    denial_entries = _denied_concept_entries(
+        ((profile_json or {}).get("metadata") or {}).get("denied_concepts")
+    )
+    denials = [concept for concept, _level in denial_entries]
 
     healed: list[dict[str, Any]] = []
     violations: list[dict[str, Any]] = []
@@ -1977,8 +2157,27 @@ def assert_claimable_backed(
             {"concept": entry.get("concept", ""), "status": was, "reason": reason}
         )
         if reason in _HEAL_TO_DENIED:
+            # ADR-059 amended 2026-08-08 clause (b) — ONE denied-write shape
+            # for all three writers (:func:`_denied_row`), and the same
+            # declared/containment split the floor makes: healing a
+            # containment-only match to ``denied`` would write testimony a
+            # rebuild of the very same row now refuses to write, which is the
+            # instrument divergence this clause exists to close.
+            level = _declared_denial_level(
+                entry.get("concept", ""),
+                [f for f in (entry.get("surface_forms") or []) if isinstance(f, str)],
+                denial_entries,
+            )
+            if level is None and reason == "denied_evidence":
+                # The row already CARRIES the denial marker (it was written by
+                # a declared match at an earlier seam, or the denial has since
+                # been revoked) — the incoherence is the ``claimable`` flag,
+                # not the testimony. Keep the row's own level.
+                level = entry.get("denial_level") if entry.get("denial_level") in (
+                    "direct", "partial"
+                ) else "direct"
             healed.append(
-                {**entry, "status": "denied", "claimable": False, "evidence": DENIED_EVIDENCE}
+                _denied_row(entry, level) if level is not None else _floored_row(entry)
             )
         else:
             healed.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
@@ -2116,7 +2315,15 @@ def build_keyword_ledger(
         )
 
     ledger = _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
-    vault_corpus = profile_literal_corpus(profile_json)
+    # ADR-059 amended 2026-08-08 step 1 (#480) — the corpus the RELEASE
+    # predicate reads is the CONFIRMED vault only. ``_independently_affirmed``
+    # (via the containment branch) lets literal vault text release a denial;
+    # an ``unconfirmed`` entry is the reconciler's own inference, backs nothing
+    # (ADR-061 clause 3), and must not be what releases one. Filtered at
+    # corpus-BUILD time because by the time the predicate runs the corpus is a
+    # flat string with no statuses left in it — the same pattern
+    # ``assert_claimable_backed`` already applies to its own corpus.
+    vault_corpus = profile_literal_corpus(exclude_unconfirmed(profile_json))
     ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single
