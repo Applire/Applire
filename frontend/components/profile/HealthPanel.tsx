@@ -26,7 +26,11 @@ import { Card } from "@/components/ui/card";
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
 // human — resolved by the profile-review interview, not by a 2-value pick.
-export type HealthThread = "conflict" | "accuracy" | "confirmation";
+// "unit" (#382, PO decision 2026-08-08): a budget figure the vault holds but no
+// document may state, because it carries no unit. Its own thread because it is
+// not a mismatch — the value is exactly what the candidate said — and because
+// Option A's condition is that the omission reaches the user.
+export type HealthThread = "conflict" | "accuracy" | "confirmation" | "unit";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -62,11 +66,12 @@ const SEVERITY_LABEL: Record<HealthSeverity, "severityCritical" | "severityRevie
 
 const THREAD_LABEL: Record<
   HealthThread,
-  "threadConflict" | "threadAccuracy" | "threadConfirmation"
+  "threadConflict" | "threadAccuracy" | "threadConfirmation" | "threadUnit"
 > = {
   conflict: "threadConflict",
   accuracy: "threadAccuracy",
   confirmation: "threadConfirmation",
+  unit: "threadUnit",
 };
 
 function IssueCard({
@@ -92,7 +97,15 @@ function IssueCard({
         </Badge>
         <span className="text-xs text-gray-500">{t(THREAD_LABEL[issue.thread])}</span>
       </div>
-      <p className="text-sm text-neutral-dark">{issue.summary}</p>
+      {/* #382: a `unit` issue is a QUESTION put to the user, so it is asked in
+          their language rather than shown as the backend's log-shaped summary.
+          The other threads keep the summary — it quotes the two conflicting
+          values verbatim, which no translation could reproduce. */}
+      <p className="text-sm text-neutral-dark">
+        {issue.thread === "unit"
+          ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
+          : issue.summary}
+      </p>
       <div className="mt-2 flex justify-end">
         <Button
           size="sm"

@@ -34,6 +34,52 @@ export interface WorkEntryGapFields {
   is_current?: boolean | null;
 }
 
+/**
+ * #382 (PO decision 2026-08-08, Option A) — the join key between a backend
+ * health issue and the work entry on screen.
+ *
+ * Mirrors the backend's `_entry_label` exactly, including Python's
+ * `f"{role} @ {company}".strip(" @")` behaviour for a one-sided entry. It is
+ * used INSTEAD of `WorkEntry.id` because `id` has a UUID default factory: an
+ * entry persisted before that field existed is re-keyed on every load, so two
+ * responses in the same page load can disagree about it.
+ */
+export function workEntryLabel(entry: {
+  role?: string | null;
+  title?: string | null;
+  company?: string | null;
+}): string {
+  const role = (entry.role ?? entry.title ?? "").trim();
+  const company = (entry.company ?? "").trim();
+  return `${role} @ ${company}`.replace(/^[\s@]+|[\s@]+$/g, "");
+}
+
+/** Minimal structural shape of the health issues this module reads. */
+export interface BudgetUnitIssue {
+  thread: string;
+  source_record_ref?: string | null;
+}
+
+/**
+ * The entry labels whose budget figure states no unit (#382).
+ *
+ * The RULE lives in the backend (ADR-066: `utils/budget_unit.py`, surfaced as
+ * the `unit` health thread); this reads the answer only, so the page can put
+ * the fix affordance next to the affected field rather than only in the hub —
+ * the PO's standing condition on omitting the figure from delivered documents.
+ */
+export function budgetUnitIssueLabels(
+  issues: BudgetUnitIssue[] | undefined | null,
+): Set<string> {
+  const labels = new Set<string>();
+  for (const issue of issues ?? []) {
+    if (issue.thread !== "unit") continue;
+    const label = (issue.source_record_ref ?? "").trim();
+    if (label) labels.add(label);
+  }
+  return labels;
+}
+
 export function countWorkEntryGaps(entry: WorkEntryGapFields): number {
   let count = 0;
   // Content gap — mirrors the backend floor field "achievements". `description`

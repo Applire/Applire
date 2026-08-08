@@ -661,7 +661,8 @@
     "proficiency_expert": "Experte",
     "reviewMergeCta": "Änderungen ansehen",
     "importLogTitle": "Was sich in deinem Profil geändert hat",
-    "importLogEmpty": "Dein letzter Import und deine Änderungen werden hier zusammengefasst."
+    "importLogEmpty": "Dein letzter Import und deine Änderungen werden hier zusammengefasst.",
+    "budgetNeedsUnit": "Einheit ergänzen"
   },
   "health": {
     "title": "Profilzustand",
@@ -679,7 +680,9 @@
     "severityInfo": "Hinweis",
     "threadConflict": "Konflikt",
     "threadAccuracy": "Datenabgleich",
-    "threadConfirmation": "Offene Rückfrage"
+    "threadConfirmation": "Offene Rückfrage",
+    "threadUnit": "Fehlende Einheit",
+    "unitBudgetIssue": "Deine Budgetangabe braucht eine Einheit – bis dahin lassen wir sie aus deinen Dokumenten weg ({entry})."
   },
   "profileReview": {
     "title": "Profil prüfen",

@@ -35,6 +35,8 @@ field_gaps            Ordered gap strings; semantic superset of gap_detector_mod
 
 from __future__ import annotations
 
+from applire.utils.budget_unit import budget_needs_unit
+
 __all__ = [
     "FLOOR_FIELDS",
     "CONDITIONAL_FIELDS",
@@ -111,8 +113,16 @@ def field_present(entry: dict, field: str) -> bool:
     - ``end_date``: present when non-empty OR the entry is marked as the
       current position (``is_current is True``, #155) — a current job has no
       end date by convention and must not be re-asked.
-    - Everything else (``budget_managed``, ``industry_context``,
-      ``start_date``): truthy — non-empty string / not None.
+    - ``budget_managed``: present only when the wording carries a UNIT (#382).
+      A bare ``"6000000"`` leaves the question the field was asked to answer
+      still open — six million of what — and since Option A omits such a value
+      from every delivered document, calling it "present" would score a profile
+      as complete for a fact the CV cannot state. Marking it missing is what
+      routes it to the enrichment interview, whose ``budget_managed`` question
+      already asks for "size / currency". Never a guess: the unit is read from
+      the candidate's own wording (``utils.budget_unit``) or asked for.
+    - Everything else (``industry_context``, ``start_date``): truthy —
+      non-empty string / not None.
     """
     value = entry.get(field)
     if field == "achievements":
@@ -122,7 +132,9 @@ def field_present(entry: dict, field: str) -> bool:
     if field == "end_date":
         # #155 — is_current=True means "ongoing"; null end_date is then intentional.
         return bool(value) or entry.get("is_current") is True
-    # budget_managed, industry_context, start_date
+    if field == "budget_managed":
+        return bool(value) and not budget_needs_unit(value)
+    # industry_context, start_date
     # stricter than the old 'is None': an empty string counts as missing
     return bool(value)
 

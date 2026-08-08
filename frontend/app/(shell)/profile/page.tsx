@@ -38,7 +38,12 @@ import {
   type UiLanguage,
 } from "@/components/profile/ProfileSectionCard";
 import { useLocale } from "@/lib/providers/locale-provider";
-import { countWorkEntryGaps, type WorkEntryGapFields } from "@/lib/profile-gaps";
+import {
+  budgetUnitIssueLabels,
+  countWorkEntryGaps,
+  workEntryLabel,
+  type WorkEntryGapFields,
+} from "@/lib/profile-gaps";
 import { enrichmentSourceKey } from "@/lib/enrichment-sources";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -336,6 +341,11 @@ export default function ProfilePage() {
 
   const completenessScore = profile?.completeness ?? 0;
 
+  // #382 — the work entries whose budget figure states no unit, as decided by
+  // the backend (`unit` health thread). Empty until /api/profile/health has
+  // answered, so nothing is asserted about a field before the rule has run.
+  const budgetUnitLabels = budgetUnitIssueLabels(health?.issues);
+
   if (loading) {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
@@ -512,6 +522,52 @@ export default function ProfilePage() {
                                   {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
                                   <span aria-hidden="true">⚠</span>
                                   {t("enrichEntry")}
+                                  {(role || company) && (
+                                    <span className="text-gray-500">
+                                      {role || company}
+                                    </span>
+                                  )}
+                                </span>
+                              </Button>
+                            );
+                          })}
+                      </div>
+                    )}
+                    {/* #382 (PO decision 2026-08-08, Option A): a budget figure
+                        with no unit is omitted from every generated document —
+                        never guessed, never shown as a bare magnitude. The PO
+                        condition is that the omission is addressed to the user
+                        AT THE FIELD, not only as a Health-hub item, so the
+                        one-question fix is offered where the data lives. The
+                        backend owns the rule and names the affected entries
+                        (ADR-066); this only places its answer. */}
+                    {section === "work_experience" && Array.isArray(value) && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(value as Array<Record<string, unknown>>)
+                          .filter((entry) =>
+                            budgetUnitLabels.has(
+                              workEntryLabel(entry as { role?: string; company?: string }),
+                            ),
+                          )
+                          .map((entry, idx) => {
+                            const company = (entry["company"] as string) ?? "";
+                            const role =
+                              (entry["role"] as string) ??
+                              (entry["title"] as string) ??
+                              "";
+                            return (
+                              <Button
+                                key={`budget-unit-${idx}`}
+                                size="sm"
+                                variant="ghost"
+                                data-testid="budget-unit-hint"
+                                className="text-amber-500 hover:text-amber-600 text-xs h-7 px-2"
+                                onClick={() => openEnrichForEntry(company, role)}
+                              >
+                                <span className="flex items-center gap-1">
+                                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                                  <span aria-hidden="true">⚠</span>
+                                  {t("budgetNeedsUnit")}
                                   {(role || company) && (
                                     <span className="text-gray-500">
                                       {role || company}

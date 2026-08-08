@@ -32,6 +32,9 @@ Sources (epic Task 5):
   - **accuracy** thread  ← merge ``enrichment_history`` records, severity from
                            ``escalate(classify_reconciliation, classify_confidence)``
                            (US161 data-loss delta + low merge confidence; US162).
+  - **unit** thread      ← #382 (PO decision 2026-08-08): a work entry whose
+                           ``budget_managed`` states no unit, and which the CV
+                           therefore omits. Always ``review``.
   - **completeness**     ← ``calculate_completeness`` score + ``completeness_gaps``
                            (E026 / US104) — score-only, never severity-tagged.
 
@@ -52,6 +55,7 @@ from applire.schemas.profile import (
     PendingConfirmation,
     ProfileHealthResponse,
 )
+from applire.services.profile.completeness import _entry_label
 from applire.services.profile.completeness import field_gaps as completeness_field_gaps
 from applire.services.profile.severity import (
     classify_conflict,
@@ -59,6 +63,7 @@ from applire.services.profile.severity import (
     classify_reconciliation,
     escalate,
 )
+from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.display import format_display_value
 
 
@@ -100,6 +105,52 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
         field_ref=None,
         source_record_ref=confirmation.source or None,
     )
+
+
+def _unit_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """#382 (PO decision 2026-08-08, Option A) — one issue per work entry whose
+    budget figure states no unit.
+
+    Option A omits such a value from every delivered document. The PO condition
+    on that omission is that it is **addressed to the user**, never silent, so
+    this thread exists to say out loud what the CV is no longer saying: the
+    figure is in the vault, it is not on the page, and one answer puts it back.
+
+    Its own thread rather than ``accuracy``: nothing here is a merge defect or a
+    disagreement between two sources. The value is exactly what the candidate
+    said; what is missing is the unit that would make it mean something. Severity
+    is ``review`` — real and actionable, but a document still generates (it
+    simply omits the line), which is the same call ADR-041 amended made for the
+    equivalent conflict class.
+
+    ``source_record_ref`` carries the **entry label**, not ``WorkEntry.id``:
+    ``id`` has a UUID default factory, so an entry persisted before that field
+    existed is re-keyed on every load and could never satisfy ``HealthIssue.id``'s
+    "stable, deterministic" contract. The label is also the join key
+    ``completeness.field_gaps`` emits and the master profile page already knows,
+    so the page can put the fix affordance next to the affected field.
+    """
+    issues: list[HealthIssue] = []
+    for entry in profile.work_experience or []:
+        if not budget_needs_unit(entry.budget_managed):
+            continue
+        label = _entry_label({"company": entry.company, "role": entry.role})
+        issues.append(
+            HealthIssue(
+                id=f"unit:budget_managed:{label}",
+                thread="unit",
+                profile_mismatch_severity="review",
+                # The stored value is quoted so the user recognises which figure
+                # is meant — it is their own answer, not a system value.
+                summary=(
+                    f"budget_managed: '{entry.budget_managed}' states no unit, so it is "
+                    f"omitted from generated documents ({label})"
+                ),
+                field_ref="work_experience.budget_managed",
+                source_record_ref=label,
+            )
+        )
+    return issues
 
 
 def _reconciliation_loss(reconciliation: dict[str, dict[str, int]] | None) -> int:
@@ -160,7 +211,7 @@ def assess_health(
     explicitly.  Defaults to ``None`` (no suppression) for backwards
     compatibility with existing callers that do not carry the raw record.
     """
-    issues: list[HealthIssue] = []
+    issues: list[HealthIssue] = _unit_issues(profile)
 
     metadata = profile.metadata
     if metadata is not None:
