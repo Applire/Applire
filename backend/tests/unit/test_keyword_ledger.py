@@ -23,7 +23,7 @@ classified against the profile. Python is authoritative for sources/fit_weight;
 the LLM only supplies status/evidence/surface forms.
 """
 
-from applire.services.keyword_ledger import build_keyword_ledger
+from applire.services.keyword_ledger import DENIED_EVIDENCE, build_keyword_ledger
 
 
 def _cls(concept, status, surface_forms=None, evidence=""):
@@ -780,8 +780,12 @@ def test_word_boundary_regression_ai_ml_survives_ml_training_denial():
     assert ai_ml["claimable"] is True
 
     ml = by_concept["Machine learning"]
-    assert ml["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
+    # #486: "machine learning" is reached only by containment in the declared
+    # "machine learning model training", so it is floored without asserting a
+    # denial the candidate never stated about the broader term.
+    assert ml["status"] == "gap"
     assert ml["claimable"] is False
+    assert ml["evidence"] != DENIED_EVIDENCE
 
 
 def test_f8_legaltech_denial_excluded_from_ats_claimable_surface_forms():
@@ -900,8 +904,12 @@ def test_two_denials_sharing_a_substring_still_force_the_floor():
         profile_json=profile_json,
     )
     rag = _by_concept(ledger)["RAG"]
-    assert rag["status"] == "denied"
+    # The floor still FIRES (the never-upgrade half is what this regression is
+    # about); since #486 it fires without asserting testimony about bare "RAG",
+    # which neither denial names.
     assert rag["claimable"] is False
+    assert rag["status"] == "gap"
+    assert rag["evidence"] != DENIED_EVIDENCE
 
 
 def test_enforce_denial_stance_partial_wins_the_level_tie_break():
@@ -1007,7 +1015,10 @@ def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
         profile_json=profile_json,
     )
     rag = _by_concept(ledger)["RAG"]
-    assert rag["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
+    # #486: floored by containment, never asserted — "RAG pipeline" is the
+    # declared term, "RAG" is not.
+    assert rag["claimable"] is False
+    assert rag["status"] == "gap"
     assert rag["claimable"] is False
 
 
@@ -1208,7 +1219,9 @@ def test_build_keyword_ledger_integration_denied_concept_stays_gap_not_claimable
         profile_json=profile_json,
     )
     entry = _by_concept(ledger)["Embeddings"]
-    assert entry["status"] == "denied"  # ADR-059 amended 2026-07-27: the floor writes "denied", not "gap"
+    # #486: "Embeddings" is contained in the declared "hands-on embedding model
+    # configuration" — floored, never asserted as testimony about the bare term.
+    assert entry["status"] == "gap"
     assert entry["claimable"] is False
 
 

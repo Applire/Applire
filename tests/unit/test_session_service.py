@@ -4404,16 +4404,25 @@ class TestInterviewDoorGroundsTheContainmentFloor:
         assert entry["evidence"] == ""
 
     @pytest.mark.asyncio
-    async def test_a_denial_the_vault_does_not_contradict_is_still_recorded(
+    async def test_a_denial_the_vault_does_not_contradict_still_floors_the_row(
         self, sqlite_session
     ):
         """The floor is narrowed, not disabled: nothing affirms RAG outside
-        the denied "RAG pipeline", so the denial is recorded as before."""
-        from applire.services.keyword_ledger import DENIED_EVIDENCE
+        the denied "RAG pipeline", so the requirement stays unclaimable.
+
+        ADR-059 amended 2026-08-08 (#486): the candidate declared the compound,
+        never bare "RAG", so this door floors the row without writing testimony
+        about a term the candidate never named."""
+        from applire.services.keyword_ledger import (
+            DENIAL_FLOOR_EVIDENCE,
+            DENIED_EVIDENCE,
+        )
 
         entry = await self._run(
             sqlite_session, ["RAG pipeline"], "RAG", ["Python"],
             "I have never built a RAG pipeline.",
         )
-        assert entry["status"] == "denied"
-        assert entry["evidence"] == DENIED_EVIDENCE
+        assert entry["claimable"] is False
+        assert entry["status"] == "gap"
+        assert entry["evidence"] == DENIAL_FLOOR_EVIDENCE
+        assert entry["evidence"] != DENIED_EVIDENCE

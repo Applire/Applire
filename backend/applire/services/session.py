@@ -70,7 +70,11 @@ from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
-from applire.services.profile.reconcile.stance import is_denied_concept, record_denials
+from applire.services.profile.reconcile.stance import (
+    exclude_unconfirmed,
+    is_denied_concept,
+    record_denials,
+)
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
     concept_is_required,
@@ -1839,18 +1843,26 @@ async def _upgrade_ledger_for_addressed_gap(
     # vault re-evaluation picks it up once the testimony lands.
     profile_record = await _load_profile(state["profile_id"], db)
     profile_json = (profile_record.profile_json if profile_record else None) or {}
-    denied_concepts = [
-        d.get("concept", "")
+    # ADR-064/#486 — the RECORDS, not just the concept strings: the in-place
+    # seam asserts the durable denial's own `denial_level`, exactly as a
+    # rebuild through `_enforce_denial_stance` does. The bare concept list is
+    # what the local eligibility check needs.
+    denied_records = [
+        d
         for d in (profile_json.get("metadata") or {}).get("denied_concepts") or []
         if isinstance(d, dict) and d.get("concept")
     ]
+    denied_concepts = [d["concept"] for d in denied_records]
     # #351 — the vault's own literal text (denial testimony stripped), so the
     # containment branch of the denial predicate can be judged against real
     # evidence instead of fail-closing. Same instrument and same input
     # `_enforce_denial_stance` and `reevaluate_gap_ledger_against_vault`
     # already use; this door was the third of ADR-064's "all three places"
     # and the only one that passed nothing.
-    vault_corpus = profile_literal_corpus(profile_json)
+    # #480 step 1 — the CONFIRMED vault only: an `unconfirmed` entry backs
+    # nothing (ADR-061 clause 3), so it must not be the independent
+    # affirmation that releases a persisted denial at this seam either.
+    vault_corpus = profile_literal_corpus(exclude_unconfirmed(profile_json))
 
     answer_norm = ats_norm(answer or "")
     by_concept = {
@@ -1879,7 +1891,7 @@ async def _upgrade_ledger_for_addressed_gap(
         gap.keyword_ledger,
         eligible,
         answer,
-        denied_concepts=denied_concepts,
+        denied_concepts=denied_records,
         upgrade=upgrade,
         vault_corpus=vault_corpus,
     )

@@ -31,6 +31,7 @@ denial sentence stored as their backing evidence.
 """
 
 from applire.services.keyword_ledger import (
+    DENIAL_FLOOR_EVIDENCE,
     DENIED_EVIDENCE,
     _enforce_denial_stance,
     build_keyword_ledger,
@@ -343,10 +344,14 @@ class TestCompoundContainmentDoesNotDenyAnAffirmedHeadNoun:
         assert out[0]["evidence"] == ""
         assert changed is False
 
-    def test_containment_with_no_independent_affirmation_still_records_denied(self):
-        """The floor is narrowed, not removed: with nothing affirming the head
-        noun outside the denied compound — not the turn, not the vault — the
-        pre-#351 fail-closed verdict stands."""
+    def test_containment_with_no_independent_affirmation_is_floored_not_asserted(self):
+        """The never-upgrade half is narrowed, not removed: with nothing
+        affirming the head noun outside the denied compound — not the turn, not
+        the vault — the pre-#351 fail-closed FLOOR stands.
+
+        ADR-059 amended 2026-08-08 (#486) splits what may then be WRITTEN: the
+        candidate declared "RAG pipeline", never bare "RAG", so the row is
+        floored without asserting testimony about it."""
         answer = "I have never built a RAG pipeline."
         out, changed = upgrade_ledger_for_concepts(
             [_entry("RAG")],
@@ -355,9 +360,10 @@ class TestCompoundContainmentDoesNotDenyAnAffirmedHeadNoun:
             denied_concepts=["RAG pipeline"],
             vault_corpus=profile_literal_corpus({"skills": [{"name": "Python"}]}),
         )
-        assert out[0]["status"] == "denied"
+        assert out[0]["status"] == "gap"
         assert out[0]["claimable"] is False
-        assert out[0]["evidence"] == DENIED_EVIDENCE
+        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
+        assert out[0]["evidence"] != DENIED_EVIDENCE
         assert changed is True
 
     def test_a_denial_naming_the_concept_itself_is_untouched_by_the_carve_out(self):
@@ -389,8 +395,11 @@ class TestCompoundContainmentDoesNotDenyAnAffirmedHeadNoun:
             [_entry("CSS")], ["CSS"], CSS_PURE_DENIAL_ANSWER,
             denied_concepts=["Tailwind CSS"],
         )
-        assert out[0]["status"] == "denied"
-        assert out[0]["evidence"] == DENIED_EVIDENCE
+        # Still floored (#351's fail-closed default), and since #486 floored
+        # WITHOUT the testimony marker — "CSS" is nobody's declared term.
+        assert out[0]["claimable"] is False
+        assert out[0]["status"] == "gap"
+        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
         assert changed is True
 
     def test_german_compound_with_a_separate_head_noun(self):
@@ -485,9 +494,11 @@ class TestCompoundContainmentComposedWithTheReversalSeam:
             vault_corpus=profile_literal_corpus({"skills": [{"name": "Python"}]}),
         )
         assert changed is True
-        assert out[0]["status"] == "denied"
         assert out[0]["claimable"] is False
-        assert out[0]["evidence"] == DENIED_EVIDENCE
+        # #486: the reversal is a FLOOR, not a fabricated statement about
+        # testimony — the retraction named the compound, not the head noun.
+        assert out[0]["status"] == "gap"
+        assert out[0]["evidence"] == DENIAL_FLOOR_EVIDENCE
 
     def test_a_declared_denial_still_reverses_through_the_carve_out(self):
         """The carve-out must not become an escape hatch for #352: a denial
