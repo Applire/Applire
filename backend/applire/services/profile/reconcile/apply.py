@@ -63,6 +63,7 @@ from applire.services.profile.reconcile.dedupe import (
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
+    AddRole,
     ApplyImportMerge,
     CloseRole,
     CommitOp,
@@ -405,6 +406,11 @@ def apply_ops(
             new_profile = _apply_resolve_field(op, new_profile, changes)
         elif isinstance(op, ResolveConfirmation):
             _apply_resolve_confirmation(op, new_profile, changes)
+        elif isinstance(op, AddRole):
+            # #480 PR 6 — the post-hire act. Un-adjudicated by design: see the
+            # op's docstring on why the dupe guard belongs in front of model
+            # output and not in front of a human filling in a form.
+            _apply_add_role(op, new_profile, ref_map, changes)
         elif isinstance(op, CloseRole):
             # #480 PR 6 — the act of ending a role, and the ONE place the #155
             # tri-state convention is implemented.
@@ -996,6 +1002,58 @@ def _apply_resolve_confirmation(
             new_value=op.chosen_option,
             rationale="Recorded your answer to a confirmation question.",
             rationale_key="confirmation_resolved",
+        )
+    )
+
+
+def _apply_add_role(
+    op: AddRole,
+    profile: MasterProfileData,
+    ref_map: dict[str, ExperienceBase],
+    changes: list[FieldChange],
+) -> None:
+    """Create the role the candidate just started — at the TOP, un-adjudicated.
+
+    Two properties are the whole reason this op exists rather than an
+    ``UpsertWork`` (see the op's docstring for the refutations that produced the
+    ruling):
+
+    * **index 0.** Nothing sorts ``work_experience``; the array order is what
+      the profile page renders and what the CV generator receives. The newest
+      role goes first, as this intake has always placed it.
+    * **no dupe classification.** ``classify_engagement_dupe`` guards writes
+      whose entity identity the MODEL decided. This one the candidate decided,
+      and §7.4 rules that the committer does not re-adjudicate direct user
+      input. An internal promotion therefore creates the second role instead of
+      parking a confirmation and creating nothing.
+
+    ``is_current=True`` is part of the act (#155). The entry is registered in the
+    batch ref-map under its own id so a later op in the same batch can reach it.
+    """
+    entry = WorkEntry(
+        id=op.id,
+        company=op.company,
+        role=op.role,
+        location=op.location,
+        start_date=op.start_date,
+        end_date=None,
+        is_current=True,
+        industry_context=op.industry_context,
+    )
+    profile.work_experience.insert(0, entry)
+    ref_map[op.id] = entry
+    changes.append(
+        FieldChange(
+            section="work_experience",
+            field=f"[{entry.id}]",
+            action="added",
+            new_value={
+                "company": entry.company,
+                "role": entry.role,
+                "start_date": entry.start_date,
+            },
+            rationale="Added the role you have just started.",
+            rationale_key="role_added",
         )
     )
 

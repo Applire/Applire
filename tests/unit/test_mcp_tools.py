@@ -1179,38 +1179,24 @@ async def test_import_cv_text_happy_path():
 
 # ---------------------------------------------------------------------------
 # add_role_to_profile service
+#
+# `test_add_role_to_profile_persists_and_returns_response` lived here until
+# #480 PR 6 and was REMOVED rather than adapted. It patched
+# `role_add.MasterProfileData` and `role_add.apply_add_role` — the function
+# under test — and then asserted that the mock's own `new_role_id` came back
+# out, plus `record.profile_json == {}`, i.e. that the writer assigned
+# `profile_json` directly. That assignment is exactly what ADR-063 removes, so
+# the test pinned the defect, and its other assertions were about mocks rather
+# than behaviour.
+#
+# Its real-behaviour successors run against a FILE-BACKED database and re-read
+# over a separate connection, which is the only way to catch the failure mode
+# that matters here (a missing `db.commit()` after the committer's flush):
+# `tests/unit/test_commit_ops_pr6_door_writes.py` —
+# `test_rest_add_role_door_write_survives_the_request`,
+# `test_mcp_add_role_door_write_survives_the_request`, and
+# `test_both_doors_produce_the_same_vault_state`.
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_add_role_to_profile_persists_and_returns_response():
-    from applire.services.profile.role_add import add_role_to_profile
-    from applire.schemas.profile_roles import AddRoleRequest
-
-    cm, session = _mock_db()
-    record = MagicMock()
-    record.id = uuid.uuid4()
-    record.profile_json = {"work_experience": [], "skills": []}
-    res = MagicMock(); res.scalar_one_or_none.return_value = record
-    session.execute = AsyncMock(return_value=res)
-    session.commit = AsyncMock()
-
-    req = AddRoleRequest(
-        title="QA Director", company="Acme GmbH", start_date="2026-05-01", source="manual",
-    )
-    with patch("applire.services.profile.role_add.MasterProfileData") as MPD, \
-         patch("applire.services.profile.role_add.apply_add_role") as apply_mock:
-        prof = MagicMock(); prof.model_dump.return_value = {}; prof.calculate_completeness.return_value = 0.9
-        MPD.model_validate.return_value = prof
-        outcome = MagicMock(); outcome.profile = prof; outcome.new_role_id = "w-new"; outcome.closed_role_ids = []
-        apply_mock.return_value = outcome
-
-        async with cm as db:
-            resp = await add_role_to_profile(req, db)
-    assert resp.new_role_id == "w-new"
-    assert resp.completeness_score == 0.9
-    session.commit.assert_called_once()
-    assert record.profile_json == {}  # outcome.profile.model_dump() returned {}
 
 
 # ---------------------------------------------------------------------------
