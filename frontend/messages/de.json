@@ -1104,7 +1104,8 @@
     "action": {
       "added": "hinzugefügt",
       "updated": "geändert",
-      "merged": "zusammengeführt"
+      "merged": "zusammengeführt",
+      "removed": "entfernt"
     },
     "section": {
       "work_experience": "Berufserfahrung",
@@ -1136,7 +1137,10 @@
       "reconcile_added": "Aus dieser Quelle ergänzt.",
       "reconcile_merged": "In dein bestehendes Profil zusammengeführt.",
       "reconcile_updated": "Eine fehlende Angabe ergänzt.",
-      "reconcile_summary": "Deine berufliche Zusammenfassung aktualisiert."
+      "reconcile_summary": "Deine berufliche Zusammenfassung aktualisiert.",
+      "manual_section_added": "Beim Bearbeiten dieses Abschnitts ergänzt.",
+      "manual_section_updated": "Beim Bearbeiten dieses Abschnitts geändert.",
+      "manual_section_removed": "Beim Bearbeiten dieses Abschnitts entfernt."
     }
   },
   "mergeGate": {

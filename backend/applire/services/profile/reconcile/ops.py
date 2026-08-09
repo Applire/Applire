@@ -32,9 +32,14 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from applire.schemas.profile import FieldChange, MasterProfileData
+from applire.schemas.profile import (
+    OBJECT_SECTIONS,
+    VAULT_SECTIONS,
+    FieldChange,
+    MasterProfileData,
+)
 
 
 # ── Entity ops ────────────────────────────────────────────────────────────────
@@ -252,6 +257,80 @@ class RequestConfirmation(BaseModel):
     context: dict = Field(default_factory=dict)
 
 
+class ReplaceSection(BaseModel):
+    """A human replaces one whole section of the vault — ADAPTER-ONLY.
+
+    ADR-063 clause 8(e) / the 2026-08-09 amendment clause 1 (#480 design §4.1).
+    This is the typed form of the act the PATCH intake has always performed, and
+    routing it through the committer is how the CV section editor's remaining
+    truthfulness exposure closes: the editor calls ``patch_profile_section``
+    (#336), so once THIS is the op that intake emits, every manual document edit
+    inherits the committer's invariant set transitively (FMEA SF-VAULT.4's write
+    half; the read-side release corpus is PR 4).
+
+    **Semantics — exactly today's PATCH contract, no policy moved:**
+
+    * ``section`` in ``OBJECT_SECTIONS`` (``personal_info``,
+      ``professional_summary``) takes RFC-7386-style **merge-patch** (#178):
+      supplied keys win, an explicit ``null`` clears a field, an omitted key
+      keeps its current value. A partial object must never wipe what it did not
+      mention.
+    * every other section is a list and is **replaced wholesale** — which is
+      what both doors advertise ("always send the complete list").
+
+    **Guarded by the section vocabulary.** ``section`` validates against
+    ``VAULT_SECTIONS``, so ``metadata`` — ``denied_concepts``,
+    ``enrichment_history``, the parked lists — is structurally unreachable: a
+    section replace can never release a persisted denial or forge its own audit
+    trail. That is the same reason ``SetProfileMeta`` (PR 7) carries a key enum
+    rather than a free-form path.
+
+    **Adapter-only, and that is what makes deletion safe.** It lives in
+    ``DecisionOp``; ``engine._parse_ops`` validates raw model JSON against
+    ``ReconcileOp`` alone, so a hallucinated ``{"op": "replace_section", …}`` is
+    dropped before it is ever an object. The model can therefore never emit a
+    deletion — only a human editing a section can (as they always could).
+
+    **Deletions are diffed and receipted, not refused** (§7.7 ruling, ADR-063
+    amended 2026-08-09 clause 8). Removal is already expressible through today's
+    PATCH — this is the same capability with a per-entry receipt instead of one
+    opaque blob, which is the defect it closes. Whether removal-shaped diffs
+    should instead be refused and routed through an explicit confirmed
+    ``RemoveEntry`` act is **deferred to Finetuner (#507)**; it is not
+    re-argued here.
+    """
+
+    op: Literal["replace_section"] = "replace_section"
+    section: str
+    #: The section payload. ``Any`` because the sections are heterogeneous (a
+    #: dict for the two object sections, a list of entry dicts otherwise); the
+    #: applier round-trips it through ``MasterProfileData`` exactly as the PATCH
+    #: intake always did, so schema validation is unchanged.
+    value: Any = None
+    #: **Carried, not enforced.** The design (§4.1) names an optional digest of
+    #: the section state the edit was composed against — the raw material for a
+    #: lost-update check ("someone else changed this section since you loaded
+    #: it"). No door supplies one today and nothing reads it, so this records
+    #: the adapter's basis when it has one and changes no behaviour. REFUSING a
+    #: stale edit is a product decision nobody has taken; it is deliberately not
+    #: taken here by accident.
+    basis_digest: str | None = None
+
+    @field_validator("section")
+    @classmethod
+    def _section_must_be_editable(cls, value: str) -> str:
+        if value not in VAULT_SECTIONS:
+            raise ValueError(
+                f"Invalid section '{value}'. Valid: {sorted(VAULT_SECTIONS)}"
+            )
+        return value
+
+    @property
+    def is_object_section(self) -> bool:
+        """Whether this section merge-patches (#178) instead of replacing."""
+        return self.section in OBJECT_SECTIONS
+
+
 class ApplyImportMerge(BaseModel):
     """The import path's whole-merge act — ADAPTER-ONLY, IMPORT-ONLY.
 
@@ -336,6 +415,11 @@ class ApplyImportMerge(BaseModel):
 # the same rule: it is constructed only by the import writers, it is far more
 # powerful than anything the model may say, and the split is what guarantees a
 # hallucinated ``apply_import_merge`` can never reach the applier.
+#
+# ``ReplaceSection`` joined in PR 3, and the split is what makes its deletion
+# semantics safe: replacing a section can DROP entries, so if the model could
+# emit one, a hallucinated ``replace_section`` would be a silent way to delete
+# vault facts nobody retracted. Only a human editing a section reaches it.
 
 _MODEL_EMITTABLE = (
     UpsertWork,
@@ -355,9 +439,9 @@ _MODEL_EMITTABLE = (
     RequestConfirmation,
 )
 
-# Adapter-only ops. PR 3+ adds ``ReplaceSection``/``ResolveField``/
+# Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5+ adds ``ResolveField``/
 # ``ResolveConfirmation``/``CloseRole``/``SetProfileMeta`` here.
-_ADAPTER_ONLY = (DemoteSkill, ApplyImportMerge)
+_ADAPTER_ONLY = (DemoteSkill, ApplyImportMerge, ReplaceSection)
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 

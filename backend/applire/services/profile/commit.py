@@ -87,10 +87,11 @@ from applire.services.profile.reconcile.apply import _ensure_loadable, apply_ops
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
 from applire.services.profile.reconcile.stance import record_denials
-from applire.services.skill_enrichment import enrich_skills_deterministic
+from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 
 if TYPE_CHECKING:  # pragma: no cover — import cost only
     from applire.providers.embedding.base import EmbeddingProvider
+    from applire.providers.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +118,10 @@ class SnapshotClass(str, Enum):
 class EnrichPolicy(str, Enum):
     """Which half of the skill enrichment the commit runs (ADR-058 clause 2)."""
 
-    #: Phase 1 only — no provider, no LLM call, no network. The default, and
-    #: unconditional: provenance and computed durations are not optional.
+    #: Phase 1 always; phase 2 (the LLM duration estimate) only when the caller
+    #: also supplies `llm_provider`. The default, and the deterministic half is
+    #: unconditional: provenance and computed durations are not optional, and
+    #: must never depend on how the caller happened to be wired (#337).
     DETERMINISTIC = "deterministic"
     #: For callers that have already enriched the profile they hand over (the
     #: import path runs `enrich_skills` with a provider before reaching here).
@@ -228,6 +231,7 @@ async def commit_ops(
     ambiguities: Sequence[RequestConfirmation] = (),
     park_confirmations: bool = True,
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
+    llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
     """Apply `ops` to the Master Profile and persist the result. One write path.
@@ -263,6 +267,13 @@ async def commit_ops(
             point parking is unconditional again. `CommitResult` still reports
             the asks either way — this governs durability, not visibility.
         enrichment: which half of the skill enrichment to run.
+        llm_provider: when supplied (and `enrichment` is `DETERMINISTIC`), the
+            phase-2 LLM duration estimate is layered ON TOP of the deterministic
+            pass for skills no dated role could date. `None` runs the
+            deterministic half alone — never nothing. This is the #337 split
+            expressed as one parameter: the deterministic half is an invariant,
+            the LLM half is an enhancement, and no door may lose the former by
+            omitting a provider.
         embedding_provider: `None` leaves `master_profiles.embedding` stale and
             says so once (§7.2).
 
@@ -343,9 +354,15 @@ async def commit_ops(
     refloored: list[FieldChange] = []
 
     # ── Invariant 6 — deterministic skill enrichment, unconditional ──────────
+    # `enrich_skills` IS the deterministic pass plus the LLM estimate for the
+    # skills it could not date, so a provider layers phase 2 on top rather than
+    # replacing phase 1 — the property #337 fixed and ADR-058 clause 2 requires.
     if enrichment is EnrichPolicy.DETERMINISTIC:
         metadata = profile.metadata
-        profile = enrich_skills_deterministic(profile)
+        if llm_provider is not None:
+            profile = await enrich_skills(profile, llm_provider)
+        else:
+            profile = enrich_skills_deterministic(profile)
         profile.metadata = metadata
 
     # ── Invariant 3 + 7 — the trail is unconditional; the receipt is separate ─

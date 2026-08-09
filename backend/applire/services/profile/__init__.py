@@ -64,6 +64,7 @@ from applire.services.profile.commit import (
     commit_ops,
 )
 from applire.services.profile.extract_segmented import extract_with_fallback
+from applire.services.profile.field_edit import build_replace_section_op
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.reconcile.ops import ApplyImportMerge
 from applire.services.reviewer import review_and_refine
@@ -82,6 +83,8 @@ from applire.schemas.profile import (
     ProfileHealthResponse,
     ProfileMetadata,
     StagedResolveResponse,
+    OBJECT_SECTIONS,
+    VAULT_SECTIONS,
 )
 from applire.services.profile.expectations import annotate_expected_fields
 from applire.services.profile.health import assess_health
@@ -136,25 +139,13 @@ async def _compute_embedding(
     return vector
 
 
-_VALID_SECTIONS = {
-    "personal_info",
-    "professional_summary",
-    "work_experience",
-    "education",
-    "certifications",
-    "skills",
-    "languages",
-    "publications",
-    "volunteer_activities",
-    # ADR-055 — stories are list-shaped (replace semantics like other lists)
-    "signature_stories",
-}
-
-# #178: object-shaped sections take merge-patch semantics (RFC-7386 style) — a
-# partial dict must never wipe unsupplied fields; Pydantic re-validation would
-# re-default every omitted key ("" / null) and the JSONB write makes that
-# permanent (no snapshot on this path).
-_OBJECT_SECTIONS = {"personal_info", "professional_summary"}
+# The manually editable section vocabulary. It moved to `schemas/profile.py`
+# with #480 PR 3 so the `ReplaceSection` op can validate against the SAME set
+# without importing this package (an import cycle) — the guard belongs to the
+# op, not to one door. These names stay as the module's public handles: the MCP
+# tool builds its description from `_VALID_SECTIONS`, and the set is unchanged.
+_VALID_SECTIONS = VAULT_SECTIONS
+_OBJECT_SECTIONS = OBJECT_SECTIONS
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
@@ -626,84 +617,79 @@ async def patch_profile_section(
     source_session_id: str | None = None,
     provider: LLMProvider | None = None,
 ) -> MasterProfileResponse:
-    if section not in _VALID_SECTIONS:
-        raise ValueError(f"Invalid section '{section}'. Valid: {sorted(_VALID_SECTIONS)}")
+    """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
+
+    #480 PR 3 (ADR-063 clause 8(d)/(e)). This used to be its own little write
+    path: validate, enrich, mint one blob-shaped `EnrichmentRecord`, assign
+    `profile_json`. It is now an adapter plus a call — the shaping decisions
+    (which section, object or list, how to decode the payload) stay here in a
+    pure function, and every guarantee about the WRITE belongs to the committer.
+
+    What the edit gains by moving, over what it did before:
+
+    * a **per-entry receipt**, removals included, instead of one opaque
+      "section updated, old → new" blob (§7.7 / ADR-063 amended clause 8);
+    * the trail is minted **unconditionally**, by one implementation;
+    * the completeness recompute and both clocks come from the same place as
+      every other intake, so they cannot drift apart per writer;
+    * the ADR-063 clause-6 write token, and the invariant-2 persisted-denial
+      re-floor the moment PR 4 lands — a manual edit inherits it for free.
+
+    Everything the two doors observe is unchanged: `_VALID_SECTIONS` refusals
+    (`ValueError` → 422 / `invalid_input`), the #178 merge-patch semantics for
+    object sections, wholesale replacement for lists, the response shape, and
+    the STATUS a skill arrives with (the payload's own, or the schema default —
+    the op round-trips the section through `MasterProfileData` exactly as this
+    function always did, and nothing on the write path touches `status`).
+
+    `grounding=None`: a manual edit is a DIRECT act. The committer never
+    re-adjudicates the user (§7.4 ruling, ADR-061 clause 2) — requiring turn
+    text here would put an LLM adjudication in front of every keystroke the
+    candidate makes about their own history.
+
+    The CV section editor reaches the vault through this function (#336), so it
+    inherits all of the above transitively — which is the write half of FMEA
+    SF-VAULT.4's laundering shape. The read half (the denial-release corpus)
+    is PR 4.
+    """
+    # Pure adapter first: a mis-shaped payload is refused before anything
+    # touches the database, exactly as it was.
+    op = build_replace_section_op(section, value)
 
     record = await _get_latest(db)
     if not record:
         raise LookupError("No profile found")
 
-    profile_data = MasterProfileData.model_validate(record.profile_json)
-    old_value = profile_data.model_dump(mode="json").get(section)
-
-    # Apply section update
-    # Decode JSON strings — guards against frontend sending double-encoded data
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            pass
-    updated_dict = profile_data.model_dump(mode="json")
-    if section in _OBJECT_SECTIONS:
-        if not isinstance(value, dict):
-            raise ValueError(
-                f"Section '{section}' expects an object; supplied keys are merged "
-                f"(an explicit null clears a field)."
-            )
-        # Merge-patch (#178): supplied keys win — an explicit null clears a
-        # field, an omitted key keeps its current value.
-        merged = dict(updated_dict.get(section) or {})
-        merged.update(value)
-        updated_dict[section] = merged
-        value = merged  # the enrichment trail records the effective section state
-    else:
-        updated_dict[section] = value
-    validated = MasterProfileData.model_validate(updated_dict)
-
-    # Re-run enrichment when skills or work_experience are patched (keeps years fresh).
-    # #337 / ADR-063 clause 4 — the DETERMINISTIC half runs unconditionally. A
-    # skill's duration and provenance must never depend on whether the caller
-    # happened to pass a provider: that made the same edit behave differently on
-    # the UI and agent doors, which ADR-058 clause 2 forbids. The LLM estimate
-    # stays an enhancement layered on top when a provider is available.
-    if section in {"work_experience", "skills"}:
-        validated = (
-            await enrich_skills(validated, provider)
-            if provider is not None
-            else enrich_skills_deterministic(validated)
-        )
-
-    # Build enrichment record
-    action = "updated" if old_value else "added"
-    enrichment = _make_enrichment_record(
-        source=source,
-        section=section,
-        action=action,
-        old_value=old_value,
-        new_value=value,
-        session_id=source_session_id,
+    result = await commit_ops(
+        db,
+        [op],
+        CommitProvenance(
+            source=source,
+            intake="field_edit",
+            session_id=source_session_id,
+            actor="candidate",
+        ),
+        record=record,
+        # A direct act — see the docstring.
+        grounding=None,
+        # ADR-063 amendment (5) / #339: snapshot coverage stays with the import
+        # writers. A manual edit captured none before and captures none now;
+        # the omission is a parameter that says so, not a silent gap.
+        snapshot=None,
+        # #337 — the deterministic half runs regardless (the committer's
+        # invariant 6); the LLM estimate is layered on only where this intake
+        # ever ran it, so no door starts paying for an LLM call it did not make
+        # before. Widening it to every section would be a cost decision nobody
+        # has taken.
+        llm_provider=provider if section in {"work_experience", "skills"} else None,
     )
 
-    now = datetime.now(timezone.utc)
-    if validated.metadata is None:
-        validated.metadata = ProfileMetadata(
-            completeness_score=validated.calculate_completeness(),
-            created_via="manual",
-            created_at=record.created_at,
-            last_updated=now,
-            enrichment_history=[enrichment],
-        )
-    else:
-        validated.metadata.completeness_score = validated.calculate_completeness()
-        validated.metadata.last_updated = now
-        validated.metadata.enrichment_history.append(enrichment)
-
     # TODO US179: edited/added roles here get the lean-floor expectation set until a provider is threaded in (fast-follow). Floor fallback is safe (under-asks).
-    record.profile_json = validated.model_dump(mode="json")
-    record.updated_at = now
+    # Flush-not-commit (ADR-063 amended clause 6): the door owns its
+    # transaction — dropping this line is a silent no-write.
     await db.commit()
-    await db.refresh(record)
-    return _to_response(record)
+    await db.refresh(result.record)
+    return _to_response(result.record)
 
 
 async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:

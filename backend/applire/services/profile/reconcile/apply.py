@@ -47,6 +47,7 @@ from applire.schemas.profile import (
     Publication,
     SignatureStory,
     Skill,
+    VAULT_SECTIONS,
     VolunteerActivity,
     WorkEntry,
     _coerce_partial_date,
@@ -65,6 +66,7 @@ from applire.services.profile.reconcile.ops import (
     CommitOp,
     DemoteSkill,
     FlagConflict,
+    ReplaceSection,
     RequestConfirmation,
     SetField,
     SetPersonalInfo,
@@ -383,6 +385,12 @@ def apply_ops(
             _apply_flag_conflict(op, resolve, source, conflicts)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
+        elif isinstance(op, ReplaceSection):
+            # #480 PR 3 — the manual section edit, as a typed act. Returns a
+            # freshly validated profile because a section replace re-shapes a
+            # whole branch of the tree (the PATCH intake always round-tripped
+            # the dict through `MasterProfileData`; that is unchanged).
+            new_profile = _apply_replace_section(op, new_profile, changes)
         elif isinstance(op, ApplyImportMerge):
             # #480 PR 2 — the import's whole-merge act. Deterministic code
             # already decided every field (see the op's docstring for why no op
@@ -487,6 +495,229 @@ def _updated(section: str, field: str, old: Any, new: Any) -> FieldChange:
         rationale=f"Filled empty {field} on {section} via reconciliation.",
         rationale_key="reconcile_updated",
     )
+
+
+# ── ReplaceSection: the manual section edit, diffed per entry ─────────────────
+#
+# #480 PR 3 / ADR-063 amended 2026-08-09 clause 8. Until now a manual section
+# edit left ONE `FieldChange` carrying the whole section before and after — an
+# opaque blob. It is why `discarded_later_edits` is unusable and why a deletion
+# was invisible in the trail: "work_experience updated" says nothing about which
+# role was dropped. The applier therefore diffs the incoming section against the
+# current one and records each entry that appeared, changed or DISAPPEARED as
+# its own receipt.
+#
+# The §7.7 ruling is what this implements: deletion is already expressible
+# through today's PATCH, so this is the same capability with a per-entry
+# receipt, not a new one. Refusing removal-shaped diffs and demanding an
+# explicit `RemoveEntry` act is deferred to Finetuner (#507) — cited, not
+# re-argued.
+
+#: How an ENTRY of each list section is named in a receipt, and matched across
+#: the diff when it carries no stable id. The fields mirror how the existing
+#: appliers key entries: skills/certifications by ``name``, languages by
+#: ``language``, engagements by their role + org (the same pair
+#: `classify_dupe`/`classify_engagement_dupe` compare), stories/publications by
+#: ``title``.
+_SECTION_ENTRY_LABEL_FIELDS: dict[str, tuple[str, ...]] = {
+    "work_experience": ("role", "company"),
+    "education": ("degree", "institution"),
+    "certifications": ("name",),
+    "skills": ("name",),
+    "languages": ("language",),
+    "publications": ("title",),
+    "volunteer_activities": ("role", "organization"),
+    "signature_stories": ("title",),
+}
+
+
+def _entry_label(section: str, entry: Any) -> str:
+    """A human-readable name for one entry, used as the receipt's ``field``."""
+    if not isinstance(entry, dict):
+        return section
+    parts = [
+        str(entry[name]).strip()
+        for name in _SECTION_ENTRY_LABEL_FIELDS.get(section, ())
+        if entry.get(name)
+    ]
+    return " @ ".join(parts) if parts else section
+
+
+def _entry_id(entry: Any) -> str | None:
+    """The entry's stable id, when it has one (work/project/volunteer/education).
+
+    Skills, languages, certifications and publications carry none — they are
+    matched by label, which is exactly how the upsert appliers key them.
+    """
+    if not isinstance(entry, dict):
+        return None
+    value = entry.get("id")
+    return str(value) if value else None
+
+
+def _pair_entries(
+    section: str, old_entries: list[Any], new_entries: list[Any]
+) -> tuple[list[tuple[Any, Any]], list[Any], list[Any]]:
+    """Match old entries to new ones: ``(pairs, removed, added)``.
+
+    Two passes, because the two doors supply different shapes. The profile page
+    round-trips whole entries and keeps their ids; a hand-built agent payload
+    (or a pre-#336 snapshot) may carry none, and an id-less entry is re-minted a
+    fresh uuid by the schema's default factory on every load — so matching on
+    ids alone would read "same role, edited bullets" as a removal plus an
+    addition, inventing a deletion receipt for an edit. Ids first (exact,
+    authoritative), then labels for whatever is left, and only then is an entry
+    genuinely gone.
+    """
+    remaining_new = list(new_entries)
+    pairs: list[tuple[Any, Any]] = []
+    unmatched_old: list[Any] = []
+
+    for old in old_entries:
+        old_id = _entry_id(old)
+        match = None
+        if old_id is not None:
+            match = next(
+                (n for n in remaining_new if _entry_id(n) == old_id), None
+            )
+        if match is None:
+            unmatched_old.append(old)
+            continue
+        remaining_new.remove(match)
+        pairs.append((old, match))
+
+    still_unmatched_old: list[Any] = []
+    for old in unmatched_old:
+        key = _norm(_entry_label(section, old))
+        match = next(
+            (n for n in remaining_new if _norm(_entry_label(section, n)) == key), None
+        )
+        if match is None:
+            still_unmatched_old.append(old)
+            continue
+        remaining_new.remove(match)
+        pairs.append((old, match))
+
+    return pairs, still_unmatched_old, remaining_new
+
+
+def _section_change(
+    section: str, field: str, action: str, old: Any, new: Any
+) -> FieldChange:
+    verbs = {
+        "added": ("Added", "manual_section_added"),
+        "updated": ("Updated", "manual_section_updated"),
+        "removed": ("Removed", "manual_section_removed"),
+    }
+    verb, key = verbs[action]
+    return FieldChange(
+        section=section,
+        field=field,
+        action=action,  # type: ignore[arg-type]
+        old_value=old,
+        new_value=new,
+        rationale=f"{verb} {field} in {section} (manual section edit).",
+        rationale_key=key,
+    )
+
+
+def _diff_list_section(section: str, before: Any, after: Any) -> list[FieldChange]:
+    """Per-entry receipts for a wholesale list replace, removals included."""
+    old_entries = list(before or [])
+    new_entries = list(after or [])
+    pairs, removed, added = _pair_entries(section, old_entries, new_entries)
+
+    changes: list[FieldChange] = []
+    for old, new in pairs:
+        if old != new:
+            changes.append(
+                _section_change(
+                    section, _entry_label(section, new), "updated", old, new
+                )
+            )
+    for entry in removed:
+        changes.append(
+            _section_change(
+                section, _entry_label(section, entry), "removed", entry, None
+            )
+        )
+    for entry in added:
+        changes.append(
+            _section_change(section, _entry_label(section, entry), "added", None, entry)
+        )
+    return changes
+
+
+def _diff_object_section(section: str, before: Any, after: Any) -> list[FieldChange]:
+    """Per-KEY receipts for a merge-patched object section (#178).
+
+    An explicit null that clears a field is a removal, not an update: the
+    receipt must be able to say "you cleared your phone number", which is the
+    same distinction the list diff draws for a dropped entry.
+    """
+    old_obj = before if isinstance(before, dict) else {}
+    new_obj = after if isinstance(after, dict) else {}
+    changes: list[FieldChange] = []
+    for key in list(old_obj) + [k for k in new_obj if k not in old_obj]:
+        old_value = old_obj.get(key)
+        new_value = new_obj.get(key)
+        if old_value == new_value:
+            continue
+        if _is_empty(old_value):
+            action = "added"
+        elif _is_empty(new_value):
+            action = "removed"
+        else:
+            action = "updated"
+        changes.append(_section_change(section, key, action, old_value, new_value))
+    return changes
+
+
+def _apply_replace_section(
+    op: ReplaceSection, profile: MasterProfileData, changes: list[FieldChange]
+) -> MasterProfileData:
+    """Replace (or merge-patch) one section and receipt the diff.
+
+    The section vocabulary guard lives on the op itself (``ReplaceSection``
+    validates ``section`` against ``VAULT_SECTIONS``), so ``metadata`` cannot be
+    addressed here at all — belt and braces, this refuses an unknown section
+    rather than writing a stray key into the dump.
+
+    Semantics are the PATCH intake's, unchanged: object sections merge-patch
+    (#178 — supplied keys win, explicit null clears, omitted keys survive), list
+    sections are replaced wholesale. The diff is taken between the section as it
+    LOADS before and after, so the receipt describes what actually landed
+    (schema defaults included) rather than what the payload happened to spell.
+    """
+    if op.section not in VAULT_SECTIONS:  # pragma: no cover — op-validated
+        raise ValueError(f"Invalid section '{op.section}'")
+
+    dumped = profile.model_dump(mode="json")
+    before = dumped.get(op.section)
+
+    if op.is_object_section:
+        if not isinstance(op.value, dict):
+            raise ValueError(
+                f"Section '{op.section}' expects an object; supplied keys are "
+                f"merged (an explicit null clears a field)."
+            )
+        merged = dict(before or {})
+        merged.update(op.value)
+        dumped[op.section] = merged
+    else:
+        dumped[op.section] = op.value
+
+    # The same round-trip the PATCH intake always performed — a payload the
+    # schema rejects raises here (pydantic's ValidationError IS a ValueError,
+    # which is what both doors already translate into a 422 / invalid_input).
+    updated = MasterProfileData.model_validate(dumped)
+    after = updated.model_dump(mode="json").get(op.section)
+
+    if op.is_object_section:
+        changes.extend(_diff_object_section(op.section, before, after))
+    else:
+        changes.extend(_diff_list_section(op.section, before, after))
+    return updated
 
 
 def _apply_upsert_work(op, profile, ref_map, changes, pending):

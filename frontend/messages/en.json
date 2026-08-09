@@ -1104,7 +1104,8 @@
     "action": {
       "added": "added",
       "updated": "updated",
-      "merged": "merged"
+      "merged": "merged",
+      "removed": "removed"
     },
     "section": {
       "work_experience": "Work experience",
@@ -1136,7 +1137,10 @@
       "reconcile_added": "Added from this source.",
       "reconcile_merged": "Merged into your existing profile.",
       "reconcile_updated": "Filled in a missing detail.",
-      "reconcile_summary": "Updated your professional summary."
+      "reconcile_summary": "Updated your professional summary.",
+      "manual_section_added": "Added when you edited this section.",
+      "manual_section_updated": "Changed when you edited this section.",
+      "manual_section_removed": "Removed when you edited this section."
     }
   },
   "mergeGate": {

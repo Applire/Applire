@@ -1072,7 +1072,10 @@ async def test_patch_profile_section_without_provider_skips_enrichment(sqlite_se
     sqlite_session_for_patch.add(record)
     await sqlite_session_for_patch.commit()
 
-    with patch("applire.services.profile.enrich_skills") as mock_enrich:
+    # #480 PR 3 — the LLM half now runs inside `commit_ops` (the intake passes
+    # the provider through), so the seam this asserts on moved modules. What it
+    # asserts is unchanged: no provider, no LLM call.
+    with patch("applire.services.profile.commit.enrich_skills") as mock_enrich:
         await patch_profile_section(
             section="skills",
             value=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
@@ -1102,7 +1105,7 @@ async def test_patch_profile_section_with_provider_calls_enrich_for_skills(sqlit
 
     mock_provider = AsyncMock()
 
-    with patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)) as mock_enrich:
+    with patch("applire.services.profile.commit.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)) as mock_enrich:
         await patch_profile_section(
             section="skills",
             value=[{"name": "Python", "category": "technical", "proficiency": "basic"}],
@@ -1133,7 +1136,7 @@ async def test_patch_personal_info_with_provider_does_not_call_enrich(sqlite_ses
 
     mock_provider = AsyncMock()
 
-    with patch("applire.services.profile.enrich_skills") as mock_enrich:
+    with patch("applire.services.profile.commit.enrich_skills") as mock_enrich:
         await patch_profile_section(
             section="personal_info",
             value={"name": "Max Mustermann"},
