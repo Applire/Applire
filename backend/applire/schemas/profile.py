@@ -559,7 +559,15 @@ class Conflict(BaseModel):
 class FieldChange(BaseModel):
     section: str
     field: str
-    action: Literal["added", "updated", "merged"]
+    # "removed" joined the vocabulary with #480 PR 3 (ADR-063 amended
+    # 2026-08-09 clause 8): `ReplaceSection` diffs the incoming section against
+    # the current one and records **each removal as its own change**. Before
+    # that, a manual section edit left one opaque blob ("the whole section, old
+    # → new"), so a deletion was invisible in the trail and only recoverable by
+    # diffing two JSON dumps by eye. A removal is not a kind of "update":
+    # collapsing them would make "this field was cleared" and "this entry is
+    # gone" indistinguishable on the "what changed & why" surface.
+    action: Literal["added", "updated", "merged", "removed"]
     old_value: Any | None = None
     new_value: Any = None
     # ADR-040: a human-readable "why" note shown on the "what changed & why" surfaces.
@@ -899,6 +907,49 @@ class MasterProfileData(BaseModel):
             certifications=certifications,
             data_points=data_points,
         )
+
+
+# ─── The manually editable section vocabulary ─────────────────────────────────
+#
+# The sections a human may replace wholesale through the PATCH intake. This is
+# the SAME set `services/profile` has enforced since the endpoint existed; it
+# lives here (a leaf module both the op vocabulary and the service import) so
+# the `ReplaceSection` op can validate against it without an import cycle —
+# ADR-063 clause 8(e) / #480 PR 3.
+#
+# What is NOT in it is the load-bearing half:
+#
+# * `metadata` — `denied_concepts`, `enrichment_history`, `pending_*`. Reaching
+#   it through a section replace would let one edit release a persisted denial
+#   (ADR-059) or rewrite its own audit trail. `metadata.*` is reachable by NO
+#   op at all; it is written only by the committer-owned invariant path
+#   (ADR-063 amended 2026-08-09 clause 1).
+# * `_meta` — the candidate's N/A suppressions (#505); written by its own
+#   writer, and `SetProfileMeta` (PR 7) is the op that will reach it.
+# * `projects` — never had a manual editor; unchanged here, deliberately (this
+#   PR preserves today's set exactly rather than widening it in passing).
+VAULT_SECTIONS: frozenset[str] = frozenset(
+    {
+        "personal_info",
+        "professional_summary",
+        "work_experience",
+        "education",
+        "certifications",
+        "skills",
+        "languages",
+        "publications",
+        "volunteer_activities",
+        # ADR-055 — stories are list-shaped (replace semantics like other lists)
+        "signature_stories",
+    }
+)
+
+# #178: object-shaped sections take merge-patch semantics (RFC-7386 style) — a
+# partial dict must never wipe unsupplied fields; Pydantic re-validation would
+# re-default every omitted key ("" / null) and the JSONB write makes that
+# permanent (no snapshot on this path). Every other section is a list and is
+# replaced wholesale, which is what both doors document.
+OBJECT_SECTIONS: frozenset[str] = frozenset({"personal_info", "professional_summary"})
 
 
 # ─── API response models ──────────────────────────────────────────────────────

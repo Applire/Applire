@@ -24,7 +24,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 export interface ApiFieldChange {
   section: string;
   field: string;
-  action: "added" | "updated" | "merged";
+  action: "added" | "updated" | "merged" | "removed";
   old_value?: unknown;
   new_value?: unknown;
   rationale?: string | null;

@@ -39,7 +39,7 @@ export type ReviewMode = "extraction" | "merge" | "interview" | "download";
 export interface ReviewChange {
   section: string;
   field: string;
-  action: "added" | "updated" | "merged";
+  action: "added" | "updated" | "merged" | "removed";
   oldValue?: unknown;
   newValue?: unknown;
   /** English fallback / audit string (legacy records). */
