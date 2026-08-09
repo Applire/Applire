@@ -64,6 +64,7 @@ from applire.services.profile.reconcile.dedupe import (
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     ApplyImportMerge,
+    CloseRole,
     CommitOp,
     DemoteSkill,
     FlagConflict,
@@ -404,6 +405,10 @@ def apply_ops(
             new_profile = _apply_resolve_field(op, new_profile, changes)
         elif isinstance(op, ResolveConfirmation):
             _apply_resolve_confirmation(op, new_profile, changes)
+        elif isinstance(op, CloseRole):
+            # #480 PR 6 — the act of ending a role, and the ONE place the #155
+            # tri-state convention is implemented.
+            _apply_close_role(op, new_profile, ref_map, changes)
         elif isinstance(op, ApplyImportMerge):
             # #480 PR 2 — the import's whole-merge act. Deterministic code
             # already decided every field (see the op's docstring for why no op
@@ -993,6 +998,80 @@ def _apply_resolve_confirmation(
             rationale_key="confirmation_resolved",
         )
     )
+
+
+def _apply_close_role(
+    op: CloseRole,
+    profile: MasterProfileData,
+    ref_map: dict[str, ExperienceBase],
+    changes: list[FieldChange],
+) -> None:
+    """End a role — and the ONE implementation of the #155 tri-state (§4.3).
+
+    The convention (`is_current`: ``None`` unknown · ``True`` current · ``False``
+    known-ended) used to be re-stated by every writer that cared, which is how
+    ``role_add`` could set the flag while the reconciler's fill-only
+    ``set_field`` could not. Two rules, and the split between them is the point:
+
+    * **the flag is the act** — ``is_current`` is written authoritatively, over a
+      populated ``True``. This is the "boolean flip" ADR-063's 2026-07-29
+      amendment recorded as inexpressible, and no other op may perform it;
+    * **the date is a separate fact** — ``end_date`` is FILL-ONLY, the same rule
+      ``_apply_set_field`` enforces everywhere else. An undated close records
+      *"ended, date unknown"* and leaves the end-date gap open (only
+      ``is_current is True`` suppresses it, `completeness.field_present`), and a
+      role that already carries a date keeps it: re-dating an attested fact is a
+      correction, which needs `ResolveField`'s authorised overwrite or a human
+      section edit.
+
+    Resolves against ``work_experience`` only — see the op's docstring on why the
+    reach may not be wider than the act's name, even though ``is_current`` is
+    inherited by projects and volunteer activities.
+    """
+    target: WorkEntry | None = next(
+        (w for w in profile.work_experience if w.id == op.target), None
+    )
+    if target is None:
+        candidate = ref_map.get(op.target)
+        if isinstance(candidate, WorkEntry):
+            target = candidate
+    if target is None:
+        logger.info(
+            "apply_ops: refused close_role for target %s — no such work entry "
+            "(#480 §4.3: a close names one role, and only a role)",
+            op.target,
+        )
+        return
+
+    rationale = f"Closed this role ({op.reason})."
+    if op.end_date is not None and _is_empty(target.end_date):
+        old_end = target.end_date
+        target.end_date = op.end_date
+        changes.append(
+            FieldChange(
+                section="work_experience",
+                field=f"[{target.id}].end_date",
+                action="updated",
+                old_value=old_end,
+                new_value=op.end_date,
+                rationale=rationale,
+                rationale_key="role_closed",
+            )
+        )
+    if target.is_current is not False:
+        old_flag = target.is_current
+        target.is_current = False
+        changes.append(
+            FieldChange(
+                section="work_experience",
+                field=f"[{target.id}].is_current",
+                action="updated",
+                old_value=old_flag,
+                new_value=False,
+                rationale=rationale,
+                rationale_key="role_closed",
+            )
+        )
 
 
 def _apply_upsert_work(op, profile, ref_map, changes, pending):
