@@ -490,23 +490,46 @@ async def _import_from_text(
         await db.refresh(existing)
         return _to_response(existing)
 
-    # First import — create profile
+    # First import — the vault does not exist yet, so the committer creates it
+    # (#480 PR 8 / ADR-063 clause 6). This branch used to build the row with
+    # `MasterProfile(profile_json=…)`: a keyword-argument constructor the write
+    # inventory's grep could not see, outside the write token and outside every
+    # invariant, minting its own trail entry and its own completeness score
+    # alongside the ones the committer computes for every other write.
+    #
+    # What stays HERE is what only the intake can know: `created_via` and
+    # `created_at` (the merge branch supplies them through
+    # `_apply_import_metadata` for the same reason), and the "initial import"
+    # receipt, built by the same helper as before — the committer mints the
+    # EnrichmentRecord that carries it, exactly as it does for a merge.
     enrichment = _make_enrichment_record(source=created_via, action="added", new_value="initial import")
     incoming.metadata = ProfileMetadata(
         completeness_score=incoming.calculate_completeness(),
         created_via=created_via,
         created_at=now,
         last_updated=now,
-        enrichment_history=[enrichment],
     )
 
-    profile_json = incoming.model_dump(mode="json")
-    embedding = await _compute_embedding(profile_json, emb_provider)
-    record = MasterProfile(profile_json=profile_json, embedding=embedding)
-    db.add(record)
+    committed = await commit_ops(
+        db,
+        [ApplyImportMerge(merged=incoming, changes=enrichment.changes)],
+        CommitProvenance(source=created_via, intake="import", actor="candidate"),
+        # The creation path: no row to hand over (#480 PR 8).
+        record=None,
+        # A first import has no pre-state, so there is nothing an ADR-042 undo
+        # could restore — the same `None` this branch has always effectively
+        # passed, now said out loud.
+        snapshot=None,
+        # `enrich_skills` already ran WITH the provider on `incoming` above.
+        enrichment=EnrichPolicy.SKIP,
+        embedding_provider=emb_provider,
+    )
+    # Flush-not-commit (ADR-063 amended clause 6): the door owns its transaction
+    # — dropping this line is a silent no-write, and here it would be a silent
+    # no-PROFILE.
     await db.commit()
-    await db.refresh(record)
-    return _to_response(record)
+    await db.refresh(committed.record)
+    return _to_response(committed.record)
 
 
 async def get_profile(db: AsyncSession) -> MasterProfileResponse | None:
@@ -1046,7 +1069,6 @@ async def _apply_merge(
     runs the merge is authorised (clean upload, or a user-resolved staged merge).
     """
     now = now or datetime.now(timezone.utc)
-    enrichment_id = uuid.uuid4()
     existing = await _get_latest(db)
 
     if existing:
@@ -1100,7 +1122,11 @@ async def _apply_merge(
             uuid.UUID(committed.enrichment_record.id),
         )
 
-    # First upload — create the profile
+    # First upload — the committer creates the profile (#480 PR 8), through the
+    # identical call `_import_from_text`'s creation branch makes: the same act
+    # may not behave differently by door (ADR-058 clause 2), and that held for
+    # the merge branch since PR 2 while the two creation branches were still
+    # two hand-rolled copies of each other.
     enrichment = _make_enrichment_record(
         source=source, action="added", new_value="initial import"
     )
@@ -1109,15 +1135,29 @@ async def _apply_merge(
         created_via=source,
         created_at=now,
         last_updated=now,
-        enrichment_history=[enrichment],
     )
-    profile_json = incoming.model_dump(mode="json")
-    embedding = await _compute_embedding(profile_json, emb_provider)
-    record = MasterProfile(profile_json=profile_json, embedding=embedding)
-    db.add(record)
+    committed = await commit_ops(
+        db,
+        [ApplyImportMerge(merged=incoming, changes=enrichment.changes)],
+        CommitProvenance(source=source, intake="import", actor="candidate"),
+        record=None,
+        snapshot=None,
+        enrichment=EnrichPolicy.SKIP,
+        embedding_provider=emb_provider,
+    )
     await db.commit()
-    await db.refresh(record)
-    return record.id, incoming.calculate_completeness(), [], enrichment_id
+    await db.refresh(committed.record)
+    # The enrichment id this door returns now NAMES the record on disk — the
+    # property the merge branch gained in PR 2. The creation branch used to
+    # return a `uuid4()` minted at the top of this function that referred to
+    # nothing, so `CVUploadResponse.enrichment_record_id` was unresolvable for
+    # exactly the upload that created the profile.
+    return (
+        committed.record.id,
+        committed.completeness,
+        [],
+        uuid.UUID(committed.enrichment_record.id),
+    )
 
 
 async def _park_gated_upload(

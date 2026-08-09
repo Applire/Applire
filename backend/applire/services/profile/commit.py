@@ -60,8 +60,6 @@ integration test asserting the write survives the request.
 * snapshot coverage beyond the two import writers — `snapshot=MERGE` is real
   since PR 2, but widening it to any other intake stays BLOCKED (ADR-063
   amendment (5) / #339);
-* first-profile CREATION — the three keyword-argument constructor sites are
-  routed in PR 8; until then `commit_ops` requires an existing record;
 * persisting `ops` on the `EnrichmentRecord` — §7.8 ruling: the replayable op
   log is deferred to the Finetuner release (#508), explicit as a scheduled goal
   rather than an implied property of the system;
@@ -238,6 +236,50 @@ def _log_embedding_staleness_once() -> None:
 UN_DENIAL_INTAKE = "un_denial"
 
 
+async def create_profile_record(db: AsyncSession) -> MasterProfile:
+    """Create the vault's row — the ONLY constructor of a `MasterProfile`.
+
+    #480 PR 8. Three sites used to build the first profile themselves with
+    `MasterProfile(profile_json=…)`, and a keyword argument is invisible to the
+    `profile_json =` grep — which is how the ADR-063 write-surface inventory
+    came out at 16 writers when there were 19. The clause-6 setter *does* see
+    them (it fires on construction), so with these three unrouted, PR 9's strict
+    guard would have refused to let anyone create a profile at all.
+
+    The row is born EMPTY and stays that way here. Content can only arrive as
+    ops, through :func:`commit_ops` — this primitive has no payload parameter
+    on purpose, so "create a profile with this content in it" is not something
+    a caller can express outside the invariant set.
+
+    Two callers, by design:
+
+    * :func:`commit_ops` itself, when `record` resolves to nothing — an intake
+      that brings a profile (the two import writers) creates and fills the row
+      in one act, and the fill carries every invariant;
+    * the Mode-B guided interview, which genuinely has nothing to write yet.
+      It needs a row so a session has a `profile_id` to point at, and `{}` is
+      what it has always stored and what its readers (`profile_json or {}`)
+      index. Minting a metadata block and an enrichment record for it would
+      claim a change to a vault where nothing has happened — the first
+      interview turn is the first real write, and that goes through
+      `commit_ops` like every other turn.
+
+    **Flushed, not committed** (ADR-063 amended clause 6), like everything else
+    in this module: the caller owns the transaction, and needs the flush for the
+    generated id.
+    """
+    with authorized_profile_write():
+        record = MasterProfile(profile_json={})
+    db.add(record)
+    await db.flush()
+    logger.info(
+        "commit_ops: created the first MasterProfile row (id=%s) — empty until "
+        "the ops that accompany it land (ADR-063 clause 6 / #480 PR 8)",
+        record.id,
+    )
+    return record
+
+
 def _refloor_persisted_denials(profile: MasterProfileData) -> list[FieldChange]:
     """Invariant 2 — take back any vault skill a PERSISTED denial retracts.
 
@@ -320,9 +362,12 @@ async def commit_ops(
             adapter-only ops (`DecisionOp`) both belong here; the union split
             lives in `reconcile/ops.py`.
         provenance: source / intake / session / actor for the receipt.
-        record: the profile row to write. `None` resolves the latest.
-            Creation is NOT routed yet (PR 8) — a missing profile raises
-            `LookupError`, exactly as the bridges do today.
+        record: the profile row to write. `None` resolves the latest, and
+            CREATES the first one if the vault is empty (#480 PR 8 — the
+            contract used to be `LookupError`). Every door that wants "refuse
+            when there is no profile" keeps its own check before calling, which
+            is where that refusal has always lived and what the doors' own
+            `LookupError` messages still say.
         grounding: the turn text and its denial verdict, for turn-based
             intakes. `None` = a direct act (§7.4).
         snapshot: ADR-042 snapshot class. `MERGE` captures the pre-op
@@ -350,7 +395,6 @@ async def commit_ops(
             says so once (§7.2).
 
     Raises:
-        LookupError: no profile exists yet.
         NotImplementedError: an unhandled `SnapshotClass`, or an
             `UN_DENIAL_INTAKE` intake — the reserved release seam (§3.4).
     """
@@ -386,12 +430,23 @@ async def commit_ops(
     if record is None:
         record = await _get_latest(db)
     if record is None:
-        raise LookupError("No profile found — import a CV or create a profile first")
+        # #480 PR 8 — CREATION is the committer's act too. The three sites that
+        # used to construct the row themselves (both first-import writers and
+        # the Mode-B stub) are why the clause-6 guard could not go strict: a
+        # keyword-argument constructor fires the setter, unauthorised. Creating
+        # it here means a first import is an ordinary write of the invariant
+        # set — the trail, the completeness recompute, both clocks and the
+        # write token — instead of a hand-rolled one that happened to look
+        # similar. Doors that must REFUSE an empty vault keep their own check
+        # before calling; none of them reaches this line.
+        record = await create_profile_record(db)
 
     # The exact bytes an ADR-042 undo restores: the profile as it stands BEFORE
     # any op is applied. Bound here, at the top, so nothing downstream can
     # quietly redefine what "pre-merge" means; the DB row is only written at the
-    # very end, so this reference stays the pre-op state throughout.
+    # very end, so this reference stays the pre-op state throughout. On a
+    # creation it is `{}` — and no creation intake passes `snapshot`, because a
+    # restore point to an empty vault restores nothing.
     pre_op_json = record.profile_json
 
     current = MasterProfileData.model_validate(record.profile_json)

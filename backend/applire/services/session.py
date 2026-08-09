@@ -1344,12 +1344,23 @@ async def _create_guided_session(
     provider: LLMProvider,
     lang: str = "en",
 ) -> SessionCreateResponse:
-    # MODE B can start without a profile — create an empty stub if needed
+    # MODE B can start without a profile — create an empty stub if needed.
+    #
+    # #480 PR 8: the row is created by the vault's own write module, inside the
+    # ADR-063 clause-6 token, instead of by a `MasterProfile(profile_json={})`
+    # here — the third of the three keyword-argument constructors, and the one
+    # that would have made PR 9's strict guard break Mode B outright.
+    #
+    # It is still EMPTY, byte for byte. This session has learned nothing yet:
+    # the stub exists so the session has a `profile_id` to point at, and giving
+    # it a metadata block, a completeness score and an enrichment record would
+    # be the committer claiming a change to a vault where nothing has happened.
+    # The first answer is the first real write, and it goes through `commit_ops`
+    # like every other interview turn.
     if profile_record is None:
-        stub = MasterProfile(profile_json={})
-        db.add(stub)
-        await db.flush()
-        profile_record = stub
+        from applire.services.profile.commit import create_profile_record
+
+        profile_record = await create_profile_record(db)
 
     sections = gap_detector_mode_b(job)
     job_context = {
