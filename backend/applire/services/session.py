@@ -71,7 +71,7 @@ from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
 from applire.services.interview.signals import is_termination_signal
 from applire.services.profile.reconcile.stance import (
-    exclude_unconfirmed,
+    denial_release_corpus,
     is_denied_concept,
     record_denials,
 )
@@ -83,7 +83,6 @@ from applire.services.interview.sufficiency import (
 from applire.services.interview_quant import should_ask_availability
 from applire.services.keyword_ledger import (
     assert_claimable_backed,
-    profile_literal_corpus,
     reevaluate_gap_ledger_against_vault,
     upgrade_ledger_for_concepts,
 )
@@ -1853,16 +1852,16 @@ async def _upgrade_ledger_for_addressed_gap(
         if isinstance(d, dict) and d.get("concept")
     ]
     denied_concepts = [d["concept"] for d in denied_records]
-    # #351 — the vault's own literal text (denial testimony stripped), so the
-    # containment branch of the denial predicate can be judged against real
-    # evidence instead of fail-closing. Same instrument and same input
-    # `_enforce_denial_stance` and `reevaluate_gap_ledger_against_vault`
-    # already use; this door was the third of ADR-064's "all three places"
-    # and the only one that passed nothing.
-    # #480 step 1 — the CONFIRMED vault only: an `unconfirmed` entry backs
-    # nothing (ADR-061 clause 3), so it must not be the independent
-    # affirmation that releases a persisted denial at this seam either.
-    vault_corpus = profile_literal_corpus(exclude_unconfirmed(profile_json))
+    # #351 — the vault's own attestations, so the containment branch of the
+    # denial predicate can be judged against real evidence instead of
+    # fail-closing. Same instrument and same input `_enforce_denial_stance` and
+    # `reevaluate_gap_ledger_against_vault` already use; this door was the third
+    # of ADR-064's "all three places" and the only one that passed nothing.
+    # #480 §7.5(a) / ADR-059 amended 2026-08-09 — site 4 of the five that feed
+    # the release predicate. The corpus narrows to ATTESTED ENTITY LABELS: an
+    # `unconfirmed` entry backs nothing (ADR-061 clause 3, step 1), and neither
+    # does a sentence the candidate typed into a document (step 2).
+    vault_corpus = denial_release_corpus(profile_json)
 
     answer_norm = ats_norm(answer or "")
     by_concept = {

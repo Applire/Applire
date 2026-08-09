@@ -23,7 +23,11 @@ classified against the profile. Python is authoritative for sources/fit_weight;
 the LLM only supplies status/evidence/surface forms.
 """
 
-from applire.services.keyword_ledger import DENIED_EVIDENCE, build_keyword_ledger
+from applire.services.keyword_ledger import (
+    DENIAL_FLOOR_EVIDENCE,
+    DENIED_EVIDENCE,
+    build_keyword_ledger,
+)
 
 
 def _cls(concept, status, surface_forms=None, evidence=""):
@@ -967,18 +971,18 @@ def test_enforce_denial_stance_partial_wins_the_level_tie_break():
 # independent literal vault evidence outside the denied compound.
 
 
-def test_narrow_denial_does_not_tar_broad_independently_evidenced_concept():
-    """The pinned run-4 shape: RAG stays claimable because the vault literally
-    carries it in technologies[], outside every denied compound."""
-    profile_json = {
-        "work_experience": [
-            {
-                "role": "ML Engineer",
-                "technologies": ["Python", "LangChain", "Retrieval-Augmented Generation (RAG)"],
-            }
-        ]
-    }
-    ledger = build_keyword_ledger(
+_RUN4_TECHNOLOGIES = {
+    "work_experience": [
+        {
+            "role": "ML Engineer",
+            "technologies": ["Python", "LangChain", "Retrieval-Augmented Generation (RAG)"],
+        }
+    ]
+}
+
+
+def _run4_ledger(profile_json):
+    return build_keyword_ledger(
         classifications=[
             _cls(
                 "RAG", "direct", ["RAG", "Retrieval-Augmented Generation (RAG)"],
@@ -994,9 +998,42 @@ def test_narrow_denial_does_not_tar_broad_independently_evidenced_concept():
         ],
         profile_json=profile_json,
     )
-    rag = _by_concept(ledger)["RAG"]
+
+
+def test_narrow_denial_does_not_tar_broad_independently_evidenced_concept():
+    """The pinned run-4 shape: RAG stays claimable because the vault literally
+    carries it in technologies[], outside every denied compound.
+
+    Survives the #480 §7.5(a) corpus narrowing unchanged — see
+    ``test_a_technologies_tag_releases_a_denial_the_same_as_a_role_title``
+    below for the ruling that keeps ``technologies[]`` in the release corpus.
+    """
+    rag = _by_concept(_run4_ledger(_RUN4_TECHNOLOGIES))["RAG"]
     assert rag["status"] == "direct"
     assert rag["claimable"] is True
+
+
+def test_a_technologies_tag_releases_a_denial_the_same_as_a_role_title():
+    """PO addendum to the ADR-059 2026-08-09 amendment, ruled the same day:
+    ``work_experience[].technologies[]`` **is** in the release corpus.
+
+    A structured tag list is a vault entity label of the same trust level as
+    ``role``/``company`` — the line the release corpus draws is entity-vs-PROSE
+    (``responsibilities``, ``achievements``, summaries stay out), not "is it on
+    the skills list". Excluding it silently narrowed the guarantee the test
+    above pins from charter run 4 (#249) and re-opened a slice of the #207
+    over-blocking class.
+
+    Stated the other way round, as the sentinel: with the tag as the ONLY vault
+    tie — no skills entry, no matching role title — the broad concept still
+    releases the narrow denial.
+    """
+    rag = _by_concept(_run4_ledger(_RUN4_TECHNOLOGIES))["RAG"]
+    assert rag["status"] == "direct"
+    assert rag["claimable"] is True
+    assert rag["evidence"] != DENIAL_FLOOR_EVIDENCE
+    assert "skills" not in _RUN4_TECHNOLOGIES
+    assert "RAG" not in _RUN4_TECHNOLOGIES["work_experience"][0]["role"]
 
 
 def test_narrow_denial_still_tars_broad_term_with_no_independent_evidence():
