@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,20 +39,20 @@ from applire.schemas.claims import (
     ClaimsSubmission,
     SubmissionResult,
 )
-from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
+from applire.schemas.profile import MasterProfileData, ProfileMetadata
 from applire.services.keyword_ledger import (
     _norm,
     assert_claimable_backed,
     profile_literal_corpus,
     upgrade_ledger_for_concepts,
 )
-from applire.services.profile.reconcile.apply import apply_ops
-from applire.services.profile.reconcile.engine import reconcile
-from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
-from applire.services.profile.reconcile.stance import (
-    exclude_unconfirmed,
-    record_denials,
+from applire.services.profile.commit import (
+    CommitProvenance,
+    TurnGrounding,
+    commit_ops,
 )
+from applire.services.profile.reconcile.engine import reconcile
+from applire.services.profile.reconcile.stance import exclude_unconfirmed
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +141,10 @@ async def submit_agent_claims(
 
     Sequential per claim (later claims see earlier claims' profile state).
     Raises LookupError for missing profile/job, ValueError for gap-contract
-    violations (mapped to -32001/-32602 at the MCP layer). The profile is
-    persisted ONCE at the end; a truncated reconcile fails only its own claim.
+    violations (mapped to -32001/-32602 at the MCP layer). Each claim's write
+    is assigned and FLUSHED by `commit_ops`; this door commits ONCE at the end,
+    so the batch is still one transaction. A truncated reconcile fails only its
+    own claim.
     """
     # Lazy imports: applire.services.profile imports this package's siblings.
     from applire.services.profile import _get_latest
@@ -192,43 +193,39 @@ async def submit_agent_claims(
             )
             continue
 
-        applied = apply_ops(current, rc.ops, _SOURCE)
-        current = applied.profile
-        if current.metadata is None:  # apply never strips metadata; belt & braces
-            current.metadata = ProfileMetadata()
-
-        confirmations = [
-            _to_pending_confirmation(a, source=_SOURCE)
-            for a in list(rc.ambiguities) + list(applied.pending_confirmations)
-        ]
-        current.metadata.pending_confirmations.extend(confirmations)
-        current.metadata.pending_conflicts.extend(applied.conflicts)
-
-        # #231 — persist the reconciler's own denial verdict into the vault
-        # (previously discarded: enforce_stance strips a denied token from
-        # THIS turn's ops, but rc.denials itself never survived past the
-        # call). Runs whether or not the turn also applied real ops.
-        denial_changes = record_denials(
-            current.metadata,
-            rc.denials,
-            statement=claim.statement,
-            source=_SOURCE,
-            when=datetime.now(timezone.utc),
+        # ADR-063 — the ONE write path. Apply, park confirmations/conflicts,
+        # record this claim's denials, receipt and assign are all the
+        # committer's invariant set now (the receipt in particular is no longer
+        # conditional — a claim that changed nothing used to leave no trace).
+        # Per claim, as before: later claims see earlier claims' profile state,
+        # and each claim keeps its own receipt.
+        committed = await commit_ops(
+            db,
+            rc.ops,
+            CommitProvenance(
+                source=_SOURCE,
+                intake="agent_claims",
+                session_id=submission_id,
+                actor="agent",
+            ),
+            record=record,
+            # §7.4 — the claim's own statement is this turn's grounding.
+            grounding=TurnGrounding(
+                text=claim.statement,
+                question=claim.question,
+                gap=claim.gap,
+                denials=list(rc.denials),
+            ),
+            ambiguities=list(rc.ambiguities),
+            snapshot=None,
+            embedding_provider=None,
         )
-        # #485 — the demotion receipts ride WITH the turn's receipt (ADR-059
-        # clause 1: negative testimony is receipted like positive) but stay OFF
-        # every addressed/upgrade gate below, which read `applied.changes` alone.
-        receipt_changes = applied.changes + denial_changes + applied.demotions
+        current = committed.profile
+        confirmations = committed.pending_confirmations
+        denial_changes = committed.denials
+        receipt_changes = committed.enrichment_record.changes
 
         if receipt_changes:
-            current.metadata.enrichment_history.append(
-                EnrichmentRecord(
-                    timestamp=datetime.now(timezone.utc),
-                    source=_SOURCE,
-                    source_session_id=submission_id,
-                    changes=receipt_changes,
-                )
-            )
             # Ledger polarity seam. The #188 addressed-gate — only a claim that
             # actually changed the profile may flip its (pre-validated,
             # exact-member) concept — is preserved EXACTLY, but it has moved
@@ -247,7 +244,7 @@ async def submit_agent_claims(
                 claim.gap
                 and gap_row is not None
                 and gap_row.keyword_ledger
-                and (applied.changes or denial_changes)
+                and (committed.changes or denial_changes)
             ):
                 # #341 — door parity (ADR-058 clause 2). The interview door
                 # (session.py) passes the candidate's live denials into this
@@ -255,8 +252,8 @@ async def submit_agent_claims(
                 # second floor — the live, same-session denial check — was
                 # structurally unreachable on the agent channel and only the
                 # persisted-status floor applied. The sharp case is INSIDE one
-                # claim: ``record_denials`` above has already written this
-                # turn's denials onto ``current.metadata``, so a mixed
+                # claim: the committer has already written this turn's
+                # denials onto ``current.metadata``, so a mixed
                 # statement ("Docker ja, Kubernetes nie angefasst") would
                 # otherwise flip its own denied concept to claimable with the
                 # denial sentence as the backing evidence — the exact ADR-059
@@ -286,7 +283,7 @@ async def submit_agent_claims(
                     [claim.gap],
                     claim.statement,
                     denied_concepts=denied_concepts,
-                    upgrade=bool(applied.changes),
+                    upgrade=bool(committed.changes),
                     vault_corpus=vault_corpus,
                 )
                 # #318 / ADR-061 — the affirmative invariant, at this door too
@@ -345,23 +342,22 @@ async def submit_agent_claims(
             status="no_change",
             changes=receipt_changes,
             confirmations=confirmations,
-            conflicts=applied.conflicts,
+            conflicts=committed.conflicts,
         )
         result = result.model_copy(
             update={
                 "status": _derive_status(
                     result,
-                    has_applied_changes=bool(applied.changes),
+                    has_applied_changes=bool(committed.changes),
                     has_denial=bool(denial_changes),
                 )
             }
         )
         results.append(result)
 
-    # Persist once. metadata.last_updated / completeness_score recompute stays
-    # import-only (decided: interview parity — session.py touches updated_at only).
-    record.profile_json = current.model_dump(mode="json")
-    record.updated_at = datetime.now(timezone.utc)
+    # The committer already assigned and FLUSHED each claim's write; this door
+    # still owns the transaction (ADR-063 amended clause 6 — dropping this line
+    # is a silent no-write, which is what the door-level test detects).
     await db.commit()
 
     return SubmissionResult(

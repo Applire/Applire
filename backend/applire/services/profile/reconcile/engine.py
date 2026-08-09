@@ -55,7 +55,12 @@ from applire.services.profile.reconcile.stance import (
 
 logger = logging.getLogger(__name__)
 
-# Validates a single op against the discriminated ReconcileOp union.
+# Validates a single op against the MODEL-EMITTABLE union only (ADR-063 amended
+# 2026-08-09 clause 1). Adapter-only ops (`DecisionOp`: today `DemoteSkill`) are
+# deliberately absent here — a raw `{"op": "demote_skill", …}` in model output is
+# a hallucinated negative statement about the candidate and is dropped, while the
+# deterministic emitter below constructs the same op as a typed object and never
+# crosses this seam (SF-VAULT.10, #480 PR 1).
 _OP_ADAPTER: TypeAdapter[ReconcileOp] = TypeAdapter(ReconcileOp)
 
 
