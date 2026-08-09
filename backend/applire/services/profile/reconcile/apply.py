@@ -32,7 +32,8 @@ from __future__ import annotations
 import logging
 import types
 import typing
-from typing import Any, Union
+from dataclasses import dataclass
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -44,6 +45,7 @@ from applire.schemas.profile import (
     FieldChange,
     Language,
     MasterProfileData,
+    ProfileMetaBlock,
     ProjectEntry,
     Publication,
     SignatureStory,
@@ -68,13 +70,16 @@ from applire.services.profile.reconcile.ops import (
     CloseRole,
     CommitOp,
     DemoteSkill,
+    EscalateDenialLevel,
     FlagConflict,
+    MarkProbeAsked,
     ReplaceSection,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
     SetField,
     SetPersonalInfo,
+    SetProfileMeta,
     SetSummary,
     UpsertCertification,
     UpsertEducation,
@@ -175,12 +180,57 @@ class ApplyResult(BaseModel):
     # `EnrichmentRecord` (ADR-059 clause 1: negative testimony is receipted
     # like positive) and must never fold it into an addressed/upgrade gate.
     demotions: list[FieldChange] = []
+    # #480 PR 7 — receipts for the two ADR-064 bookkeeping ops
+    # (`MarkProbeAsked`, `EscalateDenialLevel`), kept off `changes` for exactly
+    # the reason `demotions` is: both are acts about what the candidate ruled
+    # OUT, and `bool(changes)` is read by four gates that all mean "this turn
+    # produced positive, gap-addressing content". An escalation counting as a
+    # change would ask the ledger for an upgrade backed by the candidate's own
+    # denial sentence (#231/#352, the ADR-059 run-#7 blocker).
+    #
+    # The committer folds this into `CommitResult.denials`, alongside the
+    # receipts its own `record_denials` invariant path produces — the two are
+    # the same KIND of receipt and belong on the same channel.
+    denials: list[FieldChange] = []
     # #480 PR 2 — receipt metadata only an intake can compute, carried out to
     # the committer so it can land on the `EnrichmentRecord` that intake's write
     # mints. Set exclusively by `ApplyImportMerge` (US161 merge statistics,
     # ADR-041 amended); `None` for every other batch, which is what
     # `EnrichmentRecord.reconciliation` already means ("merge records only").
     reconciliation: dict[str, dict[str, int]] | None = None
+
+
+@dataclass(frozen=True)
+class UserConfirmedSkill:
+    """The candidate's ANSWER to a parked skill-dedupe confirmation (#187).
+
+    #480 PR 7, ADR-063 amended 2026-08-09 (third entry) ruling 5. This is a
+    CAPABILITY, not an op: it travels on the ``apply_ops`` / ``commit_ops`` call
+    path, supplied by the adapter that read the answer out of session state.
+
+    **Why not a field on ``UpsertSkill``.** The governing rule of the union
+    split (ADR-063 clause 1) is *never widen an op the model can emit with a
+    more powerful parameter*. What this authorises is a BYPASS of
+    ``_apply_upsert_skill``'s stateless containment/near-dupe guard — the guard
+    that stops a model from silently collapsing two genuinely distinct skills,
+    or renaming an atom into a compound. Spelled as a schema field, one
+    hallucinated key would switch that guard off; the model cannot reach a
+    function parameter at all, and ``engine._parse_ops`` drops unknown keys.
+
+    **Keyed to one skill, not to the batch.** ``name`` is matched against each
+    ``UpsertSkill.name`` in the batch, so one answered confirmation waves
+    exactly the skill it was about past the guard and every other op in the same
+    batch is adjudicated normally. A bare boolean would have made the bypass's
+    reach depend on what else the caller happened to put in the list.
+
+    The bypass itself is not new and its semantics are unchanged: ``"merge"``
+    folds the incoming into the matched existing skill, ``"distinct"`` appends
+    it as its own. Re-running the guard instead would surface the identical
+    question the candidate already answered, forever — the #187 loop.
+    """
+
+    name: str
+    decision: Literal["merge", "distinct"]
 
 
 def _norm(value: object) -> str:
@@ -327,18 +377,30 @@ def _section_for(entity: Any) -> str:
 
 
 def apply_ops(
-    profile: MasterProfileData, ops: list[CommitOp], source: str
+    profile: MasterProfileData,
+    ops: list[CommitOp],
+    source: str,
+    *,
+    user_confirmed_skill: UserConfirmedSkill | None = None,
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 
     Returns the new profile state plus the field-change trail, flagged conflicts,
     and any pending confirmations. The input profile is never mutated.
+
+    Args:
+        user_confirmed_skill: the candidate's answer to a parked skill-dedupe
+            confirmation, which waives the stateless containment guard for the
+            ONE ``UpsertSkill`` it names (#187). Adapter-supplied and
+            deliberately not part of any op schema — see
+            :class:`UserConfirmedSkill`.
     """
     new_profile = profile.model_copy(deep=True)
     changes: list[FieldChange] = []
     conflicts: list[Conflict] = []
     pending: list[RequestConfirmation] = []
     demotions: list[FieldChange] = []  # #485 — see ApplyResult.demotions
+    denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
@@ -369,7 +431,22 @@ def apply_ops(
         elif isinstance(op, AddBullets):
             _apply_add_bullets(op, resolve, changes, pending)
         elif isinstance(op, UpsertSkill):
-            _apply_upsert_skill(op, new_profile, resolve, changes, pending)
+            # #480 PR 7 — the bypass is keyed to the skill the candidate
+            # actually answered about, so an answered confirmation can never
+            # wave an unrelated skill in the same batch past the guard.
+            _apply_upsert_skill(
+                op,
+                new_profile,
+                resolve,
+                changes,
+                pending,
+                user_confirmed=(
+                    user_confirmed_skill.decision
+                    if user_confirmed_skill is not None
+                    and _norm(user_confirmed_skill.name) == _norm(op.name)
+                    else None
+                ),
+            )
         elif isinstance(op, DemoteSkill):
             _apply_demote_skill(op, new_profile, demotions)
         elif isinstance(op, UpsertCertification):
@@ -415,6 +492,19 @@ def apply_ops(
             # #480 PR 6 — the act of ending a role, and the ONE place the #155
             # tri-state convention is implemented.
             _apply_close_role(op, new_profile, ref_map, changes)
+        elif isinstance(op, SetProfileMeta):
+            # #480 PR 7 — the `_meta` SIDECAR (#505), never the `metadata`
+            # block. The op's key enum is what makes that structural.
+            _apply_set_profile_meta(op, new_profile, changes)
+        elif isinstance(op, MarkProbeAsked):
+            # #480 PR 7 — ADR-064 elicitation bookkeeping. Receipts onto
+            # `denials`: "we asked" is not gap-addressing content.
+            _apply_mark_probe_asked(op, new_profile, denials)
+        elif isinstance(op, EscalateDenialLevel):
+            # #480 PR 7 — the monotonic `direct -> partial` bump, routed to
+            # `record_denials(level_only=True)` so the no-downgrade rule keeps
+            # exactly one implementation.
+            _apply_escalate_denial_level(op, new_profile, source, denials)
         elif isinstance(op, ApplyImportMerge):
             # #480 PR 2 — the import's whole-merge act. Deterministic code
             # already decided every field (see the op's docstring for why no op
@@ -446,6 +536,7 @@ def apply_ops(
         conflicts=conflicts,
         pending_confirmations=pending,
         demotions=demotions,
+        denials=denials,
         reconciliation=reconciliation,
     )
 
@@ -1130,6 +1221,171 @@ def _apply_close_role(
                 rationale_key="role_closed",
             )
         )
+
+
+def _apply_set_profile_meta(
+    op: SetProfileMeta, profile: MasterProfileData, changes: list[FieldChange]
+) -> None:
+    """Write the ``_meta`` SIDECAR — idempotent append-if-absent (§4.4).
+
+    Absorbs ``routers/profile_enrich.mark_gap_na``'s raw-dict edit. The
+    semantics are that writer's, verbatim: append the gap string when it is not
+    already listed, and do nothing when it is.
+
+    Two things this deliberately does NOT do:
+
+    * **normalise the value.** The suppression list is matched by the readers
+      (``completeness.field_gaps``, ``services/profile/health``) against the
+      gap strings the detector produces, byte for byte. Folding case here would
+      silently stop suppressing the gap it was written for.
+    * **reach ``metadata``.** ``profile.meta`` is
+      :class:`~applire.schemas.profile.ProfileMetaBlock` (#505), one letter and
+      an entire threat model away from ``profile.metadata``. The op's ``key``
+      enum is what makes that structural rather than a convention this function
+      happens to follow.
+
+    The block is created on first use — a profile that never had a ``_meta`` key
+    grows one only when the candidate actually suppresses something, which is
+    what the #505 serializer's "omit an absent block entirely" rule requires.
+    A blank value is refused: it would suppress nothing while reading as a real
+    act on the "what changed & why" surface.
+    """
+    value = op.value.strip()
+    if not value:
+        return
+    if profile.meta is None:
+        profile.meta = ProfileMetaBlock()
+    if value in profile.meta.na_fields:
+        return
+    profile.meta.na_fields.append(value)
+    changes.append(
+        FieldChange(
+            section="_meta",
+            field="na_fields",
+            action="added",
+            old_value=None,
+            new_value=value,
+            rationale="Marked this gap as not applicable to you.",
+            rationale_key="gap_marked_na",
+        )
+    )
+
+
+def _apply_mark_probe_asked(
+    op: MarkProbeAsked, profile: MasterProfileData, denials: list[FieldChange]
+) -> None:
+    """Set ``probe_asked`` on an EXISTING denial — and nothing else (ADR-064).
+
+    Absorbs ``session._mark_probe_asked``, whose fail-safe semantics are
+    preserved exactly. The reach is one boolean on one record the candidate's
+    own testimony already created:
+
+    * **never mints.** A concept with no durable ``DeniedConcept`` is a quiet
+      no-op. The ADR-064 M4 finding-fix made the probe SELECTOR require the
+      record to exist, so arriving here without one is a caller contract
+      violation — and the safe response to it is still not to invent a denial
+      record from bookkeeping alone, which would durably attribute testimony
+      the candidate never gave;
+    * **never deletes, never downgrades.** ``denial_level``, ``statement``,
+      ``source`` and ``date`` are untouched. The flag records *"we asked"*; only
+      a genuine candidate denial moves anything that records *"they denied"*;
+    * **idempotent.** A flag already ``True`` produces no second receipt — a
+      re-issued probe is a bug upstream, not a second fact.
+
+    Addressing uses ``ats_audit._norm``, the SAME normaliser ``record_denials``
+    dedupes ``denied_concepts`` with (it folds case and hyphens). The concept
+    text reaching this op and the text on the record come from independently
+    generated LLM output, so byte-identical spelling cannot be assumed — and if
+    the two ever used different normalisers, bookkeeping and testimony could
+    disagree about which record they mean.
+
+    The receipt lands on ``denials``, never ``changes`` — see
+    :attr:`ApplyResult.denials`.
+    """
+    from applire.services.ats_audit import _norm as ats_norm
+
+    metadata = profile.metadata
+    if metadata is None:
+        return
+    concept = ats_norm(op.concept)
+    if not concept:
+        return
+    entry = next(
+        (d for d in metadata.denied_concepts if ats_norm(d.concept) == concept), None
+    )
+    if entry is None:
+        logger.info(
+            "apply_ops: mark_probe_asked found no durable denial for %r — "
+            "failing safe rather than minting one (ADR-064 M4 / #480 PR 7)",
+            op.concept,
+        )
+        return
+    if entry.probe_asked:
+        return
+    entry.probe_asked = True
+    denials.append(
+        FieldChange(
+            section="metadata",
+            field="denied_concepts",
+            action="updated",
+            old_value=entry.concept,
+            new_value=entry.concept,
+            rationale=(
+                f"Recorded that the one follow-up about {entry.concept} has been "
+                "asked (bookkeeping — your stated limit is unchanged)."
+            ),
+            rationale_key="denial_probe_asked",
+        )
+    )
+
+
+def _apply_escalate_denial_level(
+    op: EscalateDenialLevel,
+    profile: MasterProfileData,
+    source: str,
+    denials: list[FieldChange],
+) -> None:
+    """Move a denial ``direct -> partial``, and only ever that way (ADR-064).
+
+    Absorbs the ``denial_level`` escalation ``services/session.py`` performed
+    inline. **This function decides nothing** — it routes to
+    ``stance.record_denials(..., level_only=True)``, which has owned the
+    monotonic rule since the ADR-064 F1 finding-fix. That is deliberate: a
+    second copy of "only ever direct → partial" is a rule that can drift, and
+    the op exists to give the act a name in the vocabulary, not to re-implement
+    its semantics.
+
+    ``level_only`` carries the three refusals the act needs, so they are stated
+    once and inherited here: a concept with no durable record is a no-op (there
+    is nothing to escalate FROM — never mints), an already-``partial`` concept
+    is a no-op (not a silent no-change "success"), and ``statement``/``source``
+    are never written (#348 — the candidate's verbatim testimony is write-once;
+    the level is elicitation bookkeeping, not testimony content).
+
+    ``statement`` is passed empty on purpose: under ``level_only`` it is
+    unreadable by construction, and passing the turn's text would suggest
+    otherwise to the next reader. ``source`` is the batch's own provenance,
+    equally unread, and equally honest about where the act came from.
+
+    The receipt lands on ``denials``, never ``changes`` — an escalation is the
+    candidate ruling MORE out, and must never read as "gap addressed" to the
+    gates that read ``bool(changes)`` (#231/#352).
+    """
+    from applire.services.profile.reconcile.stance import record_denials
+
+    metadata = profile.metadata
+    if metadata is None:
+        return
+    denials.extend(
+        record_denials(
+            metadata,
+            [op.concept],
+            statement="",
+            source=source,
+            denial_level="partial",
+            level_only=True,
+        )
+    )
 
 
 def _apply_upsert_work(op, profile, ref_map, changes, pending):
