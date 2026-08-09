@@ -30,6 +30,7 @@ the applier against the batch's ref-map first, then against existing entity ids.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
@@ -424,6 +425,136 @@ class ResolveConfirmation(BaseModel):
     chosen_option: str
 
 
+class AddRole(BaseModel):
+    """The candidate started a new job — ADAPTER-ONLY.
+
+    ADR-063 amended 2026-08-09 (third entry), ruled after #480 PR 6's code
+    contact refuted the design's assumption that ``add_role`` was expressible
+    with the reconciler's ``UpsertWork``. Two independent refutations, both
+    reproduced before the ruling:
+
+    * **ordering.** ``_apply_upsert_work`` APPENDS; the post-hire intake has
+      always inserted at index 0 — and nothing in the backend or the frontend
+      sorts ``work_experience``, so array order is what the profile page renders
+      and what the CV generator is handed. Routed through the upsert, a
+      just-started job would appear at the BOTTOM of the CV.
+    * **identity.** ``_apply_upsert_work`` runs ``classify_engagement_dupe`` for
+      every entry the reconciler did not target. On an internal promotion (same
+      employer, new title) the verdict is AMBIGUOUS: a confirmation is parked
+      and no entry is created at all, leaving the door's required
+      ``new_role_id`` with no value.
+
+    The second one is the interesting half, because it is not an accident. The
+    dupe guard exists precisely because **the LLM owns entity identity**
+    (ADR-046) and must be second-guessed when it says "new entry". Here the
+    HUMAN says it — they typed their new employer into the post-hire form — and
+    §7.4's ruling already holds that the committer never re-adjudicates direct
+    user input (``grounding=None`` → a direct act → ``confirmed``, ADR-061
+    clause 2). A guard built for model output has no business in front of an
+    act the candidate performed.
+
+    So the act becomes its own op, on the ``ApplyImportMerge`` precedent: when
+    an intake is not expressible in the existing vocabulary, the honest remedy
+    is a typed, auditable act inside it — never a ``profile_override``-style
+    bypass, and never widening a model-emittable op with a more powerful
+    parameter (the governing rule below).
+
+    **Deliberately narrow.** It states one role and nothing else: no bullets, no
+    skills, no end date, no target to merge into. Everything else about the
+    write — the trail, the completeness recompute, ``last_updated``, the
+    persisted-denial re-floor — belongs to the committer's invariants, which is
+    exactly what routing this writer buys. ``metadata`` is unreachable by the
+    op itself.
+
+    **Adapter-only.** It lives in ``DecisionOp``; ``engine._parse_ops``
+    validates raw model JSON against ``ReconcileOp`` alone, so a hallucinated
+    ``{"op": "add_role", …}`` is dropped before it is ever an object. The
+    reconciler keeps ``upsert_work`` — "this role exists", dupe-guarded — and
+    does not also get the un-adjudicated form that would mint a job at the top
+    of the CV with nothing in front of it.
+
+    ``is_current=True`` is part of the ACT, not a parameter: a just-started role
+    IS the current position (#155), and saying so explicitly is what keeps the
+    enrichment loop from re-asking an end date that does not exist yet. The
+    inverse act is :class:`CloseRole`, and the two travel in one batch.
+    """
+
+    op: Literal["add_role"] = "add_role"
+    #: The id the new entry WILL carry. Minted by the op so a pure adapter can
+    #: answer the door's ``new_role_id`` before the committer runs, without
+    #: scraping it back out of the receipts.
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    company: str
+    role: str
+    start_date: str | None = None
+    location: str | None = None
+    industry_context: str | None = None
+
+
+class CloseRole(BaseModel):
+    """A role has ended — ADAPTER-ONLY.
+
+    ADR-063 clause 8(e) / the 2026-08-09 amendment clause 1 (#480 design §4.3).
+    The 2026-07-29 amendment named three writes the op vocabulary could not
+    express; this is the one it called *"a boolean flip (``role_add`` closing a
+    role)"*. ``_apply_set_field`` is fill-only by design
+    (``if not _is_empty(current): return``), so nothing in the vocabulary could
+    move a populated ``is_current`` from ``True`` to ``False``.
+
+    **Named for the act, not the mechanism.** The design considered and rejected
+    the obvious primitive: a generic ``SetBool(target, field, value)`` would fix
+    the same mechanical gap and hand every future caller a way to flip any
+    boolean on any entity. An op's name is a large part of its guard — a caller
+    reaching for ``CloseRole`` has to mean *"this role ended"*, and a reviewer
+    reading a batch can see what was asserted about the candidate.
+
+    **The #155 tri-state lives here and nowhere else.** ``is_current`` is
+    tri-state — ``None`` unknown, ``True`` current, ``False`` known-ended — and
+    the convention was previously re-implemented at each writer that cared
+    (``role_add``'s close loop, the extraction prompts, the reconciler's
+    ``UpsertWork``). Two rules follow from the act, and both are asserted by the
+    applier:
+
+    * **the flag is the act, so it is authoritative.** A close writes
+      ``is_current = False`` even over a populated ``True``. Nothing else in the
+      vocabulary may.
+    * **the date is a separate fact, so it stays fill-only.** ``end_date`` is
+      optional: *"this role ended and I do not know when"* is a real state, and
+      recording it as ``is_current=False`` + ``end_date=None`` keeps the
+      end-date GAP open (``completeness.field_present`` only suppresses that gap
+      for ``is_current is True``) instead of hiding it behind the flag. And a
+      role that already carries an end date is never re-dated here: changing an
+      attested date is a CORRECTION, which is ``ResolveField``'s authorised
+      overwrite or a human section edit — not a close.
+
+    **Scoped to ``work_experience``.** ``is_current`` is inherited from
+    ``ExperienceBase``, so projects and volunteer activities carry the field
+    too; this op resolves its ``target`` against work entries alone. Reach wider
+    than the act's own name is exactly how a named op decays into the power
+    primitive the design rejected.
+
+    **Adapter-only.** It lives in ``DecisionOp``; ``engine._parse_ops``
+    validates raw model JSON against ``ReconcileOp`` alone, so a hallucinated
+    ``{"op": "close_role", …}`` is dropped before it is ever an object. Ending a
+    role is a statement about the candidate's PRESENT — a model that could emit
+    one could retire a job the candidate still holds, and the CV built from that
+    vault would say so.
+
+    Absorbs ``role_add``'s ``is_current`` close loop.
+    """
+
+    op: Literal["close_role"] = "close_role"
+    #: The work entry that ended — an existing id, or a local ref from this
+    #: batch.
+    target: str
+    #: The day the role ended, when it is known. ``None`` records *ended, date
+    #: unknown* and deliberately leaves the end-date gap open.
+    end_date: str | None = None
+    #: Why. Required: an adapter-only act states its ground, and this reaches
+    #: the candidate's "what changed & why" surface as the receipt's rationale.
+    reason: str
+
+
 class ApplyImportMerge(BaseModel):
     """The import path's whole-merge act — ADAPTER-ONLY, IMPORT-ONLY.
 
@@ -518,6 +649,21 @@ class ApplyImportMerge(BaseModel):
 # act only a human can perform — answering a question the system asked — so a
 # model-emittable form would let the reconciler both raise a dispute and decide
 # it, and (for ``ResolveField``) overwrite an attested field while doing so.
+#
+# ``AddRole`` and ``CloseRole`` joined in PR 6, the two halves of the post-hire
+# act. ``AddRole`` is the un-adjudicated form of a write the reconciler may only
+# make dupe-guarded: the guard is there because the MODEL owns entity identity,
+# and a human filling in the post-hire form owns it themselves. Model-emittable,
+# it would be a way to mint a job at the top of the CV with no guard in front of
+# it — which is the same reason `ApplyImportMerge` is adapter-only.
+#
+# ``CloseRole`` is the only op allowed to overwrite a
+# populated ``is_current``, and what it asserts is a statement about the
+# candidate's PRESENT: a hallucinated ``close_role`` would retire a job they
+# still hold, and every document built from that vault would repeat it. The
+# reconciler already has the model-side way to say "this role is ongoing"
+# (``UpsertWork.is_current`` / a fill-only ``set_field``); it does not get the
+# authoritative way to say the opposite.
 
 _MODEL_EMITTABLE = (
     UpsertWork,
@@ -538,13 +684,16 @@ _MODEL_EMITTABLE = (
 )
 
 # Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5 added ``ResolveField``
-# and ``ResolveConfirmation``; PR 6/7 add ``CloseRole``/``SetProfileMeta`` here.
+# and ``ResolveConfirmation``; PR 6 added ``CloseRole``; PR 7 adds
+# ``SetProfileMeta`` here.
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
     ReplaceSection,
     ResolveField,
     ResolveConfirmation,
+    AddRole,
+    CloseRole,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
