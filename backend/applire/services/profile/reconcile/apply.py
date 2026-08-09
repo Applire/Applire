@@ -29,6 +29,7 @@ was given and creates a new entity when ``target`` is ``None``.
 """
 from __future__ import annotations
 
+import logging
 import types
 import typing
 from typing import Any, Union
@@ -68,6 +69,8 @@ from applire.services.profile.reconcile.ops import (
     FlagConflict,
     ReplaceSection,
     RequestConfirmation,
+    ResolveConfirmation,
+    ResolveField,
     SetField,
     SetPersonalInfo,
     SetSummary,
@@ -81,6 +84,8 @@ from applire.services.profile.reconcile.ops import (
     UpsertVolunteer,
     UpsertWork,
 )
+
+logger = logging.getLogger(__name__)
 
 _PROFICIENCY_ORDER = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
 
@@ -391,6 +396,14 @@ def apply_ops(
             # whole branch of the tree (the PATCH intake always round-tripped
             # the dict through `MasterProfileData`; that is unchanged).
             new_profile = _apply_replace_section(op, new_profile, changes)
+        elif isinstance(op, ResolveField):
+            # #480 PR 5 — the AUTHORISED overwrite. Returns a freshly validated
+            # profile for the same reason `ReplaceSection` does: the write is
+            # performed on the dumped dict (a conflict's `field` is the model's
+            # own string and may name no schema slot at all).
+            new_profile = _apply_resolve_field(op, new_profile, changes)
+        elif isinstance(op, ResolveConfirmation):
+            _apply_resolve_confirmation(op, new_profile, changes)
         elif isinstance(op, ApplyImportMerge):
             # #480 PR 2 — the import's whole-merge act. Deterministic code
             # already decided every field (see the op's docstring for why no op
@@ -718,6 +731,268 @@ def _apply_replace_section(
     else:
         changes.extend(_diff_list_section(op.section, before, after))
     return updated
+
+
+# ── ResolveField / ResolveConfirmation: answering what the system asked ───────
+#
+# #480 PR 5 (design §4.2 / §4.5). Both acts used to live in
+# `services/profile/__init__.py` as bespoke `profile_json` assignments — no
+# reconcile, no stance guard, no denial floor, no committer (#512). They are ops
+# now, which buys three things at once: the committer's invariant set around the
+# write, a typed adapter-only vocabulary the model cannot reach, and — for the
+# #218 bullet surgery below — code that can be unit-tested without a database.
+#
+# All the surgery helpers are FACT-LEVEL: locate a named entity, rewrite a named
+# string. No similarity matching and no judgement about whether two bullets say
+# the same thing — that verdict is the reconciler model's (ADR-062 clause 1) and
+# arrives on the `Conflict` record.
+
+
+def _entry_for_conflict(entries: list, conflict: Conflict) -> dict | None:
+    """The list entry a conflict belongs to: by ``entity_id``, else by value.
+
+    #218. Before it, the resolution path could reach a dict section and — for
+    ``work_experience`` only — the FIRST entry whose scalar field still equalled
+    the old value, so a bullet-level dispute resolved into nothing and the
+    rejected variant stayed in the vault.
+    """
+    if conflict.entity_id:
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("id") == conflict.entity_id:
+                return entry
+        return None
+    # Conflicts parked before `entity_id` existed carry no identity — fall back
+    # to the pre-#218 behaviour: the first entry still holding the old value.
+    old = _norm(conflict.existing_value)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        current = entry.get(conflict.field)
+        if isinstance(current, list):
+            if any(_norm(item) == old for item in current):
+                return entry
+        elif current == conflict.existing_value:
+            return entry
+    return None
+
+
+def _rewrite_bullet_list(
+    bullets: list, existing: Any, incoming: Any, chosen: Any
+) -> list:
+    """Leave the chosen wording in place of the contested pair, order preserved.
+
+    Both disputed variants may be stored (the reconciler's bullet dedup is
+    exact-string, so two wordings of one fact both survive an import — #453).
+    Resolving the dispute must therefore also remove the variant the candidate
+    rejected; otherwise the vault keeps serving the figure they just ruled out.
+    """
+    contested = {_norm(existing), _norm(incoming)} - {""}
+    chosen_key = _norm(chosen)
+    result: list = []
+    placed = False
+    for bullet in bullets:
+        key = _norm(bullet)
+        if key in contested:
+            if chosen_key and not placed:
+                result.append(chosen)
+                placed = True
+            continue  # the losing variant is dropped, not left alongside
+        if chosen_key and key == chosen_key and placed:
+            continue  # never leave the chosen wording twice
+        result.append(bullet)
+    if chosen_key and not placed and chosen_key not in {_norm(b) for b in result}:
+        # The disputed wording is no longer stored (edited away, or the incoming
+        # variant was never merged). The candidate's choice still has to land.
+        result.append(chosen)
+    return result
+
+
+def _apply_resolution_to_list_section(
+    entries: list, conflict: Conflict, chosen: Any
+) -> tuple[Any, bool]:
+    """Write ``chosen`` onto the entry the conflict names, in place.
+
+    Returns ``(old_value, wrote)`` so the caller can receipt what actually
+    changed rather than what the op asked for.
+    """
+    entry = _entry_for_conflict(entries, conflict)
+    if entry is None:
+        return None, False
+    # A `field` the schema has no slot for needs no guard here: the write lands
+    # on the dumped dict and `MasterProfileData.model_validate` drops it
+    # (pydantic `extra="ignore"`), so the resolution is a quiet no-op either way.
+    current = entry.get(conflict.field)
+    if isinstance(current, list):
+        entry[conflict.field] = _rewrite_bullet_list(
+            current, conflict.existing_value, conflict.incoming_value, chosen
+        )
+    else:
+        entry[conflict.field] = chosen
+    return current, True
+
+
+def _open_conflict_for(
+    profile: MasterProfileData, op: ResolveField
+) -> Conflict | None:
+    """THE guard: the dispute that authorises this overwrite, or ``None``.
+
+    Two conditions, both load-bearing (see ``ResolveField``'s docstring):
+
+    1. the ``conflict_id`` names an **open** conflict on this profile — a
+       resolved one is spent authority, and an unknown one is no authority at
+       all;
+    2. the op describes THAT dispute (same section, field and entity), so one
+       open conflict cannot authorise an overwrite somewhere else.
+
+    ``metadata`` is refused outright: a dispute may never become a write to
+    ``denied_concepts`` or ``enrichment_history``.
+    """
+    metadata = profile.metadata
+    if metadata is None:
+        return None
+    if op.section == "metadata":
+        return None
+    conflict = next(
+        (
+            c
+            for c in metadata.pending_conflicts
+            if c.conflict_id == op.conflict_id and not c.resolved
+        ),
+        None,
+    )
+    if conflict is None:
+        return None
+    if (
+        (conflict.section or "") != (op.section or "")
+        or conflict.field != op.field
+        or (conflict.entity_id or None) != (op.target or None)
+    ):
+        return None
+    return conflict
+
+
+def _apply_resolve_field(
+    op: ResolveField, profile: MasterProfileData, changes: list[FieldChange]
+) -> MasterProfileData:
+    """Write the candidate's decision onto the disputed field and close it."""
+    conflict = _open_conflict_for(profile, op)
+    if conflict is None:
+        logger.info(
+            "apply_ops: refused resolve_field for conflict %s — no matching OPEN "
+            "conflict on the profile (ADR-063 clause 8(e) / #480 §4.2: the "
+            "authority for an authorised overwrite is the dispute itself)",
+            op.conflict_id,
+        )
+        return profile
+
+    # The winning value comes from the DISPUTE for the two non-manual
+    # resolutions, so an adapter cannot claim "incoming" and write something
+    # else. Only `manual` reads the op's own `value` — the candidate's words.
+    if op.resolution == "existing":
+        chosen = conflict.existing_value
+    elif op.resolution == "incoming":
+        chosen = conflict.incoming_value
+    else:
+        chosen = op.value
+
+    dumped = profile.model_dump(mode="json")
+    section_data = dumped.get(op.section)
+    old_value: Any = None
+    wrote = False
+    if isinstance(section_data, dict):
+        old_value = section_data.get(op.field)
+        section_data[op.field] = chosen
+        dumped[op.section] = section_data
+        wrote = True
+    elif isinstance(section_data, list):
+        # #218 — every entity section (work_experience, projects,
+        # volunteer_activities) resolves the same way: find the entry the
+        # conflict names, then write the chosen value onto its field —
+        # replacing the contested string in place when that field is a list.
+        old_value, wrote = _apply_resolution_to_list_section(
+            section_data, conflict, chosen
+        )
+        dumped[op.section] = section_data
+    # `section=""` (the applier could not resolve the flagged entity) leaves
+    # nowhere to write. The decision is still the candidate's, so the dispute
+    # closes below — an unanswerable question must not stay open forever.
+
+    # The same round-trip the resolution intake always performed — a chosen
+    # value the schema rejects raises here exactly as it did before (pydantic's
+    # ValidationError IS a ValueError, which the REST door maps to a 422), and
+    # `apply_ops` round-trips the whole batch again on the way out.
+    updated = MasterProfileData.model_validate(dumped)
+    if updated.metadata is not None:
+        # Closing the dispute is REMOVAL, exactly as before: both resolve paths
+        # delete rather than flag, and `_surviving_parked_items` relies on it
+        # (a resolved item is not carried forward across import rounds).
+        updated.metadata.pending_conflicts = [
+            c
+            for c in updated.metadata.pending_conflicts
+            if c.conflict_id != op.conflict_id
+        ]
+    if wrote:
+        changes.append(
+            FieldChange(
+                section=op.section,
+                field=op.field,
+                action="updated",
+                # The DISPUTED value, not the raw slot content: for a bullet
+                # list the slot holds the whole list, and the receipt is about
+                # the two sides the candidate chose between.
+                old_value=conflict.existing_value,
+                new_value=chosen,
+                rationale=f"Resolved a conflict on {op.field} ({op.resolution}).",
+                rationale_key="conflict_resolved",
+            )
+        )
+    return updated
+
+
+def _apply_resolve_confirmation(
+    op: ResolveConfirmation, profile: MasterProfileData, changes: list[FieldChange]
+) -> None:
+    """Record the chosen option and clear the parked ask (design §4.5).
+
+    Bookkeeping, not content: the reconciler already applied its best-effort
+    merge when it raised the ambiguity. What this closes is the LIFECYCLE — a
+    parked confirmation with no durable clear would be re-asked by every later
+    session that reads `metadata.pending_confirmations` (#480 PR 2's
+    `park_confirmations` note).
+
+    An unknown or already-resolved id is a quiet no-op: `resolve_confirmation`
+    raises `LookupError` at the door for a genuinely unknown id, and the
+    interview's resume path deliberately tolerates an already-answered one.
+    """
+    metadata = profile.metadata
+    if metadata is None:
+        return
+    entry = next(
+        (
+            c
+            for c in metadata.pending_confirmations
+            if c.confirmation_id == op.confirmation_id and not c.resolved
+        ),
+        None,
+    )
+    if entry is None:
+        return
+    metadata.pending_confirmations = [
+        c
+        for c in metadata.pending_confirmations
+        if c.confirmation_id != op.confirmation_id
+    ]
+    changes.append(
+        FieldChange(
+            section="metadata",
+            field="pending_confirmations",
+            action="updated",
+            old_value=entry.question,
+            new_value=op.chosen_option,
+            rationale="Recorded your answer to a confirmation question.",
+            rationale_key="confirmation_resolved",
+        )
+    )
 
 
 def _apply_upsert_work(op, profile, ref_map, changes, pending):

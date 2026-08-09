@@ -243,22 +243,22 @@ async def test_current_position_answer_resolves_end_date_gap(db_session):
 
 
 @pytest.mark.asyncio
-async def test_interview_turn_does_not_durably_park_its_confirmations(db_session):
-    """#480 PR 5 (`ResolveConfirmation`) MUST INVERT THIS TEST — deliberately.
+async def test_interview_turn_durably_parks_its_confirmations(db_session):
+    """#480 PR 5 — the inversion PR 2's pin explicitly asked for.
 
-    The committer parks a turn's asks on `metadata.pending_confirmations` so
-    they become visible vault state. For the interview that would be a
-    regression until the matching CLEAR exists: an interview resolves its own
-    ask in SESSION STATE (#187, `_handle_interview_confirmation_answer`), which
-    never touches metadata — so a durably parked ask would be rebuilt into a
-    confirmation cluster by a LATER session's `_open_confirmations` and re-asked
-    after the candidate had already answered it. Park-and-clear are one
-    lifecycle and land in one PR.
+    PR 2 pinned the OPPOSITE of this, deliberately. The committer parks a
+    turn's asks on `metadata.pending_confirmations` so they become visible
+    vault state, but the interview resolved its own ask in SESSION STATE (#187,
+    `_handle_interview_confirmation_answer`) and never touched metadata — so a
+    durable park would have been rebuilt into a confirmation cluster by a LATER
+    session's `_open_confirmations` and re-asked after the candidate had
+    already answered it. Park-and-clear are one lifecycle and land together.
 
-    So: the ask reaches the CALLER (it drives this session's question), and it
-    does NOT reach the vault. When PR 5 builds the durable clear, flip
-    `park_confirmations` and rewrite this test to assert the park — with the
-    clear pinned alongside it.
+    `ResolveConfirmation` is that clear, so `park_confirmations` is gone and
+    parking is unconditional again: the ask reaches the caller AND the vault,
+    and the session that raised it also clears it. Both halves of the lifecycle
+    — an answered ask never resurfaces, an ABANDONED one survives — are pinned
+    in `test_confirmation_park_and_clear.py`.
     """
 
     class _Ambiguous:
@@ -290,10 +290,15 @@ async def test_interview_turn_does_not_durably_park_its_confirmations(db_session
     assert [c.question for c in out.pending_confirmations] == [
         "Is 'Owner' the same role as 'Founder'?"
     ]
-    # ...and it did NOT reach the vault, so no later session can re-ask it.
+    # ...AND the vault, so an ask the candidate never got to is not lost with
+    # the session that raised it.
     parked = (out.profile_dict.get("metadata") or {}).get("pending_confirmations") or []
-    assert parked == [], (
-        "an interview turn must not durably park its asks until #480 PR 5 "
-        "builds the durable clear — park without clear re-asks answered "
-        "confirmations in a later session"
+    assert [c["question"] for c in parked] == [
+        "Is 'Owner' the same role as 'Founder'?"
+    ], (
+        "an interview turn parks its asks durably since #480 PR 5 built the "
+        "matching clear — an unanswered ask is still owed to the candidate"
     )
+    # The caller's copy and the parked entry are the SAME ask: the session
+    # persists this id and hands it back to `ResolveConfirmation` to clear.
+    assert parked[0]["confirmation_id"] == out.pending_confirmations[0].confirmation_id

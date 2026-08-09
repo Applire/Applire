@@ -1140,7 +1140,9 @@
       "reconcile_summary": "Deine berufliche Zusammenfassung aktualisiert.",
       "manual_section_added": "Beim Bearbeiten dieses Abschnitts ergänzt.",
       "manual_section_updated": "Beim Bearbeiten dieses Abschnitts geändert.",
-      "manual_section_removed": "Beim Bearbeiten dieses Abschnitts entfernt."
+      "manual_section_removed": "Beim Bearbeiten dieses Abschnitts entfernt.",
+      "conflict_resolved": "Auf den Wert gesetzt, den du beim Klären dieses Konflikts gewählt hast.",
+      "confirmation_resolved": "Deine Antwort auf eine Rückfrage wurde festgehalten."
     }
   },
   "mergeGate": {

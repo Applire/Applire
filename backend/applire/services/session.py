@@ -541,8 +541,17 @@ async def _ask_queued_confirmation(
 
 
 def _confirmation_state(confirmation) -> dict:
-    """The JSONB-safe session-state shape of one reconciler ``RequestConfirmation``."""
+    """The JSONB-safe session-state shape of one parked confirmation.
+
+    #480 PR 5 — it carries ``confirmation_id`` now. A turn's asks are parked
+    durably on ``metadata.pending_confirmations`` since the durable CLEAR
+    exists, and the id is what lets the in-session answer address the parked
+    entry through ``ResolveConfirmation``. A session that persisted only
+    question/options/context could never clear its own park — which is exactly
+    why durable parking had to wait for this PR.
+    """
     return {
+        "confirmation_id": getattr(confirmation, "confirmation_id", None),
         "question": confirmation.question,
         "options": list(confirmation.options),
         "context": dict(confirmation.context),
@@ -593,6 +602,29 @@ async def _handle_interview_confirmation_answer(
     if applied is not None:
         profile_record.profile_json = applied
         profile_record.updated_at = datetime.now(timezone.utc)
+
+    # #480 PR 5 — the turn's ask is parked DURABLY on
+    # `metadata.pending_confirmations` now, so answering it in session state is
+    # only half the act: the park has to be cleared too, or a later session
+    # rebuilds a confirmation cluster for a question the candidate already
+    # answered (`_open_confirmations` → `build_confirmation_clusters`).
+    #
+    # Through the op and the committer, never by mutating the parked list here.
+    # `ResolveConfirmation` is the ONLY act permitted to touch this one metadata
+    # list (design §4.5 — which is precisely why it is its own op and not folded
+    # into `SetProfileMeta`, whose key enum keeps the REST of `metadata`
+    # op-unreachable). So the clear is receipted on the enrichment trail and
+    # carries the committer's invariant set, identical to the
+    # import/profile-review door's clear. Editing `profile_json` at this call
+    # site instead would mint a new direct writer of the very attribute
+    # ADR-063 clause 6 is closing down.
+    #
+    # Unconditional on `applied`: "keep the existing skills" and non-skill
+    # confirmations resolve nothing in the vault, but the candidate still
+    # ANSWERED, so the ask is spent either way.
+    confirmation_id = pending_conf.get("confirmation_id")
+    if confirmation_id:
+        await _resolve_confirmation_safely(db, confirmation_id, chosen)
 
     # Consume the pending confirmation AND the one-shot flag — the loop is closed.
     state.pop("pending_interview_confirmation", None)

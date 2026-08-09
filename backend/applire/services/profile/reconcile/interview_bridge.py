@@ -62,9 +62,10 @@ class InterviewTurnResult:
     conflict_summaries: list[ConflictSummary] = field(default_factory=list)
     # The engine's ambiguities plus the applier's own, in that order — since
     # #480 PR 2 these are the committer's `PendingConfirmation`s (question,
-    # options and context are identical). They are deliberately NOT parked on
-    # `metadata.pending_confirmations`: see `park_confirmations=False` at the
-    # commit call below. Session-only, exactly as before.
+    # options and context are identical). Since PR 5 they are ALSO parked on
+    # `metadata.pending_confirmations`, and these objects carry the very
+    # `confirmation_id` the session persists and hands back to
+    # `ResolveConfirmation` to clear the park.
     pending_confirmations: list[PendingConfirmation] = field(default_factory=list)
     # #231 — True iff this turn recorded a NEW/refreshed explicit denial (even
     # when `addressed` is False, i.e. nothing else in the profile changed).
@@ -134,16 +135,12 @@ async def reconcile_interview_turn(
             text=answer, question=question, gap=gap, denials=list(result.denials)
         ),
         ambiguities=list(result.ambiguities),
-        # Ambiguities deliberately NOT parked durably — a durable park without a
-        # durable clear resurfaces answered confirmations; park+clear land
-        # together in #480 PR 5 (`ResolveConfirmation`). The interview resolves
-        # its own asks in SESSION STATE (#187), which never touches
-        # `metadata.pending_confirmations`, so parking them here would let a
-        # LATER session rebuild a confirmation cluster for an ask the candidate
-        # already answered — worse than today, and this build's rule is that
-        # every intermediate state leaves `main` a strict superset. They still
-        # reach the caller on the result, exactly as before.
-        park_confirmations=False,
+        # Ambiguities are parked DURABLY since #480 PR 5 built the matching
+        # clear (`ResolveConfirmation`). The interview still answers its own
+        # asks in session state (#187), but that path now also clears the
+        # metadata park through the op — so an answered ask cannot resurface in
+        # a later session, and an ABANDONED one is still owed to the candidate
+        # instead of dying with the session that raised it.
         # ADR-063 amendment (5) — an interview turn snapshots NOTHING. Ten of
         # them would otherwise evict the import snapshot the undo exists for.
         snapshot=None,

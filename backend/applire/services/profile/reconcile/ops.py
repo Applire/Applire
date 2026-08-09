@@ -331,6 +331,99 @@ class ReplaceSection(BaseModel):
         return self.section in OBJECT_SECTIONS
 
 
+class ResolveField(BaseModel):
+    """The candidate answers a dispute the system raised — ADAPTER-ONLY.
+
+    ADR-063 clause 8(e) / the 2026-08-09 amendment clause 1 (#480 design §4.2).
+    This is the **authorised overwrite**: the one op allowed to write over a
+    populated field, which ``_apply_set_field``'s fill-only rule exists to
+    refuse. A reconciler that could overwrite would silently replace attested
+    facts, so it may only FILL; a real disagreement is parked on the conflict
+    channel and comes back here once the human has decided.
+
+    **The load-bearing guard is not a flag on this op — it is the dispute.**
+    ``conflict_id`` must resolve to an OPEN (unresolved) ``Conflict`` on the
+    profile the applier is writing, and the op's ``section``/``field``/``target``
+    must describe THAT dispute. Both halves matter:
+
+    * without the open-conflict lookup, ``ResolveField`` degenerates into a
+      free overwrite primitive that any future caller could reach for;
+    * without the identity check, one open conflict about a role title would
+      authorise an overwrite of an unrelated field — the authority is *this*
+      dispute, not "a dispute exists".
+
+    A resolved conflict is spent authority: answering the same dispute twice
+    cannot authorise a second overwrite.
+
+    ``metadata`` is refused outright, as it is for ``ReplaceSection`` — a
+    dispute may never become a write to ``denied_concepts`` or
+    ``enrichment_history``.
+
+    **The winning value comes from the dispute record, not from this op.**
+    ``resolution`` names which side won; ``value`` carries the candidate's own
+    text and is read **only** for ``"manual"``. So an adapter cannot claim
+    "incoming" while smuggling different content — for the two non-manual
+    resolutions the applier reads ``existing_value``/``incoming_value`` off the
+    conflict it just authenticated.
+
+    **Adapter-only.** It lives in ``DecisionOp``; ``engine._parse_ops``
+    validates raw model JSON against ``ReconcileOp`` alone, so a hallucinated
+    ``{"op": "resolve_field", …}`` is dropped before it is ever an object — the
+    same rule that keeps ``DemoteSkill`` and ``ReplaceSection`` out of the
+    model's vocabulary. Only a human answering a question reaches this.
+
+    Absorbs ``services.profile.resolve_conflict``, and with it the #218
+    bullet-list surgery, which becomes unit-testable for the first time by
+    moving into the applier.
+    """
+
+    op: Literal["resolve_field"] = "resolve_field"
+    #: The dispute being answered. THE authority — see the class docstring.
+    conflict_id: str
+    #: The disputed entity's id for list sections (``None`` for object sections
+    #: and for pre-#218 conflicts that carry no entity identity).
+    target: str | None = None
+    #: The conflict's own section. Not validated against ``VAULT_SECTIONS``:
+    #: ``_apply_flag_conflict`` records ``""`` when the target did not resolve,
+    #: and such a dispute must still be answerable (it writes nothing).
+    section: str
+    field: str
+    #: The candidate's own text. Read only when ``resolution == "manual"``.
+    value: Any = None
+    resolution: Literal["existing", "incoming", "manual"]
+
+
+class ResolveConfirmation(BaseModel):
+    """The candidate answers a parked N-option confirmation — ADAPTER-ONLY.
+
+    ADR-063 clause 8(e) / the 2026-08-09 amendment clause 1 (#480 design §4.5).
+    Bookkeeping plus a receipt: the chosen option is recorded on the enrichment
+    trail and the parked ask is cleared from
+    ``metadata.pending_confirmations``, so no later session re-asks it.
+
+    **Deliberately not folded into ``SetProfileMeta``.** That op may never
+    reach ``metadata`` — its key enum is what stops a metadata write from ever
+    being able to release a denial or forge an audit trail. This op's applier
+    touches exactly one metadata list through the committer's controlled path
+    and nothing else, which is a different (and much narrower) capability than
+    "write a metadata key".
+
+    It also completes the **park+clear lifecycle** #480 PR 2 could only half
+    build: with a durable clear in the vocabulary, `commit_ops` parks every
+    intake's asks unconditionally, and the interview's own in-session
+    resolution (#187) clears the park through this op rather than by mutating
+    the parked list in place.
+
+    Adapter-only for the usual reason: a hallucinated
+    ``{"op": "resolve_confirmation", …}`` would let the model close a question
+    the candidate never answered.
+    """
+
+    op: Literal["resolve_confirmation"] = "resolve_confirmation"
+    confirmation_id: str
+    chosen_option: str
+
+
 class ApplyImportMerge(BaseModel):
     """The import path's whole-merge act — ADAPTER-ONLY, IMPORT-ONLY.
 
@@ -420,6 +513,11 @@ class ApplyImportMerge(BaseModel):
 # semantics safe: replacing a section can DROP entries, so if the model could
 # emit one, a hallucinated ``replace_section`` would be a silent way to delete
 # vault facts nobody retracted. Only a human editing a section reaches it.
+#
+# ``ResolveField`` and ``ResolveConfirmation`` joined in PR 5. Both encode an
+# act only a human can perform — answering a question the system asked — so a
+# model-emittable form would let the reconciler both raise a dispute and decide
+# it, and (for ``ResolveField``) overwrite an attested field while doing so.
 
 _MODEL_EMITTABLE = (
     UpsertWork,
@@ -439,9 +537,15 @@ _MODEL_EMITTABLE = (
     RequestConfirmation,
 )
 
-# Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5+ adds ``ResolveField``/
-# ``ResolveConfirmation``/``CloseRole``/``SetProfileMeta`` here.
-_ADAPTER_ONLY = (DemoteSkill, ApplyImportMerge, ReplaceSection)
+# Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5 added ``ResolveField``
+# and ``ResolveConfirmation``; PR 6/7 add ``CloseRole``/``SetProfileMeta`` here.
+_ADAPTER_ONLY = (
+    DemoteSkill,
+    ApplyImportMerge,
+    ReplaceSection,
+    ResolveField,
+    ResolveConfirmation,
+)
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
