@@ -208,7 +208,9 @@ class TestEnrichSessionResume:
             context={"existing": "Founder & Lead Developer"},
         )
 
-        async def _confirming(**kwargs):
+        # #480 PR 2 — the bridge takes the session and the profile row now (it
+        # writes through `commit_ops` itself), so the stub takes `db` too.
+        async def _confirming(db, **kwargs):
             return InterviewTurnResult(
                 profile_dict=prof.profile_json,
                 changes=[],
@@ -246,16 +248,22 @@ class TestEnrichSessionResume:
         denial-only turn was reconciled, adjudicated by the LLM, written into the
         in-memory profile — and then thrown away, leaving the concept `unknown`
         rather than `denied` and re-askable. `session.py` never had the hole.
+
+        #480 PR 2 moved the write into the bridge (`commit_ops`), which removes
+        the gate entirely. So this test drops one layer: it stubs the RECONCILER
+        (the only LLM in the path) and lets the real bridge and the real
+        committer run, which is the only way it can still fail if the denial
+        stops being persisted.
         """
         from applire.routers.profile_enrich import (
             start_enrich_session,
             respond_to_enrich,
         )
         from applire.schemas.enrich import EnrichStartRequest, EnrichRespondRequest
-        from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+        from applire.services.profile.reconcile.ops import ReconcileResult
         from applire.models.profile import MasterProfile
         from applire.models.session import InterviewSession
-        import applire.routers.profile_enrich as pe
+        import applire.services.profile.reconcile.interview_bridge as ib
 
         prof = _make_profile()
         sqlite_session.add(prof)
@@ -269,24 +277,12 @@ class TestEnrichSessionResume:
             await sqlite_session.get(InterviewSession, first.session_id)
         ).state["current_gap_index"]
 
-        # The denial receipt the reconciler produced, as it would reach the router.
-        denied_profile = {
-            **prof.profile_json,
-            "metadata": {
-                **(prof.profile_json.get("metadata") or {}),
-                "denials": [{"token": "Kubernetes", "statement": "Damit hatte ich nie zu tun."}],
-            },
-        }
+        # A denial-only turn: the reconciler applied NO ops and returned one
+        # atomic denial verdict about the answer.
+        async def _denial_only(before, new_info, source, provider, lang="en"):
+            return ReconcileResult(ops=[], denials=["Kubernetes"])
 
-        async def _denial_only(**kwargs):
-            return InterviewTurnResult(
-                profile_dict=denied_profile,
-                changes=[],
-                addressed=False,          # correct: a denial is not "gap addressed"
-                denial_recorded=True,     # ...but it IS a vault effect
-            )
-
-        monkeypatch.setattr(pe, "reconcile_interview_turn", _denial_only)
+        monkeypatch.setattr(ib, "reconcile", _denial_only)
 
         await respond_to_enrich(
             first.session_id,
@@ -297,12 +293,13 @@ class TestEnrichSessionResume:
         )
 
         stored = await sqlite_session.get(MasterProfile, prof.id)
-        denials = (stored.profile_json.get("metadata") or {}).get("denials") or []
-        assert denials, (
+        denied = (stored.profile_json.get("metadata") or {}).get("denied_concepts") or []
+        assert denied, (
             "a denial-only turn must be persisted — the reconcile + adjudication "
             "was already paid for and ADR-059 makes denials first-class (#338)"
         )
-        assert denials[0]["token"] == "Kubernetes"
+        assert denied[0]["concept"] == "Kubernetes"
+        assert denied[0]["statement"] == "Mit Kubernetes hatte ich nie zu tun."
 
         # ...and it must NOT read as an ANSWERED gap (#231 — the reason `addressed`
         # excludes denials in the first place). `addressed_gaps` drives the ledger

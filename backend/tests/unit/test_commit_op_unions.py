@@ -214,3 +214,126 @@ async def test_deterministic_demotion_path_still_emits_and_applies():
     applied = apply_ops(profile, list(result.ops), "testimony")
     assert applied.profile.skills[0].status == "denied"
     assert applied.demotions and applied.changes == []
+
+
+# ── #480 PR 2: `ApplyImportMerge`, the second adapter-only op ─────────────────
+#
+# The import writers are not op-expressible (ADR-063 amended 2026-08-09, second
+# entry, clause 1): `reconcile_import` returns a finished merged profile, and
+# two of its deterministic post-passes write computed provenance the
+# model-emittable `UpsertSkill` deliberately cannot carry (ADR-062). So the act
+# itself became an op — the most powerful one in the vocabulary, which is
+# exactly why the union split has to hold for it.
+
+_HALLUCINATED_IMPORT_MERGE: dict[str, Any] = {
+    "op": "apply_import_merge",
+    "merged": {
+        "personal_info": {"full_name": "Someone Else"},
+        "skills": [{"name": "Kubernetes", "category": "technical", "status": "confirmed"}],
+    },
+    "changes": [],
+}
+
+
+def test_reconcile_op_union_refuses_apply_import_merge():
+    """A model that emits `apply_import_merge` could replace the WHOLE vault
+    with a profile it invented. The model-emittable union must not know the op
+    exists."""
+    adapter: TypeAdapter = TypeAdapter(ReconcileOp)
+    with pytest.raises(ValidationError):
+        adapter.validate_python(_HALLUCINATED_IMPORT_MERGE)
+
+
+def test_commit_op_union_accepts_apply_import_merge():
+    """The committer's union carries it — the import writers construct it as a
+    typed object and it must survive the trip to `apply_ops`."""
+    from applire.services.profile.reconcile.ops import ApplyImportMerge
+
+    adapter: TypeAdapter = TypeAdapter(CommitOp)
+    parsed = adapter.validate_python(_HALLUCINATED_IMPORT_MERGE)
+    assert isinstance(parsed, ApplyImportMerge)
+
+
+def test_hallucinated_import_merge_in_model_output_is_dropped():
+    """The same regression `DemoteSkill` carries, at the same seam — raw model
+    JSON claiming a whole-profile replacement never reaches the applier."""
+    from applire.services.profile.reconcile.engine import _parse_ops
+
+    ops = _parse_ops(
+        [
+            _HALLUCINATED_IMPORT_MERGE,
+            {"op": "upsert_skill", "name": "Go", "category": "technical"},
+        ]
+    )
+
+    assert [type(o) for o in ops] == [UpsertSkill]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_drops_hallucinated_import_merge_end_to_end():
+    from applire.services.profile.reconcile.apply import apply_ops
+    from applire.services.profile.reconcile.engine import reconcile
+
+    profile = _profile_with_confirmed_skill()
+    provider = _Provider(
+        {"ops": [_HALLUCINATED_IMPORT_MERGE], "ambiguities": [], "denials": []}
+    )
+
+    result = await reconcile(profile, {"answer": "I love Kubernetes."}, "testimony", provider)
+
+    assert result.ops == []
+    applied = apply_ops(profile, list(result.ops), "testimony")
+    assert [s.name for s in applied.profile.skills] == ["Kubernetes"]
+
+
+def test_apply_import_merge_installs_the_merge_wholesale_and_receipts_it():
+    """The applier does not re-decide a merge — deterministic code already did.
+    It installs it, carries the receipts onto the trail, and lifts the US161
+    merge statistics out for the committer's enrichment record."""
+    from applire.schemas.profile import FieldChange, MasterProfileData
+    from applire.services.profile.reconcile.apply import apply_ops
+    from applire.services.profile.reconcile.ops import ApplyImportMerge
+
+    before = _profile_with_confirmed_skill()
+    merged = MasterProfileData.model_validate(
+        {
+            "personal_info": {"full_name": "Daniel Kovač"},
+            "skills": [
+                {"name": "Kubernetes", "category": "technical", "status": "confirmed"},
+                {"name": "Terraform", "category": "technical", "status": "confirmed"},
+            ],
+            "metadata": {},
+        }
+    )
+    op = ApplyImportMerge(
+        merged=merged,
+        changes=[
+            FieldChange(
+                section="skills", field="name", action="added", new_value="Terraform"
+            )
+        ],
+        reconciliation={"skills": {"extracted": 2, "stored": 2, "delta": 0}},
+    )
+
+    applied = apply_ops(before, [op], "cv_upload")
+
+    assert [s.name for s in applied.profile.skills] == ["Kubernetes", "Terraform"]
+    assert [c.new_value for c in applied.changes] == ["Terraform"]
+    assert applied.reconciliation == {"skills": {"extracted": 2, "stored": 2, "delta": 0}}
+    # `apply_ops` promises never to mutate what it was handed — including the op.
+    assert [s.name for s in before.skills] == ["Kubernetes"]
+    applied.profile.skills.append(applied.profile.skills[0].model_copy(deep=True))
+    assert len(op.merged.skills) == 2
+
+
+def test_a_batch_without_an_import_merge_reports_no_reconciliation():
+    """`reconciliation` is "merge records only" — every other intake leaves the
+    `EnrichmentRecord` field `None`, which is what it already meant."""
+    from applire.services.profile.reconcile.apply import apply_ops
+
+    applied = apply_ops(
+        _profile_with_confirmed_skill(),
+        [UpsertSkill(name="Go", category="technical")],
+        "interview",
+    )
+    assert applied.reconciliation is None

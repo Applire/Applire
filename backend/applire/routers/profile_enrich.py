@@ -294,7 +294,6 @@ async def respond_to_enrich(
     session = await _load_session(session_id, db)
     state: dict = dict(session.state)
     profile_record = await _load_profile(db)
-    profile_data: dict = profile_record.profile_json or {}
 
     answer = body.answer.strip()
     if is_termination_signal(answer):
@@ -321,8 +320,18 @@ async def respond_to_enrich(
 
     # Reconcile answer via the ADR-046 engine (single pass — no separate review step)
     lang = await get_ui_language(db)
+    # ADR-063 (#480 PR 2) — the bridge writes through `commit_ops`, which
+    # flushes and leaves the transaction here. The write is now UNCONDITIONAL,
+    # which subsumes #338: `addressed` is deliberately `bool(changes)` EXCLUDING
+    # denials (#231, so a denial never reads as "this gap was resolved" to the
+    # ledger/gap-advance logic below), and while it ALSO gated the write a
+    # denial-only turn was reconciled, adjudicated and then discarded — losing
+    # an ADR-059 receipt the LLM call had already paid for. #338 widened the
+    # gate to `addressed or denial_recorded`; the committer removes the gate,
+    # so a turn that produced neither still leaves a trail saying it happened.
     turn = await reconcile_interview_turn(
-        profile_dict=profile_data,
+        db,
+        profile_record=profile_record,
         gap=current_gap,
         question=current_question,
         answer=answer,
@@ -331,17 +340,6 @@ async def respond_to_enrich(
         lang=lang,
     )
     updated_profile_data = turn.profile_dict
-
-    # #338 — persist when the turn produced ANY vault effect. `addressed` is
-    # deliberately `bool(applied.changes)` EXCLUDING denials (#231, so a denial
-    # never reads as "this gap was resolved" to the ledger/gap-advance logic
-    # below) — but it was also gating the write, so a denial-only turn was
-    # reconciled, adjudicated and then discarded, losing an ADR-059 receipt the
-    # LLM call had already paid for. Two correct rules designed against each
-    # other; `session.py` writes unconditionally and never had the hole.
-    if turn.addressed or turn.denial_recorded:
-        profile_record.profile_json = updated_profile_data
-        await db.flush()
 
     # Mark gap addressed if the reconciler applied at least one change.
     # Deliberately NOT `or denial_recorded` — see above: a denial is persisted

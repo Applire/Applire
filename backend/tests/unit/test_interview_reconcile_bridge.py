@@ -15,13 +15,53 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+"""US182a — the interview-path bridge over the ADR-046 reconciler.
+
+#480 PR 2: the bridge is the interview's INTAKE ADAPTER now — it takes the
+session and the profile row and writes the turn through ADR-063's `commit_ops`
+(the shape `submit_testimony` took in PR 1) instead of handing a dict back for
+the caller to assign. So every test here drives it against a real session and
+reads the outcome off the committed row: `out.profile_dict` is the persisted
+payload, not a detached in-memory dict.
+"""
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from applire.models.profile import MasterProfile, authorized_profile_write
 from applire.providers.llm.mock import MockLLMProvider
 from applire.schemas.profile import Conflict, MasterProfileData
 from applire.services.profile.reconcile.interview_bridge import (
     _to_summary,
     reconcile_interview_turn,
 )
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    from applire.db.session import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: Base.metadata.create_all(c, tables=[MasterProfile.__table__])
+        )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+async def _turn(db, profile_json: dict, **kwargs):
+    """Seed a profile row, run one interview turn through the real committer."""
+    with authorized_profile_write():
+        record = MasterProfile(profile_json=profile_json)
+    db.add(record)
+    await db.commit()
+    out = await reconcile_interview_turn(db, profile_record=record, **kwargs)
+    # The bridge flushes; the DOOR commits (ADR-063 amended clause 6).
+    await db.commit()
+    return out
 
 
 def test_to_summary_formats_list_value_as_clean_text():
@@ -42,10 +82,10 @@ def test_to_summary_formats_list_value_as_clean_text():
 
 
 @pytest.mark.asyncio
-async def test_bridge_returns_updated_dict_changes_and_progress():
+async def test_bridge_returns_updated_dict_changes_and_progress(db_session):
     profile = {"personal_info": {"full_name": "Test User"}}
-    out = await reconcile_interview_turn(
-        profile_dict=profile, gap="skills", question="What do you use?",
+    out = await _turn(
+        db_session, profile, gap="skills", question="What do you use?",
         answer="Python daily", provider=MockLLMProvider(), session_id="s1",
     )
     # Mock emits one upsert_skill -> a mutation -> "addressed"
@@ -57,12 +97,12 @@ async def test_bridge_returns_updated_dict_changes_and_progress():
 
 
 @pytest.mark.asyncio
-async def test_bridge_empty_ops_is_not_addressed():
+async def test_bridge_empty_ops_is_not_addressed(db_session):
     class _Empty:
         async def aparse_json(self, prompt, **kw):
             return {"ops": [], "ambiguities": []}
-    out = await reconcile_interview_turn(
-        profile_dict={}, gap="g", question="q", answer="a",
+    out = await _turn(
+        db_session, {}, gap="g", question="q", answer="a",
         provider=_Empty(), session_id="s1",
     )
     assert out.addressed is False
@@ -70,7 +110,7 @@ async def test_bridge_empty_ops_is_not_addressed():
 
 
 @pytest.mark.asyncio
-async def test_bridge_preserves_existing_enrichment_history():
+async def test_bridge_preserves_existing_enrichment_history(db_session):
     """The dict->MasterProfileData->dict round-trip must NOT drop a pre-existing
     enrichment_history; a new record is appended to it (the one real data-loss
     vector flagged in the US182a final review)."""
@@ -84,8 +124,8 @@ async def test_bridge_preserves_existing_enrichment_history():
         "personal_info": {"full_name": "Test User"},
         "metadata": {"enrichment_history": [prior]},
     }
-    out = await reconcile_interview_turn(
-        profile_dict=profile, gap="skills", question="What do you use?",
+    out = await _turn(
+        db_session, profile, gap="skills", question="What do you use?",
         answer="Python daily", provider=MockLLMProvider(), session_id="s2",
     )
     history = out.profile_dict["metadata"]["enrichment_history"]
@@ -98,7 +138,7 @@ async def test_bridge_preserves_existing_enrichment_history():
 
 
 @pytest.mark.asyncio
-async def test_denial_only_turn_is_recorded_not_dropped_as_no_op():
+async def test_denial_only_turn_is_recorded_not_dropped_as_no_op(db_session):
     """#231 — "no direct LegalTech experience, that's an honest gap" must not
     vanish as a plain no-op: the denial persists to
     metadata.denied_concepts WITH a receipt, and `denial_recorded` is True —
@@ -110,8 +150,8 @@ async def test_denial_only_turn_is_recorded_not_dropped_as_no_op():
             return {"ops": [], "ambiguities": [], "denials": ["LegalTech"]}
 
     answer = "No direct LegalTech experience, that's an honest gap."
-    out = await reconcile_interview_turn(
-        profile_dict={}, gap="LegalTech experience",
+    out = await _turn(
+        db_session, {}, gap="LegalTech experience",
         question="Do you have LegalTech experience?",
         answer=answer, provider=_Denier(), session_id="s3",
     )
@@ -132,7 +172,7 @@ async def test_denial_only_turn_is_recorded_not_dropped_as_no_op():
 
 
 @pytest.mark.asyncio
-async def test_no_denials_key_in_payload_is_still_a_clean_no_op():
+async def test_no_denials_key_in_payload_is_still_a_clean_no_op(db_session):
     """Back-compat: a provider payload omitting `denials` entirely (the shape
     _Empty already used) must not crash record_denials and stays no_change/
     not-addressed/not-denial_recorded."""
@@ -141,8 +181,8 @@ async def test_no_denials_key_in_payload_is_still_a_clean_no_op():
         async def aparse_json(self, prompt, **kw):
             return {"ops": [], "ambiguities": []}
 
-    out = await reconcile_interview_turn(
-        profile_dict={}, gap="g", question="q", answer="a",
+    out = await _turn(
+        db_session, {}, gap="g", question="q", answer="a",
         provider=_Empty(), session_id="s1",
     )
     assert out.addressed is False
@@ -152,7 +192,7 @@ async def test_no_denials_key_in_payload_is_still_a_clean_no_op():
 
 
 @pytest.mark.asyncio
-async def test_current_position_answer_resolves_end_date_gap():
+async def test_current_position_answer_resolves_end_date_gap(db_session):
     """#155 — "this is my current position" must converge: the reconciler emits
     set_field is_current=true, end_date stays null, and re-detection no longer
     reports the end_date gap for that entry."""
@@ -186,8 +226,9 @@ async def test_current_position_answer_resolves_end_date_gap():
                 "denials": [],
             }
 
-    out = await reconcile_interview_turn(
-        profile_dict=profile,
+    out = await _turn(
+        db_session,
+        profile,
         gap=gap,
         question="When did you leave this role, or is it your current position?",
         answer="This is my current position.",
@@ -199,3 +240,60 @@ async def test_current_position_answer_resolves_end_date_gap():
     assert entry["is_current"] is True
     assert entry["end_date"] is None
     assert gap not in field_gaps(out.profile_dict)
+
+
+@pytest.mark.asyncio
+async def test_interview_turn_does_not_durably_park_its_confirmations(db_session):
+    """#480 PR 5 (`ResolveConfirmation`) MUST INVERT THIS TEST — deliberately.
+
+    The committer parks a turn's asks on `metadata.pending_confirmations` so
+    they become visible vault state. For the interview that would be a
+    regression until the matching CLEAR exists: an interview resolves its own
+    ask in SESSION STATE (#187, `_handle_interview_confirmation_answer`), which
+    never touches metadata — so a durably parked ask would be rebuilt into a
+    confirmation cluster by a LATER session's `_open_confirmations` and re-asked
+    after the candidate had already answered it. Park-and-clear are one
+    lifecycle and land in one PR.
+
+    So: the ask reaches the CALLER (it drives this session's question), and it
+    does NOT reach the vault. When PR 5 builds the durable clear, flip
+    `park_confirmations` and rewrite this test to assert the park — with the
+    clear pinned alongside it.
+    """
+
+    class _Ambiguous:
+        async def aparse_json(self, prompt, **kw):
+            return {
+                "ops": [],
+                "ambiguities": [
+                    {
+                        "op": "request_confirmation",
+                        "question": "Is 'Owner' the same role as 'Founder'?",
+                        "options": ["Same role", "Two roles"],
+                        "context": {"existing": "Founder"},
+                    }
+                ],
+                "denials": [],
+            }
+
+    out = await _turn(
+        db_session,
+        {"personal_info": {"full_name": "Test User"}},
+        gap="roles",
+        question="What is your title?",
+        answer="I'm the Owner.",
+        provider=_Ambiguous(),
+        session_id="s9",
+    )
+
+    # It reached the caller — this session still asks the question.
+    assert [c.question for c in out.pending_confirmations] == [
+        "Is 'Owner' the same role as 'Founder'?"
+    ]
+    # ...and it did NOT reach the vault, so no later session can re-ask it.
+    parked = (out.profile_dict.get("metadata") or {}).get("pending_confirmations") or []
+    assert parked == [], (
+        "an interview turn must not durably park its asks until #480 PR 5 "
+        "builds the durable clear — park without clear re-asks answered "
+        "confirmations in a later session"
+    )

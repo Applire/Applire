@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.models.profile import (
     MasterProfile,
+    ProfileSnapshot,
     reset_unauthorized_profile_writes,
     unauthorized_profile_writes,
 )
@@ -101,7 +102,9 @@ async def db_session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(
-            lambda c: Base.metadata.create_all(c, tables=[MasterProfile.__table__])
+            lambda c: Base.metadata.create_all(
+                c, tables=[MasterProfile.__table__, ProfileSnapshot.__table__]
+            )
         )
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -514,8 +517,136 @@ async def test_without_a_provider_no_embedding_call_is_made(db_session, seeded):
 
 
 @pytest.mark.asyncio
-async def test_requesting_a_snapshot_fails_loudly_until_pr_2(db_session, seeded):
-    with pytest.raises(NotImplementedError):
-        await commit_ops(
-            db_session, [], _provenance(), snapshot=SnapshotClass.MERGE
-        )
+async def test_no_snapshot_is_captured_when_none_is_asked_for(db_session, seeded):
+    """The other half of PR 2's snapshot parameter, and the one that keeps the
+    #339 block honest: `snapshot=None` — every intake but the two import
+    writers — must capture NOTHING. PR 1 pinned that `MERGE` raised; the
+    superseding pin is that the default writes no snapshot row at all, so a
+    ten-turn interview can never evict the import snapshot the undo exists for
+    (ADR-063 amendment (5))."""
+    from applire.models.profile import ProfileSnapshot
+
+    await commit_ops(
+        db_session,
+        [UpsertSkill(name="Terraform", category="technical")],
+        _provenance(),
+    )
+    await db_session.commit()
+
+    rows = (await db_session.execute(select(ProfileSnapshot))).scalars().all()
+    assert rows == []
+
+
+# ── #480 PR 2 — `snapshot=MERGE` is real (ADR-042) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_merge_snapshot_captures_the_state_before_the_ops_land(db_session, seeded):
+    """The bytes an undo restores are the PRE-op vault, not the post-op one —
+    a snapshot of the result would restore nothing."""
+    before = dict(seeded.profile_json)
+
+    await commit_ops(
+        db_session,
+        [UpsertSkill(name="Terraform", category="technical")],
+        _provenance(),
+        snapshot=SnapshotClass.MERGE,
+    )
+    await db_session.commit()
+
+    rows = (await db_session.execute(select(ProfileSnapshot))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].profile_json == before
+    assert [s["name"] for s in rows[0].profile_json["skills"]] == ["Kubernetes"]
+    # ...and the vault itself did move.
+    assert sorted(s["name"] for s in seeded.profile_json["skills"]) == [
+        "Kubernetes",
+        "Terraform",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_merge_snapshot_is_keyed_to_the_record_this_write_minted(db_session, seeded):
+    """`undo_last_merge` compares the snapshot's key against the profile's head
+    enrichment record to decide whether later edits are being discarded. The
+    committer mints that record, so it is the only thing that can key the
+    snapshot honestly."""
+    result = await commit_ops(
+        db_session,
+        [UpsertSkill(name="Terraform", category="technical")],
+        _provenance(),
+        snapshot=SnapshotClass.MERGE,
+    )
+    await db_session.commit()
+
+    rows = (await db_session.execute(select(ProfileSnapshot))).scalars().all()
+    assert rows[0].enrichment_record_id == result.enrichment_record.id
+    history = seeded.profile_json["metadata"]["enrichment_history"]
+    assert history[-1]["id"] == result.enrichment_record.id
+
+
+@pytest.mark.asyncio
+async def test_merge_snapshot_rides_the_callers_transaction(db_session, seeded):
+    """`capture_pre_merge_snapshot` is called INSIDE `commit_ops`, which
+    flushes and never commits — so the snapshot and the merge it protects are
+    atomic in the caller's transaction. A caller that rolls back gets neither."""
+    await commit_ops(
+        db_session,
+        [UpsertSkill(name="Terraform", category="technical")],
+        _provenance(),
+        snapshot=SnapshotClass.MERGE,
+    )
+    await db_session.rollback()
+
+    rows = (await db_session.execute(select(ProfileSnapshot))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_merge_snapshot_carries_the_merge_statistics_onto_the_receipt(
+    db_session, seeded
+):
+    """US161 (ADR-041 amended) — `EnrichmentRecord.reconciliation` is the
+    profile-health surface's silent-data-loss detector (FMEA JF-M-3.3). Only an
+    import can compute it, so it rides out of the applier on `ApplyImportMerge`
+    and lands on the record the committer mints."""
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.profile.reconcile.ops import ApplyImportMerge
+
+    merged = MasterProfileData.model_validate(
+        {
+            **{k: v for k, v in _SEED.items() if k != "metadata"},
+            "skills": [
+                {"name": "Kubernetes", "category": "technical", "status": "confirmed"},
+                {"name": "Terraform", "category": "technical", "status": "confirmed"},
+            ],
+        }
+    )
+    result = await commit_ops(
+        db_session,
+        [
+            ApplyImportMerge(
+                merged=merged,
+                changes=[],
+                reconciliation={"skills": {"extracted": 2, "stored": 2, "delta": 0}},
+            )
+        ],
+        CommitProvenance(source="cv_upload", intake="import", actor="candidate"),
+        snapshot=SnapshotClass.MERGE,
+        enrichment=EnrichPolicy.SKIP,
+    )
+    await db_session.commit()
+
+    assert result.enrichment_record.reconciliation == {
+        "skills": {"extracted": 2, "stored": 2, "delta": 0}
+    }
+    stored = seeded.profile_json["metadata"]["enrichment_history"][-1]
+    assert stored["reconciliation"] == {"skills": {"extracted": 2, "stored": 2, "delta": 0}}
+
+
+@pytest.mark.asyncio
+async def test_a_non_merge_write_leaves_the_reconciliation_field_empty(db_session, seeded):
+    result = await commit_ops(
+        db_session, [UpsertSkill(name="Terraform", category="technical")], _provenance()
+    )
+    assert result.enrichment_record.reconciliation is None
