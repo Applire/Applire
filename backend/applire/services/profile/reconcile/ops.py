@@ -555,6 +555,152 @@ class CloseRole(BaseModel):
     reason: str
 
 
+class SetProfileMeta(BaseModel):
+    """The candidate suppresses a completeness gap — ADAPTER-ONLY.
+
+    ADR-063 clause 8(e) / the 2026-08-09 amendment clause 1 (#480 design §4.4).
+    The 2026-07-29 amendment named three writes the op vocabulary could not
+    express; this is *"a profile-level metadata write"*. It absorbs the
+    ``na_fields`` writer (``routers/profile_enrich.mark_gap_na``), which edited
+    ``profile_json`` as a raw dict — no trail, no completeness recompute, no
+    denial floor, and no round-trip guarantee.
+
+    **The load-bearing guard is the ``key`` ENUM, and it is the whole point.**
+    A free-form ``SetProfileMeta(path, value)`` — the obvious general shape —
+    would be able to address ``metadata.denied_concepts`` (releasing a denial
+    the candidate gave testimony for) and ``metadata.enrichment_history``
+    (forging its own audit trail). Both are catastrophic and neither is
+    reviewable, because the reach would be decided at each call site instead of
+    by the type. ``Literal["na_fields"]`` is therefore not a convenience: it is
+    the mechanism, and it may never gain a member that reaches ``metadata.*``.
+
+    Note the two blocks are one letter apart (#509, deferred): ``key`` addresses
+    the ``_meta`` SIDECAR (:class:`~applire.schemas.profile.ProfileMetaBlock` —
+    the candidate's own N/A suppressions, #505), never the ``metadata`` block
+    that holds the denial record and the trail. ``metadata`` is reachable by no
+    op at all; the two narrow exceptions carved out for the interview's
+    bookkeeping are :class:`MarkProbeAsked` and :class:`EscalateDenialLevel`,
+    each of which reaches exactly one field of one existing record.
+
+    ``mode`` is a second one-member enum, for the same reason. Un-suppressing a
+    gap — the candidate deciding an N/A field applies after all — is a real act,
+    but it is a different one, and an op that can both add and remove is an op
+    whose reach has to be re-argued at every call site. Appending is the only
+    thing the writer this absorbs ever did.
+
+    Semantics: **idempotent append-if-absent of one string.** Marking the same
+    gap N/A twice leaves one entry and produces no second receipt, exactly as
+    the raw writer's ``if current_gap not in existing_na`` did.
+
+    **Adapter-only.** It lives in ``DecisionOp``; ``engine._parse_ops``
+    validates raw model JSON against ``ReconcileOp`` alone, so a hallucinated
+    ``{"op": "set_profile_meta", …}`` is dropped before it is ever an object.
+    Suppressing a gap is the CANDIDATE saying "this does not apply to me"; a
+    model that could emit one could silently hide a gap it was unable to fill.
+    """
+
+    op: Literal["set_profile_meta"] = "set_profile_meta"
+    #: The `_meta` sidecar key being written. THE guard — see the docstring.
+    key: Literal["na_fields"]
+    #: The completeness-gap string the candidate marked not-applicable.
+    value: str
+    #: Append-only, by construction. See the docstring on why removal is not a
+    #: mode of this op.
+    mode: Literal["append"] = "append"
+
+
+class MarkProbeAsked(BaseModel):
+    """The ONE permitted transfer probe has been ISSUED — ADAPTER-ONLY.
+
+    ADR-063 amended 2026-08-09 (third entry) / #480 PR 7, deferred here from
+    PR 2 by the design's own ruling: ``metadata.*`` is op-unreachable by design
+    and ``TurnGrounding`` is candidate testimony, so an ADR-064 bookkeeping
+    write needed the metadata-writer family to be designed as a whole before it
+    could be routed.
+
+    Absorbs ``session._mark_probe_asked``. What it records is *"we asked"*,
+    never *"they denied"* — the distinction ADR-064's finding-fix is built on:
+    the flag is written the instant the probe is issued, independent of how the
+    answer is later classified, so an abandoned session cannot lose it and a
+    later genuine denial of the same concept cannot re-trigger a probe the
+    candidate already received.
+
+    **Reach: one boolean, on one EXISTING record.** It cannot create a
+    ``DeniedConcept``, cannot delete one, and cannot move ``denial_level`` —
+    that last one is :class:`EscalateDenialLevel`'s single act, and even that
+    one only goes one way. Addressing is by ``ats_audit._norm``, the same
+    normaliser ``record_denials`` dedupes with, so bookkeeping and testimony can
+    never disagree about which record they mean.
+
+    **It fails safe rather than minting.** The ADR-064 M4 finding-fix made
+    ``_select_denial_probe_concept`` require a durable record before it will
+    select a concept, so reaching "no durable entry" here is a contract
+    violation by the caller. The response is a quiet no-op, preserved verbatim
+    through the routing: inventing a denial record from bookkeeping alone, with
+    no candidate statement behind it, would durably attribute testimony the
+    candidate never gave — strictly worse than an unrecorded "we asked".
+
+    **Adapter-only.** A hallucinated ``{"op": "mark_probe_asked", …}`` is
+    dropped at ``engine._parse_ops``. A model that could emit one could retire
+    the candidate's ONE remaining chance to surface adjacent experience, by
+    claiming a question that was never asked.
+    """
+
+    op: Literal["mark_probe_asked"] = "mark_probe_asked"
+    #: The denied concept whose probe was issued. Matched against an EXISTING
+    #: ``metadata.denied_concepts`` entry; a miss is a no-op.
+    concept: str
+
+
+class EscalateDenialLevel(BaseModel):
+    """Elicitation is exhausted for a denied concept — ADAPTER-ONLY.
+
+    ADR-063 amended 2026-08-09 (third entry) / #480 PR 7; deferred from PR 2
+    alongside :class:`MarkProbeAsked` and for the same reason. Absorbs the
+    ``denial_level`` escalation ``services/session.py`` performed inline: a
+    SECOND, genuine denial of the concept a transfer probe was about bumps its
+    durable level ``direct → partial`` (ADR-064 — "adjacent is ruled out too,
+    the question is exhausted").
+
+    **Reach: one monotonic transition, plus its ``date`` stamp.** The monotonic
+    rule is not a validated argument on this op — it is the ABSENCE of one.
+    There is no ``level`` parameter, so there is no spelling of this op that
+    requests ``partial → direct``: a later, weaker probe (or a caller that
+    simply did not run the follow-up) can never erase that elicitation was
+    already exhausted on an earlier turn.
+
+    **One implementation of that rule, not two.** The applier delegates to
+    ``stance.record_denials(..., level_only=True)``, which has owned the
+    no-downgrade invariant since the ADR-064 F1 finding-fix. Inlining the branch
+    here would give the vocabulary a second copy of a rule that must not be able
+    to drift — so this op is deliberately a *routing* of that function, not a
+    reimplementation of it. ``level_only`` also carries the two refusals this
+    act needs: a concept with no durable record is a no-op (nothing to escalate
+    FROM — never mints), and ``statement``/``source`` are never written (#348 —
+    the candidate's verbatim testimony is write-once; the level is bookkeeping,
+    not testimony content).
+
+    **The receipt is a DENIAL receipt, never a change** (ruling 3, #231's rule
+    extended to the committer). An escalation is the candidate ruling MORE out.
+    Landing it on ``changes`` would make it read as "gap addressed" to the four
+    gates that read ``bool(changes)`` — including ``agent_bridge``'s ledger
+    upgrade, where a retraction counting as a change requests an upgrade with
+    the candidate's own denial sentence as its backing evidence (the ADR-059
+    run-#7 blocker, #352).
+
+    **Adapter-only.** A hallucinated ``{"op": "escalate_denial_level", …}`` is
+    dropped at ``engine._parse_ops``. The trigger for this act is a
+    deterministic read of which concept the probe was about against the
+    reconciler's own atomic denial declarations — a fact (ADR-062 clause 1),
+    never a judgement the model gets to make about its own output.
+    """
+
+    op: Literal["escalate_denial_level"] = "escalate_denial_level"
+    #: The probed concept the candidate denied a second time. Matched against an
+    #: EXISTING ``metadata.denied_concepts`` entry; a miss is a no-op.
+    concept: str
+
+
 class ApplyImportMerge(BaseModel):
     """The import path's whole-merge act — ADAPTER-ONLY, IMPORT-ONLY.
 
@@ -683,9 +829,19 @@ _MODEL_EMITTABLE = (
     RequestConfirmation,
 )
 
+# ``SetProfileMeta``, ``MarkProbeAsked`` and ``EscalateDenialLevel`` joined in
+# PR 7 — the metadata-writer family. All three are statements the SYSTEM or the
+# CANDIDATE makes and the reconciler never does: suppressing a completeness gap
+# ("this does not apply to me"), recording that the one permitted transfer probe
+# was issued, and recording that elicitation on a denied concept is exhausted.
+# Two of them write the vault's record of what the candidate ruled OUT, which is
+# the surface a model must never be able to reach — a hallucinated escalation
+# would close down the candidate's own chance to surface adjacent experience,
+# and a hallucinated suppression would hide a gap the system failed to fill.
+
 # Adapter-only ops. PR 3 added ``ReplaceSection``; PR 5 added ``ResolveField``
-# and ``ResolveConfirmation``; PR 6 added ``CloseRole``; PR 7 adds
-# ``SetProfileMeta`` here.
+# and ``ResolveConfirmation``; PR 6 added ``AddRole`` and ``CloseRole``; PR 7
+# added the metadata-writer family.
 _ADAPTER_ONLY = (
     DemoteSkill,
     ApplyImportMerge,
@@ -694,6 +850,9 @@ _ADAPTER_ONLY = (
     ResolveConfirmation,
     AddRole,
     CloseRole,
+    SetProfileMeta,
+    MarkProbeAsked,
+    EscalateDenialLevel,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]

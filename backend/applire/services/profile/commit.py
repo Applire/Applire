@@ -87,7 +87,11 @@ from applire.schemas.profile import (
     PendingConfirmation,
     ProfileMetadata,
 )
-from applire.services.profile.reconcile.apply import _ensure_loadable, apply_ops
+from applire.services.profile.reconcile.apply import (
+    UserConfirmedSkill,
+    _ensure_loadable,
+    apply_ops,
+)
 from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
 from applire.services.profile.reconcile.stance import record_denials
@@ -190,7 +194,10 @@ class CommitResult:
     #: Positive, gap-addressing content. The ONLY list an `addressed`/upgrade
     #: gate may read.
     changes: list[FieldChange]
-    #: #231 — receipts for denials this turn recorded.
+    #: #231 — receipts for denials this turn recorded. Since #480 PR 7 this also
+    #: carries the two ADR-064 bookkeeping acts (`MarkProbeAsked`,
+    #: `EscalateDenialLevel`): they are receipts ABOUT a denial and belong on
+    #: the same channel, never on `changes`.
     denials: list[FieldChange]
     #: #485 — receipts for `demote_skill` ops.
     demotions: list[FieldChange]
@@ -300,6 +307,7 @@ async def commit_ops(
     snapshot: SnapshotClass | None = None,
     ambiguities: Sequence[RequestConfirmation] = (),
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
+    user_confirmed_skill: UserConfirmedSkill | None = None,
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
@@ -325,6 +333,12 @@ async def commit_ops(
             applier's own. Parking is UNCONDITIONAL since #480 PR 5 — see the
             note at the park site.
         enrichment: which half of the skill enrichment to run.
+        user_confirmed_skill: #480 PR 7 — the candidate's answer to a parked
+            skill-dedupe confirmation, waiving the stateless containment guard
+            for the ONE `UpsertSkill` it names (#187). A CALL-PATH capability
+            rather than an op field, so the model cannot reach it: never widen
+            an op the model emits with a more powerful parameter (ADR-063
+            clause 1). See `apply.UserConfirmedSkill`.
         llm_provider: when supplied (and `enrichment` is `DETERMINISTIC`), the
             phase-2 LLM duration estimate is layered ON TOP of the deterministic
             pass for skills no dated role could date. `None` runs the
@@ -387,7 +401,9 @@ async def commit_ops(
         )
 
     # ── Invariant 1 — apply_ops is the only path from intent to state ────────
-    applied = apply_ops(current, list(ops), provenance.source)
+    applied = apply_ops(
+        current, list(ops), provenance.source, user_confirmed_skill=user_confirmed_skill
+    )
     profile = applied.profile
     if profile.metadata is None:  # apply never strips metadata; belt & braces
         profile.metadata = ProfileMetadata()
@@ -414,14 +430,21 @@ async def commit_ops(
 
     # ADR-059 — the reconciler's own denial verdict is persisted whether or not
     # the turn also applied real ops. A denial-only turn must not go unrecorded.
-    denial_changes: list[FieldChange] = []
+    #
+    # #480 PR 7 — the applier's own denial-channel receipts (the two ADR-064
+    # bookkeeping acts) join them here rather than on `changes`. Both are
+    # statements ABOUT a denial, so they share `record_denials`' receipt
+    # channel and invariant 7's separation applies to them identically.
+    denial_changes: list[FieldChange] = list(applied.denials)
     if grounding is not None and grounding.denials:
-        denial_changes = record_denials(
-            profile.metadata,
-            list(grounding.denials),
-            statement=grounding.text,
-            source=provenance.source,
-            when=now,
+        denial_changes.extend(
+            record_denials(
+                profile.metadata,
+                list(grounding.denials),
+                statement=grounding.text,
+                source=provenance.source,
+                when=now,
+            )
         )
 
     # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────

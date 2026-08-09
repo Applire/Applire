@@ -56,7 +56,11 @@ from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
 from applire.services.color_detection import _CE_STUB_USER_ID
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
+# #480 PR 7 — `EnrichmentRecord`, `ProfileMetadata` and `record_denials` are no
+# longer imported here: the interview's last three hand-rolled vault writes (the
+# skill confirmation, the probe flag, the denial escalation) are typed acts
+# through `commit_ops` now, and the trail is invariant 3's, not this module's.
+from applire.schemas.profile import MasterProfileData
 from applire.schemas.session import (
     ConfirmationPrompt,
     ConflictSummary,
@@ -73,7 +77,6 @@ from applire.services.interview.signals import is_termination_signal
 from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
     is_denied_concept,
-    record_denials,
 )
 from applire.services.interview.sufficiency import (
     _concept_matches_ledger_key,
@@ -443,54 +446,82 @@ def _skill_confirmation_decision(chosen: str) -> str:
     return "distinct"
 
 
-def _apply_interview_confirmation(
-    profile_json: dict, options: list[str], context: dict, chosen: str
-) -> dict | None:
+async def _apply_interview_confirmation(
+    db: AsyncSession,
+    profile_record: MasterProfile,
+    context: dict,
+    chosen: str,
+    *,
+    session_id: str,
+) -> bool:
     """Apply a resolved interview-turn skill confirmation to the profile (#187).
 
-    Returns the updated profile JSONB dict, or ``None`` when there is nothing to
+    Returns whether anything was applied — ``False`` when there is nothing to
     apply deterministically (a non-skill confirmation, or "keep the existing
     skills"). The caller advances the interview either way, which is what closes
-    the loop. Skill dedupe is the reported vector: the ADR-046 applier is reused
-    with a ``user_confirmed`` flag that BYPASSES the stateless containment guard.
+    the loop.
+
+    ADR-063 (#480 PR 7) — **the family-list correction.** The design listed this
+    function among the metadata writers; code contact says otherwise. Its
+    metadata half (clearing the parked ask) already routes through
+    ``ResolveConfirmation`` since PR 5, and what was left here is not a metadata
+    write at all: it is a ``skills[]`` upsert that called ``_apply_upsert_skill``
+    directly and assigned ``profile_json`` by hand — no trail, no completeness
+    recompute, no persisted-denial floor, no deterministic skill enrichment. It
+    is therefore routed as an ordinary ``UpsertSkill`` through the committer.
+
+    **The dedupe bypass is a CALL-PATH capability, not an op field.** Skill
+    dedupe is the reported vector: the candidate has ANSWERED the question
+    ``_apply_upsert_skill``'s stateless containment guard would ask, so
+    re-running it re-asks the identical question forever (the #187 loop). The
+    waiver travels as ``UserConfirmedSkill(name, decision)`` on ``commit_ops``,
+    keyed to the one skill the candidate answered about. Spelling it as a field
+    on ``UpsertSkill`` would put a guard-disabling parameter into the *model's*
+    vocabulary, which is precisely what ADR-063 clause 1's governing rule
+    forbids — and one hallucinated key would then switch the guard off.
+
+    ``grounding=None``: the candidate answering their own question is a direct
+    act (§7.4), which is also what keeps the incoming skill ``confirmed``, as it
+    was before the routing. **Flush, not commit** — the caller owns the
+    transaction, exactly as it did when this function returned a dict.
     """
     incoming = context.get("incoming_skill")
     if not incoming:
         # Not a skill confirmation (entity near-dupe etc.) — advancing is enough
         # to break the loop; entity-merge resolution is out of #187's scope.
-        return None
+        return False
 
     decision = _skill_confirmation_decision(chosen)
     if decision == "keep":
-        return None  # discard the incoming — the existing skills stand unchanged
+        return False  # discard the incoming — the existing skills stand unchanged
 
-    from applire.services.profile.reconcile.apply import _apply_upsert_skill
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.apply import UserConfirmedSkill
     from applire.services.profile.reconcile.ops import UpsertSkill
 
-    profile = MasterProfileData.model_validate(profile_json)
-    op = UpsertSkill(
-        name=incoming,
-        category=context.get("category"),
-        proficiency=context.get("proficiency"),
-        evidence=list(context.get("evidence_refs") or []),
+    await commit_ops(
+        db,
+        [
+            UpsertSkill(
+                name=incoming,
+                category=context.get("category"),
+                proficiency=context.get("proficiency"),
+                evidence=list(context.get("evidence_refs") or []),
+            )
+        ],
+        CommitProvenance(
+            source="interview",
+            intake="interview_confirmation",
+            session_id=session_id,
+            actor="candidate",
+        ),
+        record=profile_record,
+        grounding=None,
+        # ADR-063 amendment (5) / #339 — an interview turn snapshots nothing.
+        snapshot=None,
+        user_confirmed_skill=UserConfirmedSkill(name=incoming, decision=decision),
     )
-
-    def resolve(handle):
-        for entry in (
-            *profile.work_experience,
-            *profile.projects,
-            *profile.volunteer_activities,
-        ):
-            if getattr(entry, "id", None) == handle:
-                return entry
-        return None
-
-    changes: list = []
-    pending: list = []
-    _apply_upsert_skill(
-        op, profile, resolve, changes, pending, user_confirmed=decision
-    )
-    return profile.model_dump(mode="json")
+    return True
 
 
 async def _ask_queued_confirmation(
@@ -596,12 +627,9 @@ async def _handle_interview_confirmation_answer(
         )
 
     profile_record = await _load_profile(state["profile_id"], db)
-    applied = _apply_interview_confirmation(
-        profile_record.profile_json, options, context, chosen
+    await _apply_interview_confirmation(
+        db, profile_record, context, chosen, session_id=str(record.id)
     )
-    if applied is not None:
-        profile_record.profile_json = applied
-        profile_record.updated_at = datetime.now(timezone.utc)
 
     # #480 PR 5 — the turn's ask is parked DURABLY on
     # `metadata.pending_confirmations` now, so answering it in session state is
@@ -1556,34 +1584,58 @@ def _probe_already_asked(concept: str, denied_concepts: list[dict]) -> bool:
     return bool(entry.get("probe_asked")) if entry else False
 
 
-def _mark_probe_asked(profile_dict: dict, concept: str) -> dict:
+async def _mark_probe_asked(
+    db: AsyncSession, profile_record: MasterProfile, concept: str, session_id: str
+) -> dict:
     """ADR-064 finding-fix — durably set ``DeniedConcept.probe_asked = True``
     for ``concept`` the moment its transfer probe is ISSUED (never when it is
     answered), so an abandoned session cannot lose it. This is bookkeeping
     ("we asked"), never testimony ("they denied") — it must NOT touch
     ``denial_level``, which only a genuine candidate denial may move.
 
+    ADR-063 (#480 PR 7) — the write is a :class:`MarkProbeAsked` act through
+    ``commit_ops`` now; the op's applier owns the normaliser, the fail-safe and
+    the reach. Deferred here from PR 2 by the design's own ruling, because
+    ``metadata.*`` is op-unreachable by design and the whole metadata-writer
+    family had to be shaped before one narrow exception could be carved.
+
+    ``grounding=None`` (ruling 4): bookkeeping is never testimony, and
+    ``TurnGrounding`` stays candidate-text-only. **Flush, not commit** — the
+    caller's own ``db.commit()`` writes this in the SAME transaction as the
+    probe question, which is what keeps an abandoned session from losing it.
+
     M4 finding-fix (2026-07-29): ``_select_denial_probe_concept`` now REQUIRES
     a durable ``DeniedConcept`` record to exist before it will ever select a
     concept to probe (it no longer treats "no record at all" the same as
-    "direct/unprobed") — so this function reaching "no durable entry" is now
-    a genuine contract violation by the caller, not a documented edge case.
-    We keep failing safe (return ``profile_dict`` unchanged) rather than
-    raising mid-turn or minting a fresh ``DeniedConcept`` from bookkeeping
-    alone — inventing a denial record here, with no candidate statement
-    behind it, would be worse than a probe whose "asked" bookkeeping is
-    merely unrecorded: it would durably attribute testimony the candidate
-    never gave. The safer half of the fix is requiring the record upstream.
+    "direct/unprobed") — so reaching "no durable entry" is now a genuine
+    contract violation by the caller, not a documented edge case. The applier
+    keeps failing safe rather than raising mid-turn or minting a fresh
+    ``DeniedConcept`` from bookkeeping alone — inventing a denial record, with
+    no candidate statement behind it, would be worse than a probe whose "asked"
+    bookkeeping is merely unrecorded: it would durably attribute testimony the
+    candidate never gave. The safer half of the fix is requiring the record
+    upstream.
+
+    Returns the post-write profile JSON, which the caller hands to the question
+    generator.
     """
-    meta_model = ProfileMetadata.model_validate(profile_dict.get("metadata") or {})
-    norm = ats_norm(concept)
-    for entry in meta_model.denied_concepts:
-        if ats_norm(entry.concept) == norm:
-            entry.probe_asked = True
-            break
-    else:
-        return profile_dict
-    return {**profile_dict, "metadata": meta_model.model_dump(mode="json")}
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import MarkProbeAsked
+
+    await commit_ops(
+        db,
+        [MarkProbeAsked(concept=concept)],
+        CommitProvenance(
+            source="interview",
+            intake="denial_probe",
+            session_id=session_id,
+            actor="system",
+        ),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+    )
+    return profile_record.profile_json
 
 
 async def _select_denial_probe_concept(
@@ -1750,10 +1802,14 @@ async def _ask_denial_probe(
     half: it is set to ``True`` HERE, the moment the probe is issued —
     never when it is answered — and written into ``profile_record`` in the
     SAME commit as the question, so an abandoned session cannot lose it.
+
+    #480 PR 7: that write is a `MarkProbeAsked` act through `commit_ops`, which
+    flushes; this function's own `db.commit()` below is what makes it durable —
+    and is load-bearing exactly as it was when the assignment was inline.
     """
-    updated_profile = _mark_probe_asked(updated_profile, probe_concept)
-    profile_record.profile_json = updated_profile
-    profile_record.updated_at = datetime.now(timezone.utc)
+    updated_profile = await _mark_probe_asked(
+        db, profile_record, probe_concept, str(record.id)
+    )
 
     qpg = dict(state.get("questions_per_gap", {}))
     qpg[current_gap] = questions_for_gap + 1
@@ -2072,40 +2128,42 @@ async def send_message(
         # the ONLY thing that changes — the original denial (`denied`, still
         # recorded) is never touched (Global Constraint 3 / ADR-059 /
         # ADR-040): no `DeniedConcept` is deleted, no status flips off
-        # `denied`. `level_only=True` (F1) guarantees the escalation can
-        # NEVER rewrite `statement` — the candidate's verbatim words from the
-        # original denial stay immutable; the level is bookkeeping, not
-        # testimony content.
-        meta_model = ProfileMetadata.model_validate(
-            profile_record.profile_json.get("metadata") or {}
+        # `denied`. The op's applier routes to `record_denials(level_only=
+        # True)`, whose F1 guarantee is that the escalation can NEVER rewrite
+        # `statement` — the candidate's verbatim words from the original denial
+        # stay immutable; the level is bookkeeping, not testimony content.
+        #
+        # ADR-063 (#480 PR 7): a typed `EscalateDenialLevel` act through
+        # `commit_ops`. The hand-appended `EnrichmentRecord` the F5 finding-fix
+        # added here is DELETED — invariant 3 makes the committer the trail's
+        # only author, and two authors is how a write ends up with two records
+        # or none. The receipt lands on the committer's receipt-only `denials`
+        # list, never on `changes`: an escalation is the candidate ruling MORE
+        # out and must not read as "gap addressed" to the gates that read
+        # `bool(changes)` (#231/#352).
+        #
+        # This is a SECOND, ungrounded `commit_ops` call for the turn, beside
+        # the grounded one `reconcile_interview_turn` already made (ruling 4:
+        # bookkeeping is never testimony, so `TurnGrounding` stays
+        # candidate-text-only). Both only flush; this function's own
+        # `db.commit()` further down persists them together, so the turn is
+        # still one transaction.
+        from applire.services.profile.commit import CommitProvenance, commit_ops
+        from applire.services.profile.reconcile.ops import EscalateDenialLevel
+
+        await commit_ops(
+            db,
+            [EscalateDenialLevel(concept=probing_concept)],
+            CommitProvenance(
+                source="interview",
+                intake="denial_probe_escalation",
+                session_id=str(record.id),
+                actor="candidate",
+            ),
+            record=profile_record,
+            grounding=None,
+            snapshot=None,
         )
-        escalation_changes = record_denials(
-            meta_model,
-            [probing_concept],
-            statement=message,
-            source="interview",
-            when=datetime.now(timezone.utc),
-            denial_level="partial",
-            level_only=True,
-        )
-        # F5 finding-fix (2026-07-29): fold the receipt into
-        # `enrichment_history` the same way every other write path does
-        # (interview_bridge.reconcile_interview_turn) — a durable
-        # denial_level escalation is a vault write and must leave a trail,
-        # not just the raw metadata mutation above.
-        if escalation_changes:
-            meta_model.enrichment_history.append(
-                EnrichmentRecord(
-                    timestamp=datetime.now(timezone.utc),
-                    source="interview",
-                    source_session_id=str(record.id),
-                    changes=escalation_changes,
-                )
-            )
-        profile_record.profile_json = {
-            **profile_record.profile_json,
-            "metadata": meta_model.model_dump(mode="json"),
-        }
         updated_profile = profile_record.profile_json
 
     # Increment questions_asked

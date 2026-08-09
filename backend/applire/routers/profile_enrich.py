@@ -46,7 +46,9 @@ from applire.services.interview_graph import (
     gap_detector_mode_c,
     question_generator_with_profile,
 )
+from applire.services.profile.commit import CommitProvenance, commit_ops
 from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+from applire.services.profile.reconcile.ops import SetProfileMeta
 from applire.services.session import get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
@@ -446,8 +448,21 @@ async def mark_gap_na(
 ) -> EnrichActionResponse:
     """Mark the current gap as not applicable (N/A).
 
-    Persists N/A to both the session state and profile _meta.na_fields so that
+    Persists N/A to both the session state and profile `_meta.na_fields` so that
     future profile scans exclude this field permanently.
+
+    ADR-063 (#480 PR 7) — the `_meta` half is a `SetProfileMeta` act through
+    `commit_ops` now. This writer used to edit `profile_json` as a raw dict, so
+    it held none of the committer's invariants: no enrichment record (an N/A
+    changes what the profile-health surface reports and was invisible on "what
+    changed & why"), no completeness recompute, no persisted-denial floor, and
+    no `_ensure_loadable` round-trip. The op's key enum is what keeps this act
+    reaching the `_meta` sidecar and never `metadata` (design §4.4).
+
+    **This door keeps its own `db.commit()`** below (ADR-063 amended clause 6 —
+    the committer flushes): the suppression and the session's own `na_gaps`
+    cursor stay ONE transaction, so an interview cursor can never advance past a
+    gap whose durable suppression was rolled back.
     """
     session = await _load_session(session_id, db)
     state: dict = dict(session.state)
@@ -459,17 +474,27 @@ async def mark_gap_na(
     state["na_gaps"] = na_gaps
     session.state = state
 
-    # Persist N/A to profile _meta so future scans exclude this field
+    # Persist N/A to profile `_meta` so future scans exclude this field.
     profile_record = await _load_profile(db)
-    profile_data: dict = dict(profile_record.profile_json or {})
-    meta: dict = dict(profile_data.get("_meta") or {})
-    existing_na: list[str] = list(meta.get("na_fields", []))
-    if current_gap not in existing_na:
-        existing_na.append(current_gap)
-    meta["na_fields"] = existing_na
-    profile_data["_meta"] = meta
-    profile_record.profile_json = profile_data
-    await db.flush()
+    await commit_ops(
+        db,
+        [SetProfileMeta(key="na_fields", value=current_gap)],
+        CommitProvenance(
+            source="manual_edit",
+            intake="gap_na",
+            session_id=str(session_id),
+            actor="candidate",
+        ),
+        record=profile_record,
+        # §7.4 — a direct act. The candidate is stating that a field does not
+        # apply to them; there is no turn text to adjudicate, and the committer
+        # never re-adjudicates direct user input.
+        grounding=None,
+        # ADR-063 amendment (5) / #339 — snapshot coverage stays with the import
+        # writers. This writer captured none before and captures none now.
+        snapshot=None,
+    )
+    profile_data: dict = profile_record.profile_json
 
     next_question, done = await _next_question_or_done(
         session, profile_data, provider, db
