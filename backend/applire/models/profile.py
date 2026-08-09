@@ -70,11 +70,17 @@ class MasterProfile(Base):
 # instead of grep-maintained.
 #
 # WARN MODE (#480 PR 1): an unauthorised write logs and increments a counter, it
-# never raises. Unrouted writers still exist by design until PR 8 routes the
-# three first-profile-creation sites (`services/profile/__init__.py:555`,
-# `:1165`, `services/session.py:1290`); raising before then would break profile
-# creation outright. PR 9 flips this to strict and adds the gate test asserting
-# the exception set below is exactly these three modules.
+# never raises. #480 PR 8 routed the last three — the first-profile-creation
+# sites, whose KEYWORD-ARGUMENT constructors would have made a strict guard
+# refuse profile creation outright (both CV-import doors and the Mode-B guided
+# stub). No production writer outside the three modules below now reaches
+# `profile_json`. PR 9 flips this to strict and adds the gate test asserting the
+# exception set below is exactly those three modules.
+#
+# NOTE for PR 9: ~160 TEST fixtures still construct `MasterProfile(profile_json=…)`
+# directly across ~80 files. They are unaffected in warn mode; strict mode has to
+# decide their disposition (wrap in `authorized_profile_write()`, as the
+# committer's own fixtures already do, or a test-scoped escape) before flipping.
 #
 # Two authorisations, in order of preference:
 #

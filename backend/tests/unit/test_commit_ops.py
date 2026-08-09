@@ -142,9 +142,97 @@ async def test_ops_are_applied_and_persisted(db_session, seeded):
 
 
 @pytest.mark.asyncio
-async def test_no_profile_raises_lookup_error(db_session):
-    with pytest.raises(LookupError):
-        await commit_ops(db_session, [], _provenance())
+async def test_no_profile_creates_the_first_one(db_session):
+    """#480 PR 8 — the `record=None` contract: creation, not `LookupError`.
+
+    Until PR 8 the committer refused an empty vault, so the three keyword-arg
+    constructor sites created the row themselves — outside the write token and
+    outside every invariant. Creation belongs to the committer now, so the ops
+    the caller brings land on the new row through the ordinary path.
+    """
+    reset_unauthorized_profile_writes()
+
+    result = await commit_ops(
+        db_session, [UpsertSkill(name="Rust", category="technical")], _provenance()
+    )
+
+    rows = (await db_session.execute(select(MasterProfile))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0] is result.record
+    assert [s["name"] for s in rows[0].profile_json["skills"]] == ["Rust"]
+    # The invariants apply to a creation exactly as they do to an update.
+    metadata = rows[0].profile_json["metadata"]
+    assert len(metadata["enrichment_history"]) == 1
+    assert metadata["last_updated"] is not None
+
+
+@pytest.mark.asyncio
+async def test_the_created_row_is_constructed_inside_the_write_token(db_session):
+    """PR 8 is PR 9's prerequisite: the constructor itself must be authorised.
+
+    `MasterProfile(profile_json=…)` fires the clause-6 setter (ADR-063 amended
+    2026-08-09) — which is exactly why the three creation sites made the guard
+    count 19 writers, not 16. Creating the row inside `commit_ops` puts the
+    token around the constructor, so PR 9's strict mode cannot break profile
+    creation.
+    """
+    reset_unauthorized_profile_writes()
+
+    await commit_ops(db_session, [], _provenance())
+
+    assert unauthorized_profile_writes() == 0
+
+
+@pytest.mark.asyncio
+async def test_create_profile_record_writes_an_empty_row(db_session):
+    """The creation primitive on its own — the Mode-B guided stub's shape.
+
+    A guided interview may start with no vault at all; its stub row is created
+    empty and filled later, one interview turn at a time. `{}` is what that site
+    has always written and what its readers (`profile_json or {}`) index, so the
+    primitive preserves it exactly; content can only ever arrive as ops.
+    """
+    from applire.services.profile.commit import create_profile_record
+
+    reset_unauthorized_profile_writes()
+
+    record = await create_profile_record(db_session)
+
+    assert record.profile_json == {}
+    # Flushed, not committed — commit.py never owns the transaction, and the
+    # caller needs the id for its own foreign key.
+    assert record.id is not None
+    assert unauthorized_profile_writes() == 0
+
+
+@pytest.mark.asyncio
+async def test_creation_is_authorised_by_the_token_not_by_the_module_name(
+    db_session, monkeypatch
+):
+    """The TOKEN carries the creation — the module exception is belt and braces.
+
+    `commit.py` is on `AUTHORIZED_PROFILE_WRITE_MODULES`, so a constructor left
+    outside `authorized_profile_write()` would still look authorised and no
+    ordinary test could tell. The contextvar is the real mechanism (ADR-063
+    clause 6, "two authorisations, in order of preference"), and PR 9's gate
+    asserts the module list stays exactly three entries — so pin the primary
+    mechanism on its own by taking the fallback away.
+    """
+    import applire.models.profile as profile_model
+    from applire.services.profile.commit import create_profile_record
+
+    monkeypatch.setattr(
+        profile_model,
+        "AUTHORIZED_PROFILE_WRITE_MODULES",
+        frozenset(
+            {"applire/services/profile/snapshots.py", "applire/services/photo.py"}
+        ),
+    )
+    reset_unauthorized_profile_writes()
+
+    await create_profile_record(db_session)
+
+    assert unauthorized_profile_writes() == 0
 
 
 @pytest.mark.asyncio
