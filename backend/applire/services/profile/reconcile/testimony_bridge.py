@@ -33,18 +33,19 @@ function, so the vault effect never depends on which door submitted the text.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.exceptions import LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
-from applire.schemas.profile import EnrichmentRecord, MasterProfileData, ProfileMetadata
+from applire.schemas.profile import MasterProfileData, ProfileMetadata
 from applire.schemas.testimony import TestimonyResult
-from applire.services.profile.reconcile.apply import apply_ops
+from applire.services.profile.commit import (
+    CommitProvenance,
+    TurnGrounding,
+    commit_ops,
+)
 from applire.services.profile.reconcile.engine import reconcile
-from applire.services.profile.reconcile.import_bridge import _to_pending_confirmation
-from applire.services.profile.reconcile.stance import record_denials
 
 _SOURCE = "testimony"
 
@@ -110,57 +111,42 @@ async def submit_testimony(
             ),
         )
 
-    applied = apply_ops(current, rc.ops, _SOURCE)
-    current = applied.profile
-    if current.metadata is None:  # apply never strips metadata; belt & braces
-        current.metadata = ProfileMetadata()
-
-    confirmations = [
-        _to_pending_confirmation(a, source=_SOURCE)
-        for a in list(rc.ambiguities) + list(applied.pending_confirmations)
-    ]
-    current.metadata.pending_confirmations.extend(confirmations)
-    current.metadata.pending_conflicts.extend(applied.conflicts)
-
-    # ADR-059 — persist the reconciler's own denial verdict into the vault,
-    # whether or not the submission also applied real ops.
-    denial_changes = record_denials(
-        current.metadata,
-        rc.denials,
-        statement=text,
-        source=_SOURCE,
-        when=datetime.now(timezone.utc),
+    # ADR-063 — the ONE write path. Everything this door used to do inline
+    # (apply, park confirmations/conflicts, record denials, receipt, assign)
+    # is the committer's invariant set now; the door keeps only its own wire
+    # shape. The trail in particular is no longer conditional: the old
+    # `if receipt_changes:` meant a testimony that changed nothing left no
+    # trace that it was ever submitted.
+    committed = await commit_ops(
+        db,
+        rc.ops,
+        CommitProvenance(
+            source=_SOURCE,
+            intake="testimony",
+            session_id=submission_id,
+            actor="candidate",
+        ),
+        record=record,
+        # §7.4 — a turn-based intake passes its turn text; stance/attribution
+        # already ran over it inside `reconcile()` above.
+        grounding=TurnGrounding(text=text, denials=list(rc.denials)),
+        ambiguities=list(rc.ambiguities),
+        snapshot=None,
+        embedding_provider=None,
     )
-    # #485 — the demotion receipts ride WITH the turn's receipt (ADR-059
-    # clause 1: negative testimony is receipted like positive) but stay OFF
-    # every addressed/upgrade gate below, which read `applied.changes` alone.
-    receipt_changes = applied.changes + denial_changes + applied.demotions
-
-    if receipt_changes:
-        current.metadata.enrichment_history.append(
-            EnrichmentRecord(
-                timestamp=datetime.now(timezone.utc),
-                source=_SOURCE,
-                source_session_id=submission_id,
-                changes=receipt_changes,
-            )
-        )
-
-    # Persist once — same shape as agent_bridge (metadata.last_updated /
-    # completeness_score recompute stays import-only).
-    record.profile_json = current.model_dump(mode="json")
-    record.updated_at = datetime.now(timezone.utc)
+    # Flush-not-commit (ADR-063 amended clause 6): this door owns its
+    # transaction exactly as before — dropping this line is a silent no-write.
     await db.commit()
 
     return TestimonyResult(
         submission_id=submission_id,
         status=_derive_status(
-            has_confirmations=bool(confirmations),
-            has_conflicts=bool(applied.conflicts),
-            has_applied_changes=bool(applied.changes),
-            has_denial=bool(denial_changes),
+            has_confirmations=bool(committed.pending_confirmations),
+            has_conflicts=bool(committed.conflicts),
+            has_applied_changes=bool(committed.changes),
+            has_denial=bool(committed.denials),
         ),
-        changes=receipt_changes,
-        confirmations=confirmations,
-        conflicts=applied.conflicts,
+        changes=committed.enrichment_record.changes,
+        confirmations=committed.pending_confirmations,
+        conflicts=committed.conflicts,
     )

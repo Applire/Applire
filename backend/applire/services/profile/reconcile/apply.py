@@ -61,9 +61,9 @@ from applire.services.profile.reconcile.dedupe import (
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
+    CommitOp,
     DemoteSkill,
     FlagConflict,
-    ReconcileOp,
     RequestConfirmation,
     SetField,
     SetPersonalInfo,
@@ -311,7 +311,7 @@ def _section_for(entity: Any) -> str:
 
 
 def apply_ops(
-    profile: MasterProfileData, ops: list[ReconcileOp], source: str
+    profile: MasterProfileData, ops: list[CommitOp], source: str
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 

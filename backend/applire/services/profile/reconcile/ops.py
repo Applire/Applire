@@ -250,41 +250,80 @@ class RequestConfirmation(BaseModel):
     context: dict = Field(default_factory=dict)
 
 
-# ── Discriminated union + result envelope ─────────────────────────────────────
+# ── Discriminated unions, split by EMITTER ────────────────────────────────────
+#
+# ADR-063 (amended 2026-08-09) clause 1 — two unions, and the boundary between
+# them is *who constructs the op*:
+#
+#   ``ReconcileOp``  ops the reconciler LLM may emit. This is the union raw
+#                    model JSON is validated against (``engine._parse_ops``), so
+#                    anything NOT in it is dropped as a hallucination.
+#   ``DecisionOp``   adapter-only ops. Never parsed from model output; only ever
+#                    constructed as typed objects by deterministic code.
+#   ``CommitOp``     the committer's / applier's vocabulary — the union of both.
+#
+# Governing rule: **never widen an op the model can emit with a more powerful
+# parameter**, and never leave an adapter-only op inside the model's union.
+# ``DemoteSkill`` violated the second half on `main`: it sat in ``ReconcileOp``
+# while its own docstring said the model never emits it, so a hallucinated
+# ``{"op": "demote_skill", …}`` passed validation and demoted a real, attested
+# skill to ``denied`` — a negative statement about the candidate nobody
+# testified to (proposed FMEA row SF-VAULT.10, #480 PR 1). It now lives in
+# ``DecisionOp``; ``stance.demote_ops_for_denials`` constructs it directly and
+# is unaffected.
 
-ReconcileOp = Annotated[
-    Union[
-        UpsertWork,
-        UpsertProject,
-        UpsertVolunteer,
-        AddBullets,
-        UpsertSkill,
-        DemoteSkill,
-        UpsertCertification,
-        UpsertLanguage,
-        UpsertEducation,
-        UpsertPublication,
-        UpsertStory,
-        SetField,
-        SetPersonalInfo,
-        SetSummary,
-        FlagConflict,
-        RequestConfirmation,
-    ],
-    Field(discriminator="op"),
+_MODEL_EMITTABLE = (
+    UpsertWork,
+    UpsertProject,
+    UpsertVolunteer,
+    AddBullets,
+    UpsertSkill,
+    UpsertCertification,
+    UpsertLanguage,
+    UpsertEducation,
+    UpsertPublication,
+    UpsertStory,
+    SetField,
+    SetPersonalInfo,
+    SetSummary,
+    FlagConflict,
+    RequestConfirmation,
+)
+
+# Adapter-only ops. A tuple today with a single member; PR 3+ adds
+# ``ReplaceSection``/``ResolveField``/``ResolveConfirmation``/``CloseRole``/
+# ``SetProfileMeta`` here, at which point ``DecisionOp`` becomes a discriminated
+# Union in its own right.
+_ADAPTER_ONLY = (DemoteSkill,)
+
+ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
+
+# Single-member unions collapse to the member itself, and pydantic refuses a
+# ``discriminator`` on a non-Union — so ``DecisionOp`` is the bare model until a
+# second adapter-only op lands.
+DecisionOp = DemoteSkill
+
+CommitOp = Annotated[
+    Union[_MODEL_EMITTABLE + _ADAPTER_ONLY], Field(discriminator="op")
 ]
 
 
 class ReconcileResult(BaseModel):
-    """The LLM reconciler's output: ordered ops + a parallel ambiguity list.
+    """The reconcile ENGINE's output: ordered ops + a parallel ambiguity list.
 
     Ambiguities may be surfaced both inline (a ``RequestConfirmation`` in
     ``ops``) and here; both are kept. The engine folds ``ambiguities`` into the
     applier's ``pending_confirmations`` at the call site (``apply_ops`` itself
     only consumes ``ops``).
+
+    ``ops`` is typed ``CommitOp``, not ``ReconcileOp``: this envelope is what
+    the engine hands the committer *after* the stance/attribution guards and the
+    deterministic ``demote_skill`` emitter have run, so it legitimately carries
+    adapter-only ops. The model-validated boundary is ``engine._parse_ops``,
+    which uses the narrower ``ReconcileOp`` — never this class.
     """
 
-    ops: list[ReconcileOp] = Field(default_factory=list)
+    ops: list[CommitOp] = Field(default_factory=list)
     ambiguities: list[RequestConfirmation] = Field(default_factory=list)
     # Tokens the new information explicitly DENIES experience with (#127). The
     # stance guard strips any op content matching these — the model's own

@@ -34,6 +34,7 @@ from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.schemas.claims import ClaimItem, ClaimsSubmission
+from applire.schemas.profile import MasterProfileData
 from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.profile.reconcile.agent_bridge import submit_agent_claims
 
@@ -131,7 +132,15 @@ async def test_applied_claim_writes_receipt_with_submission_id(async_db):
 
 
 @pytest.mark.asyncio
-async def test_no_change_claim_writes_no_receipt(async_db):
+async def test_no_change_claim_still_leaves_a_receipt(async_db):
+    """ADR-063 invariant 3 (#480 PR 1) — the trail is UNCONDITIONAL.
+
+    This test previously pinned the opposite ("writes no receipt"): the door
+    wrapped its `EnrichmentRecord` append in `if receipt_changes:`, so a claim
+    that changed nothing left no trace that it had ever been submitted. The
+    receipt is empty, which is the honest record of an empty turn; the wire
+    status is unchanged and still reads `no_change`.
+    """
     record = await _seed_profile(async_db)
     provider = _QueueProvider([_EMPTY])
     result = await submit_agent_claims(
@@ -141,8 +150,12 @@ async def test_no_change_claim_writes_no_receipt(async_db):
         provider,
     )
     assert result.results[0].status == "no_change"
+    assert result.results[0].changes == []
     await async_db.refresh(record)
-    assert not record.profile_json["metadata"].get("enrichment_history")
+    history = record.profile_json["metadata"]["enrichment_history"]
+    assert len(history) == 1
+    assert history[0]["source"] == "agent_interview"
+    assert history[0]["changes"] == []
 
 
 @pytest.mark.asyncio
@@ -313,7 +326,16 @@ async def test_claims_apply_sequentially_later_claims_see_earlier_state(async_db
 
 
 @pytest.mark.asyncio
-async def test_updated_at_touched_but_metadata_recompute_stays_import_only(async_db):
+async def test_completeness_and_clocks_are_recomputed_on_this_door_too(async_db):
+    """ADR-063 invariants 4 + 5 (amendment (4), #480 PR 1) — the recompute is
+    UNIVERSAL now.
+
+    This test previously pinned "recompute stays import-only", which meant the
+    stored `completeness_score` and `last_updated` kept whatever the last CV
+    import wrote while the agent door changed the vault underneath them. The
+    amendment supersedes that comment explicitly: `calculate_completeness()` is
+    pure and O(sections), so there is no reason for a door to skip it.
+    """
     record = await _seed_profile(async_db)
     before_updated_at = record.updated_at
     provider = _QueueProvider([_skill_payload("Kubernetes")])
@@ -326,8 +348,12 @@ async def test_updated_at_touched_but_metadata_recompute_stays_import_only(async
     await async_db.refresh(record)
     assert record.updated_at != before_updated_at
     meta = record.profile_json["metadata"]
-    assert meta["last_updated"] == "2026-01-01T00:00:00Z"
-    assert meta["completeness_score"] == 10.0
+    assert meta["last_updated"] != "2026-01-01T00:00:00Z"
+    # The seeded 10.0 was never a real score; the recompute replaces it with one.
+    assert meta["completeness_score"] == pytest.approx(
+        MasterProfileData.model_validate(record.profile_json).calculate_completeness()
+    )
+    assert meta["completeness_score"] != 10.0
 
 
 @pytest.mark.asyncio
