@@ -299,7 +299,6 @@ async def commit_ops(
     grounding: TurnGrounding | None = None,
     snapshot: SnapshotClass | None = None,
     ambiguities: Sequence[RequestConfirmation] = (),
-    park_confirmations: bool = True,
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
@@ -323,19 +322,8 @@ async def commit_ops(
             intakes only. `None` (every other intake) is a no-op; widening is
             blocked (ADR-063 amendment (5) / #339).
         ambiguities: engine-level `RequestConfirmation`s parked alongside the
-            applier's own.
-        park_confirmations: whether this turn's asks are parked DURABLY on
-            `metadata.pending_confirmations`. **Temporary, and owned by PR 5.**
-            A durable park is only safe where a durable CLEAR exists: the
-            import/profile-review flow resolves a parked ask through
-            `resolve_confirmation`, which marks it resolved, but the interview's
-            own in-session resolution (#187) is session-state only and never
-            touches metadata — so parking an interview turn's asks would let a
-            later session re-ask something the candidate already answered.
-            Park-and-clear must land together; `ResolveConfirmation` (#480 PR 5)
-            owns confirmation bookkeeping and removes this parameter, at which
-            point parking is unconditional again. `CommitResult` still reports
-            the asks either way — this governs durability, not visibility.
+            applier's own. Parking is UNCONDITIONAL since #480 PR 5 — see the
+            note at the park site.
         enrichment: which half of the skill enrichment to run.
         llm_provider: when supplied (and `enrichment` is `DETERMINISTIC`), the
             phase-2 LLM duration estimate is layered ON TOP of the deterministic
@@ -412,15 +400,16 @@ async def commit_ops(
         _to_pending_confirmation(a, source=provenance.source)
         for a in list(ambiguities) + list(applied.pending_confirmations)
     ]
-    if park_confirmations:
-        # See the parameter's docstring: durable parking without a durable
-        # clear resurfaces answered asks, so it is a per-intake choice until
-        # PR 5 builds the clear. The asks still reach the caller on
-        # `CommitResult` regardless.
-        profile.metadata.pending_confirmations.extend(confirmations)
-    # Disputes are unconditional: `resolve_conflict` already marks a parked
-    # conflict resolved and `_open_conflicts` filters on that flag, so the
-    # park/clear pair the confirmations lack exists here today.
+    # UNCONDITIONAL since #480 PR 5. It was briefly a `park_confirmations`
+    # parameter, because a durable park is only safe where a durable CLEAR
+    # exists: the interview resolves its own asks in session state (#187) and
+    # touched no metadata, so parking an interview turn's asks would have let a
+    # LATER session re-ask something the candidate had already answered.
+    # `ResolveConfirmation` is that clear, and the interview's in-session path
+    # now goes through it — so park and clear are one lifecycle again, and an
+    # ask outliving the session that raised it is the POINT rather than a bug.
+    profile.metadata.pending_confirmations.extend(confirmations)
+    # Disputes park the same way; `ResolveField` closes them.
     profile.metadata.pending_conflicts.extend(applied.conflicts)
 
     # ADR-059 — the reconciler's own denial verdict is persisted whether or not

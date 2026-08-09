@@ -67,6 +67,10 @@ from applire.services.profile.extract_segmented import extract_with_fallback
 from applire.services.profile.field_edit import build_replace_section_op
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.reconcile.ops import ApplyImportMerge
+from applire.services.profile.resolution import (
+    build_resolve_confirmation_op,
+    build_resolve_field_op,
+)
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 from applire.schemas.profile import (
@@ -334,96 +338,11 @@ def _apply_import_metadata(
     merged.metadata.pending_confirmations = parked_confirmations
 
 
-# ── #218 — writing a resolved conflict back to the value it disputes ──────────
-# A conflict is only worth surfacing if answering it changes the vault. Before
-# this, the resolution path could address a dict section (`personal_info`,
-# `professional_summary`) and — for `work_experience` only — the FIRST entry
-# whose scalar field still equalled the old value. Neither reaches one string
-# inside a role's `responsibilities` / `achievements` list, so a bullet-level
-# dispute resolved into nothing and the rejected variant stayed in the vault.
-#
-# All three helpers are fact-level: they locate a named entity and rewrite a
-# named string. No similarity matching, no judgement about whether two bullets
-# say the same thing — that verdict is the reconciler model's (ADR-062 clause 1)
-# and arrives on the Conflict record.
-
-
-def _conflict_norm(value: object) -> str:
-    """The applier's bullet-comparison normalisation (``reconcile.apply._norm``)."""
-    return (str(value) if value is not None else "").strip().casefold()
-
-
-def _entry_for_conflict(entries: list[dict], conflict: Conflict) -> dict | None:
-    """The list entry a conflict belongs to: by ``entity_id``, else by value."""
-    if conflict.entity_id:
-        for entry in entries:
-            if isinstance(entry, dict) and entry.get("id") == conflict.entity_id:
-                return entry
-        return None
-    # Conflicts parked before `entity_id` existed carry no identity — fall back
-    # to the pre-#218 behaviour: the first entry still holding the old value.
-    old = _conflict_norm(conflict.existing_value)
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        current = entry.get(conflict.field)
-        if isinstance(current, list):
-            if any(_conflict_norm(item) == old for item in current):
-                return entry
-        elif current == conflict.existing_value:
-            return entry
-    return None
-
-
-def _rewrite_bullet_list(
-    bullets: list, existing: object, incoming: object, chosen: object
-) -> list:
-    """Leave the chosen wording in place of the contested pair, order preserved.
-
-    Both disputed variants may be stored (the reconciler's bullet dedup is exact-
-    string, so two wordings of one fact both survive an import — #453). Resolving
-    the dispute must therefore also remove the variant the candidate rejected;
-    otherwise the vault keeps serving the figure they just ruled out.
-    """
-    contested = {_conflict_norm(existing), _conflict_norm(incoming)} - {""}
-    chosen_key = _conflict_norm(chosen)
-    result: list = []
-    placed = False
-    for bullet in bullets:
-        key = _conflict_norm(bullet)
-        if key in contested:
-            if chosen_key and not placed:
-                result.append(chosen)
-                placed = True
-            continue  # the losing variant is dropped, not left alongside
-        if chosen_key and key == chosen_key and placed:
-            continue  # never leave the chosen wording twice
-        result.append(bullet)
-    if chosen_key and not placed and chosen_key not in {_conflict_norm(b) for b in result}:
-        # The disputed wording is no longer stored (edited away, or the incoming
-        # variant was never merged). The candidate's choice still has to land.
-        result.append(chosen)
-    return result
-
-
-def _apply_resolution_to_list_section(
-    entries: list, conflict: Conflict, chosen: object
-) -> None:
-    """Write ``chosen`` onto the entry the conflict names, in place."""
-    entry = _entry_for_conflict(entries, conflict)
-    if entry is None:
-        return
-    # A `field` the schema has no slot for needs no guard here: the write lands
-    # on the dumped dict and `MasterProfileData.model_validate` drops it (pydantic
-    # `extra="ignore"`), so the resolution is a quiet no-op either way. Pinned by
-    # test_resolve_conflict_on_an_unknown_field_is_a_no_op.
-    current = entry.get(conflict.field)
-    if isinstance(current, list):
-        entry[conflict.field] = _rewrite_bullet_list(
-            current, conflict.existing_value, conflict.incoming_value, chosen
-        )
-    else:
-        entry[conflict.field] = chosen
+# The #218 conflict write-back surgery (`_entry_for_conflict`,
+# `_rewrite_bullet_list`, `_apply_resolution_to_list_section`) moved into
+# `reconcile/apply.py` with #480 PR 5: it belongs to the `ResolveField` applier
+# now, and living beside the ops it serves is what finally made it testable
+# without a database and a service call.
 
 
 async def import_from_pdf(
@@ -739,16 +658,33 @@ async def resolve_conflict(
     value: object,
     db: AsyncSession,
 ) -> MasterProfileResponse:
-    """
-    Resolve a pending conflict by conflict_id.
+    """Resolve a pending conflict by conflict_id — the `ResolveField` intake.
 
     resolution:
         "existing" — discard the incoming value, keep existing as-is
         "incoming" — accept the incoming value into the profile field
         "manual"   — write `value` into the profile field
 
-    The conflict is marked resolved=True and removed from pending_conflicts.
-    An enrichment record is appended.
+    #480 PR 5 (ADR-063 clause 8(d)/(e)), and this is the writer #512 was filed
+    about. It used to assign `profile_json` itself: no reconcile, no stance
+    guard, no denial floor, no committer — while writing into
+    `work_experience[].role`/`.company` and the bullet lists. PR 4 narrowed the
+    denial-release corpus to attested entity labels, which deliberately INCLUDES
+    role, company and technologies, so this writer's output became
+    release-relevant while still travelling an unguarded path. Routing it here
+    is the closure: a resolution is now an ordinary attested write — receipted,
+    trailed, completeness-recomputed and **re-floor-guarded** (invariant 2),
+    like every other door. No door writes those fields unguarded any more.
+
+    What is deliberately unchanged: the `LookupError` for a missing profile or
+    an unknown conflict (the interview's `_resolve_conflict_safely` relies on it
+    to stay idempotent on resume), the `ValueError` for an unknown resolution
+    (422 at the REST door), the #218 write-back semantics, and
+    removal-on-resolve of the parked conflict.
+
+    `grounding=None`: answering a dispute is a DIRECT act. The committer never
+    re-adjudicates the candidate (§7.4 / ADR-061 clause 2) — the decision IS the
+    testimony, and the open dispute is what authorises the overwrite.
     """
     record = await _get_latest(db)
     if not record:
@@ -760,67 +696,42 @@ async def resolve_conflict(
         raise LookupError(f"Conflict '{conflict_id}' not found")
 
     conflict = next(
-        (c for c in profile_data.metadata.pending_conflicts if c.conflict_id == conflict_id),
+        (
+            c
+            for c in profile_data.metadata.pending_conflicts
+            if c.conflict_id == conflict_id and not c.resolved
+        ),
         None,
     )
     if conflict is None:
         raise LookupError(f"Conflict '{conflict_id}' not found")
 
-    # Determine the winning value
-    if resolution == "existing":
-        chosen = conflict.existing_value
-    elif resolution == "incoming":
-        chosen = conflict.incoming_value
-    elif resolution == "manual":
-        chosen = value
-    else:
-        raise ValueError(f"Invalid resolution '{resolution}'. Must be existing, incoming, or manual.")
+    # Pure adapter first: an unknown resolution is refused before anything
+    # touches the database, exactly as it was.
+    op = build_resolve_field_op(conflict, resolution=resolution, value=value)
 
-    # Apply the chosen value to the profile.
-    section = conflict.section
-    field_name = conflict.field
-    profile_dict = profile_data.model_dump(mode="json")
-
-    section_data = profile_dict.get(section)
-    if isinstance(section_data, dict):
-        section_data[field_name] = chosen
-        profile_dict[section] = section_data
-    # #218 — every entity section (work_experience, projects, volunteer_activities)
-    # resolves the same way: find the entry the conflict names, then write the
-    # chosen value onto its field — replacing the contested string in place when
-    # that field is a bullet list.
-    elif isinstance(section_data, list):
-        _apply_resolution_to_list_section(section_data, conflict, chosen)
-        profile_dict[section] = section_data
-
-    updated = MasterProfileData.model_validate(profile_dict)
-
-    # Mark conflict resolved and rebuild pending list
-    resolved_ids = {conflict_id}
-    updated.metadata = profile_data.metadata.model_copy(deep=True)
-    updated.metadata.pending_conflicts = [
-        c.model_copy(update={"resolved": True}) if c.conflict_id in resolved_ids else c
-        for c in updated.metadata.pending_conflicts
-        if c.conflict_id not in resolved_ids  # remove resolved conflicts from pending
-    ]
-
-    now = datetime.now(timezone.utc)
-    enrichment = _make_enrichment_record(
-        source="manual_edit",
-        section=section,
-        action="updated",
-        old_value=conflict.existing_value,
-        new_value=chosen,
+    result = await commit_ops(
+        db,
+        [op],
+        CommitProvenance(
+            source="manual_edit",
+            intake="conflict_resolution",
+            actor="candidate",
+        ),
+        record=record,
+        grounding=None,
+        # ADR-063 amendment (5) / #339 — snapshot coverage stays with the import
+        # writers. A resolution captured none before and captures none now; the
+        # omission is a parameter that says so, not a silent gap.
+        snapshot=None,
     )
-    updated.metadata.enrichment_history.append(enrichment)
-    updated.metadata.last_updated = now
-    updated.metadata.completeness_score = updated.calculate_completeness()
 
-    record.profile_json = updated.model_dump(mode="json")
-    record.updated_at = now
+    # Flush-not-commit (ADR-063 amended clause 6): the CONFLICT-RESOLUTION door
+    # owns its transaction — dropping this line is a silent no-write, and the
+    # candidate is re-asked a dispute they already answered.
     await db.commit()
-    await db.refresh(record)
-    return _to_response(record)
+    await db.refresh(result.record)
+    return _to_response(result.record)
 
 
 async def resolve_confirmation(
@@ -837,7 +748,27 @@ async def resolve_confirmation(
     pending list. (Re-running the reconciler with the chosen option as context to
     physically re-shape the merge is a richer follow-up — see the seam noted on the
     epic; the minimum here surfaces a clean, answerable dialog instead of a garbled
-    string and durably records the answer.)"""
+    string and durably records the answer.)
+
+    #480 PR 5 — the `ResolveConfirmation` intake (design §4.5). Two things
+    change by routing it through `commit_ops`:
+
+    * **a behavioural delta, not a refactor**: this writer moved
+      `last_updated` and never recomputed `completeness_score`, so the stored
+      score drifted from the vault every time a confirmation was answered. The
+      committer's invariant 4 recomputes universally, so it comes for free
+      (design §6 row 5, "+ missing recompute").
+    * the park+clear lifecycle completes. With a durable CLEAR in the op
+      vocabulary, `commit_ops` parks every intake's asks unconditionally and
+      the interview's own in-session resolution (#187) clears the metadata park
+      through this same act — so an answered ask can never resurface in a later
+      session via `_open_confirmations`, and an ABANDONED one survives instead
+      of dying with its session.
+
+    The `LookupError` contract is unchanged: `_resolve_confirmation_safely`
+    swallows exactly it to stay idempotent when an interview is resumed past a
+    question that has already been answered.
+    """
     record = await _get_latest(db)
     if not record:
         raise LookupError("No profile found")
@@ -850,36 +781,33 @@ async def resolve_confirmation(
         (
             c
             for c in profile_data.metadata.pending_confirmations
-            if c.confirmation_id == confirmation_id
+            if c.confirmation_id == confirmation_id and not c.resolved
         ),
         None,
     )
     if confirmation is None:
         raise LookupError(f"Confirmation '{confirmation_id}' not found")
 
-    updated = profile_data.model_copy(deep=True)
-    updated.metadata.pending_confirmations = [
-        c
-        for c in updated.metadata.pending_confirmations
-        if c.confirmation_id != confirmation_id
-    ]
-
-    now = datetime.now(timezone.utc)
-    enrichment = _make_enrichment_record(
-        source="manual_edit",
-        section="metadata",
-        action="updated",
-        old_value=confirmation.question,
-        new_value=chosen_option,
+    result = await commit_ops(
+        db,
+        [build_resolve_confirmation_op(confirmation, chosen_option)],
+        CommitProvenance(
+            source="manual_edit",
+            intake="confirmation_resolution",
+            actor="candidate",
+        ),
+        record=record,
+        # A direct act — the candidate answering their own question.
+        grounding=None,
+        snapshot=None,
     )
-    updated.metadata.enrichment_history.append(enrichment)
-    updated.metadata.last_updated = now
 
-    record.profile_json = updated.model_dump(mode="json")
-    record.updated_at = now
+    # Flush-not-commit (ADR-063 amended clause 6): the CONFIRMATION-RESOLUTION
+    # door owns its transaction — dropping this line is a silent no-write, and
+    # the parked ask comes back in the next session.
     await db.commit()
-    await db.refresh(record)
-    return _to_response(record)
+    await db.refresh(result.record)
+    return _to_response(result.record)
 
 
 # US154 (document-type) and US155 (name-mismatch) detection live in the canonical
