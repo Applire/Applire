@@ -23,10 +23,12 @@ each invariant is declared ONCE instead of being re-implemented (or forgotten)
 by each of the eleven writers the 2026-07 inventory found.
 
 **The invariants this module owns** (design §2 on #480, as amended
-2026-08-09 — row 2, the persisted-denial re-floor, belongs to PR 4 and is an
-empty `refloored` placeholder here):
+2026-08-09):
 
 1. the ops are applied through `apply_ops` — the only path from intent to state;
+2. the **persisted-denial re-floor** runs after the ops land: a write that
+   re-introduces a skill the candidate retracted is taken back at the seam,
+   whatever door it came through (`_refloor_persisted_denials`);
 3. the enrichment trail is **unconditional** (this is what closes the
    `if receipt_changes:` holes the testimony and agent bridges shipped: a turn
    that changed nothing left no trace that it happened);
@@ -36,7 +38,7 @@ empty `refloored` placeholder here):
 6. deterministic skill enrichment runs unconditionally — a skill's duration and
    provenance must never depend on whether the caller happened to pass an LLM
    provider (ADR-058 clause 2: the same edit may not behave differently by door);
-7. **receipt separation** — demotions, denials and (from PR 4) re-floorings are
+7. **receipt separation** — demotions, denials and re-floorings are
    receipted into the `EnrichmentRecord` but NEVER enter `bool(changes)`. A
    retraction must not read as "gap addressed" or request a ledger upgrade
    (#231/#352);
@@ -52,7 +54,9 @@ integration test asserting the write survives the request.
 
 **What this module deliberately does NOT do yet:**
 
-* the persisted-denial re-floor and the `UN_DENIAL` release seam — PR 4;
+* RELEASE a denial — the ADR-059 un-denial correction act is unbuilt and the
+  seam is reserved with a raise (:data:`UN_DENIAL_INTAKE`, #506); until it
+  lands, a denial floored here is permanent;
 * snapshot coverage beyond the two import writers — `snapshot=MERGE` is real
   since PR 2, but widening it to any other intake stays BLOCKED (ADR-063
   amendment (5) / #339);
@@ -190,7 +194,7 @@ class CommitResult:
     denials: list[FieldChange]
     #: #485 — receipts for `demote_skill` ops.
     demotions: list[FieldChange]
-    #: PR 4 — receipts for the persisted-denial re-floor. Always empty here.
+    #: Receipts for the persisted-denial re-floor (invariant 2).
     refloored: list[FieldChange]
     conflicts: list[Conflict]
     pending_confirmations: list[PendingConfirmation]
@@ -218,6 +222,72 @@ def _log_embedding_staleness_once() -> None:
         "similarity scoring drifts from the vault (ADR-063 amended 2026-08-09 "
         "clause 3 / #480 §7.2). Logged once per process, not per write."
     )
+
+
+#: The intake name reserved for the ADR-059 explicit un-denial correction act
+#: (2026-07-26 amendment, scheduled for the Finetuner release as #506). Naming
+#: it here is the whole point: the seam a future act will need is visible and
+#: RESERVED, so nobody quietly routes a release through an ordinary commit.
+UN_DENIAL_INTAKE = "un_denial"
+
+
+def _refloor_persisted_denials(profile: MasterProfileData) -> list[FieldChange]:
+    """Invariant 2 — take back any vault skill a PERSISTED denial retracts.
+
+    ADR-059 amended 2026-08-08 step 2; home ADR-063 clause 8(d). Until this, the
+    floor only ever saw the denials the CURRENT turn declared
+    (`enforce_stance`), so any later write through any door could re-introduce a
+    skill the candidate had retracted, and nothing caught it before the next
+    ledger rebuild — if one ever ran.
+
+    **One instrument, not a second one** (design §3.2). `demote_ops_for_denials`
+    is parameter-shaped and stays the single emission rule; the only change is
+    that this caller feeds it the PERSISTED list off `metadata.denied_concepts`
+    instead of the same-turn declarations its other caller passes. That input
+    swap IS step 2, and it is what makes the ADR-059 #486 amendment clause (b)
+    lockstep constraint hold by construction rather than by review.
+
+    Its scope is INHERITED, never re-decided here: `confirmed` **skills** only
+    (certifications and languages have no demote emission path — the
+    reconciler's `denials` array carries no entity kind; recorded on #504).
+
+    **The never-upgrade half stays read-side** (§3.3). The emitter matches
+    declared-exact, longest-first — never the compound-containment branch — so a
+    denial of "Tailwind CSS" never writes `denied` on the vault's bare "CSS".
+    Containment still refuses the CLAIM at the ledger; it may not fabricate
+    testimony in the vault. A fourth "floored-but-not-asserted" vault status was
+    considered and rejected: a state with no testimony behind it is #486's own
+    error one level down.
+
+    **Release: none** (§3.4). Nothing here deletes a `DeniedConcept`, un-demotes
+    or consults an affirmation predicate — see :data:`UN_DENIAL_INTAKE`.
+
+    Mutates `profile` in place (through the shared applier) and returns the
+    receipts, which the caller keeps OFF `changes` per invariant 7.
+    """
+    from applire.services.profile.reconcile.apply import _apply_demote_skill
+    from applire.services.profile.reconcile.stance import demote_ops_for_denials
+
+    metadata = profile.metadata
+    persisted = [d.concept for d in (metadata.denied_concepts if metadata else []) if d.concept]
+    if not persisted:
+        return []
+
+    refloored: list[FieldChange] = []
+    for op in demote_ops_for_denials(profile, persisted):
+        # THE shared applier, so a re-flooring and a `demote_skill` op write
+        # byte-identically — including the idempotent skip on an entry that is
+        # already `denied`, which is what keeps a repeated save from littering
+        # the enrichment history.
+        _apply_demote_skill(op, profile, refloored)
+    if refloored:
+        logger.info(
+            "commit_ops: re-floored %d vault skill(s) against %d persisted "
+            "denial(s) (ADR-059 step 2 / #480 invariant 2)",
+            len(refloored),
+            len(persisted),
+        )
+    return refloored
 
 
 async def commit_ops(
@@ -279,11 +349,29 @@ async def commit_ops(
 
     Raises:
         LookupError: no profile exists yet.
-        NotImplementedError: an unhandled `SnapshotClass`.
+        NotImplementedError: an unhandled `SnapshotClass`, or an
+            `UN_DENIAL_INTAKE` intake — the reserved release seam (§3.4).
     """
     # Lazy: applire.services.profile imports this package's siblings.
     from applire.services.profile import _compute_embedding, _get_latest
     from applire.services.profile.snapshots import capture_pre_merge_snapshot
+
+    if provenance.intake == UN_DENIAL_INTAKE:
+        # ADR-059 §3.4, the RESERVED seam — refused before anything is read or
+        # written, so no half of an un-denial can land. `commit_ops` never
+        # deletes a `DeniedConcept`, never un-demotes, and never consults an
+        # affirmation predicate to release one: the 2026-07-26 explicit
+        # un-denial correction act is the only release path, and it is unbuilt.
+        # Until it lands, a denial floored at this seam is PERMANENT — the
+        # honest description, stated rather than discovered.
+        raise NotImplementedError(
+            "commit_ops has no un-denial path: releasing a persisted denial "
+            "requires the explicit, confirmed, receipted correction act of "
+            "ADR-059 (amended 2026-07-26), which is scheduled for the "
+            "Finetuner release as #506. The seam is reserved here so that "
+            "nobody routes a release through an ordinary write in the "
+            "meantime. Failing loudly rather than silently not releasing."
+        )
 
     if snapshot is not None and snapshot is not SnapshotClass.MERGE:  # pragma: no cover
         raise NotImplementedError(
@@ -347,11 +435,10 @@ async def commit_ops(
             when=now,
         )
 
-    # ── Invariant 2 — the persisted-denial re-floor. PR 4 owns it. ───────────
-    # Deliberately an empty placeholder: it must run HERE, after the ops land
-    # and before the assignment, so it sees the post-op profile including any
-    # denial this same turn recorded. Building it early would ship a half floor.
-    refloored: list[FieldChange] = []
+    # ── Invariant 2 — the persisted-denial re-floor ──────────────────────────
+    # It runs HERE, after the ops land and before the assignment, so it sees the
+    # post-op profile including the denial `record_denials` just wrote above.
+    refloored = _refloor_persisted_denials(profile)
 
     # ── Invariant 6 — deterministic skill enrichment, unconditional ──────────
     # `enrich_skills` IS the deterministic pass plus the LLM estimate for the
@@ -432,7 +519,7 @@ async def commit_ops(
 
     logger.debug(
         "commit_ops: %d op(s) via %s/%s (grounded=%s) → %d change(s), %d denial(s), "
-        "%d demotion(s)",
+        "%d demotion(s), %d re-floored",
         len(ops),
         provenance.source,
         provenance.intake,
@@ -440,6 +527,7 @@ async def commit_ops(
         len(applied.changes),
         len(denial_changes),
         len(applied.demotions),
+        len(refloored),
     )
 
     return CommitResult(

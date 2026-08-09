@@ -34,6 +34,7 @@ from typing import Any
 
 from applire.services.profile.reconcile.stance import (
     declared_denial_matches,
+    denial_release_corpus,
     exclude_unconfirmed,
     is_denied_concept,
 )
@@ -467,16 +468,17 @@ def _enforce_denial_stance(
         is the failure that closes.
 
     ``vault_corpus`` (#249 run-4, 2026-07-24; narrowed by #480 step 1,
-    2026-08-08): the CONFIRMED profile's own literal text
-    (``exclude_unconfirmed`` → :func:`profile_literal_corpus`), threaded through to
-    ``is_denied_concept`` so its compound-containment rule ("RAG" is a whole
-    word strictly inside the denied "RAG pipeline") can independently affirm
-    a BROAD term against real vault evidence instead of always fail-closing
-    (the #207 CSS/Tailwind-CSS default, correct when there is no vault text
-    to check). A broad term is downgraded only if it is itself denied, or has
-    no independent literal vault evidence outside the denied compound —
-    never both classified `direct`/technologies-backed AND presented as an
-    unsupported claim by the ATS panel on the very same document.
+    2026-08-08, and again by #480 §7.5(a), 2026-08-09): the vault's ATTESTED
+    ENTITY LABELS
+    (:func:`applire.services.profile.reconcile.stance.denial_release_corpus`),
+    threaded through to ``is_denied_concept`` so its compound-containment rule
+    ("RAG" is a whole word strictly inside the denied "RAG pipeline") can
+    independently affirm a BROAD term against real vault evidence instead of
+    always fail-closing (the #207 CSS/Tailwind-CSS default, correct when there
+    is nothing attested to check). A broad term is downgraded only if it is
+    itself denied, or has no independent ATTESTATION outside the denied
+    compound — never both classified `direct` and presented as an unsupported
+    claim by the ATS panel on the very same document.
 
     ``denied_concepts`` accepts either the raw ``DeniedConcept`` dicts (which
     carry ``denial_level``, ADR-064) or a plain ``list[str]`` (every caller
@@ -487,9 +489,11 @@ def _enforce_denial_stance(
     wins (the stronger signal — elicitation was exhausted on at least one of
     the matching denials).
 
-    An ``unconfirmed`` vault entry never reaches ``vault_corpus`` (#480 step 1,
-    ADR-061 clause 3): the reconciler's own inference backs nothing, so it may
-    not be the independent affirmation that releases a persisted denial.
+    Neither an ``unconfirmed`` vault entry (#480 step 1, ADR-061 clause 3 —
+    the reconciler's own inference backs nothing) nor editor-typed prose (#480
+    §7.5(a) — a sentence typed into a document is not an attested vault entity)
+    ever reaches ``vault_corpus``: neither may be the independent affirmation
+    that releases a persisted denial.
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
@@ -1358,8 +1362,10 @@ def upgrade_ledger_for_concepts(
         concept the candidate affirms *outside* every denied compound, in
         their own words, on this turn, may be flipped claimable with those
         words as its evidence.
-      * **``vault_corpus``** (:func:`profile_literal_corpus`, threaded from
-        both doors — the same input ``_enforce_denial_stance`` takes) decides
+      * **``vault_corpus``**
+        (:func:`applire.services.profile.reconcile.stance.denial_release_corpus`,
+        threaded from both doors — the same input ``_enforce_denial_stance``
+        takes) decides
         whether a denial may be RECORDED (and, since #352, whether one may be
         REVERSED). Vault evidence outside the denied compound contradicts the
         containment reading, so the entry is left exactly as it stands — not
@@ -1568,15 +1574,15 @@ def reevaluate_gap_ledger_against_vault(
 
     Truthfulness floor (ADR-059): a concept the candidate explicitly denied
     (``ProfileMetadata.denied_concepts``) is NEVER upgraded, however the
-    vault or the denial's own statement phrases it. The presence corpus is
-    built from :func:`profile_literal_corpus`'s own flattening
-    (``_strip_denial_text`` + ``_draft_strings``) — denial-testimony text is
-    stripped BEFORE flattening, so a denial's own receipt can never satisfy
-    this presence check and defeat the floor it is supposed to respect (the
-    same class of trap ``_enforce_denial_stance``/``profile_literal_corpus``
+    vault or the denial's own statement phrases it. The PRESENCE corpus (the
+    coverage half) is built from :func:`profile_literal_corpus`'s own
+    flattening (``_strip_denial_text`` + ``_draft_strings``) — denial-testimony
+    text is stripped BEFORE flattening, so a denial's own receipt can never
+    satisfy this presence check and defeat the floor it is supposed to respect
+    (the same class of trap ``_enforce_denial_stance``/``profile_literal_corpus``
     already close for the classifier's adjacency inference — see that
     docstring). ``is_denied_concept`` is checked independently as a second,
-    belt-and-braces floor on top of the stripped corpus.
+    belt-and-braces floor, and reads the narrower RELEASE corpus (below).
 
     SKIP-ONLY BY DESIGN (ADR-059 amended 2026-08-08, #486). This function never
     flips an entry to ``denied`` — it only refuses to upgrade one — so it holds
@@ -1588,8 +1594,13 @@ def reevaluate_gap_ledger_against_vault(
 
     #480 step 1: the presence corpus is built from the CONFIRMED vault only
     (``exclude_unconfirmed``) — an unconfirmed entry backs nothing, so it may
-    neither heal a gap here nor release a denial through the containment
-    branch's independent-affirmation check.
+    not heal a gap here. #480 §7.5(a) then SPLIT the two corpora this function
+    was building as one: the release half (the ``is_denied_concept`` floor)
+    reads
+    :func:`applire.services.profile.reconcile.stance.denial_release_corpus`,
+    the attested entity labels alone, while the coverage half keeps the
+    flattened confirmed vault — narrowing coverage too would stop this
+    function healing gap rows from bullets, which is why it exists.
 
     Conservative by construction (at least as conservative as #188):
 
@@ -1620,6 +1631,16 @@ def reevaluate_gap_ledger_against_vault(
     stripped_profile = _strip_denial_text(exclude_unconfirmed(profile_json) or {})
     strings = [s for s in _draft_strings(stripped_profile) if s and s.strip()]
     corpus = ats_norm(" ".join(strings))
+
+    # ADR-059 amended 2026-08-09 (#480 §7.5(a)) — site 2 of five, and the first
+    # of the two that needed SPLITTING. One corpus was feeding two predicates
+    # of opposite polarity: the RELEASE half below (`is_denied_concept`'s
+    # independent-affirmation branch) and the COVERAGE half (`surface_present`,
+    # which decides whether a gap row heals, and which cites a real vault text
+    # node as its evidence). Only the release half narrows — narrowing coverage
+    # too would stop this function healing gap rows from bullets, which is the
+    # entire reason it exists.
+    release_corpus = denial_release_corpus(profile_json)
 
     # ADR-064 — reuse the same dict-or-str normaliser _enforce_denial_stance
     # uses, so this caller's extraction can never quietly diverge from that
@@ -1654,7 +1675,9 @@ def reevaluate_gap_ledger_against_vault(
         # ADR-059 floor: never upgrade a denied concept, however the vault or
         # its own denial statement phrases it (corpus already denial-stripped
         # above — this is the belt-and-braces second check).
-        if denials and any(is_denied_concept(p, denials, corpus) for p in probes):
+        if denials and any(
+            is_denied_concept(p, denials, release_corpus) for p in probes
+        ):
             continue
 
         if not any(surface_present(p, corpus) for p in probes):
@@ -1909,11 +1932,10 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     Reuses :func:`_draft_strings` (already the shared flattener the US213
     verified-coverage check scans a DRAFT document with — any dict of
     arbitrary shape) against the PROFILE instead, so the SAME flattening
-    logic backs both instruments. Feeds ``_enforce_denial_stance``'s
-    independent-affirmation check: a broad concept ("RAG") with a literal
-    vault tie (``work_experience[].technologies[]``) outside every denied
-    compound must never be tarred by a narrow denial ("RAG pipeline") the
-    way an untethered containment check would.
+    logic backs both instruments. It fed ``_enforce_denial_stance``'s
+    independent-affirmation check until #480 §7.5(a) (2026-08-09) — see the
+    note below; the coverage question it answers today is "does the vault
+    literally carry this term anywhere at all".
 
     Wave-6 fix: ``metadata.denied_concepts`` and denial-receipt
     enrichment-history changes are stripped BEFORE flattening
@@ -1924,12 +1946,17 @@ def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     survived into the corpus verbatim, defeating the ADR-059 denial floor).
     ``None``/empty tolerant.
 
-    The two other callers of this function (``services/cv.py``,
-    ``services/cover_letter.py``) feed the SAME class of "is this term
-    literally grounded in the vault" check (the ATS/Oracle
-    ``present_unsupported`` consistency guard) — a denied term's own
-    statement text must not count as grounding there either, so the
-    exclusion applies unconditionally for every caller; no parameter added.
+    **This is the COVERAGE corpus, not the release corpus** (ADR-059 amended
+    2026-08-09, #480 §7.5(a)). Its callers — ``services/cv.py`` and
+    ``services/cover_letter.py``'s ``present_unsupported`` consistency guards
+    and ``services/cv_diff.py``'s US147 pre-download diff — all ask "is this
+    term literally grounded in the vault", which is a coverage question and
+    rightly reads the whole vault. What may RELEASE a persisted denial is a
+    different and much narrower question, answered by
+    :func:`applire.services.profile.reconcile.stance.denial_release_corpus`;
+    this function no longer feeds that predicate at any site. A denied term's
+    own statement text must not count as grounding for the coverage callers
+    either, so the exclusion applies unconditionally; no parameter added.
     """
     if not profile_json:
         return ""
@@ -2100,14 +2127,19 @@ def assert_claimable_backed(
 
     # ADR-061 clause 3 — an `unconfirmed` skill/language/certification cannot
     # back a CV bullet, a letter sentence or a `direct` ledger row, so it must
-    # not count as an evidence unit here either. Since #480 step 1 this is the
-    # SHARED pattern, not this seam's local habit: every corpus feeding the
-    # floor/release predicate is built from the confirmed vault.
+    # not count as an evidence unit here either.
     confirmed = exclude_unconfirmed(profile_json)
-    # The polarity and coherence clauses need no schema — they read the ledger
-    # row and a flattened corpus. Only the affirmative floor needs the typed
-    # vault index, so only IT degrades when the vault will not validate.
-    vault_corpus = profile_literal_corpus(confirmed) or None
+    # ADR-059 amended 2026-08-09 (#480 §7.5(a)) — site 3 of five, the path the
+    # 2026-08-09 adversarial pass found: this heal's corpus is a FIFTH thread
+    # into `_independently_affirmed`, and swapping four while leaving it would
+    # recreate exactly the divergence the #486 amendment clause (b) documents.
+    # The second SPLIT: `confirmed` fed both this corpus and `build_vault_index`
+    # below. Only the polarity clause's corpus narrows — the affirmative floor
+    # (clause 5) is a coverage question and keeps the whole confirmed vault, or
+    # a claimable row grounded by a real bullet would be healed away.
+    vault_corpus = denial_release_corpus(profile_json) or None
+    # Only the affirmative floor needs the typed vault index, so only IT
+    # degrades when the vault will not validate.
     try:
         from applire.services.oracle.matchers.vault import build_vault_index
 
@@ -2315,15 +2347,15 @@ def build_keyword_ledger(
         )
 
     ledger = _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
-    # ADR-059 amended 2026-08-08 step 1 (#480) — the corpus the RELEASE
-    # predicate reads is the CONFIRMED vault only. ``_independently_affirmed``
-    # (via the containment branch) lets literal vault text release a denial;
-    # an ``unconfirmed`` entry is the reconciler's own inference, backs nothing
-    # (ADR-061 clause 3), and must not be what releases one. Filtered at
-    # corpus-BUILD time because by the time the predicate runs the corpus is a
-    # flat string with no statuses left in it — the same pattern
-    # ``assert_claimable_backed`` already applies to its own corpus.
-    vault_corpus = profile_literal_corpus(exclude_unconfirmed(profile_json))
+    # ADR-059 amended 2026-08-09 (#480 §7.5(a)) — the corpus the RELEASE
+    # predicate reads is the vault's ATTESTED ENTITY LABELS, not its flattened
+    # text. ``_independently_affirmed`` (via the containment branch) lets vault
+    # text release a denial; step 1 (2026-08-08) removed `unconfirmed` entries
+    # from it, and this narrows the rest — editor-typed prose is not an
+    # affirmation the candidate attested. Site 1 of the five that feed the
+    # floor/release predicate; all five swap together or the divergence the
+    # #486 amendment clause (b) documents recurs.
+    vault_corpus = denial_release_corpus(profile_json)
     ledger = _enforce_denial_stance(ledger, denied_concepts, vault_corpus or None)
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single

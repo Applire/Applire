@@ -17,9 +17,9 @@
 
 """ADR-063 / #480 PR 1 — `commit_ops`, the vault's one write path.
 
-The design's §2 invariant table, one test per row (minus row 2, the persisted-
-denial re-floor, which PR 4 owns and which is an empty `refloored` placeholder
-here):
+The design's §2 invariant table, one test per row. Row 2 — the persisted-denial
+re-floor, added by PR 4 — has its own file (`test_commit_ops_refloor.py`);
+what this file pins about it is that its receipts stay OFF `changes`.
 
 | 1 | ops applied through `apply_ops`, the only path from intent to state |
 | 3 | the enrichment trail is UNCONDITIONAL — this is what closes the
@@ -243,7 +243,11 @@ async def test_the_receipt_carries_all_three_lists(db_session, seeded):
 
 
 @pytest.mark.asyncio
-async def test_refloored_is_an_empty_placeholder_until_pr_4(db_session, seeded):
+async def test_a_turn_with_no_persisted_denial_reflooring_reports_none(
+    db_session, seeded
+):
+    """Invariant 2's quiet case. The re-floor's own behaviour is pinned in
+    `test_commit_ops_refloor.py`; here it must simply not invent receipts."""
     result = await commit_ops(db_session, [], _provenance())
 
     assert result.refloored == []

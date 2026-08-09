@@ -43,7 +43,6 @@ from applire.schemas.profile import MasterProfileData, ProfileMetadata
 from applire.services.keyword_ledger import (
     _norm,
     assert_claimable_backed,
-    profile_literal_corpus,
     upgrade_ledger_for_concepts,
 )
 from applire.services.profile.commit import (
@@ -52,7 +51,7 @@ from applire.services.profile.commit import (
     commit_ops,
 )
 from applire.services.profile.reconcile.engine import reconcile
-from applire.services.profile.reconcile.stance import exclude_unconfirmed
+from applire.services.profile.reconcile.stance import denial_release_corpus
 
 logger = logging.getLogger(__name__)
 
@@ -267,16 +266,17 @@ async def submit_agent_claims(
                     if d.concept
                 ]
                 # #351 — same door parity, one level down: the containment
-                # branch of the denial predicate needs the vault's own literal
-                # text to judge against, or it fail-closes and records a
+                # branch of the denial predicate needs the vault's own
+                # attestations to judge against, or it fail-closes and records a
                 # denial of every concept merely CONTAINED in a denied
                 # compound. Built from `current` (post-apply, pre-persist), so
                 # this claim's own new evidence counts.
-                # #480 step 1 — the CONFIRMED vault only: an `unconfirmed`
-                # entry backs nothing (ADR-061 clause 3) and must not be the
-                # independent affirmation that releases a persisted denial.
-                vault_corpus = profile_literal_corpus(
-                    exclude_unconfirmed(current.model_dump(mode="json"))
+                # #480 §7.5(a) / ADR-059 amended 2026-08-09 — site 5 of five.
+                # ATTESTED ENTITY LABELS only: an `unconfirmed` entry backs
+                # nothing (ADR-061 clause 3, step 1), and neither does a
+                # sentence the candidate typed into a document (step 2).
+                vault_corpus = denial_release_corpus(
+                    current.model_dump(mode="json")
                 )
                 new_ledger, changed = upgrade_ledger_for_concepts(
                     gap_row.keyword_ledger,

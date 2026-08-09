@@ -1032,6 +1032,111 @@ def exclude_unconfirmed(profile_json: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+#: What separates two entity labels in :func:`denial_release_corpus`. A bare
+#: space would let two unrelated entities read as one phrase ("Machine" +
+#: "Learning" → "machine learning"), manufacturing an affirmation nobody
+#: attested. A pipe survives ``_norm`` and is a word boundary to every presence
+#: predicate, so no match can span two entities. Fail-closed, the ADR-062
+#: clause 5 direction.
+_LABEL_SEPARATOR = " | "
+
+
+def denial_release_corpus(profile_json: dict[str, Any] | None) -> str:
+    """The corpus that may RELEASE a persisted denial — **attested entity
+    labels only** (ADR-059 amended 2026-08-09, #480 §7.5 option (a)).
+
+    ``_independently_affirmed`` decides whether a broad concept is affirmed
+    OUTSIDE every denied compound; whatever text it is handed is, in effect,
+    what the system will accept as the candidate saying "yes I do have this"
+    against their own recorded "no". Until now that text was
+    :func:`applire.services.keyword_ledger.profile_literal_corpus` — the whole
+    vault flattened, *including* ``work_experience[].responsibilities`` — so a
+    sentence typed into the CV section editor silently lifted the candidate's
+    own denial (#480's second probe half). Rationale for the narrowing, fact-only
+    per ADR-062 clause 1: an affirmation strong enough to narrow a persisted
+    denial must be a vault ENTITY the candidate attested, not a sentence typed
+    into a document.
+
+    **In:**
+
+    * ``skills[].name`` where the entry is claimable — via the shared
+      :func:`entry_is_claimable` predicate, so :data:`_UNCLAIMABLE_STATUSES`
+      excludes ``unconfirmed`` **and** ``denied`` in one place and #480 step 1's
+      ``exclude_unconfirmed`` wrap is subsumed by construction;
+    * ``certifications[].name`` and ``languages[].language``, gated on
+      ``status == "confirmed"`` — both carry a ``confirmed|unconfirmed``
+      literal, and an unconfirmed certification is not attested. An entry with
+      no ``status`` key reads as ``confirmed`` (the schema default, which is
+      what legacy JSONB means); any OTHER value is excluded — fail-closed, and
+      the only way this gate differs from :func:`entry_is_claimable`;
+    * ``work_experience[].role``, ``.company`` and ``.technologies[]``.
+
+    **Out, deliberately:** ``responsibilities``, ``achievements``, summaries and
+    education free text — PROSE. (The design's ``skills[].specialisation`` is
+    dropped: the field does not exist in the schema.)
+
+    **Why ``technologies[]`` is in** (PO addendum to the ADR-059 2026-08-09
+    amendment, ruled the same day): it is a STRUCTURED TAG LIST, not a sentence
+    — a vault entity label of the same trust level as ``role``/``company``, and
+    the line this corpus draws is entity-vs-prose, not "is it on the skills
+    list". Excluding it silently narrowed the charter-run-4 guarantee #249
+    pinned (a broad "RAG" tied to the vault through ``technologies[]``, outside
+    a narrow "RAG pipeline" denial), re-opening a slice of the #207
+    over-blocking class this predicate exists to prevent.
+
+    **Honest caveat, recorded with the amendment:** ``WorkEntry`` has **no
+    status field**, so ``role``, ``company`` and ``technologies[]`` are only as
+    attested as the reviewed import that wrote them — the weakest members of
+    this corpus. They stay in per the PO ruling (dropping them would over-floor
+    genuine role-title and technology-tag affirmations), and charter-run
+    evidence of a misparse-driven release is grounds to narrow further.
+
+    Normalised with the SAME ``ats_audit._norm`` every other presence corpus
+    uses, or the matcher and the corpus would disagree about what a token is.
+    Pure, ``None``/malformed tolerant; never mutates the input.
+
+    This function is used at **every** site feeding the floor/release predicate
+    and nowhere else. :func:`profile_literal_corpus` and its three coverage/diff
+    consumers (the Oracle and cover-letter ``present_unsupported`` checks, the
+    US147 pre-download diff) keep the wide corpus: they answer coverage
+    questions, not release questions.
+    """
+    if not isinstance(profile_json, dict):
+        return ""
+
+    labels: list[str] = []
+
+    def _add(value: Any) -> None:
+        if isinstance(value, str) and value.strip():
+            labels.append(value.strip())
+
+    for entry in profile_json.get("skills") or []:
+        if not entry_is_claimable(entry):
+            continue
+        _add(entry.get("name") if isinstance(entry, dict) else entry)
+
+    for field_name, label_key in (
+        ("certifications", "name"),
+        ("languages", "language"),
+    ):
+        for entry in profile_json.get(field_name) or []:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status", "confirmed") != "confirmed":
+                continue
+            _add(entry.get(label_key))
+
+    for entry in profile_json.get("work_experience") or []:
+        if not isinstance(entry, dict):
+            continue
+        _add(entry.get("role"))
+        _add(entry.get("company"))
+        for tech in entry.get("technologies") or []:
+            _add(tech)
+
+    return _norm(_LABEL_SEPARATOR.join(labels))
+
+
 def demote_ops_for_denials(
     profile: MasterProfileData, denials: list[str]
 ) -> list[DemoteSkill]:
