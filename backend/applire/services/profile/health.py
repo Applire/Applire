@@ -205,11 +205,11 @@ def assess_health(
 ) -> ProfileHealthResponse:
     """Compute the deterministic Tier-2 health read for a parsed profile.
 
-    ``na_fields`` — the ``_meta.na_fields`` list from the raw profile JSON.
-    ``MasterProfileData.model_dump()`` strips ``_meta`` (it is not a declared
-    field), so callers that have the raw JSON must extract and thread it in
-    explicitly.  Defaults to ``None`` (no suppression) for backwards
-    compatibility with existing callers that do not carry the raw record.
+    ``na_fields`` — an explicit override for the ``_meta.na_fields`` list.
+    Since #505, ``_meta`` is a declared field that survives ``model_dump()``,
+    so *profile* normally carries its own suppressions and this argument can be
+    omitted; when supplied it replaces the block. Defaults to ``None`` — use
+    whatever the profile carries.
     """
     issues: list[HealthIssue] = _unit_issues(profile)
 
