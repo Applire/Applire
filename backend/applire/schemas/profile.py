@@ -21,7 +21,14 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 # ─── Section sub-models ───────────────────────────────────────────────────────
@@ -677,6 +684,25 @@ class ProfileMetadata(BaseModel):
     denied_concepts: list[DeniedConcept] = Field(default_factory=list)
 
 
+class ProfileMetaBlock(BaseModel):
+    """#505 — the profile JSON's ``_meta`` sidecar block.
+
+    Distinct from :class:`ProfileMetadata` (the ``metadata`` key). ``_meta``
+    carries the candidate's own suppressions: ``na_fields`` lists completeness
+    gap strings the candidate marked "not applicable"
+    (``routers/profile_enrich.mark_gap_na`` writes it;
+    ``services/profile/completeness.field_gaps`` and ``services/profile/health``
+    read it off the raw JSON).
+
+    Declared verbatim — no policy change, no key rename (the ``_meta`` /
+    ``metadata`` near-collision is tracked separately in #509). ``extra="allow"``
+    so any future ``_meta`` key survives a round-trip untouched.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    na_fields: list[str] = Field(default_factory=list)
+
+
 # ─── Completeness calculation ─────────────────────────────────────────────────
 
 _COMPLETENESS_WEIGHTS: dict[str, float] = {
@@ -708,6 +734,11 @@ def _has_meaningful_data(profile: "MasterProfileData", section: str) -> bool:
 # ─── Master profile data ──────────────────────────────────────────────────────
 
 class MasterProfileData(BaseModel):
+    # #505 — `_meta` is the only aliased field; populate_by_name keeps
+    # `MasterProfileData(meta=...)` working from python instead of silently
+    # dropping the block.
+    model_config = ConfigDict(populate_by_name=True)
+
     personal_info: PersonalInfo = Field(default_factory=PersonalInfo)
     professional_summary: ProfessionalSummary = Field(default_factory=ProfessionalSummary)
     work_experience: list[WorkEntry] = Field(default_factory=list)
@@ -722,6 +753,32 @@ class MasterProfileData(BaseModel):
     # (upsert_story), Oracle-indexed. Defaulted list = legacy JSONB loads clean.
     signature_stories: list[SignatureStory] = Field(default_factory=list)
     metadata: ProfileMetadata | None = None
+    # #505 — the raw JSON's `_meta` sidecar (candidate N/A suppressions). Named
+    # `meta` here only because pydantic v2 reserves leading-underscore attribute
+    # names for private attrs; the alias keeps the persisted key literally
+    # `_meta`, which is what the readers index by. NOT `metadata` — see
+    # ProfileMetaBlock. Undeclared, this key was silently dropped on every
+    # model_validate() → model_dump() round-trip (#505).
+    meta: ProfileMetaBlock | None = Field(default=None, alias="_meta")
+
+    @model_serializer(mode="wrap")
+    def _serialize_meta_under_its_json_key(self, handler: Any) -> Any:
+        """Emit `meta` as `_meta`, and only when the profile actually has one.
+
+        `model_dump()` defaults to `by_alias=False` and every persistence call
+        site relies on that default, so the rename happens here rather than via
+        `serialize_by_alias`. Absent `_meta` is omitted entirely — a profile
+        that never had the key must not grow a null one.
+        """
+        data = handler(self)
+        if not isinstance(data, dict):
+            return data
+        block = data.pop("meta", None)
+        if "_meta" in data:  # dumped with by_alias=True
+            block = data.pop("_meta")
+        if block is not None:
+            data["_meta"] = block
+        return data
 
     @property
     def all_experiences(self) -> list[ExperienceBase]:
