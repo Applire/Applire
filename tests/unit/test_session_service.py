@@ -249,6 +249,34 @@ def _unaddressed_turn(profile_dict, *, conflicts=None):
     )
 
 
+def _bridge_writing(profile_record, turn):
+    """A FAITHFUL double for ``reconcile_interview_turn``.
+
+    The real bridge does not merely compute a profile dict — it WRITES it
+    (``commit_ops``) and returns ``committed.record.profile_json``, i.e. *the
+    very same object* the vault now holds. A double built as
+    ``AsyncMock(return_value=turn)`` reproduces only the return half, and the
+    two halves stopped being interchangeable with #480 PR 7: the interview's own
+    ADR-064 bookkeeping (``MarkProbeAsked``, ``EscalateDenialLevel``) travels
+    through the committer now, and the committer reads the RECORD. Against a
+    non-writing double, the durable ``DeniedConcept`` the bridge claims to have
+    written is simply not in the vault, and the bookkeeping correctly fails safe
+    against the vault it can actually see.
+
+    So this double writes what it returns, and the identity the production code
+    relies on — ``turn.profile_dict is profile_record.profile_json`` — holds in
+    the test too.
+    """
+    from applire.models.profile import authorized_profile_write
+
+    async def _run(*_args, **_kwargs):
+        with authorized_profile_write():
+            profile_record.profile_json = turn.profile_dict
+        return turn
+
+    return AsyncMock(side_effect=_run)
+
+
 def _denied_turn(profile_dict, *, conflicts=None, denied_concepts=None):
     """A turn that recorded an explicit denial and nothing else (#231) — no
     profile mutation, so `addressed` stays False (F8). Absent a JD-critical,
@@ -2280,7 +2308,7 @@ class TestSendMessage:
         first_turn = _denied_turn(profile.profile_json, denied_concepts=["GCP certification"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=first_turn)),
+                  new=_bridge_writing(profile, first_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
         ):
@@ -2301,7 +2329,7 @@ class TestSendMessage:
         second_turn = _denied_turn(probe_profile, denied_concepts=["GCP certification"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=second_turn)),
+                  new=_bridge_writing(profile, second_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -2384,7 +2412,7 @@ class TestSendMessage:
         )
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=first_turn)),
+                  new=_bridge_writing(profile, first_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
         ):
@@ -2409,7 +2437,7 @@ class TestSendMessage:
         )
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=second_turn)),
+                  new=_bridge_writing(profile, second_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -2681,7 +2709,7 @@ class TestSendMessage:
         first_turn = _denied_turn(turn1_profile, denied_concepts=["GCP certification"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=first_turn)),
+                  new=_bridge_writing(profile, first_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
         ):
@@ -2709,7 +2737,7 @@ class TestSendMessage:
         unproductive_turn = _unaddressed_turn(db_profile.profile_json)
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=unproductive_turn)),
+                  new=_bridge_writing(profile, unproductive_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Could you be more specific?", "choices": None})),
         ):
@@ -2736,7 +2764,7 @@ class TestSendMessage:
         )
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=second_denial_turn)),
+                  new=_bridge_writing(profile, second_denial_turn)),
             patch("applire.services.session.question_generator_with_profile", new=next_question_gen),
         ):
             result = await send_message(
