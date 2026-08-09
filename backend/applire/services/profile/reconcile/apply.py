@@ -61,6 +61,7 @@ from applire.services.profile.reconcile.dedupe import (
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
+    ApplyImportMerge,
     CommitOp,
     DemoteSkill,
     FlagConflict,
@@ -165,6 +166,12 @@ class ApplyResult(BaseModel):
     # `EnrichmentRecord` (ADR-059 clause 1: negative testimony is receipted
     # like positive) and must never fold it into an addressed/upgrade gate.
     demotions: list[FieldChange] = []
+    # #480 PR 2 — receipt metadata only an intake can compute, carried out to
+    # the committer so it can land on the `EnrichmentRecord` that intake's write
+    # mints. Set exclusively by `ApplyImportMerge` (US161 merge statistics,
+    # ADR-041 amended); `None` for every other batch, which is what
+    # `EnrichmentRecord.reconciliation` already means ("merge records only").
+    reconciliation: dict[str, dict[str, int]] | None = None
 
 
 def _norm(value: object) -> str:
@@ -323,6 +330,7 @@ def apply_ops(
     conflicts: list[Conflict] = []
     pending: list[RequestConfirmation] = []
     demotions: list[FieldChange] = []  # #485 — see ApplyResult.demotions
+    reconciliation: dict[str, dict[str, int]] | None = None
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -375,6 +383,15 @@ def apply_ops(
             _apply_flag_conflict(op, resolve, source, conflicts)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
+        elif isinstance(op, ApplyImportMerge):
+            # #480 PR 2 — the import's whole-merge act. Deterministic code
+            # already decided every field (see the op's docstring for why no op
+            # sequence can reproduce an import), so the applier INSTALLS it
+            # rather than re-deciding it. Deep-copied, because `apply_ops`
+            # promises never to mutate anything it was handed.
+            new_profile = op.merged.model_copy(deep=True)
+            changes.extend(op.changes)
+            reconciliation = op.reconciliation
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
@@ -397,6 +414,7 @@ def apply_ops(
         conflicts=conflicts,
         pending_confirmations=pending,
         demotions=demotions,
+        reconciliation=reconciliation,
     )
 
 

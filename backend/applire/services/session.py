@@ -1992,8 +1992,15 @@ async def send_message(
 
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
+    # ADR-063 (#480 PR 2) — the bridge is the interview's intake adapter and
+    # writes through `commit_ops` itself, including the trail, the completeness
+    # recompute and both clocks this function used to set by hand. It FLUSHES
+    # and never commits, so the vault write and the `session.state` writes below
+    # stay ONE unit — and this function's own `db.commit()` is load-bearing:
+    # dropping it is a silent no-write.
     turn = await reconcile_interview_turn(
-        profile_dict=profile_record.profile_json,
+        db,
+        profile_record=profile_record,
         gap=cluster_label,
         question=current_question,
         answer=message,
@@ -2001,8 +2008,6 @@ async def send_message(
         session_id=str(record.id),
         lang=lang,
     )
-    profile_record.profile_json = turn.profile_dict
-    profile_record.updated_at = datetime.now(timezone.utc)
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict

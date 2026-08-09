@@ -53,9 +53,9 @@ integration test asserting the write survives the request.
 **What this module deliberately does NOT do yet:**
 
 * the persisted-denial re-floor and the `UN_DENIAL` release seam — PR 4;
-* snapshot capture — `snapshot` is a declared parameter that fails loudly until
-  PR 2 wires the import writers (widening beyond imports stays blocked behind
-  #339, ADR-063 amendment (5));
+* snapshot coverage beyond the two import writers — `snapshot=MERGE` is real
+  since PR 2, but widening it to any other intake stays BLOCKED (ADR-063
+  amendment (5) / #339);
 * first-profile CREATION — the three keyword-argument constructor sites are
   routed in PR 8; until then `commit_ops` requires an existing record;
 * persisting `ops` on the `EnrichmentRecord` — §7.8 ruling: the replayable op
@@ -98,11 +98,17 @@ logger = logging.getLogger(__name__)
 class SnapshotClass(str, Enum):
     """ADR-042 snapshot classes.
 
-    Only `MERGE` exists today — the class the import writers capture. Universal
+    Only `MERGE` exists today — the class the import writers capture, and since
+    #480 PR 2 the one the committer captures on their behalf. Universal
     snapshot coverage is BLOCKED by decision (ADR-063 amendment (5)): with
     `SNAPSHOT_MAX_PER_PROFILE = 10` pruned by recency, snapshotting every write
     lets one 10-turn interview evict the import snapshot, degrading the
-    guarantee for the case it exists to protect.
+    guarantee for the case it exists to protect. It is additionally blocked
+    behind #339 (nothing calls `undo-last-merge` on either channel yet).
+
+    So `snapshot` is a per-intake PARAMETER and not an invariant: the two import
+    writers pass `MERGE`, every other intake passes `None`, and `None` is an
+    honest no-op rather than a silent omission.
     """
 
     MERGE = "merge"
@@ -220,6 +226,7 @@ async def commit_ops(
     grounding: TurnGrounding | None = None,
     snapshot: SnapshotClass | None = None,
     ambiguities: Sequence[RequestConfirmation] = (),
+    park_confirmations: bool = True,
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
@@ -237,33 +244,54 @@ async def commit_ops(
             `LookupError`, exactly as the bridges do today.
         grounding: the turn text and its denial verdict, for turn-based
             intakes. `None` = a direct act (§7.4).
-        snapshot: ADR-042 snapshot class. Declared for PR 2's import writers;
-            passing one today fails loudly rather than silently not capturing.
+        snapshot: ADR-042 snapshot class. `MERGE` captures the pre-op
+            `profile_json` keyed to this write's enrichment record — import
+            intakes only. `None` (every other intake) is a no-op; widening is
+            blocked (ADR-063 amendment (5) / #339).
         ambiguities: engine-level `RequestConfirmation`s parked alongside the
             applier's own.
+        park_confirmations: whether this turn's asks are parked DURABLY on
+            `metadata.pending_confirmations`. **Temporary, and owned by PR 5.**
+            A durable park is only safe where a durable CLEAR exists: the
+            import/profile-review flow resolves a parked ask through
+            `resolve_confirmation`, which marks it resolved, but the interview's
+            own in-session resolution (#187) is session-state only and never
+            touches metadata — so parking an interview turn's asks would let a
+            later session re-ask something the candidate already answered.
+            Park-and-clear must land together; `ResolveConfirmation` (#480 PR 5)
+            owns confirmation bookkeeping and removes this parameter, at which
+            point parking is unconditional again. `CommitResult` still reports
+            the asks either way — this governs durability, not visibility.
         enrichment: which half of the skill enrichment to run.
         embedding_provider: `None` leaves `master_profiles.embedding` stale and
             says so once (§7.2).
 
     Raises:
         LookupError: no profile exists yet.
-        NotImplementedError: `snapshot` is not `None` (PR 2).
+        NotImplementedError: an unhandled `SnapshotClass`.
     """
     # Lazy: applire.services.profile imports this package's siblings.
     from applire.services.profile import _compute_embedding, _get_latest
+    from applire.services.profile.snapshots import capture_pre_merge_snapshot
 
-    if snapshot is not None:
+    if snapshot is not None and snapshot is not SnapshotClass.MERGE:  # pragma: no cover
         raise NotImplementedError(
-            "commit_ops does not capture snapshots yet — the import writers wire "
-            "`snapshot=SnapshotClass.MERGE` in #480 PR 2, and widening beyond "
-            "them stays blocked behind #339 (ADR-063 amendment (5)). Failing "
-            "loudly rather than silently not capturing."
+            f"commit_ops captures no {snapshot!r} snapshot — `MERGE` is the only "
+            "class, and widening coverage beyond the import writers stays "
+            "blocked behind #339 (ADR-063 amendment (5)). Failing loudly rather "
+            "than silently not capturing."
         )
 
     if record is None:
         record = await _get_latest(db)
     if record is None:
         raise LookupError("No profile found — import a CV or create a profile first")
+
+    # The exact bytes an ADR-042 undo restores: the profile as it stands BEFORE
+    # any op is applied. Bound here, at the top, so nothing downstream can
+    # quietly redefine what "pre-merge" means; the DB row is only written at the
+    # very end, so this reference stays the pre-op state throughout.
+    pre_op_json = record.profile_json
 
     current = MasterProfileData.model_validate(record.profile_json)
     if current.metadata is None:
@@ -285,7 +313,15 @@ async def commit_ops(
         _to_pending_confirmation(a, source=provenance.source)
         for a in list(ambiguities) + list(applied.pending_confirmations)
     ]
-    profile.metadata.pending_confirmations.extend(confirmations)
+    if park_confirmations:
+        # See the parameter's docstring: durable parking without a durable
+        # clear resurfaces answered asks, so it is a per-intake choice until
+        # PR 5 builds the clear. The asks still reach the caller on
+        # `CommitResult` regardless.
+        profile.metadata.pending_confirmations.extend(confirmations)
+    # Disputes are unconditional: `resolve_conflict` already marks a parked
+    # conflict resolved and `_open_conflicts` filters on that flag, so the
+    # park/clear pair the confirmations lack exists here today.
     profile.metadata.pending_conflicts.extend(applied.conflicts)
 
     # ADR-059 — the reconciler's own denial verdict is persisted whether or not
@@ -321,6 +357,10 @@ async def commit_ops(
         source=provenance.source,
         source_session_id=provenance.session_id,
         changes=receipt_changes,
+        # US161 (ADR-041 amended) — merge statistics ride out of the applier
+        # because only an import intake can compute them (`ApplyImportMerge`);
+        # `None` for every other batch, which is what the field already means.
+        reconciliation=applied.reconciliation,
     )
     profile.metadata.enrichment_history.append(enrichment_record)
 
@@ -347,6 +387,20 @@ async def commit_ops(
             provenance.intake,
         )
         final = MasterProfileData.model_validate(record.profile_json)
+
+    # ── The ADR-042 pre-merge snapshot (import intakes only) ─────────────────
+    # Captured BEFORE the row is overwritten and keyed to THIS write's
+    # enrichment record, so `undo_last_merge` can both restore the pre-import
+    # state and tell whether that merge is still the profile's head. Same
+    # coverage and same class as the import writers captured inline before PR 2
+    # — the omission everywhere else is now a parameter that says so.
+    if snapshot is SnapshotClass.MERGE:
+        await capture_pre_merge_snapshot(
+            db,
+            profile_id=record.id,
+            profile_json=pre_op_json,
+            enrichment_record_id=enrichment_record.id,
+        )
 
     payload = final.model_dump(mode="json")
     with authorized_profile_write():

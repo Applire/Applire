@@ -197,6 +197,29 @@ def _mock_provider(question="What is your GCP experience?"):
 # tests can drive each loop branch (addressed → advance; no change → follow up)
 # without invoking a real provider.
 
+def _writing_turn(turn):
+    """A `reconcile_interview_turn` stub that also WRITES, as the real bridge does.
+
+    #480 PR 2 moved the vault write into the bridge (ADR-063's `commit_ops`);
+    `send_message` no longer assigns `profile_json` itself. A stub that only
+    returns a turn therefore leaves the vault untouched — fine for the many
+    tests that assert on session state alone, but not for the ones that read
+    the persisted profile back (resumability, the transfer-probe statement, the
+    ledger polarity floor, all of which consult the stored denials).
+    """
+    from unittest.mock import AsyncMock
+
+    from applire.models.profile import authorized_profile_write
+
+    async def _stub(db, *, profile_record, **kwargs):
+        with authorized_profile_write():
+            profile_record.profile_json = turn.profile_dict
+        await db.flush()  # flush, not commit — the door owns the transaction
+        return turn
+
+    return AsyncMock(side_effect=_stub)
+
+
 def _addressed_turn(profile_dict, *, changes=None, conflicts=None):
     """A turn that produced at least one profile change → gap addressed → advance."""
     from applire.schemas.profile import FieldChange
@@ -1625,7 +1648,7 @@ class TestSendMessage:
         # gateway 503s relaying an upstream outage on the next-question call.
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=turn)),
+                  new=_writing_turn(turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(
                       side_effect=LLMProviderUnavailableError(
@@ -1651,7 +1674,7 @@ class TestSendMessage:
         # not re-hit a corrupted/half-advanced state.
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=turn)),
+                  new=_writing_turn(turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -2527,7 +2550,7 @@ class TestSendMessage:
         first_turn = _denied_turn(profile.profile_json, denied_concepts=["GCP certification"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=first_turn)),
+                  new=_writing_turn(first_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
         ):
@@ -2544,7 +2567,7 @@ class TestSendMessage:
         second_turn = _addressed_turn(probe_profile)
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=second_turn)),
+                  new=_writing_turn(second_turn)),
             patch("applire.services.session.question_generator_with_profile",
                   new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
         ):
@@ -4199,7 +4222,7 @@ class TestARetractionReversesTheLedgerUpgrade:
         turn = _denied_turn(profile.profile_json, denied_concepts=["CI/CD"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=turn)),
+                  new=_writing_turn(turn)),
             patch("applire.services.session._select_denial_probe_concept",
                   new=AsyncMock(return_value=None)),
             patch("applire.services.session.question_generator_with_profile",
@@ -4302,7 +4325,7 @@ class TestARetractionReversesTheLedgerUpgrade:
         turn = _denied_turn(profile.profile_json, denied_concepts=["CI/CD"])
         with (
             patch("applire.services.session.reconcile_interview_turn",
-                  new=AsyncMock(return_value=turn)),
+                  new=_writing_turn(turn)),
             patch("applire.services.session._select_denial_probe_concept",
                   new=AsyncMock(return_value="CI/CD")),
             patch("applire.services.session.question_generator_with_profile",

@@ -34,6 +34,8 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
+from applire.schemas.profile import FieldChange, MasterProfileData
+
 
 # ── Entity ops ────────────────────────────────────────────────────────────────
 
@@ -250,6 +252,64 @@ class RequestConfirmation(BaseModel):
     context: dict = Field(default_factory=dict)
 
 
+class ApplyImportMerge(BaseModel):
+    """The import path's whole-merge act — ADAPTER-ONLY, IMPORT-ONLY.
+
+    ADR-063 amended 2026-08-09 (second entry) clause 1, ruled after #480 PR 2's
+    code contact refuted the design's assumption that the import writers were
+    op-expressible. They are not, and cannot be made so:
+
+    * ``reconcile_import`` returns a FINISHED merged profile, not ops — its
+      segmented fallback (ADR-047) folds N reconcile calls into one accumulated
+      result and keeps no single applicable batch;
+    * two of its deterministic post-passes write **computed provenance** —
+      ``_union_certifications`` (#190) and ``_carry_skill_enrichment`` (#327,
+      which sets ``skills[].years_experience`` / ``source``). ADR-062 reserves
+      computed provenance for code, which is exactly WHY the model-emittable
+      ``UpsertSkill`` deliberately carries neither field. No sequence of the
+      reconciler's ops can reproduce an import.
+
+    So the act itself becomes the op: this carries the bridge's computed merged
+    profile plus the receipts (``changes``) and the US161 merge statistics
+    (``reconciliation``) only the intake can compute, and the applier installs
+    it wholesale. Three properties make that safe:
+
+    1. **Model-unemittable by construction.** It lives in ``DecisionOp``, and
+       ``engine._parse_ops`` validates raw model JSON against ``ReconcileOp``
+       alone — a hallucinated ``{"op": "apply_import_merge", …}`` is dropped
+       before it is ever an object (regression-pinned, exactly as ``DemoteSkill``
+       is since PR 1).
+    2. **ADR-062 is satisfied**: deterministic code computed every field of
+       ``merged``; no LLM ever emits this shape.
+    3. **It is not the laundering shape PR 3 closes.** Laundering is *hand-typed
+       document text* reaching the vault unguarded. This is the trusted
+       deterministic merge whose output ALREADY was the persisted state before
+       PR 2 — now with the committer's invariant set, the ADR-042 snapshot
+       parameter and the ADR-063 clause-6 write token around it.
+
+    Rejected alternative (recorded so it is not re-proposed): a
+    ``profile_override`` parameter on ``commit_ops``. Same effect, but it would
+    break the "``apply_ops`` is the only path" claim as a sanctioned BYPASS
+    rather than as a typed, auditable act inside the vocabulary.
+
+    Deliberately powerful, therefore deliberately narrow: import intakes only.
+    """
+
+    op: Literal["apply_import_merge"] = "apply_import_merge"
+    #: The finished merged profile. Installed wholesale — the applier does not
+    #: re-decide any of it.
+    merged: MasterProfileData
+    #: The merge's per-decision receipts (``MergeResult.changes``, or the
+    #: summary fallback ``_enrichment_from_merge`` substitutes when the merge
+    #: produced no structured change).
+    changes: list[FieldChange] = Field(default_factory=list)
+    #: US161 (ADR-041 amended) — per-entity {extracted, stored, delta}, captured
+    #: at merge time so silent data loss (FMEA JF-M-3.3) stays detectable on the
+    #: profile-health surface. Merge records only; the committer copies it onto
+    #: the ``EnrichmentRecord`` it mints because no other intake can compute it.
+    reconciliation: dict[str, dict[str, int]] | None = None
+
+
 # ── Discriminated unions, split by EMITTER ────────────────────────────────────
 #
 # ADR-063 (amended 2026-08-09) clause 1 — two unions, and the boundary between
@@ -271,6 +331,11 @@ class RequestConfirmation(BaseModel):
 # testified to (proposed FMEA row SF-VAULT.10, #480 PR 1). It now lives in
 # ``DecisionOp``; ``stance.demote_ops_for_denials`` constructs it directly and
 # is unaffected.
+#
+# ``ApplyImportMerge`` joined ``DecisionOp`` in PR 2 for the same reason and by
+# the same rule: it is constructed only by the import writers, it is far more
+# powerful than anything the model may say, and the split is what guarantees a
+# hallucinated ``apply_import_merge`` can never reach the applier.
 
 _MODEL_EMITTABLE = (
     UpsertWork,
@@ -290,18 +355,13 @@ _MODEL_EMITTABLE = (
     RequestConfirmation,
 )
 
-# Adapter-only ops. A tuple today with a single member; PR 3+ adds
-# ``ReplaceSection``/``ResolveField``/``ResolveConfirmation``/``CloseRole``/
-# ``SetProfileMeta`` here, at which point ``DecisionOp`` becomes a discriminated
-# Union in its own right.
-_ADAPTER_ONLY = (DemoteSkill,)
+# Adapter-only ops. PR 3+ adds ``ReplaceSection``/``ResolveField``/
+# ``ResolveConfirmation``/``CloseRole``/``SetProfileMeta`` here.
+_ADAPTER_ONLY = (DemoteSkill, ApplyImportMerge)
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
 
-# Single-member unions collapse to the member itself, and pydantic refuses a
-# ``discriminator`` on a non-Union — so ``DecisionOp`` is the bare model until a
-# second adapter-only op lands.
-DecisionOp = DemoteSkill
+DecisionOp = Annotated[Union[_ADAPTER_ONLY], Field(discriminator="op")]
 
 CommitOp = Annotated[
     Union[_MODEL_EMITTABLE + _ADAPTER_ONLY], Field(discriminator="op")

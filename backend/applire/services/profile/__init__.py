@@ -57,9 +57,15 @@ from applire.providers.embedding.base import EmbeddingProvider
 from applire.providers.embedding.noop import NoopEmbeddingProvider
 from applire.providers.llm.base import LLMProvider
 from applire.services.linkedin import parse_linkedin_pdf, parse_linkedin_zip
+from applire.services.profile.commit import (
+    CommitProvenance,
+    EnrichPolicy,
+    SnapshotClass,
+    commit_ops,
+)
 from applire.services.profile.extract_segmented import extract_with_fallback
 from applire.services.profile.reconcile.import_bridge import reconcile_import
-from applire.services.profile.snapshots import capture_pre_merge_snapshot
+from applire.services.profile.reconcile.ops import ApplyImportMerge
 from applire.services.reviewer import review_and_refine
 from applire.services.skill_enrichment import enrich_skills, enrich_skills_deterministic
 from applire.schemas.profile import (
@@ -302,6 +308,41 @@ def _surviving_parked_items(
     )
 
 
+def _apply_import_metadata(
+    merged: MasterProfileData,
+    existing_data: MasterProfileData,
+    merge_result,
+    *,
+    created_via: str,
+    created_at: datetime,
+) -> None:
+    """The metadata an IMPORT owns, on the profile it is about to commit.
+
+    Deliberately short, and it stays short: everything a merge used to set here
+    that every OTHER write path also needs — the completeness recompute, both
+    clocks, the enrichment trail — belongs to ``commit_ops`` since #480 PR 2 and
+    is no longer duplicated per writer. What is left is genuinely import-only:
+
+    * the creation stamps, when the existing profile carried no metadata at all;
+    * the two parked lists, which the import REPLACES wholesale (#333 / E037
+      PQ #4) with this round's items plus every still-open item parked earlier —
+      the committer's own `extend` cannot express "and drop the ones that are
+      now resolved", so the import computes the list and the committer appends
+      nothing to it (the merge op raises no conflicts or confirmations of its
+      own; they are already on `merged.metadata`).
+    """
+    parked_conflicts, parked_confirmations = _surviving_parked_items(
+        existing_data, merge_result.conflicts, merge_result.pending_confirmations
+    )
+    if merged.metadata is None:
+        merged.metadata = ProfileMetadata(
+            created_via=created_via,
+            created_at=created_at,
+        )
+    merged.metadata.pending_conflicts = parked_conflicts
+    merged.metadata.pending_confirmations = parked_confirmations
+
+
 # ── #218 — writing a resolved conflict back to the value it disputes ──────────
 # A conflict is only worth surfacing if answering it changes the vault. Before
 # this, the resolution path could address a dict section (`personal_info`,
@@ -500,42 +541,41 @@ async def _import_from_text(
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=created_via)
 
-        parked_conflicts, parked_confirmations = _surviving_parked_items(
-            existing_data, merge_result.conflicts, merge_result.pending_confirmations
+        _apply_import_metadata(
+            merged,
+            existing_data,
+            merge_result,
+            created_via=created_via,
+            created_at=existing.created_at,
         )
 
-        if merged.metadata is None:
-            merged.metadata = ProfileMetadata(
-                completeness_score=merged.calculate_completeness(),
-                created_via=created_via,
-                created_at=existing.created_at,
-                last_updated=now,
-                enrichment_history=[enrichment],
-                pending_conflicts=parked_conflicts,
-                pending_confirmations=parked_confirmations,
-            )
-        else:
-            merged.metadata.completeness_score = merged.calculate_completeness()
-            merged.metadata.last_updated = now
-            merged.metadata.enrichment_history.append(enrichment)
-            # #333 — this round's items PLUS every still-open item parked earlier
-            # (the lists are replaced wholesale, so anything not re-listed is lost).
-            merged.metadata.pending_conflicts = parked_conflicts
-            # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = parked_confirmations
-
-        # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
-        await capture_pre_merge_snapshot(
+        # ADR-063 — the ONE write path. The merge itself is the op (#480 PR 2 /
+        # ADR-063 amended 2026-08-09 second entry: no reconciler-op sequence can
+        # reproduce an import), and the committer owns the tail this function
+        # used to hand-roll: the trail, the completeness recompute, both clocks,
+        # the write token — and the ADR-042 pre-merge snapshot, which is now a
+        # named parameter instead of an inline call only two writers remembered.
+        await commit_ops(
             db,
-            profile_id=existing.id,
-            profile_json=existing.profile_json,
-            enrichment_record_id=enrichment.id,
+            [
+                ApplyImportMerge(
+                    merged=merged,
+                    changes=enrichment.changes,
+                    reconciliation=enrichment.reconciliation,
+                )
+            ],
+            CommitProvenance(source=created_via, intake="import", actor="candidate"),
+            record=existing,
+            snapshot=SnapshotClass.MERGE,
+            # The import already ran `enrich_skills` WITH a provider on
+            # `incoming` and `enrich_skills_deterministic` on the merged result
+            # (inside `reconcile_import`); re-running the deterministic half
+            # here would be a second pass over the same profile.
+            enrichment=EnrichPolicy.SKIP,
+            embedding_provider=emb_provider,
         )
-
-        merged_json = merged.model_dump(mode="json")
-        existing.profile_json = merged_json
-        existing.embedding = await _compute_embedding(merged_json, emb_provider)
-        existing.updated_at = now
+        # Flush-not-commit (ADR-063 amended clause 6): the door still owns its
+        # transaction — dropping this line is a silent no-write.
         await db.commit()
         await db.refresh(existing)
         return _to_response(existing)
@@ -1105,49 +1145,46 @@ async def _apply_merge(
         )
         merged = merge_result.merged_profile
         enrichment = _enrichment_from_merge(merge_result, source=source)
-        # Key the merge record to the id we return so the pre-merge snapshot,
-        # the stored record, and the response all agree (US168 / ADR-042).
-        enrichment.id = str(enrichment_id)
 
-        parked_conflicts, parked_confirmations = _surviving_parked_items(
-            existing_data, merge_result.conflicts, merge_result.pending_confirmations
+        # #333 — dual-door rule: the browser /upload door preserves the same
+        # still-open parked items as import_from_text, through the same helper.
+        _apply_import_metadata(
+            merged,
+            existing_data,
+            merge_result,
+            created_via=source,
+            created_at=existing.created_at,
         )
 
-        if merged.metadata is None:
-            merged.metadata = ProfileMetadata(
-                completeness_score=merged.calculate_completeness(),
-                created_via=source,
-                created_at=existing.created_at,
-                last_updated=now,
-                enrichment_history=[enrichment],
-                pending_conflicts=parked_conflicts,
-                pending_confirmations=parked_confirmations,
-            )
-        else:
-            merged.metadata.completeness_score = merged.calculate_completeness()
-            merged.metadata.last_updated = now
-            merged.metadata.enrichment_history.append(enrichment)
-            # #333 — dual-door rule: the browser /upload door preserves the same
-            # still-open parked items as import_from_text.
-            merged.metadata.pending_conflicts = parked_conflicts
-            # E037 PQ #4 — carry import-time ambiguities on the confirmation channel.
-            merged.metadata.pending_confirmations = parked_confirmations
-
-        # ADR-042: snapshot the pre-merge JSON before it is overwritten (unconditional).
-        await capture_pre_merge_snapshot(
+        # ADR-063 — the ONE write path; identical call to `_import_from_text`'s,
+        # which is the point (ADR-058 clause 2: the same act may not behave
+        # differently by door). The committer mints the merge's enrichment
+        # record and keys the ADR-042 pre-merge snapshot to it, so the id this
+        # function returns, the stored record and the snapshot still agree —
+        # they just agree on the committer's id instead of a pre-generated one.
+        committed = await commit_ops(
             db,
-            profile_id=existing.id,
-            profile_json=existing.profile_json,
-            enrichment_record_id=str(enrichment_id),
+            [
+                ApplyImportMerge(
+                    merged=merged,
+                    changes=enrichment.changes,
+                    reconciliation=enrichment.reconciliation,
+                )
+            ],
+            CommitProvenance(source=source, intake="import", actor="candidate"),
+            record=existing,
+            snapshot=SnapshotClass.MERGE,
+            enrichment=EnrichPolicy.SKIP,
+            embedding_provider=emb_provider,
         )
-
-        merged_json = merged.model_dump(mode="json")
-        existing.profile_json = merged_json
-        existing.embedding = await _compute_embedding(merged_json, emb_provider)
-        existing.updated_at = now
         await db.commit()
         await db.refresh(existing)
-        return existing.id, merged.calculate_completeness(), merge_result.conflicts, enrichment_id
+        return (
+            existing.id,
+            committed.completeness,
+            merge_result.conflicts,
+            uuid.UUID(committed.enrichment_record.id),
+        )
 
     # First upload — create the profile
     enrichment = _make_enrichment_record(

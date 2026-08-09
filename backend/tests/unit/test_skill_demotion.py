@@ -493,16 +493,38 @@ async def test_interview_door_demotes_the_retracted_skill() -> None:
         reconcile_interview_turn,
     )
 
-    turn = await reconcile_interview_turn(
-        profile_dict={
-            "skills": [{"name": "Kubernetes", "status": "confirmed"}],
-        },
-        gap="Kubernetes",
-        question="How much Kubernetes have you run in production?",
-        answer="None — I have never actually worked with Kubernetes.",
-        provider=_StubProvider(_RETRACTION_PAYLOAD),
-        session_id="s1",
-    )
+    # #480 PR 2 — the bridge writes through `commit_ops`, so it takes the
+    # session and the row it is writing.
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from applire.db.session import Base
+    from applire.models.profile import MasterProfile, authorized_profile_write
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: Base.metadata.create_all(c, tables=[MasterProfile.__table__])
+        )
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as db:
+        with authorized_profile_write():
+            record = MasterProfile(
+                profile_json={"skills": [{"name": "Kubernetes", "status": "confirmed"}]}
+            )
+        db.add(record)
+        await db.commit()
+
+        turn = await reconcile_interview_turn(
+            db,
+            profile_record=record,
+            gap="Kubernetes",
+            question="How much Kubernetes have you run in production?",
+            answer="None — I have never actually worked with Kubernetes.",
+            provider=_StubProvider(_RETRACTION_PAYLOAD),
+            session_id="s1",
+        )
+        await db.commit()
+    await engine.dispose()
 
     assert turn.profile_dict["skills"][0]["status"] == "denied"
     # F8 — a retraction is not a resolved gap, however much it changed the
