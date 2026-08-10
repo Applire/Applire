@@ -110,16 +110,25 @@ class MasterProfile(Base):
 #     Raising inside the flush aborts the transaction (PO ruling Q1(a),
 #     2026-08-10), so the write cannot reach the database; the session recovers
 #     with an ordinary `rollback()`, which the guard's tests pin;
-#   * `do_orm_execute` raises on a bulk
-#     `update(MasterProfile).values(profile_json=…)`. PR 9 measured this shape
-#     against SQLAlchemy 2.0.36 and found it reaches NEITHER of the other two:
-#     it is emitted straight from `Session.execute`, never enters the unit of
-#     work, and leaves the instance clean, so the setter never fires and
-#     `before_flush` has nothing to see. #480 §5 claimed `before_flush` covered
-#     it; the code was right and the design was wrong. PO ruling 1 (2026-08-10)
-#     closed the gap with this third listener rather than leaving it documented.
-#     It raises before the statement is emitted, so — like the setter — a
-#     refused write leaves nothing behind.
+#   * `do_orm_execute` raises on a bulk `update(MasterProfile)` OR
+#     `insert(MasterProfile)` whose assigned columns include `profile_json`.
+#     PR 9 measured the UPDATE shape against SQLAlchemy 2.0.36 and found it
+#     reaches NEITHER of the other two: it is emitted straight from
+#     `Session.execute`, never enters the unit of work, and leaves the instance
+#     clean, so the setter never fires and `before_flush` has nothing to see.
+#     #480 §5 claimed `before_flush` covered it; the code was right and the
+#     design was wrong. PO ruling 1 (2026-08-10) closed the gap with this third
+#     listener. INSERT was added after an adversarial pass REPRODUCED the same
+#     bypass one verb over — the listener gated on `is_update` alone, and
+#     `insert(MasterProfile).values(profile_json=…)` persisted unauthorised. A
+#     vault conjured out of nothing is exactly as unrouted as a vault
+#     overwritten. It raises before the statement is emitted, so — like the
+#     setter — a refused write leaves nothing behind.
+#
+# Gating INSERT is safe only because unit-of-work persistence does NOT come
+# through `do_orm_execute`: `db.add()` + flush emits its INSERT from the flush
+# machinery, so the fixture factory and `create_profile_record` are untouched.
+# That is load-bearing, not incidental, and a spy test asserts it directly.
 #
 # The one production caller of the bulk shape is the retention worker's
 # `update(MasterProfile)…values(deleted_at=…)`, which touches `deleted_at` only
@@ -127,11 +136,28 @@ class MasterProfile(Base):
 # inspection: a per-site sentinel test calls `_tombstone_inactive_profiles` and
 # fails if the listener ever speaks up for it.
 #
-# What the third mechanism still does NOT see, stated rather than implied: raw
-# `text("UPDATE master_profiles SET profile_json = …")`, and any statement
-# emitted on a bare Engine/Connection instead of a Session. Both are outside
-# every ORM event; the control against them is that the codebase has no such
+# What the third mechanism still does NOT see, stated rather than implied —
+# each measured, not assumed:
+#
+#   * raw `text("UPDATE master_profiles SET profile_json = …")`, and any
+#     statement emitted on a bare Engine/Connection instead of a Session. Both
+#     are outside every ORM event;
+#   * the legacy `Session.bulk_insert_mappings` / `bulk_update_mappings`. Both
+#     reproduce the bypass today: they skip the ORM event layer entirely. Zero
+#     production callers;
+#   * `delete(MasterProfile)` — row lifecycle, not content. GDPR erasure
+#     (`routers/profile.py:855`) deletes profiles on purpose, so a content
+#     guard that blocked it would be a bug. Deliberately out of scope.
+#
+# The control against all of these is the same one: the codebase has no such
 # caller, which arc42 §5.3.19a's write-surface matrix asserts.
+#
+# NOT on that list, because it was measured and turned out to be covered:
+# `session.merge()` on a `MasterProfile`. The merge's state copy goes through
+# the instrumented setter, so mechanism 1 refuses it ("attribute set") even when
+# the source object was itself built under the token — verified 2026-08-10
+# against the adversarial pass, which had only shown that CONSTRUCTING the
+# source is refused and never reached the state-copy path.
 #
 # Tests construct fixture profiles through the same public door
 # (`tests/support/profile_factory.py` wraps `authorized_profile_write()`); there
@@ -305,20 +331,23 @@ def _guard_profile_json_flush(session, flush_context, instances):  # noqa: ANN00
             _refuse("dirty at flush, no setter", repr(obj))
 
 
-def _bulk_update_set_columns(statement, parameters) -> set[str] | None:  # noqa: ANN001
-    """The column names an UPDATE assigns, or `None` when they can't be read.
+def _bulk_write_columns(statement, parameters) -> set[str] | None:  # noqa: ANN001
+    """The column names an INSERT or UPDATE assigns, or `None` if unreadable.
 
-    Two shapes carry them. `update(...).values(profile_json=…)` puts them in
-    `Update._values`, keyed by Column; the executemany form
+    Two shapes carry them, identically for both verbs.
+    `update(...).values(profile_json=…)` / `insert(...).values(profile_json=…)`
+    put them in `_values`, keyed by Column; the executemany form
     `session.execute(update(MasterProfile), [{...}])` leaves `_values` empty and
     passes them as the parameter dicts instead.
 
     `_values` is private API, and depending on it is a deliberate, pinned
-    choice: there is no public accessor for an UPDATE's SET clause, and the
+    choice: there is no public accessor for a statement's SET clause, and the
     alternative — compiling the statement and reading the SQL back — is worse.
     Returning `None` makes the caller fail CLOSED, so a SQLAlchemy release that
     renames it turns the retention worker's sentinel test red rather than
-    silently re-opening the gap.
+    silently re-opening the gap. `.ordered_values()` lands here too: it stores
+    pairs rather than a mapping, so it is refused as unreadable even when the
+    columns it names are harmless.
     """
     values = getattr(statement, "_values", None)
     if values:
@@ -332,32 +361,48 @@ def _bulk_update_set_columns(statement, parameters) -> set[str] | None:  # noqa:
 
 
 @event.listens_for(Session, "do_orm_execute")
-def _guard_profile_json_bulk_update(orm_execute_state):  # noqa: ANN001
-    """The third mechanism: an UPDATE that assigns the vault in bulk.
+def _guard_profile_json_bulk_write(orm_execute_state):  # noqa: ANN001
+    """The third mechanism: an INSERT or UPDATE that assigns the vault in bulk.
 
     Fires before the statement is emitted, so a refused bulk write never reaches
     the database — the same "no partial state" property the setter has.
 
-    Scoped narrowly on purpose: only an UPDATE, only against `master_profiles`
-    (``profile_snapshots`` carries a `profile_json` column too and is NOT the
-    vault), and only when `profile_json` is among the assigned columns — which
-    is what keeps the retention worker's `values(deleted_at=…)` silent.
+    **INSERT is here because an adversarial pass proved it had to be.** The
+    listener originally gated on `is_update` alone, and
+    `insert(MasterProfile).values(profile_json=…)` reached the database
+    unauthorised. A vault conjured out of nothing is exactly as unrouted as a
+    vault overwritten — `commit_ops` owns creation too, since PR 8.
+
+    Scoped narrowly on purpose: only INSERT/UPDATE, only against
+    `master_profiles` (``profile_snapshots`` carries a `profile_json` column too
+    and is NOT the vault), and only when `profile_json` is among the assigned
+    columns — which is what keeps the retention worker's `values(deleted_at=…)`
+    silent.
+
+    Gating INSERT is safe ONLY because unit-of-work persistence does not come
+    through here: `db.add()` + flush emits its INSERT from the flush machinery,
+    not `Session.execute`, so this never fires for the fixture factory or for
+    `create_profile_record`. That is load-bearing rather than incidental, so
+    `test_the_unit_of_work_insert_never_reaches_the_listener` asserts it
+    directly with a spy.
     """
-    if not orm_execute_state.is_update:
+    if orm_execute_state.is_update:
+        verb = "UPDATE"
+    elif orm_execute_state.is_insert:
+        verb = "INSERT"
+    else:
         return
     statement = orm_execute_state.statement
     table = getattr(statement, "table", None)
     if getattr(table, "name", None) != MasterProfile.__tablename__:
         return
-    columns = _bulk_update_set_columns(statement, orm_execute_state.parameters)
+    columns = _bulk_write_columns(statement, orm_execute_state.parameters)
     if columns is not None and "profile_json" not in columns:
         return
     if _PROFILE_WRITE_TOKEN.get() is None and not _caller_is_authorized_module():
-        reason = (
-            "ORM bulk UPDATE"
-            if columns is not None
-            else "ORM bulk UPDATE with unreadable SET columns"
-        )
+        reason = f"ORM bulk {verb}"
+        if columns is None:
+            reason += " with unreadable SET columns"
         _refuse(reason, _caller_location())
 
 

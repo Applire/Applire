@@ -36,10 +36,14 @@ Three mechanisms, belt and braces:
    physically cannot reach the database. The poisoned session is recoverable by
    the ordinary ``rollback()`` — pinned below;
 3. a ``do_orm_execute`` listener — raises on an ORM bulk
-   ``update(MasterProfile).values(profile_json=…)``, which is emitted straight
-   from ``Session.execute`` and reaches neither of the other two (PR 9 measured
-   the gap; PO ruling 1, 2026-08-10, closed it). It raises before the statement
-   is executed, so the value never reaches the database.
+   ``update(MasterProfile)`` or ``insert(MasterProfile)`` whose assigned
+   columns include ``profile_json``. Both are emitted straight from
+   ``Session.execute`` and reach neither of the other two (PR 9 measured the
+   UPDATE gap, PO ruling 1 2026-08-10 closed it; INSERT was added after an
+   adversarial pass reproduced the same bypass one verb over). It raises before
+   the statement is executed, so the value never reaches the database — and it
+   never fires for unit-of-work persistence, which is what keeps ``db.add()``
+   working and is pinned by its own spy test.
 
 All three mechanisms are unconditional. There is no warn mode, no env-var escape and
 no test-only bypass: a test that legitimately needs to build a fixture profile
@@ -51,9 +55,9 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
-from sqlalchemy import update
+from sqlalchemy import event, insert, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import attributes
+from sqlalchemy.orm import Session, attributes
 
 from applire.models import profile as profile_module
 from applire.models.profile import (
@@ -758,12 +762,12 @@ def test_unreadable_set_columns_are_reported_as_unreadable(parameters):
     class _NoValues:
         """An UPDATE whose `_values` accessor has gone away."""
 
-    assert profile_module._bulk_update_set_columns(_NoValues(), parameters) is None
+    assert profile_module._bulk_write_columns(_NoValues(), parameters) is None
 
 
 def test_readable_set_columns_come_back_as_names():
     """The positive half of the same contract, over the parameter-dict form."""
-    assert profile_module._bulk_update_set_columns(
+    assert profile_module._bulk_write_columns(
         object(), [{"id": 1, "profile_json": {}}, {"id": 2, "deleted_at": None}]
     ) == {"id", "profile_json", "deleted_at"}
 
@@ -785,7 +789,7 @@ async def test_an_update_whose_set_columns_cannot_be_read_fails_closed(
     statement assigns, it refuses.
     """
     monkeypatch.setattr(
-        profile_module, "_bulk_update_set_columns", lambda statement, parameters: None
+        profile_module, "_bulk_write_columns", lambda statement, parameters: None
     )
 
     with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
@@ -796,3 +800,189 @@ async def test_an_update_whose_set_columns_cannot_be_read_fails_closed(
         )
 
     assert "unreadable SET columns" in excinfo.value.reason
+
+
+@pytest.mark.asyncio
+async def test_an_ordered_values_update_fails_closed_for_real(db_session, persisted):
+    """The same fail-closed path, reached WITHOUT monkeypatching anything.
+
+    `.ordered_values()` stores its assignments as a tuple of pairs rather than
+    the mapping `_values` normally holds, so the extraction genuinely cannot
+    read the SET columns — and the guard refuses. Note it refuses even though
+    this particular statement only touches `deleted_at`: an over-refusal is the
+    deliberate direction of the trade, and no production caller uses
+    `ordered_values` (the retention worker uses `.values()`).
+    """
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .ordered_values(
+                (
+                    MasterProfile.__table__.c.deleted_at,
+                    datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
+        )
+
+    assert "unreadable SET columns" in excinfo.value.reason
+
+
+# ── The INSERT half of the same mechanism ─────────────────────────────────────
+#
+# An adversarial pass reproduced the hole: `insert(MasterProfile).values(
+# profile_json=…)` reached the database unauthorised, because the listener
+# gated on `is_update` alone. A vault created out of nothing is exactly as
+# unrouted as a vault overwritten — `commit_ops` owns creation too (PR 8).
+
+
+@pytest.mark.asyncio
+async def test_the_orm_bulk_insert_of_the_vault_raises(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+
+    assert excinfo.value.reason == "ORM bulk INSERT"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_insert_never_reaches_the_database(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+    await db_session.rollback()
+
+    found = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == new_id)
+        )
+    ).scalar_one_or_none()
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_insert_form_carrying_the_vault_raises(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            insert(MasterProfile), [{"id": new_id, "profile_json": _seed()}]
+        )
+    await db_session.rollback()
+
+    assert excinfo.value.reason == "ORM bulk INSERT"
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_bulk_insert_succeeds(db_session):
+    new_id = uuid.uuid4()
+
+    with authorized_profile_write():
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+    await db_session.commit()
+
+    assert await _stored(db_session, new_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_insert_into_another_table_is_not_a_write(db_session, persisted):
+    """`master_profiles` is the vault; `profile_snapshots` carries the same
+    column name and is not.
+
+    (There is deliberately no "INSERT into master_profiles without
+    `profile_json`" silence test: the column is `nullable=False`, so that row
+    cannot exist — the sibling table is the honest place to pin the scoping.)
+    """
+    snapshot_id = uuid.uuid4()
+
+    await db_session.execute(
+        insert(ProfileSnapshot).values(
+            id=snapshot_id,
+            profile_id=persisted.id,
+            enrichment_record_id=str(uuid.uuid4()),
+            profile_json={"personal_info": {"full_name": "Before The Merge"}},
+        )
+    )
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            sa.select(ProfileSnapshot.profile_json).where(
+                ProfileSnapshot.id == snapshot_id
+            )
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Before The Merge"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_profile_row_is_not_a_content_write(db_session, persisted):
+    """`delete(MasterProfile)` is row lifecycle, not content — and it MUST stay
+    silent, because that is exactly the statement GDPR erasure issues
+    (`routers/profile.py:855`, which deletes every profile row).
+
+    This is the boundary a well-meaning "just gate every verb" change would
+    cross: a DELETE names no SET columns, so the fail-closed branch would refuse
+    it and erasure would break. The guard is a content control, not a lifecycle
+    one, and this test is what keeps that decision from being edited away by
+    accident.
+    """
+    record_id = persisted.id
+
+    await db_session.execute(sa.delete(MasterProfile))
+    await db_session.commit()
+
+    found = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one_or_none()
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_the_unit_of_work_insert_never_reaches_the_listener(db_session):
+    """THE regression pin for the INSERT gate.
+
+    Every fixture in the suite, and `create_profile_record` in production,
+    creates a row by constructing it under the token and then letting the unit
+    of work emit the INSERT at flush. That SQL does NOT come from
+    `Session.execute`, so `do_orm_execute` never fires for it — which is the
+    only reason gating on `is_insert` is safe.
+
+    If a future SQLAlchemy routed unit-of-work persistence through the same
+    event, this listener would start refusing profile creation from outside a
+    token — i.e. it would break the fixture factory and the committer's own row
+    constructor at once. So the property is asserted directly (the spy sees no
+    INSERT against `master_profiles`) as well as behaviourally (the write is
+    not refused, and the row lands), and the token is deliberately released
+    BEFORE the flush.
+    """
+    seen: list[str] = []
+
+    def spy(orm_execute_state):  # noqa: ANN001
+        if orm_execute_state.is_insert:
+            table = getattr(orm_execute_state.statement, "table", None)
+            seen.append(getattr(table, "name", "<none>"))
+
+    event.listen(Session, "do_orm_execute", spy)
+    try:
+        with authorized_profile_write():
+            record = MasterProfile(profile_json=_seed())
+        # Token released — the flush below stands on its own.
+        db_session.add(record)
+        await db_session.flush()
+        await db_session.commit()
+    finally:
+        event.remove(Session, "do_orm_execute", spy)
+
+    assert seen == []
+    assert await _stored(db_session, record.id) == _seed()
