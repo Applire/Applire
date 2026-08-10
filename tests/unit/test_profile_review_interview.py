@@ -45,6 +45,8 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 
 # ===========================================================================
 # Part 1 — pure conflict-cluster helpers (no DB, no LLM)
@@ -306,7 +308,7 @@ def _make_profile_with_conflicts(*conflicts):
         }
         for c in conflicts
     ]
-    return MasterProfile(profile_json={
+    return make_master_profile(profile_json={
         "personal_info": {"name": "Max Muster", "email": "max@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
@@ -560,7 +562,7 @@ def _make_profile_with_confirmations(*confirmations):
         }
         for c in confirmations
     ]
-    return MasterProfile(profile_json={
+    return make_master_profile(profile_json={
         "personal_info": {"name": "Max Muster", "email": "max@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],

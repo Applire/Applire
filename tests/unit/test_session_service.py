@@ -29,6 +29,8 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from tests.support.profile_factory import make_master_profile, set_profile_json  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # SQLite fixture (reuses the same model set as test_sprint13_coverage.py)
@@ -84,13 +86,12 @@ def _make_job(**kwargs):
 
 
 def _make_profile(completeness_json=None):
-    from applire.models.profile import MasterProfile
     profile_json = completeness_json or {
         "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
     }
-    return MasterProfile(profile_json=profile_json)
+    return make_master_profile(profile_json=profile_json)
 
 
 def _make_gap(job_id, profile_id, category_c=None, category_b=None):
@@ -493,15 +494,13 @@ class TestSessionPureHelpers:
 
     def test_auto_detect_mode_returns_guided_for_empty_profile(self):
         from applire.services.session import _auto_detect_mode
-        from applire.models.profile import MasterProfile
-        profile = MasterProfile(profile_json={})
+        profile = make_master_profile(profile_json={})
         result = _auto_detect_mode(profile)
         assert result == "guided"
 
     def test_auto_detect_mode_returns_targeted_for_complete_profile(self):
         from applire.services.session import _auto_detect_mode
-        from applire.models.profile import MasterProfile
-        profile = MasterProfile(profile_json={
+        profile = make_master_profile(profile_json={
             "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
             "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
             "work_experience": [{"company": "Acme", "role": "Engineer", "start_date": "2020-01"}],
@@ -3999,13 +3998,13 @@ class TestAddressedGapUpgradesLedger:
         # Seeded BEFORE `_make_gap_with_ledger` so the row's `input_fingerprint`
         # is computed over this same profile and the completion-time recompute
         # still reuses the row instead of inserting a second one.
-        profile.profile_json = {
+        set_profile_json(profile, {
             **profile.profile_json,
             "skills": [
                 *profile.profile_json["skills"],
                 {"name": "CI/CD", "category": "technical"},
             ],
-        }
+        })
         sqlite_session.add(job)
         sqlite_session.add(profile)
         await sqlite_session.flush()

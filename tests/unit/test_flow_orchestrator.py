@@ -39,6 +39,8 @@ from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.models.flow import FlowSession
 from applire.models.session import InterviewSession
 
+from tests.support.profile_factory import make_master_profile
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -240,7 +242,7 @@ async def test_create_flow_returning_user(db, user_and_job):
 
     # Insert a profile with high completeness
     from applire.models.profile import MasterProfile
-    profile = MasterProfile(
+    profile = make_master_profile(
         profile_json={
             "work_experience": [{"company": "Acme", "role": "Dev", "start_date": "2020-01"}],
             "education": [{"institution": "TU Berlin", "degree": "BSc", "field": "CS"}],
@@ -313,7 +315,7 @@ async def test_advance_to_gap_analysis_resolves_offer_from_artifact(db, user_and
     from applire.models.profile import MasterProfile
 
     _, job = user_and_job
-    profile = MasterProfile(id=uuid.uuid4(), profile_json={"personal_info": {}})
+    profile = make_master_profile(id=uuid.uuid4(), profile_json={"personal_info": {}})
     gap_with_items = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
@@ -340,7 +342,7 @@ async def test_advance_to_gap_analysis_clean_sweep_skips_interview(db, user_and_
     from applire.models.profile import MasterProfile
 
     _, job = user_and_job
-    profile = MasterProfile(id=uuid.uuid4(), profile_json={"personal_info": {}})
+    profile = make_master_profile(id=uuid.uuid4(), profile_json={"personal_info": {}})
     clean = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,

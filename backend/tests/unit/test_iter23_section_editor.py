@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from applire.auth import get_auth_provider
 from applire.db.session import get_db
 from applire.routers.cv import router
+from tests.support.profile_factory import make_master_profile, set_profile_json
 
 _CV_ID = str(uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
 _SECTION_ID = "introduction"
@@ -426,7 +427,7 @@ async def db_with_dated_profile(db):
         company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id,
         profile_json=_profile_json_with_certification_date(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -520,7 +521,7 @@ async def test_saved_position_targets_the_entity_not_the_first_company_match(db)
         keywords=[], seniority_level="senior", company_culture_signals=[],
         language_requirement="de",
     ))
-    db.add(MasterProfile(id=pid, profile_json={
+    db.add(make_master_profile(id=pid, profile_json={
         "personal_info": {"name": "Max"},
         "professional_summary": {"de": "", "en": ""},
         "work_experience": [
@@ -732,7 +733,7 @@ async def test_section_editor_save_never_revokes_a_denial(db_with_dated_profile)
             }
         ]
     }
-    profile.profile_json = profile_json
+    set_profile_json(profile, profile_json)
     await session.commit()
 
     await patch_cv_section(cv_id, "skills", "Kubernetes", True, session)

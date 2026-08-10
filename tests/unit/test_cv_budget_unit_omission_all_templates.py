@@ -55,6 +55,8 @@ if str(_backend) not in sys.path:
 
 from applire.services.cv import _TEMPLATE_FILES  # noqa: E402
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 PROFILE_JSON = {
     "personal_info": {"name": "Jonas Feldmann", "email": "jonas@example.com"},
     "professional_summary": {
@@ -197,7 +199,7 @@ async def _seed(db, *, jd_language: str):
         jd_language=jd_language,
     )
     db.add(job)
-    profile = MasterProfile(profile_json=PROFILE_JSON)
+    profile = make_master_profile(profile_json=PROFILE_JSON)
     db.add(profile)
     await db.flush()
 

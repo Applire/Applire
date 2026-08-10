@@ -73,14 +73,12 @@ async def durable_db(tmp_path):
     import applire.models.user  # noqa: F401
     import applire.models.user_settings  # noqa: F401
     from applire.db.session import Base
-    from applire.models.profile import reset_unauthorized_profile_writes
 
     url = f"sqlite+aiosqlite:///{tmp_path / 'vault.sqlite'}"
     engine = create_async_engine(url, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    reset_unauthorized_profile_writes()
     yield engine, factory
     await engine.dispose()
 
@@ -208,8 +206,8 @@ async def test_first_import_creation_is_an_authorised_write(durable_db):
     """PR 9's prerequisite, stated as a property: creating the first profile
     trips the clause-6 guard zero times. The keyword-argument constructor fires
     the setter, so before PR 8 this door was one of the writers keeping the
-    guard in warn mode."""
-    from applire.models.profile import unauthorized_profile_writes
+    guard in warn mode. Strict since PR 9 — the door completing IS the property;
+    an unauthorised constructor would raise `UnauthorizedProfileWriteError`."""
     from applire.services.profile import import_from_text
 
     engine, factory = durable_db
@@ -219,7 +217,9 @@ async def test_first_import_creation_is_an_authorised_write(durable_db):
         with a, b, c, d:
             await import_from_text("Kubernetes, five years.", request_session, AsyncMock())
 
-    assert unauthorized_profile_writes() == 0
+    assert [s["name"] for s in (await _read_back_the_only_profile(engine))["skills"]] == [
+        "Kubernetes"
+    ]
 
 
 # ── Door 2: the first browser `/upload` ───────────────────────────────────────
@@ -257,7 +257,8 @@ async def test_first_upload_creates_a_profile_that_survives_the_request(durable_
 
 @pytest.mark.asyncio
 async def test_first_upload_creation_is_an_authorised_write(durable_db):
-    from applire.models.profile import unauthorized_profile_writes
+    """Strict since PR 9: an unauthorised constructor raises, so the door
+    completing is the property. The read-back keeps it non-vacuous."""
     from applire.providers.embedding.noop import NoopEmbeddingProvider
     from applire.schemas.profile import MasterProfileData
     from applire.services.profile import _apply_merge
@@ -275,7 +276,9 @@ async def test_first_upload_creation_is_an_authorised_write(durable_db):
             provider=AsyncMock(),
         )
 
-    assert unauthorized_profile_writes() == 0
+    assert [s["name"] for s in (await _read_back_the_only_profile(engine))["skills"]] == [
+        "Terraform"
+    ]
 
 
 # ── Door 3: the Mode-B guided-interview stub ──────────────────────────────────
@@ -359,11 +362,10 @@ async def test_guided_stub_semantics_are_preserved_exactly(durable_db):
 @pytest.mark.asyncio
 async def test_guided_stub_creation_is_an_authorised_write(durable_db):
     """The third of the three keyword-argument constructors, and the reason a
-    strict guard would have broken Mode B outright."""
-    from applire.models.profile import unauthorized_profile_writes
-
+    strict guard would have broken Mode B outright. Strict since PR 9: the
+    session completing is the property."""
     engine, factory = durable_db
 
     await _run_guided_session(factory)
 
-    assert unauthorized_profile_writes() == 0
+    assert await _read_back_the_only_profile(engine) == {}

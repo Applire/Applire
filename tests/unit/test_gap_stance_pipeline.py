@@ -42,6 +42,7 @@ from applire.models.profile import MasterProfile
 from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
+from tests.support.profile_factory import make_master_profile
 
 _STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f4")
 
@@ -139,7 +140,7 @@ async def seeded(db):
         company_culture_signals=[],
         language_requirement="DE",
     )
-    profile = MasterProfile(id=uuid.uuid4(), profile_json=_profile_json_with_denial())
+    profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json_with_denial())
     db.add_all([user, job, profile])
     await db.commit()
 
@@ -258,7 +259,7 @@ async def test_agent_door_denial_reaches_the_gap_llm_same_as_interview_door(db):
         company_culture_signals=[],
         language_requirement="EN",
     )
-    profile = MasterProfile(id=uuid.uuid4(), profile_json=_profile_json_with_agent_denial())
+    profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json_with_agent_denial())
     db.add_all([user, job, profile])
     await db.commit()
     flow = FlowSession(

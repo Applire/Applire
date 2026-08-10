@@ -44,6 +44,8 @@ from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
 
+from tests.support.profile_factory import make_master_profile, set_profile_json
+
 _STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
 
 
@@ -128,7 +130,7 @@ async def seeded(db):
         company_culture_signals=[],
         language_requirement="DE",
     )
-    profile = MasterProfile(id=uuid.uuid4(), profile_json=_profile_json())
+    profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json())
     db.add_all([user, job, profile])
     await db.commit()
 
@@ -186,7 +188,7 @@ async def test_changed_profile_fingerprint_recomputes(db, seeded):
     new_json["skills"].append(
         {"name": "FastAPI", "category": "technical", "proficiency": "advanced"}
     )
-    profile.profile_json = new_json
+    set_profile_json(profile, new_json)
     await db.commit()
 
     r2 = await analyze_gaps(job.id, db, spy)
@@ -237,7 +239,7 @@ async def test_refresh_clamps_score_monotonically_up(db, seeded):
     g1.match_score = 0.99
     new_json = _profile_json()
     new_json["personal_info"]["headline"] = "changed"
-    profile.profile_json = new_json
+    set_profile_json(profile, new_json)
     await db.commit()
 
     # /gaps/refresh re-evaluates after new evidence — must never lower the score.

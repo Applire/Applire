@@ -176,8 +176,8 @@ def _make_job(**kwargs):
 
 
 def _make_profile(name="Anna Bauer"):
-    from applire.models.profile import MasterProfile
-    return MasterProfile(profile_json={
+    from tests.support.profile_factory import make_master_profile
+    return make_master_profile(profile_json={
         "personal_info": {"name": name, "email": "anna@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],

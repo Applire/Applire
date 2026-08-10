@@ -10,6 +10,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -66,7 +68,7 @@ def _make_job():
 
 def _make_profile():
     from applire.models.profile import MasterProfile
-    return MasterProfile(id=uuid.uuid4(), profile_json={"personal_info": {"name": "Test"}})
+    return make_master_profile(id=uuid.uuid4(), profile_json={"personal_info": {"name": "Test"}})
 
 
 class TestPatchCvColor:

@@ -2,6 +2,8 @@
 import pytest
 from datetime import date
 
+from tests.support.profile_factory import make_master_profile
+
 
 # ---------------------------------------------------------------------------
 # Task 1: Skill schema — experience_refs field (US172: renamed from work_entry_refs)
@@ -1068,7 +1070,7 @@ async def test_patch_profile_section_without_provider_skips_enrichment(sqlite_se
         created_at=datetime.now(timezone.utc),
         last_updated=datetime.now(timezone.utc),
     )
-    record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
     sqlite_session_for_patch.add(record)
     await sqlite_session_for_patch.commit()
 
@@ -1099,7 +1101,7 @@ async def test_patch_profile_section_with_provider_calls_enrich_for_skills(sqlit
         created_at=datetime.now(timezone.utc),
         last_updated=datetime.now(timezone.utc),
     )
-    record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
     sqlite_session_for_patch.add(record)
     await sqlite_session_for_patch.commit()
 
@@ -1130,7 +1132,7 @@ async def test_patch_personal_info_with_provider_does_not_call_enrich(sqlite_ses
         created_at=datetime.now(timezone.utc),
         last_updated=datetime.now(timezone.utc),
     )
-    record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
     sqlite_session_for_patch.add(record)
     await sqlite_session_for_patch.commit()
 

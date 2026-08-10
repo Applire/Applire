@@ -48,6 +48,7 @@ from applire.services.profile.snapshots import (  # noqa: E402
     capture_pre_merge_snapshot,
     undo_last_merge,
 )
+from tests.support.profile_factory import make_master_profile, set_profile_json  # noqa: E402
 
 
 @pytest_asyncio.fixture
@@ -93,7 +94,7 @@ def _profile_json(*, head_enrichment_id: str, conflicts: int = 0, marker: str = 
 
 
 async def _seed_profile(session, profile_json: dict) -> MasterProfile:
-    record = MasterProfile(profile_json=profile_json)
+    record = make_master_profile(profile_json=profile_json)
     session.add(record)
     await session.commit()
     await session.refresh(record)
@@ -184,7 +185,7 @@ async def test_undo_restores_pre_merge_state_and_clears_introduced_conflicts(sql
     await capture_pre_merge_snapshot(
         sqlite_session, profile_id=profile.id, profile_json=pre, enrichment_record_id=merge_id
     )
-    profile.profile_json = _profile_json(head_enrichment_id=merge_id, conflicts=1, marker="post")
+    set_profile_json(profile, _profile_json(head_enrichment_id=merge_id, conflicts=1, marker="post"))
     await sqlite_session.commit()
 
     result = await undo_last_merge(sqlite_session)
@@ -205,7 +206,7 @@ async def test_undo_warns_when_later_edits_would_be_discarded(sqlite_session):
         sqlite_session, profile_id=profile.id, profile_json=pre, enrichment_record_id=merge_id
     )
     # After the merge, a LATER edit (E2) became the head — undoing discards it.
-    profile.profile_json = _profile_json(head_enrichment_id="E2", marker="post+edit")
+    set_profile_json(profile, _profile_json(head_enrichment_id="E2", marker="post+edit"))
     await sqlite_session.commit()
 
     result = await undo_last_merge(sqlite_session)
@@ -221,7 +222,7 @@ async def test_undo_is_idempotent(sqlite_session):
     await capture_pre_merge_snapshot(
         sqlite_session, profile_id=profile.id, profile_json=pre, enrichment_record_id="E1"
     )
-    profile.profile_json = _profile_json(head_enrichment_id="E1", marker="post")
+    set_profile_json(profile, _profile_json(head_enrichment_id="E1", marker="post"))
     await sqlite_session.commit()
 
     first = await undo_last_merge(sqlite_session)

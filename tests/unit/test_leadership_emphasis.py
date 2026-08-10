@@ -446,7 +446,7 @@ async def _letter_selector_kwargs(db, facet) -> dict:
     arguments the letter chain hands the vault-evidence selector."""
     from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
     from applire.models.job import JobAnalysis
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
     job_id = uuid.UUID("00000000-0000-0000-0000-000000000212")
     profile_id = uuid.UUID("00000000-0000-0000-0000-000000000213")
@@ -467,7 +467,7 @@ async def _letter_selector_kwargs(db, facet) -> dict:
             language_requirement="en",
             leadership_emphasis=facet,
         ),
-        MasterProfile(
+        make_master_profile(
             id=profile_id, profile_json=_leadership_vault(2),
             created_at=now, updated_at=now,
         ),

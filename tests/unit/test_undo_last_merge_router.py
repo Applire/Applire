@@ -25,6 +25,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db_session():
@@ -76,7 +78,7 @@ async def _seed_merge(db_session):
 
     pre = {"_marker": "pre", "metadata": {"enrichment_history": [{"id": "E0"}], "pending_conflicts": []}}
     post = {"_marker": "post", "metadata": {"enrichment_history": [{"id": "E1"}], "pending_conflicts": [{"x": 1}]}}
-    profile = MasterProfile(profile_json=post)
+    profile = make_master_profile(profile_json=post)
     db_session.add(profile)
     await db_session.commit()
     await db_session.refresh(profile)

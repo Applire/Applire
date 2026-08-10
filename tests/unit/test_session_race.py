@@ -45,6 +45,8 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 
 @pytest_asyncio.fixture
 async def sqlite_session():
@@ -93,9 +95,7 @@ def _make_job(**kwargs):
 
 
 def _make_profile():
-    from applire.models.profile import MasterProfile
-
-    return MasterProfile(
+    return make_master_profile(
         profile_json={
             "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
             "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],

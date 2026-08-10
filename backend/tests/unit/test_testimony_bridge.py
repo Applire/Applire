@@ -29,6 +29,7 @@ from applire.exceptions import LLMTruncatedError
 from applire.models.profile import MasterProfile
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.profile.reconcile.testimony_bridge import submit_testimony
+from tests.support.profile_factory import make_master_profile
 
 _DOSSIER_PATH = (
     Path(__file__).parent.parent.parent.parent
@@ -58,7 +59,7 @@ class _QueueProvider:
 
 
 async def _seed_profile(db) -> MasterProfile:
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Daniel Kovač"},
             "metadata": {
@@ -160,7 +161,7 @@ async def test_ambiguity_is_parked_as_needs_confirmation(async_db):
 
 @pytest.mark.asyncio
 async def test_conflict_status_when_op_batch_yields_a_conflict(async_db):
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Daniel Kovač"},
             "work_experience": [

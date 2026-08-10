@@ -80,9 +80,9 @@ async def db_session():
 @pytest_asyncio.fixture
 async def seeded(db_session):
     """User + upload row + master profile with a photo_url."""
-    from applire.models.profile import MasterProfile
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from tests.support.profile_factory import make_master_profile
 
     db_session.add(User(id=USER_ID, email="emma@example.com"))
     db_session.add(
@@ -96,7 +96,7 @@ async def seeded(db_session):
         )
     )
     db_session.add(
-        MasterProfile(
+        make_master_profile(
             profile_json={
                 "personal_info": {"name": "Emma Fischer", "photo_url": PHOTO_PATH}
             }

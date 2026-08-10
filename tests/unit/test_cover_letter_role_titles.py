@@ -46,6 +46,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -352,7 +354,7 @@ async def seeded(db):
         language_requirement="de",
     )
     db.add(job)
-    profile = MasterProfile(profile_json=PROFILE_JSON)
+    profile = make_master_profile(profile_json=PROFILE_JSON)
     db.add(profile)
     await db.flush()
 

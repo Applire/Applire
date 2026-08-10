@@ -6,6 +6,8 @@ Run:
 import uuid
 from datetime import datetime, timezone
 
+from tests.support.profile_factory import make_master_profile
+
 # ---------------------------------------------------------------------------
 # Task 1 — Schema
 # ---------------------------------------------------------------------------
@@ -110,7 +112,7 @@ async def _seed_cv(db, user_id, role_title, company_name, template="classic_germ
         db.add(user)
         await db.flush()
 
-    profile = MasterProfile(
+    profile = make_master_profile(
         profile_json=MasterProfileData(
             personal_info=PersonalInfo(name="Test User")
         ).model_dump(mode="json"),

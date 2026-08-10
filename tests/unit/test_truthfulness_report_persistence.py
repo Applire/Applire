@@ -21,6 +21,8 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 
 def _stub_profile_json() -> dict:
     return {
@@ -160,7 +162,7 @@ async def seeded(db):
                 company_culture_signals=[],
                 language_requirement="de",
             ),
-            MasterProfile(
+            make_master_profile(
                 id=ids["profile_id"],
                 profile_json=_stub_profile_json(),
                 created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

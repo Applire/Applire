@@ -49,7 +49,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from applire.models.profile import (
     MasterProfile,
     ProfileSnapshot,
-    reset_unauthorized_profile_writes,
 )
 from applire.services.keyword_ledger import (
     DENIAL_FLOOR_EVIDENCE,
@@ -342,5 +341,4 @@ async def seeded(db_session):
         record = MasterProfile(profile_json=_vault())
     db_session.add(record)
     await db_session.commit()
-    reset_unauthorized_profile_writes()
     return record

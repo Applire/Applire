@@ -35,6 +35,7 @@ from applire.models.session import InterviewSession
 from applire.providers.llm.mock import MockLLMProvider
 from applire.schemas.profile import MasterProfileData, Skill
 from applire.services.session import _build_state, send_message
+from tests.support.profile_factory import make_master_profile
 
 _CONTAINMENT_ANSWER = (
     "I have used Docker Compose extensively to orchestrate multi-container "
@@ -52,7 +53,7 @@ async def _seed_docker_session(async_db):
             ],
         }
     )
-    profile = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    profile = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
     async_db.add(profile)
     await async_db.commit()
     await async_db.refresh(profile)
@@ -172,7 +173,7 @@ async def _seed_sap_session(async_db):
             ],
         }
     )
-    profile = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+    profile = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
     async_db.add(profile)
     await async_db.commit()
     await async_db.refresh(profile)

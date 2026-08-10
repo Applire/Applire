@@ -44,6 +44,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from applire.models.profile import MasterProfile, ProfileSnapshot  # noqa: E402
 from applire.schemas.profile import MasterProfileData, WorkEntry  # noqa: E402
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 # Import the script module from scripts/ (not a package).
 _scripts = Path(__file__).parent.parent.parent / "scripts"
 if str(_scripts) not in sys.path:
@@ -82,7 +84,7 @@ async def sqlite_session():
 
 
 async def _seed(session, profile: MasterProfileData) -> MasterProfile:
-    record = MasterProfile(profile_json=profile.model_dump(mode="json"))
+    record = make_master_profile(profile_json=profile.model_dump(mode="json"))
     session.add(record)
     await session.commit()
     await session.refresh(record)

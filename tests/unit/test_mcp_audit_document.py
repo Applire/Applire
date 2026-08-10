@@ -104,7 +104,7 @@ def _db_cm(session):
 async def seeded(db):
     from applire.models.cv import GeneratedCV
     from applire.models.job import JobAnalysis
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
     job_id, profile_id, cv_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     db.add_all(
@@ -121,7 +121,7 @@ async def seeded(db):
                 company_culture_signals=[],
                 language_requirement="en",
             ),
-            MasterProfile(
+            make_master_profile(
                 id=profile_id,
                 profile_json=PROFILE_JSON,
                 created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

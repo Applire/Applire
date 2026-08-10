@@ -67,6 +67,8 @@ if str(_backend) not in sys.path:
 
 from applire.services.cv import _TEMPLATE_FILES  # noqa: E402
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 # The real run's shapes, kept verbatim so the test names the defect it pins.
 _ROLE_BULLET = "Mitarbeit bei der Einführung von SAP in der Fertigung (PP/MM)"
 _ORPHAN_NESTED = "SAP-Rollout bei Rasselstein"
@@ -156,7 +158,7 @@ async def _seed_ready_cv(db, *, template: str, tailored: dict, jd_language: str 
         jd_language=jd_language,
     )
     db.add(job)
-    profile = MasterProfile(profile_json={"personal_info": {"name": "Marcus Weber"}})
+    profile = make_master_profile(profile_json={"personal_info": {"name": "Marcus Weber"}})
     db.add(profile)
     await db.flush()
 

@@ -264,12 +264,12 @@ class TestComputeSimilarity:
     async def test_returns_zero_when_no_embeddings(self, sqlite_session):
         """Noop provider — embeddings are NULL; similarity = 0.0."""
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.providers.embedding.noop import NoopEmbeddingProvider
         from applire.services.matching import compute_similarity
 
         job = JobAnalysis(**_job())
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(job)
         sqlite_session.add(profile)
         await sqlite_session.commit()
@@ -287,10 +287,10 @@ class TestComputeSimilarity:
 class TestRankJobs:
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_jobs(self, sqlite_session):
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         await sqlite_session.commit()
 
@@ -308,10 +308,10 @@ class TestRankJobs:
         """Jobs with higher LLM match scores rank higher (noop embeddings)."""
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         job_a = JobAnalysis(**_job(role_title="Senior Python Developer"))
         job_b = JobAnalysis(**_job(role_title="Junior Java Developer"))
@@ -333,10 +333,10 @@ class TestRankJobs:
     async def test_respects_top_n(self, sqlite_session):
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         jobs = [JobAnalysis(**_job(role_title=f"Role {i}")) for i in range(5)]
         sqlite_session.add_all(jobs)
@@ -349,10 +349,10 @@ class TestRankJobs:
     async def test_berufsbild_filter(self, sqlite_session):
         """Only jobs matching the berufsbild_code prefix are returned."""
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         job_it = JobAnalysis(**_job(role_title="IT Engineer", berufsbild_code="4311"))
         job_hr = JobAnalysis(**_job(role_title="HR Manager", berufsbild_code="7121"))
@@ -371,10 +371,10 @@ class TestRankJobs:
     async def test_no_gap_analysis_zero_llm_score(self, sqlite_session):
         """Jobs without gap analyses get llm_match_score=None and combined_score=0."""
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         job = JobAnalysis(**_job())
         sqlite_session.add(job)
@@ -390,10 +390,10 @@ class TestRankJobs:
         """Combined score uses configurable weights from settings."""
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         job = JobAnalysis(**_job())
         sqlite_session.add(job)
@@ -417,11 +417,11 @@ class TestRankJobs:
         """When multiple gap analyses exist for a job, the most recent one is used."""
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.matching import rank_jobs
         import asyncio
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         job = JobAnalysis(**_job())
         sqlite_session.add(job)
@@ -455,11 +455,11 @@ class TestGapAnalysisEmbeddingScore:
         """With noop provider (no stored embeddings), embedding_similarity_score is NULL."""
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from sqlalchemy import select
 
         job = JobAnalysis(**_job())
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add_all([job, profile])
         await sqlite_session.commit()
 
@@ -485,11 +485,11 @@ class TestGapAnalysisEmbeddingScore:
         """embedding_similarity_score is persisted when provided."""
         from applire.models.gap import GapAnalysis
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from sqlalchemy import select
 
         job = JobAnalysis(**_job())
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add_all([job, profile])
         await sqlite_session.commit()
 
@@ -700,10 +700,10 @@ class TestGapServiceAsync:
 
     @pytest.mark.asyncio
     async def test_resolve_profile_returns_latest(self, sqlite_session):
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.gap import _resolve_profile
 
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add(profile)
         await sqlite_session.commit()
 
@@ -730,12 +730,12 @@ class TestGapServiceAsync:
     async def test_analyze_gaps_for_session_delegates_to_analyze_gaps(self, sqlite_session):
         """analyze_gaps_for_session extracts job_id from session and calls analyze_gaps."""
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.models.session import InterviewSession
         from applire.services.gap import analyze_gaps_for_session
 
         job = JobAnalysis(**_job())
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add_all([job, profile])
         await sqlite_session.commit()
 
@@ -765,11 +765,11 @@ class TestGapServiceAsync:
     async def test_run_analysis_stores_embedding_similarity_none(self, sqlite_session):
         """With noop embeddings (NULL), gap analysis stores embedding_similarity_score=None."""
         from applire.models.job import JobAnalysis
-        from applire.models.profile import MasterProfile
+        from tests.support.profile_factory import make_master_profile
         from applire.services.gap import _run_analysis
 
         job = JobAnalysis(**_job())
-        profile = MasterProfile(**_profile())
+        profile = make_master_profile(**_profile())
         sqlite_session.add_all([job, profile])
         await sqlite_session.commit()
 

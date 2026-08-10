@@ -46,8 +46,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from applire.models.profile import (
     MasterProfile,
     ProfileSnapshot,
-    reset_unauthorized_profile_writes,
-    unauthorized_profile_writes,
 )
 from applire.services.profile.commit import (
     CommitProvenance,
@@ -120,7 +118,6 @@ async def seeded(db_session):
         record = MasterProfile(profile_json=dict(_SEED))
     db_session.add(record)
     await db_session.commit()
-    reset_unauthorized_profile_writes()
     return record
 
 
@@ -150,8 +147,6 @@ async def test_no_profile_creates_the_first_one(db_session):
     outside every invariant. Creation belongs to the committer now, so the ops
     the caller brings land on the new row through the ordinary path.
     """
-    reset_unauthorized_profile_writes()
-
     result = await commit_ops(
         db_session, [UpsertSkill(name="Rust", category="technical")], _provenance()
     )
@@ -176,11 +171,12 @@ async def test_the_created_row_is_constructed_inside_the_write_token(db_session)
     token around the constructor, so PR 9's strict mode cannot break profile
     creation.
     """
-    reset_unauthorized_profile_writes()
+    # Strict since PR 9: an unauthorised constructor raises
+    # `UnauthorizedProfileWriteError`, so the call completing is the assertion.
+    # The row assertion keeps it from passing vacuously.
+    result = await commit_ops(db_session, [], _provenance())
 
-    await commit_ops(db_session, [], _provenance())
-
-    assert unauthorized_profile_writes() == 0
+    assert result.record.id is not None
 
 
 @pytest.mark.asyncio
@@ -194,15 +190,12 @@ async def test_create_profile_record_writes_an_empty_row(db_session):
     """
     from applire.services.profile.commit import create_profile_record
 
-    reset_unauthorized_profile_writes()
-
     record = await create_profile_record(db_session)
 
     assert record.profile_json == {}
     # Flushed, not committed — commit.py never owns the transaction, and the
     # caller needs the id for its own foreign key.
     assert record.id is not None
-    assert unauthorized_profile_writes() == 0
 
 
 @pytest.mark.asyncio
@@ -228,11 +221,11 @@ async def test_creation_is_authorised_by_the_token_not_by_the_module_name(
             {"applire/services/profile/snapshots.py", "applire/services/photo.py"}
         ),
     )
-    reset_unauthorized_profile_writes()
+    # With the module fallback taken away, only the token can authorise the
+    # constructor — and under strict mode an unauthorised one raises.
+    record = await create_profile_record(db_session)
 
-    await create_profile_record(db_session)
-
-    assert unauthorized_profile_writes() == 0
+    assert record.profile_json == {}
 
 
 @pytest.mark.asyncio
@@ -487,11 +480,12 @@ async def test_commit_ops_flushes_and_never_commits(db_session, seeded):
 
 @pytest.mark.asyncio
 async def test_the_committers_own_write_is_authorised(db_session, seeded):
-    await commit_ops(
+    result = await commit_ops(
         db_session, [UpsertSkill(name="Kafka", category="technical")], _provenance()
     )
 
-    assert unauthorized_profile_writes() == 0
+    # Strict since PR 9: an unauthorised assignment raises inside the call.
+    assert any(s["name"] == "Kafka" for s in result.record.profile_json["skills"])
 
 
 # ── §7.4 — grounding is a parameter; None is a direct act ─────────────────────

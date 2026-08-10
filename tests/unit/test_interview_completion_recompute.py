@@ -96,11 +96,11 @@ async def _seed(db, *, with_flow=True, old_match_score=0.40, old_fingerprint="fp
     pointed at it) + an active targeted InterviewSession with ONE remaining
     critical gap, so the next answer closes the last gap cluster."""
     from applire.models.job import JobAnalysis
-    from applire.models.profile import MasterProfile
     from applire.models.gap import GapAnalysis
     from applire.models.session import InterviewSession
     from applire.models.flow import FlowSession
     from applire.models.user import User
+    from tests.support.profile_factory import make_master_profile
 
     job = JobAnalysis(
         raw_text_hash=uuid.uuid4().hex,
@@ -113,7 +113,7 @@ async def _seed(db, *, with_flow=True, old_match_score=0.40, old_fingerprint="fp
         company_culture_signals=[],
         language_requirement="English",
     )
-    profile = MasterProfile(profile_json={
+    profile = make_master_profile(profile_json={
         "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
@@ -269,13 +269,15 @@ class TestCompletionTriggersRecompute:
         from applire.models.gap import GapAnalysis
         from applire.models.flow import FlowSession
 
+        from tests.support.profile_factory import set_profile_json
+
         job, profile, old_gap, session_record, flow = await _seed(db)
-        profile.profile_json = {
+        set_profile_json(profile, {
             **profile.profile_json,
             "skills": list(profile.profile_json.get("skills", [])) + [
                 {"name": "GCP", "category": "technical", "proficiency": "advanced"}
             ],
-        }
+        })
         db.add(profile)
         await db.commit()
 

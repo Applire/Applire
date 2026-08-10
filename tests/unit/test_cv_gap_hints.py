@@ -31,6 +31,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db():
@@ -272,7 +274,7 @@ async def db_with_ledger_cv(db):
             nice_to_have_skills=[], keywords=[], seniority_level="mid",
             company_culture_signals=[], language_requirement="de",
         ),
-        MasterProfile(
+        make_master_profile(
             id=profile_id, profile_json=_stub_profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

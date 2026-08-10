@@ -32,6 +32,8 @@ import pytest_asyncio
 from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -84,7 +86,7 @@ class _Provider:
 async def seeded(db):
     from applire.models.profile import MasterProfile
 
-    db.add(MasterProfile(profile_json={"personal_info": {"full_name": "Anna Bauer"}}))
+    db.add(make_master_profile(profile_json={"personal_info": {"full_name": "Anna Bauer"}}))
     await db.commit()
     return db
 

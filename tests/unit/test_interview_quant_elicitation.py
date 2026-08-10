@@ -449,9 +449,9 @@ def _availability_job(**kwargs):
 
 
 def _profile_two_open_roles():
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
-    return MasterProfile(
+    return make_master_profile(
         profile_json={
             "personal_info": {"name": "Anna Bauer", "email": "anna@example.de"},
             "skills": [],
