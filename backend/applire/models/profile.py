@@ -22,6 +22,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
+from types import FrameType
 
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
@@ -30,6 +31,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from applire.db.session import Base
+
+try:  # greenlet is a hard dependency of SQLAlchemy's asyncio extension.
+    import greenlet
+except ImportError:  # pragma: no cover — defensive; see `_guard_frames`
+    greenlet = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,8 @@ class MasterProfile(Base):
 # asserts it is exactly those three modules, so the day a twelfth writer grants
 # itself an exception the suite says so.
 #
-# Two mechanisms:
+# Three mechanisms, because SQLAlchemy offers a write three different ways in
+# and no single event sees all three:
 #
 #   * the `set` event fires on plain assignment AND on keyword construction
 #     (`MasterProfile(profile_json=…)` goes through `setattr`) — the case that
@@ -102,17 +109,29 @@ class MasterProfile(Base):
 #     in-place mutation of the JSON dict plus a hand-rolled `flag_modified`.
 #     Raising inside the flush aborts the transaction (PO ruling Q1(a),
 #     2026-08-10), so the write cannot reach the database; the session recovers
-#     with an ordinary `rollback()`, which the guard's tests pin.
+#     with an ordinary `rollback()`, which the guard's tests pin;
+#   * `do_orm_execute` raises on a bulk
+#     `update(MasterProfile).values(profile_json=…)`. PR 9 measured this shape
+#     against SQLAlchemy 2.0.36 and found it reaches NEITHER of the other two:
+#     it is emitted straight from `Session.execute`, never enters the unit of
+#     work, and leaves the instance clean, so the setter never fires and
+#     `before_flush` has nothing to see. #480 §5 claimed `before_flush` covered
+#     it; the code was right and the design was wrong. PO ruling 1 (2026-08-10)
+#     closed the gap with this third listener rather than leaving it documented.
+#     It raises before the statement is emitted, so — like the setter — a
+#     refused write leaves nothing behind.
 #
-# KNOWN GAP, measured not assumed: an ORM-enabled bulk
-# `update(MasterProfile).values(profile_json=…)` reaches NEITHER mechanism. It
-# is emitted straight from `Session.execute`, never enters the unit of work, and
-# leaves the instance clean — so the setter does not fire and `before_flush` has
-# nothing to see. #480 §5 claims otherwise; the code is right and the design is
-# wrong. Closing it needs a `do_orm_execute` listener, which is a new mechanism
-# awaiting a PO ruling. No production caller uses the shape: the retention
-# worker's `update(MasterProfile)…values(deleted_at=…)` touches `deleted_at`
-# only (re-verified 2026-08-10, ADR-063 amendment 5).
+# The one production caller of the bulk shape is the retention worker's
+# `update(MasterProfile)…values(deleted_at=…)`, which touches `deleted_at` only
+# and is therefore silent (ADR-063 amendment 5). That silence is not left to
+# inspection: a per-site sentinel test calls `_tombstone_inactive_profiles` and
+# fails if the listener ever speaks up for it.
+#
+# What the third mechanism still does NOT see, stated rather than implied: raw
+# `text("UPDATE master_profiles SET profile_json = …")`, and any statement
+# emitted on a bare Engine/Connection instead of a Session. Both are outside
+# every ORM event; the control against them is that the codebase has no such
+# caller, which arc42 §5.3.19a's write-surface matrix asserts.
 #
 # Tests construct fixture profiles through the same public door
 # (`tests/support/profile_factory.py` wraps `authorized_profile_write()`); there
@@ -181,15 +200,39 @@ def authorized_profile_write() -> Iterator[None]:
         _PROFILE_WRITE_TOKEN.reset(token)
 
 
-def _caller_is_authorized_module() -> bool:
-    frame = sys._getframe(1)
+def _guard_frames(frame: FrameType | None) -> Iterator[FrameType]:
+    """Walk outward from `frame`, continuing onto the greenlet suspended below.
+
+    The greenlet hop is not decoration. SQLAlchemy runs the sync half of an
+    async session inside its own greenlet, so a listener that fires there — the
+    `do_orm_execute` mechanism does — stands on a stack exactly two
+    `orm/session.py` frames deep. The code that actually issued the statement is
+    suspended on the parent greenlet. Without this continuation the module
+    exception could never match on the async path and every refusal would report
+    its location as `<unknown>`, which is the same failure mode the `<string>`
+    skip was added to prevent.
+
+    On a synchronous stack `greenlet.getcurrent().parent` is `None` and this
+    degrades to exactly the plain `f_back` walk it replaces.
+    """
     depth = 0
-    while frame is not None and depth < _MAX_GUARD_FRAMES:
+    current = greenlet.getcurrent() if greenlet is not None else None
+    while depth < _MAX_GUARD_FRAMES:
+        while frame is not None and depth < _MAX_GUARD_FRAMES:
+            yield frame
+            frame = frame.f_back
+            depth += 1
+        if current is None or current.parent is None:
+            return
+        current = current.parent
+        frame = current.gr_frame
+
+
+def _caller_is_authorized_module() -> bool:
+    for frame in _guard_frames(sys._getframe(1)):
         filename = frame.f_code.co_filename.replace("\\", "/")
         if any(filename.endswith(m) for m in AUTHORIZED_PROFILE_WRITE_MODULES):
             return True
-        frame = frame.f_back
-        depth += 1
     return False
 
 
@@ -201,9 +244,7 @@ def _caller_location() -> str:
     shape it is the frame directly above the setter — reporting it would name
     every refused `MasterProfile(profile_json=…)` as `<string>:4`.
     """
-    frame = sys._getframe(1)
-    depth = 0
-    while frame is not None and depth < _MAX_GUARD_FRAMES:
+    for frame in _guard_frames(sys._getframe(1)):
         filename = frame.f_code.co_filename.replace("\\", "/")
         if (
             "/sqlalchemy/" not in filename
@@ -211,8 +252,6 @@ def _caller_location() -> str:
             and not filename.startswith("<")
         ):
             return f"{filename}:{frame.f_lineno}"
-        frame = frame.f_back
-        depth += 1
     return "<unknown>"
 
 
@@ -264,6 +303,62 @@ def _guard_profile_json_flush(session, flush_context, instances):  # noqa: ANN00
         if state.info.pop(_WRITE_DECISION_KEY, None) is not True:
             # Never went through the setter — an ORM-level bypass.
             _refuse("dirty at flush, no setter", repr(obj))
+
+
+def _bulk_update_set_columns(statement, parameters) -> set[str] | None:  # noqa: ANN001
+    """The column names an UPDATE assigns, or `None` when they can't be read.
+
+    Two shapes carry them. `update(...).values(profile_json=…)` puts them in
+    `Update._values`, keyed by Column; the executemany form
+    `session.execute(update(MasterProfile), [{...}])` leaves `_values` empty and
+    passes them as the parameter dicts instead.
+
+    `_values` is private API, and depending on it is a deliberate, pinned
+    choice: there is no public accessor for an UPDATE's SET clause, and the
+    alternative — compiling the statement and reading the SQL back — is worse.
+    Returning `None` makes the caller fail CLOSED, so a SQLAlchemy release that
+    renames it turns the retention worker's sentinel test red rather than
+    silently re-opening the gap.
+    """
+    values = getattr(statement, "_values", None)
+    if values:
+        return {getattr(c, "key", None) or getattr(c, "name", "") for c in values}
+    if isinstance(parameters, dict):
+        return set(parameters)
+    if isinstance(parameters, (list, tuple)) and parameters:
+        if all(isinstance(row, dict) for row in parameters):
+            return {key for row in parameters for key in row}
+    return None
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _guard_profile_json_bulk_update(orm_execute_state):  # noqa: ANN001
+    """The third mechanism: an UPDATE that assigns the vault in bulk.
+
+    Fires before the statement is emitted, so a refused bulk write never reaches
+    the database — the same "no partial state" property the setter has.
+
+    Scoped narrowly on purpose: only an UPDATE, only against `master_profiles`
+    (``profile_snapshots`` carries a `profile_json` column too and is NOT the
+    vault), and only when `profile_json` is among the assigned columns — which
+    is what keeps the retention worker's `values(deleted_at=…)` silent.
+    """
+    if not orm_execute_state.is_update:
+        return
+    statement = orm_execute_state.statement
+    table = getattr(statement, "table", None)
+    if getattr(table, "name", None) != MasterProfile.__tablename__:
+        return
+    columns = _bulk_update_set_columns(statement, orm_execute_state.parameters)
+    if columns is not None and "profile_json" not in columns:
+        return
+    if _PROFILE_WRITE_TOKEN.get() is None and not _caller_is_authorized_module():
+        reason = (
+            "ORM bulk UPDATE"
+            if columns is not None
+            else "ORM bulk UPDATE with unreadable SET columns"
+        )
+        _refuse(reason, _caller_location())
 
 
 class ProfileSnapshot(Base):

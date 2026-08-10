@@ -23,7 +23,7 @@ one of three named modules: `services/profile/commit.py`, `services/photo.py`
 (`Binary` under GDPR Art. 9(2)(a)) and `services/profile/snapshots.py` (the undo
 restore). Everything else raises :class:`UnauthorizedProfileWriteError`.
 
-Two mechanisms, belt and braces:
+Three mechanisms, belt and braces:
 
 1. the attribute `set` event — fires on plain assignment AND on keyword
    construction (``MasterProfile(profile_json=…)`` goes through ``setattr``,
@@ -34,13 +34,19 @@ Two mechanisms, belt and braces:
    passed the setter, i.e. an ORM/instrumentation-level bypass. Raising inside
    the flush aborts the transaction (PO ruling Q1(a), 2026-08-10): the write
    physically cannot reach the database. The poisoned session is recoverable by
-   the ordinary ``rollback()`` — pinned below.
+   the ordinary ``rollback()`` — pinned below;
+3. a ``do_orm_execute`` listener — raises on an ORM bulk
+   ``update(MasterProfile).values(profile_json=…)``, which is emitted straight
+   from ``Session.execute`` and reaches neither of the other two (PR 9 measured
+   the gap; PO ruling 1, 2026-08-10, closed it). It raises before the statement
+   is executed, so the value never reaches the database.
 
-Both mechanisms are unconditional. There is no warn mode, no env-var escape and
+All three mechanisms are unconditional. There is no warn mode, no env-var escape and
 no test-only bypass: a test that legitimately needs to build a fixture profile
 opens the SAME public door production uses (`tests/support/profile_factory.py`).
 """
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -408,48 +414,225 @@ async def test_the_setters_verdict_is_consumed_per_flush(db_session):
         await db_session.flush()
 
 
-# ── The bulk-UPDATE shape: a documented, verified GAP ─────────────────────────
+# ── The ORM bulk-UPDATE shape: the do_orm_execute listener ────────────────────
+#
+# The gap PR 9 first measured and pinned honestly. `update(MasterProfile)
+# .values(profile_json=…)` is emitted straight from `Session.execute`: it never
+# enters the unit of work, never dirties the instance, and so reaches NEITHER
+# the `set` event NOR `before_flush`. PO ruling 1 (2026-08-10) closed it with a
+# third mechanism rather than leaving it documented.
 
 
-@pytest.mark.asyncio
-async def test_the_orm_bulk_update_shape_is_not_reached_by_either_mechanism(
-    db_session,
-):
-    """#480 §5 claims the `before_flush` listener closes the
-    `update(...).values(...)` ORM bypass. Measured against SQLAlchemy 2.0.36 it
-    does not, and this test records the real behaviour rather than a comforting
-    one.
+async def _stored(db_session, record_id) -> dict:
+    return (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
 
-    An ORM-enabled UPDATE is emitted directly by ``Session.execute``; it never
-    enters the unit of work, the matched instance is not placed in
-    ``session.dirty``, and its ``profile_json`` history reports no change — so
-    the flush listener has nothing to look at, and the `set` event does not fire
-    either. The only interception point for this shape is the
-    ``do_orm_execute`` session event, which is a NEW mechanism and needs a PO
-    ruling (raised by #480 PR 9; the STOP is recorded on the issue).
 
-    When that ruling lands and the mechanism is built, this test goes red — that
-    is exactly what it is for. It asserts the gap, not a guarantee.
-    """
+@pytest_asyncio.fixture
+async def persisted(db_session):
+    """A committed fixture row — the starting point for every bulk-UPDATE test."""
     record = _seeded()
     db_session.add(record)
     await db_session.commit()
-    record_id = record.id
+    return record
 
+
+@pytest.mark.asyncio
+async def test_the_orm_bulk_update_of_profile_json_raises(db_session, persisted):
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Bulk Bypass"}})
+        )
+
+    assert "clause 6" in str(excinfo.value)
+    assert "bulk" in excinfo.value.reason
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_update_never_reaches_the_database(
+    db_session, persisted
+):
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Bulk Bypass"}})
+        )
+    await db_session.rollback()
+
+    stored = await _stored(db_session, persisted.id)
+    assert stored["personal_info"]["full_name"] == "Daniel Kovač"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_update_carries_the_caller_location(
+    db_session, persisted
+):
+    """The `where` has to name the calling test, not the async plumbing.
+
+    This shape is intercepted inside SQLAlchemy's worker greenlet, whose Python
+    stack is only two `orm/session.py` frames deep — the caller is suspended on
+    the greenlet *below*. Without the greenlet continuation in the frame walk,
+    every refused bulk UPDATE would report `<unknown>` and the next unrouted
+    writer would be a hunt.
+    """
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"metadata": {}})
+        )
+
+    path, _, line = excinfo.value.where.rpartition(":")
+    assert path.endswith("backend/tests/unit/test_profile_write_guard.py")
+    assert line.isdigit()
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_bulk_update_succeeds(db_session, persisted):
+    with authorized_profile_write():
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Properly Routed"}})
+        )
+    await db_session.commit()
+
+    stored = await _stored(db_session, persisted.id)
+    assert stored["personal_info"]["full_name"] == "Properly Routed"
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_from_an_authorized_module_succeeds(db_session, persisted):
+    """Same module-exception mechanism as the setter's, reached across the
+    greenlet boundary."""
+    namespace: dict = {}
+    exec(  # noqa: S102 — exercising the frame-filename mechanism directly
+        compile(
+            "async def bulk_write(session, stmt):\n    await session.execute(stmt)\n",
+            "/opt/applire/backend/applire/services/profile/commit.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    await namespace["bulk_write"](
+        db_session,
+        update(MasterProfile)
+        .where(MasterProfile.id == persisted.id)
+        .values(profile_json={"metadata": {"from_the_committer": True}}),
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, persisted.id) == {
+        "metadata": {"from_the_committer": True}
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_from_an_unlisted_module_still_raises(
+    db_session, persisted
+):
+    namespace: dict = {}
+    exec(  # noqa: S102
+        compile(
+            "async def bulk_write(session, stmt):\n    await session.execute(stmt)\n",
+            "/opt/applire/backend/applire/services/profile/rogue.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await namespace["bulk_write"](
+            db_session,
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"metadata": {}}),
+        )
+
+
+# ── …and the shapes the listener must stay quiet for ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_that_leaves_profile_json_alone_is_not_a_write(
+    db_session, persisted
+):
+    """The retention worker's shape in miniature: same table, a column that is
+    not the vault."""
     await db_session.execute(
         update(MasterProfile)
-        .where(MasterProfile.id == record_id)
-        .values(profile_json={"personal_info": {"full_name": "Bulk Bypass"}})
+        .where(MasterProfile.id == persisted.id)
+        .values(deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, persisted.id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_retention_worker_tombstone_pass_stays_silent(db_session):
+    """Per-site sentinel for the one production caller of the bulk shape.
+
+    `_tombstone_inactive_profiles` sets `deleted_at` only (ADR-063 amendment 5).
+    It catches `ProgrammingError`/`OperationalError` and nothing else, so an
+    `UnauthorizedProfileWriteError` from the new listener would propagate out of
+    this call — which is exactly what this test refuses to allow.
+    """
+    from applire.retention.worker import _tombstone_inactive_profiles
+
+    with authorized_profile_write():
+        stale = MasterProfile(
+            profile_json=_seed(),
+            updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    db_session.add(stale)
+    await db_session.commit()
+
+    tombstoned = await _tombstone_inactive_profiles(db_session)
+
+    assert tombstoned == 1
+    assert await _stored(db_session, stale.id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_of_another_table_is_not_a_write(db_session):
+    """The listener is scoped to `master_profiles.profile_json`. A sibling table
+    that happens to carry a `profile_json` column is not the vault."""
+    record = _seeded()
+    db_session.add(record)
+    await db_session.flush()
+    snapshot = ProfileSnapshot(
+        profile_id=record.id,
+        enrichment_record_id=str(uuid.uuid4()),
+        profile_json={"personal_info": {"full_name": "Before The Merge"}},
+    )
+    db_session.add(snapshot)
+    await db_session.commit()
+
+    await db_session.execute(
+        update(ProfileSnapshot)
+        .where(ProfileSnapshot.id == snapshot.id)
+        .values(profile_json={"personal_info": {"full_name": "Rewritten"}})
     )
     await db_session.commit()
 
     stored = (
         await db_session.execute(
-            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+            sa.select(ProfileSnapshot.profile_json).where(
+                ProfileSnapshot.id == snapshot.id
+            )
         )
     ).scalar_one()
-    assert stored["personal_info"]["full_name"] == "Bulk Bypass", (
-        "The bulk-UPDATE bypass is still open — see the docstring. If this "
-        "assertion failed because the write was refused, the gap has been "
-        "closed: delete this test and pin the refusal instead."
-    )
+    assert stored["personal_info"]["full_name"] == "Rewritten"
+
+
+@pytest.mark.asyncio
+async def test_selecting_the_vault_is_never_a_write(db_session, persisted):
+    assert await _stored(db_session, persisted.id) == _seed()
