@@ -1142,7 +1142,11 @@
       "manual_section_updated": "Changed when you edited this section.",
       "manual_section_removed": "Removed when you edited this section.",
       "conflict_resolved": "Set to the value you picked when you resolved this conflict.",
-      "confirmation_resolved": "Recorded your answer to a confirmation question."
+      "confirmation_resolved": "Recorded your answer to a confirmation question.",
+      "role_added": "Added as the role you have just started.",
+      "role_closed": "Marked this role as ended.",
+      "gap_marked_na": "Marked this gap as not applicable to you.",
+      "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged."
     }
   },
   "mergeGate": {

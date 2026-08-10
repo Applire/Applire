@@ -1142,7 +1142,11 @@
       "manual_section_updated": "Beim Bearbeiten dieses Abschnitts geändert.",
       "manual_section_removed": "Beim Bearbeiten dieses Abschnitts entfernt.",
       "conflict_resolved": "Auf den Wert gesetzt, den du beim Klären dieses Konflikts gewählt hast.",
-      "confirmation_resolved": "Deine Antwort auf eine Rückfrage wurde festgehalten."
+      "confirmation_resolved": "Deine Antwort auf eine Rückfrage wurde festgehalten.",
+      "role_added": "Als neu angetretene Position ergänzt.",
+      "role_closed": "Diese Position als beendet markiert.",
+      "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
+      "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert."
     }
   },
   "mergeGate": {
