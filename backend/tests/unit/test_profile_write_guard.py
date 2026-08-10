@@ -55,6 +55,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import attributes
 
+from applire.models import profile as profile_module
 from applire.models.profile import (
     AUTHORIZED_PROFILE_WRITE_MODULES,
     MasterProfile,
@@ -636,3 +637,162 @@ async def test_a_bulk_update_of_another_table_is_not_a_write(db_session):
 @pytest.mark.asyncio
 async def test_selecting_the_vault_is_never_a_write(db_session, persisted):
     assert await _stored(db_session, persisted.id) == _seed()
+
+
+# ── The second bulk shape: UPDATE by primary key, values in the parameters ────
+#
+# `session.execute(update(MasterProfile), [{...}])` is the executemany form. It
+# leaves `Update._values` EMPTY — the assigned columns arrive as the parameter
+# dicts instead — so it exercises the listener's other extraction branch. Both
+# tests capture the primary key BEFORE the write: `rollback()` expires the
+# instance, and reading `record.id` back off an expired instance inside a
+# coroutine triggers a synchronous lazy refresh (`MissingGreenlet`) that has
+# nothing to do with the guard.
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_update_form_carrying_the_vault_raises(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile),
+            [{"id": record_id, "profile_json": {"personal_info": {"full_name": "X"}}}],
+        )
+    await db_session.rollback()
+
+    # The exact reason, not merely "it raised": this form is refused because the
+    # parameter dicts were READ and `profile_json` was found in them, not
+    # because the guard fell back to refusing what it could not parse.
+    assert excinfo.value.reason == "ORM bulk UPDATE"
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_update_form_without_the_vault_is_not_a_write(
+    db_session, persisted
+):
+    """The same form the retention worker would use if it ever batched — it
+    assigns `deleted_at`, so the listener stays quiet."""
+    record_id = persisted.id
+
+    await db_session.execute(
+        update(MasterProfile),
+        [{"id": record_id, "deleted_at": datetime(2026, 1, 1, tzinfo=timezone.utc)}],
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_single_mapping_update_form_carrying_the_vault_raises(
+    db_session, persisted
+):
+    """The same shape with ONE mapping instead of a list — SQLAlchemy hands the
+    listener a plain `dict` there, not a sequence, which is a separate branch of
+    the column extraction and so gets its own pin."""
+    record_id = persisted.id
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile),
+            {"id": record_id, "profile_json": {"personal_info": {"full_name": "X"}}},
+        )
+    await db_session.rollback()
+
+    assert excinfo.value.reason == "ORM bulk UPDATE"
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_single_mapping_update_form_without_the_vault_is_not_a_write(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    await db_session.execute(
+        update(MasterProfile),
+        {"id": record_id, "deleted_at": datetime(2026, 1, 1, tzinfo=timezone.utc)},
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_executemany_update_of_the_vault_succeeds(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    with authorized_profile_write():
+        await db_session.execute(
+            update(MasterProfile),
+            [{"id": record_id, "profile_json": {"personal_info": {"full_name": "OK"}}}],
+        )
+    await db_session.commit()
+
+    stored = await _stored(db_session, record_id)
+    assert stored["personal_info"]["full_name"] == "OK"
+
+
+# ── Fail-closed: SET columns that cannot be read ──────────────────────────────
+#
+# `Update._values` is private API with no public equivalent, so the extraction
+# can only be pinned, not made safe. These are the tests that turn a SQLAlchemy
+# rename into a red suite instead of a silently re-opened gap.
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [None, "not-a-mapping", [], [1, 2], ["profile_json"], (None,)],
+    ids=["none", "string", "empty-list", "ints", "strings", "tuple-of-none"],
+)
+def test_unreadable_set_columns_are_reported_as_unreadable(parameters):
+    """`None` is the extraction's "I cannot tell" answer — the value the
+    listener turns into a refusal."""
+
+    class _NoValues:
+        """An UPDATE whose `_values` accessor has gone away."""
+
+    assert profile_module._bulk_update_set_columns(_NoValues(), parameters) is None
+
+
+def test_readable_set_columns_come_back_as_names():
+    """The positive half of the same contract, over the parameter-dict form."""
+    assert profile_module._bulk_update_set_columns(
+        object(), [{"id": 1, "profile_json": {}}, {"id": 2, "deleted_at": None}]
+    ) == {"id", "profile_json", "deleted_at"}
+
+
+@pytest.mark.asyncio
+async def test_an_update_whose_set_columns_cannot_be_read_fails_closed(
+    db_session, persisted, monkeypatch
+):
+    """Simulates the one failure mode the extraction cannot defend against: a
+    SQLAlchemy release renaming `Update._values`.
+
+    The extraction is monkeypatched rather than fed a genuinely unreadable
+    statement — every UPDATE SQLAlchemy will actually compile exposes its SET
+    columns one way or the other, so constructing a real one would mean
+    hand-building a statement the ORM would refuse anyway.
+
+    The write here targets `deleted_at`, i.e. a statement that is normally
+    SILENT. It must be refused all the same: when the guard cannot tell what a
+    statement assigns, it refuses.
+    """
+    monkeypatch.setattr(
+        profile_module, "_bulk_update_set_columns", lambda statement, parameters: None
+    )
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        )
+
+    assert "unreadable SET columns" in excinfo.value.reason
