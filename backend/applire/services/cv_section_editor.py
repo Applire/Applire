@@ -431,14 +431,40 @@ async def _save_section_to_profile(
     written by ``patch_profile_section``; ``source_session_id`` carries the CV so
     the receipt says where the edit came from.
 
-    ⚠️ Still open (ADR-063 clause 8(d)/(e), FMEA SF-VAULT.4): reconcile, the
-    ADR-046 stance/denial guard, ``enforce_attribution`` and the ADR-042
-    pre-merge snapshot. Those are properties of the ``commit_ops`` committer,
-    which does not exist yet, and expressing these three writes as typed ops
-    needs the op types ADR-063's 2026-07-29 amendment (2) lists as missing
-    (an authorised overwrite; a wholesale list replace). The intake this now
-    shares does not have them either — so this is a parity fix, not a claim
-    that the write is guarded.
+    **The write IS guarded now** (#480 PRs 3-5; this docstring said otherwise
+    until PR 9 and was wrong). ``patch_profile_section`` emits a
+    ``ReplaceSection`` op — the wholesale-list-replace type ADR-063's 2026-07-29
+    amendment (2) listed as missing, built in PR 3 — and hands it to
+    ``commit_ops``, which does exist. So a section edit inherits the committer's
+    whole invariant set transitively: ops applied only through ``apply_ops``;
+    the **persisted-denial re-floor** (invariant 2, PR 4), so an edit that
+    re-introduces a skill the candidate retracted is taken back at the seam; an
+    unconditional per-entry trail; the universal completeness recompute; both
+    clocks; deterministic skill enrichment; receipt separation; the
+    ``_ensure_loadable`` round-trip; and the clause-6 write token. That closes
+    FMEA SF-VAULT.4's laundering shape — the write half here, the read half
+    (the denial-release corpus) in PR 4.
+
+    Two things remain absent, both deliberately and neither specific to this
+    door:
+
+    * the **ADR-042 pre-merge snapshot** — ``patch_profile_section`` passes
+      ``snapshot=None``. Widening snapshot coverage beyond the two import
+      writers is BLOCKED by decision (ADR-063 amendment (5) / #339): with
+      ``SNAPSHOT_MAX_PER_PROFILE`` pruned by recency, snapshotting every write
+      would let one editing session evict the import snapshot. It is a parameter
+      that says so, not a silent gap;
+    * **releasing** a denial — the ADR-059 un-denial act is unbuilt
+      committer-wide (``UN_DENIAL_INTAKE``, #506), so a denial floored here is
+      permanent.
+
+    What is NOT missing, despite the older reading: ``reconcile``, the ADR-046
+    stance guard and ``enforce_attribution`` are type-1 controls over TURN TEXT,
+    and they run inside ``reconcile()`` before ops land. A section edit is a
+    DIRECT act by the candidate about their own history — ``grounding=None`` →
+    ``confirmed`` — and the committer never re-adjudicates direct user input
+    (§7.4 ruling / ADR-061 clause 2, amended 2026-08-08). Requiring turn text
+    here would put an LLM adjudication in front of every keystroke.
     """
     from applire.schemas.profile import MasterProfileData
     from applire.services.profile import patch_profile_section
