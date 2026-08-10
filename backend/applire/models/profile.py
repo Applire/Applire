@@ -107,9 +107,12 @@ class MasterProfile(Base):
 #   * `before_flush` raises on a dirty `profile_json` that never passed the
 #     setter — an ORM/instrumentation-level bypass, the realistic one being an
 #     in-place mutation of the JSON dict plus a hand-rolled `flag_modified`.
-#     Raising inside the flush aborts the transaction (PO ruling Q1(a),
-#     2026-08-10), so the write cannot reach the database; the session recovers
-#     with an ordinary `rollback()`, which the guard's tests pin;
+#     Raising prevents the flush (PO ruling Q1(a), 2026-08-10) — the write never
+#     lands. Measured, because the first wording overstated it: the DBAPI
+#     transaction is NOT invalidated and there is no `PendingRollbackError`. The
+#     still-dirty instance simply re-refuses on every subsequent autoflush until
+#     the session is rolled back. `rollback()` is the recovery the guard's tests
+#     pin — sufficient, not the only one (expiring the attribute also clears it);
 #   * `do_orm_execute` raises on a bulk `update(MasterProfile)` OR
 #     `insert(MasterProfile)` whose assigned columns include `profile_json`.
 #     PR 9 measured the UPDATE shape against SQLAlchemy 2.0.36 and found it
@@ -191,8 +194,9 @@ class UnauthorizedProfileWriteError(RuntimeError):
     """A write to `master_profiles.profile_json` from outside the write path.
 
     ADR-063 clause 6. Raised by the attribute `set` event (before the value
-    reaches the instance) and by the `before_flush` backstop (aborting the
-    transaction, PO ruling Q1(a) 2026-08-10). Not catchable-and-ignorable by
+    reaches the instance), by the `before_flush` backstop (preventing the flush,
+    PO ruling Q1(a) 2026-08-10) and by the `do_orm_execute` listener (before the
+    statement is emitted). Not catchable-and-ignorable by
     design: there is no authorised way to write the vault other than holding the
     `authorized_profile_write()` token or being one of
     `AUTHORIZED_PROFILE_WRITE_MODULES`.
@@ -309,15 +313,22 @@ def _guard_profile_json_set(target, value, oldvalue, initiator):  # noqa: ANN001
 def _guard_profile_json_flush(session, flush_context, instances):  # noqa: ANN001
     """Belt and braces: a dirty ``profile_json`` that never passed the setter.
 
-    Raising here aborts the flush and therefore the transaction (PO ruling
-    Q1(a), 2026-08-10) — the unauthorised write physically cannot reach the
-    database. The session is poisoned in the ordinary SQLAlchemy sense and is
-    recovered by ``rollback()``.
+    Raising here prevents the flush (PO ruling Q1(a), 2026-08-10) — the
+    unauthorised write never lands in the database.
+
+    What it does NOT do, measured rather than asserted: it does not invalidate
+    the DBAPI transaction. There is no ``PendingRollbackError``; the session is
+    not "poisoned" in SQLAlchemy's technical sense. What actually happens is
+    narrower and enough — the instance stays dirty, so every subsequent
+    autoflush re-enters this listener and re-refuses, and the session is stuck
+    on this write until something clears it. ``rollback()`` is that something
+    and is what the tests pin; it is sufficient, not necessary (expiring the
+    attribute clears it too).
 
     (The retention worker's ``update(...).values(...)`` touches ``deleted_at``
     only — it is not a ``profile_json`` bypass, and this listener stays quiet
-    for it. The ORM bulk-UPDATE shape is NOT visible here at all — see the
-    KNOWN GAP note in the guard's header comment.)
+    for it. The bulk INSERT/UPDATE shapes are NOT visible here at all — they
+    never enter the unit of work; that is mechanism 3's job, see the header.)
     """
     for obj in list(session.new) + list(session.dirty):
         if not isinstance(obj, MasterProfile):

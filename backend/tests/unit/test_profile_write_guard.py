@@ -32,9 +32,10 @@ Three mechanisms, belt and braces:
    so a refused write leaves no trace at all;
 2. a ``before_flush`` listener — raises on a dirty ``profile_json`` that never
    passed the setter, i.e. an ORM/instrumentation-level bypass. Raising inside
-   the flush aborts the transaction (PO ruling Q1(a), 2026-08-10): the write
-   physically cannot reach the database. The poisoned session is recoverable by
-   the ordinary ``rollback()`` — pinned below;
+   the flush prevents it (PO ruling Q1(a), 2026-08-10): the write never lands.
+   The DBAPI transaction is not invalidated — the still-dirty instance simply
+   re-refuses on every subsequent autoflush until the session is rolled back,
+   and ``rollback()`` is the pinned recovery;
 3. a ``do_orm_execute`` listener — raises on an ORM bulk
    ``update(MasterProfile)`` or ``insert(MasterProfile)`` whose assigned
    columns include ``profile_json``. Both are emitted straight from
@@ -365,8 +366,12 @@ async def test_the_flush_raise_keeps_the_bypass_out_of_the_database(db_session):
 
 @pytest.mark.asyncio
 async def test_the_session_is_reusable_after_the_flush_raise(db_session):
-    """PO ruling Q1(a) leaves a poisoned session behind. Pin the recovery: an
-    ordinary rollback clears it and the session keeps working."""
+    """After the Q1(a) refusal the session is stuck on the refused write. Pin
+    the recovery: an ordinary rollback clears it and the session keeps working.
+
+    (Sufficient, not necessary — see
+    `test_the_refused_flush_does_not_invalidate_the_transaction` for what the
+    refusal actually leaves behind.)"""
     record = _seeded()
     db_session.add(record)
     await db_session.commit()
@@ -388,6 +393,46 @@ async def test_the_session_is_reusable_after_the_flush_raise(db_session):
         )
     ).scalar_one()
     assert stored["personal_info"]["full_name"] == "Properly Routed"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_flush_does_not_invalidate_the_transaction(db_session):
+    """What the Q1(a) refusal actually leaves behind — measured, because the
+    first description of it ("aborts the transaction", "poisoned session") was
+    stronger than the truth and an adversarial pass called it.
+
+    There is no ``PendingRollbackError``. The DBAPI transaction is fine. What is
+    stuck is the INSTANCE: it is still dirty, so the next autoflush re-enters
+    the backstop and re-refuses with the guard's own error. Clearing the dirty
+    attribute — without any rollback — is enough to make the session usable
+    again, which is what proves the transaction was never invalidated.
+    """
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+    record_id = record.id
+
+    record.profile_json["personal_info"]["full_name"] = "Smuggled In"
+    attributes.flag_modified(record, "profile_json")
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.flush()
+
+    # A plain query autoflushes, so it re-refuses — with the GUARD's error,
+    # not a PendingRollbackError.
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            sa.select(MasterProfile.id).where(MasterProfile.id == record_id)
+        )
+
+    # No rollback: just un-dirty the attribute.
+    db_session.expire(record, ["profile_json"])
+
+    stored = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Daniel Kovač"
 
 
 @pytest.mark.asyncio
