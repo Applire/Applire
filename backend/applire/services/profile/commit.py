@@ -268,10 +268,16 @@ async def create_profile_record(db: AsyncSession) -> MasterProfile:
     in this module: the caller owns the transaction, and needs the flush for the
     generated id.
     """
+    # The flush stays INSIDE the token span. Today the construction alone is
+    # enough — the setter records its verdict on the instance and `before_flush`
+    # pops it at flush time — so this is behaviour-identical. It is written this
+    # way because a write site whose flush lands outside its own authorisation
+    # only works by accident, and the next mechanism added to this guard has no
+    # reason to keep the accident working.
     with authorized_profile_write():
         record = MasterProfile(profile_json={})
-    db.add(record)
-    await db.flush()
+        db.add(record)
+        await db.flush()
     logger.info(
         "commit_ops: created the first MasterProfile row (id=%s) — empty until "
         "the ops that accompany it land (ADR-063 clause 6 / #480 PR 8)",
