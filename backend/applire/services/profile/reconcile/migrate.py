@@ -37,10 +37,20 @@ Boundaries:
 - ADR-040 (truthful): only engine-proposed ops are applied; an ambiguity the engine
   cannot resolve is RECORDED and the entry is left unchanged (never auto-resolved,
   never an invented link).
-- ADR-042 (reversible): the caller (the migration script) takes a pre-reshape
-  snapshot before persisting, so the cleanup is undoable.
+- ADR-042 (reversible): reversibility was the RUNNER's job, never this module's —
+  the one-time pass took a pre-reshape snapshot before persisting each profile.
 - The reshape itself is PURE: it deep-copies, never persists, never calls
   ``get_provider()`` — the provider is injected.
+
+**No production importer, since #480 PR 9.** The runner
+(``scripts/migrate_flat_duplicates.py``) shipped in the ``v0.37.0-beta`` …
+``v0.38.0-beta`` releases and was deleted as a spent one-time pass — and as an
+unrouted vault writer, which is what actually surfaced it (ADR-063 clause 6).
+This is now a pure library function whose only caller is
+``backend/tests/unit/test_migrate_flat_duplicates.py``. It is kept rather than
+deleted alongside the runner because the reshape logic is the reusable half: any
+future caller inherits BOTH obligations the runner carried — take the snapshot,
+and persist through ``commit_ops``, which the deleted script did not do.
 """
 from __future__ import annotations
 

@@ -16,6 +16,8 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 
 def _flat(text: str) -> str:
     """Lowercase a prompt and collapse every run of whitespace to one space.
@@ -215,7 +217,7 @@ class TestProfileServiceReviewIntegration:
             "languages": [],
             "contact": {"name": "", "email": None, "phone": None, "location": None, "linkedin": None},
         }
-        mock_record = MasterProfile(
+        mock_record = make_master_profile(
             id="00000000-0000-0000-0000-000000000001",
             profile_json=existing_profile_json,
             created_at=datetime.now(timezone.utc),

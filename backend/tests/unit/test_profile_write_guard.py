@@ -15,53 +15,71 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""ADR-063 clause 6 (amended 2026-08-09) — the attribute-level write guard,
-WARN MODE (#480 PR 1).
+"""ADR-063 clause 6 — the attribute-level write guard, STRICT (#480 PR 9).
 
 `master_profiles.profile_json` may only be assigned by `commit_ops` (which holds
-a contextvar token) or by two named module exceptions: `services/photo.py`
+the `authorized_profile_write()` contextvar token across its assignment) or from
+one of three named modules: `services/profile/commit.py`, `services/photo.py`
 (`Binary` under GDPR Art. 9(2)(a)) and `services/profile/snapshots.py` (the undo
-restore). Everything else is an unrouted writer, scheduled into PRs 2–8.
+restore). Everything else raises :class:`UnauthorizedProfileWriteError`.
 
-**PR 1 warns; it never raises.** Strict mode lands in PR 9 and hard-depends on
-PR 8 routing the three first-profile-creation sites
-(`services/profile/__init__.py:555`, `:1165`, `services/session.py:1290`) —
-raising before those are routed would break profile creation outright.
-
-Two mechanisms, belt and braces:
+Three mechanisms, belt and braces:
 
 1. the attribute `set` event — fires on plain assignment AND on keyword
    construction (``MasterProfile(profile_json=…)`` goes through ``setattr``,
    which is the case that defeated the original clause 6 and made the writer
-   count 19 rather than 16);
-2. a ``before_flush`` listener — catches a dirty ``profile_json`` that never
-   passed the setter at all.
+   count 19 rather than 16). It raises *before* the value reaches the instance,
+   so a refused write leaves no trace at all;
+2. a ``before_flush`` listener — raises on a dirty ``profile_json`` that never
+   passed the setter, i.e. an ORM/instrumentation-level bypass. Raising inside
+   the flush prevents it (PO ruling Q1(a), 2026-08-10): the write never lands.
+   The DBAPI transaction is not invalidated — the still-dirty instance simply
+   re-refuses on every subsequent autoflush until the session is rolled back,
+   and ``rollback()`` is the pinned recovery;
+3. a ``do_orm_execute`` listener — raises on an ORM bulk
+   ``update(MasterProfile)`` or ``insert(MasterProfile)`` whose assigned
+   columns include ``profile_json``. Both are emitted straight from
+   ``Session.execute`` and reach neither of the other two (PR 9 measured the
+   UPDATE gap, PO ruling 1 2026-08-10 closed it; INSERT was added after an
+   adversarial pass reproduced the same bypass one verb over). It raises before
+   the statement is executed, so the value never reaches the database — and it
+   never fires for unit-of-work persistence, which is what keeps ``db.add()``
+   working and is pinned by its own spy test.
 
-(Gate-test note for PR 9: the retention worker's ``update(...).values(...)``
-touches only ``deleted_at`` — it is not a ``profile_json`` bypass.)
+All three mechanisms are unconditional. There is no warn mode, no env-var escape and
+no test-only bypass: a test that legitimately needs to build a fixture profile
+opens the SAME public door production uses (`tests/support/profile_factory.py`).
 """
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
+from sqlalchemy import event, insert, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, attributes
 
+from applire.models import profile as profile_module
 from applire.models.profile import (
+    AUTHORIZED_PROFILE_WRITE_MODULES,
     MasterProfile,
     ProfileSnapshot,
+    UnauthorizedProfileWriteError,
     authorized_profile_write,
-    reset_unauthorized_profile_writes,
-    unauthorized_profile_writes,
 )
 
-_SEED = {"personal_info": {"full_name": "Daniel Kovač"}, "metadata": {}}
+
+def _seed() -> dict:
+    """A fresh nested dict every call — these tests mutate `profile_json` in
+    place on purpose, and a shared literal would leak between them."""
+    return {"personal_info": {"full_name": "Daniel Kovač"}, "metadata": {}}
 
 
-@pytest.fixture(autouse=True)
-def _reset_counter():
-    reset_unauthorized_profile_writes()
-    yield
-    reset_unauthorized_profile_writes()
+def _seeded() -> MasterProfile:
+    """A fixture record, built through the public door — never a bypass."""
+    with authorized_profile_write():
+        return MasterProfile(profile_json=_seed())
 
 
 @pytest_asyncio.fixture
@@ -87,80 +105,112 @@ async def db_session():
     await engine.dispose()
 
 
-# ── The setter fires, and on both write shapes ────────────────────────────────
+# ── The setter refuses, on both write shapes ──────────────────────────────────
 
 
-def test_direct_assignment_from_an_unrouted_module_warns(caplog):
-    record = MasterProfile(profile_json=dict(_SEED))
-    reset_unauthorized_profile_writes()
+def test_direct_assignment_without_the_token_raises():
+    record = _seeded()
 
-    with caplog.at_level("WARNING", logger="applire.models.profile"):
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
         record.profile_json = {"personal_info": {"full_name": "Someone Else"}}
 
-    assert unauthorized_profile_writes() == 1
-    assert any("profile_json" in r.getMessage() for r in caplog.records)
-    # WARN mode: the write still lands. PR 9 makes this raise.
-    assert record.profile_json["personal_info"]["full_name"] == "Someone Else"
+    assert "clause 6" in str(excinfo.value)
+    assert "commit_ops" in str(excinfo.value)
 
 
-def test_keyword_construction_warns():
-    """The shape the original clause-6 grep could not see."""
-    MasterProfile(profile_json=dict(_SEED))
+def test_the_refused_write_carries_the_caller_location():
+    """The exception has to say WHERE, or the next unrouted writer is a hunt."""
+    record = _seeded()
 
-    assert unauthorized_profile_writes() == 1
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        record.profile_json = {"metadata": {}}
 
-
-def test_reading_profile_json_never_warns():
-    record = MasterProfile(profile_json=dict(_SEED))
-    reset_unauthorized_profile_writes()
-
-    _ = record.profile_json
-    _ = record.profile_json.get("personal_info")
-
-    assert unauthorized_profile_writes() == 0
+    path, _, line = excinfo.value.where.rpartition(":")
+    assert path.endswith("backend/tests/unit/test_profile_write_guard.py")
+    assert line.isdigit()
+    assert excinfo.value.where in str(excinfo.value)
 
 
-def test_the_guard_never_raises_in_warn_mode():
-    """PR 1 must not break the unrouted writers that still exist by design."""
-    record = MasterProfile(profile_json=dict(_SEED))
-    record.profile_json = {"metadata": {}}  # no exception
+def test_the_refused_write_never_lands_on_the_instance():
+    record = _seeded()
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        record.profile_json = {"personal_info": {"full_name": "Someone Else"}}
+
+    assert record.profile_json["personal_info"]["full_name"] == "Daniel Kovač"
+
+
+def test_keyword_construction_without_the_token_raises():
+    """The shape the original clause-6 grep could not see — pinned explicitly,
+    because it is why the write-surface inventory came out at 16 writers when
+    there were 19."""
+    with pytest.raises(UnauthorizedProfileWriteError):
+        MasterProfile(profile_json=_seed())
+
+
+def test_keyword_construction_names_the_calling_file_not_the_declarative_init():
+    """SQLAlchemy compiles a mapped class's `__init__` with the filename
+    `<string>`, and on this shape it is the frame directly above the setter. If
+    the guard reported it, every refused construction would read `<string>:4`
+    and the fix would be a hunt."""
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        MasterProfile(profile_json=_seed())
+
+    assert excinfo.value.where.split(":")[0].endswith(
+        "backend/tests/unit/test_profile_write_guard.py"
+    )
+
+
+def test_reading_profile_json_is_never_a_write():
+    record = _seeded()
+
+    assert record.profile_json["personal_info"]["full_name"] == "Daniel Kovač"
+    assert record.profile_json.get("metadata") == {}
 
 
 # ── The token authorises ──────────────────────────────────────────────────────
 
 
-def test_a_tokened_write_is_silent(caplog):
-    record = MasterProfile(profile_json=dict(_SEED))
-    reset_unauthorized_profile_writes()
-    caplog.clear()
+def test_a_tokened_write_succeeds():
+    record = _seeded()
 
-    with caplog.at_level("WARNING", logger="applire.models.profile"):
-        with authorized_profile_write():
-            record.profile_json = {"metadata": {"completeness_score": 0.5}}
+    with authorized_profile_write():
+        record.profile_json = {"metadata": {"completeness_score": 0.5}}
 
-    assert unauthorized_profile_writes() == 0
-    assert [r for r in caplog.records if "profile_json" in r.getMessage()] == []
+    assert record.profile_json == {"metadata": {"completeness_score": 0.5}}
 
 
 def test_the_token_is_released_after_the_block():
-    record = MasterProfile(profile_json=dict(_SEED))
+    record = _seeded()
     with authorized_profile_write():
         record.profile_json = {"metadata": {}}
-    reset_unauthorized_profile_writes()
 
-    record.profile_json = {"metadata": {"application_count": 1}}
-
-    assert unauthorized_profile_writes() == 1
+    with pytest.raises(UnauthorizedProfileWriteError):
+        record.profile_json = {"metadata": {"application_count": 1}}
 
 
-# ── The two module exceptions ─────────────────────────────────────────────────
+def test_the_token_is_released_even_when_the_block_raises():
+    record = _seeded()
+    with pytest.raises(ValueError):
+        with authorized_profile_write():
+            raise ValueError("boom")
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        record.profile_json = {"metadata": {}}
 
 
-def test_the_exception_set_is_the_three_named_modules():
-    """Enumerated here so PR 9's strict gate has one place to assert against —
-    the day a twelfth writer grants itself an exception, this fails."""
-    from applire.models.profile import AUTHORIZED_PROFILE_WRITE_MODULES
+# ── The three module exceptions ───────────────────────────────────────────────
 
+
+def test_the_exception_set_is_exactly_the_three_named_modules():
+    """The gate that replaces the grep: the day a twelfth writer grants itself
+    an exception, this test fails.
+
+    Re-verified for this flip (ADR-063 amendment 5): the retention worker's
+    `update(MasterProfile).…values(deleted_at=now)`
+    (`applire/retention/worker.py:299`) touches `deleted_at` ONLY — it is not a
+    `profile_json` write and needs no exception.
+    """
     assert set(AUTHORIZED_PROFILE_WRITE_MODULES) == {
         "applire/services/profile/commit.py",
         "applire/services/profile/snapshots.py",
@@ -168,12 +218,48 @@ def test_the_exception_set_is_the_three_named_modules():
     }
 
 
+def test_a_write_from_an_authorized_module_succeeds_without_the_token():
+    """The module exception is a filename check over the calling frames — the
+    belt-and-braces half that survives a refactor moving an assignment out of
+    the committer's token block."""
+    record = _seeded()
+    namespace: dict = {}
+    exec(  # noqa: S102 — exercising the frame-filename mechanism directly
+        compile(
+            "def write(record, value):\n    record.profile_json = value\n",
+            "/opt/applire/backend/applire/services/profile/commit.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    namespace["write"](record, {"metadata": {"from_the_committer": True}})
+
+    assert record.profile_json == {"metadata": {"from_the_committer": True}}
+
+
+def test_a_write_from_an_unlisted_module_still_raises():
+    """Same mechanism, a filename that is not in the set."""
+    record = _seeded()
+    namespace: dict = {}
+    exec(  # noqa: S102
+        compile(
+            "def write(record, value):\n    record.profile_json = value\n",
+            "/opt/applire/backend/applire/services/profile/rogue.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        namespace["write"](record, {"metadata": {}})
+
+
 @pytest.mark.asyncio
-async def test_the_snapshot_undo_restore_does_not_warn(db_session):
+async def test_the_snapshot_undo_restore_is_authorised(db_session):
     from applire.services.profile.snapshots import undo_last_merge
 
-    with authorized_profile_write():
-        record = MasterProfile(profile_json=dict(_SEED))
+    record = _seeded()
     db_session.add(record)
     await db_session.flush()
     db_session.add(
@@ -184,16 +270,15 @@ async def test_the_snapshot_undo_restore_does_not_warn(db_session):
         )
     )
     await db_session.commit()
-    reset_unauthorized_profile_writes()
 
     result = await undo_last_merge(db_session)
 
     assert result.restored is True
-    assert unauthorized_profile_writes() == 0
+    assert record.profile_json["personal_info"]["full_name"] == "Before The Merge"
 
 
 @pytest.mark.asyncio
-async def test_the_photo_service_does_not_warn(db_session):
+async def test_the_photo_service_is_authorised(db_session):
     from applire.models.user import User
     from applire.services.photo import delete_photo
 
@@ -221,42 +306,728 @@ async def test_the_photo_service_does_not_warn(db_session):
             )
         )
     await db_session.commit()
-    reset_unauthorized_profile_writes()
 
     storage = _Storage()
     await delete_photo(user_id=user_id, db=db_session, storage=storage)
 
     assert storage.deleted == ["photos/photo.jpg"]
-    assert unauthorized_profile_writes() == 0
+
+
+@pytest.mark.asyncio
+async def test_the_committers_own_row_constructor_is_authorised(db_session):
+    from applire.services.profile.commit import create_profile_record
+
+    record = await create_profile_record(db_session)
+
+    assert record.profile_json == {}
 
 
 # ── The before_flush backstop ─────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_an_untokened_write_is_also_caught_at_flush(db_session, caplog):
-    """Belt and braces: warn-mode PR 1 counts the setter hit; the flush listener
-    is the half that survives an ORM-level bypass in PR 9."""
-    with authorized_profile_write():
-        record = MasterProfile(profile_json=dict(_SEED))
+async def test_an_orm_level_bypass_raises_at_flush(db_session):
+    """The realistic bypass the setter cannot see: the JSON column is mutated
+    in place and the instance is flagged modified by hand. No `set` event ever
+    fires, so only the flush listener stands between it and the vault."""
+    record = _seeded()
     db_session.add(record)
     await db_session.commit()
-    reset_unauthorized_profile_writes()
 
-    record.profile_json = {"metadata": {"application_count": 3}}
-    with caplog.at_level("WARNING", logger="applire.models.profile"):
+    record.profile_json["personal_info"]["full_name"] = "Smuggled In"
+    attributes.flag_modified(record, "profile_json")
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
         await db_session.flush()
 
-    # One warning from the setter; the flush listener sees the setter already
-    # ruled on this instance and does not double-count.
-    assert unauthorized_profile_writes() == 1
+    assert "flush" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_the_flush_raise_keeps_the_bypass_out_of_the_database(db_session):
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+    record_id = record.id
+
+    record.profile_json["personal_info"]["full_name"] = "Smuggled In"
+    attributes.flag_modified(record, "profile_json")
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    stored = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Daniel Kovač"
+
+
+@pytest.mark.asyncio
+async def test_the_session_is_reusable_after_the_flush_raise(db_session):
+    """After the Q1(a) refusal the session is stuck on the refused write. Pin
+    the recovery: an ordinary rollback clears it and the session keeps working.
+
+    (Sufficient, not necessary — see
+    `test_the_refused_flush_does_not_invalidate_the_transaction` for what the
+    refusal actually leaves behind.)"""
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+    record_id = record.id
+
+    record.profile_json["personal_info"]["full_name"] = "Smuggled In"
+    attributes.flag_modified(record, "profile_json")
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.flush()
+
+    await db_session.rollback()
+
+    with authorized_profile_write():
+        record.profile_json = {"personal_info": {"full_name": "Properly Routed"}}
+    await db_session.commit()
+    stored = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Properly Routed"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_flush_does_not_invalidate_the_transaction(db_session):
+    """What the Q1(a) refusal actually leaves behind — measured, because the
+    first description of it ("aborts the transaction", "poisoned session") was
+    stronger than the truth and an adversarial pass called it.
+
+    There is no ``PendingRollbackError``. The DBAPI transaction is fine. What is
+    stuck is the INSTANCE: it is still dirty, so the next autoflush re-enters
+    the backstop and re-refuses with the guard's own error. Clearing the dirty
+    attribute — without any rollback — is enough to make the session usable
+    again, which is what proves the transaction was never invalidated.
+    """
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+    record_id = record.id
+
+    record.profile_json["personal_info"]["full_name"] = "Smuggled In"
+    attributes.flag_modified(record, "profile_json")
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.flush()
+
+    # A plain query autoflushes, so it re-refuses — with the GUARD's error,
+    # not a PendingRollbackError.
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            sa.select(MasterProfile.id).where(MasterProfile.id == record_id)
+        )
+
+    # No rollback: just un-dirty the attribute.
+    db_session.expire(record, ["profile_json"])
+
+    stored = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Daniel Kovač"
 
 
 @pytest.mark.asyncio
 async def test_a_tokened_write_flushes_silently(db_session):
     with authorized_profile_write():
-        record = MasterProfile(profile_json=dict(_SEED))
+        record = MasterProfile(profile_json=_seed())
         db_session.add(record)
         await db_session.flush()
 
-    assert unauthorized_profile_writes() == 0
+    await db_session.commit()
+    assert record.profile_json == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_setters_verdict_is_consumed_per_flush(db_session):
+    """One authorised write authorises ONE flush. If the decision leaked, a
+    later bypass on the same instance would ride in on it."""
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+
+    with authorized_profile_write():
+        record.profile_json = {"metadata": {"round": 1}}
+    await db_session.commit()
+
+    record.profile_json["round"] = 2
+    attributes.flag_modified(record, "profile_json")
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.flush()
+
+
+# ── The ORM bulk-UPDATE shape: the do_orm_execute listener ────────────────────
+#
+# The gap PR 9 first measured and pinned honestly. `update(MasterProfile)
+# .values(profile_json=…)` is emitted straight from `Session.execute`: it never
+# enters the unit of work, never dirties the instance, and so reaches NEITHER
+# the `set` event NOR `before_flush`. PO ruling 1 (2026-08-10) closed it with a
+# third mechanism rather than leaving it documented.
+
+
+async def _stored(db_session, record_id) -> dict:
+    return (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def persisted(db_session):
+    """A committed fixture row — the starting point for every bulk-UPDATE test."""
+    record = _seeded()
+    db_session.add(record)
+    await db_session.commit()
+    return record
+
+
+@pytest.mark.asyncio
+async def test_the_orm_bulk_update_of_profile_json_raises(db_session, persisted):
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Bulk Bypass"}})
+        )
+
+    assert "clause 6" in str(excinfo.value)
+    assert "bulk" in excinfo.value.reason
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_update_never_reaches_the_database(
+    db_session, persisted
+):
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Bulk Bypass"}})
+        )
+    await db_session.rollback()
+
+    stored = await _stored(db_session, persisted.id)
+    assert stored["personal_info"]["full_name"] == "Daniel Kovač"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_update_carries_the_caller_location(
+    db_session, persisted
+):
+    """The `where` has to name the calling test, not the async plumbing.
+
+    This shape is intercepted inside SQLAlchemy's worker greenlet, whose Python
+    stack is only two `orm/session.py` frames deep — the caller is suspended on
+    the greenlet *below*. Without the greenlet continuation in the frame walk,
+    every refused bulk UPDATE would report `<unknown>` and the next unrouted
+    writer would be a hunt.
+    """
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"metadata": {}})
+        )
+
+    path, _, line = excinfo.value.where.rpartition(":")
+    assert path.endswith("backend/tests/unit/test_profile_write_guard.py")
+    assert line.isdigit()
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_bulk_update_succeeds(db_session, persisted):
+    with authorized_profile_write():
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"personal_info": {"full_name": "Properly Routed"}})
+        )
+    await db_session.commit()
+
+    stored = await _stored(db_session, persisted.id)
+    assert stored["personal_info"]["full_name"] == "Properly Routed"
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_from_an_authorized_module_succeeds(db_session, persisted):
+    """Same module-exception mechanism as the setter's, reached across the
+    greenlet boundary."""
+    namespace: dict = {}
+    exec(  # noqa: S102 — exercising the frame-filename mechanism directly
+        compile(
+            "async def bulk_write(session, stmt):\n    await session.execute(stmt)\n",
+            "/opt/applire/backend/applire/services/profile/commit.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    await namespace["bulk_write"](
+        db_session,
+        update(MasterProfile)
+        .where(MasterProfile.id == persisted.id)
+        .values(profile_json={"metadata": {"from_the_committer": True}}),
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, persisted.id) == {
+        "metadata": {"from_the_committer": True}
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_from_an_unlisted_module_still_raises(
+    db_session, persisted
+):
+    namespace: dict = {}
+    exec(  # noqa: S102
+        compile(
+            "async def bulk_write(session, stmt):\n    await session.execute(stmt)\n",
+            "/opt/applire/backend/applire/services/profile/rogue.py",
+            "exec",
+        ),
+        namespace,
+    )
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await namespace["bulk_write"](
+            db_session,
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(profile_json={"metadata": {}}),
+        )
+
+
+# ── …and the shapes the listener must stay quiet for ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_that_leaves_profile_json_alone_is_not_a_write(
+    db_session, persisted
+):
+    """The retention worker's shape in miniature: same table, a column that is
+    not the vault."""
+    await db_session.execute(
+        update(MasterProfile)
+        .where(MasterProfile.id == persisted.id)
+        .values(deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, persisted.id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_retention_worker_tombstone_pass_stays_silent(db_session):
+    """Per-site sentinel for the one production caller of the bulk shape.
+
+    `_tombstone_inactive_profiles` sets `deleted_at` only (ADR-063 amendment 5).
+    It catches `ProgrammingError`/`OperationalError` and nothing else, so an
+    `UnauthorizedProfileWriteError` from the new listener would propagate out of
+    this call — which is exactly what this test refuses to allow.
+    """
+    from applire.retention.worker import _tombstone_inactive_profiles
+
+    with authorized_profile_write():
+        stale = MasterProfile(
+            profile_json=_seed(),
+            updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    db_session.add(stale)
+    await db_session.commit()
+
+    tombstoned = await _tombstone_inactive_profiles(db_session)
+
+    assert tombstoned == 1
+    assert await _stored(db_session, stale.id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_update_of_another_table_is_not_a_write(db_session):
+    """The listener is scoped to `master_profiles.profile_json`. A sibling table
+    that happens to carry a `profile_json` column is not the vault."""
+    record = _seeded()
+    db_session.add(record)
+    await db_session.flush()
+    snapshot = ProfileSnapshot(
+        profile_id=record.id,
+        enrichment_record_id=str(uuid.uuid4()),
+        profile_json={"personal_info": {"full_name": "Before The Merge"}},
+    )
+    db_session.add(snapshot)
+    await db_session.commit()
+
+    await db_session.execute(
+        update(ProfileSnapshot)
+        .where(ProfileSnapshot.id == snapshot.id)
+        .values(profile_json={"personal_info": {"full_name": "Rewritten"}})
+    )
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            sa.select(ProfileSnapshot.profile_json).where(
+                ProfileSnapshot.id == snapshot.id
+            )
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Rewritten"
+
+
+@pytest.mark.asyncio
+async def test_selecting_the_vault_is_never_a_write(db_session, persisted):
+    assert await _stored(db_session, persisted.id) == _seed()
+
+
+# ── The second bulk shape: UPDATE by primary key, values in the parameters ────
+#
+# `session.execute(update(MasterProfile), [{...}])` is the executemany form. It
+# leaves `Update._values` EMPTY — the assigned columns arrive as the parameter
+# dicts instead — so it exercises the listener's other extraction branch. Both
+# tests capture the primary key BEFORE the write: `rollback()` expires the
+# instance, and reading `record.id` back off an expired instance inside a
+# coroutine triggers a synchronous lazy refresh (`MissingGreenlet`) that has
+# nothing to do with the guard.
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_update_form_carrying_the_vault_raises(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile),
+            [{"id": record_id, "profile_json": {"personal_info": {"full_name": "X"}}}],
+        )
+    await db_session.rollback()
+
+    # The exact reason, not merely "it raised": this form is refused because the
+    # parameter dicts were READ and `profile_json` was found in them, not
+    # because the guard fell back to refusing what it could not parse.
+    assert excinfo.value.reason == "ORM bulk UPDATE"
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_update_form_without_the_vault_is_not_a_write(
+    db_session, persisted
+):
+    """The same form the retention worker would use if it ever batched — it
+    assigns `deleted_at`, so the listener stays quiet."""
+    record_id = persisted.id
+
+    await db_session.execute(
+        update(MasterProfile),
+        [{"id": record_id, "deleted_at": datetime(2026, 1, 1, tzinfo=timezone.utc)}],
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_single_mapping_update_form_carrying_the_vault_raises(
+    db_session, persisted
+):
+    """The same shape with ONE mapping instead of a list — SQLAlchemy hands the
+    listener a plain `dict` there, not a sequence, which is a separate branch of
+    the column extraction and so gets its own pin."""
+    record_id = persisted.id
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile),
+            {"id": record_id, "profile_json": {"personal_info": {"full_name": "X"}}},
+        )
+    await db_session.rollback()
+
+    assert excinfo.value.reason == "ORM bulk UPDATE"
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_the_single_mapping_update_form_without_the_vault_is_not_a_write(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    await db_session.execute(
+        update(MasterProfile),
+        {"id": record_id, "deleted_at": datetime(2026, 1, 1, tzinfo=timezone.utc)},
+    )
+    await db_session.commit()
+
+    assert await _stored(db_session, record_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_executemany_update_of_the_vault_succeeds(
+    db_session, persisted
+):
+    record_id = persisted.id
+
+    with authorized_profile_write():
+        await db_session.execute(
+            update(MasterProfile),
+            [{"id": record_id, "profile_json": {"personal_info": {"full_name": "OK"}}}],
+        )
+    await db_session.commit()
+
+    stored = await _stored(db_session, record_id)
+    assert stored["personal_info"]["full_name"] == "OK"
+
+
+# ── Fail-closed: SET columns that cannot be read ──────────────────────────────
+#
+# `Update._values` is private API with no public equivalent, so the extraction
+# can only be pinned, not made safe. These are the tests that turn a SQLAlchemy
+# rename into a red suite instead of a silently re-opened gap.
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [None, "not-a-mapping", [], [1, 2], ["profile_json"], (None,)],
+    ids=["none", "string", "empty-list", "ints", "strings", "tuple-of-none"],
+)
+def test_unreadable_set_columns_are_reported_as_unreadable(parameters):
+    """`None` is the extraction's "I cannot tell" answer — the value the
+    listener turns into a refusal."""
+
+    class _NoValues:
+        """An UPDATE whose `_values` accessor has gone away."""
+
+    assert profile_module._bulk_write_columns(_NoValues(), parameters) is None
+
+
+def test_readable_set_columns_come_back_as_names():
+    """The positive half of the same contract, over the parameter-dict form."""
+    assert profile_module._bulk_write_columns(
+        object(), [{"id": 1, "profile_json": {}}, {"id": 2, "deleted_at": None}]
+    ) == {"id", "profile_json", "deleted_at"}
+
+
+@pytest.mark.asyncio
+async def test_an_update_whose_set_columns_cannot_be_read_fails_closed(
+    db_session, persisted, monkeypatch
+):
+    """Simulates the one failure mode the extraction cannot defend against: a
+    SQLAlchemy release renaming `Update._values`.
+
+    The extraction is monkeypatched rather than fed a genuinely unreadable
+    statement — every UPDATE SQLAlchemy will actually compile exposes its SET
+    columns one way or the other, so constructing a real one would mean
+    hand-building a statement the ORM would refuse anyway.
+
+    The write here targets `deleted_at`, i.e. a statement that is normally
+    SILENT. It must be refused all the same: when the guard cannot tell what a
+    statement assigns, it refuses.
+    """
+    monkeypatch.setattr(
+        profile_module, "_bulk_write_columns", lambda statement, parameters: None
+    )
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .values(deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        )
+
+    assert "unreadable SET columns" in excinfo.value.reason
+
+
+@pytest.mark.asyncio
+async def test_an_ordered_values_update_fails_closed_for_real(db_session, persisted):
+    """The same fail-closed path, reached WITHOUT monkeypatching anything.
+
+    `.ordered_values()` stores its assignments as a tuple of pairs rather than
+    the mapping `_values` normally holds, so the extraction genuinely cannot
+    read the SET columns — and the guard refuses. Note it refuses even though
+    this particular statement only touches `deleted_at`: an over-refusal is the
+    deliberate direction of the trade, and no production caller uses
+    `ordered_values` (the retention worker uses `.values()`).
+    """
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            update(MasterProfile)
+            .where(MasterProfile.id == persisted.id)
+            .ordered_values(
+                (
+                    MasterProfile.__table__.c.deleted_at,
+                    datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
+        )
+
+    assert "unreadable SET columns" in excinfo.value.reason
+
+
+# ── The INSERT half of the same mechanism ─────────────────────────────────────
+#
+# An adversarial pass reproduced the hole: `insert(MasterProfile).values(
+# profile_json=…)` reached the database unauthorised, because the listener
+# gated on `is_update` alone. A vault created out of nothing is exactly as
+# unrouted as a vault overwritten — `commit_ops` owns creation too (PR 8).
+
+
+@pytest.mark.asyncio
+async def test_the_orm_bulk_insert_of_the_vault_raises(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+
+    assert excinfo.value.reason == "ORM bulk INSERT"
+
+
+@pytest.mark.asyncio
+async def test_the_refused_bulk_insert_never_reaches_the_database(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError):
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+    await db_session.rollback()
+
+    found = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == new_id)
+        )
+    ).scalar_one_or_none()
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_the_executemany_insert_form_carrying_the_vault_raises(db_session):
+    new_id = uuid.uuid4()
+
+    with pytest.raises(UnauthorizedProfileWriteError) as excinfo:
+        await db_session.execute(
+            insert(MasterProfile), [{"id": new_id, "profile_json": _seed()}]
+        )
+    await db_session.rollback()
+
+    assert excinfo.value.reason == "ORM bulk INSERT"
+
+
+@pytest.mark.asyncio
+async def test_a_tokened_bulk_insert_succeeds(db_session):
+    new_id = uuid.uuid4()
+
+    with authorized_profile_write():
+        await db_session.execute(
+            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+        )
+    await db_session.commit()
+
+    assert await _stored(db_session, new_id) == _seed()
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_insert_into_another_table_is_not_a_write(db_session, persisted):
+    """`master_profiles` is the vault; `profile_snapshots` carries the same
+    column name and is not.
+
+    (There is deliberately no "INSERT into master_profiles without
+    `profile_json`" silence test: the column is `nullable=False`, so that row
+    cannot exist — the sibling table is the honest place to pin the scoping.)
+    """
+    snapshot_id = uuid.uuid4()
+
+    await db_session.execute(
+        insert(ProfileSnapshot).values(
+            id=snapshot_id,
+            profile_id=persisted.id,
+            enrichment_record_id=str(uuid.uuid4()),
+            profile_json={"personal_info": {"full_name": "Before The Merge"}},
+        )
+    )
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            sa.select(ProfileSnapshot.profile_json).where(
+                ProfileSnapshot.id == snapshot_id
+            )
+        )
+    ).scalar_one()
+    assert stored["personal_info"]["full_name"] == "Before The Merge"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_profile_row_is_not_a_content_write(db_session, persisted):
+    """`delete(MasterProfile)` is row lifecycle, not content — and it MUST stay
+    silent, because that is exactly the statement GDPR erasure issues
+    (`routers/profile.py:855`, which deletes every profile row).
+
+    This is the boundary a well-meaning "just gate every verb" change would
+    cross: a DELETE names no SET columns, so the fail-closed branch would refuse
+    it and erasure would break. The guard is a content control, not a lifecycle
+    one, and this test is what keeps that decision from being edited away by
+    accident.
+    """
+    record_id = persisted.id
+
+    await db_session.execute(sa.delete(MasterProfile))
+    await db_session.commit()
+
+    found = (
+        await db_session.execute(
+            sa.select(MasterProfile.profile_json).where(MasterProfile.id == record_id)
+        )
+    ).scalar_one_or_none()
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_the_unit_of_work_insert_never_reaches_the_listener(db_session):
+    """THE regression pin for the INSERT gate.
+
+    Every fixture in the suite, and `create_profile_record` in production,
+    creates a row by constructing it under the token and then letting the unit
+    of work emit the INSERT at flush. That SQL does NOT come from
+    `Session.execute`, so `do_orm_execute` never fires for it — which is the
+    only reason gating on `is_insert` is safe.
+
+    If a future SQLAlchemy routed unit-of-work persistence through the same
+    event, this listener would start refusing profile creation from outside a
+    token — i.e. it would break the fixture factory and the committer's own row
+    constructor at once. So the property is asserted directly (the spy sees no
+    INSERT against `master_profiles`) as well as behaviourally (the write is
+    not refused, and the row lands), and the token is deliberately released
+    BEFORE the flush.
+    """
+    seen: list[str] = []
+
+    def spy(orm_execute_state):  # noqa: ANN001
+        if orm_execute_state.is_insert:
+            table = getattr(orm_execute_state.statement, "table", None)
+            seen.append(getattr(table, "name", "<none>"))
+
+    event.listen(Session, "do_orm_execute", spy)
+    try:
+        with authorized_profile_write():
+            record = MasterProfile(profile_json=_seed())
+        # Token released — the flush below stands on its own.
+        db_session.add(record)
+        await db_session.flush()
+        await db_session.commit()
+    finally:
+        event.remove(Session, "do_orm_execute", spy)
+
+    assert seen == []
+    assert await _stored(db_session, record.id) == _seed()

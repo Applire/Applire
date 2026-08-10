@@ -49,7 +49,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from applire.models.profile import (
     MasterProfile,
     ProfileSnapshot,
-    reset_unauthorized_profile_writes,
 )
 from applire.services.profile.commit import (
     UN_DENIAL_INTAKE,
@@ -125,7 +124,6 @@ async def seeded(db_session):
         record = MasterProfile(profile_json=copy.deepcopy(_SEED))
     db_session.add(record)
     await db_session.commit()
-    reset_unauthorized_profile_writes()
     return record
 
 

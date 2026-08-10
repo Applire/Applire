@@ -25,6 +25,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 # Make applire importable
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -190,7 +192,7 @@ async def db_with_cv(db):
         company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id,
         profile_json=_stub_profile_json(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -636,7 +638,7 @@ class TestGetCvSections:
         _profile_id = uuid.uuid4()
         _cv_id = uuid.uuid4()
 
-        profile = MasterProfile(
+        profile = make_master_profile(
             id=_profile_id,
             profile_json=_stub_profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -807,7 +809,7 @@ class TestStartAssistSession:
         _profile_id = uuid.uuid4()
         _cv_id = uuid.uuid4()
 
-        profile = MasterProfile(
+        profile = make_master_profile(
             id=_profile_id,
             profile_json=_stub_profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -855,7 +857,7 @@ class TestStartAssistSession:
         _profile_id = uuid.uuid4()
         _cv_id = uuid.uuid4()
 
-        profile = MasterProfile(
+        profile = make_master_profile(
             id=_profile_id,
             profile_json=_stub_profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -1076,7 +1078,7 @@ class TestPatchCvSection:
         _profile_id = uuid.uuid4()
         _cv_id = uuid.uuid4()
 
-        profile = MasterProfile(
+        profile = make_master_profile(
             id=_profile_id,
             profile_json=_stub_profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

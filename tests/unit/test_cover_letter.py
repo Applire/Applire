@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -677,7 +679,7 @@ async def test_generate_cover_letter_creates_pending_record(db):
         language_requirement="de",
     )
     db.add(job)
-    profile = MasterProfile(profile_json={
+    profile = make_master_profile(profile_json={
         "contact": {"name": "Marcus Bauer", "email": "m@test.com"},
         "summary": "QA Expert",
         "work_history": [],
@@ -763,7 +765,7 @@ async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db)
         language_requirement="de",
     )
     db.add(job)
-    profile = MasterProfile(profile_json={
+    profile = make_master_profile(profile_json={
         "contact": {"name": "Marcus Bauer", "email": "m@test.com"},
         "summary": "QA Expert",
         "work_history": [],
@@ -1301,7 +1303,7 @@ async def test_router_post_generate_creates_pending_record(cl_client):
         language_requirement="de",
     )
     db.add(job)
-    profile = MasterProfile(profile_json={
+    profile = make_master_profile(profile_json={
         "contact": {"name": "Test User", "email": "t@t.com"},
         "summary": "Dev",
         "work_history": [],
@@ -1580,7 +1582,7 @@ async def _seed_letter_with_context(
     from applire.models.job import JobAnalysis
     from applire.models.profile import MasterProfile
 
-    profile = MasterProfile(
+    profile = make_master_profile(
         profile_json={"personal_info": {"name": profile_name}} if profile_name else {},
     )
     job = JobAnalysis(

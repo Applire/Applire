@@ -41,13 +41,20 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 @pytest_asyncio.fixture
 async def sqlite_session():
     """In-memory SQLite session.  JSONB.with_variant(JSON) lets create_all work directly."""
-    from applire.db.session import Base  # noqa: F401 — ensures all models are registered
-    import applire.models.profile  # noqa: F401
-    import applire.models.job     # noqa: F401
-    import applire.models.cv      # noqa: F401
-    import applire.models.gap     # noqa: F401
-    import applire.models.session  # noqa: F401
-    import applire.models.user    # noqa: F401
+    import importlib
+    import pkgutil
+
+    from applire.db.session import Base
+    import applire.models as _models_pkg
+
+    # `create_all` builds every table registered on `Base`, and `applications`
+    # carries FKs into `generated_cvs`/`generated_cover_letters`. Naming a
+    # hand-picked subset left this fixture dependent on some OTHER test module
+    # having imported the rest first — it passed inside the full suite and
+    # failed standalone. Register the whole package instead, so the order the
+    # suite happens to run in cannot decide whether this file works.
+    for _module in pkgutil.iter_modules(_models_pkg.__path__):
+        importlib.import_module(f"applire.models.{_module.name}")
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -281,8 +288,10 @@ class TestSQLitePersistence:
         from sqlalchemy import select
         from applire.models.profile import MasterProfile
 
+        from tests.support.profile_factory import make_master_profile
+
         profile_data = {"personal_info": {"name": "Alice"}, "work_experience": []}
-        record = MasterProfile(profile_json=profile_data)
+        record = make_master_profile(profile_json=profile_data)
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -296,6 +305,8 @@ class TestSQLitePersistence:
         from sqlalchemy import select
         from applire.models.profile import MasterProfile
 
+        from tests.support.profile_factory import make_master_profile
+
         data = {
             "work_experience": [{
                 "company": "Acme",
@@ -303,7 +314,7 @@ class TestSQLitePersistence:
                 "role_aliases": ["2nd Level Support", "Senior Dev"],
             }]
         }
-        record = MasterProfile(profile_json=data)
+        record = make_master_profile(profile_json=data)
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -319,6 +330,8 @@ class TestSQLitePersistence:
         from sqlalchemy import select
         from applire.models.profile import MasterProfile
 
+        from tests.support.profile_factory import make_master_profile
+
         data = {
             "metadata": {
                 "enrichment_history": [{
@@ -328,7 +341,7 @@ class TestSQLitePersistence:
                 }]
             }
         }
-        record = MasterProfile(profile_json=data)
+        record = make_master_profile(profile_json=data)
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -344,6 +357,8 @@ class TestSQLitePersistence:
         from sqlalchemy import select
         from applire.models.profile import MasterProfile
 
+        from tests.support.profile_factory import make_master_profile
+
         conflict_id = str(uuid.uuid4())
         data = {
             "metadata": {
@@ -358,7 +373,7 @@ class TestSQLitePersistence:
                 }]
             }
         }
-        record = MasterProfile(profile_json=data)
+        record = make_master_profile(profile_json=data)
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -373,7 +388,9 @@ class TestSQLitePersistence:
     async def test_deleted_at_defaults_to_null(self, sqlite_session):
         from applire.models.profile import MasterProfile
 
-        record = MasterProfile(profile_json={})
+        from tests.support.profile_factory import make_master_profile
+
+        record = make_master_profile(profile_json={})
         sqlite_session.add(record)
         await sqlite_session.commit()
         assert record.deleted_at is None
@@ -383,7 +400,9 @@ class TestSQLitePersistence:
         from sqlalchemy import select
         from applire.models.profile import MasterProfile
 
-        record = MasterProfile(profile_json={})
+        from tests.support.profile_factory import make_master_profile
+
+        record = make_master_profile(profile_json={})
         sqlite_session.add(record)
         await sqlite_session.commit()
 

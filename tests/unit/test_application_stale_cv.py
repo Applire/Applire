@@ -133,9 +133,9 @@ def _change(section: str, action: str = "added") -> dict:
 
 
 def _make_profile(enrichment_records: list[dict]):
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
-    return MasterProfile(
+    return make_master_profile(
         id=uuid.uuid4(),
         profile_json={
             "personal_info": {"full_name": "Emma Beispiel"},
@@ -412,6 +412,8 @@ async def test_new_enrichment_rearms_after_dismiss(db):
     from applire.models.profile import MasterProfile
     from sqlalchemy import select
 
+    from tests.support.profile_factory import set_profile_json
+
     db.add(_make_profile([
         _enrichment_record(_iso(_NOW - timedelta(days=1)), [_change("skills")]),
     ]))
@@ -433,10 +435,10 @@ async def test_new_enrichment_rearms_after_dismiss(db):
             [_change("work_experience")],
         )
     )
-    profile.profile_json = {
+    set_profile_json(profile, {
         **profile.profile_json,
         "metadata": {"enrichment_history": history},
-    }
+    })
     await db.commit()
 
     result = await get_application(app.id, _STUB_USER_ID, db)

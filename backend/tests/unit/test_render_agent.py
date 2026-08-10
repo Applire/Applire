@@ -19,6 +19,8 @@ import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -132,7 +134,7 @@ async def seeded(db):
                 company_culture_signals=[],
                 language_requirement="de",
             ),
-            MasterProfile(
+            make_master_profile(
                 id=profile_id,
                 profile_json=PROFILE_JSON,
                 created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

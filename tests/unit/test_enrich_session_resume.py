@@ -40,6 +40,8 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -74,7 +76,7 @@ async def sqlite_session():
 def _make_profile():
     from applire.models.profile import MasterProfile
 
-    return MasterProfile(profile_json={
+    return make_master_profile(profile_json={
         "personal_info": {"name": "Sven Hartmann", "email": "sven@example.de"},
         "skills": [{"name": "Python", "category": "technical", "proficiency": "advanced"}],
         "work_experience": [{"company": "Logivia", "role": "Engineer", "start_date": "2020-01"}],

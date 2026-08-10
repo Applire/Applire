@@ -39,6 +39,8 @@ from applire.auth import get_auth_provider
 from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 
+from tests.support.profile_factory import make_master_profile
+
 
 # ---------------------------------------------------------------------------
 # Schema validation
@@ -171,7 +173,7 @@ async def _seed_job_and_profile(db):
         company_culture_signals=[],
         language_requirement="German",
     ))
-    db.add(MasterProfile(
+    db.add(make_master_profile(
         id=uuid.uuid4(),
         profile_json={"personal_info": {"full_name": "Emma Beispiel"}},
     ))

@@ -7,6 +7,8 @@ import tempfile
 
 import pytest
 
+from tests.support.profile_factory import make_master_profile
+
 
 # ---------------------------------------------------------------------------
 # Task 1 — StorageProvider.read()
@@ -122,7 +124,7 @@ async def test_upload_photo_stores_file_and_sets_photo_url(photo_db):
     user = User(id=user_id, email="anna@example.de")
     photo_db.add(user)
 
-    profile = MasterProfile(
+    profile = make_master_profile(
         profile_json=MasterProfileData(
             personal_info=PersonalInfo(name="Anna Bauer")
         ).model_dump(mode="json"),
@@ -178,7 +180,7 @@ async def test_delete_photo_clears_url_and_consent(photo_db):
         # Pre-save a file so delete has something to remove
         path = await storage.save(b"fake-jpeg", "photo.jpg")
 
-        profile = MasterProfile(
+        profile = make_master_profile(
             profile_json=MasterProfileData(
                 personal_info=PersonalInfo(name="Anna Bauer", photo_url=path)
             ).model_dump(mode="json"),

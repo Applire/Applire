@@ -69,6 +69,8 @@ from datetime import datetime, timedelta, timezone
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db():
@@ -346,7 +348,7 @@ async def _seed_job_and_profile(db):
         company_culture_signals=[],
         language_requirement="German",
     ))
-    db.add(MasterProfile(
+    db.add(make_master_profile(
         id=uuid.uuid4(),
         profile_json={"personal_info": {"full_name": "Emma Beispiel"}},
     ))

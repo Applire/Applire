@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 
 from applire.models.profile import MasterProfile
+from tests.support.profile_factory import make_master_profile
 
 
 class _QueueProvider:
@@ -40,7 +41,7 @@ class _QueueProvider:
 
 
 async def _seed_profile(db) -> MasterProfile:
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Anna Bauer"},
             "metadata": {

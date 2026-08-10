@@ -35,9 +35,11 @@ by each of the eleven writers the 2026-07 inventory found.
 4. the completeness recompute is **universal** (it was import-only, so the
    stored score drifted after every testimony/interview/agent write);
 5. `metadata.last_updated` and `record.updated_at` both move;
-6. deterministic skill enrichment runs unconditionally — a skill's duration and
-   provenance must never depend on whether the caller happened to pass an LLM
-   provider (ADR-058 clause 2: the same edit may not behave differently by door);
+6. deterministic skill enrichment is the default (`EnrichPolicy.DETERMINISTIC`;
+   `SKIP` exists for the import writers, whose merge already enriched) — within
+   it, the deterministic half never depends on whether the caller happened to
+   pass an LLM provider (ADR-058 clause 2: the same edit may not behave
+   differently by door);
 7. **receipt separation** — demotions, denials and re-floorings are
    receipted into the `EnrichmentRecord` but NEVER enter `bool(changes)`. A
    retraction must not read as "gap addressed" or request a ledger upgrade
@@ -268,10 +270,16 @@ async def create_profile_record(db: AsyncSession) -> MasterProfile:
     in this module: the caller owns the transaction, and needs the flush for the
     generated id.
     """
+    # The flush stays INSIDE the token span. Today the construction alone is
+    # enough — the setter records its verdict on the instance and `before_flush`
+    # pops it at flush time — so this is behaviour-identical. It is written this
+    # way because a write site whose flush lands outside its own authorisation
+    # only works by accident, and the next mechanism added to this guard has no
+    # reason to keep the accident working.
     with authorized_profile_write():
         record = MasterProfile(profile_json={})
-    db.add(record)
-    await db.flush()
+        db.add(record)
+        await db.flush()
     logger.info(
         "commit_ops: created the first MasterProfile row (id=%s) — empty until "
         "the ops that accompany it land (ADR-063 clause 6 / #480 PR 8)",
@@ -507,7 +515,7 @@ async def commit_ops(
     # post-op profile including the denial `record_denials` just wrote above.
     refloored = _refloor_persisted_denials(profile)
 
-    # ── Invariant 6 — deterministic skill enrichment, unconditional ──────────
+    # ── Invariant 6 — deterministic skill enrichment (policy-gated) ──────────
     # `enrich_skills` IS the deterministic pass plus the LLM estimate for the
     # skills it could not date, so a provider layers phase 2 on top rather than
     # replacing phase 1 — the property #337 fixed and ADR-058 clause 2 requires.

@@ -389,9 +389,9 @@ def test_a_denied_skill_does_not_back_a_claimable_ledger_row() -> None:
 
 
 async def _seed_vault_with_confirmed_kubernetes(db):
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Anna Bauer"},
             "skills": [

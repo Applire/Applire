@@ -27,6 +27,8 @@ import pytest_asyncio
 from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db():
@@ -66,7 +68,7 @@ async def _seed_job_and_analysis(db, cluster_ids):
     from applire.models.gap import GapAnalysis
     from applire.models.profile import MasterProfile
 
-    profile = MasterProfile(profile_json={"personal_info": {"name": "Kaile"}})
+    profile = make_master_profile(profile_json={"personal_info": {"name": "Kaile"}})
     db.add(profile)
     job = JobAnalysis(
         raw_text_hash="h", raw_text="jd", role_title="Engineer",

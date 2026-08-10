@@ -69,8 +69,12 @@ async def seed_profile(async_db: AsyncSession):
     """Fixture to seed a profile into the database."""
     from applire.models.profile import MasterProfile
 
+    from tests.support.profile_factory import make_master_profile
+
     async def _seed(profile_data: MasterProfileData) -> MasterProfile:
-        record = MasterProfile(
+        # ADR-063 clause 6 is strict since #480 PR 9: a fixture builds the vault
+        # through the same authorised door production uses.
+        record = make_master_profile(
             profile_json=profile_data.model_dump(mode="json")
         )
         async_db.add(record)

@@ -49,6 +49,7 @@ async def db_session():
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
     from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -67,7 +68,7 @@ async def db_session():
             company_culture_signals=[],
             language_requirement="DE",
         )
-        profile = MasterProfile(id=uuid.uuid4(), profile_json={"skills": [{"name": "RAG"}]})
+        profile = make_master_profile(id=uuid.uuid4(), profile_json={"skills": [{"name": "RAG"}]})
         session.add_all([job, profile])
         await session.commit()
 

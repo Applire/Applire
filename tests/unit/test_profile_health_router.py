@@ -25,6 +25,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db_session():
@@ -68,7 +70,7 @@ async def client(db_session):
 async def _seed_profile(db_session, profile_json):
     from applire.models.profile import MasterProfile
 
-    db_session.add(MasterProfile(profile_json=profile_json))
+    db_session.add(make_master_profile(profile_json=profile_json))
     await db_session.commit()
 
 

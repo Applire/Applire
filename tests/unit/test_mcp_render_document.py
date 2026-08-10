@@ -100,7 +100,7 @@ async def seeded(db):
     """analyze_jd-equivalent state ONLY: one job, one profile. No flow, no
     generate_* row — proving the à-la-carte property."""
     from applire.models.job import JobAnalysis
-    from applire.models.profile import MasterProfile
+    from tests.support.profile_factory import make_master_profile
 
     job_id, profile_id = uuid.uuid4(), uuid.uuid4()
     db.add_all(
@@ -117,7 +117,7 @@ async def seeded(db):
                 company_culture_signals=[],
                 language_requirement="de",
             ),
-            MasterProfile(
+            make_master_profile(
                 id=profile_id,
                 profile_json=PROFILE_JSON,
                 created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

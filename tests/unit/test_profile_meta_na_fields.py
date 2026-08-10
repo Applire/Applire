@@ -43,6 +43,8 @@ if str(_backend) not in sys.path:
 
 from applire.schemas.profile import MasterProfileData  # noqa: E402
 
+from tests.support.profile_factory import make_master_profile, set_profile_json  # noqa: E402
+
 
 NA_FIELD = "budget_managed: Senior Engineer @ Logivia"
 
@@ -233,7 +235,7 @@ class TestNaFieldsWriterToReaderPath:
         from applire.services.profile import patch_profile_section
         from applire.services.profile.completeness import field_gaps
 
-        record = MasterProfile(profile_json=_raw_profile())
+        record = make_master_profile(profile_json=_raw_profile())
         sqlite_session.add(record)
         await sqlite_session.commit()
         provider = _mock_provider()
@@ -270,7 +272,7 @@ class TestNaFieldsWriterToReaderPath:
         from applire.models.profile import MasterProfile
         from applire.services.profile import get_profile_health, patch_profile_section
 
-        record = MasterProfile(
+        record = make_master_profile(
             profile_json=_raw_profile(_meta={"na_fields": [NA_FIELD]})
         )
         sqlite_session.add(record)
@@ -279,12 +281,12 @@ class TestNaFieldsWriterToReaderPath:
         # Non-vacuity: the same profile without the suppression reports the gap.
         unsuppressed = await get_profile_health(sqlite_session)
         assert NA_FIELD not in unsuppressed.completeness.field_gaps
-        record.profile_json = _raw_profile()
+        set_profile_json(record, _raw_profile())
         await sqlite_session.commit()
         assert NA_FIELD in (
             await get_profile_health(sqlite_session)
         ).completeness.field_gaps
-        record.profile_json = _raw_profile(_meta={"na_fields": [NA_FIELD]})
+        set_profile_json(record, _raw_profile(_meta={"na_fields": [NA_FIELD]}))
         await sqlite_session.commit()
 
         await patch_profile_section(

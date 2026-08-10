@@ -34,6 +34,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -198,7 +200,7 @@ async def db_with_cv(db):
         company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id,
         profile_json=_stub_profile_json(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -680,7 +682,7 @@ async def db_with_cover_letter(db):
         company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id,
         profile_json=_stub_profile_json(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -1202,7 +1204,7 @@ async def _seed_cv(db, *, ats_report=None):
         keywords=[], seniority_level="mid", company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id, profile_json=_stub_profile_json(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -1241,7 +1243,7 @@ async def _seed_cl(db, *, ats_report=None):
         keywords=[], seniority_level="mid", company_culture_signals=[],
         language_requirement="de",
     )
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=profile_id, profile_json=_stub_profile_json(),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

@@ -23,6 +23,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile, set_profile_json
+
 
 # ─── SQLite fixture (shared) ──────────────────────────────────────────────────
 
@@ -552,7 +554,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import profile_exists
 
-        record = MasterProfile(profile_json=_minimal_profile_json())
+        record = make_master_profile(profile_json=_minimal_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -571,7 +573,7 @@ class TestNewProfileServiceDB:
         from applire.services.profile import get_enrichment_history
 
         # Profile without metadata
-        record = MasterProfile(profile_json=_minimal_profile_json())
+        record = make_master_profile(profile_json=_minimal_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -643,7 +645,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section, get_enrichment_history
 
-        record = MasterProfile(profile_json=_minimal_profile_json())
+        record = make_master_profile(profile_json=_minimal_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -672,8 +674,8 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_minimal_profile_json())
-        record.profile_json = {
+        record = make_master_profile(profile_json=_minimal_profile_json())
+        set_profile_json(record, {
             **record.profile_json,
             "work_experience": [
                 {
@@ -685,7 +687,7 @@ class TestNewProfileServiceDB:
                     "responsibilities": ["Einführung von SAP im Werk"],
                 }
             ],
-        }
+        })
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -711,7 +713,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_full_profile_json())
+        record = make_master_profile(profile_json=_full_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -729,7 +731,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_full_profile_json())
+        record = make_master_profile(profile_json=_full_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -742,7 +744,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_full_profile_json())
+        record = make_master_profile(profile_json=_full_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -755,7 +757,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_full_profile_json())
+        record = make_master_profile(profile_json=_full_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -767,7 +769,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import patch_profile_section
 
-        record = MasterProfile(profile_json=_full_profile_json())
+        record = make_master_profile(profile_json=_full_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -788,7 +790,7 @@ class TestNewProfileServiceDB:
         from applire.models.profile import MasterProfile
         from applire.services.profile import resolve_conflict
 
-        record = MasterProfile(profile_json=_minimal_profile_json())
+        record = make_master_profile(profile_json=_minimal_profile_json())
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -821,7 +823,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -855,7 +857,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -891,7 +893,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -926,7 +928,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -996,7 +998,7 @@ class TestNewProfileServiceDB:
         from applire.services.profile import resolve_conflict
 
         profile_data, conflict, work_id, other_id = self._profile_with_bullet_conflict()
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1015,7 +1017,7 @@ class TestNewProfileServiceDB:
         from applire.services.profile import resolve_conflict
 
         profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict()
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1038,7 +1040,7 @@ class TestNewProfileServiceDB:
         for entry in profile_data.work_experience:
             if entry.id == work_id:
                 entry.achievements = [self._OLD_BULLET, "Unrelated win", self._NEW_BULLET]
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1053,7 +1055,7 @@ class TestNewProfileServiceDB:
         from applire.services.profile import resolve_conflict
 
         profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict()
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1099,7 +1101,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1143,7 +1145,7 @@ class TestNewProfileServiceDB:
             enrichment_history=[],
             pending_conflicts=[conflict],
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 
@@ -1160,7 +1162,7 @@ class TestNewProfileServiceDB:
         profile_data, conflict, work_id, _ = self._profile_with_bullet_conflict(
             resolution_target="outcomes"
         )
-        record = MasterProfile(profile_json=profile_data.model_dump(mode="json"))
+        record = make_master_profile(profile_json=profile_data.model_dump(mode="json"))
         sqlite_session.add(record)
         await sqlite_session.commit()
 

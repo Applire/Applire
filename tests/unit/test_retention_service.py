@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.models.application import Application
 from applire.models.cv import CVGenerationStatus, GeneratedCV
+from tests.support.profile_factory import make_master_profile
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,7 +111,7 @@ async def profile(db):
     """Seed a MasterProfile so GeneratedCV FK constraints pass."""
     from applire.models.profile import MasterProfile
 
-    p = MasterProfile(profile_json={}, created_at=_now(), updated_at=_now())
+    p = make_master_profile(profile_json={}, created_at=_now(), updated_at=_now())
     db.add(p)
     await db.commit()
     return p

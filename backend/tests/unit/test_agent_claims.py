@@ -37,6 +37,7 @@ from applire.schemas.claims import ClaimItem, ClaimsSubmission
 from applire.schemas.profile import MasterProfileData
 from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.profile.reconcile.agent_bridge import submit_agent_claims
+from tests.support.profile_factory import make_master_profile, set_profile_json
 
 
 class _QueueProvider:
@@ -68,7 +69,7 @@ _EMPTY = {"ops": [], "ambiguities": [], "denials": []}
 
 
 async def _seed_profile(db) -> MasterProfile:
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Anna Bauer"},
             "metadata": {
@@ -398,7 +399,7 @@ async def test_import_replace_preserves_agent_parked_items(async_db):
             ).model_dump(mode="json"),
         ],
     )
-    record.profile_json = pj
+    set_profile_json(record, pj)
     await async_db.commit()
 
     merged = MasterProfileData.model_validate(record.profile_json)
@@ -468,7 +469,7 @@ async def test_apply_merge_upload_door_also_preserves_agent_parked_items(async_d
             ).model_dump(mode="json"),
         ],
     )
-    record.profile_json = pj
+    set_profile_json(record, pj)
     await async_db.commit()
 
     merged = MasterProfileData.model_validate(record.profile_json)
@@ -891,7 +892,7 @@ async def test_compound_denial_does_not_fabricate_a_denial_of_the_head_noun(asyn
     compound, not the head noun). Before this fix the agent door wrote
     ``status="denied"`` with "Candidate explicitly stated a limit here" as the
     evidence, terminally."""
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Anna Bauer"},
             "skills": [{"name": "CSS", "category": "technical"}],

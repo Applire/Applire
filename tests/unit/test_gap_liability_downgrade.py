@@ -34,6 +34,8 @@ from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.services.gap import downgrade_keyword_liability
 
+from tests.support.profile_factory import make_master_profile
+
 
 @pytest_asyncio.fixture
 async def db():
@@ -105,7 +107,7 @@ async def seeded_gap_analysis(db):
     # keyword-LIABILITY shape (a bare skills-list entry, no narrative anywhere:
     # `narrative_backed: False`); `Python` is the ordinary backed row this test
     # needs to stay untouched.
-    profile = MasterProfile(
+    profile = make_master_profile(
         id=uuid.uuid4(),
         profile_json={
             "skills": [{"name": "RAG"}, {"name": "Python"}],

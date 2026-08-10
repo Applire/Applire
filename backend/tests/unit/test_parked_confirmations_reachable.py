@@ -48,10 +48,11 @@ from applire.schemas.profile import (
 from applire.services.profile import _apply_merge, import_from_text
 from applire.services.profile.health import assess_health
 from applire.services.profile.merge import MergeResult
+from tests.support.profile_factory import make_master_profile
 
 
 async def _seed_profile(db, *, confirmations=None, conflicts=None) -> MasterProfile:
-    record = MasterProfile(
+    record = make_master_profile(
         profile_json={
             "personal_info": {"full_name": "Anna Bauer"},
             "metadata": {

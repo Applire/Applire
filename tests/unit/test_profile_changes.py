@@ -42,6 +42,8 @@ from applire.schemas.profile import (  # noqa: E402
     ProfileMetadata,
 )
 
+from tests.support.profile_factory import make_master_profile  # noqa: E402
+
 
 def _record_with_trail() -> MasterProfile:
     data = MasterProfileData(
@@ -62,7 +64,7 @@ def _record_with_trail() -> MasterProfile:
             )],
         )
     )
-    return MasterProfile(
+    return make_master_profile(
         id="00000000-0000-0000-0000-000000000001",
         profile_json=data.model_dump(mode="json"),
         created_at=datetime.now(timezone.utc),

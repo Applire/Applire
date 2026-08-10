@@ -54,6 +54,7 @@ from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
 from applire.services.gap_jobs import create_gap_job
+from tests.support.profile_factory import make_master_profile
 
 _STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
 
@@ -133,7 +134,7 @@ async def seeded(db):
         company_culture_signals=[],
         language_requirement="DE",
     )
-    profile = MasterProfile(id=uuid.uuid4(), profile_json=_profile_json())
+    profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json())
     db.add_all([user, job, profile])
     await db.commit()
     return job, profile

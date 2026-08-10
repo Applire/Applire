@@ -25,6 +25,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.profile_factory import make_master_profile
+
 
 class _Provider:
     def __init__(self, payload):
@@ -93,10 +95,8 @@ async def client(db_session):
 
 
 async def _seed_profile(db_session, profile_json=None):
-    from applire.models.profile import MasterProfile
-
     db_session.add(
-        MasterProfile(
+        make_master_profile(
             profile_json=profile_json
             or {"personal_info": {"full_name": "Daniel Kovač"}, "metadata": {}}
         )
