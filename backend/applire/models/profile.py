@@ -63,37 +63,60 @@ class MasterProfile(Base):
     )
 
 
-# ── The write guard (ADR-063 clause 6, amended 2026-08-09) ────────────────────
+# ── The write guard (ADR-063 clause 6 — STRICT since 2026-08-10) ──────────────
 #
 # `master_profiles.profile_json` is the vault. ADR-063 makes `commit_ops` its
 # single assigner; this guard is the control that makes the claim checkable
 # instead of grep-maintained.
 #
-# WARN MODE (#480 PR 1): an unauthorised write logs and increments a counter, it
-# never raises. #480 PR 8 routed the last three — the first-profile-creation
-# sites, whose KEYWORD-ARGUMENT constructors would have made a strict guard
-# refuse profile creation outright (both CV-import doors and the Mode-B guided
-# stub). No production writer outside the three modules below now reaches
-# `profile_json`. PR 9 flips this to strict and adds the gate test asserting the
-# exception set below is exactly those three modules.
-#
-# NOTE for PR 9: ~160 TEST fixtures still construct `MasterProfile(profile_json=…)`
-# directly across ~80 files. They are unaffected in warn mode; strict mode has to
-# decide their disposition (wrap in `authorized_profile_write()`, as the
-# committer's own fixtures already do, or a test-scoped escape) before flipping.
+# STRICT (#480 PR 9, 2026-08-10). An unauthorised write RAISES
+# `UnauthorizedProfileWriteError`. There is no warn mode left, no configuration
+# flag and no environment escape hatch: a mode you can turn off is a mode that
+# gets turned off. Strict became landable once #480 PRs 2-8 routed every
+# production writer — including the three first-profile-creation sites, whose
+# KEYWORD-ARGUMENT constructors would otherwise have made this guard refuse
+# profile creation outright.
 #
 # Two authorisations, in order of preference:
 #
 #   1. the contextvar TOKEN, held by `commit_ops` across the assignment — the
-#      real mechanism, and the one PR 9 keeps;
+#      real mechanism;
 #   2. the named MODULE exceptions — `services/photo.py` (a `Binary` write under
 #      GDPR Art. 9(2)(a)) and `services/profile/snapshots.py` (the undo restore).
 #      `commit.py` is listed too, so the committer is authorised belt-and-braces
 #      even if a future refactor moves the assignment out of the token block.
 #
-# The `set` event fires on plain assignment AND on keyword construction
-# (`MasterProfile(profile_json=…)` goes through `setattr`) — the case that
-# defeated the original clause 6 and made the writer count 19, not 16.
+# The exception set is a gate, not a convenience: `test_profile_write_guard.py`
+# asserts it is exactly those three modules, so the day a twelfth writer grants
+# itself an exception the suite says so.
+#
+# Two mechanisms:
+#
+#   * the `set` event fires on plain assignment AND on keyword construction
+#     (`MasterProfile(profile_json=…)` goes through `setattr`) — the case that
+#     defeated the original clause 6 and made the writer count 19, not 16. It
+#     raises before the value reaches the instance, so a refused write leaves no
+#     trace;
+#   * `before_flush` raises on a dirty `profile_json` that never passed the
+#     setter — an ORM/instrumentation-level bypass, the realistic one being an
+#     in-place mutation of the JSON dict plus a hand-rolled `flag_modified`.
+#     Raising inside the flush aborts the transaction (PO ruling Q1(a),
+#     2026-08-10), so the write cannot reach the database; the session recovers
+#     with an ordinary `rollback()`, which the guard's tests pin.
+#
+# KNOWN GAP, measured not assumed: an ORM-enabled bulk
+# `update(MasterProfile).values(profile_json=…)` reaches NEITHER mechanism. It
+# is emitted straight from `Session.execute`, never enters the unit of work, and
+# leaves the instance clean — so the setter does not fire and `before_flush` has
+# nothing to see. #480 §5 claims otherwise; the code is right and the design is
+# wrong. Closing it needs a `do_orm_execute` listener, which is a new mechanism
+# awaiting a PO ruling. No production caller uses the shape: the retention
+# worker's `update(MasterProfile)…values(deleted_at=…)` touches `deleted_at`
+# only (re-verified 2026-08-10, ADR-063 amendment 5).
+#
+# Tests construct fixture profiles through the same public door
+# (`tests/support/profile_factory.py` wraps `authorized_profile_write()`); there
+# is deliberately no test-only bypass and no fourth exception module.
 
 AUTHORIZED_PROFILE_WRITE_MODULES: frozenset[str] = frozenset(
     {
@@ -107,9 +130,10 @@ _PROFILE_WRITE_TOKEN: ContextVar[object | None] = ContextVar(
     "applire_profile_write_token", default=None
 )
 
-# Per-instance record of what the setter decided, read (and consumed) by the
-# `before_flush` backstop so an authorised write is silent and an already-warned
-# one is not counted twice.
+# Per-instance record that the setter authorised this write, consumed by the
+# `before_flush` backstop. One authorisation covers one flush: the key is popped
+# when the flush reads it, so a later bypass on the same instance cannot ride in
+# on an earlier legitimate write.
 _WRITE_DECISION_KEY = "applire_profile_write_authorized"
 
 # Bounded walk: the caller sits a handful of frames above the setter (plus
@@ -117,18 +141,30 @@ _WRITE_DECISION_KEY = "applire_profile_write_authorized"
 # keyword-construction shape).
 _MAX_GUARD_FRAMES = 40
 
-_unauthorized_profile_writes = 0
 
+class UnauthorizedProfileWriteError(RuntimeError):
+    """A write to `master_profiles.profile_json` from outside the write path.
 
-def unauthorized_profile_writes() -> int:
-    """How many unauthorised `profile_json` writes this process has seen."""
-    return _unauthorized_profile_writes
+    ADR-063 clause 6. Raised by the attribute `set` event (before the value
+    reaches the instance) and by the `before_flush` backstop (aborting the
+    transaction, PO ruling Q1(a) 2026-08-10). Not catchable-and-ignorable by
+    design: there is no authorised way to write the vault other than holding the
+    `authorized_profile_write()` token or being one of
+    `AUTHORIZED_PROFILE_WRITE_MODULES`.
+    """
 
-
-def reset_unauthorized_profile_writes() -> None:
-    """Test hook — the counter is process-global."""
-    global _unauthorized_profile_writes
-    _unauthorized_profile_writes = 0
+    def __init__(self, reason: str, where: str) -> None:
+        self.reason = reason
+        self.where = where
+        super().__init__(
+            f"ADR-063 clause 6 — unauthorised write to MasterProfile.profile_json "
+            f"({reason}) at {where}. The vault's single assigner is "
+            f"applire/services/profile/commit.py: express the change as ops and "
+            f"call commit_ops(), which owns the invariant set (trail, "
+            f"completeness, denial floor). Holding authorized_profile_write() "
+            f"around a raw assignment bypasses those invariants and is reserved "
+            f"for the committer itself."
+        )
 
 
 @contextmanager
@@ -158,50 +194,65 @@ def _caller_is_authorized_module() -> bool:
 
 
 def _caller_location() -> str:
+    """The first frame that is neither the guard nor SQLAlchemy's plumbing.
+
+    `<string>` is skipped too: the declarative `__init__` SQLAlchemy compiles
+    for each mapped class carries that filename, and on the keyword-construction
+    shape it is the frame directly above the setter — reporting it would name
+    every refused `MasterProfile(profile_json=…)` as `<string>:4`.
+    """
     frame = sys._getframe(1)
     depth = 0
     while frame is not None and depth < _MAX_GUARD_FRAMES:
         filename = frame.f_code.co_filename.replace("\\", "/")
-        if "/sqlalchemy/" not in filename and "/applire/models/profile.py" not in filename:
+        if (
+            "/sqlalchemy/" not in filename
+            and "/applire/models/profile.py" not in filename
+            and not filename.startswith("<")
+        ):
             return f"{filename}:{frame.f_lineno}"
         frame = frame.f_back
         depth += 1
     return "<unknown>"
 
 
-def _count_unauthorized(reason: str, where: str) -> None:
-    global _unauthorized_profile_writes
-    _unauthorized_profile_writes += 1
-    logger.warning(
-        "ADR-063 clause 6 — unrouted write to MasterProfile.profile_json (%s) at "
-        "%s. The vault's single write path is services/profile/commit.py; this "
-        "writer is scheduled into #480 PRs 2-8. Warn mode: the write was NOT "
-        "blocked (strict lands in PR 9).",
+def _refuse(reason: str, where: str) -> None:
+    """Log the refusal, then raise it. Logging first because the traceback the
+    caller sees may be swallowed by an except-and-continue somewhere above."""
+    logger.error(
+        "ADR-063 clause 6 — REFUSED an unauthorised write to "
+        "MasterProfile.profile_json (%s) at %s.",
         reason,
         where,
     )
+    raise UnauthorizedProfileWriteError(reason, where)
 
 
 @event.listens_for(MasterProfile.profile_json, "set", propagate=True)
 def _guard_profile_json_set(target, value, oldvalue, initiator):  # noqa: ANN001
-    authorized = (
-        _PROFILE_WRITE_TOKEN.get() is not None or _caller_is_authorized_module()
-    )
+    if _PROFILE_WRITE_TOKEN.get() is None and not _caller_is_authorized_module():
+        # Raised from inside the `set` event, so the value never reaches the
+        # instance dict — a refused write leaves no partial state behind.
+        _refuse("attribute set", _caller_location())
     try:
-        sa.inspect(target).info[_WRITE_DECISION_KEY] = authorized
+        sa.inspect(target).info[_WRITE_DECISION_KEY] = True
     except sa.exc.NoInspectionAvailable:  # pragma: no cover — defensive
         pass
-    if not authorized:
-        _count_unauthorized("attribute set", _caller_location())
 
 
 @event.listens_for(Session, "before_flush")
 def _guard_profile_json_flush(session, flush_context, instances):  # noqa: ANN001
     """Belt and braces: a dirty ``profile_json`` that never passed the setter.
 
+    Raising here aborts the flush and therefore the transaction (PO ruling
+    Q1(a), 2026-08-10) — the unauthorised write physically cannot reach the
+    database. The session is poisoned in the ordinary SQLAlchemy sense and is
+    recovered by ``rollback()``.
+
     (The retention worker's ``update(...).values(...)`` touches ``deleted_at``
     only — it is not a ``profile_json`` bypass, and this listener stays quiet
-    for it.)
+    for it. The ORM bulk-UPDATE shape is NOT visible here at all — see the
+    KNOWN GAP note in the guard's header comment.)
     """
     for obj in list(session.new) + list(session.dirty):
         if not isinstance(obj, MasterProfile):
@@ -210,10 +261,9 @@ def _guard_profile_json_flush(session, flush_context, instances):  # noqa: ANN00
         attr = state.attrs.get("profile_json")
         if attr is None or not attr.history.has_changes():
             continue
-        decision = state.info.pop(_WRITE_DECISION_KEY, None)
-        if decision is None:
+        if state.info.pop(_WRITE_DECISION_KEY, None) is not True:
             # Never went through the setter — an ORM-level bypass.
-            _count_unauthorized("dirty at flush, no setter", repr(obj))
+            _refuse("dirty at flush, no setter", repr(obj))
 
 
 class ProfileSnapshot(Base):
