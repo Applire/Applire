@@ -266,6 +266,14 @@ To update to the latest release:
 docker compose pull && docker compose up -d
 ```
 
+> **Updating from a release older than `v0.37.0-beta`?** Step through
+> `v0.38.0-beta` first. Profiles imported before the reconciliation engine
+> (E035) can hold flat duplicate employers and orphaned projects, and the
+> one-time `scripts/migrate_flat_duplicates.py` pass that folds them into the
+> typed model shipped only in `v0.37.0-beta` … `v0.38.0-beta`. It is data
+> hygiene, not schema — Alembic migrations still run automatically on startup,
+> so a direct jump upgrades cleanly, it just leaves those duplicates in place.
+
 ### Self-hosting from source
 
 Prefer to build what you run (or can't reach GHCR)? Clone the repo and build the same
