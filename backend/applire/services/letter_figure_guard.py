@@ -421,10 +421,36 @@ def _owner_labels(profile: Any) -> dict[str, str]:
     is a standalone project and is labelled with the project's own name. Ids are
     never shown to the model: the reviewer reasons about the letter's prose,
     which names companies, not UUIDs.
+
+    **The project pass is not redundant with ``_employer_anchor_candidates``
+    (fixed 2026-08-13, #526).** That helper deliberately re-targets a project to
+    its PARENT work id when ``associated_experience`` resolves — correct for
+    ANCHORING a sentence, and it means the project's OWN id never becomes a
+    label key. A vault evidence unit built from a project's ``description`` keeps
+    that id as its owner, so the promise in the paragraph above was not kept:
+    gate charter run 1 rendered ``"14" — backed only by evidence from:
+    85ff5f8a-ce5c-…, Rasselstein …, Weberit …`` and the condense reviewer did
+    exactly what the block forbids — it re-derived what the id was and filed a
+    blocking issue on the figure. An owner the reviewer cannot read does not fail
+    safe here; it manufactures work.
+
+    A project resolves to its parent employer's name when it has one, because
+    the question the block asks is *which employer is this sentence about*.
+    Otherwise it keeps its own name, as the docstring always said.
     """
     labels = dict(_employer_of_id(profile))
     for name, oid in _employer_anchor_candidates(profile):
         labels.setdefault(oid, name)
+    for project in (_profile_get(profile, "projects") or []):
+        pid = _profile_get(project, "id")
+        if not isinstance(pid, str) or not pid.strip() or pid.strip() in labels:
+            continue
+        parent = _profile_get(project, "associated_experience")
+        parent_label = labels.get(parent.strip()) if isinstance(parent, str) else None
+        name = _profile_get(project, "name")
+        label = parent_label or (name.strip() if isinstance(name, str) and name.strip() else None)
+        if label:
+            labels[pid.strip()] = label
     return labels
 
 

@@ -59,6 +59,20 @@ class KeywordLedgerEntry(BaseModel):
     # level. Never independently settable to a meaningful value on a
     # non-denied entry — see the invariant enforced below.
     denial_level: Literal["direct", "partial"] | None = None
+    # ADR-048 amended 2026-07-27 / 2026-08-13 — WHAT makes this entry `partial`:
+    # the profile's own name for the DIFFERENT capability standing in for the JD's
+    # term (the posting asks for TOGAF, the profile has arc42). Present iff the
+    # row is claimable AND status == "partial" (the lifecycle invariant; see
+    # keyword_ledger.is_positioning_only).
+    #
+    # Added to this schema 2026-08-13, and it is a fix, not an extension:
+    # `services/gap.py`'s `_LEDGER_PUBLISHABLE_KEYS` has listed the field as
+    # publishable since ADR-048, but this model declared neither the field nor
+    # `extra="allow"` — so `GapAnalysisResponse.model_validate(...)` silently
+    # stripped it from EVERY API response, on every status. An allowlist a schema
+    # below it defeats is a control that cannot fire; the agent channel and the
+    # frontend have never once seen the field the ledger works to compute.
+    adjacent_evidence: str | None = None
     # ADR-069 — the bar facet of a quantified scope requirement (team size,
     # budget): {kind, value, value_max, comparator, quote, level,
     # candidate_values, cited_entry, attested}. ``attested`` (ADR-070) is the
@@ -117,6 +131,21 @@ class GapAnalysisResponse(BaseModel):
     # source, read on the SAME response the gaps page and the `analyze_gaps`
     # MCP tool already return (no new endpoint/tool for agent-door parity).
     keyword_liabilities: list[KeywordLedgerEntry] = Field(default_factory=list)
+    # ADR-074 (#526) — derived, never independently settable: every JD HARD
+    # requirement Applire holds nothing on and never asked the candidate about
+    # (not claimable, no evidence, no adjacent capability, no stated limit).
+    # Such a requirement has no truthful expression in a cover letter, so it is
+    # excluded from generation and told to the CANDIDATE instead — as a fact
+    # about US ("you were never asked"), never as a deficiency in them.
+    #
+    # Scoped per APPLICATION and DERIVED rather than snapshotted onto a
+    # generated document: the state belongs to the (job, gap analysis) pair and
+    # exists before any document does. Deriving it here means it cannot drift
+    # past a post-interview recompute, and it disappears by itself once the
+    # candidate is asked and answers. Same #260 `keyword_liabilities` pattern —
+    # one source, read on the SAME response the gaps page and the `analyze_gaps`
+    # MCP tool already return, so no new endpoint and no new tool (ADR-056 §4).
+    unasked_requirements: list[KeywordLedgerEntry] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -133,10 +162,15 @@ class GapAnalysisResponse(BaseModel):
         # on schemas/gap.py, but keeping the import local mirrors this
         # codebase's established cycle-avoidance convention elsewhere.
         from applire.services.keyword_ledger import keyword_liabilities as _compute
+        from applire.services.keyword_ledger import unasked_hard_requirements
 
         entries = [e.model_dump() for e in self.keyword_ledger]
         self.keyword_liabilities = [
             KeywordLedgerEntry(**e) for e in _compute(entries)
+        ]
+        # ADR-074 — same derivation discipline, same single source.
+        self.unasked_requirements = [
+            KeywordLedgerEntry(**e) for e in unasked_hard_requirements(entries)
         ]
         return self
 

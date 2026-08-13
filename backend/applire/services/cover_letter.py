@@ -755,7 +755,6 @@ async def _render_cover_letter_background(
                 find_unaddressed_hard_requirements,
                 render_stated_limits_block,
                 render_unaddressed_hard_requirements_block,
-                unaddressed_hard_requirements_positioning,
             )
             # denied_concepts already resolved above (#272 Task 1 hoist).
             stated_limits_block = render_stated_limits_block(
@@ -769,10 +768,40 @@ async def _render_cover_letter_background(
             # gap-transfer-argument slot above, which only fires when a signature story
             # happens to token-overlap the gap label — this is the deterministic
             # backstop for when it does not).
+            #
+            # This is the WRITER's pre-draft use, and the ONLY one that may read a
+            # `letter_data=None` computation (ADR-021 amended 2026-08-13, #526). The
+            # reviewer's copy is recomputed per round by
+            # `unaddressed_requirements_reviewer_prompt_fn` below; it must never be
+            # snapshotted into `grounding_source`, which the loop hands unchanged to
+            # every round of both the reviewer and the corrector.
             unaddressed_requirements = find_unaddressed_hard_requirements(keyword_ledger, None)
             unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
-                unaddressed_requirements, denied_concepts
+                unaddressed_requirements
             )
+            # ADR-074 clause 5 (#526): the letter is deliberately written as
+            # though these requirements had not been named — every other move is
+            # a truthfulness defect. A requirement that leaves no trace in the
+            # document is exactly the shape of a control that never fires, so the
+            # silence is logged ONCE per generation, always-on and PII-free (the
+            # #264 discipline), and told to the candidate on
+            # GapAnalysisResponse.unasked_requirements. Logged here rather than in
+            # the selector, which the reviewer wrapper re-runs every round.
+            from applire.services.keyword_ledger import unasked_hard_requirements
+
+            _unasked = unasked_hard_requirements(keyword_ledger)
+            if _unasked:
+                logger.warning(
+                    "LETTER_UNASKED_REQUIREMENTS cl=%s count=%d concepts=%r — JD hard "
+                    "requirement(s) with no evidence, no adjacent capability and no "
+                    "stated limit. Excluded from generation (ADR-074): asserting is "
+                    "ungrounded, denying invents a limit the candidate never stated, "
+                    "and silence is the only honest option left. Surfaced to the "
+                    "candidate instead.",
+                    cl_id,
+                    len(_unasked),
+                    [e.get("concept", "") for e in _unasked],
+                )
 
             # ADR-070 clause 2: the candidate's own scale evidence for partial scope
             # entries (bar.attested + typed values) — the ONLY channel scope material
@@ -824,12 +853,22 @@ async def _render_cover_letter_background(
                         "statement here denies it."
                     ),
                 }
-            if unaddressed_requirements:
-                positioning_requested["unaddressed_hard_requirements"] = (
-                    unaddressed_hard_requirements_positioning(
-                        unaddressed_requirements, denied_concepts
-                    )
-                )
+            # NOTE (ADR-021 amended 2026-08-13, #526): there is deliberately no
+            # `positioning_requested["unaddressed_hard_requirements"]` entry. Every
+            # other key here is a STANDING obligation, true of the letter regardless
+            # of what any draft says, and each carries its own named rule in the
+            # corrector prompt and in reviewer check 4. "Which hard requirements are
+            # still unaddressed" is a statement about the CURRENT DRAFT, and
+            # `grounding_source` is built once and reused for every round — so the
+            # entry was computed against a draft that did not exist yet and then
+            # asserted for ten rounds, overruling the per-round wrapper that had
+            # correctly gone silent (gate charter run 1, rounds 80 and 88 of
+            # backend/logs/llm/2026-08-11.jsonl). Nothing replaces it on the
+            # corrector side either: measured across the same ten rounds, the frozen
+            # entry never produced content the reviewer's feedback had not already
+            # demanded, and in the one round that destroyed a correct honest-gap
+            # sentence the recomputed list was empty — a per-round corrector block
+            # would have been silent there too.
             if job.company_name:
                 positioning_requested["company_domain_engagement"] = {
                     "target_company": job.company_name,
@@ -1037,7 +1076,6 @@ async def _render_cover_letter_background(
             reviewer_prompt_fn = unaddressed_requirements_reviewer_prompt_fn(
                 coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
                 keyword_ledger=keyword_ledger,
-                denied_concepts=denied_concepts,
             )
             # #272 Task 6: a THIRD deterministic wrapper — each reviewer iteration also
             # carries a WORD FLOOR check against the CURRENT draft's body (ADR-051 norm

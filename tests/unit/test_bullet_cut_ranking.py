@@ -233,8 +233,15 @@ def test_a_positioning_only_entry_protects_its_substitute_not_the_jd_term():
     in for the requirement, never the term the candidate cannot claim."""
     from datetime import date
 
-    ledger = [{"concept": "TOGAF", "claimable": True,
+    from applire.services.keyword_ledger import is_positioning_only
+
+    ledger = [{"concept": "TOGAF", "claimable": True, "status": "partial",
                "surface_forms": ["TOGAF 9"], "adjacent_evidence": "arc42"}]
+    # The fixture's premise, checked with the real predicate rather than by eye
+    # (ADR-048 amended 2026-08-13): `status` was missing here until the pointer
+    # gained its lifecycle invariant, so this row asserted a property it did not
+    # have and passed only because `is_positioning_only` did not yet look.
+    assert is_positioning_only(ledger[0]) is True
     budget = compute_bullet_budgets(
         [_work("r1", ["arc42-Dokumentation etabliert"])], ledger,
         target_pages=2, today=date(2026, 8, 2),

@@ -231,8 +231,17 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
         evidence = "; ".join(evidence_parts)
+        # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
+        # OVERRIDE. This used to be a fixed key literal, which silently dropped
+        # every field outside it — `adjacent_evidence` among them, so a JD naming
+        # both "Digitalisierung" and "Digitalisierung der Fertigung" collapsed an
+        # adjacent partial into a below-the-bar partial and lost the over-claim
+        # protection and the positioning obligation together, unlogged. A
+        # whitelist here is a list that grows by construction: the field it drops
+        # next is invisible in the diff.
         merged.append(
             {
+                **canonical,
                 "concept": canonical.get("concept", ""),
                 "surface_forms": surface_forms,
                 "sources": sorted(sources),
@@ -386,7 +395,7 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
     is testimony, and testimony needs a declared term (:func:`_floored_row` is
     that case's write).
     """
-    return {
+    out = {
         **entry,
         # ADR-059 amended 2026-07-27: the floor writes the STATUS, not merely
         # the flag. Forcing "gap" here discarded the reason the concept is
@@ -400,6 +409,12 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
         # durable home).
         "denial_level": denial_level,
     }
+    # ADR-048 amended 2026-08-13 (#526): the adjacency pointer lives only on a
+    # claimable `partial`. A denial is the candidate's own position on the term
+    # itself, so there is no substitute to promote — and the letter's UNADDRESSED
+    # block reads the field unconditionally.
+    out.pop("adjacent_evidence", None)
+    return out
 
 
 def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
@@ -420,6 +435,9 @@ def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
     """
     out = {**entry, "status": "gap", "claimable": False, "evidence": DENIAL_FLOOR_EVIDENCE}
     out.pop("denial_level", None)
+    # ADR-048 amended 2026-08-13 (#526) — same reason as `_denied_row`: the row
+    # has left the claimable adjacent-partial shape, so the pointer leaves too.
+    out.pop("adjacent_evidence", None)
     return out
 
 
@@ -598,8 +616,93 @@ def is_positioning_only(entry: dict[str, Any] | None) -> bool:
     SUBSTITUTE rather than the term. Charter run #7 is what happens when only
     the first of the three knows (#122's "the loop that grades is the loop that
     heals", stated the other way round).
+
+    **The status guard is load-bearing (ADR-048 amended 2026-08-13, #526).** This
+    used to be a bare ``bool(entry.get("adjacent_evidence"))``, so ANY row that
+    kept the pointer read as positioning-only — including rows that had left the
+    claimable-partial shape and had no business claiming the exemption. That is
+    not cosmetic: the exemption switches off the ADR-061 vault-evidence floor
+    (:func:`_claimable_backing_violation` clause 3), the coverage demand, the
+    outcome critic's presence facts and the load-bearing veto, all at once. Two
+    live paths produced such rows — :func:`downgrade_ledger_for_concepts` (the
+    candidate DECLINING a keyword liability) and the denial/heal writes — and a
+    third silently deleted the pointer instead (:func:`_collapse_prefix_duplicates`).
+    All three are fixed at the writer; this is the reader half, so a stale
+    pointer arriving from anywhere is inert rather than load-bearing.
     """
-    return bool((entry or {}).get("adjacent_evidence"))
+    e = entry or {}
+    if not e.get("claimable") or e.get("status") != "partial":
+        return False
+    return bool(e.get("adjacent_evidence"))
+
+
+def is_unasked_requirement(entry: dict[str, Any] | None) -> bool:
+    """True for a JD hard requirement Applire holds NOTHING on and never asked
+    about — ADR-074's *Restfall*, and THE single definition of it.
+
+    All of: not ``claimable`` · ``"required" in sources`` · no
+    ``adjacent_evidence`` · no ``evidence`` · ``status != "denied"`` · not a
+    scope entry.
+
+    Such a row has no truthful expression in a cover letter, and that is why it
+    is named rather than handled: asserting the term is ungrounded (it is on the
+    clause-6 DO-NOT-CLAIM list), staying silent breaks the UNADDRESSED HARD
+    REQUIREMENTS block's own instruction, and denying it is an INVENTED LIMIT —
+    ``gap`` means *nobody asked*, not *the candidate said no*, so no stated limit
+    grounds the denial. Gate charter run 1 spent 37 of 68 blocking issues and ten
+    reviewer rounds on two rows of exactly this shape.
+
+    Every conjunct is load-bearing:
+
+    * ``evidence == ""`` is what separates this from the ADR-059/#486
+      **containment-floored** gap, which carries :data:`DENIAL_FLOOR_EVIDENCE`
+      and therefore *does* have a related stated limit to build on.
+    * ``status != "denied"`` is implied today — :func:`_denied_row` always writes
+      :data:`DENIED_EVIDENCE` — and is kept as an explicit fail-safe. A control's
+      correctness must not depend on the spelling of a sentinel, and the failure
+      it prevents is reclassifying the candidate's own testimony as "we never
+      asked you".
+    * :func:`is_scope_entry` is excluded because a scope row's concept is a
+      synthesised label carrying the JD's own figure; ADR-070 records that a
+      persistent scope gap is positioned nowhere, deliberately.
+
+    The predicate presumes the adjacency-pointer lifecycle invariant (ADR-048
+    amended 2026-08-13). Without it, :func:`downgrade_ledger_for_concepts` leaves
+    a stale ``adjacent_evidence`` on a concept the candidate has just DECLINED,
+    and this predicate would then exclude that row from the Restfall — letting
+    the letter promote the declined capability.
+
+    Pure; ``None``/malformed tolerant.
+    """
+    e = entry if isinstance(entry, dict) else None
+    if not e:
+        return False
+    if e.get("claimable"):
+        return False
+    if "required" not in (e.get("sources") or []):
+        return False
+    if e.get("status") == "denied":
+        return False
+    if (e.get("adjacent_evidence") or "").strip():
+        return False
+    if (e.get("evidence") or "").strip():
+        return False
+    return not is_scope_entry(e)
+
+
+def unasked_hard_requirements(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Every :func:`is_unasked_requirement` row, in ledger order (ADR-074).
+
+    Two consumers, one definition: the letter excludes these from generation
+    (:func:`applire.services.cross_document.find_unaddressed_hard_requirements`),
+    and ``GapAnalysisResponse`` derives the user-facing notice from the same rows
+    — per application, on the response the gaps page and the ``analyze_gaps`` MCP
+    tool already return, so the notice cannot drift from the ledger it summarises
+    and needs no new endpoint or tool (the #260 ``keyword_liabilities`` pattern).
+    """
+    return [e for e in (keyword_ledger or []) if is_unasked_requirement(e)]
 
 
 def is_scope_entry(entry: dict[str, Any] | None) -> bool:
@@ -813,11 +916,28 @@ def unsupported_claim_surface_forms(
     affirmation alongside the denial — is still audited by the Oracle, which reads
     direction. The four-status split is what makes the exclusion expressible at
     all; before it, ``denied`` and ``gap`` were the same row.
+
+    **An ADJACENT ``partial`` IS included, despite being claimable** (ADR-048
+    amended 2026-08-13, #526). The 2026-07-27 clause-4(b) exemption
+    (:func:`is_positioning_only`) is scoped to ABSENCE — the term must not be
+    DEMANDED, and its absence is an honest gap rather than a surfacing miss. It
+    was never meant to cover PRESENCE: the row's entire meaning is "the candidate
+    does NOT have this term, they have the adjacent one", so the term appearing in
+    the document is an unsupported claim by the row's own definition. This
+    distinction became load-bearing when the same amendment's clause 1 started
+    routing differently-named support to ``partial`` + ``adjacent_evidence``
+    instead of leaving it as a ``gap``: excluding on ``claimable`` alone would
+    have switched this quadrant off for exactly the concepts most exposed to
+    over-claiming. The forms emitted are the JD's own term and its surface forms —
+    never ``adjacent_evidence``, which names what the candidate genuinely has and
+    which the writer was told to give prominence.
     """
     forms: list[str] = []
     seen: set[str] = set()
     for entry in keyword_ledger or []:
-        if entry.get("claimable") or entry.get("status") == "denied":
+        if entry.get("status") == "denied":
+            continue
+        if entry.get("claimable") and not is_positioning_only(entry):
             continue
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
@@ -1851,6 +1971,14 @@ def downgrade_ledger_for_concepts(
             e["claimable"] = False
             e["status"] = "gap"
             e["evidence"] = ""
+            # ADR-048 amended 2026-08-13 (#526): the row is leaving the claimable
+            # adjacent-partial shape, so the adjacency pointer leaves with it. It
+            # means "the candidate does not have this term, they have that one
+            # instead" — a statement the candidate has just declined to make.
+            # Left standing, `render_unaddressed_hard_requirements_block` reads it
+            # unconditionally and tells the letter writer to give prominence to
+            # the very capability that was dropped.
+            e.pop("adjacent_evidence", None)
             # No longer claimable — moot either way, but keep the flag honest
             # so a re-read never re-flags a concept the candidate just dropped.
             e["narrative_backed"] = True
@@ -1923,6 +2051,67 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
         filtered_metadata["enrichment_history"] = new_history
 
     return {**profile_json, "metadata": filtered_metadata}
+
+
+_MIN_ADJACENT_MATERIAL_CHARS = 25
+
+
+def verified_adjacent_material(evidence: str | None, corpus: str | None) -> str:
+    """The part of a demoted row's ``evidence`` the VAULT itself carries, verbatim.
+
+    ADR-074 amended 2026-08-13 (PO ruling, on captured-call replay evidence).
+    When :func:`assert_claimable_backed` demotes a row for
+    ``no_vault_evidence_unit``, the reason is always the same: the vault says the
+    same thing in **different words**. Discarding the classifier's cited material
+    along with the claim throws away the only honest positioning the letter could
+    have used — the replay's ``Investitionsverantwortung`` case, where the vault
+    holds *"Vorlage und Umsetzung von Investitionsentscheidungen im Rahmen der
+    Industrie-4.0-Roadmap"* and German compounding is the entire reason
+    ``ground_skill_claim`` (whole-token, no morphological decomposition) cannot
+    reach it.
+
+    **The model's paraphrase is not evidence; the vault's own sentence is.** So
+    the evidence is split into its segments and only those appearing VERBATIM in
+    ``corpus`` (normalised) survive — the ADR-070 attested-quote discipline
+    applied one layer up, and a FACT under ADR-062 clause 1 (literal containment,
+    never a reading of meaning). Returns ``""`` when nothing verifies, which
+    leaves the row an ADR-074 Restfall: telling the candidate we hold nothing
+    beats handing the writer a sentence the vault cannot back.
+    """
+    text = (evidence or "").strip()
+    if not text or not corpus:
+        return ""
+    # THE SAME normaliser :func:`profile_literal_corpus` built the corpus with.
+    # Using this module's `_norm` here instead silently fails every comparison:
+    # it keeps hyphens ("industrie-4.0-roadmap") where the corpus has spaces
+    # ("industrie 4.0 roadmap"), so the check returns "" for material that IS in
+    # the vault — a control that cannot fire, found by running it.
+    from applire.services.ats_audit import _norm as ats_norm
+
+    corpus_norm = ats_norm(corpus)
+    if not corpus_norm:
+        return ""
+    # The LONGEST word-aligned span of the evidence the corpus carries verbatim,
+    # not a split on punctuation. Splitting was the first implementation and it
+    # failed on the captured replay: the classifier separated its two citations
+    # with a COMMA ("… Industrie-4.0-Roadmap, Investitionsvorlage für …"), so the
+    # whole string was one segment and nothing verified. Punctuation is the
+    # model's choice; span length is a property of the vault.
+    words = text.split()
+    best = ""
+    for start in range(len(words)):
+        for end in range(len(words), start, -1):
+            if end - start < 3:
+                break
+            span = " ".join(words[start:end]).strip().rstrip(".,;:").strip()
+            # A fragment too short to be a claim is not material — it is a word
+            # that happens to occur somewhere in a large corpus.
+            if len(span) < _MIN_ADJACENT_MATERIAL_CHARS or len(span) <= len(best):
+                break
+            if ats_norm(span) in corpus_norm:
+                best = span
+                break
+    return best
 
 
 def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
@@ -2212,7 +2401,34 @@ def assert_claimable_backed(
                 _denied_row(entry, level) if level is not None else _floored_row(entry)
             )
         else:
-            healed.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
+            # ADR-048 amended 2026-08-13 (#526): byte-identical to what the
+            # builder writes for an unclassified expectation — which, since the
+            # adjacency pointer is now an invariant of the claimable-partial
+            # shape, means the pointer does not survive the heal either.
+            gap_row = {**entry, "status": "gap", "claimable": False, "evidence": ""}
+            gap_row.pop("adjacent_evidence", None)
+            # ADR-074 amended 2026-08-13 — the ONE exception, and the line it
+            # draws is deliberate: a pointer survives the demotion that is about
+            # VOCABULARY (clause 5 — the vault says the same thing in other
+            # words), never one that is about the candidate's own POSITION. A
+            # denial, a containment floor and a declined liability all still
+            # strip it, because promoting material there would argue with
+            # something the candidate actually said. Verified verbatim against
+            # the vault, so the model's paraphrase can never reach a writer.
+            if reason == "no_vault_evidence_unit":
+                material = verified_adjacent_material(
+                    entry.get("evidence"), profile_literal_corpus(confirmed)
+                )
+                if material:
+                    gap_row["adjacent_evidence"] = material
+                    logger.info(
+                        "assert_claimable_backed[%s]: %r keeps its vault-verified "
+                        "adjacent material through the demotion — not claimable, but "
+                        "positionable (ADR-074 amended)",
+                        seam or "unnamed-seam",
+                        entry.get("concept"),
+                    )
+            healed.append(gap_row)
     return healed, violations
 
 

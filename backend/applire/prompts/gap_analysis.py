@@ -15,6 +15,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (ADR-048 amended, 2026-08-13 — #526, gate charter run 1):
+#   - THE PROFILE'S OWN WORDS rule: a "direct" now requires the CANDIDATE PROFILE to
+#     name the requirement's own term or one of its surface forms. This closes a seam,
+#     not a model failure. Two instruments decide whether the candidate "has" a
+#     requirement and they ask different questions: this prompt judges by MEANING,
+#     while `keyword_ledger.assert_claimable_backed` clause 5 (ADR-061/#318) grounds by
+#     LITERAL TERM via the Oracle's own `ground_skill_claim`. Run 1 classified both
+#     `Digitalisierung` and `Investitionsverantwortung` "direct", citing the MES rollout
+#     and the Industrie-4.0 roadmap; the floor correctly refused (the vault never spells
+#     either word) and healed both to `gap` + empty evidence — discarding the adjacency
+#     this prompt had just named. The letter writer then received them on the UNADDRESSED
+#     HARD REQUIREMENTS block with `context: (none — a pure keyword gap, no vault
+#     context)` under an instruction demanding a transfer argument in the candidate's own
+#     words, while the DO-NOT-CLAIM list forbade asserting them and the reviewer's
+#     invented-limit check forbade denying them. Both letter chains exhausted 5/5 rounds;
+#     37 of 68 blocking issues were those two concepts, in 10 of 10 rounds.
+#     The mechanism this rule routes into is not new — the v5 (a) ADJACENT / (b) BELOW
+#     THE BAR split already carried it. What was missing was the trigger condition.
+#
 # Prompt version: v6 (ADR-061 amended, 2026-08-02 — charter run 15 #427):
 #   - The RATIONALE and the PUBLISHED EVIDENCE are separate fields. v5's schema
 #     described `reason` as "the evidence" while the PROFICIENCY-CEILING rule below
@@ -81,7 +100,8 @@ You will receive:
   5. REQUIREMENTS — the exact list you must classify: required + nice-to-have + ATS keywords
 
 Classify EVERY entry in REQUIREMENTS (required, nice_to_have, AND keywords) into exactly one status:
-  • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar
+  • "direct"  — the candidate clearly has this AND meets any stated years/seniority bar AND the
+                CANDIDATE PROFILE names the requirement itself (see THE PROFILE'S OWN WORDS below)
   • "partial" — likely/inferred from context (adjacent skills, employer/domain), OR the skill is
                 present but the candidate's years are below a stated bar or cannot be confirmed
   • "gap"     — no signal in the profile
@@ -113,6 +133,17 @@ Rules:
       (b) BELOW THE BAR — the candidate has exactly the named thing, just less of it than asked.
           Omit "adjacent_evidence" entirely; there is nothing else to promote.
     Never invent an adjacency to fill the field, and never set it on a "direct" entry.
+  - THE PROFILE'S OWN WORDS DECIDE "direct". Classify a requirement "direct" only when the
+    CANDIDATE PROFILE actually names it — the requirement's own term, or one of the
+    "surface_forms" you list for it. When the profile supports the requirement only through
+    DIFFERENTLY-NAMED capabilities (the posting asks for "Digitalisierung"; the profile says
+    "MES-Einführung" and "Industrie-4.0-Roadmap"), that is case (a) ADJACENT above: classify it
+    "partial" and set "adjacent_evidence" to the profile's own name(s) for those capabilities.
+    Never "direct". This is not a wording preference: a claim to a term the profile does not
+    contain is refused by a later check, and the requirement then reaches the CV and cover-letter
+    writers carrying NO evidence at all — strictly worse for the candidate than the honest
+    "partial" you could have given them. Judge whether the profile NAMES the thing; do not judge
+    whether the words are a good match.
   - STANCE: a denial or negative statement by the candidate ("I have no hands-on Azure
     experience", "AWS, not Azure") is evidence AGAINST that skill. Classify such a requirement
     "gap" — never "direct" or "partial" — and never cite a denial as supporting evidence.

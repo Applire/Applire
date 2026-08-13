@@ -24,6 +24,9 @@ stores or rerankers myself..."
 """
 from __future__ import annotations
 
+import pytest
+
+from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.cross_document import (
     collect_stated_limits,
     exclude_claimable_concepts,
@@ -31,7 +34,6 @@ from applire.services.cross_document import (
     render_stated_limits_block,
     unaddressed_requirements_reviewer_prompt_fn,
     render_unaddressed_hard_requirements_block,
-    unaddressed_hard_requirements_positioning,
 )
 
 # ---------------------------------------------------------------------------
@@ -112,7 +114,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.9,
         "surface_forms": ["embeddings", "embedding models"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "ranking",
@@ -120,7 +123,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.8,
         "surface_forms": ["ranking", "rerankers"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "observability",
@@ -128,7 +132,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.7,
         "surface_forms": ["observability", "tracing"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "Databricks",
@@ -318,8 +323,11 @@ def test_render_stated_limits_block_forbids_inventing_a_limit():
 
 def test_find_unaddressed_hard_requirements_returns_unmet_required_concepts():
     ledger = [
-        {"concept": "Kubernetes", "claimable": False, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
-        {"concept": "GraphQL", "claimable": False, "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        {"concept": "Kubernetes", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
+        {"concept": "GraphQL", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        # ADR-074: required, unclaimable, and NOTHING on it — never asked. Excluded
+        # from generation, told to the candidate instead.
+        {"concept": "Terraform", "claimable": False, "status": "gap", "evidence": "", "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Terraform"]},
         # Not required — never reported even though unmet.
         {"concept": "Rust", "claimable": False, "sources": ["nice_to_have"], "fit_weight": 0.9, "surface_forms": ["Rust"]},
         # Claimable — never reported (it is not a gap at all).
@@ -341,7 +349,7 @@ def test_find_unaddressed_hard_requirements_empty_when_addressed():
 
 def test_find_unaddressed_hard_requirements_caps_at_three_highest_weight():
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6, 0.5], start=1)
     ]
     result = find_unaddressed_hard_requirements(ledger, {"body": {"paragraphs": []}})
@@ -377,7 +385,7 @@ def test_find_unaddressed_hard_requirements_handles_none_and_empty_inputs():
 
 def test_render_helpers_handle_empty_input():
     assert render_stated_limits_block([]) == ""
-    assert render_unaddressed_hard_requirements_block([], None) == ""
+    assert render_unaddressed_hard_requirements_block([]) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +423,8 @@ OBSERVABILITY_ENTRY = {
         "observability", "Prometheus", "Grafana", "ELK",
         "production logging", "tracing",
     ],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 EMBEDDINGS_ENTRY = {
@@ -424,7 +433,8 @@ EMBEDDINGS_ENTRY = {
     "sources": ["required"],
     "fit_weight": 0.9,
     "surface_forms": ["embeddings", "embedding models", "embedding work"],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 RANKING_ENTRY = {
@@ -433,7 +443,8 @@ RANKING_ENTRY = {
     "sources": ["required"],
     "fit_weight": 0.8,
     "surface_forms": ["ranking", "rerankers"],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 
@@ -451,16 +462,17 @@ def test_render_unaddressed_hard_requirements_block_names_concepts_and_forbids_a
     assert "silence" in block.lower()
 
 
-def test_unaddressed_hard_requirements_positioning_shape():
-    entries = [{"concept": "observability", "evidence": "some context"}]
-    positioning = unaddressed_hard_requirements_positioning(entries)
-    assert positioning["required"] is True
-    assert positioning["concepts"] == [{"concept": "observability", "evidence": "some context"}]
-    assert "litany" in positioning["instruction"].lower()
+def test_the_positioning_snapshot_builder_is_gone():
+    """ADR-021 amended 2026-08-13 (#526). `unaddressed_hard_requirements_positioning`
+    snapshotted the unmet-requirement list into the letter's `grounding_source`,
+    which `review_and_refine` hands unchanged to the reviewer AND the corrector on
+    every round — so a statement about the CURRENT DRAFT was computed once with
+    `letter_data=None` and then asserted for the whole loop, overruling the per-round
+    wrapper below when the two disagreed. The function is deleted, not deprecated:
+    a re-import here is the snapshot growing back."""
+    import applire.services.cross_document as xd
 
-
-def test_unaddressed_hard_requirements_positioning_empty_is_empty_dict():
-    assert unaddressed_hard_requirements_positioning([]) == {}
+    assert not hasattr(xd, "unaddressed_hard_requirements_positioning")
 
 
 def _noop_base_fn(source: str, draft: dict) -> str:
@@ -476,7 +488,6 @@ def test_reviewer_prompt_fn_flags_unaddressed_requirements_on_run5_full_ledger()
     reviewer_fn = unaddressed_requirements_reviewer_prompt_fn(
         _noop_base_fn,
         keyword_ledger=RUN5_LEDGER_FULL,
-        denied_concepts=RUN5_DENIED_CONCEPTS,
     )
     prompt = reviewer_fn("source", RUN5_LETTER_DATA)
     assert "embeddings" in prompt
@@ -502,7 +513,6 @@ def test_reviewer_prompt_fn_omits_block_when_letter_addresses_all_three():
     reviewer_fn = unaddressed_requirements_reviewer_prompt_fn(
         _noop_base_fn,
         keyword_ledger=RUN5_LEDGER_FULL,
-        denied_concepts=RUN5_DENIED_CONCEPTS,
     )
     prompt = reviewer_fn("source", letter_data)
     assert "UNADDRESSED HARD REQUIREMENTS" not in prompt
@@ -510,11 +520,11 @@ def test_reviewer_prompt_fn_omits_block_when_letter_addresses_all_three():
 
 def test_reviewer_prompt_fn_caps_unaddressed_at_three_and_logs_drop(caplog):
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6], start=1)
     ]
     reviewer_fn = unaddressed_requirements_reviewer_prompt_fn(
-        _noop_base_fn, keyword_ledger=ledger, denied_concepts=[],
+        _noop_base_fn, keyword_ledger=ledger,
     )
     with caplog.at_level("INFO"):
         prompt = reviewer_fn("source", {"body": {"paragraphs": []}})
@@ -563,22 +573,25 @@ def test_the_block_never_quotes_a_span_out_of_a_denial_statement():
                        "is the architecture and the database design behind them."),
          "source": "interview"},
     ]
-    block = render_unaddressed_hard_requirements_block([EMBEDDINGS_ENTRY], denied)
+    del denied  # the parameter is gone; the statements reach the prompt via STATED LIMITS
+    block = render_unaddressed_hard_requirements_block([EMBEDDINGS_ENTRY])
     assert "What I do bring" not in block
     assert "TRANSFER-ARGUMENT TESTIMONY" not in block
     # ...and it still tells the writer where the candidate's own words live.
     assert "STATED LIMITS" in block
 
 
-def test_the_block_is_unchanged_by_the_denied_concepts_argument():
-    """`denied_concepts` is accepted and unused since ADR-062 — kept so callers
-    need not change. If it ever starts altering the block again, that is the
-    extraction growing back."""
-    denied = [{"concept": "observability",
-               "statement": "No Prometheus experience. I do read logs daily though.",
-               "source": "interview"}]
-    assert (render_unaddressed_hard_requirements_block([OBSERVABILITY_ENTRY])
-            == render_unaddressed_hard_requirements_block([OBSERVABILITY_ENTRY], denied))
+def test_the_block_no_longer_accepts_a_denied_concepts_argument():
+    """`denied_concepts` was accepted and unused from ADR-062 (2026-07-28) until it
+    was deleted on 2026-08-13 (ADR-062 clause 3). A parameter every caller passes and
+    no body reads is a control that cannot fire; the candidate's own words reach the
+    prompt whole via STATED LIMITS. Re-adding it is the extraction growing back."""
+    import inspect
+
+    sig = inspect.signature(render_unaddressed_hard_requirements_block)
+    assert list(sig.parameters) == ["entries"]
+    with pytest.raises(TypeError):
+        render_unaddressed_hard_requirements_block([OBSERVABILITY_ENTRY], [{"concept": "x"}])
 
 
 def test_the_block_never_calls_an_adjacent_partial_a_plain_gap():
