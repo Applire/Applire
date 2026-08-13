@@ -204,3 +204,123 @@ def test_generation_logs_the_silence_once():
     src = inspect.getsource(cl._render_cover_letter_background)
     assert "LETTER_UNASKED_REQUIREMENTS" in src
     assert "logger.warning" in src.split("LETTER_UNASKED_REQUIREMENTS")[0][-400:]
+
+
+# ── ADR-074 amended: the vocabulary demotion keeps its material ──────────────
+
+
+_RUN1_VAULT = {
+    "work_experience": [
+        {
+            "id": "w-weberit",
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "achievements": [
+                "Vorlage und Umsetzung von Investitionsentscheidungen im Rahmen der "
+                "Industrie-4.0-Roadmap sowie Einführung eines MES-Systems.",
+            ],
+        }
+    ],
+}
+
+
+def test_a_vocabulary_demotion_keeps_the_vault_material_it_was_graded_on():
+    """PO ruling 2026-08-13 (Option B), on replay evidence.
+
+    The captured-call replay showed the classifier rule fixes `Digitalisierung`
+    (→ `partial` + adjacent_evidence) but NOT `Investitionsverantwortung`: German
+    compounding means the model reads "Investitionsvorlage"/"Investitions-
+    entscheidungen" as naming the requirement, while `ground_skill_claim` — whole
+    token, no morphological decomposition — does not. The floor then demotes it
+    and, before this change, discarded the vault sentence the classifier had
+    graded it on, leaving a Restfall the UI describes as "we hold nothing".
+
+    So the demotion keeps its material — but only the part that is VERBATIM in
+    the vault. The model's paraphrase is not evidence; the vault's own sentence
+    is (the ADR-070 attested-quote discipline, applied one layer up)."""
+    from applire.services.keyword_ledger import assert_claimable_backed
+
+    row = {
+        "concept": "Investitionsverantwortung",
+        "surface_forms": ["Investitionsverantwortung"],
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "status": "direct",
+        "claimable": True,
+        # VERBATIM from the AP-5(a) captured-call replay (2026-08-13). The
+        # classifier separates its two citations with a COMMA, which is why the
+        # verifier matches the longest word-aligned span the vault carries rather
+        # than splitting on punctuation: the model chooses the punctuation, the
+        # vault decides what is true.
+        "evidence": (
+            "Vorlage und Umsetzung von Investitionsentscheidungen im Rahmen der "
+            "Industrie-4.0-Roadmap, Investitionsvorlage für MES-Projekt gemeinsam "
+            "mit der Geschäftsführung erarbeitet"
+        ),
+    }
+    healed, violations = assert_claimable_backed([row], _RUN1_VAULT, seam="test")
+    assert violations and violations[0]["reason"] == "no_vault_evidence_unit", (
+        "fixture premise: the literal term must be ungroundable, or this proves nothing"
+    )
+    out = healed[0]
+    assert out["status"] == "gap" and out["claimable"] is False, "still never claimable"
+    kept = out.get("adjacent_evidence") or ""
+    assert "Investitionsentscheidungen im Rahmen der Industrie-4.0-Roadmap" in kept
+    # The second citation is the model's own paraphrase — the vault does not
+    # carry those words, so it must not survive as "material".
+    assert "Investitionsvorlage für MES-Projekt" not in kept
+
+    # The row is no longer an ADR-074 Restfall: it has something to position with.
+    assert is_unasked_requirement(out) is False
+    # ...but it gains NOTHING else. Not claimable, not positioning-only (that is
+    # the ADR-048 substitute contract, which is for a CLAIMABLE partial), and
+    # still on the do-not-claim list.
+    from applire.services.keyword_ledger import is_positioning_only, split_ledger_for_prompt
+
+    assert is_positioning_only(out) is False
+    claimable, forbidden = split_ledger_for_prompt(healed)
+    assert "Investitionsverantwortung" in forbidden
+    assert out not in claimable
+
+
+def test_a_demotion_with_no_verifiable_material_stays_a_restfall():
+    """Fail-safe direction: when nothing the classifier cited is in the vault,
+    the row keeps no pointer and ADR-074 handles it. Better to tell the candidate
+    we hold nothing than to hand the writer a sentence the vault cannot back."""
+    from applire.services.keyword_ledger import assert_claimable_backed
+
+    row = {
+        "concept": "Investitionsverantwortung",
+        "surface_forms": ["Investitionsverantwortung"],
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "status": "direct",
+        "claimable": True,
+        "evidence": "Der Kandidat wirkt insgesamt sehr investitionserfahren.",
+    }
+    healed, _ = assert_claimable_backed([row], _RUN1_VAULT, seam="test")
+    assert not healed[0].get("adjacent_evidence")
+    assert is_unasked_requirement(healed[0]) is True
+
+
+def test_only_the_vocabulary_demotion_keeps_a_pointer():
+    """The distinction that makes this safe: a pointer survives the demotion that
+    is about VOCABULARY (the vault says the same thing in other words), never one
+    that is about the candidate's own POSITION. A denial, a containment floor and
+    a declined liability all still strip it — promoting material there would
+    argue with something the candidate said."""
+    from applire.services.keyword_ledger import (
+        _denied_row,
+        _floored_row,
+        downgrade_ledger_for_concepts,
+    )
+
+    withptr = {
+        "concept": "TOGAF", "surface_forms": ["TOGAF"], "sources": ["required"],
+        "fit_weight": 1.0, "status": "partial", "evidence": "5 years of arc42",
+        "claimable": True, "adjacent_evidence": "arc42",
+    }
+    assert "adjacent_evidence" not in _denied_row(withptr, "direct")
+    assert "adjacent_evidence" not in _floored_row(withptr)
+    dropped, _ = downgrade_ledger_for_concepts([withptr], ["TOGAF"])
+    assert "adjacent_evidence" not in dropped[0]

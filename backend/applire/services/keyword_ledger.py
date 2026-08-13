@@ -2053,6 +2053,67 @@ def _strip_denial_text(profile_json: dict[str, Any]) -> dict[str, Any]:
     return {**profile_json, "metadata": filtered_metadata}
 
 
+_MIN_ADJACENT_MATERIAL_CHARS = 25
+
+
+def verified_adjacent_material(evidence: str | None, corpus: str | None) -> str:
+    """The part of a demoted row's ``evidence`` the VAULT itself carries, verbatim.
+
+    ADR-074 amended 2026-08-13 (PO ruling, on captured-call replay evidence).
+    When :func:`assert_claimable_backed` demotes a row for
+    ``no_vault_evidence_unit``, the reason is always the same: the vault says the
+    same thing in **different words**. Discarding the classifier's cited material
+    along with the claim throws away the only honest positioning the letter could
+    have used — the replay's ``Investitionsverantwortung`` case, where the vault
+    holds *"Vorlage und Umsetzung von Investitionsentscheidungen im Rahmen der
+    Industrie-4.0-Roadmap"* and German compounding is the entire reason
+    ``ground_skill_claim`` (whole-token, no morphological decomposition) cannot
+    reach it.
+
+    **The model's paraphrase is not evidence; the vault's own sentence is.** So
+    the evidence is split into its segments and only those appearing VERBATIM in
+    ``corpus`` (normalised) survive — the ADR-070 attested-quote discipline
+    applied one layer up, and a FACT under ADR-062 clause 1 (literal containment,
+    never a reading of meaning). Returns ``""`` when nothing verifies, which
+    leaves the row an ADR-074 Restfall: telling the candidate we hold nothing
+    beats handing the writer a sentence the vault cannot back.
+    """
+    text = (evidence or "").strip()
+    if not text or not corpus:
+        return ""
+    # THE SAME normaliser :func:`profile_literal_corpus` built the corpus with.
+    # Using this module's `_norm` here instead silently fails every comparison:
+    # it keeps hyphens ("industrie-4.0-roadmap") where the corpus has spaces
+    # ("industrie 4.0 roadmap"), so the check returns "" for material that IS in
+    # the vault — a control that cannot fire, found by running it.
+    from applire.services.ats_audit import _norm as ats_norm
+
+    corpus_norm = ats_norm(corpus)
+    if not corpus_norm:
+        return ""
+    # The LONGEST word-aligned span of the evidence the corpus carries verbatim,
+    # not a split on punctuation. Splitting was the first implementation and it
+    # failed on the captured replay: the classifier separated its two citations
+    # with a COMMA ("… Industrie-4.0-Roadmap, Investitionsvorlage für …"), so the
+    # whole string was one segment and nothing verified. Punctuation is the
+    # model's choice; span length is a property of the vault.
+    words = text.split()
+    best = ""
+    for start in range(len(words)):
+        for end in range(len(words), start, -1):
+            if end - start < 3:
+                break
+            span = " ".join(words[start:end]).strip().rstrip(".,;:").strip()
+            # A fragment too short to be a claim is not material — it is a word
+            # that happens to occur somewhere in a large corpus.
+            if len(span) < _MIN_ADJACENT_MATERIAL_CHARS or len(span) <= len(best):
+                break
+            if ats_norm(span) in corpus_norm:
+                best = span
+                break
+    return best
+
+
 def profile_literal_corpus(profile_json: dict[str, Any] | None) -> str:
     """The vault's OWN literal text, flattened + normalised (#249 run-4,
     2026-07-24) — POSITIVE content only (wave-6, denial testimony excluded).
@@ -2346,6 +2407,27 @@ def assert_claimable_backed(
             # shape, means the pointer does not survive the heal either.
             gap_row = {**entry, "status": "gap", "claimable": False, "evidence": ""}
             gap_row.pop("adjacent_evidence", None)
+            # ADR-074 amended 2026-08-13 — the ONE exception, and the line it
+            # draws is deliberate: a pointer survives the demotion that is about
+            # VOCABULARY (clause 5 — the vault says the same thing in other
+            # words), never one that is about the candidate's own POSITION. A
+            # denial, a containment floor and a declined liability all still
+            # strip it, because promoting material there would argue with
+            # something the candidate actually said. Verified verbatim against
+            # the vault, so the model's paraphrase can never reach a writer.
+            if reason == "no_vault_evidence_unit":
+                material = verified_adjacent_material(
+                    entry.get("evidence"), profile_literal_corpus(confirmed)
+                )
+                if material:
+                    gap_row["adjacent_evidence"] = material
+                    logger.info(
+                        "assert_claimable_backed[%s]: %r keeps its vault-verified "
+                        "adjacent material through the demotion — not claimable, but "
+                        "positionable (ADR-074 amended)",
+                        seam or "unnamed-seam",
+                        entry.get("concept"),
+                    )
             healed.append(gap_row)
     return healed, violations
 
