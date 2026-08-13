@@ -263,7 +263,7 @@ def find_unaddressed_hard_requirements(
     paragraphs = _get(body, "paragraphs", None)
     text_norm = ats_norm(" ".join(p for p in (paragraphs or []) if isinstance(p, str)))
 
-    from applire.services.keyword_ledger import is_scope_entry
+    from applire.services.keyword_ledger import is_scope_entry, is_unasked_requirement
 
     unaddressed: list[dict[str, Any]] = []
     for entry in keyword_ledger or []:
@@ -276,6 +276,17 @@ def find_unaddressed_hard_requirements(
         # render_scope_positioning_block; a persistent scope gap is positioned
         # nowhere, deliberately (ADR-070's explicit limitation).
         if is_scope_entry(entry):
+            continue
+        # ADR-074 (#526): a hard requirement we hold NOTHING on and never asked
+        # about is ignored at generation. Every remaining move is a truthfulness
+        # defect — asserting the term is ungrounded, denying it invents a limit
+        # the candidate never stated, and this block's own instruction forbids
+        # silence — so the honest one is to write the letter as though the
+        # requirement had not been named, and tell the CANDIDATE instead
+        # (GapAnalysisResponse.unasked_requirements). Gate charter run 1 spent
+        # ten reviewer rounds and 37 of 68 blocking issues discovering that this
+        # cell has no fourth move.
+        if is_unasked_requirement(entry):
             continue
         if entry.get("claimable") and not entry.get("adjacent_evidence"):
             continue
@@ -375,7 +386,14 @@ def render_unaddressed_hard_requirements_block(
         _UNADDRESSED_INSTRUCTION,
     ]
     for e in entries:
-        evidence = e.get("evidence", "") or "(none — a pure keyword gap, no vault context)"
+        # ADR-074 / ADR-062 clause 3: the no-vault-context fallback string is
+        # DELETED. `find_unaddressed_hard_requirements` now excludes the only
+        # rows that could reach it, so it was a branch no input can select — and
+        # while it existed it was this block admitting it had nothing to offer
+        # while still instructing the writer to produce a transfer argument
+        # grounded in the candidate's own words. That contradiction is what ran
+        # both letter loops to exhaustion in gate charter run 1.
+        evidence = e.get("evidence", "") or e.get("adjacent_evidence", "")
         lines.append(f"  - {e.get('concept', '')} — context: {evidence}")
         if e.get("status") == "denied":
             lines.append(

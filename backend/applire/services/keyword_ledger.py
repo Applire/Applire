@@ -636,6 +636,75 @@ def is_positioning_only(entry: dict[str, Any] | None) -> bool:
     return bool(e.get("adjacent_evidence"))
 
 
+def is_unasked_requirement(entry: dict[str, Any] | None) -> bool:
+    """True for a JD hard requirement Applire holds NOTHING on and never asked
+    about — ADR-074's *Restfall*, and THE single definition of it.
+
+    All of: not ``claimable`` · ``"required" in sources`` · no
+    ``adjacent_evidence`` · no ``evidence`` · ``status != "denied"`` · not a
+    scope entry.
+
+    Such a row has no truthful expression in a cover letter, and that is why it
+    is named rather than handled: asserting the term is ungrounded (it is on the
+    clause-6 DO-NOT-CLAIM list), staying silent breaks the UNADDRESSED HARD
+    REQUIREMENTS block's own instruction, and denying it is an INVENTED LIMIT —
+    ``gap`` means *nobody asked*, not *the candidate said no*, so no stated limit
+    grounds the denial. Gate charter run 1 spent 37 of 68 blocking issues and ten
+    reviewer rounds on two rows of exactly this shape.
+
+    Every conjunct is load-bearing:
+
+    * ``evidence == ""`` is what separates this from the ADR-059/#486
+      **containment-floored** gap, which carries :data:`DENIAL_FLOOR_EVIDENCE`
+      and therefore *does* have a related stated limit to build on.
+    * ``status != "denied"`` is implied today — :func:`_denied_row` always writes
+      :data:`DENIED_EVIDENCE` — and is kept as an explicit fail-safe. A control's
+      correctness must not depend on the spelling of a sentinel, and the failure
+      it prevents is reclassifying the candidate's own testimony as "we never
+      asked you".
+    * :func:`is_scope_entry` is excluded because a scope row's concept is a
+      synthesised label carrying the JD's own figure; ADR-070 records that a
+      persistent scope gap is positioned nowhere, deliberately.
+
+    The predicate presumes the adjacency-pointer lifecycle invariant (ADR-048
+    amended 2026-08-13). Without it, :func:`downgrade_ledger_for_concepts` leaves
+    a stale ``adjacent_evidence`` on a concept the candidate has just DECLINED,
+    and this predicate would then exclude that row from the Restfall — letting
+    the letter promote the declined capability.
+
+    Pure; ``None``/malformed tolerant.
+    """
+    e = entry if isinstance(entry, dict) else None
+    if not e:
+        return False
+    if e.get("claimable"):
+        return False
+    if "required" not in (e.get("sources") or []):
+        return False
+    if e.get("status") == "denied":
+        return False
+    if (e.get("adjacent_evidence") or "").strip():
+        return False
+    if (e.get("evidence") or "").strip():
+        return False
+    return not is_scope_entry(e)
+
+
+def unasked_hard_requirements(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Every :func:`is_unasked_requirement` row, in ledger order (ADR-074).
+
+    Two consumers, one definition: the letter excludes these from generation
+    (:func:`applire.services.cross_document.find_unaddressed_hard_requirements`),
+    and ``GapAnalysisResponse`` derives the user-facing notice from the same rows
+    — per application, on the response the gaps page and the ``analyze_gaps`` MCP
+    tool already return, so the notice cannot drift from the ledger it summarises
+    and needs no new endpoint or tool (the #260 ``keyword_liabilities`` pattern).
+    """
+    return [e for e in (keyword_ledger or []) if is_unasked_requirement(e)]
+
+
 def is_scope_entry(entry: dict[str, Any] | None) -> bool:
     """True for a quantified-scope ledger entry (ADR-069 — a ``bar`` facet).
 

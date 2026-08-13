@@ -779,6 +779,29 @@ async def _render_cover_letter_background(
             unaddressed_requirements_block = render_unaddressed_hard_requirements_block(
                 unaddressed_requirements
             )
+            # ADR-074 clause 5 (#526): the letter is deliberately written as
+            # though these requirements had not been named — every other move is
+            # a truthfulness defect. A requirement that leaves no trace in the
+            # document is exactly the shape of a control that never fires, so the
+            # silence is logged ONCE per generation, always-on and PII-free (the
+            # #264 discipline), and told to the candidate on
+            # GapAnalysisResponse.unasked_requirements. Logged here rather than in
+            # the selector, which the reviewer wrapper re-runs every round.
+            from applire.services.keyword_ledger import unasked_hard_requirements
+
+            _unasked = unasked_hard_requirements(keyword_ledger)
+            if _unasked:
+                logger.warning(
+                    "LETTER_UNASKED_REQUIREMENTS cl=%s count=%d concepts=%r — JD hard "
+                    "requirement(s) with no evidence, no adjacent capability and no "
+                    "stated limit. Excluded from generation (ADR-074): asserting is "
+                    "ungrounded, denying invents a limit the candidate never stated, "
+                    "and silence is the only honest option left. Surfaced to the "
+                    "candidate instead.",
+                    cl_id,
+                    len(_unasked),
+                    [e.get("concept", "") for e in _unasked],
+                )
 
             # ADR-070 clause 2: the candidate's own scale evidence for partial scope
             # entries (bar.attested + typed values) — the ONLY channel scope material

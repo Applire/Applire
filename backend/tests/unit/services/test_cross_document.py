@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import pytest
 
+from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.cross_document import (
     collect_stated_limits,
     exclude_claimable_concepts,
@@ -113,7 +114,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.9,
         "surface_forms": ["embeddings", "embedding models"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "ranking",
@@ -121,7 +123,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.8,
         "surface_forms": ["ranking", "rerankers"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "observability",
@@ -129,7 +132,8 @@ RUN5_LEDGER_FULL = RUN5_LEDGER + [
         "sources": ["required"],
         "fit_weight": 0.7,
         "surface_forms": ["observability", "tracing"],
-        "evidence": "",
+        "status": "denied",
+        "evidence": DENIED_EVIDENCE,
     },
     {
         "concept": "Databricks",
@@ -319,8 +323,11 @@ def test_render_stated_limits_block_forbids_inventing_a_limit():
 
 def test_find_unaddressed_hard_requirements_returns_unmet_required_concepts():
     ledger = [
-        {"concept": "Kubernetes", "claimable": False, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
-        {"concept": "GraphQL", "claimable": False, "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        {"concept": "Kubernetes", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Kubernetes"]},
+        {"concept": "GraphQL", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": 0.4, "surface_forms": ["GraphQL"]},
+        # ADR-074: required, unclaimable, and NOTHING on it — never asked. Excluded
+        # from generation, told to the candidate instead.
+        {"concept": "Terraform", "claimable": False, "status": "gap", "evidence": "", "sources": ["required"], "fit_weight": 0.9, "surface_forms": ["Terraform"]},
         # Not required — never reported even though unmet.
         {"concept": "Rust", "claimable": False, "sources": ["nice_to_have"], "fit_weight": 0.9, "surface_forms": ["Rust"]},
         # Claimable — never reported (it is not a gap at all).
@@ -342,7 +349,7 @@ def test_find_unaddressed_hard_requirements_empty_when_addressed():
 
 def test_find_unaddressed_hard_requirements_caps_at_three_highest_weight():
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6, 0.5], start=1)
     ]
     result = find_unaddressed_hard_requirements(ledger, {"body": {"paragraphs": []}})
@@ -416,7 +423,8 @@ OBSERVABILITY_ENTRY = {
         "observability", "Prometheus", "Grafana", "ELK",
         "production logging", "tracing",
     ],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 EMBEDDINGS_ENTRY = {
@@ -425,7 +433,8 @@ EMBEDDINGS_ENTRY = {
     "sources": ["required"],
     "fit_weight": 0.9,
     "surface_forms": ["embeddings", "embedding models", "embedding work"],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 RANKING_ENTRY = {
@@ -434,7 +443,8 @@ RANKING_ENTRY = {
     "sources": ["required"],
     "fit_weight": 0.8,
     "surface_forms": ["ranking", "rerankers"],
-    "evidence": "",
+    "status": "denied",
+    "evidence": DENIED_EVIDENCE,
 }
 
 
@@ -510,7 +520,7 @@ def test_reviewer_prompt_fn_omits_block_when_letter_addresses_all_three():
 
 def test_reviewer_prompt_fn_caps_unaddressed_at_three_and_logs_drop(caplog):
     ledger = [
-        {"concept": f"Gap{i}", "claimable": False, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
+        {"concept": f"Gap{i}", "claimable": False, "status": "denied", "evidence": DENIED_EVIDENCE, "sources": ["required"], "fit_weight": w, "surface_forms": [f"Gap{i}"]}
         for i, w in enumerate([0.9, 0.8, 0.7, 0.6], start=1)
     ]
     reviewer_fn = unaddressed_requirements_reviewer_prompt_fn(
