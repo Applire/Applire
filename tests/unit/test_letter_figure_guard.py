@@ -846,3 +846,77 @@ def test_the_reviewer_wrapper_appends_the_block_to_the_base_prompt():
     assert flagged.startswith("BASE PROMPT")
     assert "DataCore Systems" in flagged
     assert "Vector Analytics" in flagged
+
+
+def test_a_project_owned_figure_names_its_employer_never_a_raw_uuid():
+    """#526 side finding, pinned to gate charter run 1's own prompt.
+
+    `_owner_labels`' docstring has always promised that ids are never shown to
+    the model — "the reviewer reasons about the letter's prose, which names
+    companies, not UUIDs". The code did not deliver it: labels came from
+    `_employer_of_id` (work entries only) plus `oracle/extract.
+    _employer_anchor_candidates`, and the latter deliberately re-targets a
+    project to its PARENT work id — correct for anchoring a sentence, but it
+    means the project's OWN id is never a label key. A figure whose vault
+    evidence unit belongs to the project therefore rendered as
+
+        "14" — backed only by evidence from: 85ff5f8a-ce5c-4290-…, Rasselstein …, Weberit …
+
+    and the run-1 condense reviewer did exactly what the block forbids: it
+    re-derived what the id was ("the vault records it under the project
+    'Einführung eines MES-Systems'") and filed a blocking issue on it. An
+    unreadable owner does not fail safe here — it manufactures work.
+    """
+    from applire.services.letter_figure_guard import figure_ownership_facts
+
+    profile = {
+        "work_experience": [
+            {
+                "id": "w-weberit",
+                "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter",
+                "achievements": ["Verantwortung für 38 Mitarbeitende"],
+            }
+        ],
+        "projects": [
+            {
+                "id": "p-mes",
+                "name": "Einführung eines MES-Systems",
+                "associated_experience": "w-weberit",
+                # `description`, not `achievements`: the run-1 vault carries the
+                # figure here, and only this shape reproduces — a description
+                # unit keeps the PROJECT's own id as its owner, while an
+                # achievement unit is re-owned to the parent work entry. A
+                # fixture using `achievements` passes without the fix and proves
+                # nothing.
+                "role": "Projektleiter",
+                "start_date": "2023",
+                "description": (
+                    "Maschinendaten- und Betriebsdatenerfassung an 14 "
+                    "Spritzgussmaschinen, von der Auswahl bis zum Rollout."
+                ),
+            }
+        ],
+    }
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Bei Weberit Kunststofftechnik GmbH führte ich die Erfassung an "
+                "14 Spritzgussmaschinen ein."
+            ]
+        }
+    }
+
+    facts = figure_ownership_facts(letter, profile)
+    fourteen = [f for f in facts if f.value == "14"]
+    assert fourteen, "fixture premise: the figure resolves to a vault owner at all"
+    owners = set(fourteen[0].owners)
+    assert owners, "a fact with no nameable owner tells the reviewer nothing"
+
+    # Assert against the set of names the vault actually holds, NOT against a
+    # "looks like a UUID" heuristic: the first version of this test used one and
+    # passed vacuously, because the synthetic id "p-mes" is not UUID-shaped while
+    # being just as unreadable to the reviewer as the real one.
+    nameable = {"Weberit Kunststofftechnik GmbH", "Einführung eines MES-Systems"}
+    assert owners <= nameable, f"unreadable owner(s) reached the reviewer: {owners - nameable}"
+    assert "Weberit Kunststofftechnik GmbH" in owners
