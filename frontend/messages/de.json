@@ -1014,6 +1014,11 @@
     "cvDetailQuoteLabel": "Ebenfalls in deinem Lebenslauf",
     "letterQuoteLabel": "Aus deinem Anschreiben"
   },
+  "unaskedRequirements": {
+    "title": "Nicht erfragt",
+    "subtitle": "Die Stelle verlangt das hier — dazu liegt uns nichts vor, und du wurdest nie danach gefragt. Dein Anschreiben geht deshalb nicht darauf ein.",
+    "reassurance": "Das heißt nicht, dass dir etwas fehlt. Wir wissen es nur nicht."
+  },
   "admin": {
     "appearanceTitle": "Erscheinungsbild",
     "schemeEditor": {

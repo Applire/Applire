@@ -34,6 +34,9 @@ import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
+import UnaskedRequirementsPanel, {
+  type UnaskedRequirement,
+} from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
@@ -90,6 +93,12 @@ export default function CoverLetterPage({
   const [truthReport, setTruthReport] = useState<TruthfulnessReport>(null);
   // ADR-060/E049 49.6: outcome critic advisory report (Pass B, cross-document mount).
   const [criticReport, setCriticReport] = useState<OutcomeCriticReport>(null);
+  // ADR-074 (#526): JD hard requirements Applire holds nothing on and never
+  // asked about. Derived per APPLICATION from the persisted keyword ledger, so
+  // it rides the gap-analysis response the gaps page already reads rather than a
+  // report column on this letter — it cannot drift past a post-interview
+  // recompute, and it clears itself once the candidate is asked and answers.
+  const [unasked, setUnasked] = useState<UnaskedRequirement[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const init = useCallback(async () => {
@@ -208,10 +217,24 @@ export default function CoverLetterPage({
         // Non-fatal — advisory panel simply doesn't render
       }
     }
+    async function fetchUnaskedRequirements() {
+      if (!clState?.jobId) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/job/${clState.jobId}/gaps`);
+        if (!res.ok) return;
+        const data: { unasked_requirements?: UnaskedRequirement[] } = await res.json();
+        setUnasked(data.unasked_requirements ?? []);
+      } catch {
+        // Non-fatal — the panel simply doesn't render. The omission itself is
+        // recorded server-side on the always-on LETTER_UNASKED_REQUIREMENTS line
+        // regardless of whether this fetch succeeds.
+      }
+    }
     void fetchAtsReport();
     void fetchTruthReport();
     void fetchCriticReport();
-  }, [phase, clState?.coverLetterId]);
+    void fetchUnaskedRequirements();
+  }, [phase, clState?.coverLetterId, clState?.jobId]);
 
   function startPolling(clId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -408,6 +431,7 @@ export default function CoverLetterPage({
             <ATSChecksPanel report={atsReport} />
             <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
             <CriticAdvisoryPanel report={criticReport} />
+            <UnaskedRequirementsPanel requirements={unasked} />
           </div>
         }
         sidebar={

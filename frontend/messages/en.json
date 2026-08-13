@@ -1014,6 +1014,11 @@
     "cvDetailQuoteLabel": "Also in your CV",
     "letterQuoteLabel": "From your letter"
   },
+  "unaskedRequirements": {
+    "title": "Never asked",
+    "subtitle": "The posting asks for this — we hold nothing on it, and you were never asked. Your letter therefore does not address it.",
+    "reassurance": "That does not mean you lack it. We simply do not know."
+  },
   "admin": {
     "appearanceTitle": "Appearance",
     "schemeEditor": {
