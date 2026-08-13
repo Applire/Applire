@@ -231,8 +231,17 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
                 seen_evidence.add(_norm(ev))
                 evidence_parts.append(ev)
         evidence = "; ".join(evidence_parts)
+        # ADR-048 amended 2026-08-13 (#526): start from the canonical entry and
+        # OVERRIDE. This used to be a fixed key literal, which silently dropped
+        # every field outside it — `adjacent_evidence` among them, so a JD naming
+        # both "Digitalisierung" and "Digitalisierung der Fertigung" collapsed an
+        # adjacent partial into a below-the-bar partial and lost the over-claim
+        # protection and the positioning obligation together, unlogged. A
+        # whitelist here is a list that grows by construction: the field it drops
+        # next is invisible in the diff.
         merged.append(
             {
+                **canonical,
                 "concept": canonical.get("concept", ""),
                 "surface_forms": surface_forms,
                 "sources": sorted(sources),
@@ -386,7 +395,7 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
     is testimony, and testimony needs a declared term (:func:`_floored_row` is
     that case's write).
     """
-    return {
+    out = {
         **entry,
         # ADR-059 amended 2026-07-27: the floor writes the STATUS, not merely
         # the flag. Forcing "gap" here discarded the reason the concept is
@@ -400,6 +409,12 @@ def _denied_row(entry: dict[str, Any], denial_level: str) -> dict[str, Any]:
         # durable home).
         "denial_level": denial_level,
     }
+    # ADR-048 amended 2026-08-13 (#526): the adjacency pointer lives only on a
+    # claimable `partial`. A denial is the candidate's own position on the term
+    # itself, so there is no substitute to promote — and the letter's UNADDRESSED
+    # block reads the field unconditionally.
+    out.pop("adjacent_evidence", None)
+    return out
 
 
 def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
@@ -420,6 +435,9 @@ def _floored_row(entry: dict[str, Any]) -> dict[str, Any]:
     """
     out = {**entry, "status": "gap", "claimable": False, "evidence": DENIAL_FLOOR_EVIDENCE}
     out.pop("denial_level", None)
+    # ADR-048 amended 2026-08-13 (#526) — same reason as `_denied_row`: the row
+    # has left the claimable adjacent-partial shape, so the pointer leaves too.
+    out.pop("adjacent_evidence", None)
     return out
 
 
@@ -598,8 +616,24 @@ def is_positioning_only(entry: dict[str, Any] | None) -> bool:
     SUBSTITUTE rather than the term. Charter run #7 is what happens when only
     the first of the three knows (#122's "the loop that grades is the loop that
     heals", stated the other way round).
+
+    **The status guard is load-bearing (ADR-048 amended 2026-08-13, #526).** This
+    used to be a bare ``bool(entry.get("adjacent_evidence"))``, so ANY row that
+    kept the pointer read as positioning-only — including rows that had left the
+    claimable-partial shape and had no business claiming the exemption. That is
+    not cosmetic: the exemption switches off the ADR-061 vault-evidence floor
+    (:func:`_claimable_backing_violation` clause 3), the coverage demand, the
+    outcome critic's presence facts and the load-bearing veto, all at once. Two
+    live paths produced such rows — :func:`downgrade_ledger_for_concepts` (the
+    candidate DECLINING a keyword liability) and the denial/heal writes — and a
+    third silently deleted the pointer instead (:func:`_collapse_prefix_duplicates`).
+    All three are fixed at the writer; this is the reader half, so a stale
+    pointer arriving from anywhere is inert rather than load-bearing.
     """
-    return bool((entry or {}).get("adjacent_evidence"))
+    e = entry or {}
+    if not e.get("claimable") or e.get("status") != "partial":
+        return False
+    return bool(e.get("adjacent_evidence"))
 
 
 def is_scope_entry(entry: dict[str, Any] | None) -> bool:
@@ -1851,6 +1885,14 @@ def downgrade_ledger_for_concepts(
             e["claimable"] = False
             e["status"] = "gap"
             e["evidence"] = ""
+            # ADR-048 amended 2026-08-13 (#526): the row is leaving the claimable
+            # adjacent-partial shape, so the adjacency pointer leaves with it. It
+            # means "the candidate does not have this term, they have that one
+            # instead" — a statement the candidate has just declined to make.
+            # Left standing, `render_unaddressed_hard_requirements_block` reads it
+            # unconditionally and tells the letter writer to give prominence to
+            # the very capability that was dropped.
+            e.pop("adjacent_evidence", None)
             # No longer claimable — moot either way, but keep the flag honest
             # so a re-read never re-flags a concept the candidate just dropped.
             e["narrative_backed"] = True
@@ -2212,7 +2254,13 @@ def assert_claimable_backed(
                 _denied_row(entry, level) if level is not None else _floored_row(entry)
             )
         else:
-            healed.append({**entry, "status": "gap", "claimable": False, "evidence": ""})
+            # ADR-048 amended 2026-08-13 (#526): byte-identical to what the
+            # builder writes for an unclassified expectation — which, since the
+            # adjacency pointer is now an invariant of the claimable-partial
+            # shape, means the pointer does not survive the heal either.
+            gap_row = {**entry, "status": "gap", "claimable": False, "evidence": ""}
+            gap_row.pop("adjacent_evidence", None)
+            healed.append(gap_row)
     return healed, violations
 
 
