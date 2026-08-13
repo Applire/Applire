@@ -951,6 +951,16 @@ contains real profile data and this repository is public.
 
 The honest reading is that the state is not a fact about the candidate at all — it is a fact about the tool, which asked a set of questions that did not cover this requirement. Applire says so, to the person who can do something about it. This does not close the underlying loop: the right end state is that a hard requirement is never left unasked, which is elicitation work and is tracked separately. Until then, an unanswerable prompt has been converted into a visible, actionable hole — an improvement, not a solution.
 
+### ADR-075 — A Stated Limit Is an Obligation, Not Only a Constraint (accepted 2026-08-13, scoped — not yet in force)
+
+**Decision:** When the candidate has been asked about a requirement and has said, in their own words, that they do not have it, and that requirement is relevant to the posting, the cover letter **must** give it an explicit positioning decision — the gap named in the candidate's own terms, followed by the adjacent strength that genuinely transfers, folded into a single honest-gap paragraph. This applies at any requirement tier, whether the posting called it essential or merely desirable. It is capped at three such limits, ranked by how central each is to the role, with anything dropped recorded in the log. It applies **only** to concepts the candidate actually denied — never to a requirement nobody ever asked them about, which ADR-074 excludes for the opposite reason.
+
+**Why:** Applire's own acceptance testing puts blind reviewers in front of the generated documents, and when they say yes, the reason they give is almost always the same one: the letter names a gap openly instead of writing around it. That property turned out never to have been designed. Tracing two real generations of the same application showed the disclosure appearing in one and not the other, and the mechanism was accidental — the writer had invented a limit the candidate never stated, a rule against inventing limits caught it, and the correction happened to substitute the candidate's real words. When the writer made no such mistake, nothing asked for a disclosure and none appeared. Nothing was false either way, so no automated check could see the difference.
+
+A constraint and an obligation are not the same thing. "Never contradict a stated limit, never invent one" governs what a letter may not say; it never asks for anything. The distinction that makes an obligation safe here is that the candidate's own words already exist — so naming the gap is always a truthful, available move, which is precisely what is *not* true of a requirement nobody asked about.
+
+**Recorded risk:** requiring content is also a new way for the review loop to fail to converge, and honesty that is mandated may read differently from honesty that is volunteered. Both are measurable only by a real acceptance run, so nothing here is credited as working until one has been done — and if the requirement proves to generate persistent review churn, it is withdrawn rather than tuned.
+
 ---
 ## 4. Data Model Highlights
 
