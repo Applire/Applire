@@ -209,3 +209,62 @@ class TestSurfaceFormsStayNarrow:
         adjacency record exists to prevent."""
         cov = _coverage("I have led architecture work using arc42.")
         assert "TOGAF" not in cov.present
+
+
+class TestTheAdjacencyExemptionIsScopedToAbsence:
+    """ADR-048 amended 2026-08-13 (#526): `is_positioning_only` exempts a row from
+    being DEMANDED — its absence is an honest gap, not a surfacing miss. It must
+    never exempt the row from being FLAGGED when the document actually asserts the
+    term, because the row's entire meaning is "the candidate does NOT have this".
+
+    This became load-bearing when the same amendment's clause 1 started routing
+    differently-named support to `partial` + `adjacent_evidence` instead of leaving
+    it as a `gap`. `unsupported_claim_surface_forms` excluded on `claimable` alone,
+    so that reclassification would have silently switched the ATS truthfulness
+    quadrant off for exactly the concepts most at risk of being over-claimed —
+    trading one control for another rather than adding one.
+    """
+
+    def test_the_jd_term_of_an_adjacent_partial_is_still_an_unsupported_claim(self):
+        from applire.services.keyword_ledger import (
+            is_positioning_only,
+            unsupported_claim_surface_forms,
+        )
+
+        togaf = next(e for e in LEDGER if e["concept"] == "TOGAF")
+        # Fixture premise, checked with the real predicate: this row IS the
+        # exempt shape, so the assertion below is about the exemption's scope
+        # and not about an ordinary gap.
+        assert is_positioning_only(togaf) is True
+        assert togaf["claimable"] is True
+
+        forms = unsupported_claim_surface_forms(LEDGER)
+        assert "TOGAF" in forms, (
+            "an adjacent partial's own term is unsupported by definition — the "
+            "candidate has arc42, not TOGAF"
+        )
+
+    def test_the_substitute_is_never_reported_as_an_unsupported_claim(self):
+        """The mirror image, and the reason this cannot be done by simply
+        dropping the `claimable` exclusion: arc42 is what the candidate DOES
+        have, and the writer was told to give it prominence. Flagging it would
+        make the CV's own instruction produce a truthfulness warning."""
+        from applire.services.keyword_ledger import unsupported_claim_surface_forms
+
+        forms = unsupported_claim_surface_forms(LEDGER)
+        assert "arc42" not in forms
+
+    def test_an_ordinary_claimable_entry_is_still_exempt(self):
+        """The exclusion this narrows must keep doing its job: a `direct` entry
+        the vault backs is not an unsupported claim."""
+        from applire.services.keyword_ledger import unsupported_claim_surface_forms
+
+        assert "Kubernetes" not in unsupported_claim_surface_forms(LEDGER)
+
+    def test_a_denial_is_still_excluded(self):
+        """Unchanged by this amendment (ADR-048/059 amended 2026-07-27): the
+        quadrant matches by substring and cannot see negation, so the honest
+        positioning sentence the prompts ASK for would be flagged as a claim."""
+        from applire.services.keyword_ledger import unsupported_claim_surface_forms
+
+        assert "BaFin supervision" not in unsupported_claim_surface_forms(LEDGER)

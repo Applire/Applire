@@ -59,6 +59,20 @@ class KeywordLedgerEntry(BaseModel):
     # level. Never independently settable to a meaningful value on a
     # non-denied entry — see the invariant enforced below.
     denial_level: Literal["direct", "partial"] | None = None
+    # ADR-048 amended 2026-07-27 / 2026-08-13 — WHAT makes this entry `partial`:
+    # the profile's own name for the DIFFERENT capability standing in for the JD's
+    # term (the posting asks for TOGAF, the profile has arc42). Present iff the
+    # row is claimable AND status == "partial" (the lifecycle invariant; see
+    # keyword_ledger.is_positioning_only).
+    #
+    # Added to this schema 2026-08-13, and it is a fix, not an extension:
+    # `services/gap.py`'s `_LEDGER_PUBLISHABLE_KEYS` has listed the field as
+    # publishable since ADR-048, but this model declared neither the field nor
+    # `extra="allow"` — so `GapAnalysisResponse.model_validate(...)` silently
+    # stripped it from EVERY API response, on every status. An allowlist a schema
+    # below it defeats is a control that cannot fire; the agent channel and the
+    # frontend have never once seen the field the ledger works to compute.
+    adjacent_evidence: str | None = None
     # ADR-069 — the bar facet of a quantified scope requirement (team size,
     # budget): {kind, value, value_max, comparator, quote, level,
     # candidate_values, cited_entry, attested}. ``attested`` (ADR-070) is the

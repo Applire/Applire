@@ -847,11 +847,28 @@ def unsupported_claim_surface_forms(
     affirmation alongside the denial — is still audited by the Oracle, which reads
     direction. The four-status split is what makes the exclusion expressible at
     all; before it, ``denied`` and ``gap`` were the same row.
+
+    **An ADJACENT ``partial`` IS included, despite being claimable** (ADR-048
+    amended 2026-08-13, #526). The 2026-07-27 clause-4(b) exemption
+    (:func:`is_positioning_only`) is scoped to ABSENCE — the term must not be
+    DEMANDED, and its absence is an honest gap rather than a surfacing miss. It
+    was never meant to cover PRESENCE: the row's entire meaning is "the candidate
+    does NOT have this term, they have the adjacent one", so the term appearing in
+    the document is an unsupported claim by the row's own definition. This
+    distinction became load-bearing when the same amendment's clause 1 started
+    routing differently-named support to ``partial`` + ``adjacent_evidence``
+    instead of leaving it as a ``gap``: excluding on ``claimable`` alone would
+    have switched this quadrant off for exactly the concepts most exposed to
+    over-claiming. The forms emitted are the JD's own term and its surface forms —
+    never ``adjacent_evidence``, which names what the candidate genuinely has and
+    which the writer was told to give prominence.
     """
     forms: list[str] = []
     seen: set[str] = set()
     for entry in keyword_ledger or []:
-        if entry.get("claimable") or entry.get("status") == "denied":
+        if entry.get("status") == "denied":
+            continue
+        if entry.get("claimable") and not is_positioning_only(entry):
             continue
         for sf in entry.get("surface_forms") or [entry.get("concept", "")]:
             key = _norm(sf)
