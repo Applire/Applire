@@ -344,7 +344,6 @@ _UNADDRESSED_INSTRUCTION = (
 
 def render_unaddressed_hard_requirements_block(
     entries: list[dict[str, Any]],
-    denied_concepts: list[Any] | None = None,
 ) -> str:
     """Render unmet JD hard requirements (#270(c)) as a deterministic block.
 
@@ -360,12 +359,11 @@ def render_unaddressed_hard_requirements_block(
         positioning decision, the same convergence signal
         ``keyword_ledger.coverage_reviewer_prompt_fn`` already uses.
 
-    ``denied_concepts`` (wave-6 #270(c) follow-up): when given, each entry is
-    accepted and unused since 2026-07-28 (ADR-062) — the candidate's own
-    transfer-argument wording reaches the prompt whole, via the STATED LIMITS
-    testimony line, upgrading its permitted response (see
-    ``_UNADDRESSED_INSTRUCTION``). Optional and defaults to ``None`` so
-    legacy callers keep the unchanged de-emphasis-only wording.
+    The ``denied_concepts`` parameter was **deleted 2026-08-13** (ADR-062
+    clause 3). It had been accepted and unused since 2026-07-28: the candidate's
+    own transfer-argument wording reaches the prompt whole via the STATED LIMITS
+    testimony line, so nothing here ever read it. A parameter every caller
+    passes and no body consults is a control that cannot fire.
 
     Returns ``""`` when ``entries`` is empty so a fully-addressed draft (or a
     JD with no unmet hard requirements) adds nothing.
@@ -396,39 +394,34 @@ def render_unaddressed_hard_requirements_block(
     return "\n".join(lines)
 
 
-def unaddressed_hard_requirements_positioning(
-    entries: list[dict[str, Any]],
-    denied_concepts: list[Any] | None = None,
-) -> dict[str, Any]:
-    """The ``positioning_requested['unaddressed_hard_requirements']`` shape
-    (#270(c), the established #255 pattern) — threaded to the reviewer AND
-    corrector so each concept's positioning sentence is REQUIRED content,
-    never stripped as unrequested/unrelated to the letter (the #255 lesson:
-    a corrector that never received a positioning input could not tell a
-    requested addition apart from an invented one).
-
-    ``denied_concepts`` is accepted and unused since 2026-07-28 (ADR-062), kept
-    so callers need not change: it used to select a verbatim "transfer bridge"
-    sentence out of a denial statement, which the STATED LIMITS block now
-    supplies whole. Optional, defaults to ``None``.
-
-    Returns ``{}`` when ``entries`` is empty — a legacy/degraded caller adds
-    nothing to ``positioning_requested``.
-    """
-    if not entries:
-        return {}
-    concepts: list[dict[str, Any]] = []
-    for e in entries:
-        concept: dict[str, Any] = {
-            "concept": e.get("concept", ""),
-            "evidence": e.get("evidence", "") or "",
-        }
-        concepts.append(concept)
-    return {
-        "concepts": concepts,
-        "required": True,
-        "instruction": _UNADDRESSED_INSTRUCTION,
-    }
+# ── unaddressed_hard_requirements_positioning — DELETED 2026-08-13 (ADR-021) ──
+# It built the ``positioning_requested['unaddressed_hard_requirements']`` entry:
+# the top-cap list of unmet hard requirements, snapshotted into the letter's
+# ``grounding_source`` so the reviewer and corrector would treat each concept's
+# positioning sentence as REQUIRED content (#270(c), on the #255 pattern).
+#
+# The #255 pattern is right for a STANDING obligation and wrong for this one.
+# ``review_and_refine`` builds ``source`` once and hands it, unchanged, to the
+# reviewer AND the corrector on every round — so this entry was computed with
+# ``letter_data=None`` (no draft existed yet) and then asserted as current for
+# the whole loop. Gate charter run 1 measured the collision: in two rounds
+# :func:`unaddressed_requirements_reviewer_prompt_fn` correctly emitted nothing
+# — the draft addressed both concepts — while the frozen entry in the SAME
+# prompt still demanded them, and reviewer check 4 reads the frozen one.
+#
+# Nothing replaces it. Across the same ten rounds the frozen entry never
+# produced corrector content the reviewer's own feedback had not already
+# demanded; the corrector dropped both concepts entirely in three rounds with
+# "Silence is not one of the options" verbatim in its prompt; and the delivered
+# letter never named one of them while the entry still read ``required: true``.
+# A per-round corrector twin (the #306 shape) was considered and rejected on the
+# same evidence: in the one round that destroyed a correct honest-gap sentence,
+# the recomputed list was EMPTY, because the draft still carried both terms — a
+# recomputed block cannot retain what it can no longer see.
+#
+# ADR-021 amended 2026-08-13 states the general rule for all eight call sites:
+# an input that is an assertion ABOUT THE CURRENT DRAFT belongs in a per-round
+# prompt wrapper, never in ``source``.
 
 
 # ── render helpers ───────────────────────────────────────────────────────────
@@ -469,7 +462,6 @@ def unaddressed_requirements_reviewer_prompt_fn(
     base_fn: Any,
     *,
     keyword_ledger: list[dict[str, Any]] | None,
-    denied_concepts: list[Any] | None = None,
 ):
     """Wrap a ``reviewer_prompt_fn`` so every ADR-021 iteration carries the JD
     hard requirements the CURRENT draft has not addressed (#270(c)).
@@ -495,7 +487,7 @@ def unaddressed_requirements_reviewer_prompt_fn(
     def fn(source: str, draft: dict[str, Any]) -> str:
         prompt = base_fn(source, draft)
         unaddressed = find_unaddressed_hard_requirements(keyword_ledger, draft)
-        block = render_unaddressed_hard_requirements_block(unaddressed, denied_concepts)
+        block = render_unaddressed_hard_requirements_block(unaddressed)
         if block:
             logger.info(
                 "unaddressed hard requirements: %d concept(s) missing from "

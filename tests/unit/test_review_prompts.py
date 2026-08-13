@@ -1653,7 +1653,7 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
 
     @staticmethod
     def _base_mocks(company_name, gap_testimony_profile_extra=None, work_experience=None,
-                     signature_stories=None, category_c=None):
+                     signature_stories=None, category_c=None, keyword_ledger=None):
         from unittest.mock import MagicMock
 
         cv_tailored = {
@@ -1684,10 +1684,10 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         mock_profile = MagicMock(); mock_profile.profile_json = profile_json
 
         mock_gap = None
-        if category_c is not None:
+        if category_c is not None or keyword_ledger is not None:
             mock_gap = MagicMock()
-            mock_gap.category_c = category_c
-            mock_gap.keyword_ledger = []
+            mock_gap.category_c = category_c if category_c is not None else []
+            mock_gap.keyword_ledger = keyword_ledger if keyword_ledger is not None else []
 
         return mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw
 
@@ -1783,6 +1783,86 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
         parsed = _json.loads(src)
         assert set(parsed["positioning_requested"].keys()) == {"closing"}
         assert parsed["positioning_requested"]["closing"]["required"] is True
+
+    @pytest.mark.asyncio
+    async def test_unaddressed_hard_requirements_never_enters_the_constant_channel(self):
+        """ADR-021 amended 2026-08-13 (#526): ``source`` is built once and handed
+        unchanged to the reviewer AND the corrector on every round, so an assertion
+        about the CURRENT DRAFT may not live in it.
+
+        ``unaddressed_hard_requirements`` was exactly that — computed once with
+        ``letter_data=None`` and then asserted for ten rounds, while the per-round
+        wrapper that recomputes the same list against the live draft had correctly
+        fallen silent in two of them (gate charter run 1). This pins BOTH halves:
+        the frozen entry is gone from ``positioning_requested``, and the per-round
+        reviewer wrapper still delivers the block, so nothing about convergence is
+        lost by the deletion.
+        """
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from applire.services.keyword_ledger import DENIED_EVIDENCE
+
+        # A denied+required concept: unclaimable, so it reaches the UNADDRESSED
+        # block, and it carries the candidate's own limit, so ADR-074's Restfall
+        # exclusion does NOT apply to it (that path has its own test).
+        ledger = [{
+            "concept": "BaFin supervision",
+            "surface_forms": ["BaFin supervision"],
+            "sources": ["required"],
+            "fit_weight": 1.0,
+            "status": "denied",
+            "evidence": DENIED_EVIDENCE,
+            "claimable": False,
+            "denial_level": "direct",
+        }]
+
+        cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        mock_cl, mock_job, mock_cv, mock_profile, mock_gap, letter_raw = self._base_mocks(
+            company_name=None, keyword_ledger=ledger,
+        )
+
+        shared_result = MagicMock()
+        shared_result.scalar_one_or_none.side_effect = [
+            mock_cl, mock_job, mock_cv, mock_profile, mock_gap,
+        ]
+        mock_db = AsyncMock(); mock_db.execute.return_value = shared_result
+
+        calls: list[dict] = []
+
+        async def fake_review(**kwargs):
+            calls.append(kwargs)
+            return kwargs["draft"]
+
+        mock_provider = AsyncMock()
+        mock_provider.aparse_json.return_value = letter_raw
+
+        with patch("applire.services.cover_letter.AsyncSessionLocal") as msl, \
+             patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+             patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+             patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2), \
+             patch("applire.services.cover_letter.resolve_jd_language", return_value="en"), \
+             patch("applire.services.cover_letter.extract_recipient_from_jd",
+                   return_value={"name": None}), \
+             patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()):
+            msl.return_value.__aenter__.return_value = mock_db
+            from applire.services.cover_letter import _render_cover_letter_background
+            await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+        assert calls, "review_and_refine was not called"
+        import json as _json
+        # `source` is the positioning JSON followed by the appended deterministic
+        # blocks (ledger, recorded titles) — decode only the JSON prefix.
+        parsed, _ = _json.JSONDecoder().raw_decode(calls[0]["source"])
+        assert "unaddressed_hard_requirements" not in parsed["positioning_requested"], (
+            "the frozen channel is back: an assertion about the current draft must "
+            "not live in the loop's constant `source` (ADR-021 amended 2026-08-13)"
+        )
+        # ...and the per-round wrapper still carries it, recomputed against the draft.
+        empty_draft = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,"]}}
+        rendered = calls[0]["reviewer_prompt_fn"](calls[0]["source"], empty_draft)
+        assert "UNADDRESSED HARD REQUIREMENTS" in rendered
+        assert "BaFin supervision" in rendered
 
     @pytest.mark.asyncio
     async def test_grounding_source_carries_gap_transfer_testimony_verbatim(self):
