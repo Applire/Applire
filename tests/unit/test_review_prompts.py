@@ -2153,9 +2153,34 @@ class TestCoverLetterReviewerPromptV2:
         """The failure mode was unbounded growth, so the budget is the guard.
         v1 reached 18,242 characters. The ceiling is deliberately close to the
         current size: hitting it should force the question "which row does this
-        belong to, and can it replace something?" rather than a silent append."""
+        belong to, and can it replace something?" rather than a silent append.
+
+        **Ceiling re-set once, deliberately: 11,000 -> 12,500 (2026-08-13, PO
+        decision, ADR-021 amended that day).** It fired exactly as designed —
+        the prompt sat at 10,974 with 26 characters of headroom, so the
+        amendment's mandated text could not land silently. The question it
+        forces was asked and answered before the number moved:
+
+        * check 2 splits into 2a (figures — the FIGURE OWNERSHIP block settles
+          anchor presence) and 2b (no figure — no block covers it). Both are
+          **SF-WRITE.5**, whose single undifferentiated question produced 32 of
+          gate run 1's 70 blocking issues, 14 of them factually wrong.
+        * check 5 gains the KEYWORD LEDGER — DO NOT CLAIM bullet. **SF-WRITE.7
+          lineage**: the user prompt pointed at "(check 5)" for a rule check 5
+          did not contain, and a model sent to a named rule and finding it
+          absent improvises (#531's third finding, verbatim).
+        * the issue schema gains optional `location`/`check` — **shared by all
+          seven reviewer prompts**, so ~1,700 of the count below is not this
+          prompt's own rules (rules alone: ~10,500).
+
+        And it forced two real replacements first: the AUTHORITY block listed
+        three of the six deterministic blocks by name (stale since #299), and
+        the run-7 self-refutation was narrated twice. Both fixed, -350 chars.
+
+        The ratchet is unchanged in kind — the new ceiling again sits just
+        above the current size, so the next append meets the same question."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
-        assert len(REVIEW_SYSTEM_PROMPT) < 11_000, (
+        assert len(REVIEW_SYSTEM_PROMPT) < 12_500, (
             f"reviewer prompt is {len(REVIEW_SYSTEM_PROMPT)} chars — it is regrowing. "
             "Map the new content to an SF-WRITE row and replace, do not append."
         )
@@ -2309,3 +2334,131 @@ class TestPerEntryGroundingAndRoleOwnership:
         assert "skills-list scope" in low
         assert "never affirmed by its own denial" in low
         assert "do not claim concept in the skills list is a fabrication" in low
+
+
+# ---------------------------------------------------------------------------
+# ADR-021 amended 2026-08-13 (#530/#531/#534, gate charter run 1) — presence is
+# a FACT the reviewer is TOLD, never a question it is ASKED.
+#
+# Run 1's WRONG/MISSING OWNER cluster: 32 of 70 blocking issues, 9 distinct
+# facts re-litigated ~3.5x each. Running the production predicates over every
+# check-2 issue: CONFIRM 11 / CONTRADICT 14 / non-figure 4. Half the anchor
+# demands were factually wrong — the figure WAS anchored in its own sentence —
+# and 4 were the figure-less half no block covers.
+# ---------------------------------------------------------------------------
+
+
+class TestLetterReviewerPresenceIsToldNotAsked:
+    def _p(self) -> str:
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
+
+        return REVIEW_SYSTEM_PROMPT
+
+    # --- clause 3: check 2 splits by evidentiary basis -----------------------
+
+    def test_check_two_splits_into_a_figure_half_and_a_figureless_half(self):
+        """The two halves get different evidence, so they are asked separately.
+        `_extract_letter_figures` emits percentages, N+ forms, plain numbers and
+        spelled-out numerals — never tenure, a title, or a figure-less
+        achievement, so the block covers one half and not the other."""
+        p = self._p()
+        assert "2a." in p
+        assert "2b." in p
+        assert p.index("2a.") < p.index("2b.")
+
+    def test_the_figure_half_defers_to_the_ownership_block_for_presence(self):
+        low = _flat(self._p())
+        assert "figure ownership" in low
+        assert "may not" in low and "unanchored" in low
+
+    def test_the_figureless_half_is_told_the_figure_question_is_answered(self):
+        """Clause 3's stated risk: handing the model an authoritative block for
+        one half while leaving the check's prose unedited invites it to conclude
+        ownership is handled and under-attend the rest."""
+        low = _flat(self._p())
+        assert "no block covers this half" in low
+
+    def test_the_add_the_anchor_remedy_survives_the_split(self):
+        """The #283 remedy is unchanged by the split: never delete the figure."""
+        low = _flat(self._p())
+        assert "remedy is always to add the anchor in place" in low
+        assert "never instruct the writer to delete the achievement" in low
+
+    # --- clause 4: the pointer, and the rule where it points -----------------
+
+    def test_the_do_not_claim_rule_is_stated_inside_check_five(self):
+        """#531's third finding conceded in its own text — "the sentence is
+        fine, but the broader context of the paragraph implies..." — which is
+        the shape of a model sent to a named rule and finding it absent. Check 5
+        listed only VERIFIED COVERAGE CHECK and CROSS-DOCUMENT CONSISTENCY."""
+        p = self._p()
+        check5 = p[p.index("5. A DETERMINISTIC BLOCK IS UNSATISFIED"):]
+        check5 = check5[: check5.index("NEVER REVERSE YOURSELF")]
+        low = _flat(check5)
+        assert "do not claim" in low
+        assert "keyword ledger" in low
+
+    def test_the_user_prompt_pointer_names_a_check_that_contains_the_rule(self):
+        """The pointer said "(check 5)" for a rule check 5 did not carry."""
+        from applire.prompts.review_cover_letter import (
+            REVIEW_SYSTEM_PROMPT,
+            build_review_prompt,
+        )
+
+        asked = build_review_prompt("SOURCE", {"body": {"paragraphs": ["x"]}})
+        assert "check 5" in asked
+        block = REVIEW_SYSTEM_PROMPT[
+            REVIEW_SYSTEM_PROMPT.index("5. A DETERMINISTIC BLOCK IS UNSATISFIED"):
+        ]
+        assert "DO NOT CLAIM" in block[: block.index("NEVER REVERSE YOURSELF")]
+
+    def test_presence_of_a_forbidden_term_is_not_the_reviewers_to_determine(self):
+        low = _flat(self._p())
+        assert "do-not-claim presence" in low
+        assert "quote" in low
+
+    # --- clause 5: possession versus aspiration, at the decision point -------
+
+    def test_possession_versus_aspiration_is_restated_where_it_is_decided(self):
+        """The rule exists in check 1, forty lines above the DO-NOT-CLAIM
+        judgement, which did not restate it (PO ruling 2026-08-13)."""
+        p = self._p()
+        check5 = p[p.index("5. A DETERMINISTIC BLOCK IS UNSATISFIED"):]
+        low = _flat(check5[: check5.index("NEVER REVERSE YOURSELF")])
+        assert "aspiration" in low
+        assert "possession" in low
+
+    def test_check_one_keeps_the_rule_too(self):
+        """A placement fix ADDS a statement at the decision point; it does not
+        move the rule out of the grounding check that also needs it."""
+        p = self._p()
+        check1 = p[p.index("1. UNGROUNDED CANDIDATE CLAIM"): p.index("2. WRONG OR MISSING OWNER")]
+        assert "grow into a requirement" in _flat(check1)
+
+
+class TestCorrectorAnchorRuleMotivation:
+    """#534 — found while measuring #530. The rule driving 46% of the run's
+    blocking issues justified itself to the corrector with a consequence #299
+    removed."""
+
+    def _p(self) -> str:
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT
+
+        return COVER_LETTER_REFINEMENT_PROMPT
+
+    def test_the_retired_silent_drop_is_no_longer_claimed(self):
+        """`_unattributable_figures` drops only figures whose vault backing is
+        EXCLUSIVELY foreign; "a figure with no vault match anywhere is left
+        untouched", pinned by
+        test_an_unanchored_sentence_is_the_reviewers_call_not_the_floors."""
+        low = _flat(self._p())
+        assert "silently drops any figure it cannot attribute" not in low
+
+    def test_the_rule_still_stands_on_a_true_consequence(self):
+        low = _flat(self._p())
+        assert "anchor every position-owned achievement" in low
+        assert "fail open" in low
+
+    def test_the_anchor_rule_still_forbids_deleting_the_achievement(self):
+        low = _flat(self._p())
+        assert "never quietly delete it" in low

@@ -1105,6 +1105,22 @@ async def _render_cover_letter_background(
             reviewer_prompt_fn = figure_ownership_reviewer_prompt_fn(
                 reviewer_prompt_fn, profile.profile_json if profile else {}
             )
+            # #531 (ADR-021 amended 2026-08-13, clause 4): a FIFTH deterministic
+            # wrapper — which DO-NOT-CLAIM terms the CURRENT draft actually
+            # contains, by the shared presence predicate. The reviewer's
+            # forbidden-claim check is a usage-honesty judgement that silently
+            # presupposes a presence determination, and the prompt forbids the
+            # model from string-matching to answer it: in gate charter run 1,
+            # 2 of 3 DO-NOT-CLAIM findings named a term appearing nowhere in the
+            # graded draft. A prohibition is not a substitute for supplying the
+            # answer. Positive direction only — the fold is English-only, so a
+            # term the scan misses stays raisable, at the price of a quote.
+            from applire.services.keyword_ledger import (
+                forbidden_presence_reviewer_prompt_fn,
+            )
+            reviewer_prompt_fn = forbidden_presence_reviewer_prompt_fn(
+                reviewer_prompt_fn, keyword_ledger
+            )
             # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
             # structural-only tie-break over drafts retain_if already accepts.
             # #420 (ADR-021 amended 2026-08-02): it is wired into the CONDENSE

@@ -1287,6 +1287,128 @@ def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | 
     return fn
 
 
+# ── ADR-021 amended 2026-08-13, clause 4 (#531): the DO-NOT-CLAIM presence fact ──
+
+
+def forbidden_terms_in_draft(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """DO-NOT-CLAIM concepts THE shared presence predicate finds in this draft.
+
+    The positive half of the ledger's forbidden list, computed with the same
+    instrument as its claimable twin (:func:`verified_missing_claimable`):
+    ``ats_audit.surface_present`` over the serialised draft (US212 / ADR-048).
+    Membership of the forbidden list itself stays with
+    :func:`split_ledger_for_prompt` — one definition, not two (ADR-066).
+
+    ADR-062 classification: **FACT.** Literal presence of a surface form in a
+    text is the same class the VERIFIED COVERAGE CHECK already states. Whether a
+    present term is used honestly — the SUBJECT TEST, possession versus
+    aspiration — is the reviewer's judgement and is deliberately not computed.
+
+    **Direction matters, and only one direction is fact-grade here.** The fold
+    behind ``surface_present`` is a conservative ENGLISH verb-form fold, so a
+    German inflection or compound ("Digitalisierungsprojekte", "digitalisiert")
+    can defeat it. A term this function returns IS in the draft; a term it does
+    not return is one the scan did not find, which is not the same as absent —
+    :func:`render_forbidden_presence_block` states exactly that, and keeps a
+    missed form raisable at the price of quoting the draft.
+
+    Why it exists (gate charter run 1, #531): 2 of the 3 DO-NOT-CLAIM findings
+    named a term appearing nowhere in the graded draft. The reviewer prompt asks
+    a usage-honesty question that presupposes a presence determination, while
+    forbidding the model from performing literal string matching to answer it.
+    A prohibition is not a substitute for supplying the answer.
+    """
+    from applire.services.ats_audit import _norm as ats_norm, surface_present
+
+    _, forbidden = split_ledger_for_prompt(keyword_ledger)
+    if not forbidden:
+        return []
+    forms_by_concept: dict[str, list[str]] = {}
+    for entry in keyword_ledger or []:
+        concept = entry.get("concept")
+        if not concept:
+            continue
+        forms_by_concept.setdefault(concept, []).extend(
+            f for f in (entry.get("surface_forms") or []) if f
+        )
+    text_norm = ats_norm("\n".join(_draft_strings(draft)))
+    return [
+        concept
+        for concept in forbidden
+        if any(
+            surface_present(form, text_norm)
+            for form in [concept, *forms_by_concept.get(concept, [])]
+        )
+    ]
+
+
+def render_forbidden_presence_block(present_terms: list[str]) -> str:
+    """The reviewer's DO-NOT-CLAIM PRESENCE block — the fact, then the two
+    judgements that remain (ADR-021 amended 2026-08-13, clauses 4 and 5).
+
+    Unlike the coverage block, this one is rendered even when the scan found
+    NOTHING: "no forbidden term appears in this draft" is precisely the fact
+    #531's two spurious findings needed. Callers gate on the ledger having a
+    forbidden list at all (:func:`forbidden_presence_reviewer_prompt_fn`).
+    """
+    lines = [
+        "DO-NOT-CLAIM PRESENCE (deterministic literal scan of THIS draft — this is "
+        "ground truth, do not re-derive it). Of the DO NOT CLAIM terms above, the "
+        "scan finds these in the draft:",
+    ]
+    if present_terms:
+        lines += [f"  - {term}" for term in present_terms]
+    else:
+        lines.append("  (none — the scan finds no DO NOT CLAIM term in this draft.)")
+    lines += [
+        "",
+        "Presence is therefore settled and is NOT yours to determine. For a term "
+        "listed above, judge ONLY how it is used: the SUBJECT TEST decides whose "
+        "fact the sentence states, and in a sentence about the CANDIDATE the term "
+        "may appear as an ASPIRATION (wanting to grow into it) but never as a "
+        "POSSESSION (asserting it is already held). Never file a DO-NOT-CLAIM "
+        "issue about a term that is not listed above and that you cannot QUOTE "
+        "from the draft.",
+        "The scan folds ENGLISH verb forms only, so a German inflection or "
+        "compound can defeat it. If a DO NOT CLAIM term really does appear in a "
+        "form the scan missed, you may still raise it — your issue MUST then "
+        "quote the exact words of the draft that carry it.",
+    ]
+    return "\n".join(lines)
+
+
+def forbidden_presence_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | None):
+    """Wrap a ``reviewer_prompt_fn`` so every round carries which DO-NOT-CLAIM
+    terms the CURRENT draft actually contains (ADR-021 amended 2026-08-13).
+
+    Composes with (never replaces) the coverage, unaddressed-requirement, word-
+    floor and figure-ownership wrappers, exactly the way they compose with each
+    other: ``review_and_refine`` calls ``reviewer_prompt_fn(source, draft)``
+    fresh each round, so the block tracks the draft the corrector just produced.
+    No new LLM call, no new pass, no new loop (ADR-058 freeze).
+    """
+
+    def fn(source: str, draft: dict[str, Any]) -> str:
+        prompt = base_fn(source, draft)
+        _, forbidden = split_ledger_for_prompt(keyword_ledger)
+        if not forbidden:
+            return prompt
+        present = forbidden_terms_in_draft(draft, keyword_ledger)
+        logger.info(
+            "do-not-claim presence check (#531): %d of %d forbidden term(s) "
+            "present in the draft: %s",
+            len(present),
+            len(forbidden),
+            present,
+        )
+        return f"{prompt}\n\n{render_forbidden_presence_block(present)}"
+
+    return fn
+
+
 def render_coverage_retention_block(entries: list[dict[str, Any]]) -> str:
     """Render, for the CORRECTOR, the claimable terms the draft it is patching
     ALREADY surfaces (#306). Returns "" when empty.

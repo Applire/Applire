@@ -399,19 +399,27 @@ def _vault_figure_map(units: list[EvidenceUnit]) -> dict[tuple[str, str], list[E
 
 @dataclass(frozen=True)
 class FigureOwnership:
-    """One figure in the draft, and the vault owners that back it.
+    """One figure in the draft, the vault owners that back it, and — where that
+    is fact-grade — the employer its own sentence names.
 
     ADR-062 classification: FACT. "Which vault units carry this number, and
     which position owns each of them" is settled by the profile's own structure
     and a numeric comparison — the same two instruments the guard has always
     used (``build_vault_index`` for ownership, ``_extract_letter_figures`` for
     the numbers). Nothing here reads prose for meaning.
+
+    ``anchor`` (ADR-021 amended 2026-08-13, clause 1) is the same class: plain
+    surface-name presence via ``_find_employer_anchor``, the predicate the floor
+    itself fires on. It is populated ONLY in the positive direction — see
+    :func:`_facts_from_map` for the three ways it stays ``None`` and why an
+    absent anchor is never rendered as "unanchored".
     """
 
     kind: str  # "percent" | "number"
     value: str  # canonical numeric string
     raw: str  # a verbatim form as it appears in the draft ("5+", "99.9%")
     owners: tuple[str, ...]  # employer/project display names, sorted
+    anchor: str | None = None  # employer named by EVERY sentence carrying it
 
 
 def _owner_labels(profile: Any) -> dict[str, str]:
@@ -476,7 +484,10 @@ def figure_ownership_facts(
     """
     index = build_vault_index(profile)
     return _facts_from_map(
-        letter_data, _vault_figure_map(index.units), _owner_labels(profile)
+        letter_data,
+        _vault_figure_map(index.units),
+        _owner_labels(profile),
+        _employer_anchor_candidates(profile),
     )
 
 
@@ -507,12 +518,26 @@ def render_figure_ownership_block(facts: list[FigureOwnership]) -> str:
     ]
     for fact in facts:
         owners = ", ".join(fact.owners)
-        lines.append(f'  - "{fact.raw}" — backed only by evidence from: {owners}')
+        line = f'  - "{fact.raw}" — backed only by evidence from: {owners}'
+        if fact.anchor:
+            line += f"; the sentence carrying it names: {fact.anchor}"
+        else:
+            line += "; no anchor is stated for it"
+        lines.append(line)
     lines += [
         "",
-        "This says nothing about whether the draft attributes them correctly — "
-        "that judgement is YOURS, from the draft's own prose. For each figure "
-        "above, decide which employer the sentence carrying it is about:",
+        "Where a line names the employer the sentence carrying the figure NAMES, "
+        "that is the same deterministic lookup and is equally ground truth: the "
+        "figure IS anchored, and you may NOT report it as unanchored, as missing "
+        "its employer, or as relying on an earlier sentence. Whether that is the "
+        "RIGHT employer is still your judgement — compare it with the figure's "
+        "own owner list on the same line.",
+        "Where a line says no anchor is stated, NOTHING is claimed either way — "
+        "this lookup resolves only a sentence naming exactly one known employer, "
+        "and the sentence may well name its employer in a form it cannot read. "
+        "That judgement is still yours, from the draft's own prose.",
+        "Ownership itself is not settled by either: for each figure above, decide "
+        "which employer the sentence carrying it is about:",
         "  * an employer in that figure's list — correct; leave it alone;",
         "  * a DIFFERENT employer, but the achievement itself genuinely happened "
         "there and only the number came from elsewhere — set approved=false and "
@@ -550,10 +575,11 @@ def figure_ownership_reviewer_prompt_fn(base_fn, profile: Any):
     index = build_vault_index(profile)
     vault_fig_map = _vault_figure_map(index.units)
     labels = _owner_labels(profile)
+    candidates = _employer_anchor_candidates(profile)
 
     def fn(source: str, draft: dict[str, Any]) -> str:
         prompt = base_fn(source, draft)
-        facts = _facts_from_map(draft, vault_fig_map, labels)
+        facts = _facts_from_map(draft, vault_fig_map, labels, candidates)
         if not facts:
             return prompt
         logger.info(
@@ -567,32 +593,85 @@ def figure_ownership_reviewer_prompt_fn(base_fn, profile: Any):
     return fn
 
 
+def _sentence_anchor_label(
+    fig: LetterFigure,
+    spans: list[tuple[int, int, str]],
+    candidates: list[tuple[str, str]],
+    labels: dict[str, str],
+) -> str | None:
+    """The employer named by the sentence that CARRIES this figure, or ``None``.
+
+    ``_find_employer_anchor`` is the same fail-open predicate the floor fires
+    on: a sentence naming exactly one known employer/project resolves; naming
+    two or more, or none, stays ``None``. A figure inside no locatable sentence
+    span (``_sentence_spans`` skips a sentence it cannot position) is ``None``
+    too — never corrupt an attribution over a text-location mismatch.
+    """
+    for start, end, sentence in spans:
+        if start <= fig.start and fig.end <= end:
+            anchor_id = _find_employer_anchor(sentence, candidates)
+            return labels.get(anchor_id) if anchor_id else None
+    return None
+
+
 def _facts_from_map(
     letter_data: dict[str, Any] | None,
     vault_fig_map: dict[tuple[str, str], list[EvidenceUnit]],
     labels: dict[str, str],
+    candidates: list[tuple[str, str]],
 ) -> list[FigureOwnership]:
-    """:func:`figure_ownership_facts` over an already-built vault side."""
+    """:func:`figure_ownership_facts` over an already-built vault side.
+
+    The anchor half (ADR-021 amended 2026-08-13, clause 1) is stated ONLY when
+    it is a fact about EVERY occurrence: the same figure can appear in more than
+    one sentence, and a figure listed as anchored may not be flagged as
+    unanchored — so an anchor claimed from one occurrence would silently
+    suppress a legitimate finding about another. It therefore stays ``None``
+    unless every sentence carrying the figure resolves to the SAME employer.
+
+    Figures are still extracted per PARAGRAPH, exactly as before: the sentence
+    pass only assigns an anchor, so no sentence-splitting artefact can shrink
+    the set of facts the reviewer is given.
+    """
     body = (letter_data or {}).get("body") or {}
     paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
     if not paragraphs:
         return []
-    facts: dict[tuple[str, str], FigureOwnership] = {}
+    owners_by_key: dict[tuple[str, str], tuple[str, ...]] = {}
+    raw_by_key: dict[tuple[str, str], str] = {}
+    anchors_by_key: dict[tuple[str, str], set[str | None]] = {}
     for para in paragraphs:
         if not isinstance(para, str) or not para.strip():
             continue
+        spans = _sentence_spans(para)
         for fig in _extract_letter_figures(para):
             key = (fig.kind, fig.value)
-            if key in facts:
-                continue
             units = vault_fig_map.get(key, [])
             if not units or any(not u.owner_ids for u in units):
                 continue
-            owners = sorted({labels.get(o, o) for u in units for o in u.owner_ids})
-            facts[key] = FigureOwnership(
-                kind=fig.kind, value=fig.value, raw=fig.raw.strip(), owners=tuple(owners)
+            anchors_by_key.setdefault(key, set()).add(
+                _sentence_anchor_label(fig, spans, candidates, labels)
             )
-    return list(facts.values())
+            if key in owners_by_key:
+                continue
+            owners_by_key[key] = tuple(
+                sorted({labels.get(o, o) for u in units for o in u.owner_ids})
+            )
+            raw_by_key[key] = fig.raw.strip()
+    facts: list[FigureOwnership] = []
+    for (kind, value), owners in owners_by_key.items():
+        seen = anchors_by_key[(kind, value)]
+        anchor = next(iter(seen)) if len(seen) == 1 else None
+        facts.append(
+            FigureOwnership(
+                kind=kind,
+                value=value,
+                raw=raw_by_key[(kind, value)],
+                owners=owners,
+                anchor=anchor,
+            )
+        )
+    return facts
 
 
 # ── per-sentence attribution context ───────────────────────────────────────

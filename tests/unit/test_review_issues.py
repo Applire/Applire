@@ -242,3 +242,67 @@ def test_plain_unrelated_issue_text_is_sound():
     """A short, plain issue with no quotes or counts must never be called
     unsound — the measurement must be a no-op on ordinary issue text."""
     assert evaluate_issue("Missing closing paragraph.", "some draft").unsound is False
+
+
+# ---------------------------------------------------------------------------
+# ADR-021 amended 2026-08-13, clause 6(a): issues[] gains OPTIONAL `location`
+# and `check`. Additive by construction — the parser reads named keys and
+# ignores unknown ones — but "additive" is a claim, so it is pinned here.
+#
+# `location` is a STRUCTURAL POINTER (paragraph/sentence index), never a
+# quotation: the 2026-06-29 bounded-output contract and
+# REVIEW_VERDICT_MAX_TOKENS = 2048 are not relaxed, and the measured headroom
+# is real but thin (largest captured verdict 5,494 chars, zero finish=length).
+# ---------------------------------------------------------------------------
+
+
+def test_located_issue_parses_exactly_as_before():
+    issues = normalize_issues(
+        [
+            {
+                "severity": "blocking",
+                "issue": "Paragraph 2 states a figure the source does not carry.",
+                "location": "body.paragraphs[2], sentence 1",
+                "check": "1",
+            }
+        ]
+    )
+    assert len(issues) == 1
+    assert issues[0].is_blocking
+    assert issues[0].text == "Paragraph 2 states a figure the source does not carry."
+
+
+def test_the_new_keys_never_win_over_the_prose_key():
+    """`_ISSUE_TEXT_KEYS` order decides; a location must not become the issue."""
+    issues = normalize_issues(
+        [{"severity": "minor", "issue": "wording", "location": "body.paragraphs[0]"}]
+    )
+    assert issues[0].text == "wording"
+
+
+def test_a_located_minor_issue_is_still_minor():
+    issues = normalize_issues(
+        [{"severity": "minor", "issue": "tone", "location": "body.paragraphs[1]", "check": "2b"}]
+    )
+    assert not issues[0].is_blocking
+
+
+def test_the_schema_declares_both_fields_optional_and_location_non_quoting():
+    from applire.prompts.review_severity import review_output_schema
+
+    schema = review_output_schema(issue_hint="what is wrong", feedback_hint="fix it")
+    assert '"location"' in schema
+    assert '"check"' in schema
+    low = schema.lower()
+    assert "optional" in low
+    assert "never a quotation" in low or "never quote" in low
+
+
+def test_the_schema_still_carries_the_required_fields():
+    """A schema edit that loses `severity` or `issue` would be invisible to the
+    parser (it fails safe to blocking) and fatal to the loop's severity gate."""
+    from applire.prompts.review_severity import review_output_schema
+
+    schema = review_output_schema(issue_hint="what is wrong", feedback_hint="fix it")
+    for field in ('"approved"', '"issues"', '"severity"', '"issue"', '"feedback"'):
+        assert field in schema

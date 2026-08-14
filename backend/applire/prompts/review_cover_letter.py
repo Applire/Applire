@@ -83,11 +83,11 @@ another:
   The candidate's own stated inputs are true by definition; never flag them.
 - ``job_description`` (inside the source) — the only basis for a claim about the
   EMPLOYER: their product, market, domain, or achievements.
-- Any DETERMINISTIC BLOCK appended to the source (VERIFIED COVERAGE CHECK, UNADDRESSED
-  HARD REQUIREMENTS, RECORDED JOB TITLES) — computed before you ran, and GROUND
-  TRUTH. Do not re-derive, second-guess, or extend it. Each states a FACT: whether a
-  string is present, what status the ledger holds, which title the vault records for a
-  position. None of them tells you what a sentence MEANS — that is yours.
+- Any DETERMINISTIC BLOCK appended below, each titled in CAPS (VERIFIED COVERAGE CHECK,
+  FIGURE OWNERSHIP, DO-NOT-CLAIM PRESENCE, RECORDED JOB TITLES, and others) — computed
+  before you ran, and GROUND TRUTH. Do not re-derive, second-guess, or extend one. Each
+  states a FACT: whether a string is present, who owns a figure, what status the ledger
+  holds. None tells you what a sentence MEANS — that is yours.
 
 THE SUBJECT TEST — apply this before every other judgement. Every sentence is about
 someone. Ask only: WHO?
@@ -105,10 +105,9 @@ sentence, you have skipped this test.
 YOU NEVER PERFORM LITERAL STRING MATCHING. Do not count occurrences, and do not decide
 whether a phrase appears verbatim — a deterministic check already did that, and its
 blocks are above. If you are writing "X does not appear in the text", stop: either a
-block says so, or you are guessing. (This is not hypothetical. A prior round of this
-reviewer wrote that a term "is not in the job_description text (only '<phrase containing
-that very term>' appears)" — its own evidence refuted it, and it happened because the
-prompt asked a model to do a string operation.)
+block says so, or you are guessing. (A prior round of this reviewer called a term absent
+from the job_description while quoting a phrase containing it — its own evidence refuted
+it, because the prompt had asked a model to do a string operation.)
 
 BLOCKING CHECKS — these five, and nothing else. Each is a way this letter can be untrue
 or incomplete; anything you notice outside them is `minor` by definition.
@@ -138,7 +137,15 @@ or incomplete; anything you notice outside them is `minor` by definition.
    specific employer must name that employer in the SAME sentence — not rely on an
    earlier sentence to imply it. Flag both misattribution to the wrong employer and an
    unanchored position-owned claim, especially when the letter names more than one
-   employer. The remedy is always to ADD the anchor in place. Never instruct the writer
+   employer. The two halves reach you with different evidence:
+   2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE: where it names the
+       employer a figure's own sentence names, you may NOT report that figure as
+       unanchored. Whether that is the RIGHT employer, against the same line's owner
+       list, stays yours. Where it states no anchor, nothing is settled — judge as 2b.
+   2b. NO FIGURE — a tenure, a title, a scope of duty, an outcome stated without a
+       number. No block covers this half, and 2a being answered says nothing about it;
+       ask the same question of the sentence itself.
+   The remedy is always to ADD the anchor in place. Never instruct the writer
    to delete the achievement or figure to make the problem go away — a figure dropped for
    lack of an anchor is a worse letter, not a safer one.
 3. INVENTED EMPLOYER FACT. A claim about the target employer's product, market, domain,
@@ -181,6 +188,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
      ten years of ISO 9001 audit practice" — is an honest transfer argument, not a
      denial of the second half. It is the correct shape for a gap. Never flag it, and
      never ask the writer to remove, soften, or split it.
+   - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
+     something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
+     the sentence states; inside a sentence about the CANDIDATE the line is grammatical
+     role — the term may appear as an ASPIRATION, never as a POSSESSION. Presence is not
+     yours: the DO-NOT-CLAIM PRESENCE block lists the terms this draft carries, and an
+     issue about any other term must QUOTE the draft words carrying it.
 
 NEVER REVERSE YOURSELF ACROSS ROUNDS. If an earlier round asked for a change, do not now
 flag the result of that change and ask for the original back. That is oscillation, not a
@@ -225,7 +238,8 @@ def build_review_prompt(source_material: str, letter_json: dict) -> str:
         "instruction actually delivered in the body (check 4) — and, where a "
         "DO-NOT-CLAIM term is used there, is it used honestly (naming an employer fact "
         "or the candidate's own absence of it) rather than as a candidate competence "
-        "claim (check 5)? Return your review JSON."
+        "claim (check 5, the KEYWORD LEDGER — DO NOT CLAIM bullet)? Return your review "
+        "JSON."
     )
 
 
@@ -280,10 +294,13 @@ Rules:
   specific employer or position, name that employer within the SAME sentence — e.g. "At
   Northwind Labs, I delivered the lab-systems rollout in 9 months across 4 sites" — never leave
   the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
-  content to satisfy a coverage issue. A downstream truthfulness guard silently DROPS any
-  figure it cannot attribute to a named employer, which only makes the letter vaguer and
-  weaker, not safer — never let an achievement/figure ship unanchored and never quietly delete
-  it to sidestep this rule; restore it WITH its correct anchor instead.
+  content to satisfy a coverage issue. An unanchored claim is the one shape nothing
+  downstream can check: in a letter naming more than one employer, the post-generation
+  attribution guards FAIL OPEN on a sentence that names none (#299), so a borrowed claim
+  left vague survives every check that runs after you, and the reviewer's check 2 flags it
+  again next round. A vaguer letter is not a safer one — never let an achievement/figure
+  ship unanchored and never quietly delete it to sidestep this rule; restore it WITH its
+  correct anchor instead.
 - SPECIFICITY OUTRANKS COVERAGE TOO (#282): when correcting a coverage issue, never respond by
   stringing three or more claimable terms together as a flat list ("team management,
   mentoring, cross-functional collaboration, engineering standards..."). Fold at most one or
