@@ -64,6 +64,19 @@ Rules, and they are not optional:
 def review_output_schema(issue_hint: str, feedback_hint: str) -> str:
     """Render the reviewer's JSON output block with the severity field.
 
+    ``location`` and ``check`` are OPTIONAL (ADR-021 amended 2026-08-13, clause
+    6(a)) and additive: :func:`applire.services.review_issues.normalize_issues`
+    reads named keys and ignores unknown ones, so a model that omits them
+    behaves exactly as before.
+
+    **``location`` is a STRUCTURAL POINTER — never a quotation.** The 2026-06-29
+    bounded-output contract and ``REVIEW_VERDICT_MAX_TOKENS`` are not relaxed
+    here; a verbatim-shaped field at that pinch point is the production incident
+    that contract exists to prevent, and a truncated verdict ships its round
+    unreviewed (``services/reviewer.py``). Measured headroom across the two
+    captured LLM logs: largest verdict 5,494 characters against a 2048-token
+    cap, with zero ``finish=length`` events — real, but thin.
+
     Args:
         issue_hint: In-schema hint describing what one issue should say in THIS
                     domain (e.g. "naming the paragraph and the ungrounded claim").
@@ -73,7 +86,10 @@ def review_output_schema(issue_hint: str, feedback_hint: str) -> str:
 {{
   "approved": true or false,
   "issues": [
-    {{"severity": "blocking" or "minor", "issue": "{issue_hint}"}}
+    {{"severity": "blocking" or "minor", "issue": "{issue_hint}",
+     "location": "OPTIONAL — a structural pointer only, under ten words, e.g. \
+'body.paragraphs[2], sentence 1'. NEVER a quotation.",
+     "check": "OPTIONAL — the numbered check this issue comes from"}}
   ],
   "feedback": "{feedback_hint}"
 }}

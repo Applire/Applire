@@ -920,3 +920,117 @@ def test_a_project_owned_figure_names_its_employer_never_a_raw_uuid():
     nameable = {"Weberit Kunststofftechnik GmbH", "Einführung eines MES-Systems"}
     assert owners <= nameable, f"unreadable owner(s) reached the reviewer: {owners - nameable}"
     assert "Weberit Kunststofftechnik GmbH" in owners
+
+
+# ── ADR-021 amended 2026-08-13, clause 1: the ANCHOR, in the positive direction ──
+# Gate charter run 1: 32 of 70 blocking issues were WRONG/MISSING OWNER, and
+# running the production predicates over the check-2 issues gave CONFIRM 11 /
+# CONTRADICT 14 — roughly half the anchor demands were factually wrong, the
+# figure WAS anchored in its own sentence. The block now states that anchor, so
+# the model no longer computes what it was getting wrong.
+#
+# The asymmetry is forced by the code, not chosen for caution: "this sentence
+# names employer E" is fact-grade; "this sentence names no employer, therefore
+# the figure is unanchored" is not, and _allowed_owner_ids deliberately returns
+# None for the ordinary multi-employer shape (three heuristics deleted under
+# #299 for misfiring on real letters).
+
+def _anchor_of(sentence, profile):
+    """The production predicate itself — used to check the fixtures' premises
+    rather than trusting that they read as anchored."""
+    from applire.services.oracle.extract import (
+        _employer_anchor_candidates,
+        _find_employer_anchor,
+    )
+
+    return _find_employer_anchor(sentence, _employer_anchor_candidates(profile))
+
+
+def test_the_fixture_sentences_really_do_anchor_the_way_the_tests_claim():
+    assert _anchor_of(
+        "At Vector Analytics, I have experience mentoring teams of 5+ engineers.",
+        PROFILE,
+    ) == "w-vector"
+    assert _anchor_of("I delivered a 70% reduction in checkout latency.", PROFILE) is None
+
+
+def test_the_block_states_which_employer_the_carrying_sentence_names():
+    letter = _letter(
+        ["At Vector Analytics, I have experience mentoring teams of 5+ engineers."]
+    )
+    facts = figure_ownership_facts(letter, PROFILE)
+    assert [(f.raw, f.owners, f.anchor) for f in facts] == [
+        ("5+", ("DataCore Systems",), "Vector Analytics")
+    ]
+    block = render_figure_ownership_block(facts)
+    assert "Vector Analytics" in block
+    assert "DataCore Systems" in block
+
+
+def test_an_anchored_figure_may_not_be_reported_as_unanchored():
+    """The 14 CONTRADICT demands, closed at their cause: the block carries the
+    fact AND the one instruction that stops it being re-derived."""
+    letter = _letter(["At Vector Analytics, I cut checkout latency by 70%."])
+    block = render_figure_ownership_block(figure_ownership_facts(letter, PROFILE))
+    low = block.lower()
+    assert "the sentence carrying it names" in low
+    assert "may not" in low and "unanchored" in low
+
+
+def test_a_figure_whose_sentence_names_nobody_is_not_asserted_unanchored():
+    """The direction that is NOT fact-grade. A silent line must not read as a
+    verdict, so the block says so in words — the judgement stays the model's
+    under the unchanged SUBJECT TEST."""
+    letter = _letter(
+        [
+            "At Vector Analytics, I have experience mentoring teams of 5+ engineers.",
+            "I delivered a 70% reduction in checkout latency.",
+        ]
+    )
+    facts = {f.value: f for f in figure_ownership_facts(letter, PROFILE)}
+    assert facts["70"].anchor is None
+    block = render_figure_ownership_block(list(facts.values()))
+    assert "no anchor is stated" in block.lower()
+    assert "still yours" in block.lower()
+
+
+def test_a_figure_anchored_in_one_sentence_and_loose_in_another_states_no_anchor():
+    """Fail-safe on disagreement: claiming the anchor would suppress a genuine
+    finding about the OTHER occurrence."""
+    letter = _letter(
+        [
+            "At Vector Analytics, I cut checkout latency by 70%.",
+            "A 70% improvement followed in the second quarter.",
+        ]
+    )
+    facts = figure_ownership_facts(letter, PROFILE)
+    assert [f.anchor for f in facts] == [None]
+
+
+def test_two_sentences_naming_different_employers_state_no_anchor():
+    letter = _letter(
+        [
+            "At Vector Analytics, I cut checkout latency by 70%.",
+            "At DataCore Systems, a 70% reduction followed.",
+        ]
+    )
+    facts = figure_ownership_facts(letter, PROFILE)
+    assert [f.anchor for f in facts] == [None]
+
+
+def test_the_anchor_is_an_employer_name_never_a_raw_id():
+    letter = _letter(["At Vector Analytics, I cut checkout latency by 70%."])
+    facts = figure_ownership_facts(letter, PROFILE)
+    assert facts[0].anchor == "Vector Analytics"
+    assert "w-vector" not in render_figure_ownership_block(facts)
+
+
+def test_the_reviewer_wrapper_carries_the_anchor_too():
+    """The wrapper builds facts from its own cached vault side — the anchor must
+    not be lost on that path (it is the path the loop actually uses)."""
+    fn = figure_ownership_reviewer_prompt_fn(lambda source, draft: "BASE", PROFILE)
+    prompt = fn(
+        "source",
+        _letter(["At Vector Analytics, I have experience mentoring teams of 5+ engineers."]),
+    )
+    assert "the sentence carrying it names: Vector Analytics" in prompt

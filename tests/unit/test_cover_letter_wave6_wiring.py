@@ -730,3 +730,130 @@ async def test_condense_loop_corrector_prompt_carries_it_too(seeded):
         prompt = gen_fn(_letter(["We ran SMED workshops."]), "fb", "src")
         assert "COVERAGE ALREADY ACHIEVED" in prompt
         assert "SMED" in prompt.split("COVERAGE ALREADY ACHIEVED", 1)[1]
+
+
+# --- ADR-021 amended 2026-08-13, clause 4: the DO-NOT-CLAIM presence fact -----
+#
+# Gate charter run 1 / #531: 2 of the 3 DO-NOT-CLAIM findings named a term
+# appearing nowhere in the graded draft, and the third conceded in its own text
+# ("The sentence '...' is fine, but the broader context of the paragraph
+# implies..."). The reviewer is asked a usage-honesty question that presupposes
+# a presence determination, and the prompt forbids it from string-matching to
+# answer. The wiring is what CI can pin; whether the reviewer ACTS on the fact
+# is a prompt effect and needs a real-provider run (ADR-062 clause 7).
+
+_FORBIDDEN_LEDGER = [
+    {
+        "concept": "Digitalisierung",
+        "status": "gap",
+        "claimable": False,
+        "surface_forms": ["Digitalisierung"],
+        "evidence": "",
+    }
+]
+
+
+@pytest.mark.asyncio
+async def test_primary_loop_reviewer_prompt_carries_the_forbidden_presence_fact(seeded):
+    db, job, profile, cl = seeded
+
+    from applire.models.gap import GapAnalysis
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    db.add(
+        GapAnalysis(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            keyword_ledger=_FORBIDDEN_LEDGER,
+        )
+    )
+    await db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(return_value=_letter(["Dear team,", "Sincerely,"]))
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            AsyncMock(side_effect=RuntimeError("no browser in unit test")),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert calls, "review_and_refine was not called"
+    fn = calls[0]["reviewer_prompt_fn"]
+
+    carrying = fn(calls[0]["source"], _letter(["Die Digitalisierung Ihrer Werke reizt mich."]))
+    assert "DO-NOT-CLAIM PRESENCE" in carrying
+    present_block = carrying.split("DO-NOT-CLAIM PRESENCE", 1)[1]
+    assert "Digitalisierung" in present_block
+
+    # ...and the other direction, which is the #531 shape: the scan found none,
+    # and the block says so rather than leaving the model to improvise.
+    without = fn(calls[0]["source"], _letter(["Bei Weberit habe ich MES ausgerollt."]))
+    assert "DO-NOT-CLAIM PRESENCE" in without
+    assert "(none" in without.split("DO-NOT-CLAIM PRESENCE", 1)[1]
+
+
+@pytest.mark.asyncio
+async def test_condense_pass_carries_the_forbidden_presence_fact_too(seeded):
+    """The condense loop reuses the composed reviewer_prompt_fn — mirroring
+    test_condense_pass_also_receives_load_bearing_fn."""
+    db, job, profile, cl = seeded
+
+    from applire.models.gap import GapAnalysis
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    db.add(
+        GapAnalysis(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            keyword_ledger=_FORBIDDEN_LEDGER,
+        )
+    )
+    await db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.aparse_json = AsyncMock(
+        side_effect=[
+            _letter(["placeholder"]),
+            _letter(["Dear team,", "condensed closing"]),
+        ]
+    )
+    calls: list[dict] = []
+
+    async def fake_review(**kwargs):
+        calls.append(kwargs)
+        return kwargs["draft"]
+
+    async def _fake_render_pdf(cl_id, allow_unready=False):
+        return b"%PDF-1.4 fake"
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local,
+        patch("applire.services.cover_letter.get_provider", return_value=mock_provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(side_effect=_fake_render_pdf)),
+        patch(
+            "applire.services.ats_audit.extract_text_and_pages",
+            return_value=("text", 3),
+        ),
+    ):
+        mock_session_local.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    assert len(calls) == 2, "expected primary + condense review_and_refine calls"
+    for call in calls:
+        rendered = call["reviewer_prompt_fn"](
+            call["source"], _letter(["Die Digitalisierung Ihrer Werke reizt mich."])
+        )
+        assert "DO-NOT-CLAIM PRESENCE" in rendered
