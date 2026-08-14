@@ -186,3 +186,60 @@ class TestForbiddenPresenceReviewerPromptFn:
             lambda source, draft: "BASE", [_LEDGER[0]]
         )
         assert fn("source", _DRAFT_NAMING_ONE) == "BASE"
+
+
+class TestThePositiveBranchOnRealCapturedData:
+    """The branch this run never exercised — pinned against captured traffic.
+
+    Gate-run-1 measurement (2026-08-14): across BOTH letter chains, ten reviewer
+    rounds, **no round's draft contained a forbidden term at all**, so the block
+    only ever rendered its "(none)" line. A control whose positive branch never
+    fires in the run that validates it is not validated (the standing lesson:
+    prove it fires on real captured data).
+
+    The paragraph below is verbatim from ``backend/logs/llm/2026-08-13.jsonl``,
+    ``stage=cover_letter``, ``review_attempt=1`` — the one captured round whose
+    draft genuinely carries ``Digitalisierung``. That round's reviewer did NOT
+    flag it, while two rounds later the same reviewer filed two findings about
+    terms appearing nowhere in the draft. The pre-change reviewer was unreliable
+    in BOTH directions, which is the case for supplying the fact rather than
+    tightening the instruction.
+
+    Synthetic case (``operations_marcus_de``), so the text is safe to commit.
+    """
+
+    _CAPTURED = (
+        "Bei Weberit führte ich die Einführung eines MES-Systems zur "
+        "Maschinendaten- und Betriebsdatenerfassung an 14 Spritzgussmaschinen "
+        "durch, inklusive Systemauswahl und Rollout. Mit meiner Erfahrung in "
+        "Lean-Methoden, SAP PP/MM und der Digitalisierung von Fertigungsprozessen "
+        "möchte ich die Weiterentwicklung Ihrer Produktion aktiv gestalten."
+    )
+    # The six honest-gap concepts of that run's ledger, verbatim.
+    _RUN_LEDGER = [
+        {"concept": c, "surface_forms": [c], "claimable": False, "status": "gap",
+         "sources": ["keyword"], "fit_weight": 0.0, "evidence": ""}
+        for c in ("Digitalisierung", "Investitionsverantwortung", "Verpackungsindustrie",
+                  "Lebensmittelindustrie", "IFS", "BRC")
+    ]
+
+    def test_the_term_the_reviewer_missed_is_reported_present(self):
+        draft = {"body": {"paragraphs": [self._CAPTURED]}}
+        assert forbidden_terms_in_draft(draft, self._RUN_LEDGER) == ["Digitalisierung"]
+
+    def test_the_five_terms_the_draft_does_not_carry_are_not_reported(self):
+        """The same round is the one that later produced two fabricated findings
+        about `Verpackungsindustrie` — the block must not hand the model a
+        pretext for either of them."""
+        draft = {"body": {"paragraphs": [self._CAPTURED]}}
+        assert "Verpackungsindustrie" not in forbidden_terms_in_draft(draft, self._RUN_LEDGER)
+
+    def test_a_german_inflection_the_english_fold_cannot_see_stays_unlisted(self):
+        """The stated limit, pinned rather than hoped: `surface_present`'s verb
+        fold is English-only, so an inflected/compounded German form is NOT
+        found — which is exactly why the block keeps an unlisted term sayable
+        against a quote instead of declaring it absent."""
+        draft = {"body": {"paragraphs": ["Wir haben die Fertigung digitalisiert."]}}
+        assert forbidden_terms_in_draft(draft, self._RUN_LEDGER) == []
+        low = render_forbidden_presence_block([]).lower()
+        assert "german" in low and "quote" in low
