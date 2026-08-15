@@ -1031,6 +1031,7 @@ async def _render_cover_letter_background(
             from applire.services.keyword_ledger import (
                 coverage_corrector_prompt_fn,
                 coverage_reviewer_prompt_fn,
+                letter_coverage_budget,
                 render_ledger_reviewer_block,
             )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
@@ -1073,8 +1074,20 @@ async def _render_cover_letter_background(
             from applire.services.cross_document import (
                 unaddressed_requirements_reviewer_prompt_fn,
             )
+            # ADR-076 clause 6 (#543): rank-gate the demand under the SAME
+            # ADR-051 letter_body_word_budget the word-floor/ceiling wrappers
+            # below already enforce (one owner, one ranking). This composed
+            # closure is reused verbatim by the condense loop further down
+            # (reviewer_prompt_fn=reviewer_prompt_fn), so the gate covers both
+            # letter loops from this one wiring point — the loop run A's
+            # evidence (SAP+Shopfloor -> 5S+Arbeitssicherheit -> ...
+            # displacement churn) exhausted 5/5 on.
             reviewer_prompt_fn = unaddressed_requirements_reviewer_prompt_fn(
-                coverage_reviewer_prompt_fn(build_review_prompt, keyword_ledger),
+                coverage_reviewer_prompt_fn(
+                    build_review_prompt,
+                    keyword_ledger,
+                    budget=letter_coverage_budget(norm.letter_body_word_budget),
+                ),
                 keyword_ledger=keyword_ledger,
             )
             # #272 Task 6: a THIRD deterministic wrapper — each reviewer iteration also
