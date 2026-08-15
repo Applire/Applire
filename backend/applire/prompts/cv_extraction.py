@@ -15,6 +15,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (#548 — EDUCATION FIELD rule added; 2026-08-14 edge model comparison
+#   evidence: two models (qwen3.7-max, gpt-5.6-luna) extracted degree="Industriemeister Metall"
+#   AND field="Metall" for the same source line — the schema never told the model "field" means
+#   "not already in degree". NEEDS REAL-PROVIDER RUN EVIDENCE per ADR-062 clause 7 — not yet run.)
 # Prompt version: v4 (#407 — PER-ENTRY GROUNDING FOR TECHNOLOGIES rule added; run-12 evidence:
 #   "SAP" was reproducibly attributed to Weberit's technologies list even though Weberit's own
 #   bullets never mention SAP — the model was backfilling a general "Kenntnisse" skills-section
@@ -74,8 +78,8 @@ _SCHEMA_DESCRIPTION = """\
   "education": [
     {
       "institution": "University or school name",
-      "degree": "Degree type e.g. 'Bachelor of Science', 'Master', 'Ausbildung'",
-      "field": "Field of study or specialisation",
+      "degree": "Degree type e.g. 'Bachelor of Science', 'Master', 'Ausbildung', 'Industriemeister Metall'",
+      "field": "Field of study, ONLY if it names something 'degree' does not already say — null/empty otherwise",
       "start_date": "e.g. '2015' or null",
       "end_date": "e.g. '2018' or null",
       "grade": "Final grade or GPA as string or null",
@@ -211,6 +215,12 @@ Rules:
 - Preserve German umlauts and special characters exactly as written.
 - Use null for missing optional fields — never omit required fields.
 - For DACH CVs: Ausbildung maps to education; Praktikum/Werkstudent map to work_experience entries.
+- EDUCATION FIELD (#548): "field" names a specialisation the "degree" string does NOT already
+  state — never repeat a word from "degree" in "field". Many German titles already carry the
+  specialisation as part of the title itself (e.g. "Industriemeister Metall", "Fachinformatiker
+  Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
+  leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
+  (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
 - ROLE ALIASES: If a position is described under multiple titles within the same employer and overlapping
   time period, create exactly ONE work_experience entry using the most senior/formal title as "role",
   and list all other titles in "role_aliases". Never create a separate entry per title.
