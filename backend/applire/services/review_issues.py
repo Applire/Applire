@@ -70,6 +70,13 @@ _MINTED_GROUNDED_RE = re.compile(
 # --- Check 2: checkable count claims ----------------------------------------
 _REPEATED_RE = re.compile(r"'([^']+)'\s+is\s+repeated\s+(\d+)\s+times?", re.IGNORECASE)
 
+#: Public aliases (#537) — ``services/review_compliance.py`` reuses these EXACT
+#: pattern objects (not a re-derived copy) so its quoted-term / repetition-count shape
+#: detectors stay byte-for-byte in sync with this module's own soundness checks rather
+#: than drifting into a second, subtly different notion of "quoted" or "repeated".
+QUOTED_RE = _QUOTED_RE
+REPEATED_RE = _REPEATED_RE
+
 # Keys a model plausibly uses for the prose half of an issue object, in
 # preference order. ``issue`` is what the schema asks for.
 _ISSUE_TEXT_KEYS = ("issue", "text", "description", "detail", "message")
