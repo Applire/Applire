@@ -52,6 +52,10 @@ def test_unregistered_signal_error_names_the_signal_and_the_clause():
     assert "ADR-076" in message
 
 
+def _noop_issue_matches(text: str) -> bool:
+    return False
+
+
 def test_fallback_apply_registration_round_trips():
     register_signal_disposition(
         "cv._restore_ledger_bullets",
@@ -59,11 +63,26 @@ def test_fallback_apply_registration_round_trips():
         "keeps the deterministic owner-lookup/rank_cuts machinery as the bounded "
         "sanctioned exception on exhaustion (ADR-076 clause 2 split-fate example).",
         fallback_fn=_noop_fallback,
+        issue_matches=_noop_issue_matches,
     )
     record = get_signal_disposition("cv._restore_ledger_bullets")
     assert record.disposition == ExhaustionDisposition.FALLBACK_APPLY
     assert record.fallback_fn is _noop_fallback
+    assert record.issue_matches is _noop_issue_matches
     assert record.rationale
+
+
+def test_fallback_apply_without_issue_matches_is_rejected():
+    """2026-08-15 amendment (#540): a fallback-apply signal needs a matcher to know
+    whether ITS issue is still outstanding at settle time — without one there is no
+    way to wire the fallback to fire only when it should."""
+    with pytest.raises(ValueError, match="issue_matches"):
+        register_signal_disposition(
+            "cv._restore_ledger_bullets_2",
+            ExhaustionDisposition.FALLBACK_APPLY,
+            "a rationale and a fallback_fn, but no matcher.",
+            fallback_fn=_noop_fallback,
+        )
 
 
 def test_ship_and_report_registration_round_trips():
@@ -134,6 +153,7 @@ def test_reregistering_the_same_signal_overwrites_not_duplicates():
         ExhaustionDisposition.FALLBACK_APPLY,
         "revised declaration during development.",
         fallback_fn=_noop_fallback,
+        issue_matches=_noop_issue_matches,
     )
     assert registered_signal_ids() == frozenset({"cv._dedup_skills"})
     record = get_signal_disposition("cv._dedup_skills")

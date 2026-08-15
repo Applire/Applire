@@ -133,6 +133,41 @@ structurally one-sided (it can prove compliance or say "can't tell", never prove
 non-compliance) and its verdicts are counted separately as ``indeterminate`` rather
 than folded into ``unmeasurable`` — see ``review_compliance.py`` for why conflating
 the two would bias any compliance fraction upward by construction.
+
+Signal fallback wiring (#540, ADR-076 clause 2 amendment, 2026-08-15): clause 2's floor
+lets an unmeasurable signal migrate as FALLBACK_APPLY — see
+``services/signal_disposition.py`` — but the amendment tightened WHEN that fallback may
+fire: "proven to fire on EVERY early-settle path of the review loop — not just literal
+retry-exhaustion." This function has SEVEN return points that ship a draft: the
+review-disabled short-circuit (``max_retries<=0``), and — inside the loop — reviewer
+call failure, approval, minor-only rejection, generator/refiner call failure, cycle
+detection, and retry exhaustion. ``signal_ids`` (optional, default ``None``) is the
+explicit, per-call opt-in that tells THIS loop which registered signals to consider at
+settle time; a signal named there whose ``issue_matches`` still matches something in
+``last_issues`` when the draft settles has its ``fallback_fn`` applied, exactly once,
+AFTER ``retain_if``/``required_fields``/``settle_guard`` (it is the last resort, not a
+competing selection rule) — see ``_apply_signal_fallbacks`` below for the mechanics and
+``SignalDispositionRecord`` for why matching runs against reviewer-authored issue text
+and what to do about the paraphrase risk that creates.
+
+Explicit-parameter design, not "match every registered signal": a loop that silently
+picked up every process-global registration would fire a fallback for a signal this
+particular chain never injected an issue for (a false positive by construction — an
+unrelated signal's marker string could coincidentally appear in this chain's prose).
+Requiring the caller to name which signals THIS invocation cares about keeps the
+registry's global scope from leaking into a single chain's behaviour.
+
+The ``max_retries<=0`` path is deliberately EXCLUDED from signal-fallback
+consideration, not merely empty of matches. Two independent reasons, either one
+sufficient: (1) ``last_issues`` is not just empty there, it does not exist yet — the
+review layer never ran, so no issue was ever raised for anything to match against; (2)
+ADR-076's fallback is "the bounded sanctioned exception" for when the CORRECTOR could
+not implement a signal the reviewer raised — with review disabled, the corrector never
+had a round to fail at. Firing the fallback there would make it the PRIMARY mechanism
+for every ``max_retries=0`` caller, which is exactly the silent-default clause 2
+exists to forbid. The exclusion is structural (that call site never passes a settle
+``path``), not incidental — a future ``issue_matches`` written carelessly (matching an
+empty string, say) cannot accidentally reach it.
 """
 
 import json
@@ -154,6 +189,7 @@ from applire.providers.llm.debug_log import (
     log_review_substitution_diff,
     log_review_substitution_refused,
     log_review_verdict,
+    log_signal_fallback_applied,
     set_review_call_meta,
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
@@ -164,6 +200,7 @@ from applire.services.review_compliance import (
     measure_corrector_compliance,
 )
 from applire.services.review_issues import measure_reviewer_issues, normalize_issues
+from applire.services.signal_disposition import ExhaustionDisposition, get_signal_disposition
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +224,7 @@ async def review_and_refine(
     load_bearing_fn: Callable[[dict[str, Any]], frozenset[str]] | None = None,
     settle_guard: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]] | None = None,
     structured_output: bool = False,
+    signal_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -283,6 +321,22 @@ async def review_and_refine(
                   structured output (see ``services/review_compliance.py``).
                   Never read by this loop's control flow; changes only what the
                   ``REVIEW_COMPLIANCE`` log lines can measure.
+        signal_ids: Optional (#540, ADR-076 clause 2 amendment) explicit list of
+                  ``services/signal_disposition.py`` signal ids this INVOCATION cares
+                  about. Default ``None`` reproduces today's behaviour exactly — no
+                  registry lookup happens, no fallback can fire, every existing caller
+                  is bit-identical (also true today because the registry itself still
+                  ships empty — nothing has migrated). When supplied, each named
+                  FALLBACK_APPLY signal whose ``issue_matches`` matches something in
+                  ``last_issues`` at settle time has its ``fallback_fn`` applied to the
+                  settled draft, once, on every early-settle path EXCEPT
+                  ``max_retries<=0`` (see the module docstring). SHIP_AND_REPORT
+                  signals are looked up but never fire anything. Naming a signal_id
+                  that never registered raises ``UndeclaredSignalDispositionError``
+                  immediately — a caller-side migration bug, not a state to paper
+                  over — which is the ONE way this parameter can make the loop raise
+                  where it otherwise never does; it only triggers when a caller
+                  explicitly opts in with a bad id, never for the production default.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -455,17 +509,109 @@ async def review_and_refine(
         )
         return final
 
-    def _settle(final: dict[str, Any]) -> dict[str, Any]:
-        """Apply the optional retention predicate(s) and required-fields floor to
-        a draft this function is about to return. All default to a pure
-        pass-through — behaviour is bit-identical to pre-wave-6 for every
-        existing caller."""
+    def _apply_signal_fallbacks(final: dict[str, Any], path: str) -> dict[str, Any]:
+        """#540 (ADR-076 clause 2 amendment): fire each ``signal_ids`` entry whose
+        registered FALLBACK_APPLY disposition's ``issue_matches`` still matches
+        something in ``last_issues`` — the caller-named signals THIS invocation
+        opted into, checked against the loop's own record of what is still open.
+
+        A no-op when ``signal_ids`` is falsy (default ``None``) — this is the
+        behaviour-neutrality guarantee: for any caller that does not pass
+        ``signal_ids`` explicitly (every caller today) this function returns its
+        input untouched before reaching the registry, the matchers, or any logging.
+
+        Looks up EVERY named id via ``get_signal_disposition`` — which raises
+        ``UndeclaredSignalDispositionError`` for an id nobody registered. That is
+        deliberate: naming a signal here is a promise this invocation makes about
+        what it injected, and an unregistered id means either the migration forgot
+        clause 2's declaration or the caller mistyped the id — both are bugs the
+        registry's OWN philosophy (fail loudly, never silently default) says should
+        surface immediately, not be swallowed into a quiet no-op.
+
+        SHIP_AND_REPORT signals are looked up (so a caller listing a mixed set of
+        ids doesn't need to pre-filter) but never act — that disposition's contract
+        is that the defect ships and is reported elsewhere (ADR-076 clause 7), never
+        patched here.
+
+        Fires each signal AT MOST ONCE: structurally guaranteed, because this
+        function itself runs at most once per ``review_and_refine`` call (every
+        return point calls ``_settle`` exactly once) — ``dict.fromkeys`` below only
+        guards against a caller listing the same id twice in one ``signal_ids``.
+
+        Fail-safe on BOTH migration-authored hooks: ``fallback_fn`` runs inside a
+        bare ``except Exception`` — a raising fallback is logged loudly and the
+        UN-fallbacked draft ships — and ``issue_matches`` is wrapped the same way,
+        with a raise treated as no-match (the missed-fallback direction ships
+        exactly what the loop would have shipped anyway; a wrongly-fired fallback
+        would apply an edit nobody asked for, the worse direction). Neither hook
+        can become a NEW way for this loop to crash (ADR-021's long-standing
+        "never raises" contract extends to this step, deliberately)."""
+        if not signal_ids:
+            return final
+        result = final
+        for signal_id in dict.fromkeys(signal_ids):
+            record = get_signal_disposition(signal_id)
+            if record.disposition is not ExhaustionDisposition.FALLBACK_APPLY:
+                continue
+            if record.issue_matches is None or record.fallback_fn is None:
+                # Defensive only — the registry enforces both non-None for
+                # FALLBACK_APPLY at registration time; this should never trip.
+                continue
+            try:
+                matched = any(record.issue_matches(text) for text in last_issues)
+            except Exception:
+                logger.error(
+                    "review_and_refine: chain=%s signal_id=%s issue_matches raised "
+                    "on settle path=%s; treating as no-match and shipping without "
+                    "the fallback (fail-safe: a missed fallback ships exactly what "
+                    "the loop would have shipped anyway, while a wrongly-fired one "
+                    "would apply an edit nobody asked for).",
+                    chain_id,
+                    signal_id,
+                    path,
+                    exc_info=True,
+                )
+                continue
+            if not matched:
+                continue  # this signal's issue was resolved before settling
+            try:
+                result = record.fallback_fn(result)
+            except Exception:
+                logger.error(
+                    "review_and_refine: chain=%s signal_id=%s fallback_fn raised "
+                    "on settle path=%s; shipping the un-fallbacked draft rather "
+                    "than crash the loop (ADR-076 clause 2 amendment: fail-safe "
+                    "on the sanctioned exception itself).",
+                    chain_id,
+                    signal_id,
+                    path,
+                    exc_info=True,
+                )
+                continue
+            log_signal_fallback_applied(chain_id, signal_id, path)
+        return result
+
+    def _settle(final: dict[str, Any], path: str | None = None) -> dict[str, Any]:
+        """Apply the optional retention predicate(s), required-fields floor, and
+        (#540) signal fallbacks to a draft this function is about to return.
+
+        ``path`` identifies WHICH settle path is calling, and is the trigger for
+        signal-fallback consideration: ``None`` (the ``max_retries<=0`` call site,
+        the only one that omits it) means fallbacks are never even considered — see
+        the module docstring for why that path is structurally excluded. Every
+        other call site passes a stable path label.
+
+        With no ``retain_if``/``required_fields``/``settle_guard``/``signal_ids``
+        supplied, this is a pure pass-through — behaviour is bit-identical to
+        pre-wave-6 (and pre-#540) for every existing caller."""
         settled = final
         if retain_if is not None:
             settled = _select_retained_draft(settled)
         settled = _apply_required_fields(settled)
         if settle_guard is not None:
             settled = settle_guard(settled, list(draft_history))
+        if path is not None:
+            settled = _apply_signal_fallbacks(settled, path)
         return settled
 
     if max_retries <= 0:
@@ -506,7 +652,7 @@ async def review_and_refine(
                     type(exc).__name__,
                     attempt + 1,
                 )
-                return _settle(current_draft)
+                return _settle(current_draft, path="reviewer_call_failed")
 
             approved = bool(review.get("approved", False))
             issues = normalize_issues(review.get("issues", []))
@@ -529,7 +675,7 @@ async def review_and_refine(
             )
 
             if approved:
-                return _settle(current_draft)
+                return _settle(current_draft, path="approved")
 
             if issues and not blocking:
                 # ADR-021 amended 2026-07-28: the writer runs again only for a
@@ -555,7 +701,7 @@ async def review_and_refine(
                     len(issues),
                     last_issues,
                 )
-                return _settle(current_draft)
+                return _settle(current_draft, path="minor_only")
 
             feedback = review.get("feedback", "")
             logger.debug(
@@ -604,7 +750,7 @@ async def review_and_refine(
                     attempt + 1,
                     last_issues,
                 )
-                return _settle(current_draft)
+                return _settle(current_draft, path="generator_call_failed")
 
             # #537 (ADR-076 clause 2, the floor): did the corrector's NEW draft
             # actually IMPLEMENT this round's blocking issues, not merely make
@@ -666,7 +812,7 @@ async def review_and_refine(
                     attempt + 1,
                     max_retries,
                 )
-                return _settle(current_draft)
+                return _settle(current_draft, path="cycle_detected")
             seen_canonicals.add(current_canonical)
 
             # #272 Task 3: a fresh draft was produced — track it so an opt-in
@@ -685,7 +831,7 @@ async def review_and_refine(
             max_retries,
             last_issues,
         )
-        return _settle(current_draft)
+        return _settle(current_draft, path="exhausted")
     finally:
         # Clear the role/attempt label so a later, unrelated call in this task
         # doesn't inherit a stale review-loop position.
