@@ -27,12 +27,19 @@ site would have left the eighth to be discovered the same way. A single factory 
 there is one way to get an environment and it is always correctly configured.
 """
 import re
+import unicodedata
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from applire.utils.budget_unit import budget_needs_unit
 
-__all__ = ["month_year", "budget_display", "register_filters", "build_template_env"]
+__all__ = [
+    "month_year",
+    "budget_display",
+    "education_title",
+    "register_filters",
+    "build_template_env",
+]
 
 # "2017-04", "2017-04-01", "2017/04" — the shapes the extractor and the reconciler
 # actually produce. Anything else is passed through untouched (see month_year).
@@ -145,6 +152,70 @@ def budget_display(value: object, lang: str = "de") -> str:
     return text
 
 
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _tokens(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return set(_TOKEN_RE.findall(normalized))
+
+
+def education_title(degree: object, field: object = "") -> str:
+    """Render an education entry's title, omitting ``field`` when it is
+    already a verbatim word-for-word part of ``degree`` (#548).
+
+    Charter run 2026-08-14 delivered ``Industriemeister Metall, Metall`` in
+    the German CV's education section (two models, both DE runs, build
+    ``c8cb4fa9``) — a blind HR reviewer flagged it unprompted. Ground truth
+    (``tests/files/panel_review_case/operations_marcus_de/cv_stefan_brandt.md``):
+    the source states the qualification on ONE line, ``Industriemeister Metall
+    (IHK), 2010`` — a German Meister title where the specialisation is fused
+    into the title itself, unlike e.g. ``Bachelor of Science`` + ``Informatik``
+    where ``field`` names something the degree string does not already say.
+    The extraction prompt's schema described ``field`` only as "field of study
+    or specialisation" with no guidance on this distinction (a prompt gap —
+    see the sibling fix in ``prompts/cv_extraction.py`` and
+    ``prompts/cv_extraction_segmented.py``); locally the default provider left
+    ``field`` empty for this exact entry, but BYOI (ADR-054) means any
+    self-hosted or cloud model can be plugged in, and the two models that
+    produced the bug are real, supported configurations — a prompt rule
+    cannot be the only defence.
+
+    This filter is that defence, at the one join every one of the 7 CV
+    templates previously duplicated inline (ADR-066). It normalises with
+    unicode NFKC + casefold and checks EXACT token containment only — no
+    fuzzy matching, no synonym dictionary (ADR-076 clause 4: paraphrase and
+    semantic equivalence are judgements, never settled by string comparison;
+    exact verbatim-token containment is the closed mechanical remainder).
+    A legitimately distinct field (its tokens are not a subset of the
+    degree's tokens) is never dropped.
+
+    >>> education_title("Industriemeister Metall", "Metall")
+    'Industriemeister Metall'
+    >>> education_title("Bachelor of Science", "Informatik")
+    'Bachelor of Science, Informatik'
+    >>> education_title("Fachinformatiker Systemintegration", "Systemintegration")
+    'Fachinformatiker Systemintegration'
+    >>> education_title("Diplom-Ingenieur", None)
+    'Diplom-Ingenieur'
+    >>> education_title(None, "Metall")
+    'Metall'
+    """
+    degree_text = str(degree).strip() if degree is not None else ""
+    field_text = str(field).strip() if field is not None else ""
+
+    if not field_text:
+        return degree_text
+    if not degree_text:
+        return field_text
+
+    field_tokens = _tokens(field_text)
+    if field_tokens and field_tokens.issubset(_tokens(degree_text)):
+        return degree_text
+
+    return f"{degree_text}, {field_text}"
+
+
 def register_filters(env) -> None:
     """Install every shared template filter on a Jinja environment.
 
@@ -153,6 +224,7 @@ def register_filters(env) -> None:
     """
     env.filters["month_year"] = month_year
     env.filters["budget_display"] = budget_display
+    env.filters["education_title"] = education_title
 
 
 def build_template_env(templates_dir) -> Environment:

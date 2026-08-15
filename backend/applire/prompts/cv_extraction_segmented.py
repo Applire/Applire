@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v4 (#548 — EDUCATION FIELD rule added to the core-pass prompt; 2026-08-14 edge
+#   model comparison evidence: two models (qwen3.7-max, gpt-5.6-luna) extracted
+#   degree="Industriemeister Metall" AND field="Metall" for the same source line — the schema
+#   never told the model "field" means "not already in degree". NEEDS REAL-PROVIDER RUN EVIDENCE
+#   per ADR-062 clause 7 — not yet run.)
 # Prompt version: v3 (#407 — PER-ENTRY GROUNDING FOR TECHNOLOGIES rule added to the detail-pass
 #   prompt; run-12 evidence: "SAP" was reproducibly attributed to Weberit's technologies list
 #   even though Weberit's own bullets never mention SAP — backfilled from the general
@@ -178,6 +183,12 @@ Return a JSON object with these keys (use [] / null when absent — never omit a
 
 Rules:
 - Extract everything stated or clearly implied; do not invent data. Ausbildung → education.
+- EDUCATION FIELD (#548): "field" names a specialisation the "degree" string does NOT already
+  state — never repeat a word from "degree" in "field". Many German titles already carry the
+  specialisation as part of the title itself (e.g. "Industriemeister Metall", "Fachinformatiker
+  Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
+  leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
+  (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
 - PROFICIENCY: every skill proficiency MUST be exactly basic|intermediate|advanced|expert.
   Map a numeric/graphical scale by filled fraction (full→expert, ~80%→advanced, ~50-60%→
   intermediate, ≤40%→basic); word scales: beginner→basic, professional working→intermediate,
