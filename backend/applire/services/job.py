@@ -379,6 +379,11 @@ async def analyze_jd(
         # but did not declare in `level_changes` is reverted (run 12 silently
         # demoted a required skill across correction rounds, 2026-07-31 18:05).
         settle_guard=apply_jd_level_guard,
+        # #537 measurement-only: this chain's draft is schema JSON (classification
+        # fields + keyword lists), so the two-sided ungrounded-value compliance
+        # shape is safe here — a keyword is in the list or it is not; there is no
+        # aspiration-reframe escape the prose chains have.
+        structured_output=True,
     )
 
     # Wave-6 Task 3 (belt and braces): the review loop's prompt-level shape

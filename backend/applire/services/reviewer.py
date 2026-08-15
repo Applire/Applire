@@ -146,6 +146,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import (
     log_review_call_failed,
     log_review_compliance,
+    log_review_compliance_shape,
     log_review_cycle_detected,
     log_review_exhausted,
     log_review_minor_only,
@@ -157,7 +158,11 @@ from applire.providers.llm.debug_log import (
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 from applire.services.load_bearing import stringify_draft
-from applire.services.review_compliance import aggregate_by_signal_class, measure_corrector_compliance
+from applire.services.review_compliance import (
+    aggregate_by_shape,
+    aggregate_by_signal_class,
+    measure_corrector_compliance,
+)
 from applire.services.review_issues import measure_reviewer_issues, normalize_issues
 
 logger = logging.getLogger(__name__)
@@ -181,6 +186,7 @@ async def review_and_refine(
     prefer_if: Callable[[dict[str, Any]], bool] | None = None,
     load_bearing_fn: Callable[[dict[str, Any]], frozenset[str]] | None = None,
     settle_guard: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]] | None = None,
+    structured_output: bool = False,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -269,6 +275,14 @@ async def review_and_refine(
                   did not declare in ``level_changes`` — a level move between
                   rounds is a computable FACT, and a prompt rule alone is a
                   dead control, #229). Default None is a pure pass-through.
+        structured_output: MEASUREMENT-ONLY flag (#537). True when this chain's
+                  draft is schema JSON — classification fields and keyword lists,
+                  not prose (today: JD analysis). Threaded into
+                  ``measure_corrector_compliance`` to unlock the two-sided
+                  ungrounded-value compliance shape, which is only safe on
+                  structured output (see ``services/review_compliance.py``).
+                  Never read by this loop's control flow; changes only what the
+                  ``REVIEW_COMPLIANCE`` log lines can measure.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -604,6 +618,7 @@ async def review_and_refine(
                 issues,
                 stringify_draft(draft_reviewed_this_round),
                 stringify_draft(current_draft),
+                structured_output=structured_output,
             )
             for signal_class, bucket in aggregate_by_signal_class(compliance_verdicts).items():
                 if bucket.total == 0:
@@ -612,6 +627,20 @@ async def review_and_refine(
                     chain_id,
                     attempt + 1,
                     signal_class.value,
+                    implemented=bucket.implemented,
+                    not_implemented=bucket.not_implemented,
+                    indeterminate=bucket.indeterminate,
+                    unmeasurable=bucket.unmeasurable,
+                )
+            # Per-(class, shape) breakdown: the class-level line above cannot show how
+            # much of a count a one-sided shape contributed (the same defect the
+            # INDETERMINATE split fixed, one level down) — see aggregate_by_shape.
+            for (signal_class, shape), bucket in aggregate_by_shape(compliance_verdicts).items():
+                log_review_compliance_shape(
+                    chain_id,
+                    attempt + 1,
+                    signal_class.value,
+                    shape,
                     implemented=bucket.implemented,
                     not_implemented=bucket.not_implemented,
                     indeterminate=bucket.indeterminate,

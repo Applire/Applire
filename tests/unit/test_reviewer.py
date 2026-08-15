@@ -1675,13 +1675,21 @@ async def test_compliance_measurement_emits_a_structured_log_line_per_signal_cla
             chain_id="compliance_chain",
         )
 
+    # "REVIEW_COMPLIANCE " with the trailing space — the per-shape breakdown line
+    # (REVIEW_COMPLIANCE_SHAPE, ceiling follow-up) shares the prefix.
     compliance_lines = [
-        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE" in r.getMessage()
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE " in r.getMessage()
     ]
     assert len(compliance_lines) == 1
     assert "chain=compliance_chain attempt=1" in compliance_lines[0]
     assert "signal_class=coverage" in compliance_lines[0]
     assert "implemented=1 not_implemented=0 indeterminate=0 unmeasurable=0" in compliance_lines[0]
+    shape_lines = [
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE_SHAPE" in r.getMessage()
+    ]
+    assert len(shape_lines) == 1
+    assert "signal_class=coverage shape=missing_term_added" in shape_lines[0]
+    assert "implemented=1 not_implemented=0 indeterminate=0 unmeasurable=0" in shape_lines[0]
 
 
 @pytest.mark.asyncio
@@ -1715,11 +1723,19 @@ async def test_compliance_measurement_is_silent_when_the_shape_is_not_checkable(
         )
 
     compliance_lines = [
-        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE" in r.getMessage()
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE " in r.getMessage()
     ]
     assert len(compliance_lines) == 1
     assert "signal_class=other" in compliance_lines[0]
     assert "implemented=0 not_implemented=0 indeterminate=0 unmeasurable=1" in compliance_lines[0]
+    # The unmeasurable verdict appears in the per-shape breakdown under shape=none,
+    # so the shape lines of a round always sum to its class lines.
+    shape_lines = [
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE_SHAPE" in r.getMessage()
+    ]
+    assert len(shape_lines) == 1
+    assert "shape=none" in shape_lines[0]
+    assert "unmeasurable=1" in shape_lines[0]
 
 
 @pytest.mark.asyncio

@@ -372,3 +372,406 @@ def test_bound_rates_are_none_when_nothing_to_divide_by():
     )
     assert bucket.lower_bound_rate is None
     assert bucket.upper_bound_rate is None
+
+
+# --------------------------------------------------------------------------
+# Ceiling follow-up (2026-08-15): clause-4 token matching, corpus-derived cues,
+# the grounded-presence proxy, the anchor shape, the structured-output shape,
+# and the per-(class, shape) aggregate. Fixture texts are VERBATIM (or minimally
+# trimmed) real reviewer issues from logs/llm/2026-08-15.jsonl and -08-14.jsonl —
+# a fixture drawn from one prior incident is not a sample of the population.
+# --------------------------------------------------------------------------
+
+
+def test_term_matching_is_token_level_not_substring_german_compound():
+    # Real corpus issue [44]: demands `Arbeitssicherheit` while its own text names
+    # `Arbeitssicherheitsmanagement` — a substring check is satisfied by the compound.
+    issue = "The body omits the required claimable term 'Arbeitssicherheit'."
+    verdict = evaluate_compliance(
+        issue, "", "Er verantwortet das Arbeitssicherheitsmanagement im Werk."
+    )
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+    verdict = evaluate_compliance(issue, "", "Er verantwortet die Arbeitssicherheit im Werk.")
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_term_matching_deutsch_is_not_satisfied_by_deutschland():
+    issue = "The verified claimable keyword 'Deutsch' is absent from the draft."
+    verdict = evaluate_compliance(issue, "", "Der Kandidat wohnt in Deutschland.")
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_term_matching_normalises_hyphen_and_space_variants():
+    issue = "The claimable term 'ISO 45001' is absent from the draft."
+    verdict = evaluate_compliance(issue, "", "Vorbereitung auf ISO-45001 im Werk.")
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_term_matching_hyphenated_compound_is_one_word():
+    # Adversarial review 2b-adjacent: dash→space normalisation re-opened the compound
+    # trap through the hyphen path. A hyphenated compound is ONE word — its parts do
+    # not satisfy a bare-term demand, on either side of the hyphen.
+    issue = "The claimable term 'Mail' is absent from the draft."
+    verdict = evaluate_compliance(issue, "", "Bitte per E-Mail kontaktieren.")
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+    issue = "The claimable term 'Sicherheit' is absent from the draft."
+    verdict = evaluate_compliance(issue, "", "Wir bieten Instandhaltungs-Sicherheit.")
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_bare_unquoted_claimable_keyword_is_extracted():
+    # Real corpus issue [02]: gpt-5.6-luna quotes nothing — the term is bare prose.
+    issue = (
+        "The verified claimable keyword Koblenz is absent from the draft; it is "
+        "supported by the candidate's profile location."
+    )
+    verdict = evaluate_compliance(issue, "", "Standort Koblenz ist im Profil verankert.")
+    assert verdict.shape == "missing_term_added"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+    verdict = evaluate_compliance(issue, "", "Kein Ortsbezug im Entwurf.")
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_identifies_as_absent_phrasing_is_extracted():
+    issue = "The deterministic coverage check identifies Maschinendatenerfassung as absent."
+    verdict = evaluate_compliance(issue, "", "Einführung der Maschinendatenerfassung an 14 Maschinen.")
+    assert verdict.shape == "missing_term_added"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_typographic_and_double_quotes_are_recognised():
+    issue = "The keyword „Mittelstand“ is not mentioned in the draft."
+    verdict = evaluate_compliance(issue, "", "Erfahrung im produzierenden Mittelstand.")
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_grounded_qualifier_turns_presence_demand_into_negative_only_proxy():
+    # Real corpus issue [04]: presence is checkable, "in a grounded way" is not —
+    # a present term may be keyword-stuffed (#250), so presence proves nothing.
+    issue = (
+        "The deterministic coverage check identifies 'Arbeitsvorbereitung' as absent, "
+        "although the profile supports it. Surface this capability in a grounded way."
+    )
+    present = evaluate_compliance(issue, "", "Er verantwortet die Arbeitsvorbereitung.")
+    assert present.shape == "grounded_term_present_proxy"
+    assert present.outcome is ComplianceOutcome.INDETERMINATE
+    absent = evaluate_compliance(issue, "", "Nichts davon steht im Entwurf.")
+    assert absent.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_grounded_proxy_shape_never_returns_implemented():
+    # Pin the NEGATIVE_ONLY sidedness the same way the forbidden-claim pin works:
+    # no draft text may ever produce IMPLEMENTED from the proxy shape.
+    issue = (
+        "The claimable term 'Supply Chain' is absent; surface this grounded "
+        "cross-functional experience accurately."
+    )
+    for next_text in (
+        "Supply Chain steht jetzt im Text.",
+        "Supply Chain Supply Chain Supply Chain.",
+        "Kein Treffer.",
+        "",
+    ):
+        verdict = evaluate_compliance(issue, "", next_text)
+        assert verdict.shape == "grounded_term_present_proxy"
+        assert verdict.outcome is not ComplianceOutcome.IMPLEMENTED
+
+
+def test_plain_presence_demand_without_qualifier_stays_two_sided():
+    issue = "The claimable term 'Industrie 4.0' is absent from the draft."
+    assert (
+        evaluate_compliance(issue, "", "Teil der Industrie 4.0 Roadmap.").outcome
+        is ComplianceOutcome.IMPLEMENTED
+    )
+    assert (
+        evaluate_compliance(issue, "", "Nichts dergleichen.").outcome
+        is ComplianceOutcome.NOT_IMPLEMENTED
+    )
+
+
+def test_anchor_shape_implemented_when_figure_and_entity_share_a_sentence():
+    # Real corpus issue [19]-shape: figure must co-occur with its owner in-sentence.
+    issue = (
+        "The figure 90 is not anchored to Weberit in the same sentence as the "
+        "site-leadership claim."
+    )
+    good = (
+        "Bei Weberit habe ich den Gesamtstandort mit rund 90 Mitarbeitenden vertreten. "
+        "Weitere Erfahrung liegt in der Fertigungssteuerung."
+    )
+    verdict = evaluate_compliance(issue, "", good)
+    assert verdict.shape == "figure_anchored_in_sentence"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_anchor_shape_not_implemented_when_figure_sentence_lacks_entity():
+    issue = "The figure 90 is not anchored to Weberit in the same sentence."
+    bad = (
+        "Ich habe den Gesamtstandort mit rund 90 Mitarbeitenden vertreten. "
+        "Bei Weberit leitete ich zwei Fertigungsbereiche."
+    )
+    verdict = evaluate_compliance(issue, "", bad)
+    assert verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_anchor_shape_is_per_occurrence_one_anchored_figure_is_not_enough():
+    # 2026-08-14 corpus: "The figures '4,1 %' … are not anchored to their employer
+    # (Weberit …) in their respective sentences" — anchoring ONE of them must not
+    # score the whole issue implemented.
+    issue = (
+        "The figures '38' and '90' are not anchored to their employer "
+        "(Weberit Kunststofftechnik GmbH) in their respective sentences."
+    )
+    partially = (
+        "Bei Weberit Kunststofftechnik GmbH führe ich 38 Mitarbeitende. "
+        "Der Gesamtstandort umfasst 90 Mitarbeitende."
+    )
+    assert evaluate_compliance(issue, "", partially).outcome is ComplianceOutcome.NOT_IMPLEMENTED
+    fully = (
+        "Bei Weberit Kunststofftechnik GmbH führe ich 38 Mitarbeitende. "
+        "Für Weberit Kunststofftechnik GmbH vertrat ich den Standort mit 90 Mitarbeitenden."
+    )
+    assert evaluate_compliance(issue, "", fully).outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_anchor_shape_without_extractable_figure_is_unmeasurable():
+    # Real corpus issue [13]: a TERM-anchor demand ("this responsibility is not
+    # anchored to Weberit") names no figure — stays unmeasurable rather than
+    # half-checked. Known residual, documented in the #537 ceiling comment.
+    issue = (
+        "This position-owned responsibility is not anchored to Weberit in the same "
+        "sentence as the resulting experience claim."
+    )
+    verdict = evaluate_compliance(issue, "", "Beliebiger Entwurf.")
+    assert verdict.shape is None
+    assert verdict.outcome is ComplianceOutcome.UNMEASURABLE
+
+
+def test_anchor_shape_judgement_variant_stays_unmeasurable():
+    # Real corpus issue [41]: "re-anchor to the recorded project context" — no
+    # capitalized entity behind any anchor phrasing, so no mechanical check fires.
+    issue = (
+        "Re-anchor the project to the recorded project context without asserting "
+        "the employer attribution, or remove that employer attribution."
+    )
+    assert evaluate_compliance(issue, "", "Text mit 14 Maschinen.").shape is None
+
+
+def test_ungrounded_value_shape_requires_structured_output_flag():
+    # Real corpus issue J3 (job_analysis): on prose the same demand must NOT get the
+    # two-sided treatment — an aspiration reframe may keep the term legitimately.
+    # next_text is stringify_draft output: ONE LEAF VALUE PER LINE, keys dropped.
+    issue = 'The keyword "Mittelstand" is not present or clearly implied by the posting.'
+    kept_leaves = "Produktionsleitung\nMittelstand\nLean-Produktion"
+    prose = evaluate_compliance(issue, "", kept_leaves)
+    assert prose.shape != "ungrounded_value_removed"
+    structured = evaluate_compliance(issue, "", kept_leaves, structured_output=True)
+    assert structured.shape == "ungrounded_value_removed"
+    assert structured.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_ungrounded_value_shape_is_genuinely_two_sided():
+    issue = 'The seniority_level "Executive" is not stated or unambiguously implied.'
+    removed = evaluate_compliance(issue, "", "Senior\nOperations", structured_output=True)
+    assert removed.outcome is ComplianceOutcome.IMPLEMENTED
+    kept = evaluate_compliance(issue, "", "Executive\nOperations", structured_output=True)
+    assert kept.outcome is ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_ungrounded_value_shape_matches_exact_leaves_not_substrings():
+    # Adversarial review, field-scope refutation: "Executive" corrected out of
+    # seniority_level must not be scored NOT_IMPLEMENTED because the word survives
+    # legitimately inside ANOTHER field's value. stringify_draft renders one leaf per
+    # line, so exact-leaf comparison scopes the check to field values.
+    issue = 'The seniority_level "Executive" is not stated or unambiguously implied.'
+    other_field = "Senior\nSenior Executive Assistant\nExecutive calendar management"
+    verdict = evaluate_compliance(issue, "", other_field, structured_output=True)
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_measure_corrector_compliance_threads_structured_output():
+    issues = [
+        ReviewIssue(
+            text='The keyword "Lean Management" is not stated in the posting.',
+            severity=SEVERITY_BLOCKING,
+        )
+    ]
+    verdicts = measure_corrector_compliance(
+        issues, "Lean Management", "Lean Management", structured_output=True
+    )
+    assert verdicts[0].shape == "ungrounded_value_removed"
+    default = measure_corrector_compliance(issues, "Lean Management", "Lean Management")
+    assert default[0].shape != "ungrounded_value_removed"
+
+
+def test_every_verdict_carries_sidedness_matching_its_shape():
+    from applire.services.review_compliance import CheckSidedness
+
+    cases = {
+        "missing_term_added": (
+            "The claimable term 'Koblenz' is absent from the draft.",
+            CheckSidedness.TWO_SIDED,
+        ),
+        "grounded_term_present_proxy": (
+            "The claimable term 'Koblenz' is absent; surface it in a grounded way.",
+            CheckSidedness.NEGATIVE_ONLY,
+        ),
+        "forbidden_claim_removed": (
+            "Do not claim 'SAP Basis' — it is presented as a candidate competence.",
+            CheckSidedness.POSITIVE_ONLY,
+        ),
+        "figure_anchored_in_sentence": (
+            "The figure 14 is not anchored to Weberit in the same sentence.",
+            CheckSidedness.TWO_SIDED,
+        ),
+    }
+    for expected_shape, (issue, sidedness) in cases.items():
+        verdict = evaluate_compliance(issue, "", "irrelevant")
+        assert verdict.shape == expected_shape, verdict
+        assert verdict.sidedness is sidedness
+    unmeasurable = evaluate_compliance("Pure prose judgement.", "", "x")
+    assert unmeasurable.sidedness is None
+
+
+def test_availability_family_stays_unmeasurable():
+    # 7 of the 11 unmeasurable issues in the 2026-08-15 corpus are this family:
+    # no fixed target token exists, so no shape may pretend to grade it.
+    issue = (
+        "The body does not deliver the required availability content. No availability "
+        "or notice-period information is provided, and the closing paragraph does not "
+        "fold availability into the call to action."
+    )
+    verdict = evaluate_compliance(issue, "", "Ich bin ab sofort verfügbar.")
+    assert verdict.outcome is ComplianceOutcome.UNMEASURABLE
+
+
+def test_aggregate_by_shape_separates_one_sided_from_two_sided_counts():
+    from applire.services.review_compliance import aggregate_by_shape
+
+    verdicts = [
+        evaluate_compliance(
+            "The claimable term 'Koblenz' is absent from the draft.", "", "Koblenz."
+        ),
+        evaluate_compliance(
+            "The claimable term 'Supply Chain' is absent; surface it in a grounded way.",
+            "",
+            "Supply Chain.",
+        ),
+        evaluate_compliance("Pure prose judgement with no shape.", "", "x"),
+    ]
+    by_shape = aggregate_by_shape(verdicts)
+    keys = {shape for (_cls, shape) in by_shape}
+    assert {"missing_term_added", "grounded_term_present_proxy", "none"} <= keys
+    # Shape totals must sum to the class totals — nothing dropped, nothing doubled.
+    assert sum(b.total for b in by_shape.values()) == len(verdicts)
+    proxy_bucket = next(
+        b for (_cls, shape), b in by_shape.items() if shape == "grounded_term_present_proxy"
+    )
+    assert proxy_bucket.indeterminate == 1
+    assert proxy_bucket.implemented == 0
+
+
+# --------------------------------------------------------------------------
+# Adversarial-audit fixes (2026-08-15, second pass): each test pins one repro
+# from the corpus audit of commit 1824d388.
+# --------------------------------------------------------------------------
+
+
+def test_possessive_apostrophes_are_not_quote_delimiters():
+    # Audit Repro A: two genitive apostrophes captured everything between them and
+    # swallowed the real quoted demand entirely.
+    issue = (
+        "The letter does not explicitly state the candidate's scope evidence as "
+        "required by 'scope_positioning'. The candidate's attested scope must be "
+        "stated prominently and honestly."
+    )
+    verdict = evaluate_compliance(issue, "", "Der Abschnitt scope_positioning ist da.")
+    assert verdict.shape == "grounded_term_present_proxy"
+    # the real quoted term was found and is present -> proxy INDETERMINATE, never a
+    # false NOT_IMPLEMENTED from a garbage capture like "s scope evidence as required by"
+    assert verdict.outcome is ComplianceOutcome.INDETERMINATE
+
+
+def test_quoted_draft_sentence_is_not_a_demand_term():
+    # Audit Repro B: the reviewer quotes the WHOLE current sentence as evidence; the
+    # fix rewrites that sentence, so treating it as a required term inverts the verdict.
+    issue = (
+        "The sentence 'Rheinwerk Verpackungen fertigt hochwertige Kunststoff- und "
+        "Verbundverpackungen für Konsumgüterkunden in Europa.' omits 'Lebensmittelkunden' "
+        "from the job_description."
+    )
+    fixed = (
+        "Rheinwerk Verpackungen fertigt hochwertige Kunststoff- und Verbundverpackungen "
+        "für Konsumgüter- und Lebensmittelkunden in Europa."
+    )
+    verdict = evaluate_compliance(issue, "", fixed)
+    assert verdict.shape == "missing_term_added"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_waiver_bearing_issue_is_unmeasurable():
+    # Audit Repro C: "waive it" semantics cannot be parsed mechanically — grading the
+    # waived term as a demand produced a false NOT_IMPLEMENTED. Honest outcome: none.
+    issue = (
+        "The following claimable keywords are absent: 5S, Industrie 4.0. Grounding "
+        "waiver: 'Budgetverantwortung' is already covered by the figure '6 Mio. €' in "
+        "the draft, so waive it. Demand the remaining terms."
+    )
+    verdict = evaluate_compliance(issue, "", "5S und Industrie 4.0 stehen im Text.")
+    assert verdict.shape is None
+    assert verdict.outcome is ComplianceOutcome.UNMEASURABLE
+
+
+def test_anchor_shape_scopes_figures_to_the_demanded_entity():
+    # Audit Repro D: an issue narrating figures of SEVERAL employers demands an anchor
+    # for one — the other employers' figures must not be checked against that entity.
+    issue = (
+        "The scope content is delivered for the candidate's 38-person Weberit "
+        "responsibility and 90-person site-leadership cover, but the sentence about "
+        "the 14-person scope does not name Rasselstein in the same sentence."
+    )
+    correctly_split = (
+        "Bei Weberit führe ich 38 Mitarbeitende und vertrat den Standort mit 90 "
+        "Mitarbeitenden. Bei Rasselstein verantwortete ich eine 14-köpfige Schicht."
+    )
+    verdict = evaluate_compliance(issue, "", correctly_split)
+    assert verdict.shape == "figure_anchored_in_sentence"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_anchor_entity_trailing_period_is_stripped():
+    # Audit Repro F: entity captured at sentence end carried the period and the
+    # token-boundary match then demanded a period the draft doesn't have there.
+    issue = (
+        "The OEE claim of 12 % needs its sentence to anchor explicitly to "
+        "Weberit Kunststofftechnik GmbH."
+    )
+    good = "Bei Weberit Kunststofftechnik GmbH stieg die OEE um 12 % im Spritzguss."
+    verdict = evaluate_compliance(issue, "", good)
+    assert verdict.shape == "figure_anchored_in_sentence"
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_anchor_shape_does_not_split_on_colon():
+    # Adversarial review 2b: the home-grown splitter severed "bei Weberit: … 90 …" —
+    # the canonical split_sentences keeps a colon-elaborated statement together.
+    issue = "The figure 90 is not anchored to Weberit in the same sentence."
+    colon_style = (
+        "Standortverantwortung bei Weberit: Führung von rund 90 Mitarbeitenden am "
+        "Hauptstandort."
+    )
+    verdict = evaluate_compliance(issue, "", colon_style)
+    assert verdict.outcome is ComplianceOutcome.IMPLEMENTED
+
+
+def test_prominently_and_honestly_route_to_the_proxy_not_two_sided():
+    # Audit Repro E — the dangerous direction: a stuffed keyword scored IMPLEMENTED
+    # because "prominently"/"honestly" were missing from the qualifier cue.
+    issue = (
+        "The required scope evidence 'scope_positioning' is absent; the attested scope "
+        "must be stated prominently and honestly."
+    )
+    stuffed = "Skills: Leadership, Operations, scope_positioning, ISO 9001."
+    verdict = evaluate_compliance(issue, "", stuffed)
+    assert verdict.shape == "grounded_term_present_proxy"
+    assert verdict.outcome is ComplianceOutcome.INDETERMINATE
