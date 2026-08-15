@@ -17,8 +17,13 @@
     .date { text-align: right; margin-bottom: 6mm; color: #666; }
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 7mm; color: #1a1a2e; }
     .body p { margin-bottom: 5mm; text-align: justify; }
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 10mm; }
-    .signature .closing { margin-bottom: 12mm; }
+    /* #547: break-inside:avoid pushes the WHOLE block to page 2 once it no
+       longer fits the remainder of page 1, orphaning it alone with the
+       freed space still visible on page 1 — 4mm less air shrinks the
+       atomic unit so it fits the remainder more often (see academic_letter
+       for the full rationale; same fix, N templates — ADR-066). */
+    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
+    .signature .closing { margin-bottom: 8mm; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>
