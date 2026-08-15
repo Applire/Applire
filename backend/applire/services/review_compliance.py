@@ -110,8 +110,9 @@ import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 
+from applire.services.oracle.extract import split_sentences
 from applire.services.oracle.matchers.figures import extract_figures
-from applire.services.review_issues import QUOTED_RE, REPEATED_RE, ReviewIssue
+from applire.services.review_issues import REPEATED_RE, ReviewIssue
 
 # --- Signal classes (deliverable 2) -----------------------------------------
 
@@ -282,14 +283,18 @@ _QUOTE_CHARS = str.maketrans(
     {
         "‘": "'", "’": "'", "‚": "'", "‛": "'",
         "“": '"', "”": '"', "„": '"', "‟": '"',
-        "–": " ", "—": " ", "-": " ",
+        "–": "-", "—": "-",
     }
 )
 
 
 def _normalize(text: str) -> str:
-    """Clause-4 normalisation only: NFKC, typographic→ASCII quotes, dashes/hyphens to
-    spaces (so `ISO-45001` and `ISO 45001` compare equal), whitespace collapsed."""
+    """Clause-4 normalisation only: NFKC, typographic→ASCII quotes, en/em dashes to
+    hyphens, whitespace collapsed. Hyphens are deliberately NOT turned into spaces:
+    the adversarial review showed that doing so re-opens the compound trap through
+    the hyphen path (`E-Mail` → `E Mail` lets a bare `Mail` demand match). Hyphen ↔
+    space equivalence is handled inside :func:`_term_present` instead, where it can
+    be applied between a term's own tokens without dissolving the text's compounds."""
     text = unicodedata.normalize("NFKC", text).translate(_QUOTE_CHARS)
     return re.sub(r"\s+", " ", text)
 
@@ -300,19 +305,39 @@ def _term_present(term: str, text: str) -> bool:
     Token-boundary, NOT substring: the 2026-08-15 corpus contains an issue demanding
     `Arbeitssicherheit` whose own text names `Arbeitssicherheitsmanagement` — a
     substring check is satisfied by the compound (German compounds have no separator),
-    and `Deutsch` is a substring of `Deutschland`. ``(?<!\\w)``/``(?!\\w)`` instead of
-    ``\\b`` so terms that start or end in a non-word character still anchor correctly.
+    and `Deutsch` is a substring of `Deutschland`. The boundary guards treat a hyphen
+    as a word character (``(?<![\\w-])`` / ``(?![\\w-])``): a hyphenated compound is
+    one word, so `Instandhaltungs-Sicherheit` does not satisfy a bare `Sicherheit`
+    demand and `Supply-Chain-Management` does not satisfy `Supply Chain`. BETWEEN a
+    term's own tokens, hyphen and whitespace are equivalent (`ISO 45001` matches
+    `ISO-45001`) — that is the clause-4 punctuation normalisation, applied narrowly.
     """
-    needle = re.escape(_normalize(term).strip())
-    if not needle:
+    tokens = [t for t in re.split(r"[\s-]+", _normalize(term).strip()) if t]
+    if not tokens:
         return False
-    return bool(re.search(rf"(?<!\w){needle}(?!\w)", _normalize(text), re.IGNORECASE))
+    needle = r"[\s-]+".join(re.escape(t) for t in tokens)
+    return bool(re.search(rf"(?<![\w-]){needle}(?![\w-])", _normalize(text), re.IGNORECASE))
 
 
 #: Double-quoted values ("Mittelstand") — QUOTED_RE covers only single quotes, but the
 #: job_analysis reviewer quotes field values with double quotes, and typographic quotes
 #: are normalised to ASCII before this runs (the U+2019 lesson, 2026-07-11).
 _DQUOTED_RE = re.compile(r'"([^"]+)"')
+
+#: Single-quoted terms, POSSESSIVE-SAFE: the adversarial corpus audit (2026-08-15)
+#: found `QUOTED_RE` reading English genitive apostrophes as quote delimiters — two
+#: `candidate's` in one issue captured everything between them as a "term" and
+#: swallowed the real quoted demand ('scope_positioning') entirely. Requiring a
+#: non-word char before the opening quote and after the closing one rejects
+#: apostrophes embedded in words while keeping every genuinely quoted term.
+_SQUOTED_RE = re.compile(r"(?<!\w)'([^']+)'(?!\w)")
+
+#: A capture that is a quoted DRAFT SENTENCE, not a demand term ("The sentence '…full
+#: sentence…' omits 'X'"). Treating the sentence as a required term forces the
+#: corrector to keep the old sentence verbatim — the opposite of the demanded fix —
+#: so sentence-shaped captures are dropped: more than this many tokens is evidence,
+#: not a term. Purely mechanical (token count), no reading of content.
+_MAX_TERM_TOKENS = 6
 
 #: Unquoted term extraction for the named coverage/requirement vocabulary. The original
 #: parser required quoted terms; the 2026-08-15 corpus (gpt-5.6-luna) quotes almost
@@ -332,19 +357,40 @@ _BARE_TERM_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+#: An issue that WAIVES part of its own demand ("Grounding waiver: 'X' is already
+#: covered …, so waive it") cannot be term-extracted mechanically: telling the waived
+#: term from the demanded ones is discourse parsing, not string mechanics. Such issues
+#: yield no terms and stay honestly unmeasurable (adversarial audit, Repro C).
+_WAIVER_CUE = re.compile(r"\bwaiv", re.IGNORECASE)
+
+
+def _term_shaped(capture: str) -> bool:
+    """A capture is a TERM, not quoted evidence: at most ``_MAX_TERM_TOKENS`` tokens.
+    Reviewers quote whole draft sentences as evidence ("The sentence '…' omits 'X'");
+    treating the sentence as a required term would force the corrector to keep the old
+    sentence verbatim — the opposite of the demanded fix (adversarial audit, Repro B)."""
+    return 0 < len(capture.split()) <= _MAX_TERM_TOKENS
+
+
 def _extract_demand_terms(issue_text: str) -> list[str]:
     """Terms the issue demands present/absent: quoted (single, double, typographic —
     normalised first) preferred; the named bare-term vocabulary as fallback. Order of
     preference, not union: when the reviewer quotes a term, the quoted form is the
-    demand, and bare-pattern captures from the same sentence would only add noise."""
+    demand, and bare-pattern captures from the same sentence would only add noise.
+
+    Single quotes are matched possessive-safely (see ``_SQUOTED_RE``), sentence-length
+    captures are dropped (see ``_term_shaped``), and an issue carrying a waiver yields
+    nothing at all (see ``_WAIVER_CUE``) — each guard is a corpus-audit finding."""
+    if _WAIVER_CUE.search(issue_text):
+        return []
     normalized = _normalize(issue_text)
-    quoted = [m.strip() for m in QUOTED_RE.findall(normalized) if m.strip()]
-    quoted += [m.strip() for m in _DQUOTED_RE.findall(normalized) if m.strip()]
+    quoted = [m.strip() for m in _SQUOTED_RE.findall(normalized) if _term_shaped(m.strip())]
+    quoted += [m.strip() for m in _DQUOTED_RE.findall(normalized) if _term_shaped(m.strip())]
     if quoted:
         return quoted
     bare: list[str] = []
     for pattern in _BARE_TERM_PATTERNS:
-        bare += [m.strip() for m in pattern.findall(normalized) if m.strip()]
+        bare += [m.strip() for m in pattern.findall(normalized) if _term_shaped(m.strip())]
     return bare
 
 
@@ -355,8 +401,8 @@ def _extract_demand_terms(issue_text: str) -> list[str]:
 #: the grounded-presence proxy branch in `_check_missing_term_shape`.
 _GROUNDING_QUALIFIER_CUE = re.compile(
     r"grounded|accurately|without\s+(?:claiming|implying|asserting|adding)|"
-    r"non.?inflated|honest\s+positioning|rather\s+than|no\s+unsupported|"
-    r"do\s+not\s+add|as\s+required\b",
+    r"non.?inflated|honest|prominent|as\s+part\s+of|rather\s+than|no\s+unsupported|"
+    r"do\s+not\s+add|as\s+required\b|not\s+implied",
     re.IGNORECASE,
 )
 
@@ -448,7 +494,15 @@ def _check_ungrounded_value_shape(issue_text: str, next_text: str) -> Compliance
     terms = _extract_demand_terms(issue_text)
     if not terms:
         return None
-    still_present = any(_term_present(term, next_text) for term in terms)
+    # EXACT-LEAF comparison, not substring/token search. `stringify_draft` renders one
+    # leaf string value per line and drops dict keys, so a structured field's value IS
+    # its line. A token search over the whole draft mis-scores the case where the
+    # contested value legitimately survives inside ANOTHER field ("Executive" removed
+    # from seniority_level but present in role_title "Senior Executive Assistant") —
+    # the adversarial review's field-scope refutation. Comparing whole normalised
+    # leaves scopes the check to field values without needing the (discarded) keys.
+    leaves = {_normalize(line).strip().lower() for line in next_text.splitlines()}
+    still_present = any(_normalize(term).strip().lower() in leaves for term in terms)
     outcome = (
         ComplianceOutcome.NOT_IMPLEMENTED if still_present else ComplianceOutcome.IMPLEMENTED
     )
@@ -524,7 +578,8 @@ _ANCHOR_ENTITY_RES: tuple[re.Pattern[str], ...] = (
     # the 2026-08-14 corpus (mistral-medium-3-5) parenthesises the entity.
     re.compile(r"employer\s*\(\s*" + _ENTITY + r"\s*\)"),
 )
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?:;])\s+|\n+")
+#: Contrastive clause boundaries for multi-owner scoping — see `_check_anchor_shape`.
+_CONTRASTIVE_CLAUSE_RE = re.compile(r",\s*(?:but|yet|while|whereas|however)\b|;\s*")
 
 
 def _check_anchor_shape(issue_text: str, next_text: str) -> ComplianceVerdict | None:
@@ -535,10 +590,32 @@ def _check_anchor_shape(issue_text: str, next_text: str) -> ComplianceVerdict | 
     )
     if entity is None:
         return None
+    # A trailing sentence period rides into the capture when the entity ends the
+    # issue's sentence ("… anchor explicitly to Weberit Kunststofftechnik GmbH.") —
+    # strip it, or the token-boundary match demands a period the draft doesn't have.
+    entity = entity.rstrip(".")
     # Canonical figure VALUES, not raw substrings: extract_figures folds digit
     # grouping/decimal separators into one canonical form (clause 4's sanctioned
     # digit normalisation), so "1.000" in the issue matches "1000" in the draft.
-    issue_figures = {f.value for f in extract_figures(issue_text)}
+    # MULTI-OWNER SCOPING (adversarial audit, Repro D): an issue can narrate figures
+    # belonging to several employers and demand an anchor for ONE of them ("… 38-person
+    # Weberit responsibility, but the 14-person scope does not name Rasselstein …").
+    # Only the figures from the issue's own CONTRASTIVE CLAUSE mentioning the demanded
+    # entity are in scope; checking the narrated other-owner figures against this
+    # entity would punish a correctly multi-anchored draft. The clause boundary is a
+    # closed punctuation set: semicolons and comma+contrastive-conjunction. ", and" is
+    # deliberately NOT a boundary — it joins a figure LIST sharing one predicate ("The
+    # figures '4,1 %', …, and '6' are not anchored to their employer (Weberit)"), and
+    # splitting there would shrink a seven-figure demand to its last list item.
+    # Fallback to all figures when no clause carries both entity and a figure.
+    entity_scoped = {
+        f.value
+        for sentence in split_sentences(_normalize(issue_text))
+        for clause in _CONTRASTIVE_CLAUSE_RE.split(sentence)
+        if _term_present(entity, clause)
+        for f in extract_figures(clause)
+    }
+    issue_figures = entity_scoped or {f.value for f in extract_figures(issue_text)}
     if not issue_figures:
         return None
     # PER-OCCURRENCE, not per-figure: the demand is that every sentence CARRYING one
@@ -548,11 +625,15 @@ def _check_anchor_shape(issue_text: str, next_text: str) -> ComplianceVerdict | 
     # corrector dropped entirely has no carrying sentence and is vacuously anchored
     # (removing the occurrence removes the ownership ambiguity). Known noise, both
     # directions: figure values are matched by canonical VALUE, so an unrelated
-    # occurrence of the same number in another sentence is checked too.
+    # occurrence of the same number in another sentence is checked too. Sentence
+    # boundaries come from the CANONICAL `split_sentences` (oracle/extract.py) — the
+    # same splitter the #530/#531 producer machinery uses, with its abbreviation and
+    # decimal guards; a home-grown splitter here split on ':' and severed legitimate
+    # "bei Weberit: … 90 Mitarbeitende"-style anchors (adversarial review, 2b).
     violating = any(
         (issue_figures & {f.value for f in extract_figures(sentence)})
         and not _term_present(entity, sentence)
-        for sentence in _SENTENCE_SPLIT_RE.split(next_text)
+        for sentence in split_sentences(next_text)
     )
     outcome = ComplianceOutcome.NOT_IMPLEMENTED if violating else ComplianceOutcome.IMPLEMENTED
     return ComplianceVerdict(
