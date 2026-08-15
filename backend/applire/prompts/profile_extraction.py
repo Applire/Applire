@@ -15,6 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v4 (#548 — EDUCATION FIELD rule (8) added; 2026-08-14 edge model comparison
+#   evidence on the sibling cv_extraction.py schema: two models (qwen3.7-max, gpt-5.6-luna)
+#   extracted degree="Industriemeister Metall" AND field="Metall" for the same source line — no
+#   rule told the model "field" means "not already in degree". This text-import prompt shares
+#   the same ambiguous schema description; fixed for consistency (ADR-066). NEEDS
+#   REAL-PROVIDER RUN EVIDENCE per ADR-062 clause 7 — not yet run.)
 # Prompt version: v3 (#229 — work_history split into responsibilities/achievements/technologies)
 # Used by: services/profile.py → LLMProvider.aparse_json + reviewer.review_and_refine
 # Changes from v1: hardened SYSTEM_PROMPT with 4 strict extraction rules;
@@ -66,6 +72,12 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    test-driven development, incident management). When such a named standard or methodology is a
    genuine competency, route it to "skills" instead, or omit it. Populate "technologies" per role
    with the stack that role actually names, so a tailored CV can say which stack was used where.
+8. EDUCATION FIELD (#548): "field" names a specialisation the "degree" string does NOT already
+   state — never repeat a word from "degree" in "field". Many German titles already carry the
+   specialisation as part of the title itself (e.g. "Industriemeister Metall", "Fachinformatiker
+   Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
+   leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
+   (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
 
 Schema:
 {
@@ -85,8 +97,8 @@ Schema:
   "education": [
     {
       "institution": "string — university or school name",
-      "degree": "string — e.g. 'Bachelor of Science', 'Ausbildung'",
-      "field": "string — field of study or specialisation",
+      "degree": "string — e.g. 'Bachelor of Science', 'Ausbildung', 'Industriemeister Metall'",
+      "field": "string — field of study, ONLY if it names something 'degree' does not already say",
       "start_date": "string — e.g. '2015'",
       "end_date": "string or null"
     }

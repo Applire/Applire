@@ -335,7 +335,7 @@
     {% for edu in cv.education %}
     <div class="entry">
       <div class="entry-meta">
-        <div class="entry-title">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
+        <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
         <div class="entry-dates">{{ edu.start_date | month_year }}{% if edu.start_date %} – {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
       </div>
       <div class="entry-subtitle">{{ edu.institution }}</div>

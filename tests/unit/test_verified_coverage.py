@@ -321,3 +321,258 @@ class TestLanguagePassCoverage:
         assert "verified coverage check" in low
         assert "waive" in low
         assert "exact" in CV_LANGUAGE_REFINEMENT_PROMPT.lower()
+
+
+# --- ADR-076 clause 6 (#543): coverage yields to rank under the length budget -----
+#
+# Run A of the 2026-08-14 model comparison (letter chain, real provider): the
+# coverage check demanded two NEW claimable keywords every round while the
+# corrector's insertions displaced earlier ones (SAP+Shopfloor -> 5S+Arbeits-
+# sicherheit -> Arbeitsvorbereitung+Fuehrungserfahrung -> Budgetplanung+Supply
+# Chain), exhausting 5/5. The fix: the coverage demand reads the ledger's own
+# fit_weight (required=1.0 > nice_to_have=0.5 > keyword-only=0.0, ADR-048 §1)
+# under the ADR-042/051 length budget — a below-rank absence stops being
+# raised as blocking once the draft has reached its budget.
+
+_LEDGER_RANKED = [
+    {"concept": "Required Thing", "surface_forms": ["Required Thing"], "claimable": True,
+     "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+     "evidence": "led the Required Thing initiative"},
+    {"concept": "Nice Thing", "surface_forms": ["Nice Thing"], "claimable": True,
+     "status": "direct", "sources": ["nice_to_have"], "fit_weight": 0.5,
+     "evidence": "worked with Nice Thing"},
+    {"concept": "Keyword Thing", "surface_forms": ["Keyword Thing"], "claimable": True,
+     "status": "direct", "sources": ["keyword"], "fit_weight": 0.0,
+     "evidence": "familiar with Keyword Thing"},
+]
+
+
+def _cv_draft(n_bullets: int) -> dict:
+    """A CV draft whose work-history narrative carries exactly ``n_bullets``
+    bullets and none of the ranked ledger's terms — every entry is a verified
+    miss, and occupancy is precisely controlled for the pressure test."""
+    return {
+        "summary": "Experienced professional.",
+        "work_history": [
+            {"company": "ACME", "role": "Engineer",
+             "bullets": [f"Delivered outcome {i}." for i in range(n_bullets)]},
+        ],
+        "skills": [],
+    }
+
+
+def _letter_draft(n_words: int) -> dict:
+    """A letter draft whose body carries exactly ``n_words`` words and none of
+    the ranked ledger's terms."""
+    return {"body": {"paragraphs": [" ".join(["word"] * n_words)]}}
+
+
+class TestCoverageBudget:
+    def test_under_pressure_once_occupancy_reaches_capacity(self):
+        from applire.services.keyword_ledger import CoverageBudget
+
+        budget = CoverageBudget(capacity=2, measure=lambda d: d["n"])
+        assert budget.under_pressure({"n": 2}) is True
+        assert budget.under_pressure({"n": 3}) is True
+        assert budget.under_pressure({"n": 1}) is False
+
+    def test_zero_or_negative_capacity_is_always_under_pressure(self):
+        from applire.services.keyword_ledger import CoverageBudget
+
+        budget = CoverageBudget(capacity=0, measure=lambda d: 0)
+        assert budget.under_pressure({}) is True
+
+
+class TestCvCoverageBudget:
+    def test_none_budget_returns_none(self):
+        from applire.services.keyword_ledger import cv_coverage_budget
+
+        assert cv_coverage_budget(None) is None
+
+    def test_capacity_is_sum_of_role_ceilings(self):
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import cv_coverage_budget
+
+        budget_result = BudgetResult(
+            roles={
+                "w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=3),
+                "w2": RoleBudget(work_entry_id="w2", tier="mid", max_bullets=2),
+            },
+            tiers={},
+            target_pages=2,
+            region="DACH",
+        )
+        cb = cv_coverage_budget(budget_result)
+        assert cb.capacity == 5
+        assert cb.measure(_cv_draft(2)) == 2
+        assert cb.measure(_cv_draft(0)) == 0
+
+
+class TestLetterCoverageBudget:
+    def test_none_or_zero_word_budget_returns_none(self):
+        from applire.services.keyword_ledger import letter_coverage_budget
+
+        assert letter_coverage_budget(None) is None
+        assert letter_coverage_budget(0) is None
+
+    def test_capacity_and_measure_match_word_budget(self):
+        from applire.services.keyword_ledger import letter_coverage_budget
+
+        cb = letter_coverage_budget(300)
+        assert cb.capacity == 300
+        assert cb.measure(_letter_draft(10)) == 10
+
+
+class TestRankGateMissingClaimable:
+    def test_no_budget_everything_stays_blocking(self):
+        """Legacy callers (budget=None) get EXACTLY today's behaviour — the
+        gate can only ever make a demand LESS aggressive, never more."""
+        from applire.services.keyword_ledger import (
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        draft = _cv_draft(5)  # would be "under pressure" against a tight budget
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, None)
+        assert {e["concept"] for e in blocking} == {
+            "Required Thing", "Nice Thing", "Keyword Thing",
+        }
+        assert below_rank == []
+
+    def test_no_pressure_everything_stays_blocking(self):
+        """Room left in the budget: no rank-gating fires (today's behaviour)."""
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import (
+            cv_coverage_budget,
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        budget_result = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="top", max_bullets=5)},
+            tiers={}, target_pages=2, region="DACH",
+        )
+        cb = cv_coverage_budget(budget_result)
+        draft = _cv_draft(1)  # 1 of 5 bullet slots used — plenty of room
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, cb)
+        assert len(blocking) == 3
+        assert below_rank == []
+
+    def test_under_pressure_below_rank_yields_required_still_blocks(self):
+        """THE displacement-churn case (#543): budget tight, low-fit_weight
+        concepts absent -> NOT blocking; high-fit_weight (required) absence ->
+        STILL blocking. This is the whole point of the issue."""
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import (
+            cv_coverage_budget,
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        budget_result = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="bottom", max_bullets=2)},
+            tiers={}, target_pages=2, region="DACH",
+        )
+        cb = cv_coverage_budget(budget_result)
+        draft = _cv_draft(2)  # occupancy == capacity -> under pressure
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, cb)
+        assert [e["concept"] for e in blocking] == ["Required Thing"]
+        assert {e["concept"] for e in below_rank} == {"Nice Thing", "Keyword Thing"}
+
+    def test_letter_under_pressure_same_split(self):
+        """The letter's own budget unit (words) drives the identical rank
+        split — one mechanism, two callers."""
+        from applire.services.keyword_ledger import (
+            letter_coverage_budget,
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        cb = letter_coverage_budget(10)
+        draft = _letter_draft(10)  # occupancy == capacity -> under pressure
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, cb)
+        assert [e["concept"] for e in blocking] == ["Required Thing"]
+        assert {e["concept"] for e in below_rank} == {"Nice Thing", "Keyword Thing"}
+
+
+class TestCoverageReviewerPromptFnRankGated:
+    """The composed reviewer prompt: below-rank absences are not merely
+    excluded from the RETURNED blocking list, they never reach the model as
+    a demand — the block shrinks (or vanishes) rather than growing."""
+
+    def test_block_shrinks_under_pressure_when_only_below_rank_missing(self):
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import (
+            coverage_reviewer_prompt_fn,
+            cv_coverage_budget,
+        )
+
+        base = lambda source, draft: f"BASE[{source}]"
+        ledger = _LEDGER_RANKED[1:]  # Nice Thing + Keyword Thing only — no required
+        budget_result = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="bottom", max_bullets=1)},
+            tiers={}, target_pages=2, region="DACH",
+        )
+        draft = _cv_draft(1)  # occupancy == capacity -> under pressure
+
+        ungated = coverage_reviewer_prompt_fn(base, ledger)(  # budget=None default
+            "src", draft
+        )
+        gated = coverage_reviewer_prompt_fn(
+            base, ledger, budget=cv_coverage_budget(budget_result)
+        )("src", draft)
+
+        assert "Nice Thing" in ungated and "Keyword Thing" in ungated
+        # Under pressure, with nothing but below-rank absences: NOT a blocking
+        # issue at all — the demand disappears rather than being softened.
+        assert gated == "BASE[src]"
+        assert len(gated) < len(ungated)
+
+    def test_required_absence_still_demanded_under_pressure(self):
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import (
+            coverage_reviewer_prompt_fn,
+            cv_coverage_budget,
+        )
+
+        base = lambda source, draft: f"BASE[{source}]"
+        budget_result = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="bottom", max_bullets=1)},
+            tiers={}, target_pages=2, region="DACH",
+        )
+        draft = _cv_draft(1)
+
+        gated = coverage_reviewer_prompt_fn(
+            base, _LEDGER_RANKED, budget=cv_coverage_budget(budget_result)
+        )("src", draft)
+        assert "Required Thing" in gated
+        assert "You MUST set approved=false" in gated
+        # The below-rank terms are not smuggled back in as a demand either.
+        assert "Nice Thing" not in gated
+        assert "Keyword Thing" not in gated
+
+    def test_block_never_larger_than_ungated_equivalent(self):
+        """Rank-gating may only ever shrink or leave unchanged the coverage
+        demand — never grow it (issue #543's explicit size discipline)."""
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import (
+            coverage_reviewer_prompt_fn,
+            cv_coverage_budget,
+        )
+
+        base = lambda source, draft: f"BASE[{source}]"
+        budget_result = BudgetResult(
+            roles={"w1": RoleBudget(work_entry_id="w1", tier="bottom", max_bullets=1)},
+            tiers={}, target_pages=2, region="DACH",
+        )
+        for n in (0, 1, 2):
+            draft = _cv_draft(n)
+            ungated = coverage_reviewer_prompt_fn(base, _LEDGER_RANKED)("src", draft)
+            gated = coverage_reviewer_prompt_fn(
+                base, _LEDGER_RANKED, budget=cv_coverage_budget(budget_result)
+            )("src", draft)
+            assert len(gated) <= len(ungated)
