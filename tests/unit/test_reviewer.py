@@ -9,7 +9,7 @@ Run:
 import sys
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -21,6 +21,12 @@ from applire.services.reviewer import review_and_refine
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTruncatedError, LLMTimeoutError
 from applire.providers.llm import debug_log
+from applire.services.signal_disposition import (
+    ExhaustionDisposition,
+    UndeclaredSignalDispositionError,
+    _reset_registry_for_tests,
+    register_signal_disposition,
+)
 
 
 @pytest.fixture
@@ -1816,3 +1822,515 @@ async def test_compliance_measurement_survives_minor_only_settlement(mock_provid
     assert result == {"summary": "original"}
     assert mock_provider.aparse_json.call_count == 1
     assert not any("REVIEW_COMPLIANCE" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #540 — ADR-076 clause 2 amendment (2026-08-15): a registered FALLBACK_APPLY
+# signal's fallback_fn fires at settle time whenever that signal's issue is
+# still outstanding — on every early-settle path except max_retries<=0, which
+# is structurally excluded (see reviewer.py's module docstring).
+# ---------------------------------------------------------------------------
+
+_FIXTURE_SIGNAL = "fixture.test_signal"
+_FIXTURE_MARKER = "[[fixture-signal]]"
+
+
+@pytest.fixture(autouse=True)
+def _clean_signal_registry():
+    """The registry is process-global — isolate every test in this file (harmless
+    no-op for tests that never register anything) so a fixture registration here
+    can never leak into, or be leaked into by, another test/module."""
+    _reset_registry_for_tests()
+    yield
+    _reset_registry_for_tests()
+
+
+def _issue_matches_fixture_marker(text: str) -> bool:
+    return _FIXTURE_MARKER in text
+
+
+def _fixture_fallback_fn(draft: dict) -> dict:
+    return {**draft, "fallback_applied": True}
+
+
+def _register_fixture_signal(fallback_fn=_fixture_fallback_fn):
+    register_signal_disposition(
+        _FIXTURE_SIGNAL,
+        ExhaustionDisposition.FALLBACK_APPLY,
+        "test-only fixture signal proving #540's settle-path wiring.",
+        fallback_fn=fallback_fn,
+        issue_matches=_issue_matches_fixture_marker,
+    )
+
+
+def _fallback_log_lines(caplog):
+    return [r.getMessage() for r in caplog.records if "SIGNAL_FALLBACK_APPLIED" in r.getMessage()]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_reviewer_call_failure_path(mock_provider, caplog):
+    """Path: reviewer_call_failed. Attempt 1 raises a blocking issue carrying the
+    fixture signal's marker; the generator retry succeeds; attempt 2's reviewer
+    call then fails (cap/timeout). last_issues still holds attempt 1's issue (the
+    failed call never got to overwrite it), so the fallback must fire on the
+    generator's retry draft."""
+    _register_fixture_signal()
+    draft = {"d": 1}
+    retry1 = {"d": 2}
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [f"missing thing {_FIXTURE_MARKER}"], "feedback": "fix it"},
+        retry1,
+        LLMTruncatedError("reviewer blew cap"),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="fb_reviewer_fail",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {"d": 2, "fallback_applied": True}
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "signal_id=fixture.test_signal" in lines[0]
+    assert "path=reviewer_call_failed" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_approved_path_when_issue_still_listed(mock_provider, caplog):
+    """Path: approved. The verdict's own issues list is captured into last_issues
+    UNCONDITIONALLY, even when approved=True — a reviewer can (and in this test,
+    does) approve while still listing a note. The signal's issue is therefore
+    still "outstanding" by the loop's own record, and the fallback must fire."""
+    _register_fixture_signal()
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"note: {_FIXTURE_MARKER} still present"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_approved",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {"d": 1, "fallback_applied": True}
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "path=approved" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_minor_only_path(mock_provider, caplog):
+    """Path: minor_only. The reviewer rejects but raises nothing blocking, so the
+    ADR-021 severity gate ships the draft without a rewrite — the fixture signal's
+    minor-severity issue is still in last_issues at that point."""
+    _register_fixture_signal()
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": False,
+        "issues": [{"issue": f"minor note {_FIXTURE_MARKER}", "severity": "minor"}],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="fb_minor_only",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {"d": 1, "fallback_applied": True}
+    assert mock_provider.aparse_json.call_count == 1  # no rewrite spent
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "path=minor_only" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_generator_call_failure_path(mock_provider, caplog):
+    """Path: generator_call_failed. Attempt 1's reviewer raises a blocking issue
+    carrying the marker; the generator retry itself then fails (cap/timeout), so
+    current_draft is never reassigned — the pre-refinement draft ships, and the
+    fallback must fire against it."""
+    _register_fixture_signal()
+    draft = {"d": 1}
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [f"{_FIXTURE_MARKER} missing"], "feedback": "fix"},
+        LLMTruncatedError("refiner blew cap"),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_generator_fail",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {"d": 1, "fallback_applied": True}
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "path=generator_call_failed" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_cycle_detected_path(mock_provider, caplog):
+    """Path: cycle_detected. Reproduces the oscillation shape from
+    test_cycle_detection_stops_early_instead_of_exhausting_retries, with the
+    SECOND reviewer rejection (immediately before the cycle-closing generator
+    retry) carrying the fixture marker — that is the round whose issues are
+    still in last_issues when the cycle stops the loop."""
+    _register_fixture_signal()
+    draft_a = {"k": "A"}
+    draft_b = {"k": "B"}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["x"], "feedback": "y"},
+        draft_b,
+        {"approved": False, "issues": [f"x2 {_FIXTURE_MARKER}"], "feedback": "y2"},
+        draft_a,  # reproduces the initial draft -> cycle detected here
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft_a,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=5,
+            chain_id="fb_cycle",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {"k": "A", "fallback_applied": True}
+    assert mock_provider.aparse_json.call_count == 4
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "path=cycle_detected" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_on_exhaustion_path(mock_provider, caplog):
+    """Path: exhausted. Mirrors test_exhausts_retries_returns_last_draft_and_logs_warning,
+    with the LAST round's issue carrying the fixture marker."""
+    _register_fixture_signal()
+    original = {"work_history": [{"company": "Bad Co"}]}
+    retry1 = {"work_history": [{"company": "Still Bad Co"}]}
+    retry2 = {"work_history": [{"company": "Final Co"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fabricated entry"], "feedback": "Remove fabricated entry"},
+        retry1,
+        {"approved": False, "issues": [f"still fabricated {_FIXTURE_MARKER}"], "feedback": "Try harder"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="original cv text",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: f"retry: {f}",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_exhausted",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == {**retry2, "fallback_applied": True}
+    lines = _fallback_log_lines(caplog)
+    assert len(lines) == 1
+    assert "path=exhausted" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# Negative proofs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fallback_does_not_fire_when_issue_resolved_before_settling(mock_provider, caplog):
+    """The fixture signal's issue appears in round 1 but is GONE by round 2 (the
+    reviewer approves cleanly, issues=[]) — the issue was resolved before
+    settling, so the fallback must NOT fire even though the signal is registered
+    and named in signal_ids."""
+    _register_fixture_signal()
+    original = {"d": 1}
+    revised = {"d": 2}
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [f"{_FIXTURE_MARKER} present"], "feedback": "fix it"},
+        revised,
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="fb_resolved",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == revised  # no "fallback_applied" key
+    assert _fallback_log_lines(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_ship_and_report_signal_never_fires_anything(mock_provider, caplog):
+    """A SHIP_AND_REPORT signal is looked up (it may be named in a mixed
+    signal_ids list) but never applies anything — even when its issue text is
+    present in last_issues at exhaustion. That disposition's contract is that
+    the defect ships and is reported elsewhere (ADR-076 clause 7)."""
+    register_signal_disposition(
+        "fixture.ship_signal",
+        ExhaustionDisposition.SHIP_AND_REPORT,
+        "test-only fixture signal proving ship-and-report never fires a fallback.",
+    )
+    original = {"work_history": [{"company": "Bad Co"}]}
+    retry1 = {"work_history": [{"company": "Still Bad Co"}]}
+    retry2 = {"work_history": [{"company": "Final Co"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fabricated entry"], "feedback": "Remove fabricated entry"},
+        retry1,
+        {"approved": False, "issues": [f"still fabricated {_FIXTURE_MARKER}"], "feedback": "Try harder"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="original cv text",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: f"retry: {f}",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_ship_and_report",
+            signal_ids=["fixture.ship_signal"],
+        )
+
+    assert result == retry2  # unchanged — no "fallback_applied" key possible, no fallback_fn exists
+    assert _fallback_log_lines(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_registered_signal_untouched_when_signal_ids_not_passed(mock_provider, caplog):
+    """Explicit-parameter design proof (#540): a registered FALLBACK_APPLY signal
+    whose issue IS present in last_issues at exhaustion still does not fire when
+    the caller does not opt in via signal_ids (the production default — nothing
+    calls review_and_refine with signal_ids today)."""
+    _register_fixture_signal()
+    original = {"work_history": [{"company": "Bad Co"}]}
+    retry1 = {"work_history": [{"company": "Still Bad Co"}]}
+    retry2 = {"work_history": [{"company": "Final Co"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fabricated entry"], "feedback": "Remove fabricated entry"},
+        retry1,
+        {"approved": False, "issues": [f"still fabricated {_FIXTURE_MARKER}"], "feedback": "Try harder"},
+        retry2,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="original cv text",
+            draft=original,
+            generator_prompt_fn=lambda d, f, s: f"retry: {f}",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_no_optin",
+            # signal_ids intentionally omitted
+        )
+
+    assert result == retry2
+    assert _fallback_log_lines(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_fallback_never_fires_on_max_retries_zero_path(mock_provider, caplog):
+    """Path-1 ruling (#540): max_retries<=0 disables the review layer entirely —
+    no issue was ever raised, and the corrector never had a round to fail at, so
+    the fallback must not fire there even when the signal is registered and
+    explicitly named."""
+    _register_fixture_signal()
+    draft = {"d": 1}
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=0,
+            chain_id="fb_disabled",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result is draft
+    mock_provider.aparse_json.assert_not_called()
+    assert _fallback_log_lines(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_max_retries_zero_path_ignores_even_an_unregistered_signal_id(mock_provider):
+    """Stronger form of the path-1 ruling: the exclusion is structural (that call
+    site never passes a settle `path`, so get_signal_disposition is never even
+    invoked there) — naming a signal_id that was NEVER registered must not raise
+    either, proving the registry lookup itself is skipped, not merely a no-match."""
+    draft = {"d": 1}
+
+    result = await review_and_refine(
+        source="src",
+        draft=draft,
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=0,
+        chain_id="fb_disabled_unregistered",
+        signal_ids=["totally.unregistered.signal"],
+    )
+
+    assert result is draft
+
+
+@pytest.mark.asyncio
+async def test_unregistered_signal_id_raises_on_an_active_settle_path(mock_provider):
+    """Naming a signal_id that never registered on an ACTIVE path (review layer
+    enabled) is a caller/migration bug and must fail loudly — mirrors the
+    registry's own "never silently default" philosophy."""
+    mock_provider.aparse_json.return_value = {"approved": True, "issues": [], "feedback": ""}
+
+    with pytest.raises(UndeclaredSignalDispositionError):
+        await review_and_refine(
+            source="src",
+            draft={"d": 1},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_bad_id",
+            signal_ids=["totally.unregistered.signal"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_fallback_fires_at_most_once_even_with_multiple_matching_issues(mock_provider, caplog):
+    """Two separate issues in the same round both carry the fixture marker — the
+    fallback must still fire exactly ONCE for the signal, not once per matching
+    issue text."""
+    tracking_fallback = MagicMock(side_effect=_fixture_fallback_fn)
+    _register_fixture_signal(fallback_fn=tracking_fallback)
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"{_FIXTURE_MARKER} A", f"{_FIXTURE_MARKER} B"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_once",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert tracking_fallback.call_count == 1
+    assert result == {"d": 1, "fallback_applied": True}
+    assert len(_fallback_log_lines(caplog)) == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_fn_raising_ships_unfallbacked_draft(mock_provider, caplog):
+    """Fail-safe contract: a raising fallback_fn must not crash the loop — the
+    settled (un-fallbacked) draft ships, logged as an error, exactly like every
+    other failure mode this loop already degrades through rather than raises."""
+    def _raising_fallback(draft: dict) -> dict:
+        raise RuntimeError("fallback_fn blew up")
+
+    _register_fixture_signal(fallback_fn=_raising_fallback)
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"{_FIXTURE_MARKER} present"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.ERROR, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_raises",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == draft  # unchanged — no "fallback_applied" key
+    error_lines = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any("fallback_fn raised" in r.getMessage() for r in error_lines)
