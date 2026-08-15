@@ -2334,3 +2334,127 @@ async def test_fallback_fn_raising_ships_unfallbacked_draft(mock_provider, caplo
     assert result == draft  # unchanged — no "fallback_applied" key
     error_lines = [r for r in caplog.records if r.levelname == "ERROR"]
     assert any("fallback_fn raised" in r.getMessage() for r in error_lines)
+
+
+@pytest.mark.asyncio
+async def test_issue_matches_raising_ships_unfallbacked_draft(mock_provider, caplog):
+    """Fail-safe contract, matcher half: a raising ``issue_matches`` must not
+    crash the loop either — it is treated as no-match (the missed-fallback
+    direction ships exactly what the loop would have shipped anyway), logged
+    at ERROR so the defective matcher stays visible."""
+    def _raising_matcher(text: str) -> bool:
+        raise ValueError("issue_matches blew up")
+
+    register_signal_disposition(
+        _FIXTURE_SIGNAL,
+        ExhaustionDisposition.FALLBACK_APPLY,
+        "test-only fixture signal with a defective matcher.",
+        fallback_fn=_fixture_fallback_fn,
+        issue_matches=_raising_matcher,
+    )
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"{_FIXTURE_MARKER} present"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.ERROR, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_matcher_raises",
+            signal_ids=[_FIXTURE_SIGNAL],
+        )
+
+    assert result == draft  # unchanged — fallback never fired
+    error_lines = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any("issue_matches raised" in r.getMessage() for r in error_lines)
+
+
+@pytest.mark.asyncio
+async def test_two_signals_both_fire_in_declared_order(mock_provider, caplog):
+    """Two DIFFERENT registered signals whose issues are both still open fire
+    one after the other, in ``signal_ids`` order, each seeing the previous
+    fallback's output (the second edit composes on the first)."""
+    second_signal = "fixture.second_signal"
+    second_marker = "[[second-signal]]"
+
+    register_signal_disposition(
+        _FIXTURE_SIGNAL,
+        ExhaustionDisposition.FALLBACK_APPLY,
+        "test-only fixture signal, first in declared order.",
+        fallback_fn=lambda d: {**d, "order": d.get("order", []) + ["first"]},
+        issue_matches=_issue_matches_fixture_marker,
+    )
+    register_signal_disposition(
+        second_signal,
+        ExhaustionDisposition.FALLBACK_APPLY,
+        "test-only fixture signal, second in declared order.",
+        fallback_fn=lambda d: {**d, "order": d.get("order", []) + ["second"]},
+        issue_matches=lambda text: second_marker in text,
+    )
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"open {_FIXTURE_MARKER}", f"also open {second_marker}"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_two_signals",
+            signal_ids=[_FIXTURE_SIGNAL, second_signal],
+        )
+
+    assert result["order"] == ["first", "second"]
+    assert len(_fallback_log_lines(caplog)) == 2
+
+
+@pytest.mark.asyncio
+async def test_duplicate_signal_id_in_signal_ids_fires_once(mock_provider, caplog):
+    """A caller listing the same id twice in one ``signal_ids`` fires that
+    signal's fallback exactly once (``dict.fromkeys`` dedup, pinned by test
+    rather than by inspection alone)."""
+    from unittest.mock import Mock
+
+    tracking_fallback = Mock(side_effect=_fixture_fallback_fn)
+    _register_fixture_signal(fallback_fn=tracking_fallback)
+    draft = {"d": 1}
+    mock_provider.aparse_json.return_value = {
+        "approved": True,
+        "issues": [f"open {_FIXTURE_MARKER}"],
+        "feedback": "",
+    }
+
+    with caplog.at_level(logging.WARNING, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft=draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            chain_id="fb_dup_ids",
+            signal_ids=[_FIXTURE_SIGNAL, _FIXTURE_SIGNAL],
+        )
+
+    assert tracking_fallback.call_count == 1
+    assert result == {"d": 1, "fallback_applied": True}
+    assert len(_fallback_log_lines(caplog)) == 1

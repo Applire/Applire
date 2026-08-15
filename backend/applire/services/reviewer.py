@@ -516,8 +516,9 @@ async def review_and_refine(
         opted into, checked against the loop's own record of what is still open.
 
         A no-op when ``signal_ids`` is falsy (default ``None``) — this is the
-        behaviour-neutrality guarantee: nothing here runs, at all, for any caller
-        that does not pass ``signal_ids`` explicitly (every caller today).
+        behaviour-neutrality guarantee: for any caller that does not pass
+        ``signal_ids`` explicitly (every caller today) this function returns its
+        input untouched before reaching the registry, the matchers, or any logging.
 
         Looks up EVERY named id via ``get_signal_disposition`` — which raises
         ``UndeclaredSignalDispositionError`` for an id nobody registered. That is
@@ -537,11 +538,14 @@ async def review_and_refine(
         return point calls ``_settle`` exactly once) — ``dict.fromkeys`` below only
         guards against a caller listing the same id twice in one ``signal_ids``.
 
-        Fail-safe on the fallback itself: ``fallback_fn`` runs inside a bare
-        ``except Exception`` — a raising fallback is logged loudly and the
-        UN-fallbacked draft ships, so the "bounded sanctioned exception" can never
-        become a NEW way for this loop to crash (ADR-021's long-standing "never
-        raises" contract extends to this step, deliberately)."""
+        Fail-safe on BOTH migration-authored hooks: ``fallback_fn`` runs inside a
+        bare ``except Exception`` — a raising fallback is logged loudly and the
+        UN-fallbacked draft ships — and ``issue_matches`` is wrapped the same way,
+        with a raise treated as no-match (the missed-fallback direction ships
+        exactly what the loop would have shipped anyway; a wrongly-fired fallback
+        would apply an edit nobody asked for, the worse direction). Neither hook
+        can become a NEW way for this loop to crash (ADR-021's long-standing
+        "never raises" contract extends to this step, deliberately)."""
         if not signal_ids:
             return final
         result = final
@@ -553,7 +557,22 @@ async def review_and_refine(
                 # Defensive only — the registry enforces both non-None for
                 # FALLBACK_APPLY at registration time; this should never trip.
                 continue
-            if not any(record.issue_matches(text) for text in last_issues):
+            try:
+                matched = any(record.issue_matches(text) for text in last_issues)
+            except Exception:
+                logger.error(
+                    "review_and_refine: chain=%s signal_id=%s issue_matches raised "
+                    "on settle path=%s; treating as no-match and shipping without "
+                    "the fallback (fail-safe: a missed fallback ships exactly what "
+                    "the loop would have shipped anyway, while a wrongly-fired one "
+                    "would apply an edit nobody asked for).",
+                    chain_id,
+                    signal_id,
+                    path,
+                    exc_info=True,
+                )
+                continue
+            if not matched:
                 continue  # this signal's issue was resolved before settling
             try:
                 result = record.fallback_fn(result)
