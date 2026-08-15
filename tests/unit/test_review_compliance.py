@@ -7,10 +7,17 @@
 * the three mechanically-checkable implementation-compliance shapes (deliverable 1) —
   quoted-term presence-add, quoted-term forbidden-claim-removal, and repetition-count
   reduction — plus the ``unmeasurable`` outcome for everything else;
-* per-signal-class aggregation, including the ``under_claim`` known-empty class.
+* the forbidden-claim shape's structural one-sidedness and the ``indeterminate``
+  outcome that keeps it from silently inflating a compliance fraction (the
+  coordinator's finding on review) — plus a positive check that the OTHER two shapes
+  are genuinely two-sided and need no such treatment;
+* per-signal-class aggregation, including the ``under_claim`` known-empty class and
+  the conservative/optimistic bound properties a nonzero ``indeterminate`` count forces.
 """
 import sys
 from pathlib import Path
+
+import pytest
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -20,6 +27,7 @@ from applire.prompts.review_severity import SEVERITY_BLOCKING, SEVERITY_MINOR
 from applire.services.review_compliance import (
     ComplianceOutcome,
     SignalClass,
+    SignalClassBucket,
     aggregate_by_signal_class,
     classify_signal,
     evaluate_compliance,
@@ -136,15 +144,37 @@ def test_forbidden_claim_shape_implemented_when_term_removed():
     assert verdict.shape == "forbidden_claim_removed"
 
 
-def test_forbidden_claim_shape_unmeasurable_when_term_still_present():
-    """Still present is deliberately NOT scored non-compliant — the term may
-    legitimately remain reframed as an honest aspiration (module docstring)."""
+def test_forbidden_claim_shape_indeterminate_when_term_still_present():
+    """Still present is deliberately NOT scored non-compliant, and deliberately NOT
+    folded into `unmeasurable` either — the term may legitimately remain reframed as
+    an honest aspiration (module docstring), so this is its OWN outcome,
+    `indeterminate`, distinct from "no shape matched" (`unmeasurable`)."""
     issue = "DO NOT CLAIM — 'LegalTech' is presented as something the candidate has done."
     verdict = evaluate_compliance(
         issue, "has LegalTech experience", "While I have not worked in LegalTech directly..."
     )
-    assert verdict.outcome == ComplianceOutcome.UNMEASURABLE
+    assert verdict.outcome == ComplianceOutcome.INDETERMINATE
+    assert verdict.outcome != ComplianceOutcome.UNMEASURABLE
     assert verdict.shape == "forbidden_claim_removed"
+
+
+def test_forbidden_claim_shape_never_returns_not_implemented():
+    """Pins the shape's structural one-sidedness (the coordinator's finding): across a
+    spread of still-present cases — a plain repeat, a possession restated, an honest
+    aspiration reframe — this shape must NEVER produce NOT_IMPLEMENTED. If a future
+    edit adds a branch that does, this test forces a conscious decision about it
+    rather than letting the asymmetry silently disappear."""
+    issue = "DO NOT CLAIM — 'LegalTech' is presented as something the candidate has done."
+    still_present_variants = [
+        "has LegalTech experience",  # unchanged from current
+        "led the LegalTech integration project",  # possession restated differently
+        "While I have not worked in LegalTech directly, my background transfers",  # honest reframe
+        "wants to grow into LegalTech",  # aspiration
+    ]
+    for next_text in still_present_variants:
+        verdict = evaluate_compliance(issue, "has LegalTech experience", next_text)
+        assert verdict.outcome != ComplianceOutcome.NOT_IMPLEMENTED, next_text
+        assert verdict.outcome == ComplianceOutcome.INDETERMINATE, next_text
 
 
 def test_repetition_shape_implemented_when_count_drops():
@@ -167,6 +197,32 @@ def test_repetition_shape_not_implemented_when_count_increases():
     issue = "'X' is repeated 2 times in a single paragraph."
     verdict = evaluate_compliance(issue, "X X", "X X X X")
     assert verdict.outcome == ComplianceOutcome.NOT_IMPLEMENTED
+
+
+def test_repetition_shape_is_genuinely_two_sided():
+    """Unlike the forbidden-claim shape, repetition-reduction has no branch where a
+    plausible-but-unresolvable case is routed toward `implemented` — both outcomes
+    are reachable and neither is INDETERMINATE (checked as part of the coordinator's
+    one-sidedness audit: this shape does not need the same treatment)."""
+    issue = "'X' is repeated 3 times in a single paragraph."
+    reduced = evaluate_compliance(issue, "X X X", "X")
+    unchanged = evaluate_compliance(issue, "X X X", "X X X")
+    assert reduced.outcome == ComplianceOutcome.IMPLEMENTED
+    assert unchanged.outcome == ComplianceOutcome.NOT_IMPLEMENTED
+    assert ComplianceOutcome.INDETERMINATE not in (reduced.outcome, unchanged.outcome)
+
+
+def test_missing_term_shape_is_genuinely_two_sided():
+    """Unlike the forbidden-claim shape, missing-term-add has no branch where a
+    plausible-but-unresolvable case is routed toward `implemented` — both outcomes
+    are reachable and neither is INDETERMINATE (checked as part of the coordinator's
+    one-sidedness audit: this shape does not need the same treatment)."""
+    issue = "VERIFIED COVERAGE CHECK — 'Budgetverantwortung' is not in the draft."
+    added = evaluate_compliance(issue, "no mention", "now carries Budgetverantwortung")
+    still_absent = evaluate_compliance(issue, "no mention", "still no mention")
+    assert added.outcome == ComplianceOutcome.IMPLEMENTED
+    assert still_absent.outcome == ComplianceOutcome.NOT_IMPLEMENTED
+    assert ComplianceOutcome.INDETERMINATE not in (added.outcome, still_absent.outcome)
 
 
 # --------------------------------------------------------------------------
@@ -251,4 +307,68 @@ def test_aggregate_counts_by_outcome_within_a_class():
     bucket = agg[SignalClass.COVERAGE]
     assert bucket.implemented == 1
     assert bucket.not_implemented == 1
+    assert bucket.indeterminate == 0
     assert bucket.total == 2
+
+
+def test_aggregate_carries_indeterminate_as_its_own_counter_not_folded_into_unmeasurable():
+    """The coordinator's fix: a still-present forbidden-claim verdict must land in
+    its OWN `indeterminate` slot, never silently added to `unmeasurable` — the two
+    are different reasons a verdict can't resolve, and merging them would hide the
+    forbidden-claim shape's one-sided bias."""
+    issues = [
+        ReviewIssue(
+            "DO NOT CLAIM — 'LegalTech' is presented as something the candidate has done.",
+            SEVERITY_BLOCKING,
+        ),
+    ]
+    verdicts = measure_corrector_compliance(
+        issues, "has LegalTech experience", "still has LegalTech experience, unchanged"
+    )
+    bucket = aggregate_by_signal_class(verdicts)[SignalClass.PRESENCE]
+    assert bucket.indeterminate == 1
+    assert bucket.unmeasurable == 0
+    assert bucket.not_implemented == 0
+    assert bucket.total == 1
+
+
+def test_lower_bound_rate_counts_indeterminate_against_compliance():
+    """The conservative bound ADR-076 clause 2 migration decisions must be read
+    against: every `indeterminate` verdict counts in the denominator but not the
+    numerator, exactly like a genuine `not_implemented`."""
+    bucket = SignalClassBucket(
+        SignalClass.PRESENCE, implemented=1, not_implemented=0, indeterminate=1, unmeasurable=0
+    )
+    assert bucket.lower_bound_rate == pytest.approx(0.5)
+
+
+def test_upper_bound_rate_excludes_indeterminate_entirely():
+    """The optimistic bound: the SAME bucket as above, but `indeterminate` dropped
+    from the denominator — a reader who computes only this number and calls it
+    "the compliance rate" gets the bias the coordinator flagged."""
+    bucket = SignalClassBucket(
+        SignalClass.PRESENCE, implemented=1, not_implemented=0, indeterminate=1, unmeasurable=0
+    )
+    assert bucket.upper_bound_rate == pytest.approx(1.0)
+
+
+def test_lower_bound_rate_is_strictly_below_upper_bound_rate_when_indeterminate_present():
+    bucket = SignalClassBucket(
+        SignalClass.COVERAGE, implemented=3, not_implemented=1, indeterminate=2, unmeasurable=0
+    )
+    assert bucket.lower_bound_rate < bucket.upper_bound_rate
+
+
+def test_bound_rates_agree_when_indeterminate_is_zero():
+    bucket = SignalClassBucket(
+        SignalClass.COVERAGE, implemented=3, not_implemented=1, indeterminate=0, unmeasurable=5
+    )
+    assert bucket.lower_bound_rate == bucket.upper_bound_rate == pytest.approx(0.75)
+
+
+def test_bound_rates_are_none_when_nothing_to_divide_by():
+    bucket = SignalClassBucket(
+        SignalClass.UNDER_CLAIM, implemented=0, not_implemented=0, indeterminate=0, unmeasurable=0
+    )
+    assert bucket.lower_bound_rate is None
+    assert bucket.upper_bound_rate is None

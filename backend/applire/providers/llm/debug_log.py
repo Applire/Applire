@@ -199,6 +199,7 @@ def log_review_compliance(
     *,
     implemented: int,
     not_implemented: int,
+    indeterminate: int,
     unmeasurable: int,
 ) -> None:
     """#537 (ADR-076 clause 2, the floor) — per-signal-class corrector IMPLEMENTATION
@@ -214,14 +215,26 @@ def log_review_compliance(
     ``under_claim`` — no emitter reaches the reviewer prompt at all yet) is documented in
     ``review_compliance.py`` rather than asserted from an always-zero log line.
 
+    FOUR counters, not three. ``indeterminate`` is DISTINCT from ``unmeasurable`` — it
+    counts verdicts from a shape that matched but is structurally incapable of ever
+    returning ``not_implemented`` for this instance (today: the forbidden-claim shape's
+    still-present branch — see ``review_compliance.py``'s module docstring). **Do not
+    compute ``implemented / (implemented + not_implemented)`` from these numbers and
+    treat it as a point estimate** — that silently drops every ``indeterminate`` verdict
+    from the denominator and reports the OPTIMISTIC bound. Read ADR-076 clause 2
+    migration readiness against the CONSERVATIVE bound instead: ``implemented /
+    (implemented + not_implemented + indeterminate)``. Both bounds are still meaningless
+    read alone against the round's TOTAL issue count without ``unmeasurable`` alongside
+    them — see ``SignalClassBucket.lower_bound_rate`` / ``upper_bound_rate``.
+
     Measurement only, exactly like ``REVIEW_PRECISION`` — never changes what the loop
     does. Stable ``REVIEW_COMPLIANCE`` prefix, always on, PII-free (counts + a closed
     signal-class enum value only) — countable after a real-provider run without
     re-reading the (dev-only) debug log."""
     _review_logger.info(
         "REVIEW_COMPLIANCE chain=%s attempt=%d signal_class=%s implemented=%d "
-        "not_implemented=%d unmeasurable=%d",
-        chain_id, attempt, signal_class, implemented, not_implemented, unmeasurable,
+        "not_implemented=%d indeterminate=%d unmeasurable=%d",
+        chain_id, attempt, signal_class, implemented, not_implemented, indeterminate, unmeasurable,
     )
 
 

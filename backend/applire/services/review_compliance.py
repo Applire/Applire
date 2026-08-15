@@ -26,6 +26,28 @@ computed over a fraction of a round's issues must never be presented as covering
 whole round; :func:`aggregate_by_signal_class` reports the ``unmeasurable`` bucket's size
 alongside every other so nobody has to take that on faith.
 
+**A shape that only points one way is a fourth outcome, not a third.** One of the three
+shapes (forbidden-claim removal) is itself structurally one-sided: it can prove a term
+was removed, but a term still present could mean the corrector ignored the demand OR
+that it legitimately reframed the term as an honest aspiration (the reviewer's own
+prompt permits exactly that) — this module cannot tell those apart without reading what
+the sentence asserts, which is the judgement it refuses to fake. Folding that
+"structurally can't say no" case into ``unmeasurable`` would be its own quiet defect:
+every verdict a one-sided shape contributes could only ever help the compliant count,
+never the non-compliant one, so a reader computing a plain compliance fraction over
+"every checkable shape" would get a number biased upward by construction, with nothing
+in the data to reveal it — the same one-sided-control failure mode this codebase keeps
+finding elsewhere, here inside the very measurement ADR-076 clause 2 gates migrations
+on. :data:`ComplianceOutcome.INDETERMINATE` exists to keep that asymmetry visible:
+:class:`SignalClassBucket` and the ``REVIEW_COMPLIANCE`` log line carry it as a FOURTH,
+separate counter, and :func:`aggregate_by_signal_class`'s docstring states the bounds a
+nonzero ``indeterminate`` count forces on any compliance rate read from the bucket.
+(The other two shapes — missing-term-add and repetition-reduction — were checked for
+the same asymmetry and are genuinely two-sided: neither has a branch where a
+plausible-but-unresolvable case is quietly routed toward "compliant"; both directions
+are exercised by tests. See ``tests/unit/test_review_compliance.py`` for the pinning
+tests either way.)
+
 **Measurement, not judgement (ADR-062 clause 5 exemption).** Like
 ``measure_reviewer_issues``, everything here is a pure function over two already-produced
 drafts — never an LLM call, never a rewrite of either draft, never a signal read back into
@@ -183,6 +205,21 @@ def classify_signal(issue_text: str) -> SignalClass:
 class ComplianceOutcome(str, Enum):
     IMPLEMENTED = "implemented"
     NOT_IMPLEMENTED = "not_implemented"
+    #: A checkable shape MATCHED, but that shape is structurally incapable of
+    #: distinguishing "the corrector ignored this" from "the corrector satisfied it in
+    #: a way this shape cannot see" (today: the forbidden-claim shape's still-present
+    #: branch — see its docstring). Distinct from UNMEASURABLE on purpose: folding the
+    #: two together would let a shape that can only ever answer "compliant" or "I
+    #: can't tell" quietly inflate the compliant side of the fraction by construction
+    #: — the exact one-sided-control failure mode this codebase keeps re-finding,
+    #: now in a measurement. Never compute `implemented / (implemented +
+    #: not_implemented)` and treat it as a point estimate while any INDETERMINATE
+    #: verdicts exist in the same pool — see :func:`aggregate_by_signal_class`.
+    INDETERMINATE = "indeterminate"
+    #: No checkable shape matched this issue's text at all — genuinely different from
+    #: INDETERMINATE ("we recognised the shape but this shape can't resolve this
+    #: instance"). Kept separate so the two failure-to-measure reasons stay
+    #: individually auditable rather than merging into one catch-all.
     UNMEASURABLE = "unmeasurable"
 
 
@@ -200,12 +237,25 @@ class ComplianceVerdict:
 
 # Shape 2 (checked FIRST — more specific): a quoted forbidden term the issue says is
 # wrongly present as a candidate claim/fabrication. Absence in the next draft is an
-# unambiguous fix; PRESENCE is deliberately left UNMEASURABLE rather than scored
-# non-compliant, because the reviewer's own prompt (review_cover_letter.py check 5,
-# KEYWORD LEDGER — DO NOT CLAIM) permits the SAME term to legitimately remain reframed
-# as an aspiration ("wanting to grow into X") — telling that apart from an unaddressed
-# fabrication requires reading what the sentence asserts, exactly the judgement this
-# module refuses to fake.
+# unambiguous fix (IMPLEMENTED). PRESENCE is deliberately scored INDETERMINATE, never
+# NOT_IMPLEMENTED and never UNMEASURABLE, because the reviewer's own prompt
+# (review_cover_letter.py check 5, KEYWORD LEDGER — DO NOT CLAIM) permits the SAME
+# term to legitimately remain reframed as an aspiration ("wanting to grow into X") —
+# telling that apart from an unaddressed fabrication requires reading what the
+# sentence asserts, exactly the judgement this module refuses to fake.
+#
+# THIS SHAPE IS STRUCTURALLY ONE-SIDED: it can only ever return IMPLEMENTED or
+# INDETERMINATE, never NOT_IMPLEMENTED — there is no branch where "the term is still
+# there" is confidently scored non-compliant. That is a deliberate, unavoidable
+# property of the shape (it cannot fake the judgement it is refusing to fake), but it
+# means every verdict this shape contributes can only ever help the compliant count,
+# never the non-compliant one. INDETERMINATE exists as ITS OWN outcome (not folded
+# into UNMEASURABLE) specifically so this asymmetry stays visible in the aggregate
+# instead of silently inflating a computed compliance fraction — see
+# :func:`aggregate_by_signal_class` for the bounds this forces on any reader.
+# test_forbidden_claim_shape_never_returns_not_implemented pins this property so a
+# future edit cannot reintroduce a NOT_IMPLEMENTED branch here without a failing test
+# forcing a conscious decision about it.
 _FORBIDDEN_CLAIM_CUE = re.compile(
     r"do[\s-]*not[\s-]*claim|forbidden claim|fabrication|presented as (?:something )?"
     r"the candidate|as a candidate (?:competence|claim)",
@@ -234,7 +284,7 @@ def _check_forbidden_claim_shape(issue_text: str, next_text: str) -> ComplianceV
     if not terms:
         return None
     still_present = any(term in next_text for term in terms)
-    outcome = ComplianceOutcome.UNMEASURABLE if still_present else ComplianceOutcome.IMPLEMENTED
+    outcome = ComplianceOutcome.INDETERMINATE if still_present else ComplianceOutcome.IMPLEMENTED
     return ComplianceVerdict(issue_text, classify_signal(issue_text), outcome, "forbidden_claim_removed")
 
 
@@ -278,7 +328,10 @@ def evaluate_compliance(issue_text: str, current_text: str, next_text: str) -> C
     Returns :data:`ComplianceOutcome.UNMEASURABLE` (shape=None) for any issue that
     matches none of the closed shapes — this is the expected, common case for prose
     judgements (fabricated bullet, oversell, cross-document contradiction, invented
-    employer fact) that this module does not attempt to grade."""
+    employer fact) that this module does not attempt to grade. Returns
+    :data:`ComplianceOutcome.INDETERMINATE` for the one shape (forbidden-claim) that
+    DID match but cannot resolve this instance one-sidedly — see that shape's own
+    comment for why UNMEASURABLE would be the wrong label for it."""
     for checker in (_check_forbidden_claim_shape, _check_missing_term_shape):
         verdict = checker(issue_text, next_text)
         if verdict is not None:
@@ -294,16 +347,46 @@ class SignalClassBucket:
     """Aggregated compliance outcomes for ONE signal class, over ONE round's blocking
     issues. A class with zero measured issues this round is a genuine empty bucket
     (``total == 0``), never simply absent from the aggregate — see
-    :func:`aggregate_by_signal_class`."""
+    :func:`aggregate_by_signal_class`.
+
+    Four counters, not three, and ``indeterminate`` is NOT folded into
+    ``unmeasurable``: the two are different reasons a verdict cannot resolve
+    cleanly, and merging them would hide a real bias (see :func:`aggregate_by_
+    signal_class` for the bounds this forces on any compliance fraction read from
+    this bucket).
+    """
 
     signal_class: SignalClass
     implemented: int
     not_implemented: int
+    indeterminate: int
     unmeasurable: int
 
     @property
     def total(self) -> int:
-        return self.implemented + self.not_implemented + self.unmeasurable
+        return self.implemented + self.not_implemented + self.indeterminate + self.unmeasurable
+
+    @property
+    def lower_bound_rate(self) -> float | None:
+        """The CONSERVATIVE implementation-compliance rate: every ``indeterminate``
+        verdict counted AGAINST compliance, alongside every genuine
+        ``not_implemented``. ``None`` when there is nothing to divide by (no
+        implemented/not_implemented/indeterminate verdict at all — a bucket holding
+        only ``unmeasurable`` verdicts, or none). This is the number ADR-076 clause 2
+        migration decisions must be read against — see the module docstring."""
+        denom = self.implemented + self.not_implemented + self.indeterminate
+        return None if denom == 0 else self.implemented / denom
+
+    @property
+    def upper_bound_rate(self) -> float | None:
+        """The OPTIMISTIC implementation-compliance rate: every ``indeterminate``
+        verdict excluded from the denominator entirely, as if it had never been
+        raised. ``None`` when there is no implemented/not_implemented verdict at all.
+        Never read this alone — it is only meaningful paired with
+        :attr:`lower_bound_rate` as the width of the gap the ``indeterminate`` count
+        leaves open."""
+        denom = self.implemented + self.not_implemented
+        return None if denom == 0 else self.implemented / denom
 
 
 def measure_corrector_compliance(
@@ -333,17 +416,38 @@ def aggregate_by_signal_class(verdicts: list[ComplianceVerdict]) -> dict[SignalC
     ``total == 0`` — a future SIGNAL migration reads its own class's bucket and must be
     able to tell "zero issues of this class were raised this round" from "this class
     does not exist", and ``UNDER_CLAIM`` in particular must always report zero (see
-    module docstring) rather than being silently absent from the map."""
-    counts: dict[SignalClass, list[int]] = {sc: [0, 0, 0] for sc in SignalClass}
+    module docstring) rather than being silently absent from the map.
+
+    **This produces a BOUND, not a point estimate, whenever a bucket's
+    ``indeterminate`` count is nonzero** (today: only possible via the forbidden-claim
+    shape — see its comment). A reader computing ``implemented / (implemented +
+    not_implemented)`` and ignoring ``indeterminate`` gets :attr:`SignalClassBucket.
+    upper_bound_rate` — a number biased upward by exactly the fraction of verdicts
+    that shape could only ever call "compliant or I can't tell". ADR-076 clause 2
+    migration decisions MUST be read against :attr:`SignalClassBucket.
+    lower_bound_rate` instead (every ``indeterminate`` counted against compliance) —
+    the whole point of the floor is that an unmeasured probabilistic replacement is
+    not an upgrade, and reading the optimistic bound would silently reintroduce
+    exactly that unmeasured gap under a number that looks measured.
+    """
+    counts: dict[SignalClass, list[int]] = {sc: [0, 0, 0, 0] for sc in SignalClass}
     for verdict in verdicts:
         row = counts[verdict.signal_class]
         if verdict.outcome is ComplianceOutcome.IMPLEMENTED:
             row[0] += 1
         elif verdict.outcome is ComplianceOutcome.NOT_IMPLEMENTED:
             row[1] += 1
-        else:
+        elif verdict.outcome is ComplianceOutcome.INDETERMINATE:
             row[2] += 1
+        else:
+            row[3] += 1
     return {
-        sc: SignalClassBucket(sc, implemented=row[0], not_implemented=row[1], unmeasurable=row[2])
+        sc: SignalClassBucket(
+            sc,
+            implemented=row[0],
+            not_implemented=row[1],
+            indeterminate=row[2],
+            unmeasurable=row[3],
+        )
         for sc, row in counts.items()
     }

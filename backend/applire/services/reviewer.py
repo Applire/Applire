@@ -128,7 +128,11 @@ LLM call, never mutates a draft, never read back into this function's control fl
 which issue is blocking, which draft ships, and the retry count are all unchanged by
 this measurement (ADR-062 clause 5's exemption; see that module's docstring for why a
 compliance grader over arbitrary reviewer prose would itself be the clause-1 violation
-ADR-076 exists to stop).
+ADR-076 exists to stop). FOUR outcomes per issue, not three: one checkable shape is
+structurally one-sided (it can prove compliance or say "can't tell", never prove
+non-compliance) and its verdicts are counted separately as ``indeterminate`` rather
+than folded into ``unmeasurable`` — see ``review_compliance.py`` for why conflating
+the two would bias any compliance fraction upward by construction.
 """
 
 import json
@@ -610,6 +614,7 @@ async def review_and_refine(
                     signal_class.value,
                     implemented=bucket.implemented,
                     not_implemented=bucket.not_implemented,
+                    indeterminate=bucket.indeterminate,
                     unmeasurable=bucket.unmeasurable,
                 )
 
