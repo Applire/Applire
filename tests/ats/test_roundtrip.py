@@ -30,6 +30,7 @@ from applire.services.ats_audit import audit_cover_letter, audit_cv
 from applire.services.ats_audit import extract_text
 from applire.services.color_detection import _default_context
 from applire.services.cover_letter import _TEMPLATE_FILES as LETTER_TEMPLATES
+from applire.services.cover_letter import _TEMPLATES_DIR as LETTER_TEMPLATES_DIR
 from applire.services.cover_letter import _default_color_context
 from applire.services.cv import _TEMPLATE_FILES as CV_TEMPLATES
 from applire.services.cv import _html_to_pdf, _jinja_env
@@ -666,6 +667,144 @@ async def test_letter_signature_block_never_splits_across_pages(template):
         f"page {closing_pages[-1] + 1} with no sender name after it; the name "
         f"orphaned onto page {len(pages)}. This is #429: the block must be "
         f"atomic (break-inside: avoid)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# #547 — the #429 fix stopped the sign-off block from SPLITTING, but did not
+# stop the whole block from being BOUNCED to a page of its own: Chromium's
+# `break-inside: avoid` moves the entire atomic block to the next page the
+# moment it doesn't fit the remainder of the current one, even when that
+# remainder is generous — measured directly (backend/../scratchpad probes,
+# not reproduced here) at ~1-1.3cm short on a budget-length `executive`
+# letter, with the block's own margin-top/margin-bottom ("signature air")
+# accounting for most of its footprint. Reduced margins recover ~8mm of
+# headroom uniformly (7 templates, see each template's #547 comment) — a
+# probability reduction, not a proof: no finite CSS margin budget can
+# guarantee fit against unbounded content (this is exactly why the sibling
+# test above deliberately does NOT assert a page count — see its docstring).
+# What IS deterministic and worth pinning is the mechanism the fix actually
+# changed: the block's own air is bounded low enough that it no longer
+# reproduces the executive-template case above. A page-count assertion on a
+# real render lives in test_letter_signature_orphans_less_often below for
+# that one calibrated case; this test is the environment-independent gate.
+#
+# Two structural alternatives to a margin shave were tried and rendered —
+# neither survives contact with real page.pdf() output, so don't re-attempt
+# either without new evidence:
+#
+#   (a) Move `.signature`'s margin-top onto the PRECEDING paragraph's
+#       margin-bottom instead (`.body p:last-child`), keeping the same total
+#       collapsed visual gap, on the theory that a margin owned by a
+#       non-atomic sibling gets truncated at an unforced break instead of
+#       counting toward the atomic block's fit test. Implemented and
+#       rendered on executive/modern_swiss/tech_developer/lebenslauf: the
+#       output PDF was pixel-identical to the unmoved version in every case
+#       (`compare -metric AE` = 0 on every page). Chromium's break-fit
+#       check here evidently uses the accumulated flow height up to the
+#       block regardless of which sibling's CSS declares the connecting
+#       margin — relocating a collapsed margin without shrinking it changes
+#       nothing.
+#
+#       A related isolation (varying margin-top's actual VALUE, not just
+#       its owner, while holding `.closing`'s margin-bottom fixed) shows
+#       margin-top isn't uniformly free either: at closing_mb=8mm on
+#       executive, margin-top=10mm still overflows but margin-top=6mm
+#       fits; at closing_mb=12mm no margin-top value (10/4/0mm all tried)
+#       fits; at closing_mb=4mm every margin-top tried fits. The two
+#       margins interact non-additively near the boundary — there is no
+#       clean "only the internal margin counts" rule to exploit, so the
+#       committed fix reduces both rather than picking one lever.
+#
+#   (b) Add `break-before: avoid` / `page-break-before: avoid` to
+#       `.signature`, the issue's own "no keep-with-previous" hypothesis.
+#       Rendered on both the pre-#547 (10mm/12mm, 2 pages) and post-#547
+#       (6mm/8mm, 1 page) margins: the page count was identical with and
+#       without the property in both cases. Chromium's print pagination
+#       does not act on it here — this Chromium version's paged-media
+#       support for `break-before: avoid` is the poor-to-absent case the
+#       spec's implementation status has long warned about.
+#
+# The margin-value reduction below remains the only lever with demonstrated
+# effect; see the per-template scratchpad renders (not committed) for the
+# raw page-count tables behind this note.
+# ---------------------------------------------------------------------------
+
+_SIGNATURE_AIR_BUDGET_MM = 14.0  # #547 — pre-fix sums were 18-22mm; academic
+# included even though #431 excludes it from the "fits in one page" claim —
+# the split-guard and the air budget are independent concerns.
+
+
+@pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
+def test_letter_signature_air_stays_under_547_budget(template):
+    """The block's own margin-top + closing margin-bottom must not creep back
+    above the #547 budget. Deterministic and font-independent — reads the raw
+    template source, renders nothing. Revert either margin to its pre-#547
+    value on any template and this fails on that template alone.
+    """
+    import re
+
+    source = (LETTER_TEMPLATES_DIR / LETTER_TEMPLATES[template]).read_text(encoding="utf-8")
+    margin_top = re.search(r"\.signature\s*\{[^}]*margin-top:\s*([\d.]+)mm", source)
+    margin_bottom = re.search(r"\.signature\s+\.closing\s*\{\s*margin-bottom:\s*([\d.]+)mm", source)
+    assert margin_top, f"{template}: no .signature margin-top found — template shape changed"
+    assert margin_bottom, f"{template}: no .signature .closing margin-bottom found — template shape changed"
+
+    air = float(margin_top.group(1)) + float(margin_bottom.group(1))
+    assert air <= _SIGNATURE_AIR_BUDGET_MM, (
+        f"{template}: signature block air is {air}mm (margin-top "
+        f"{margin_top.group(1)}mm + closing margin-bottom {margin_bottom.group(1)}mm), "
+        f"over the #547 budget of {_SIGNATURE_AIR_BUDGET_MM}mm — this is the exact "
+        f"regression #547 fixed: a padded closing block gets bounced whole to a "
+        f"near-empty page 2 more often than it needs to."
+    )
+
+
+@pytest.mark.asyncio
+async def test_letter_signature_orphans_less_often_547():
+    """The #547 defect verbatim, on the template it reproduces on directly: a
+    budget-length letter (LETTER_DE_BUDGET) plus ONE realistic extra sentence
+    overflows page 1 by roughly a centimetre on `executive`. Pre-fix (10mm
+    signature margin-top + 12mm closing margin-bottom = 22mm of air) this
+    rendered 2 pages, with page 2 holding nothing but "Mit freundlichen
+    Grüßen" + the sender's name and page 1 ending with ~5cm of visible free
+    space (verified by hand against a rendered screenshot during triage).
+    Post-fix (6mm + 8mm = 14mm) the same fixture fits on page 1.
+
+    This is the one template/fixture pair where the fix's effect on the
+    actual page count is verified and stable enough to gate on — it is NOT a
+    claim that every overflowing letter now fits (see the budget test above
+    for why that claim can't be made in CSS). Other templates need a
+    different amount of overflow to reproduce the same shape; this fixture
+    was calibrated against `executive` specifically.
+    """
+    import copy
+    import io
+
+    from pypdf import PdfReader
+
+    pad_sentence = (
+        "Diese zusätzliche Erfahrung im Bereich Qualitätsmanagement und "
+        "Prozessoptimierung rundet mein Profil weiter ab und zeigt meine "
+        "Bereitschaft, Verantwortung zu übernehmen. "
+    )
+    letter = copy.deepcopy(LETTER_DE_BUDGET)
+    letter["body"]["paragraphs"] = list(letter["body"]["paragraphs"]) + [pad_sentence]
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES["executive"]).render(
+        letter=letter,
+        color=_default_color_context(),
+        lang="de",
+        labels=cover_letter_labels("de"),
+        subject="Bewerbung als Leiter Qualitätssicherung",
+    )
+    pdf = await _html_to_pdf(html)
+    pages = len(PdfReader(io.BytesIO(pdf)).pages)
+    assert pages == 1, (
+        f"executive: budget-length letter + one extra sentence rendered as "
+        f"{pages} pages — the #547 orphan (sign-off alone on page 2 with "
+        f"page 1 still visibly short of full) is back. This exact fixture "
+        f"rendered 2 pages before #547's margin reduction."
     )
 
 

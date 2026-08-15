@@ -15,9 +15,16 @@
     .subject { font-weight: bold; font-size: 11pt; margin-bottom: 7mm; text-align: center; }
     .body p { margin-bottom: 5mm; text-align: justify; }
     /* #429: keep-together + tighter signature air, same rationale as
-       lebenslauf_letter — a budget-length body must fit the 1-page norm. */
-    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 9mm; }
-    .signature .closing { margin-bottom: 11mm; }
+       lebenslauf_letter — a budget-length body must fit the 1-page norm.
+       #547: break-inside:avoid pushes the WHOLE block to page 2 once it no
+       longer fits the remainder of page 1 — even a budget-length body left
+       just ~1cm short of the block's own margins triggered this, orphaning
+       the block alone on page 2 with the freed space still visible on page
+       1. 4mm less air (again) shrinks the atomic unit so it fits the
+       remainder more often; this is a probability reduction, not a proof —
+       CSS pagination cannot guarantee fit without content-aware sizing. */
+    .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 5mm; }
+    .signature .closing { margin-bottom: 7mm; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>
