@@ -1633,3 +1633,170 @@ async def test_load_bearing_fn_scans_further_back_for_a_non_poorer_candidate(moc
     )
 
     assert result == round0
+
+
+# ---------------------------------------------------------------------------
+# #537 (ADR-076 clause 2) — corrector implementation-compliance measurement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_compliance_measurement_emits_a_structured_log_line_per_signal_class(
+    mock_provider, caplog
+):
+    """A round that rejects with a coverage-shaped blocking issue, followed by a
+    corrector draft that implements it, must emit one REVIEW_COMPLIANCE line naming
+    the signal class it was measured against (#537)."""
+    mock_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [
+                {
+                    "severity": "blocking",
+                    "issue": "VERIFIED COVERAGE CHECK — 'Budgetverantwortung' is not in the draft.",
+                }
+            ],
+            "feedback": "add Budgetverantwortung",
+        },
+        {"summary": "Owns Budgetverantwortung ca. 6 Mio. EUR."},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft={"summary": "no mention here"},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="compliance_chain",
+        )
+
+    compliance_lines = [
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE" in r.getMessage()
+    ]
+    assert len(compliance_lines) == 1
+    assert "chain=compliance_chain attempt=1" in compliance_lines[0]
+    assert "signal_class=coverage" in compliance_lines[0]
+    assert "implemented=1 not_implemented=0 unmeasurable=0" in compliance_lines[0]
+
+
+@pytest.mark.asyncio
+async def test_compliance_measurement_is_silent_when_the_shape_is_not_checkable(
+    mock_provider, caplog
+):
+    """An issue with no mechanically-checkable shape (plain prose, no quoted term)
+    must land as `unmeasurable`, not silently scored either way, and still produce
+    exactly one countable line for its (best-effort) signal class."""
+    mock_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [{"severity": "blocking", "issue": "Fabricated bullet with no support."}],
+            "feedback": "remove it",
+        },
+        {"summary": "patched"},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        await review_and_refine(
+            source="src",
+            draft={"summary": "original"},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="unmeasurable_chain",
+        )
+
+    compliance_lines = [
+        r.getMessage() for r in caplog.records if "REVIEW_COMPLIANCE" in r.getMessage()
+    ]
+    assert len(compliance_lines) == 1
+    assert "signal_class=other" in compliance_lines[0]
+    assert "implemented=0 not_implemented=0 unmeasurable=1" in compliance_lines[0]
+
+
+@pytest.mark.asyncio
+async def test_compliance_measurement_never_changes_the_returned_draft_or_retry_count():
+    """Behaviour-neutrality: the SAME sequence of reviewer/generator calls must
+    produce the SAME settled draft and the SAME number of provider calls whether or
+    not the compliance measurement can classify/measure the round's issues — the
+    measurement is a pure side-effect logger (#537, ADR-062 clause 5)."""
+    checkable_provider = AsyncMock()
+    checkable_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [
+                {
+                    "severity": "blocking",
+                    "issue": "VERIFIED COVERAGE CHECK — 'Budgetverantwortung' is not in the draft.",
+                }
+            ],
+            "feedback": "add it",
+        },
+        {"summary": "Owns Budgetverantwortung ca. 6 Mio. EUR."},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+    unmeasurable_provider = AsyncMock()
+    unmeasurable_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [{"severity": "blocking", "issue": "Totally unrelated prose issue."}],
+            "feedback": "fix it",
+        },
+        {"summary": "Owns Budgetverantwortung ca. 6 Mio. EUR."},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    kwargs = dict(
+        source="src",
+        draft={"summary": "no mention here"},
+        generator_prompt_fn=lambda d, f, s: "retry",
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review",
+        reviewer_system="rev",
+        max_retries=3,
+    )
+
+    result_checkable = await review_and_refine(provider=checkable_provider, **kwargs)
+    result_unmeasurable = await review_and_refine(provider=unmeasurable_provider, **kwargs)
+
+    assert result_checkable == result_unmeasurable == {"summary": "Owns Budgetverantwortung ca. 6 Mio. EUR."}
+    assert checkable_provider.aparse_json.call_count == unmeasurable_provider.aparse_json.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_compliance_measurement_survives_minor_only_settlement(mock_provider, caplog):
+    """A round settled by the severity gate (minor-only rejection, no retry) never
+    reaches the corrector — the compliance measurement code path (which needs a
+    NEXT draft to compare against) must simply not run, and nothing must break."""
+    mock_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [{"severity": "minor", "issue": "Wording could be tighter."}],
+            "feedback": "",
+        },
+    ]
+
+    with caplog.at_level(logging.INFO, logger="applire.llm.review"):
+        result = await review_and_refine(
+            source="src",
+            draft={"summary": "original"},
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=3,
+            chain_id="minor_only_chain",
+        )
+
+    assert result == {"summary": "original"}
+    assert mock_provider.aparse_json.call_count == 1
+    assert not any("REVIEW_COMPLIANCE" in r.getMessage() for r in caplog.records)

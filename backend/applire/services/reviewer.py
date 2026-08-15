@@ -115,6 +115,20 @@ when ``retain_if`` is not supplied. Selection order at settle time:
 Default ``prefer_if=None`` reproduces the pre-existing ``retain_if``-only
 behaviour bit-for-bit (proven by test) — every other ``retain_if`` caller is
 unaffected.
+
+Corrector implementation-compliance measurement (#537, ADR-076 clause 2 — the floor
+every future SIGNAL migration is gated behind): the #306(a) precision check above
+measures whether a reviewer's ISSUE was demonstrably sound; it says nothing about
+whether the corrector's NEXT draft actually implemented it. Each round that retries,
+the draft reviewed this round and the draft the corrector produces in response are
+compared via ``services/review_compliance.py``'s closed set of mechanically checkable
+issue shapes, aggregated per ADR-076 signal class, and logged via
+``log_review_compliance``. Measurement only, exactly like the precision check: never an
+LLM call, never mutates a draft, never read back into this function's control flow —
+which issue is blocking, which draft ships, and the retry count are all unchanged by
+this measurement (ADR-062 clause 5's exemption; see that module's docstring for why a
+compliance grader over arbitrary reviewer prose would itself be the clause-1 violation
+ADR-076 exists to stop).
 """
 
 import json
@@ -127,6 +141,7 @@ from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import (
     log_review_call_failed,
+    log_review_compliance,
     log_review_cycle_detected,
     log_review_exhausted,
     log_review_minor_only,
@@ -138,6 +153,7 @@ from applire.providers.llm.debug_log import (
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 from applire.services.load_bearing import stringify_draft
+from applire.services.review_compliance import aggregate_by_signal_class, measure_corrector_compliance
 from applire.services.review_issues import measure_reviewer_issues, normalize_issues
 
 logger = logging.getLogger(__name__)
@@ -540,6 +556,13 @@ async def review_and_refine(
                 len(feedback),
             )
 
+            # #537 (ADR-076 clause 2): the draft THIS round's issues were raised
+            # against, captured before the generator call below reassigns
+            # `current_draft` to the corrector's response — the measurement
+            # opportunity is exactly this adjacency (issues raised at round N vs.
+            # the draft that exists after round N's corrector call).
+            draft_reviewed_this_round = current_draft
+
             set_review_call_meta("generator", attempt + 1)
             try:
                 current_draft = await provider.aparse_json(
@@ -564,6 +587,31 @@ async def review_and_refine(
                     last_issues,
                 )
                 return _settle(current_draft)
+
+            # #537 (ADR-076 clause 2, the floor): did the corrector's NEW draft
+            # actually IMPLEMENT this round's blocking issues, not merely make
+            # them stop being raised? Measurement only — see
+            # services/review_compliance.py for the closed set of mechanically
+            # checkable issue shapes and the honest `unmeasurable` bucket for
+            # everything else. Never an LLM call, never changes what the loop
+            # does or which draft ships; the caller (here) only logs it, exactly
+            # like the #306(a) precision measurement two blocks above.
+            compliance_verdicts = measure_corrector_compliance(
+                issues,
+                stringify_draft(draft_reviewed_this_round),
+                stringify_draft(current_draft),
+            )
+            for signal_class, bucket in aggregate_by_signal_class(compliance_verdicts).items():
+                if bucket.total == 0:
+                    continue
+                log_review_compliance(
+                    chain_id,
+                    attempt + 1,
+                    signal_class.value,
+                    implemented=bucket.implemented,
+                    not_implemented=bucket.not_implemented,
+                    unmeasurable=bucket.unmeasurable,
+                )
 
             # Wave-6 Task 1: a generator retry that reproduces a draft ALREADY
             # produced earlier in this same loop (the initial draft or any prior
