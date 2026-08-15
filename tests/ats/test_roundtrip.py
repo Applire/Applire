@@ -688,6 +688,46 @@ async def test_letter_signature_block_never_splits_across_pages(template):
 # reproduces the executive-template case above. A page-count assertion on a
 # real render lives in test_letter_signature_orphans_less_often below for
 # that one calibrated case; this test is the environment-independent gate.
+#
+# Two structural alternatives to a margin shave were tried and rendered —
+# neither survives contact with real page.pdf() output, so don't re-attempt
+# either without new evidence:
+#
+#   (a) Move `.signature`'s margin-top onto the PRECEDING paragraph's
+#       margin-bottom instead (`.body p:last-child`), keeping the same total
+#       collapsed visual gap, on the theory that a margin owned by a
+#       non-atomic sibling gets truncated at an unforced break instead of
+#       counting toward the atomic block's fit test. Implemented and
+#       rendered on executive/modern_swiss/tech_developer/lebenslauf: the
+#       output PDF was pixel-identical to the unmoved version in every case
+#       (`compare -metric AE` = 0 on every page). Chromium's break-fit
+#       check here evidently uses the accumulated flow height up to the
+#       block regardless of which sibling's CSS declares the connecting
+#       margin — relocating a collapsed margin without shrinking it changes
+#       nothing.
+#
+#       A related isolation (varying margin-top's actual VALUE, not just
+#       its owner, while holding `.closing`'s margin-bottom fixed) shows
+#       margin-top isn't uniformly free either: at closing_mb=8mm on
+#       executive, margin-top=10mm still overflows but margin-top=6mm
+#       fits; at closing_mb=12mm no margin-top value (10/4/0mm all tried)
+#       fits; at closing_mb=4mm every margin-top tried fits. The two
+#       margins interact non-additively near the boundary — there is no
+#       clean "only the internal margin counts" rule to exploit, so the
+#       committed fix reduces both rather than picking one lever.
+#
+#   (b) Add `break-before: avoid` / `page-break-before: avoid` to
+#       `.signature`, the issue's own "no keep-with-previous" hypothesis.
+#       Rendered on both the pre-#547 (10mm/12mm, 2 pages) and post-#547
+#       (6mm/8mm, 1 page) margins: the page count was identical with and
+#       without the property in both cases. Chromium's print pagination
+#       does not act on it here — this Chromium version's paged-media
+#       support for `break-before: avoid` is the poor-to-absent case the
+#       spec's implementation status has long warned about.
+#
+# The margin-value reduction below remains the only lever with demonstrated
+# effect; see the per-template scratchpad renders (not committed) for the
+# raw page-count tables behind this note.
 # ---------------------------------------------------------------------------
 
 _SIGNATURE_AIR_BUDGET_MM = 14.0  # #547 — pre-fix sums were 18-22mm; academic
