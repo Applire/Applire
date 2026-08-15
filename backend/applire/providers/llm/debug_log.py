@@ -216,9 +216,10 @@ def log_review_compliance(
     ``review_compliance.py`` rather than asserted from an always-zero log line.
 
     FOUR counters, not three. ``indeterminate`` is DISTINCT from ``unmeasurable`` — it
-    counts verdicts from a shape that matched but is structurally incapable of ever
-    returning ``not_implemented`` for this instance (today: the forbidden-claim shape's
-    still-present branch — see ``review_compliance.py``'s module docstring). **Do not
+    counts verdicts from a shape that matched but structurally cannot resolve this
+    instance (the forbidden-claim shape's still-present branch, and the grounded
+    proxy's present-but-grounding-unknown branch — see ``review_compliance.py``'s
+    module docstring; ``REVIEW_COMPLIANCE_SHAPE`` below carries which shape). **Do not
     compute ``implemented / (implemented + not_implemented)`` from these numbers and
     treat it as a point estimate** — that silently drops every ``indeterminate`` verdict
     from the denominator and reports the OPTIMISTIC bound. Read ADR-076 clause 2
@@ -235,6 +236,37 @@ def log_review_compliance(
         "REVIEW_COMPLIANCE chain=%s attempt=%d signal_class=%s implemented=%d "
         "not_implemented=%d indeterminate=%d unmeasurable=%d",
         chain_id, attempt, signal_class, implemented, not_implemented, indeterminate, unmeasurable,
+    )
+
+
+def log_review_compliance_shape(
+    chain_id: str,
+    attempt: int,
+    signal_class: str,
+    shape: str,
+    *,
+    implemented: int,
+    not_implemented: int,
+    indeterminate: int,
+    unmeasurable: int,
+) -> None:
+    """#537 ceiling follow-up — the per-``(signal_class, shape)`` breakdown of the
+    ``REVIEW_COMPLIANCE`` line above. Exists because the class-level counts can mix
+    verdicts from genuinely two-sided shapes with verdicts from one-sided ones
+    (forbidden-claim can only ever confirm compliance; the grounded-presence proxy can
+    only ever confirm NON-compliance), and a reader of the class aggregate alone cannot
+    tell how much of a count a one-sided shape contributed — the exact
+    invisible-one-sidedness defect the ``indeterminate`` counter fixed one level up,
+    recurring one level down. ``shape="none"`` carries the unmeasurable verdicts so the
+    shape lines of a round still sum to its class lines.
+
+    Measurement only, stable prefix, always on, PII-free (counts plus two closed
+    vocabularies), exactly like ``REVIEW_COMPLIANCE``."""
+    _review_logger.info(
+        "REVIEW_COMPLIANCE_SHAPE chain=%s attempt=%d signal_class=%s shape=%s "
+        "implemented=%d not_implemented=%d indeterminate=%d unmeasurable=%d",
+        chain_id, attempt, signal_class, shape,
+        implemented, not_implemented, indeterminate, unmeasurable,
     )
 
 
