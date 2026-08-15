@@ -30,6 +30,8 @@ derived ``fit_weight`` — never the LLM (mirrors ADR-035's slot-weight rule).
 
 import logging
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from applire.services.profile.reconcile.stance import (
@@ -1231,6 +1233,113 @@ def verified_missing_load_bearing(
     return missing
 
 
+# ── ADR-076 clause 6 (#543) — coverage yields to rank under the length budget ──
+#
+# Run A of the 2026-08-14 model comparison (letter chain, real provider):
+# the coverage check demanded two NEW claimable keywords every round while the
+# corrector's insertions displaced earlier ones — att1 SAP+Shopfloor -> att2
+# 5S+Arbeitssicherheit -> att3 Arbeitsvorbereitung+Fuehrungserfahrung -> att4
+# Budgetplanung+Supply Chain. Pure displacement churn, never convergence
+# (#525's mechanism). Root cause per ADR-076/ADR-048 (amended 2026-08-15):
+# coverage and the ADR-042/051 length budget were two absolutes with no
+# arbiter — the ledger's OWN ``fit_weight`` (required=1.0 > nice_to_have=0.5 >
+# keyword-only=0.0, ADR-048 clause 1) is the one ranking this module already
+# carries, so it is reused here rather than invented: a below-rank absence
+# stops being commanded once the draft has reached its length budget, because
+# cutting by rank is the writer/corrector's legal move (the friend model's
+# step 5, ADR-076 Context).
+#
+# This is deliberately NOT a new deterministic gate on ``approved`` (the
+# 2026-08-13 precedent, restated by ADR-076's own consequences section): it
+# only changes WHICH facts the coverage demand asserts into the prompt as
+# blocking. A below-rank concept is still visible to the writer/corrector —
+# it never left the CLAIMABLE KEYWORDS reference list :func:`render_ledger_reviewer_block`
+# renders — only the "you MUST set approved=false" command for it is
+# withheld. Nothing here overrides a reviewer verdict.
+
+
+@dataclass(frozen=True)
+class CoverageBudget:
+    """The ADR-042/051 length budget, expressed in whatever unit the caller
+    already measures its OWN draft in — bullets for the CV, words for the
+    letter. This module invents no length metric of its own: ``capacity`` and
+    ``measure`` are built from the existing ADR-051 budget objects by
+    :func:`cv_coverage_budget` / :func:`letter_coverage_budget` below, never
+    computed here.
+    """
+
+    capacity: int
+    measure: Callable[[dict[str, Any]], int]
+
+    def under_pressure(self, draft: dict[str, Any]) -> bool:
+        """True once the CURRENT draft's own occupancy has reached the
+        budget's capacity. Recomputed every round from the draft actually
+        being reviewed — exactly like :func:`verified_missing_claimable` —
+        never estimated once before generation."""
+        if self.capacity <= 0:
+            return True
+        return self.measure(draft) >= self.capacity
+
+
+def cv_coverage_budget(budget: Any) -> "CoverageBudget | None":
+    """ADR-076 clause 6 — the CV's coverage budget. ``budget`` is the
+    ``cv_budget.BudgetResult`` that ``compute_bullet_budgets`` already
+    computes for this generation (ADR-051 §3): the SAME per-role bullet
+    ceilings ``cv_budget.condense_to_budget`` enforces after render, so the
+    coverage demand and the length guarantee read one number, not two
+    (ADR-066). ``None`` when no budget was computed (a legacy call site) —
+    the gate then stays fully open, i.e. today's behaviour: it can never make
+    a coverage demand MORE aggressive than before this clause.
+    """
+    if budget is None:
+        return None
+    capacity = sum(rb.max_bullets for rb in budget.roles.values())
+    return CoverageBudget(
+        capacity=capacity,
+        measure=lambda draft: len(_tailored_narrative_texts(draft)),
+    )
+
+
+def letter_coverage_budget(word_budget: int | None) -> "CoverageBudget | None":
+    """ADR-076 clause 6 — the letter's coverage budget, in words: the SAME
+    ``RegionNorm.letter_body_word_budget`` the word-floor/word-ceiling
+    reviewer wrappers (``cover_letter_positioning``) already enforce, so
+    coverage and the letter's own length guarantee read one budget.
+    """
+    if not word_budget:
+        return None
+    from applire.services.cover_letter_positioning import body_word_count
+
+    return CoverageBudget(capacity=word_budget, measure=body_word_count)
+
+
+def rank_gate_missing_claimable(
+    missing: list[dict[str, Any]],
+    draft: dict[str, Any],
+    budget: "CoverageBudget | None",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """ADR-076 clause 6 — split verified-missing claimable entries into
+    ``(blocking, below_rank)`` by the ledger's own ``fit_weight``, under the
+    ADR-042/051 length budget.
+
+    Absent a budget, or while the draft still has room in it, every missing
+    claimable entry stays blocking — today's behaviour, unchanged. Once the
+    draft has reached its budget, a ``required`` absence
+    (``fit_weight == REQUIRED_WEIGHT``, the JD's own stated requirement)
+    still blocks: rank puts it first, so it never loses the budget fight
+    while there is competition for the same space — the friend model's
+    "prioritise and cut" trims the LOW end, not the top. A
+    ``nice_to_have``/keyword-only absence below that rank becomes
+    ``below_rank``: its absence is no longer a blocking issue, because
+    cutting it is the writer/corrector's legal move.
+    """
+    if budget is None or not budget.under_pressure(draft):
+        return list(missing), []
+    blocking = [e for e in missing if (e.get("fit_weight") or 0) >= REQUIRED_WEIGHT]
+    below_rank = [e for e in missing if (e.get("fit_weight") or 0) < REQUIRED_WEIGHT]
+    return blocking, below_rank
+
+
 def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
 
@@ -1262,7 +1371,11 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | None):
+def coverage_reviewer_prompt_fn(
+    base_fn,
+    keyword_ledger: list[dict[str, Any]] | None,
+    budget: "CoverageBudget | None" = None,
+):
     """Wrap a reviewer_prompt_fn so every review sees the CURRENT draft's verified
     coverage state (US213, #122).
 
@@ -1270,18 +1383,32 @@ def coverage_reviewer_prompt_fn(base_fn, keyword_ledger: list[dict[str, Any]] | 
     latest draft, so the verified list is recomputed per pass and the block disappears
     once the refiner has surfaced the terms — deterministic convergence signal riding
     the existing bounded ADR-047 loop (no new loop).
+
+    ADR-076 clause 6 (#543): ``budget``, when given (build with
+    :func:`cv_coverage_budget` / :func:`letter_coverage_budget`), rank-gates the
+    demand under the ADR-042/051 length budget — see
+    :func:`rank_gate_missing_claimable`. ``None`` (the default) reproduces
+    today's behaviour exactly: every missing claimable entry blocks.
     """
 
     def fn(source: str, draft: dict[str, Any]) -> str:
         prompt = base_fn(source, draft)
         missing = verified_missing_claimable(draft, keyword_ledger)
-        if missing:
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, budget)
+        if below_rank:
+            logger.info(
+                "ADR-076 clause 6: %d claimable term(s) below rank under the length "
+                "budget — not raised as blocking (cutting by rank is legal): %s",
+                len(below_rank),
+                [e.get("concept", "") for e in below_rank],
+            )
+        if blocking:
             logger.info(
                 "verified coverage check: %d claimable term(s) absent from draft: %s",
-                len(missing),
-                [e.get("concept", "") for e in missing],
+                len(blocking),
+                [e.get("concept", "") for e in blocking],
             )
-            prompt = f"{prompt}\n\n{render_verified_coverage_block(missing)}"
+            prompt = f"{prompt}\n\n{render_verified_coverage_block(blocking)}"
         return prompt
 
     return fn

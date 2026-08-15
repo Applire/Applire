@@ -485,7 +485,11 @@ async def _tailor_cv_with_fallback(
 
 
 async def _review_cv_language(
-    draft: dict, output_language: str, provider, keyword_ledger: list | None = None
+    draft: dict,
+    output_language: str,
+    provider,
+    keyword_ledger: list | None = None,
+    budget: Any = None,
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -496,10 +500,15 @@ async def _review_cv_language(
     so it can silently translate a covered surface form into an unlisted synonym. The
     same US213 coverage wrapper feeds this reviewer; its remedy is word choice (use the
     exact required-language surface form), never inserting content.
+
+    ADR-076 clause 6 (#543): ``budget`` — the SAME ``cv_budget.BudgetResult`` the
+    tailoring loop above rank-gates with — is threaded through so this LAST writer's
+    coverage demand agrees with the tailoring loop's about which absences are still
+    blocking (:func:`applire.services.keyword_ledger.cv_coverage_budget`).
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
-    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn, cv_coverage_budget
 
     return await review_and_refine(
         source=language_name(output_language),
@@ -507,7 +516,9 @@ async def _review_cv_language(
         generator_prompt_fn=build_cv_language_refinement_prompt,
         generator_system=CV_LANGUAGE_REFINEMENT_PROMPT,
         reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-            build_cv_language_review_prompt, keyword_ledger
+            build_cv_language_review_prompt,
+            keyword_ledger,
+            budget=cv_coverage_budget(budget),
         ),
         reviewer_system=CV_LANGUAGE_REVIEW_SYSTEM_PROMPT,
         provider=provider,
@@ -2557,11 +2568,18 @@ async def _render_cv_background(
             # longer detects absent claimable terms — it only arbitrates grounding waivers).
             from applire.services.keyword_ledger import (
                 coverage_reviewer_prompt_fn,
+                cv_coverage_budget,
                 render_ledger_reviewer_block,
             )
             ledger_block = render_ledger_reviewer_block(keyword_ledger)
             if ledger_block:
                 source_material = f"{source_material}\n\n{ledger_block}"
+
+            # ADR-076 clause 6 (#543): the coverage demand yields to the ledger's
+            # own fit_weight once the draft has reached the SAME per-role bullet
+            # budget the post-render condense pass (cv_budget.condense_to_budget)
+            # enforces — one owner, one ranking (ADR-048 amended 2026-08-15).
+            coverage_budget = cv_coverage_budget(budget)
 
             prose_draft = await review_and_refine(
                 source=source_material,
@@ -2569,7 +2587,7 @@ async def _render_cv_background(
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
                 reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    _build_cv_review_prompt, keyword_ledger
+                    _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
                 ),
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
@@ -2637,6 +2655,7 @@ async def _render_cv_background(
             prose_draft = await _review_cv_language(
                 prose_draft, resolve_jd_language(job), provider,
                 keyword_ledger=keyword_ledger,
+                budget=budget,
             )
 
             # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
