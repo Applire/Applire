@@ -270,6 +270,38 @@ def log_review_compliance_shape(
     )
 
 
+def log_signal_fallback_applied(chain_id: str, signal_id: str, path: str) -> None:
+    """ADR-076 clause 2 amendment (#540, 2026-08-15): a registered FALLBACK_APPLY
+    signal's bounded sanctioned exception just fired inside ``review_and_refine``'s
+    ``_settle()`` because that signal's issue was STILL OUTSTANDING when the loop
+    settled — on any early-settle path the caller named via ``signal_ids``, not only
+    literal retry-exhaustion (the whole point of the amendment: a fallback that only
+    ever fired on exhaustion would silently skip every other settle path an issue can
+    survive to).
+
+    ``path`` carries WHICH settle path fired it (e.g. ``"exhausted"``,
+    ``"cycle_detected"``, ``"reviewer_call_failed"``, ``"generator_call_failed"``,
+    ``"minor_only"``, ``"approved"``) — a fixed, small, closed vocabulary matching the
+    literal strings ``services/reviewer.py`` passes to ``_settle``. Never ``None``:
+    the loop never calls this for the ``max_retries<=0`` (review-disabled) path, which
+    has no issues by construction and is excluded from signal-fallback consideration
+    entirely (see that module's docstring for the reasoning).
+
+    Stable ``SIGNAL_FALLBACK_APPLIED`` prefix, always on, PII-free (chain/signal ids
+    plus a closed settle-path vocabulary only) — mirrors ``REVIEW_EXHAUSTED`` /
+    ``REVIEW_CYCLE_DETECTED``: a fallback-shipped draft must stay countable after the
+    fact exactly like those two already are, and distinguishable BY PATH so a fallback
+    that only ever fires on one path (say, always ``cycle_detected``, never
+    ``exhausted``) is visible as a pattern, not folded into one undifferentiated
+    count."""
+    _review_logger.warning(
+        "SIGNAL_FALLBACK_APPLIED chain=%s signal_id=%s path=%s — bounded sanctioned "
+        "exception fired because the signal's issue was still outstanding when the "
+        "loop settled",
+        chain_id, signal_id, path,
+    )
+
+
 def log_review_minor_only(chain_id: str, attempt: int, *, minor: int) -> None:
     """ADR-021 amended 2026-07-28: the reviewer set ``approved=false`` but every
     issue it raised was ``severity="minor"``, so the writer does NOT run again and
