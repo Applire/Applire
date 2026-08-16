@@ -2869,6 +2869,58 @@ class CondenseContext:
     target: int
 
 
+def _log_render_budget_iteration(
+    *,
+    cv_id: uuid.UUID,
+    iteration: int,
+    pages_before: int,
+    pages_after: int,
+    target: int,
+    condense_fired: bool,
+    condensation_exhausted: bool,
+) -> None:
+    """ADR-076 Amendment 3 §3 — always-on, structured instrumentation for ONE pass
+    of the measure-and-condense loop below. Measurement only: this line is read
+    AFTER the fact and never feeds back into the loop's own control flow, return
+    value or persistence (the loop's ``break``/``for..else`` structure and the
+    ``condense_to_budget`` call are unchanged by its presence).
+
+    Deliberately its OWN vocabulary, not a ``REVIEW_COMPLIANCE`` shape: ADR-076
+    Amendment 3 forbids reusing that text shape for a length question, so a length
+    line and a corrector-compliance line can never be misread as the same kind of
+    measurement. Mirrors the MECHANISM ``providers/llm/debug_log.py`` already uses
+    for ``REVIEW_VERDICT`` / ``REVIEW_COMPLIANCE`` (stable prefix, always on,
+    PII-free — counts and booleans only, never CV content) and the level split
+    ``bullet_cuts.log_cuts`` uses for a constraint conflict — WARNING when
+    ``condensation_exhausted`` (a document still shipping over budget is a real
+    signal, exactly like ``REVIEW_EXHAUSTED`` / ``LETTER_OVER_BUDGET``), INFO
+    otherwise.
+
+    Answers the later condense-migration question two-sidedly, per iteration:
+    not just whether condense fired, but whether firing it actually brought the
+    page count down (compare ``pages_before``/``pages_after``) and whether it
+    reached ``target``. ``iteration`` is the SAME field name and value
+    ``cv_budget.condense_to_budget``'s ``TAIL_DELETE`` lines already carry (via
+    ``bullet_cuts.log_cuts(..., iteration=iteration)``) for the bullets it cut in
+    this same pass — that shared field is the correlation a reader uses to join a
+    page-level outcome to the bullet-level cut detail (protected/load-bearing
+    status), which TAIL_DELETE already owns and this line does not repeat.
+
+    Only ever called from inside the bounded loop, which only runs when a
+    ``CondenseContext`` was supplied and no ``section_overrides`` bail applies —
+    the audit-only tails (``_update_ats_report_by_id``, the agent-authored-CV
+    re-audit) never build a ``CondenseContext`` and so never reach this call.
+    """
+    level = logging.WARNING if condensation_exhausted else logging.INFO
+    logger.log(
+        level,
+        "RENDER_BUDGET_ITERATION cv_id=%s iteration=%d pages_before=%d pages_after=%d "
+        "target=%d condense_fired=%s condensation_exhausted=%s",
+        cv_id, iteration, pages_before, pages_after, target, condense_fired,
+        condensation_exhausted,
+    )
+
+
 async def _resolve_audit_target(record: GeneratedCV, db: AsyncSession) -> int:
     """Resolve the target page count for the audit band when no CondenseContext is
     supplied (legacy NULL-``target_pages`` rows and the section-editor re-audit path):
@@ -2931,11 +2983,33 @@ async def _update_ats_report(
             # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
             text = ""
             count = 0
+            # ADR-076 Amendment 3 §3 (RENDER_BUDGET_ITERATION instrumentation): a
+            # fired iteration's "after" page count is only known at the NEXT
+            # measurement this loop already takes — the top of the following
+            # iteration, or the final re-render in the `else` clause below — so
+            # `pending_iteration` holds the fired iteration's number and its
+            # "before" count until that measurement lands. No render is added
+            # purely to observe it; this only reads counts the loop already
+            # computes for its own purposes.
+            pending_iteration: tuple[int, int] | None = None
             for iteration in (1, 2):
                 html = await get_cv_html(record.id, db)
                 pdf = await _html_to_pdf(html)
                 text, count = extract_text_and_pages(pdf)
+                if pending_iteration is not None:
+                    prev_iteration, prev_before = pending_iteration
+                    _log_render_budget_iteration(
+                        cv_id=record.id, iteration=prev_iteration,
+                        pages_before=prev_before, pages_after=count, target=target,
+                        condense_fired=True, condensation_exhausted=False,
+                    )
+                    pending_iteration = None
                 if count <= target:
+                    _log_render_budget_iteration(
+                        cv_id=record.id, iteration=iteration, pages_before=count,
+                        pages_after=count, target=target, condense_fired=False,
+                        condensation_exhausted=False,
+                    )
                     break
                 condensed, changed = condense_to_budget(
                     record.tailored_data, condense_ctx.budgets, iteration
@@ -2943,6 +3017,11 @@ async def _update_ats_report(
                 if not changed:
                     # Nothing left to cut — the overrun is structural (education/skills).
                     condensation_exhausted = True
+                    _log_render_budget_iteration(
+                        cv_id=record.id, iteration=iteration, pages_before=count,
+                        pages_after=count, target=target, condense_fired=False,
+                        condensation_exhausted=True,
+                    )
                     break
                 record.tailored_data = condensed
                 # Snapshot rebuild (amendment §2): rebuild IMMEDIATELY, in the same
@@ -2955,6 +3034,7 @@ async def _update_ats_report(
                 record.content_snapshot = build_content_snapshot(
                     TailoredCVData.model_validate(record.tailored_data)
                 )
+                pending_iteration = (iteration, count)
             else:
                 # Both iterations applied without meeting the target — measure the final
                 # render and report the honest state.
@@ -2962,6 +3042,14 @@ async def _update_ats_report(
                 pdf = await _html_to_pdf(html)
                 text, count = extract_text_and_pages(pdf)
                 condensation_exhausted = count > target
+                if pending_iteration is not None:
+                    prev_iteration, prev_before = pending_iteration
+                    _log_render_budget_iteration(
+                        cv_id=record.id, iteration=prev_iteration,
+                        pages_before=prev_before, pages_after=count, target=target,
+                        condense_fired=True,
+                        condensation_exhausted=condensation_exhausted,
+                    )
         else:
             html = await get_cv_html(record.id, db)
             pdf = await _html_to_pdf(html)
