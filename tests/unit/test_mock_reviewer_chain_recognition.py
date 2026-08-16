@@ -35,7 +35,10 @@ from __future__ import annotations
 
 import pytest
 
-from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as CL_REVIEW
+from applire.prompts.review_cover_letter import (
+    REVIEW_SYSTEM_PROMPT as CL_REVIEW,
+    TERMINAL_REVIEW_SYSTEM_PROMPT as CL_TERMINAL_REVIEW,
+)
 from applire.prompts.review_cv_extraction import (
     CV_EXTRACTION_REVIEW_SYSTEM_PROMPT as CV_EXTRACT_REVIEW,
 )
@@ -66,6 +69,11 @@ REVIEWER_PROMPTS = {
     # same mock fingerprint. Pinned separately so a future reword of the shared
     # intro cannot silently unrecognise the terminal chain alone.
     "cv_terminal_review": CV_TERMINAL_REVIEW,
+    # #539 (ADR-076 clause 3, letter side): the letter TERMINAL round shares the
+    # v2 checks body and the "grounding check on a cover letter" opening with
+    # the drafting round — recognised by the same mock fingerprint. Pinned
+    # separately for the same reason as the CV terminal door above.
+    "letter_terminal_review": CL_TERMINAL_REVIEW,
     "job_analysis": JD_REVIEW,
 }
 
