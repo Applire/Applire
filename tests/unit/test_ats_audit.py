@@ -549,6 +549,61 @@ def test_compound_suffix_dupe_structurally_unreachable_given_single_token_contai
     assert _compound_suffix_dupe(skill_tokens(a), skill_tokens(b)) is False
 
 
+# Slash forms on the CONTAINED side ("PP/MM"), on the CONTAINER side only
+# ("SAP" vs "SAP PP/MM" — the contained side is plain, no slash), and a
+# second contained-side-slash pair in a different domain (CI/CD) — the
+# structural cases the predicate actually admits under established
+# single-token containment. A slash on the contained side but NOT
+# (in some form) on the container side is impossible to construct here: for
+# containment to hold, the contained token must appear verbatim as an
+# element of the container's own token set, so if it carries a slash the
+# container's token set necessarily carries that same slash form too.
+_SLASH_SINGLE_TOKEN_CONTAINMENT_PAIRS = [
+    ("PP/MM", "SAP PP/MM"),
+    ("SAP", "SAP PP/MM"),
+    ("CI/CD", "Advanced CI/CD Pipelines"),
+]
+
+
+@pytest.mark.parametrize("a,b", _SLASH_SINGLE_TOKEN_CONTAINMENT_PAIRS)
+def test_slash_compound_containment_structurally_unreachable_given_single_token_containment(a, b):
+    """Pins the docstring's SECOND unreachability claim (the first is pinned by
+    ``test_compound_suffix_dupe_structurally_unreachable_...`` above): the
+    slash-compound containment over ``_page_token_set`` — ``skills_page_dupe``'s
+    third disjunct — can never independently reveal a tie beyond what
+    ``skills_single_token_containment`` already established for the same pair.
+
+    Reconstructs the exact ``slash_only_containment`` expression an earlier,
+    more defensive draft of ``_weak_single_token_tie`` computed before it was
+    proved dead and simplified away (see that function's docstring): page-scope
+    containment holding WITHOUT the plain ``skill_tokens``-level containment
+    already holding. The underlying reason is monotonicity, not luck — if
+    ``skill_tokens(a) <= skill_tokens(b)``, every slash-token in ``a`` is also a
+    literal element of ``b``'s token set, so ``_page_token_set`` adds the exact
+    same split parts to BOTH sides and the containment direction can never
+    flip or add new information. Fixture pairs put a slash on the contained
+    side, the container side only, or both, so ``_page_token_set`` genuinely
+    differs from plain ``skill_tokens`` on at least one side of each pair (a
+    no-slash pair would trivially pass without exercising the claim at all).
+    If a future edit to ``_page_token_set``/the slash disjunct breaks the
+    monotonicity property, this test goes red.
+    """
+    from applire.services.ats_audit import _page_token_set, skill_tokens, skills_single_token_containment
+
+    ta, tb = skill_tokens(a), skill_tokens(b)
+    pa, pb = _page_token_set(a), _page_token_set(b)
+    # Preconditions: the claim is only interesting when (1) single-token
+    # containment is actually established, and (2) the slash expansion
+    # genuinely changes at least one side's token set — else this would
+    # vacuously pass without exercising _page_token_set at all. Not both
+    # sides always: the ("SAP", "SAP PP/MM") pair deliberately has a plain,
+    # slash-free contained side (the "slash only on the container" case).
+    assert skills_single_token_containment(a, b) is True
+    assert pa != ta or pb != tb, "fixture must exercise the slash expansion on at least one side"
+    slash_only_containment = bool(pa) and bool(pb) and (pa <= pb or pb <= pa) and not (ta <= tb or tb <= ta)
+    assert slash_only_containment is False
+
+
 def test_audit_cv_threads_page_count_from_pdf():
     """audit_cv must read the real PDF page count and run the page-length check."""
     from io import BytesIO
