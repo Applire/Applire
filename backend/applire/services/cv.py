@@ -2937,6 +2937,32 @@ async def _resolve_audit_target(record: GeneratedCV, db: AsyncSession) -> int:
     return resolve_target_pages(None, result.scalar_one_or_none())
 
 
+def _vault_skill_forms_for_audit(profile_json: dict | None) -> list[str]:
+    """#391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): the vault-
+    form pool for the ``skills-weak-vault-tie`` ATS-report advisory — the same
+    two sources ``_drop_ungrounded_jd_echo_skills``'s ``_vault_tied`` ties a
+    rendered skill against (claimable skill names + every WorkEntry's
+    ``technologies``). Deliberately duplicated here rather than imported from
+    that function — the ADR-076 ruling requires ``_drop_ungrounded_jd_echo_skills``
+    itself to stay byte-for-byte unchanged; this is a measurement-only reader
+    (ADR-062 clause 5), never a second call site for the drop/keep decision.
+    Keep this in sync with the ``vault_forms`` build inside
+    ``_drop_ungrounded_jd_echo_skills`` if that logic ever changes.
+    """
+    if not profile_json:
+        return []
+    from applire.services.profile.reconcile.stance import claimable_skill_names
+
+    forms: list[str] = claimable_skill_names(profile_json)
+    for w in profile_json.get("work_experience") or []:
+        if not isinstance(w, dict):
+            continue
+        for t in w.get("technologies") or []:
+            if isinstance(t, str) and t.strip():
+                forms.append(t.strip())
+    return forms
+
+
 async def _update_ats_report(
     record: GeneratedCV,
     db: AsyncSession,
@@ -3069,10 +3095,9 @@ async def _update_ats_report(
         from applire.services.keyword_ledger import profile_literal_corpus
 
         profile_row = await db.get(MasterProfile, record.profile_id)
-        vault_text_norm = (
-            profile_literal_corpus(profile_row.profile_json if profile_row else None)
-            or None
-        )
+        profile_json = profile_row.profile_json if profile_row else None
+        vault_text_norm = profile_literal_corpus(profile_json) or None
+        vault_skill_forms = _vault_skill_forms_for_audit(profile_json)
         record.ats_report = _audit_cv_text(
             text,
             tailored,
@@ -3083,6 +3108,7 @@ async def _update_ats_report(
             region=region,
             condensation_exhausted=condensation_exhausted,
             vault_text_norm=vault_text_norm,
+            vault_skill_forms=vault_skill_forms,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

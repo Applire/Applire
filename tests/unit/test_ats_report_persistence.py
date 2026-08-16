@@ -421,6 +421,47 @@ async def test_cv_audit_receives_vault_text_norm(db_with_cv):
 
 
 @pytest.mark.asyncio
+async def test_cv_audit_receives_vault_skill_forms(db_with_cv):
+    """#391 interim (ADR-076 amendment 4 point 6): _update_ats_report must thread
+    the vault's claimable skill names into the audit so the skills-weak-vault-tie
+    advisory is live in production, not just reachable via a direct unit call."""
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+    job_id = ctx["job_id"]
+    profile_id = ctx["profile_id"]
+
+    captured: dict = {}
+
+    def fake_audit(text, tailored, keywords, ledger=None, **kwargs):
+        captured.update(kwargs)
+        return _make_ats_report("cv")
+
+    tailored_raw = _stub_tailored_data()
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = tailored_raw
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    with patch("applire.services.cv.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cv.get_provider", return_value=mock_provider), \
+         patch("applire.services.cv.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit._audit_cv_text", side_effect=fake_audit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cv import _render_cv_background
+        await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
+
+    forms = captured.get("vault_skill_forms")
+    assert isinstance(forms, list) and forms, "audit did not receive vault skill forms"
+    assert "Python" in forms, "vault skill forms does not carry the profile's claimable skill"
+
+
+@pytest.mark.asyncio
 async def test_letter_audit_receives_vault_text_norm(db_with_cover_letter):
     """#249 run-4 letter twin: _update_ats_report_letter threads the vault corpus."""
     ctx = db_with_cover_letter

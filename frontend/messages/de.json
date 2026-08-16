@@ -969,7 +969,8 @@
       "body": "Anschreiben-Absatz erkannt",
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
-      "page-length": "Seitenlänge"
+      "page-length": "Seitenlänge",
+      "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -977,7 +978,8 @@
       "page-length-senior": "{pages} Seiten — für Senior-Profile akzeptabel; die {region}-Norm sind {standard} Seiten",
       "page-length-exhausted": "{pages} Seiten — maximal gekürzt; die Länge ergibt sich aus dem Umfang von Ausbildung und Fähigkeiten; überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
-      "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}"
+      "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}",
+      "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     }
   },
   "truthfulness": {
