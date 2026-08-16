@@ -2658,107 +2658,24 @@ async def _render_cv_background(
                 budget=budget,
             )
 
-            # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
-            # facts (contact, employer/role/dates by id, education, languages).
-            # Fail-closed on an unknown id; shared by both generation paths.
-            tailored = TailoredCVData.model_validate(
-                assemble_tailored_cv(prose_draft, profile_json)
+            # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
+            # ADR-067 join, the ADR-040 compose block, and the not-yet-migrated
+            # SIGNAL passes — is extracted into _compose_document (a pure
+            # function) so the terminal review below closes over the COMPOSED
+            # document, and a terminal-round correction can be re-composed the
+            # same way. Pass order and mechanisms are byte-identical to the
+            # pre-#538 inline sequence; only the position of the terminal
+            # verdict changed.
+            raw_profile_json = profile.profile_json or {}
+            tailored = _compose_document(
+                prose_draft,
+                profile_json,
+                raw_profile_json=raw_profile_json,
+                keyword_ledger=keyword_ledger,
+                budget=budget,
+                job_dict=job_dict,
+                language=resolve_jd_language(job),
             )
-
-            # US187: deterministically nest source projects under their parent
-            # position (or the standalone list). The LLM tailors prose; code
-            # disposes. Runs after assembly (it matches on the joined company/role
-            # identity). The nested copies are verbatim vault facts — like
-            # education, they are carried in the vault's own language (ADR-067:
-            # transcription is not re-worded by any LLM pass).
-            tailored = _nest_projects(tailored, profile_json)
-
-            # PQ F7: deterministically copy the profile's certifications verbatim
-            # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
-            # single-call and segmented paths, since both converge here.
-            tailored = _apply_certifications(tailored, profile_json)
-
-            # #328: deterministically copy each work entry's quantified role facts
-            # (team_size / budget_managed / industry_context) from the vault onto the
-            # matching tailored entry, for rendering as document furniture (ADR-062
-            # clause 1) — bypassing prose (and the writer LLM) entirely. Matched by
-            # the WorkEntry.id identity assemble_tailored_cv establishes
-            # structurally, never by company-name string. Uses the SORTED
-            # profile_json (still bound here; the photo step below rebinds the
-            # name to the raw profile dict).
-            tailored = _apply_role_facts(tailored, profile_json)
-
-            # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
-            # verbatim vault bullet that carries a claimable Keyword Ledger concept the
-            # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
-            # the budget uses (structural since assemble_tailored_cv). Uses the SORTED
-            # profile_json (still bound here; the photo step below rebinds the name to
-            # the raw profile dict).
-            tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
-
-            # #261 (run-4 blind hiring-panel finding): deterministically prefer a
-            # MEASURED outcome over a bare target/projection for the same initiative
-            # (owner-scoped via the #196/#244 attribution machinery). MUST run after
-            # _restore_ledger_bullets so a restored vault bullet is also covered.
-            # Uses the SORTED profile_json (still bound here; the photo step below
-            # rebinds the name to the raw profile dict).
-            tailored = _prefer_measured_outcomes(
-                tailored, profile_json, resolve_jd_language(job)
-            )
-
-            # #172: collapse near-duplicate skill tags (the shared ats_audit
-            # predicate) so the CV is clean even when the master profile still
-            # carries twins. After the language pass, which rewords the tags.
-            tailored = _dedup_skills(tailored)
-
-            # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
-            # tags that are JD/ledger-concept echoes with no deterministic vault tie
-            # (both blind reviewers independently flagged these as keyword-stuffing).
-            # #386 reorder: runs BEFORE #192's cap — the cap used to rank doomed
-            # echoes as tier-0 and starve vault-confirmed skills (ISO 9001) out of
-            # the page, only for this pass to then delete the very entries the cap
-            # protected. A dropped tag cannot be re-added below: the #192 guarantee
-            # pool is vault skills only, and dropped ⇒ no vault tie.
-            tailored = _drop_ungrounded_jd_echo_skills(
-                tailored, profile_json, job_dict, keyword_ledger
-            )
-
-            # #192: present a prioritised, JD-relevant SUBSET of the candidate's skills
-            # instead of the whole master profile. Deterministic, downstream of the LLM +
-            # language pass (so it ranks the final target-language tags): guarantees the
-            # JD-required skills the candidate actually has, drops no-relevance tags over
-            # the cap, and never invents a skill. Uses the SORTED profile_json (still bound
-            # here — the photo step below rebinds `profile_json` to the raw profile dict).
-            tailored = _tailor_skills_to_jd(
-                tailored, profile_json, job_dict, keyword_ledger
-            )
-
-            # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
-            # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
-            # "Good Practice") back to the vault's exact string. MUST run before the
-            # #376 guard just below, so that guard's near-dupe check compares against
-            # the FINAL corrected spelling, not an intermediate mangled one. Only ever
-            # rewrites a name already present; never adds or removes an entry.
-            tailored = _restore_skill_spelling(tailored, profile_json)
-
-            # #376 (ADR-064 charter run, section 4 finding F3): a skill named in a
-            # generated bullet ("SAP PP und SAP MM") but missing from the generated
-            # skills list ("SAP PP" only) -- the document contradicting itself. MUST
-            # run LAST in the skills pipeline -- after every selection/cap/drop/
-            # spelling pass above, and BEFORE tailored_data/the ATS audit are
-            # persisted below, so the audit (and any human reader) sees the final,
-            # self-consistent document. Only ever ADDS a name already known-true and
-            # already narrated; never invents, reorders, or removes an entry.
-            tailored = _restore_narrative_named_skills(tailored, profile_json, keyword_ledger)
-
-            # Populate photo_url from master profile's personal_info.
-            # Stored path; resolved to base64 at render time in get_cv_html.
-            profile_json = profile.profile_json or {}
-            photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
-            if photo_url:
-                tailored = tailored.model_copy(update={
-                    "contact": tailored.contact.model_copy(update={"photo_url": photo_url})
-                })
 
             from applire.services.cv_section_editor import build_content_snapshot
             record.content_snapshot = build_content_snapshot(tailored)
@@ -2771,16 +2688,28 @@ async def _render_cv_background(
             # The frontend fetches the report once with no retry — if status went 'ready'
             # before the report was written, that single fetch read NULL and showed
             # "unavailable" permanently. status is set in memory FIRST so get_cv_html
-            # (which is ready-guarded) sees it via autoflush; _update_ats_report issues
-            # the one commit. An audit failure is non-fatal: it leaves ats_report NULL but
-            # still commits status='ready'.
+            # (which is ready-guarded) sees it via autoflush; the commit at the end of
+            # this block persists status + reports together. An audit failure is
+            # non-fatal: it leaves ats_report NULL but still commits status='ready'.
+            # Under READ COMMITTED no reader observes the in-memory 'ready' before
+            # that commit (ADR-076 amendment 3 precision note).
             record.status = CVGenerationStatus.ready.value
             # E042/US238 (ADR-051 §4): arm the bounded measure-and-condense loop with the
-            # resolved target + feedforward budget already computed above. The loop counts
-            # the rendered pages and deterministically condenses on overrun, rebuilds the
-            # snapshot from the final data, then audits — all in the one ready-commit.
+            # resolved target + feedforward budget already computed above. ADR-076
+            # clause 3 (#538): the loop runs BEFORE the terminal verdict — no content
+            # write may happen after it — with mechanism, bounds, bail rule and
+            # RENDER_BUDGET_ITERATION instrumentation unchanged.
             condense_ctx = CondenseContext(budgets=budget, target=resolved_target_pages)
-            await _update_ats_report(record, db, condense_ctx)   # ADR-039 — commits status + report together
+            try:
+                measured = await _measure_and_condense(record, db, condense_ctx)
+            except Exception:
+                logger.exception(
+                    "measure-and-condense failed for CV %s — continuing unmeasured; "
+                    "the audit renders on its own and must never fail generation",
+                    record.id,
+                )
+                measured = None
+            await _update_ats_report(record, db, measured=measured)
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -2794,6 +2723,128 @@ async def _render_cv_background(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _compose_document(
+    prose_draft: dict,
+    profile_json: dict,
+    *,
+    raw_profile_json: dict,
+    keyword_ledger: list[dict],
+    budget: "BudgetResult",
+    job_dict: dict,
+    language: str,
+) -> TailoredCVData:
+    """ADR-076 clause 3 (#538): the CV's ENTIRE deterministic tail as one pure,
+    re-runnable function — the E049/ADR-067 join, the ADR-040/ADR-067 compose
+    block (nesting, certifications, role facts, photo), and the not-yet-migrated
+    SIGNAL-fated passes, in the exact pre-#538 order. Extracted verbatim so the
+    terminal review closes over the COMPOSED document and a terminal-round
+    correction is re-composed identically (reordering, never rerouting: no
+    vault-verbatim field is ever routed through a writer LLM).
+
+    ``profile_json`` is the SORTED, ``exclude_unconfirmed``-filtered generation
+    copy every pass reads; ``raw_profile_json`` is the candidate's persisted
+    profile dict, used ONLY for the photo patch (the pre-#538 inline code
+    rebound the name for exactly that step).
+
+    Per-pass fates stay with the #540 dispositioning table (canonical per
+    ADR-076 amendment 3) — this function changes no pass mechanism and adds
+    none. When a SIGNAL pass migrates, it leaves this function; the compose
+    block stays.
+    """
+    # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
+    # facts (contact, employer/role/dates by id, education, languages).
+    # Fail-closed on an unknown id; shared by both generation paths.
+    tailored = TailoredCVData.model_validate(
+        assemble_tailored_cv(prose_draft, profile_json)
+    )
+
+    # US187: deterministically nest source projects under their parent
+    # position (or the standalone list). The LLM tailors prose; code
+    # disposes. Runs after assembly (it matches on the joined company/role
+    # identity). The nested copies are verbatim vault facts — like
+    # education, they are carried in the vault's own language (ADR-067:
+    # transcription is not re-worded by any LLM pass).
+    tailored = _nest_projects(tailored, profile_json)
+
+    # PQ F7: deterministically copy the profile's certifications verbatim
+    # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
+    # single-call and segmented paths, since both converge here.
+    tailored = _apply_certifications(tailored, profile_json)
+
+    # #328: deterministically copy each work entry's quantified role facts
+    # (team_size / budget_managed / industry_context) from the vault onto the
+    # matching tailored entry, for rendering as document furniture (ADR-062
+    # clause 1) — bypassing prose (and the writer LLM) entirely. Matched by
+    # the WorkEntry.id identity assemble_tailored_cv establishes
+    # structurally, never by company-name string. Uses the SORTED
+    # profile_json.
+    tailored = _apply_role_facts(tailored, profile_json)
+
+    # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
+    # verbatim vault bullet that carries a claimable Keyword Ledger concept the
+    # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
+    # the budget uses (structural since assemble_tailored_cv).
+    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
+
+    # #261 (run-4 blind hiring-panel finding): deterministically prefer a
+    # MEASURED outcome over a bare target/projection for the same initiative
+    # (owner-scoped via the #196/#244 attribution machinery). MUST run after
+    # _restore_ledger_bullets so a restored vault bullet is also covered.
+    tailored = _prefer_measured_outcomes(tailored, profile_json, language)
+
+    # #172: collapse near-duplicate skill tags (the shared ats_audit
+    # predicate) so the CV is clean even when the master profile still
+    # carries twins. After the language pass, which rewords the tags.
+    tailored = _dedup_skills(tailored)
+
+    # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
+    # tags that are JD/ledger-concept echoes with no deterministic vault tie
+    # (both blind reviewers independently flagged these as keyword-stuffing).
+    # #386 reorder: runs BEFORE #192's cap — the cap used to rank doomed
+    # echoes as tier-0 and starve vault-confirmed skills (ISO 9001) out of
+    # the page, only for this pass to then delete the very entries the cap
+    # protected. A dropped tag cannot be re-added below: the #192 guarantee
+    # pool is vault skills only, and dropped ⇒ no vault tie.
+    tailored = _drop_ungrounded_jd_echo_skills(
+        tailored, profile_json, job_dict, keyword_ledger
+    )
+
+    # #192: present a prioritised, JD-relevant SUBSET of the candidate's skills
+    # instead of the whole master profile. Deterministic, downstream of the LLM +
+    # language pass (so it ranks the final target-language tags): guarantees the
+    # JD-required skills the candidate actually has, drops no-relevance tags over
+    # the cap, and never invents a skill.
+    tailored = _tailor_skills_to_jd(tailored, profile_json, job_dict, keyword_ledger)
+
+    # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
+    # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
+    # "Good Practice") back to the vault's exact string. MUST run before the
+    # #376 guard just below, so that guard's near-dupe check compares against
+    # the FINAL corrected spelling, not an intermediate mangled one. Only ever
+    # rewrites a name already present; never adds or removes an entry.
+    tailored = _restore_skill_spelling(tailored, profile_json)
+
+    # #376 (ADR-064 charter run, section 4 finding F3): a skill named in a
+    # generated bullet ("SAP PP und SAP MM") but missing from the generated
+    # skills list ("SAP PP" only) -- the document contradicting itself. MUST
+    # run LAST in the skills pipeline -- after every selection/cap/drop/
+    # spelling pass above, and BEFORE tailored_data/the ATS audit are
+    # persisted, so the audit (and any human reader) sees the final,
+    # self-consistent document. Only ever ADDS a name already known-true and
+    # already narrated; never invents, reorders, or removes an entry.
+    tailored = _restore_narrative_named_skills(tailored, profile_json, keyword_ledger)
+
+    # Populate photo_url from master profile's personal_info.
+    # Stored path; resolved to base64 at render time in get_cv_html.
+    photo_url = (raw_profile_json.get("personal_info") or {}).get("photo_url")
+    if photo_url:
+        tailored = tailored.model_copy(update={
+            "contact": tailored.contact.model_copy(update={"photo_url": photo_url})
+        })
+
+    return tailored
 
 
 async def _load_cv(cv_id: uuid.UUID, db: AsyncSession) -> GeneratedCV:
@@ -2963,23 +3014,156 @@ def _vault_skill_forms_for_audit(profile_json: dict | None) -> list[str]:
     return forms
 
 
+@dataclass
+class MeasuredRender:
+    """The measure-and-condense loop's outcome, handed forward so downstream
+    consumers (the terminal review's render-measure block, the ATS audit) read
+    the SAME measurement instead of re-rendering (#538). ``text`` is the
+    extracted PDF text of the final render; ``page_count`` its page count."""
+
+    text: str
+    page_count: int
+    condensation_exhausted: bool
+    target: int
+    region: str
+
+
+async def _measure_and_condense(
+    record: GeneratedCV,
+    db: AsyncSession,
+    condense_ctx: CondenseContext,
+) -> MeasuredRender:
+    """E042/US238 (ADR-051 §4): the bounded measure-and-condense loop — render,
+    count pages, and on overrun apply the deterministic ``condense_to_budget``
+    pass (max 2 iterations), re-rendering between passes and rebuilding
+    ``content_snapshot`` from the final condensed data so the section editor
+    never serves pre-condense bullets (amendment §2).
+
+    ADR-076 clause 3 (#538): moved OUT of ``_update_ats_report`` and ahead of
+    the terminal review — a content write may not happen after the terminal
+    verdict, so the length mechanism runs before it and the verdict sees the
+    real render measure. Mechanism, bounds, the section-overrides bail rule
+    (amendment §1) and the RENDER_BUDGET_ITERATION instrumentation are
+    unchanged from the pre-#538 inline loop. The pass's fate stays with the
+    #540 table (SIGNAL split, layered fallback-apply — ADR-076 amendment 3);
+    this move changes its position, not its pen.
+
+    Raises on render-engine failure — the CALLER degrades to an unmeasured
+    delivery (the audit renders on its own and never fails generation).
+    """
+    from applire.services.ats_audit import extract_text_and_pages
+    from applire.services.cv_budget import condense_to_budget
+    from applire.services.cv_section_editor import build_content_snapshot
+
+    target = condense_ctx.target
+    region = condense_ctx.budgets.region
+    condensation_exhausted = False
+
+    # Bail rule (amendment §1): never condense over an override. A section PATCH can
+    # land mid-generation; the audit render applies overrides the loop must not fight.
+    if record.section_overrides:
+        html = await get_cv_html(record.id, db)
+        pdf = await _html_to_pdf(html)
+        text, count = extract_text_and_pages(pdf)
+        return MeasuredRender(text, count, False, target, region)
+
+    # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
+    text = ""
+    count = 0
+    # ADR-076 Amendment 3 §3 (RENDER_BUDGET_ITERATION instrumentation): a
+    # fired iteration's "after" page count is only known at the NEXT
+    # measurement this loop already takes — the top of the following
+    # iteration, or the final re-render in the `else` clause below — so
+    # `pending_iteration` holds the fired iteration's number and its
+    # "before" count until that measurement lands. No render is added
+    # purely to observe it; this only reads counts the loop already
+    # computes for its own purposes.
+    pending_iteration: tuple[int, int] | None = None
+    for iteration in (1, 2):
+        html = await get_cv_html(record.id, db)
+        pdf = await _html_to_pdf(html)
+        text, count = extract_text_and_pages(pdf)
+        if pending_iteration is not None:
+            prev_iteration, prev_before = pending_iteration
+            _log_render_budget_iteration(
+                cv_id=record.id, iteration=prev_iteration,
+                pages_before=prev_before, pages_after=count, target=target,
+                condense_fired=True, condensation_exhausted=False,
+            )
+            pending_iteration = None
+        if count <= target:
+            _log_render_budget_iteration(
+                cv_id=record.id, iteration=iteration, pages_before=count,
+                pages_after=count, target=target, condense_fired=False,
+                condensation_exhausted=False,
+            )
+            break
+        condensed, changed = condense_to_budget(
+            record.tailored_data, condense_ctx.budgets, iteration
+        )
+        if not changed:
+            # Nothing left to cut — the overrun is structural (education/skills).
+            condensation_exhausted = True
+            _log_render_budget_iteration(
+                cv_id=record.id, iteration=iteration, pages_before=count,
+                pages_after=count, target=target, condense_fired=False,
+                condensation_exhausted=True,
+            )
+            break
+        record.tailored_data = condensed
+        # Snapshot rebuild (amendment §2): rebuild IMMEDIATELY, in the same
+        # breath as the tailored_data mutation — not after the loop settles.
+        # Whole-branch review Finding 3: if the next iteration's re-render
+        # raises (caught by the caller / the audit's except), the commit must
+        # never see condensed tailored_data paired with a stale pre-condense
+        # snapshot (the section editor would re-serve pre-condense bullets,
+        # the silent un-condense trap, reopened via this error path).
+        record.content_snapshot = build_content_snapshot(
+            TailoredCVData.model_validate(record.tailored_data)
+        )
+        pending_iteration = (iteration, count)
+    else:
+        # Both iterations applied without meeting the target — measure the final
+        # render and report the honest state.
+        html = await get_cv_html(record.id, db)
+        pdf = await _html_to_pdf(html)
+        text, count = extract_text_and_pages(pdf)
+        condensation_exhausted = count > target
+        if pending_iteration is not None:
+            prev_iteration, prev_before = pending_iteration
+            _log_render_budget_iteration(
+                cv_id=record.id, iteration=prev_iteration,
+                pages_before=prev_before, pages_after=count, target=target,
+                condense_fired=True,
+                condensation_exhausted=condensation_exhausted,
+            )
+    return MeasuredRender(text, count, condensation_exhausted, target, region)
+
+
 async def _update_ats_report(
     record: GeneratedCV,
     db: AsyncSession,
-    condense_ctx: CondenseContext | None = None,
+    *,
+    measured: MeasuredRender | None = None,
+    commit: bool = True,
 ) -> None:
-    """ADR-039 + E042/US238: render → (bounded measure-and-condense) → audit → persist.
+    """ADR-039: render (unless already measured) → audit → persist. Audit-only —
+    the measure-and-condense loop lives in ``_measure_and_condense`` since #538
+    (ADR-076 clause 3: no content write after the terminal verdict), so this
+    function never mutates ``tailored_data``. No LLM writer calls; the reports
+    it persists are measurement-only (ADR-062 clause 5).
 
-    With a ``condense_ctx`` (only the generation path supplies one) this runs the
-    bounded loop: render, count pages, and if the document overruns ``target`` apply
-    the deterministic ``condense_to_budget`` pass (max 2 iterations), re-rendering
-    between passes and rebuilding ``content_snapshot`` from the final condensed data so
-    the section editor never serves pre-condense bullets (amendment §2). Without a ctx
-    — or when ``section_overrides`` already exist (a PATCH landed mid-generation,
-    amendment §1) — it is audit-only, exactly today's behaviour. No LLM calls (§7).
+    ``measured`` (generation path): reuse the loop's final render measurement
+    instead of re-rendering. ``None`` (section-editor re-audit, agent-authored
+    re-audit, legacy rows): render here and resolve the target from the row —
+    exactly the pre-#538 audit-only behaviour.
 
-    The page-length audit is target-aware and, when the loop exhausts its budget and
-    the document still exceeds the region max, is told so for honest wording.
+    ``commit=False`` (generation path): the caller owns the single ready-commit
+    so the #538 subject-identity check can run between audit and commit.
+
+    The page-length audit is target-aware and, when the condense loop exhausted
+    its budget and the document still exceeds the region max, is told so for
+    honest wording.
 
     Engine errors leave ats_report NULL, never raise — an audit failure must NEVER
     fail or alter generation status. Deliberately wipes any previous report on error:
@@ -2987,96 +3171,18 @@ async def _update_ats_report(
     """
     try:
         from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
-        from applire.services.cv_budget import condense_to_budget
-        from applire.services.cv_section_editor import (
-            apply_overrides_to_tailored,
-            build_content_snapshot,
-        )
+        from applire.services.cv_section_editor import apply_overrides_to_tailored
 
-        # Bail rule (amendment §1): never condense over an override. A section PATCH can
-        # land mid-generation; the audit render applies overrides the loop must not fight.
-        do_condense = condense_ctx is not None and not record.section_overrides
-        if condense_ctx is not None:
-            target = condense_ctx.target
-            region = condense_ctx.budgets.region
+        if measured is not None:
+            text = measured.text
+            count = measured.page_count
+            condensation_exhausted = measured.condensation_exhausted
+            target = measured.target
+            region = measured.region
         else:
             target = await _resolve_audit_target(record, db)
             region = DEFAULT_REGION
-
-        condensation_exhausted = False
-
-        if do_condense:
-            # Bounded measure-and-condense loop (max 2 condense iterations, ADR-051 §4/§6).
-            text = ""
-            count = 0
-            # ADR-076 Amendment 3 §3 (RENDER_BUDGET_ITERATION instrumentation): a
-            # fired iteration's "after" page count is only known at the NEXT
-            # measurement this loop already takes — the top of the following
-            # iteration, or the final re-render in the `else` clause below — so
-            # `pending_iteration` holds the fired iteration's number and its
-            # "before" count until that measurement lands. No render is added
-            # purely to observe it; this only reads counts the loop already
-            # computes for its own purposes.
-            pending_iteration: tuple[int, int] | None = None
-            for iteration in (1, 2):
-                html = await get_cv_html(record.id, db)
-                pdf = await _html_to_pdf(html)
-                text, count = extract_text_and_pages(pdf)
-                if pending_iteration is not None:
-                    prev_iteration, prev_before = pending_iteration
-                    _log_render_budget_iteration(
-                        cv_id=record.id, iteration=prev_iteration,
-                        pages_before=prev_before, pages_after=count, target=target,
-                        condense_fired=True, condensation_exhausted=False,
-                    )
-                    pending_iteration = None
-                if count <= target:
-                    _log_render_budget_iteration(
-                        cv_id=record.id, iteration=iteration, pages_before=count,
-                        pages_after=count, target=target, condense_fired=False,
-                        condensation_exhausted=False,
-                    )
-                    break
-                condensed, changed = condense_to_budget(
-                    record.tailored_data, condense_ctx.budgets, iteration
-                )
-                if not changed:
-                    # Nothing left to cut — the overrun is structural (education/skills).
-                    condensation_exhausted = True
-                    _log_render_budget_iteration(
-                        cv_id=record.id, iteration=iteration, pages_before=count,
-                        pages_after=count, target=target, condense_fired=False,
-                        condensation_exhausted=True,
-                    )
-                    break
-                record.tailored_data = condensed
-                # Snapshot rebuild (amendment §2): rebuild IMMEDIATELY, in the same
-                # breath as the tailored_data mutation — not after the loop settles.
-                # Whole-branch review Finding 3: if the next iteration's re-render
-                # raises (caught by the except below), the commit there must never
-                # see condensed tailored_data paired with a stale pre-condense
-                # snapshot (the section editor would re-serve pre-condense bullets,
-                # the silent un-condense trap, reopened via this error path).
-                record.content_snapshot = build_content_snapshot(
-                    TailoredCVData.model_validate(record.tailored_data)
-                )
-                pending_iteration = (iteration, count)
-            else:
-                # Both iterations applied without meeting the target — measure the final
-                # render and report the honest state.
-                html = await get_cv_html(record.id, db)
-                pdf = await _html_to_pdf(html)
-                text, count = extract_text_and_pages(pdf)
-                condensation_exhausted = count > target
-                if pending_iteration is not None:
-                    prev_iteration, prev_before = pending_iteration
-                    _log_render_budget_iteration(
-                        cv_id=record.id, iteration=prev_iteration,
-                        pages_before=prev_before, pages_after=count, target=target,
-                        condense_fired=True,
-                        condensation_exhausted=condensation_exhausted,
-                    )
-        else:
+            condensation_exhausted = False
             html = await get_cv_html(record.id, db)
             pdf = await _html_to_pdf(html)
             text, count = extract_text_and_pages(pdf)
@@ -3182,7 +3288,8 @@ async def _update_ats_report(
             record.id,
         )
         record.critic_report = None
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
@@ -3363,8 +3470,9 @@ async def render_agent_cv(
     )
     db.add(record)
     await db.flush()
-    # Audit-only tail (no condense_ctx → never mutates content): renders,
-    # measures, audits, self-audits, and commits status + both reports together.
-    await _update_ats_report(record, db, None)
+    # Audit-only tail (never mutates content — #538 moved the condense loop
+    # out of the audit entirely): renders, measures, audits, self-audits, and
+    # commits status + both reports together.
+    await _update_ats_report(record, db)
     await db.refresh(record)
     return record

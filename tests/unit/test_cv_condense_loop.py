@@ -15,7 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""E042 Task 1.3 (US238): the bounded measure-and-condense loop inside _update_ats_report.
+"""E042 Task 1.3 (US238): the bounded measure-and-condense loop — since #538
+(ADR-076 clause 3) extracted to ``_measure_and_condense`` and run BEFORE the
+terminal verdict; ``_update_ats_report`` is audit-only and consumes the loop's
+``MeasuredRender``. ``_run_loop_then_audit`` below mirrors the generation
+path's calling convention (degrade-to-unmeasured on render failure).
 
 The Playwright render seam (get_cv_html / _html_to_pdf) and the page-count seam
 (extract_text_and_pages) are mocked — never launch a browser in a unit test. The real
@@ -128,6 +132,19 @@ def _page_check(report_dict):
     return next((c for c in report_dict["checks"] if c["id"] == "page-length"), None)
 
 
+async def _run_loop_then_audit(cv, db, ctx):
+    """Mirror of the generation path since #538: measure-and-condense first
+    (degrading to an unmeasured audit on render failure, exactly like
+    ``_render_cv_background``), then the audit-only ``_update_ats_report``."""
+    from applire.services.cv import _measure_and_condense, _update_ats_report
+
+    try:
+        measured = await _measure_and_condense(cv, db, ctx)
+    except Exception:
+        measured = None
+    await _update_ats_report(cv, db, measured=measured)
+
+
 def _patches(page_counts):
     """Patch the render + page-count seam; extract returns the given counts in order."""
     extract = MagicMock(side_effect=[("text", c) for c in page_counts])
@@ -143,11 +160,11 @@ def _patches(page_counts):
 @pytest.mark.asyncio
 async def test_overrun_condenses_then_meets_target(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     extract, ps = _patches([3, 2])  # 3 pages → condense → 2 pages
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     assert len(cv.tailored_data["work_history"][0]["bullets"]) == 2, "role trimmed to ceiling"
     assert extract.call_count == 2, "one render before + one after the single condense"
@@ -169,16 +186,17 @@ async def test_snapshot_matches_condensed_data_when_mid_loop_rerender_raises(db)
     that diverges.
     """
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     # First render succeeds (4 pages, over target → condense once). The re-render at
-    # the top of iteration 2 raises instead of returning html.
+    # the top of iteration 2 raises instead of returning html; the audit fallback
+    # render (measured=None path) raises too — StopAsyncIteration past the list.
     html_mock = AsyncMock(side_effect=["<html></html>", RuntimeError("render boom")])
     extract = MagicMock(side_effect=[("text", 4)])
     with patch("applire.services.cv.get_cv_html", new=html_mock), \
          patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
          patch("applire.services.ats_audit.extract_text_and_pages", new=extract):
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     # Engine-error rule (ADR-039) still holds: ats_report is left NULL, never raises.
     assert cv.ats_report is None
@@ -193,11 +211,11 @@ async def test_snapshot_matches_condensed_data_when_mid_loop_rerender_raises(db)
 @pytest.mark.asyncio
 async def test_snapshot_rebuilt_after_condense(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     _, ps = _patches([3, 2])
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     # The section editor serves content_snapshot — it must reflect the condensed bullets,
     # not the pre-condense five (amendment §2, the silent un-condense trap).
@@ -210,11 +228,11 @@ async def test_snapshot_rebuilt_after_condense(db):
 @pytest.mark.asyncio
 async def test_under_target_skips_condensation(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     extract, ps = _patches([2])  # already at target on first render
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     assert len(cv.tailored_data["work_history"][0]["bullets"]) == 5, "no condense"
     assert extract.call_count == 1
@@ -225,12 +243,12 @@ async def test_under_target_skips_condensation(db):
 @pytest.mark.asyncio
 async def test_max_two_iterations_then_exhausted(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     # Always over target: render(orig)=4, render(after iter1)=4, render(after iter2)=4.
     extract, ps = _patches([4, 4, 4])
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     assert extract.call_count == 3, "orig + after-iter1 + after-iter2 (2 condense passes max)"
     # iter1 ceiling 2 → 2 bullets; iter2 ceiling 1 → 1 bullet.
@@ -242,12 +260,12 @@ async def test_max_two_iterations_then_exhausted(db):
 @pytest.mark.asyncio
 async def test_no_change_stops_early_and_reports_exhausted(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     # Over max but the ceiling already fits all 5 bullets → nothing to cut → exhausted.
     extract, ps = _patches([4])
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(5), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(5), 2))
 
     assert extract.call_count == 1
     assert len(cv.tailored_data["work_history"][0]["bullets"]) == 5, "unchanged"
@@ -260,11 +278,11 @@ async def test_no_change_stops_early_and_reports_exhausted(db):
 @pytest.mark.asyncio
 async def test_existing_overrides_bail_no_condense(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2, section_overrides={"introduction": "Hi"})
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     extract, ps = _patches([4])  # over target, but overrides → single audit only
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     assert extract.call_count == 1, "audit once, no condense loop"
     assert len(cv.tailored_data["work_history"][0]["bullets"]) == 5, "tailored_data untouched"
@@ -277,9 +295,9 @@ async def test_section_editor_path_never_condenses(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
     from applire.services.cv import _update_ats_report
 
-    extract, ps = _patches([4])  # over target, but ctx=None → audit-only
+    extract, ps = _patches([4])  # over target; audit-only entrypoint (no loop)
     with ps[0], ps[1], ps[2]:
-        await _update_ats_report(cv, db, None)
+        await _update_ats_report(cv, db)
 
     assert extract.call_count == 1
     assert len(cv.tailored_data["work_history"][0]["bullets"]) == 5, "no condensation on re-audit"
@@ -298,7 +316,7 @@ async def test_null_target_row_resolves_target_at_audit(db):
     with ps[0], ps[1], ps[2]:
         # _resolve_audit_target queries UserSettings; no settings row → resolve to the
         # region standard (2).
-        await _update_ats_report(cv, db, None)
+        await _update_ats_report(cv, db)
 
     pc = _page_check(cv.ats_report)
     assert pc["status"] == "pass" and pc["details"] is None  # 2 <= standard 2, no advisory
@@ -313,7 +331,7 @@ async def test_second_render_sees_condensed_tailored_data(db):
     scripted page schedule, so the loop can only terminate because the condense pass
     actually changed the data the second render reads."""
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import _update_ats_report, CondenseContext
+    from applire.services.cv import CondenseContext
 
     async def echo_html(cv_id, session):
         n = len(cv.tailored_data["work_history"][0]["bullets"])
@@ -330,7 +348,7 @@ async def test_second_render_sees_condensed_tailored_data(db):
     with patch("applire.services.cv.get_cv_html", new=echo_html), \
          patch("applire.services.cv._html_to_pdf", new=html_to_pdf), \
          patch("applire.services.ats_audit.extract_text_and_pages", new=extract_mock):
-        await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+        await _run_loop_then_audit(cv, db, CondenseContext(_budget(2), 2))
 
     # 5 bullets → 3 pages → condense to 2 → the echoed render now reports 2 pages.
     assert extract_mock.call_count == 2
