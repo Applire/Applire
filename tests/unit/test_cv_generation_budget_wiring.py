@@ -249,17 +249,20 @@ async def test_render_cv_background_threads_the_real_budget_into_the_tailoring_c
         from applire.services.cv import _render_cv_background
         await _render_cv_background(cv_id, job_id, profile_id, "classic_german")
 
-    assert len(coverage_budgets_seen) == 1, (
-        f"expected exactly 1 coverage_reviewer_prompt_fn call in the tailoring loop, "
+    # Two consumers since #538: the tailoring loop AND the terminal review —
+    # BOTH must thread the real budget (a None in either silently disables the
+    # ADR-076 clause 6 rank gate for that round).
+    assert len(coverage_budgets_seen) == 2, (
+        f"expected 2 coverage_reviewer_prompt_fn calls (tailoring + terminal), "
         f"saw {len(coverage_budgets_seen)}"
     )
-    cb = coverage_budgets_seen[0]
-    assert isinstance(cb, CoverageBudget), (
-        "budget=None reached coverage_reviewer_prompt_fn — the ADR-076 clause 6 "
-        "rank gate is silently disabled for the tailoring loop"
-    )
-    # target_pages=3 -> top ceiling 6 (see the sibling test above); one role only.
-    assert cb.capacity == 6
+    for cb in coverage_budgets_seen:
+        assert isinstance(cb, CoverageBudget), (
+            "budget=None reached coverage_reviewer_prompt_fn — the ADR-076 clause 6 "
+            "rank gate is silently disabled for one of the review rounds"
+        )
+        # target_pages=3 -> top ceiling 6 (see the sibling test above); one role only.
+        assert cb.capacity == 6
 
 
 @pytest.mark.asyncio

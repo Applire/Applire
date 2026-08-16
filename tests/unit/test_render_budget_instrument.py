@@ -16,7 +16,9 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """ADR-076 Amendment 3 §3 — the RENDER_BUDGET_ITERATION instrument on the
-measure-and-condense loop in ``_update_ats_report`` (cv.py).
+measure-and-condense loop — since #538 (ADR-076 clause 3) extracted to
+``_measure_and_condense`` (cv.py) and run ahead of the terminal verdict;
+mechanism and instrumentation unchanged.
 
 Reuses the loop-level fixtures/patches from ``test_cv_condense_loop.py`` (same
 render + page-count seams mocked, same ``_seed_cv``/``_budget`` helpers) so the
@@ -70,12 +72,12 @@ def _render_budget_lines(caplog):
 @pytest.mark.asyncio
 async def test_line_emitted_when_condense_fires_and_meets_target(db, caplog):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([3, 2])  # 3 pages -> condense -> 2 pages
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
 
     lines = _render_budget_lines(caplog)
     assert len(lines) == 2, "iteration 1 (fired) + iteration 2 (re-check, no fire)"
@@ -101,12 +103,12 @@ async def test_line_emitted_when_condense_fires_and_meets_target(db, caplog):
 @pytest.mark.asyncio
 async def test_line_emitted_when_condense_does_not_fire(db, caplog):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([2])  # already at target
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
 
     lines = _render_budget_lines(caplog)
     assert len(lines) == 1
@@ -122,12 +124,12 @@ async def test_line_emitted_when_condense_does_not_fire(db, caplog):
 @pytest.mark.asyncio
 async def test_line_emitted_and_warns_when_nothing_left_to_cut(db, caplog):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([4])  # over target, but ceiling already fits every bullet
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(5), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(5), 2))
 
     lines = _render_budget_lines(caplog)
     assert len(lines) == 1
@@ -144,12 +146,12 @@ async def test_line_emitted_and_warns_when_nothing_left_to_cut(db, caplog):
 @pytest.mark.asyncio
 async def test_line_emitted_for_both_iterations_when_max_reached_and_exhausted(db, caplog):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([4, 4, 4])
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
 
     lines = _render_budget_lines(caplog)
     assert len(lines) == 2
@@ -179,7 +181,7 @@ async def test_section_editor_reaudit_path_emits_no_line(db, caplog):
     _, ps = _patches([4])
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, None)
+            await _update_ats_report(cv, db)
 
     assert _render_budget_lines(caplog) == []
 
@@ -191,12 +193,12 @@ async def test_bail_on_existing_overrides_emits_no_line(db, caplog):
     cv = await _seed_cv(
         db, n_bullets=5, target_pages=2, section_overrides={"introduction": "Hi"}
     )
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([4])
     with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
 
     assert _render_budget_lines(caplog) == []
 
@@ -210,12 +212,12 @@ async def test_iteration_field_correlates_with_tail_delete_lines(db, caplog):
     cut detail. The shared field is ``iteration`` — same name, same value,
     passed through unchanged to ``condense_to_budget`` -> ``log_cuts``."""
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense
 
     _, ps = _patches([3, 2])
     with caplog.at_level(logging.INFO):
         with ps[0], ps[1], ps[2]:
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
 
     render_lines = _render_budget_lines(caplog)
     tail_deletes = [
@@ -244,13 +246,13 @@ async def test_iteration_field_correlates_with_tail_delete_lines(db, caplog):
 @pytest.mark.asyncio
 async def test_no_line_fabricated_when_reraise_loses_the_after_measurement(db, caplog):
     """When the re-render that would supply iteration 1's ``pages_after`` raises
-    (caught by _update_ats_report's outer except, ats_report left NULL), the
-    instrument must never invent a pages_after value for the fired iteration —
-    it simply has nothing to report for that iteration."""
+    (the caller degrades to an unmeasured audit; ats_report left NULL by the
+    audit's own except), the instrument must never invent a pages_after value
+    for the fired iteration — it simply has nothing to report for it."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
-    from applire.services.cv import CondenseContext, _update_ats_report
+    from applire.services.cv import CondenseContext, _measure_and_condense, _update_ats_report
 
     html_mock = AsyncMock(side_effect=["<html></html>", RuntimeError("render boom")])
     extract = MagicMock(side_effect=[("text", 4)])
@@ -258,7 +260,12 @@ async def test_no_line_fabricated_when_reraise_loses_the_after_measurement(db, c
         with patch("applire.services.cv.get_cv_html", new=html_mock), \
              patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")), \
              patch("applire.services.ats_audit.extract_text_and_pages", new=extract):
-            await _update_ats_report(cv, db, CondenseContext(_budget(2), 2))
+            # Mirror the generation caller (#538): loop raises → unmeasured audit.
+            try:
+                measured = await _measure_and_condense(cv, db, CondenseContext(_budget(2), 2))
+            except Exception:
+                measured = None
+            await _update_ats_report(cv, db, measured=measured)
 
     assert cv.ats_report is None
     assert _render_budget_lines(caplog) == []

@@ -15,6 +15,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (#538 / ADR-076 clause 3, 2026-08-16 — the TERMINAL round
+#   variant is added: TERMINAL_REVIEW_SYSTEM_PROMPT + build_terminal_review_prompt
+#   review the COMPOSED document (the delivered artifact — vault joins,
+#   certifications, role facts, nested projects, photo all present), with the
+#   real render measure attached as context. The checks, the skills-list scope
+#   and the blocking mandate are BYTE-IDENTICAL to v7 and shared as module
+#   constants — one definition, two shape doors (ADR-066); only the SHAPE NOTE
+#   differs. The prose-round REVIEW_SYSTEM_PROMPT is byte-for-byte unchanged.
+#   The terminal SHAPE NOTE exists because of #385's lesson: a check aimed at
+#   joined fields in a shape that cannot carry them (or carries them verbatim
+#   by construction) can only fail falsely and exhausts the loop — so joined
+#   fields are declared ground-truth-by-construction, never flaggable. The
+#   render-measure block is context-only and explicitly forbids length
+#   findings (#525's exhaustion fuel).
+#   ADR-062 clause 7: prompt effect; CI pins the wording only.)
 # Prompt version: v7 (#375, 2026-08-07 — check 5's SCOPE is corrected and its
 #   reattached-figure case named, folded with v6's #289 clause into ONE instruction.
 #   Both additions opened with the same stem — "find the profile statement it comes from
@@ -90,15 +105,43 @@ import json
 
 from applire.prompts.review_severity import review_output_schema
 
-REVIEW_SYSTEM_PROMPT = """\
+# Shared building blocks (v8): ONE definition of the auditor role, the checks
+# and the mandate; two shape doors (prose round / terminal composed round).
+_AUDITOR_INTRO = """\
 You are a strict CV quality auditor. Your task is to verify that a tailored CV draft
 contains only claims that are grounded in the candidate's master profile.
 
+"""
+
+_SHAPE_NOTE_PROSE = """\
 SHAPE NOTE (ADR-067): the draft contains ONLY prose — `summary`, `work` (each entry an
 `id` plus `bullets`/`projects`), and `skills`. Employers, roles, dates, education,
 certifications and contact details are joined deterministically from the profile and are
 NOT in this draft. Their absence is correct and must never be raised as an issue.
 
+"""
+
+_SHAPE_NOTE_TERMINAL = """\
+SHAPE NOTE — TERMINAL ROUND (ADR-076 clause 3): the subject is the COMPOSED document,
+exactly as it will be delivered. Unlike the drafting rounds, employers, roles, dates,
+education, languages, certifications, quantified role facts (team_size /
+budget_managed / industry_context), nested projects and contact details ARE present:
+they were joined verbatim from the candidate's profile by code, after the writer.
+Their presence and their wording are ground truth BY CONSTRUCTION — never flag a
+joined field as fabricated, missing, altered, or an issue of any kind. Your checks
+apply to the authored content: the summary, work-entry bullets, project descriptions,
+and the skills list.
+
+POSITION NOTE for check 2 (role ownership): in THIS terminal round the deterministic,
+id-anchored attribution audit has ALREADY run (it precedes composition); after this
+round only advisory reports follow — no further enforcement round. Check 2's severity
+instruction is unchanged (report ownership suspicions as "minor", never blocking —
+you are reading prose and can misread entry ids), but do report them: here the
+visibility itself is the last in-pipeline signal, not a preview of a later fix.
+
+"""
+
+_CHECKS_AND_MANDATE = """\
 Check for ALL of the following:
 1. FABRICATED BULLETS: Every bullet in every work entry must be grounded in the CANDIDATE
    PROFILE. Flag any bullet that claims a technology, achievement, project, metric, or
@@ -180,7 +223,9 @@ is "minor" BY DEFINITION: bullet wording, bullet order, which achievement leads 
 summary phrasing that does not change what is claimed, length, repetition. You are not the CV's
 editor. You are the check on whether it tells the truth.
 
-""" + review_output_schema(
+"""
+
+_SCHEMA_AND_CLOSER = review_output_schema(
     issue_hint="specific issue with work_history index and description — empty array if nothing found",
     feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
 ) + """
@@ -188,6 +233,12 @@ editor. You are the check on whether it tells the truth.
 Keep `feedback` concise and *referential*: name the offending location (work_history index,
 field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector
 re-reads the candidate profile itself (ADR-021 amended 2026-06-29)."""
+
+REVIEW_SYSTEM_PROMPT = _AUDITOR_INTRO + _SHAPE_NOTE_PROSE + _CHECKS_AND_MANDATE + _SCHEMA_AND_CLOSER
+
+TERMINAL_REVIEW_SYSTEM_PROMPT = (
+    _AUDITOR_INTRO + _SHAPE_NOTE_TERMINAL + _CHECKS_AND_MANDATE + _SCHEMA_AND_CLOSER
+)
 
 
 def build_review_prompt(source_material: str, tailored_json: dict) -> str:
@@ -205,5 +256,54 @@ def build_review_prompt(source_material: str, tailored_json: dict) -> str:
         f"{json.dumps(tailored_json, ensure_ascii=False, indent=2)}\n\n"
         "Does the draft contain only claims grounded in the source material — no "
         "fabricated bullets, no ungrounded keywords, no overstated claims? "
+        "Return your review JSON."
+    )
+
+
+def build_terminal_review_prompt(
+    source_material: str,
+    composed_json: dict,
+    *,
+    page_count: int | None,
+    target: int,
+    condensation_exhausted: bool,
+) -> str:
+    """Build the TERMINAL-round reviewer user prompt (#538, ADR-076 clause 3).
+
+    Args:
+        source_material: The candidate's master profile JSON serialised as a string
+                         (plus the ledger/limit blocks the generation path folds in) —
+                         the same source the drafting rounds review against.
+        composed_json: The COMPOSED document — ``TailoredCVData`` dumped after the
+                       full deterministic tail, i.e. the delivered artifact.
+        page_count: The real render measure (pages) from the measure-and-condense
+                    loop, or ``None`` when measurement failed (the round still runs;
+                    the verdict simply lacks the measure).
+        target: The resolved target page count (ADR-051).
+        condensation_exhausted: True when the deterministic condense loop could not
+                    reach the target — stated for honest context, never as a mandate.
+    """
+    if page_count is not None:
+        measure = f"measured pages: {page_count}, target: {target}"
+        if condensation_exhausted:
+            measure += (
+                " — condensation exhausted: the deterministic cuts could not reach "
+                "the target"
+            )
+    else:
+        measure = f"render measure unavailable for this round (target: {target} pages)"
+    return (
+        "Terminal review: the document below is the COMPOSED artifact exactly as it "
+        "will be delivered (see SHAPE NOTE — TERMINAL ROUND).\n\n"
+        f"CANDIDATE PROFILE (source of truth):\n{source_material}\n\n"
+        f"COMPOSED CV (the delivered document):\n"
+        f"{json.dumps(composed_json, ensure_ascii=False, indent=2)}\n\n"
+        f"RENDER MEASURE (context only): {measure}. Length is enforced by a "
+        "deterministic condense mechanism that has already run — NEVER raise a "
+        "length, page-count or 'too long / too short' finding.\n\n"
+        "Does the composed document contain only claims grounded in the source "
+        "material — no fabricated bullets, no ungrounded keywords, no overstated "
+        "claims? When naming an issue, identify the work entry by its company name "
+        "as well as its index (this composed shape includes joined entries). "
         "Return your review JSON."
     )

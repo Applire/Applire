@@ -39,7 +39,10 @@ from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as CL_REVIE
 from applire.prompts.review_cv_extraction import (
     CV_EXTRACTION_REVIEW_SYSTEM_PROMPT as CV_EXTRACT_REVIEW,
 )
-from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT as CV_TAILOR_REVIEW
+from applire.prompts.review_cv_tailoring import (
+    REVIEW_SYSTEM_PROMPT as CV_TAILOR_REVIEW,
+    TERMINAL_REVIEW_SYSTEM_PROMPT as CV_TERMINAL_REVIEW,
+)
 from applire.prompts.review_cv_language import (
     CV_LANGUAGE_REVIEW_SYSTEM_PROMPT as CV_LANGUAGE_REVIEW,
 )
@@ -58,6 +61,11 @@ REVIEWER_PROMPTS = {
     # _review_cv_language) opens "You are a language reviewer for an AI-generated,
     # tailored CV draft..." — recognised by mock.py's "language reviewer" match.
     "cv_language": CV_LANGUAGE_REVIEW,
+    # #538 (ADR-076 clause 3): the TERMINAL round shares the v7 checks body and
+    # the "CV quality auditor" opening with the prose round — recognised by the
+    # same mock fingerprint. Pinned separately so a future reword of the shared
+    # intro cannot silently unrecognise the terminal chain alone.
+    "cv_terminal_review": CV_TERMINAL_REVIEW,
     "job_analysis": JD_REVIEW,
 }
 
