@@ -1358,10 +1358,14 @@ async def _render_cover_letter_background(
                     pdf_bytes=pdf_bytes,
                     measured=measured,
                     reviews_enabled=_reviews_enabled,
+                    # ADR-051 §6: the ONE bounded condense is a per-DELIVERY
+                    # budget — a re-entry must not mint a second rewrite.
+                    condense_spent=condense_used,
                 )
                 pdf_bytes, measured = tr.pdf_bytes, tr.measured
                 terminal_rounds += tr.rounds
                 reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                condense_used = condense_used or tr.condense_used
                 verdict_hash = subject_hash(cl.letter_data)
 
             # Now flip to 'ready' — the report is already committed, so the frontend's
@@ -1566,6 +1570,7 @@ async def _terminal_review_letter(
     pdf_bytes: bytes | None,
     measured: MeasuredLetter,
     reviews_enabled: bool = True,
+    condense_spent: bool = False,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539): the letter's TERMINAL review — the verdict that
     closes over the COMPOSED letter (the delivered artifact) with the real
@@ -1613,7 +1618,13 @@ async def _terminal_review_letter(
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
-    condense_state = {"used": False}
+    # ADR-051 §6's bound is PER DELIVERY, not per invocation: the caller passes
+    # ``condense_spent=True`` on a subject-identity re-entry so the second
+    # terminal invocation cannot mint a second condense generation (adversarial
+    # pre-propagation finding, 2026-08-16 — a fresh per-invocation flag would
+    # have allowed two rewrites when a post-verdict mutation coincided with a
+    # still-over-norm render).
+    condense_state = {"used": condense_spent}
 
     def _subject_of(d: dict) -> dict:
         key = _canon(d)

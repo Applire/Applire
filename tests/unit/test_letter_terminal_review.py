@@ -564,6 +564,48 @@ async def test_review_layer_disabled_still_condenses_but_skips_the_verdict(db, c
     assert "match=True" in lines[0].getMessage()
 
 
+@pytest.mark.asyncio
+async def test_identity_reentry_does_not_mint_a_second_condense(db, caplog):
+    """ADR-051 §6's bound is per DELIVERY, not per invocation (adversarial
+    pre-propagation finding, 2026-08-16): when a post-verdict mutation forces
+    the identity re-entry AND the mutated content still renders over the page
+    norm, the second terminal invocation must NOT fire a second condense
+    generation — the single bounded rewrite is already spent
+    (``condense_spent`` threaded across invocations)."""
+    caplog.set_level(logging.INFO, logger="applire.services.cover_letter")
+    ids = await _seed(db)
+
+    fired = {"n": 0}
+
+    async def mutating_update(cl, db_, pdf=None):
+        if fired["n"] == 0:
+            fired["n"] = 1
+            data = dict(cl.letter_data)
+            body = dict(data["body"])
+            body["paragraphs"] = list(body["paragraphs"]) + ["INJECTED-POST-VERDICT"]
+            data["body"] = body
+            cl.letter_data = data
+
+    # initial render: 2 pages (over) → condense; post-condense: 1; the identity
+    # re-entry's re-render: 2 again (over) — the second invocation must skip.
+    captured, calls = await _run_pipeline(
+        db, ids,
+        pages=[2, 1, 2, 2],
+        extra_patches=[patch(
+            "applire.services.cover_letter._update_ats_report_letter",
+            new=mutating_update,
+        )],
+    )
+
+    assert calls["condense"] == 1, \
+        "the per-delivery condense budget is spent — no second rewrite on re-entry"
+    assert len(captured) == 2, "the mutation still re-enters the terminal review"
+
+    from applire.models.cover_letter import GeneratedCoverLetter
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.status == "ready"
+
+
 # --- #525 replay (evidence layer 2a): run A, 2026-08-14, operations_marcus_de
 
 
