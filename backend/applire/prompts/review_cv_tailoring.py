@@ -132,6 +132,13 @@ joined field as fabricated, missing, altered, or an issue of any kind. Your chec
 apply to the authored content: the summary, work-entry bullets, project descriptions,
 and the skills list.
 
+POSITION NOTE for check 2 (role ownership): in THIS terminal round the deterministic,
+id-anchored attribution audit has ALREADY run (it precedes composition); after this
+round only advisory reports follow — no further enforcement round. Check 2's severity
+instruction is unchanged (report ownership suspicions as "minor", never blocking —
+you are reading prose and can misread entry ids), but do report them: here the
+visibility itself is the last in-pipeline signal, not a preview of a later fix.
+
 """
 
 _CHECKS_AND_MANDATE = """\

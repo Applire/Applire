@@ -2718,6 +2718,7 @@ async def _render_cv_background(
             # LLM_REVIEW_MAX_RETRIES=0 disables it with the rest of the review
             # layer (mirrors review_and_refine's own short-circuit).
             terminal_rounds = 0
+            reentry_exhausted = False
             if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
                 tr = await _terminal_review(
                     record, db,
@@ -2736,6 +2737,7 @@ async def _render_cv_background(
                 )
                 prose_draft, measured = tr.prose_draft, tr.measured
                 terminal_rounds = tr.rounds
+                reentry_exhausted = tr.reentry_exhausted
 
             # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
             # terminal verdict covered must BE the delivered content. The audits
@@ -2755,6 +2757,7 @@ async def _render_cv_background(
                     match=match,
                     terminal_rounds=terminal_rounds,
                     reentered=reentered,
+                    reentry_exhausted=reentry_exhausted,
                 )
                 if match or reentered >= CV_TERMINAL_REENTRY_MAX:
                     break
@@ -2788,6 +2791,7 @@ async def _render_cv_background(
                     )
                     prose_draft, measured = tr.prose_draft, tr.measured
                     terminal_rounds += tr.rounds
+                    reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                 verdict_hash = _subject_hash(record.tailored_data)
             # ADR-039: the single ready-commit — status + reports together.
             await db.commit()
@@ -3247,6 +3251,7 @@ def _log_subject_identity(
     match: bool,
     terminal_rounds: int,
     reentered: int,
+    reentry_exhausted: bool,
 ) -> None:
     """#538 — always-on, structured subject-identity line. Measurement plus the
     clause-3 re-entry trigger: the CALLER re-enters review on a mismatch; this
@@ -3261,14 +3266,21 @@ def _log_subject_identity(
 
     ``terminal_rounds`` counts terminal ``review_and_refine`` invocations so
     far (0 = review layer disabled); ``reentered`` counts subject-identity
-    re-entries already taken for this delivery.
+    re-entries already taken for this delivery. ``reentry_exhausted`` is True
+    when the terminal loop's re-entry bound closed over a FINAL corrector
+    change that was therefore never re-reviewed — the delivered content is
+    then re-composed but its last edit carries no verdict (the bounded
+    clause-3 exception). WARNING in that case too: an unstructured warning
+    alone was refuted as "bookkeeping, not testimony" in the pre-propagation
+    adversarial pass — this field is the structured, countable signal.
     """
-    level = logging.INFO if match else logging.WARNING
+    level = logging.INFO if (match and not reentry_exhausted) else logging.WARNING
     logger.log(
         level,
         "REVIEW_SUBJECT_IDENTITY cv_id=%s verdict_hash=%s delivered_hash=%s "
-        "match=%s terminal_rounds=%d reentered=%d",
+        "match=%s terminal_rounds=%d reentered=%d reentry_exhausted=%s",
         cv_id, verdict_hash, delivered_hash, match, terminal_rounds, reentered,
+        reentry_exhausted,
     )
 
 

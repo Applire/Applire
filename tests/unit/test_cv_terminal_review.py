@@ -284,6 +284,43 @@ async def test_terminal_corrector_change_recomposes_and_reenters(db, caplog):
     assert "terminal_rounds=2" in lines[-1].getMessage()
 
 
+@pytest.mark.asyncio
+async def test_reentry_bound_exhaustion_ships_recomposed_and_flags_structured(db, caplog):
+    """The bounded clause-3 exception (pre-propagation adversarial finding 1):
+    when the terminal corrector changes the draft in EVERY allowed round, the
+    final change ships re-composed but never re-reviewed. That state must be
+    (a) delivered (never a gate), (b) re-composed from the final prose with the
+    vault joins re-applied, and (c) flagged STRUCTURALLY on the always-on
+    identity line (`reentry_exhausted=True`, WARNING) — an unstructured
+    warning alone is bookkeeping, not testimony."""
+    caplog.set_level(logging.INFO, logger="applire.services.cv")
+    ids = await _seed(db)
+
+    def change1(draft):
+        return {**draft, "summary": "Erste Terminal-Korrektur."}
+
+    def change2(draft):
+        return {**draft, "summary": "Zweite Terminal-Korrektur."}
+
+    captured = await _run_pipeline(db, ids, script=[change1, change2])
+
+    assert len(captured) == 2, "bound=1 allows exactly two terminal invocations"
+
+    from applire.models.cv import GeneratedCV
+    record = await db.get(GeneratedCV, ids[2])
+    assert record.status == "ready", "never a delivery gate"
+    assert record.tailored_data["summary"] == "Zweite Terminal-Korrektur.", \
+        "the final (unreviewed) change ships re-composed"
+    assert record.tailored_data["certifications"][0]["name"] == _CERT_NAME, \
+        "vault joins re-applied on the final recomposition"
+
+    lines = _identity_lines(caplog)
+    assert len(lines) == 1
+    assert "reentry_exhausted=True" in lines[0].getMessage()
+    assert lines[0].levelno == logging.WARNING, \
+        "an unreviewed final change is a WARNING even when the hash matches"
+
+
 # --- subject-identity instrument (evidence layer 1) -------------------------
 
 @pytest.mark.asyncio
