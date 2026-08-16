@@ -3237,10 +3237,13 @@ def _subject_hash(tailored_data: dict) -> str:
     reordering governs) live only in ``tailored_data``. The snapshot is a pure
     projection of ``tailored_data``, so tailored-data identity implies
     snapshot-content identity.
+
+    The canonicalisation itself is shared with the letter mount (#539) via
+    ``services.subject_identity`` — one hash definition, two mounts.
     """
-    return hashlib.sha256(
-        _json.dumps(tailored_data, sort_keys=True, ensure_ascii=False, default=str).encode()
-    ).hexdigest()
+    from applire.services.subject_identity import subject_hash
+
+    return subject_hash(tailored_data)
 
 
 def _log_subject_identity(
