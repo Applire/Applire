@@ -168,13 +168,16 @@ def _fake_review(script, captured):
 
 
 async def _run_pipeline(db, ids, *, script=None, captured=None, extra_patches=(),
-                        review_retries=2):
+                        review_retries=2, payload=None):
     from applire.services.cv import _render_cv_background
 
     job_id, profile_id, cv_id = ids
     captured = captured if captured is not None else []
     provider = AsyncMock()
-    provider.aparse_json.return_value = _writer_payload()
+    # EVERY provider JSON call returns the same payload — the language pass may
+    # legitimately re-emit the prose through the provider, and a diverging
+    # default would silently overwrite a test's tailored draft.
+    provider.aparse_json.return_value = payload if payload is not None else _writer_payload()
     extract = MagicMock(side_effect=lambda pdf: ("text", 2))
 
     patches = [
@@ -344,6 +347,74 @@ async def test_post_verdict_mutation_breaks_hash_and_reenters(db, caplog):
     assert record.tailored_data["summary"].endswith("INJECTED-POST-VERDICT"), \
         "the reviewed change ships — re-entry reviews, it does not revert"
     assert record.status == "ready"
+
+
+# --- run-B class (2026-08-14): the pass-authored pair is IN the subject -----
+
+@pytest.mark.asyncio
+async def test_pass_authored_measured_pair_is_in_the_review_subject(db):
+    """#538 evidence layer 2, pinned as a synthetic regression: run B delivered
+    a bullet paired with a paraphrase of itself ("… — measured: …"), authored
+    by ``_prefer_measured_outcomes`` AFTER the last reviewer — no reviewer ever
+    saw it. Under the reordered topology the same deterministic pass runs
+    inside ``_compose_document``, so its output lies IN the terminal review
+    subject. Visibility is the criterion; whether the model flags it is
+    judgement (ADR-076 clause 3 / #540's first-migration rationale)."""
+    from applire.models.job import JobAnalysis
+    from applire.models.cv import GeneratedCV
+
+    # The exact pair from tests/unit/test_cv_outcome_preference.py's live-shape
+    # fixture — token overlap over find_paired_outcome's conservative floor is
+    # proven there; this test pins the TOPOLOGY (pair in the review subject).
+    target_bullet = (
+        "Built an internal LLM-assisted document classification service in "
+        "Python (FastAPI, PostgreSQL, Docker), targeting a 60% reduction in "
+        "manual processing time."
+    )
+    outcome_bullet = (
+        "Documents pre-classified by the service passed the very first review "
+        "round in most cases, confirming the 60% reduction target is "
+        "conservative."
+    )
+    profile = _profile_json()
+    profile["work_experience"][0]["responsibilities"] = [target_bullet]
+    profile["work_experience"][0]["achievements"] = [outcome_bullet]
+    profile["work_experience"][0]["is_current"] = True
+
+    job_id, profile_id, cv_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    db.add_all([
+        JobAnalysis(
+            id=job_id, raw_text_hash=str(job_id), raw_text="job",
+            role_title="Engineer", required_skills=[], nice_to_have_skills=[],
+            keywords=["Python"], seniority_level="mid", company_culture_signals=[],
+            language_requirement="en", jd_language="en",
+        ),
+        make_master_profile(
+            id=profile_id, profile_json=profile,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        GeneratedCV(
+            id=cv_id, job_analysis_id=job_id, profile_id=profile_id,
+            tailored_data={}, template="classic_german", status="pending",
+            target_pages=2,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            expires_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        ),
+    ])
+    await db.commit()
+
+    payload = _writer_payload()
+    payload["work"][0]["bullets"] = [target_bullet]
+
+    captured = await _run_pipeline(db, (job_id, profile_id, cv_id), payload=payload)
+
+    subject = _subject_slice(captured[0]["prompt"])
+    assert "— measured:" in subject, \
+        "the pass-authored pair must lie IN the terminal review subject"
+    record = await db.get(GeneratedCV, cv_id)
+    joined = " ".join(record.tailored_data["work_history"][0]["bullets"])
+    assert "— measured:" in joined, "delivered == reviewed subject (same pair)"
 
 
 # --- review layer off → terminal round off, instrument still on -------------
