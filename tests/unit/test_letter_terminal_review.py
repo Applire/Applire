@@ -35,12 +35,25 @@ What is under test here is the TOPOLOGY — the skeleton #539 builds:
   path, and an injected post-verdict mutation breaks the hash AND triggers the
   clause-3 re-entry (reviewed, never reverted).
 
-The #539 mutation matrix (evidence layer 1) — deleting the re-entry rule or
-the hash comparison in ``_render_cover_letter_background`` (mutation A/B), or
-swapping the terminal subject to the raw settle (mutation C), turns the tests
-below red by name; assertions are on the COMPOSED-LETTER slice of the prompt,
-never the whole prompt (the #538 mutation-C lesson: the source block carries
-the same strings).
+The #539 mutation matrix (evidence layer 1), run 2026-08-16 against the
+committed baseline:
+
+* Mutation A — re-entry rule deleted in ``_render_cover_letter_background``
+  → ``test_post_verdict_mutation_breaks_hash_and_reenters`` red.
+* Mutation B — hash comparison neutralised (``match = True``)
+  → ``test_post_verdict_mutation_breaks_hash_and_reenters`` red.
+* Mutation C — terminal subject swapped to the raw draft (composition
+  bypassed in ``_reviewer_prompt``)
+  → ``test_terminal_corrector_change_recomposes_and_reenters`` and
+  ``test_condense_reenters_the_same_review_before_the_verdict`` red.
+  The FIRST version of these assertions survived mutation C: the letter's
+  terminal draft is already composed on the clean path, so date/reframe
+  checks were vacuously green — the tell only exists where raw and composed
+  diverge (a corrector emission with ``date: null``; the raw condense
+  output, which carries no guard reframe). Assertions are therefore pinned
+  to those divergence points, and on the COMPOSED-LETTER slice of the
+  prompt, never the whole prompt (the #538 mutation-C lesson: the source
+  block carries the same strings).
 
 ``review_and_refine`` is faked with a chain-dispatching stub — its loop
 mechanics have their own tests; here it must only hand the reviewer_prompt_fn
@@ -321,17 +334,27 @@ async def test_terminal_corrector_change_recomposes_and_reenters(db, caplog):
     ids = await _seed(db)
 
     def change_body(draft):
+        # A realistic corrector emission: fresh content, recipient.date left
+        # null (the corrector prompt's own rule) — so the re-entered subject
+        # carries the date ONLY if the re-composition actually ran. This is
+        # what separates the composed subject from the raw settle (mutation C).
         body = dict(draft["body"])
         body["paragraphs"] = list(body["paragraphs"]) + [
             "A distinctly improved terminal correction."
         ]
-        return {**draft, "body": body}
+        return {
+            **draft,
+            "body": body,
+            "recipient": {**draft["recipient"], "date": None},
+        }
 
     captured, _ = await _run_pipeline(db, ids, script=[change_body])
 
     assert len(captured) == 2, "the changed draft must re-enter review"
     reentered_subject = _subject_slice(captured[1]["prompt"])
     assert "A distinctly improved terminal correction." in reentered_subject
+    assert '"date": null' not in reentered_subject, \
+        "the re-entered subject is COMPOSED again — date re-stamped by code"
 
     from applire.models.cover_letter import GeneratedCoverLetter
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
@@ -479,6 +502,14 @@ async def test_condense_reenters_the_same_review_before_the_verdict(db, caplog):
     subject = _subject_slice(captured[0]["prompt"])
     assert "Condensed:" in subject, \
         "the terminal verdict closes over the CONDENSED composition"
+    # The condense generation emits a RAW letter (no date, no guard output) —
+    # the subject carries these only if the single composition site re-ran
+    # over the condense output (the assertions that separate the composed
+    # subject from the raw condense emission — mutation C's tell).
+    assert _OUTCOME_MARKER in subject, \
+        "the #261 guard re-applied to the condense output, IN the subject"
+    assert '"date": null' not in subject, \
+        "the condensed subject is composed — date re-stamped by code"
     assert captured[0]["prefer_if"] is not None, \
         "the condense-entered invocation carries the word-budget prefer_if"
     assert captured[0]["retain_if"] is not None
