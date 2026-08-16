@@ -438,6 +438,88 @@ def skills_page_dupe(a: str, b: str) -> bool:
     return _compound_suffix_dupe(skill_tokens(a), skill_tokens(b))
 
 
+# ── #391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): a
+# measurement-only advisory over skills_page_dupe's weakest disjunct ─────────
+#
+# Ground truth (#391, ADR-076 2026-08-15 amendment): the JD requirement string
+# "5 Jahre Controlling-Erfahrung" was attested as vault-tied to the profile
+# skill "Controlling" solely via skills_page_dupe's single-token-containment
+# disjunct ('controlling' is the ONE token the two share) — attestation too
+# loose; the blind HR reviewer flagged the resulting CV/letter inconsistency
+# as the top risk signal. ADR-076 clause 4 forbids two things as the fix:
+# tightening skills_single_token_containment itself (a second deterministic
+# threshold on an equivalence decision is adjudication, not detection — clause
+# 4-illegal), and changing what services/cv.py's _vault_tied (and therefore
+# _drop_ungrounded_jd_echo_skills) actually decides. What stays legal under
+# ADR-062 clause 5 is VISIBILITY: the ATS report — a measurement-only consumer
+# — may flag which rendered skills have no stronger vault tie than this one
+# weak predicate, without touching the drop/keep decision at all.
+
+
+def _weak_single_token_tie(skill: str, vault_form: str) -> bool:
+    """True when ``skill`` and ``vault_form`` relate ONLY through
+    :func:`skills_single_token_containment` — none of :func:`skills_page_dupe`'s
+    other three disjuncts also hold for this exact pair.
+
+    Given ``skills_single_token_containment`` is already True (the contained
+    side has exactly 1 token, the other side is a *strict* superset of it —
+    hence at least 2 tokens), two of the other three disjuncts are structurally
+    UNREACHABLE for this pair, not merely unlikely — proved, not assumed, and
+    pinned by ``tests/unit/test_ats_audit.py``'s dedicated unreachability
+    tests so a future edit to any of these predicates re-proves it:
+
+    * :func:`_compound_suffix_dupe` requires BOTH sides to be a single bare
+      token; the non-contained side here has >= 2 tokens by construction.
+    * the slash-compound containment over :func:`_page_token_set` requires
+      ``pa`` NOT already contained in ``pb`` (or vice versa) at the plain
+      ``skill_tokens`` level — but single-token containment already
+      establishes exactly that plain-token containment, so the extra
+      page-scope check can never independently add a stronger tie.
+
+    Only :func:`skills_near_dupe` can — in principle — still be True: its
+    containment and Jaccard branches are also excluded by the same size
+    argument, but its shared-parenthetical-abbreviation branch does not
+    depend on token-set size at all, so a pathological bare single-token
+    name that is ITSELF a parenthetical, e.g. ``'(MES)'`` vs vault's
+    ``'MES (Manufacturing Execution System)'``, can share an abbreviation
+    while also being single-token-contained. Checked for completeness, not
+    because it is expected to matter on real data.
+    """
+    if not skills_single_token_containment(skill, vault_form):
+        return False
+    return not skills_near_dupe(skill, vault_form)
+
+
+def skills_weak_vault_tie(skills: list[str], vault_forms: list[str]) -> list[tuple[str, str]]:
+    """Rendered skills whose ONLY tie to ANY vault form is the weak single-
+    shared-token predicate (#391, ADR-076 amendment 4 point 6) — measurement
+    only, no adjudication, no effect on which skills ship. A skill with ANY
+    stronger vault tie (multi-token containment, a shared parenthetical
+    abbreviation, Jaccard overlap, an exact match, or the German-compound
+    suffix shape) to ANY vault form is never flagged, even when it ALSO
+    weak-ties a different vault form — one real tie is enough to earn silence.
+
+    Returns (skill, matched vault form) pairs — the first weak match per
+    skill, in ``skills`` order. Pure; never mutates ``skills``/``vault_forms``.
+    """
+    flagged: list[tuple[str, str]] = []
+    for s in skills:
+        weak_match: str | None = None
+        has_strong_tie = False
+        for v in vault_forms:
+            if not skills_page_dupe(s, v):
+                continue
+            if _weak_single_token_tie(s, v):
+                if weak_match is None:
+                    weak_match = v
+            else:
+                has_strong_tie = True
+                break
+        if not has_strong_tie and weak_match is not None:
+            flagged.append((s, weak_match))
+    return flagged
+
+
 def _entry_norms(entry: dict[str, Any]) -> set[str]:
     forms = entry.get("surface_forms") or [entry.get("concept", "")]
     return {_norm(f) for f in forms} | {_norm(entry.get("concept", ""))}
@@ -570,6 +652,7 @@ def _audit_cv_text(
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
     vault_text_norm: str | None = None,
+    vault_skill_forms: list[str] | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -638,6 +721,22 @@ def _audit_cv_text(
         ]
         _check(checks, "skills-near-dupe", not near_pairs,
                "near-duplicate skills: " + "; ".join(f"'{a}' ~ '{b}'" for a, b in near_pairs))
+
+        # #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory,
+        # never a failure — silent unless at least one rendered skill's ONLY
+        # vault tie is the weak single-shared-token predicate. Silent by
+        # construction when `vault_skill_forms` is not given (back-compat with
+        # every existing text-only caller/test).
+        weak_ties = skills_weak_vault_tie(tailored.skills, vault_skill_forms or [])
+        if weak_ties:
+            pairs = "; ".join(f"'{s}' (shares only '{v}')" for s, v in weak_ties)
+            checks.append(ATSCheck(
+                id="skills-weak-vault-tie", status="pass",
+                details=f"skill(s) tied to your profile by a single shared word "
+                        f"only — worth a second look before sending: {pairs}",
+                details_key="skills-weak-vault-tie",
+                details_params={"skills": pairs, "count": len(weak_ties)},
+            ))
 
     # #169: a role bullet repeated inside a project nested under that role (belt-and-
     # braces over the deterministic suppression in cv._nest_projects). Only emitted
@@ -752,6 +851,7 @@ def audit_cv(
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
     vault_text_norm: str | None = None,
+    vault_skill_forms: list[str] | None = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
@@ -773,12 +873,17 @@ def audit_cv(
     it can never land in ``present_unsupported``, regardless of the ledger's own
     classification (defense-in-depth over the denial-narrowing fix in
     ``services/keyword_ledger.py``). ``None`` (default) reproduces prior behaviour.
+
+    ``vault_skill_forms`` (#391 interim, ADR-076 amendment 4 point 6): optional
+    pool of vault-attested skill strings — when given, drives the
+    ``skills-weak-vault-tie`` advisory (see :func:`skills_weak_vault_tie`).
+    ``None`` (default) reproduces prior behaviour (advisory never fires).
     """
     text, page_count = extract_text_and_pages(pdf_bytes)
     return _audit_cv_text(
         text, tailored, keywords, ledger, page_count=page_count,
         target=target, region=region, condensation_exhausted=condensation_exhausted,
-        vault_text_norm=vault_text_norm,
+        vault_text_norm=vault_text_norm, vault_skill_forms=vault_skill_forms,
     )
 
 
