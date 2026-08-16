@@ -71,6 +71,23 @@ LLM_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("LLM_REVIEW_MAX_RETRIES", "2")
 )
 
+# ADR-076 clause 3 (#538) — the CV's TERMINAL review round, rendered over the
+# COMPOSED document (the delivered artifact) with the real render measure.
+# Deliberately tighter than LLM_REVIEW_MAX_RETRIES: the drafting loop has
+# already settled; this round exists to close the verdict over the true
+# document, not to re-litigate the draft. LLM_REVIEW_MAX_RETRIES=0 disables
+# it together with the rest of the review layer.
+CV_TERMINAL_REVIEW_MAX_RETRIES: int = int(
+    os.environ.get("CV_TERMINAL_REVIEW_MAX_RETRIES", "1")
+)
+# Bound on terminal RE-ENTRIES: how often a post-verdict change (a terminal
+# corrector edit that re-composes, or a detected post-verdict mutation) may
+# re-enter review before the document ships with the gap loudly logged
+# (ship-and-report — the identity instrument's WARNING; never a delivery gate).
+CV_TERMINAL_REENTRY_MAX: int = int(
+    os.environ.get("CV_TERMINAL_REENTRY_MAX", "1")
+)
+
 # ADR-060 Pass B — the outcome critic's cross-document coherence pass (#322).
 # Community feature, operator-configurable, default ON (ADR-060 clause 8 / PO
 # decision 3): a self-hoster on a tight provider budget can turn it off.

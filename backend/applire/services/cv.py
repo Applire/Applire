@@ -36,6 +36,7 @@ _render_cv_background:
 """
 
 import base64 as _base64
+import hashlib
 import json as _json
 import logging
 import re
@@ -102,6 +103,8 @@ from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
     CV_LANGUAGE_REVIEW_MAX_RETRIES,
     CV_MAX_SKILLS,
+    CV_TERMINAL_REENTRY_MAX,
+    CV_TERMINAL_REVIEW_MAX_RETRIES,
     LLM_REVIEW_MAX_RETRIES,
     SEGMENT_MAX_TOKENS,
 )
@@ -2709,7 +2712,85 @@ async def _render_cv_background(
                     record.id,
                 )
                 measured = None
-            await _update_ats_report(record, db, measured=measured)
+
+            # TERMINAL REVIEW (ADR-076 clause 3, #538): the terminal verdict is
+            # rendered over the COMPOSED document with the real render measure.
+            # LLM_REVIEW_MAX_RETRIES=0 disables it with the rest of the review
+            # layer (mirrors review_and_refine's own short-circuit).
+            terminal_rounds = 0
+            if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
+                tr = await _terminal_review(
+                    record, db,
+                    prose_draft=prose_draft,
+                    source_material=source_material,
+                    provider=provider,
+                    profile_json=profile_json,
+                    raw_profile_json=raw_profile_json,
+                    keyword_ledger=keyword_ledger,
+                    budget=budget,
+                    job_dict=job_dict,
+                    language=resolve_jd_language(job),
+                    condense_ctx=condense_ctx,
+                    coverage_budget=coverage_budget,
+                    measured=measured,
+                )
+                prose_draft, measured = tr.prose_draft, tr.measured
+                terminal_rounds = tr.rounds
+
+            # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
+            # terminal verdict covered must BE the delivered content. The audits
+            # below are measurement-only by contract; a mismatch here means a
+            # write happened after the terminal verdict — the change re-enters
+            # review (clause 3), bounded, then ships loudly (never a gate).
+            verdict_hash = _subject_hash(record.tailored_data)
+            reentered = 0
+            while True:
+                await _update_ats_report(record, db, measured=measured, commit=False)
+                delivered_hash = _subject_hash(record.tailored_data)
+                match = delivered_hash == verdict_hash
+                _log_subject_identity(
+                    cv_id=record.id,
+                    verdict_hash=verdict_hash,
+                    delivered_hash=delivered_hash,
+                    match=match,
+                    terminal_rounds=terminal_rounds,
+                    reentered=reentered,
+                )
+                if match or reentered >= CV_TERMINAL_REENTRY_MAX:
+                    break
+                reentered += 1
+                # Re-measure the mutated content, then re-enter the terminal
+                # review over it (the subject cache seeds from the record, so
+                # the reviewer sees the CHANGE — it is not silently reverted).
+                try:
+                    measured = await _measure_and_condense(record, db, condense_ctx)
+                except Exception:
+                    logger.exception(
+                        "measure-and-condense failed on subject-identity re-entry "
+                        "for CV %s — re-reviewing unmeasured", record.id,
+                    )
+                    measured = None
+                if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
+                    tr = await _terminal_review(
+                        record, db,
+                        prose_draft=prose_draft,
+                        source_material=source_material,
+                        provider=provider,
+                        profile_json=profile_json,
+                        raw_profile_json=raw_profile_json,
+                        keyword_ledger=keyword_ledger,
+                        budget=budget,
+                        job_dict=job_dict,
+                        language=resolve_jd_language(job),
+                        condense_ctx=condense_ctx,
+                        coverage_budget=coverage_budget,
+                        measured=measured,
+                    )
+                    prose_draft, measured = tr.prose_draft, tr.measured
+                    terminal_rounds += tr.rounds
+                verdict_hash = _subject_hash(record.tailored_data)
+            # ADR-039: the single ready-commit — status + reports together.
+            await db.commit()
 
         except Exception as exc:
             logger.exception("CV generation failed for %s: %s", cv_id, exc)
@@ -3138,6 +3219,221 @@ async def _measure_and_condense(
                 condensation_exhausted=condensation_exhausted,
             )
     return MeasuredRender(text, count, condensation_exhausted, target, region)
+
+
+def _subject_hash(tailored_data: dict) -> str:
+    """#538 subject-identity instrument (ADR-076 clause 3): the canonical content
+    hash of a document state — used to prove "the subject the terminal verdict
+    was rendered over IS the delivered document".
+
+    Hashes the FULL ``tailored_data`` (canonical JSON, sorted keys), NOT the
+    ``content_snapshot``: the snapshot mints random position uuids on every
+    build and carries only summary/positions/skills — certifications, role
+    facts, project nesting and the photo (exactly the compose-class fields this
+    reordering governs) live only in ``tailored_data``. The snapshot is a pure
+    projection of ``tailored_data``, so tailored-data identity implies
+    snapshot-content identity.
+    """
+    return hashlib.sha256(
+        _json.dumps(tailored_data, sort_keys=True, ensure_ascii=False, default=str).encode()
+    ).hexdigest()
+
+
+def _log_subject_identity(
+    *,
+    cv_id: uuid.UUID,
+    verdict_hash: str,
+    delivered_hash: str,
+    match: bool,
+    terminal_rounds: int,
+    reentered: int,
+) -> None:
+    """#538 — always-on, structured subject-identity line. Measurement plus the
+    clause-3 re-entry trigger: the CALLER re-enters review on a mismatch; this
+    function only ever logs (PII-free: hashes and counts, never content).
+
+    Deliberately its OWN vocabulary (pattern: RENDER_BUDGET_ITERATION), never a
+    ``REVIEW_COMPLIANCE`` shape — subject identity is a topology property, not a
+    corrector-compliance measurement, and the two must never be misread as the
+    same kind of number. WARNING on mismatch (a delivered document whose final
+    state the terminal verdict did not cover is a real signal, exactly like
+    ``REVIEW_EXHAUSTED``), INFO otherwise.
+
+    ``terminal_rounds`` counts terminal ``review_and_refine`` invocations so
+    far (0 = review layer disabled); ``reentered`` counts subject-identity
+    re-entries already taken for this delivery.
+    """
+    level = logging.INFO if match else logging.WARNING
+    logger.log(
+        level,
+        "REVIEW_SUBJECT_IDENTITY cv_id=%s verdict_hash=%s delivered_hash=%s "
+        "match=%s terminal_rounds=%d reentered=%d",
+        cv_id, verdict_hash, delivered_hash, match, terminal_rounds, reentered,
+    )
+
+
+@dataclass
+class TerminalReviewResult:
+    """Outcome of one `_terminal_review` invocation (#538)."""
+
+    prose_draft: dict
+    measured: MeasuredRender | None
+    rounds: int
+    reentry_exhausted: bool
+
+
+async def _terminal_review(
+    record: GeneratedCV,
+    db: AsyncSession,
+    *,
+    prose_draft: dict,
+    source_material: str,
+    provider: LLMProvider,
+    profile_json: dict,
+    raw_profile_json: dict,
+    keyword_ledger: list[dict],
+    budget: "BudgetResult",
+    job_dict: dict,
+    language: str,
+    condense_ctx: CondenseContext,
+    coverage_budget,
+    measured: MeasuredRender | None,
+) -> TerminalReviewResult:
+    """ADR-076 clause 3 (#538): the TERMINAL review — the verdict that closes
+    over the COMPOSED document (the delivered artifact), with the real render
+    measure attached.
+
+    Topology: the reviewer's subject is built per round by COMPOSING the
+    current prose draft through the full deterministic tail
+    (``_compose_document``) — reordering, never rerouting: the corrector only
+    ever receives and emits the PROSE shape (ADR-067), so no vault-verbatim
+    field is ever routed through a writer LLM. When a terminal corrector round
+    changes the draft, the change re-enters review over a fresh composition
+    and a fresh render measure (clause 3's re-entry rule), bounded by
+    ``CV_TERMINAL_REENTRY_MAX``; on bound exhaustion the document ships with
+    the gap loudly logged (ship-and-report — never a delivery gate, the
+    2026-08-13 precedent: no structural gate on ``approved``).
+
+    The subject cache is seeded with ``record.tailored_data`` AS IS: on the
+    normal path that equals ``compose(prose_draft)`` post-condense; on a
+    subject-identity re-entry (a detected post-verdict mutation) it is the
+    mutated content itself — the CHANGE re-enters review, it is not silently
+    reverted.
+
+    Uses ``review_and_refine`` — the same loop machinery as every chain, so the
+    wave-2 settle-path/fallback wiring and the #537 compliance measurement
+    apply, and future #540 SIGNAL migrations attach here via ``signal_ids``
+    without a second loop implementation (ADR-066).
+    """
+    from applire.prompts.review_cv_tailoring import (
+        TERMINAL_REVIEW_SYSTEM_PROMPT,
+        build_terminal_review_prompt,
+    )
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+
+    def _canon(d: dict) -> str:
+        return _json.dumps(d, sort_keys=True, default=str)
+
+    def _compose(draft: dict) -> TailoredCVData:
+        return _compose_document(
+            draft,
+            profile_json,
+            raw_profile_json=raw_profile_json,
+            keyword_ledger=keyword_ledger,
+            budget=budget,
+            job_dict=job_dict,
+            language=language,
+        )
+
+    subject_by_draft: dict[str, TailoredCVData] = {
+        _canon(prose_draft): TailoredCVData.model_validate(record.tailored_data)
+    }
+    measure_cell: dict[str, MeasuredRender | None] = {"measured": measured}
+
+    def _terminal_base(source: str, composed: dict) -> str:
+        m = measure_cell["measured"]
+        return build_terminal_review_prompt(
+            source,
+            composed,
+            page_count=(m.page_count if m is not None else None),
+            target=(m.target if m is not None else condense_ctx.target),
+            condensation_exhausted=(m.condensation_exhausted if m is not None else False),
+        )
+
+    # The US213 coverage wrapper computes verified coverage over the SUBJECT —
+    # the composed document — so restored/joined content finally counts toward
+    # coverage (the run-C class: evidence present in the writer's input,
+    # invisible to a prose-only coverage check).
+    _coverage_fn = coverage_reviewer_prompt_fn(
+        _terminal_base, keyword_ledger, budget=coverage_budget
+    )
+
+    def _reviewer_prompt(source: str, draft: dict) -> str:
+        key = _canon(draft)
+        subject = subject_by_draft.get(key)
+        if subject is None:
+            subject = _compose(draft)
+            subject_by_draft[key] = subject
+        return _coverage_fn(source, subject.model_dump(mode="json"))
+
+    current = prose_draft
+    rounds = 0
+    reentry_exhausted = False
+    while True:
+        rounds += 1
+        settled = await review_and_refine(
+            source=source_material,
+            draft=current,
+            generator_prompt_fn=_build_cv_retry_prompt,
+            generator_system=CV_TAILORING_REFINEMENT_PROMPT,
+            reviewer_prompt_fn=_reviewer_prompt,
+            reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+            provider=provider,
+            max_retries=CV_TERMINAL_REVIEW_MAX_RETRIES,
+            generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+            chain_id="cv_terminal_review",
+        )
+        if _canon(settled) == _canon(current):
+            # The verdict covers exactly the composition already sitting on the
+            # record — the delivered document.
+            break
+        # A terminal corrector round changed the draft → re-compose, re-measure,
+        # and let the CHANGED document re-enter review (clause 3). The corrector
+        # emitted prose only; the vault joins are re-applied by code.
+        current = settled
+        key = _canon(current)
+        recomposed = subject_by_draft.get(key)
+        if recomposed is None:
+            recomposed = _compose(current)
+        record.tailored_data = recomposed.model_dump()
+        record.content_snapshot = build_content_snapshot(recomposed)
+        try:
+            measure_cell["measured"] = await _measure_and_condense(record, db, condense_ctx)
+            # Condense may have trimmed the recomposition — the next round's
+            # subject must be the post-condense truth, not the pre-condense one.
+            subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)
+        except Exception:
+            logger.exception(
+                "measure-and-condense failed on terminal re-entry for CV %s — "
+                "the re-entered round reviews unmeasured", record.id,
+            )
+            measure_cell["measured"] = None
+        if rounds > CV_TERMINAL_REENTRY_MAX:
+            reentry_exhausted = True
+            logger.warning(
+                "CV terminal review re-entry bound reached for %s after %d rounds — "
+                "delivering the recomposed draft; its final change was not "
+                "re-reviewed (ship-and-report, ADR-076 clause 3)",
+                record.id, rounds,
+            )
+            break
+    return TerminalReviewResult(
+        prose_draft=current,
+        measured=measure_cell["measured"],
+        rounds=rounds,
+        reentry_exhausted=reentry_exhausted,
+    )
 
 
 async def _update_ats_report(
