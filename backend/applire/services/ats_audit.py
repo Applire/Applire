@@ -729,13 +729,21 @@ def _audit_cv_text(
         # every existing text-only caller/test).
         weak_ties = skills_weak_vault_tie(tailored.skills, vault_skill_forms or [])
         if weak_ties:
-            pairs = "; ".join(f"'{s}' (shares only '{v}')" for s, v in weak_ties)
+            # EN diagnostic (details) may carry English scaffold words — it is the
+            # EN fallback string, never localised (same contract as skills-near-dupe's
+            # `details`). details_params must stay locale-neutral (like the
+            # page-length checks' `pages`/`region`/`standard`): a bare (skill,
+            # matched-vault-form) pair, no English words, so the de/en templated
+            # sentences (ats.checkDetails.skills-weak-vault-tie) supply the ONLY
+            # prose — the params never leak English into the German chip.
+            pairs_en = "; ".join(f"'{s}' (shares only '{v}')" for s, v in weak_ties)
+            pairs_neutral = "; ".join(f"'{s}' ('{v}')" for s, v in weak_ties)
             checks.append(ATSCheck(
                 id="skills-weak-vault-tie", status="pass",
                 details=f"skill(s) tied to your profile by a single shared word "
-                        f"only — worth a second look before sending: {pairs}",
+                        f"only — worth a second look before sending: {pairs_en}",
                 details_key="skills-weak-vault-tie",
-                details_params={"skills": pairs, "count": len(weak_ties)},
+                details_params={"skills": pairs_neutral, "count": len(weak_ties)},
             ))
 
     # #169: a role bullet repeated inside a project nested under that role (belt-and-

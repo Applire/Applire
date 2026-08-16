@@ -419,11 +419,17 @@ def test_skills_weak_vault_tie_flags_391_ground_truth_shape():
     assert c is not None and c.status == "pass"
     assert "5 Jahre Controlling-Erfahrung" in (c.details or "")
     assert "Controlling" in (c.details or "")
+    # The EN `details` fallback may carry English scaffold words...
+    assert "shares only" in (c.details or "")
     assert c.details_key == "skills-weak-vault-tie"
+    # ...but details_params must stay locale-neutral (a bare pair, no English
+    # words) — the de/en templated sentences supply the ONLY prose, so a German
+    # chip built from details_params never mixes in English (review finding).
     assert c.details_params == {
-        "skills": "'5 Jahre Controlling-Erfahrung' (shares only 'Controlling')",
+        "skills": "'5 Jahre Controlling-Erfahrung' ('Controlling')",
         "count": 1,
     }
+    assert "shares only" not in c.details_params["skills"]
     # Advisory only — never a structure failure, never counted against passed/failed.
     assert report.failed == 0
 
