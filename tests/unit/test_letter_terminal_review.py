@@ -564,6 +564,166 @@ async def test_review_layer_disabled_still_condenses_but_skips_the_verdict(db, c
     assert "match=True" in lines[0].getMessage()
 
 
+# --- #525 replay (evidence layer 2a): run A, 2026-08-14, operations_marcus_de
+
+
+# The condense-chain generator's own welded sentence, captured verbatim from
+# run A's cover_letter_condense round 3 (2026-08-14; the chain exhausted 5/5).
+# The vault's evidence keeps SAP PP as the daily-use system and scopes SAP MM
+# to Disposition/Bestellanforderungen; the condense rewrite welded "tägliche
+# Nutzung" onto SAP MM — the #525 class: authored under length pressure,
+# delivered without any reviewer ever seeing the final composition.
+_RUN_A_WELDED_SENTENCE = (
+    "Meine 15-jährige SAP-PP-Erfahrung und neun Jahre tägliche Nutzung von "
+    "SAP MM bei Weberit bilden meinen praktischen Bezug zur Arbeitsvorbereitung."
+)
+
+
+def _marcus_profile_json() -> dict:
+    """The vault slice behind run A's SAP sentences (operations_marcus_de,
+    synthetic PQ persona) — enough grounding that the #254 figure guard keeps
+    the sentence (both figures are vault-backed and Weberit-anchored), so the
+    weld reaches the terminal subject exactly as it reached delivery in run A."""
+    return {
+        "personal_info": {"name": "Marcus Weber", "email": "marcus@example.com"},
+        "work_experience": [
+            {
+                "id": "w-weberit",
+                "company": "Weberit Kunststofftechnik GmbH",
+                "role": "Produktionsleiter",
+                "responsibilities": [
+                    "Key-User für SAP PP beim Rollout und tägliche Nutzung für "
+                    "Fertigungsaufträge und Rückmeldungen; SAP PP mit "
+                    "Advanced-Proficiency und 15 Jahren Erfahrung.",
+                    "Neun Jahre Nutzung von SAP MM für Disposition und "
+                    "Bestellanforderungen für Instandhaltungsmaterial.",
+                ],
+                "achievements": [],
+            },
+        ],
+        "skills": [],
+    }
+
+
+def _run_a_condense_payload() -> dict:
+    payload = _writer_payload()
+    payload["header"] = {"name": "Marcus Weber"}
+    payload["body"]["paragraphs"] = [
+        "Sehr geehrte Damen und Herren,",
+        _RUN_A_WELDED_SENTENCE,
+        "Ich freue mich auf ein persönliches Gespräch. Mit freundlichen Grüßen.",
+    ]
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_run_a_525_replay_weld_lies_in_the_terminal_subject(db, caplog):
+    """#525 replay (deterministic — the captured content, not the model):
+    under the new topology (1) NO ``cover_letter_condense`` chain fires — the
+    condense rewrite has no loop of its own and no tail copy to hide behind —
+    and (2) run A's welded SAP-MM sentence, replayed as the condense rewrite's
+    output, LIES IN the terminal review subject and is exactly what ships.
+    Visibility is the criterion; whether the reviewer flags the weld is
+    judgement (checks 1/2 of the terminal door — ADR-062 clause 7, the
+    clause-7 evidence run's question, not this test's)."""
+    caplog.set_level(logging.INFO, logger="applire.services.cover_letter")
+
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+    from applire.models.user import User
+
+    user = User(id=uuid.uuid4(), email="marcus-replay@test.com")
+    job = JobAnalysis(
+        id=uuid.uuid4(),
+        raw_text_hash="runA525replay",
+        raw_text="Leiter Arbeitsvorbereitung bei Rheinwerk Verpackungen",
+        role_title="Leiter Arbeitsvorbereitung",
+        company_name="Rheinwerk Verpackungen",
+        required_skills=[],
+        nice_to_have_skills=[],
+        keywords=[],
+        seniority_level="senior",
+        company_culture_signals=[],
+        language_requirement="de",
+        jd_language="de",
+    )
+    profile = make_master_profile(profile_json=_marcus_profile_json())
+    db.add_all([user, job, profile])
+    await db.flush()
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job.id,
+        profile_id=profile.id,
+        template="classic_german",
+        letter_data={},
+        pre_gen_inputs={},
+        status=CoverLetterStatus.pending.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    chains_seen: list[str] = []
+    captured: list[dict] = []
+
+    async def fake_review(**kwargs):
+        chains_seen.append(kwargs.get("chain_id"))
+        if kwargs.get("chain_id") != "letter_terminal_review":
+            return kwargs["draft"]
+        captured.append({
+            "prompt": kwargs["reviewer_prompt_fn"](kwargs["source"], kwargs["draft"]),
+        })
+        return kwargs["draft"]
+
+    pages_queue = [2, 1]  # over the norm → condense fires; condensed fits
+    calls = {"condense": 0}
+
+    async def _aparse(prompt, system=None, **kw):
+        if "=== CURRENT LETTER (JSON) ===" in prompt:
+            calls["condense"] += 1
+            return _run_a_condense_payload()
+        return _run_a_condense_payload()  # writer output — irrelevant, condensed replaces it
+
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(side_effect=_aparse)
+    extract = MagicMock(
+        side_effect=lambda pdf: ("text", pages_queue.pop(0) if pages_queue else 1)
+    )
+
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    with (
+        patch("applire.services.cover_letter.AsyncSessionLocal") as sl,
+        patch("applire.services.cover_letter.get_provider", return_value=provider),
+        patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+        patch("applire.services.cover_letter_pdf.render_pdf",
+              AsyncMock(return_value=b"%PDF-fake")),
+        patch("applire.services.ats_audit.extract_text_and_pages", new=extract),
+        patch("applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()),
+    ):
+        sl.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    # (1) The condense-with-its-own-loop is structurally gone.
+    assert "cover_letter_condense" not in chains_seen, chains_seen
+    assert calls["condense"] == 1, "the bounded condense generation itself still ran"
+
+    # (2) The weld lies IN the terminal review subject — run A delivered it
+    # with no reviewer ever seeing the final composition; now the verdict
+    # closes over it.
+    assert captured, "a terminal verdict round must have run"
+    subject = _subject_slice(captured[-1]["prompt"])
+    assert _RUN_A_WELDED_SENTENCE in subject, \
+        "the welded SAP-MM sentence must lie IN the review subject"
+
+    # ...and the reviewed subject IS the delivered letter (identity line).
+    cl_row = await db.get(GeneratedCoverLetter, cl.id)
+    assert any(
+        _RUN_A_WELDED_SENTENCE in p for p in cl_row.letter_data["body"]["paragraphs"]
+    )
+    lines = _identity_lines(caplog)
+    assert lines and "match=True" in lines[-1].getMessage()
+
+
 # --- the tail collapse: exactly ONE composition site (#539 evidence 2b) ------
 
 def test_exactly_one_composition_site():
