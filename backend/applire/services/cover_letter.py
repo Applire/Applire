@@ -1813,6 +1813,14 @@ async def _update_ats_report_letter(
              launch is needed.  The BackgroundTasks patch path leaves this
              None, triggering a fresh render inside the try block.
     """
+    # Stage relabel (#539 evidence-run refuter observation, letter mount of the
+    # #538 finding): without this, the audit tail's own LLM calls (Oracle
+    # sentence triage, outcome critic Pass B) inherit the LAST chain's stage
+    # label from the contextvar — `letter_terminal_review` on the 2026-08-16
+    # run — and every log-based per-chain count silently misclassifies them.
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    _set_llm_log_stage("letter_audit")
     try:
         from applire.services.ats_audit import audit_cover_letter
         from applire.services.cover_letter_pdf import render_pdf

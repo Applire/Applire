@@ -3480,6 +3480,13 @@ async def _update_ats_report(
     fail or alter generation status. Deliberately wipes any previous report on error:
     ADR-039 forbids a persisted report describing a state it was not computed from.
     """
+    # Stage relabel (#538 refuter observation, fixed in #539): the audit tail's
+    # own LLM calls (Oracle sentence triage, outcome critic Pass A) otherwise
+    # inherit the last chain's stage label (`cv_terminal_review`) from the
+    # contextvar — a classification trap for every log-based per-chain count.
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    _set_llm_log_stage("cv_audit")
     try:
         from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
         from applire.services.cv_section_editor import apply_overrides_to_tailored
