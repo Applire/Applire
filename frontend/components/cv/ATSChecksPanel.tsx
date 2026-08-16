@@ -72,6 +72,10 @@ const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-exhausted",
   "page-length-exceeds",
   "page-length-letter",
+  // #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory —
+  // ships as a passing check with a localized `details` sentence, same shape
+  // as the page-length advisory branches above.
+  "skills-weak-vault-tie",
 ]);
 
 type CheckGroup = { base: string; checks: ATSCheck[] };

@@ -403,4 +403,47 @@ describe("ATSChecksPanel", () => {
     );
     expect(failRow.textContent).not.toContain("couldn't condense");
   });
+
+  // #391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): a
+  // measurement-only advisory — same pass-with-advisory shape as page-length,
+  // never a failure (ADR-062 clause 5: visibility, never adjudication).
+  const REPORT_WITH_WEAK_VAULT_TIE: ATSReport = {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      {
+        id: "skills-weak-vault-tie",
+        status: "pass",
+        details:
+          "skill(s) tied to your profile by a single shared word only — worth a second look before sending: '5 Jahre Controlling-Erfahrung' (shares only 'Controlling')",
+        details_key: "skills-weak-vault-tie",
+        details_params: {
+          skills: "'5 Jahre Controlling-Erfahrung' (shares only 'Controlling')",
+          count: 1,
+        },
+      },
+    ],
+    keywords: { present: ["Controlling"], missing: [] },
+  };
+
+  it("renders the #391 weak-vault-tie advisory on the compact card, never as a failure", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_WEAK_VAULT_TIE} />));
+    const advisoryRow = screen.getByTestId("ats-advisory-skills-weak-vault-tie");
+    expect(advisoryRow.textContent).toContain("Controlling-Erfahrung");
+    expect(screen.queryByTestId("ats-check-skills-weak-vault-tie")).toBeNull();
+    expect(screen.getByTestId("ats-structure-status").textContent).toContain("✓");
+  });
+
+  it("localises the #391 weak-vault-tie advisory into German", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_WEAK_VAULT_TIE} />, "de"));
+    const advisoryRow = screen.getByTestId("ats-advisory-skills-weak-vault-tie");
+    expect(advisoryRow.textContent).toContain(
+      "nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft",
+    );
+    expect(advisoryRow.textContent).not.toContain("tied to your profile only by");
+  });
+
+  it("stays silent when no skills-weak-vault-tie check is present", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />));
+    expect(screen.queryByTestId("ats-advisory-skills-weak-vault-tie")).toBeNull();
+  });
 });
