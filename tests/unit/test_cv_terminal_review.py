@@ -202,6 +202,17 @@ def _identity_lines(caplog):
     return [r for r in caplog.records if "REVIEW_SUBJECT_IDENTITY" in r.getMessage()]
 
 
+def _subject_slice(prompt: str) -> str:
+    """The COMPOSED-CV section of the terminal reviewer prompt — deliberately
+    excludes the CANDIDATE PROFILE block, which always carries the vault's own
+    cert/role-fact strings and would make any whole-prompt assertion pass
+    vacuously (caught by mutation C: subject swapped to the bare prose draft
+    and a whole-prompt assertion stayed green)."""
+    start = prompt.index("COMPOSED CV (the delivered document):")
+    end = prompt.index("RENDER MEASURE")
+    return prompt[start:end]
+
+
 # --- the reviewed subject is the composed document --------------------------
 
 @pytest.mark.asyncio
@@ -215,8 +226,10 @@ async def test_terminal_review_subject_is_composed_document(db, caplog):
 
     assert len(captured) == 1, "exactly one terminal round on the clean path"
     prompt = captured[0]["prompt"]
-    assert _CERT_NAME in prompt, "certifications must be IN the review subject"
-    assert "team_size" in prompt, "role facts must be IN the review subject"
+    subject = _subject_slice(prompt)
+    assert _CERT_NAME in subject, "certifications must be IN the review subject"
+    assert '"team_size": 7' in subject, "role facts must be IN the review subject"
+    assert "Baute Backend-Services in Python." in subject, "prose bullets in the subject"
     assert "measured pages: 2, target: 2" in prompt, "real render measure attached"
     assert "SHAPE NOTE — TERMINAL ROUND" in captured[0]["system"]
 
@@ -253,8 +266,9 @@ async def test_terminal_corrector_change_recomposes_and_reenters(db, caplog):
     captured = await _run_pipeline(db, ids, script=[change_summary])
 
     assert len(captured) == 2, "the changed draft must re-enter review"
-    assert "Deutlich verbesserte Zusammenfassung." in captured[1]["prompt"]
-    assert _CERT_NAME in captured[1]["prompt"], \
+    reentered_subject = _subject_slice(captured[1]["prompt"])
+    assert "Deutlich verbesserte Zusammenfassung." in reentered_subject
+    assert _CERT_NAME in reentered_subject, \
         "re-entered subject is COMPOSED again — vault fields re-joined by code"
 
     from applire.models.cv import GeneratedCV
@@ -322,7 +336,7 @@ async def test_post_verdict_mutation_breaks_hash_and_reenters(db, caplog):
     assert "match=True" in lines[1] and "reentered=1" in lines[1]
 
     assert len(captured) == 2, "the mutation must re-enter the terminal review"
-    assert "INJECTED-POST-VERDICT" in captured[1]["prompt"], \
+    assert "INJECTED-POST-VERDICT" in _subject_slice(captured[1]["prompt"]), \
         "the re-entered review subject carries the CHANGE (reviewed, not reverted)"
 
     from applire.models.cv import GeneratedCV
