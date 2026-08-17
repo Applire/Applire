@@ -37,6 +37,7 @@ from typing import Any
 from applire.services.profile.reconcile.stance import (
     declared_denial_matches,
     denial_release_corpus,
+    entry_is_claimable,
     exclude_unconfirmed,
     is_denied_concept,
 )
@@ -162,7 +163,25 @@ def _is_mirror_surface_dup(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return bool(a_sf) and a_sf == _surface_forms_norm(b)
 
 
-def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _attested_skill_labels(profile_json: dict[str, Any] | None) -> set[str]:
+    """Normalized ``skills[].name`` labels the candidate has ATTESTED —
+    claimable entries only (via the shared :func:`entry_is_claimable`
+    predicate, so denied and unconfirmed entries never testify). The fact
+    source for #555's collapse narrowing."""
+    labels: set[str] = set()
+    for skill in (profile_json or {}).get("skills") or []:
+        if not isinstance(skill, dict) or not entry_is_claimable(skill):
+            continue
+        norm = _norm(skill.get("name", ""))
+        if norm:
+            labels.add(norm)
+    return labels
+
+
+def _collapse_prefix_duplicates(
+    ledger: list[dict[str, Any]],
+    attested_skills: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Collapse duplicate concepts that share the same status (E037 F2 + follow-up).
 
     The LLM often emits the same skill twice — either as a short keyword and the
@@ -177,13 +196,34 @@ def _collapse_prefix_duplicates(ledger: list[dict[str, Any]]) -> list[dict[str, 
     a claimable form can never absorb a gap form (or vice versa). Group order
     follows first appearance; downstream consumers count entries, never assume a
     fixed count.
+    #555 narrowing (run 2026-08-15): two concepts that BOTH exist as distinct
+    ATTESTED vault skills (``attested_skills``, normalized) are never merged —
+    the candidate twice explicitly confirmed "SAP PP"/"SAP MM" as skills
+    separate from "SAP", and the JD-extraction prompt itself mandates that
+    decomposition (job_analysis.py, qualified-requirement disposition), yet
+    the post-interview status alignment let this pass collapse all three into
+    one generic row. Distinctness-by-attestation is a fact, not a judgement
+    (ADR-062 clause 1); candidate testimony outranks the dedup heuristic
+    (ADR-059 line). An entry the vault does NOT attest (a JD-phrase
+    restatement, a mirror surface-form alias) merges exactly as before —
+    E037 F2 stays closed.
     """
+    attested = attested_skills or set()
     groups: list[dict[str, Any]] = []
     for entry in ledger:
         toks = _tokens(entry.get("concept", ""))
+        concept_norm = _norm(entry.get("concept", ""))
         home = None
         for g in groups:
             if g["status"] != entry.get("status"):
+                continue
+            if concept_norm in attested and any(
+                _norm(m.get("concept", "")) in attested
+                and _norm(m.get("concept", "")) != concept_norm
+                for m in g["members"]
+            ):
+                # Both sides are the candidate's own attested, distinct
+                # skills — testimony wins, never merge (#555).
                 continue
             if _is_token_prefix_dup(toks, g["tokens"]) or any(
                 _is_mirror_surface_dup(entry, m) for m in g["members"]
@@ -2811,7 +2851,11 @@ def build_keyword_ledger(
             }
         )
 
-    ledger = _enforce_gap_stance(_collapse_prefix_duplicates(ledger))
+    ledger = _enforce_gap_stance(
+        _collapse_prefix_duplicates(
+            ledger, attested_skills=_attested_skill_labels(profile_json)
+        )
+    )
     # ADR-059 amended 2026-08-09 (#480 §7.5(a)) — the corpus the RELEASE
     # predicate reads is the vault's ATTESTED ENTITY LABELS, not its flattened
     # text. ``_independently_affirmed`` (via the containment branch) lets vault

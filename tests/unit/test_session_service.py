@@ -1529,7 +1529,10 @@ class TestSendMessage:
         assert result.question == "Tell me about FastAPI."
         # Advanced to the second (and last) gap on THIS turn → one remaining.
         assert result.gaps_remaining == 1
-        assert result.denial_recorded is None  # only set on the completion path
+        # #380: the turn's honest status, ON the turn it happened (ADR-059) —
+        # this used to pin `is None` ("only set on the completion path"),
+        # which pinned the reporting defect itself.
+        assert result.denial_recorded is True
 
     @pytest.mark.asyncio
     async def test_pending_confirmation_surfaces_as_targeted_question(self, sqlite_session):
@@ -4476,3 +4479,204 @@ class TestInterviewDoorGroundsTheContainmentFloor:
         assert entry["status"] == "gap"
         assert entry["evidence"] == DENIAL_FLOOR_EVIDENCE
         assert entry["evidence"] != DENIED_EVIDENCE
+
+
+# ===========================================================================
+# #380 — denial_recorded on turn responses (ADR-059)
+# ===========================================================================
+
+
+class TestDenialRecordedOnTurnResponses:
+    """#380 — ``denial_recorded`` must be populated on the turn the denial is
+    persisted. ADR-059: "the caller — submit_claims, resolve_gap, or an
+    interview turn — receives the honest status ``denial_recorded``".
+
+    Contract pinned here: every ``SessionMessageResponse`` built from a
+    reconciled turn carries ``denial_recorded=turn.denial_recorded`` —
+    True/False is the turn's fact, so a caller can distinguish "no denial
+    this turn" (False) from "no reconciled turn behind this response" (None:
+    gate paths, the pre-LLM ``user_ended`` termination). Before the fix the
+    flag reached only the hard-ceiling completion call; the captured
+    2026-08-15 instance was a terminal denial turn completing via
+    ``gaps_resolved``, which dropped it."""
+
+    @pytest.mark.asyncio
+    async def test_gaps_resolved_completion_carries_the_terminal_turns_denial(
+        self, sqlite_session
+    ):
+        """The captured #380 instance: the LAST gap's answer is a denial, the
+        session completes as gaps_resolved on that same turn — the completion
+        response must say the denial landed, not null."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(
+            job.id, profile.id,
+            state={
+                "current_gap_index": 1,
+                "current_question": "Tell me about FastAPI.",
+                "addressed_gaps": ["GCP certification"],
+            },
+        )
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _denied_turn(profile.profile_json, denied_concepts=["FastAPI experience"])
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "SHOULD NOT BE ASKED", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "No — I have never worked with FastAPI.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is True
+        assert result.reason == "gaps_resolved"
+        assert result.denial_recorded is True
+
+    @pytest.mark.asyncio
+    async def test_denial_probe_turn_carries_denial_recorded(self, sqlite_session):
+        """The ADR-064 transfer probe is issued ON the denial turn — that
+        response, too, must report the denial as recorded."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _probe_gap_with_ledger(job, profile, required=True)
+        sqlite_session.add(gap)
+        await sqlite_session.flush()
+        session_record = _make_active_session(job.id, profile.id, gap.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _denied_turn(profile.profile_json, denied_concepts=["GCP certification"])
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=_bridge_writing(profile, turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Any adjacent cloud platform experience?", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "No, I have never held a GCP certification.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.current_gap_id == "GCP certification"  # probe issued, same gap
+        assert result.denial_recorded is True
+
+    @pytest.mark.asyncio
+    async def test_denial_free_advance_reports_false_not_null(self, sqlite_session):
+        """An addressed, denial-free turn reports False — the honest "no
+        denial this turn", distinguishable from None (no reconciled turn)."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _addressed_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Tell me about FastAPI.", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I have 3 years of GCP experience.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.denial_recorded is False
+
+    @pytest.mark.asyncio
+    async def test_confirmation_turn_reports_false_not_null(self, sqlite_session):
+        """A US185 confirmation question is also built from a reconciled turn —
+        it carries the turn's (denial-free) status instead of null."""
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = _confirming_turn(profile.profile_json)
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "SHOULD NOT BE ASKED", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "I'm the Owner at applire.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.pending_confirmations is not None
+        assert result.denial_recorded is False
+
+    @pytest.mark.asyncio
+    async def test_follow_up_turn_reports_false_not_null(self, sqlite_session):
+        """A no-op answer triggers the one-shot follow-up on the same gap —
+        that response too carries the turn's (denial-free) status."""
+        from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+        from applire.services.session import send_message
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        session_record = _make_active_session(job.id, profile.id)
+        sqlite_session.add(session_record)
+        await sqlite_session.commit()
+
+        turn = InterviewTurnResult(
+            profile_dict=profile.profile_json,
+            changes=[], addressed=False, denial_recorded=False,
+        )
+
+        with (
+            patch("applire.services.session.reconcile_interview_turn",
+                  new=AsyncMock(return_value=turn)),
+            patch("applire.services.session.question_generator_with_profile",
+                  new=AsyncMock(return_value={"question": "Can you give a concrete example?", "choices": None})),
+        ):
+            result = await send_message(
+                session_record.id, "Hm, not sure what to say.",
+                sqlite_session, _mock_provider()
+            )
+
+        assert result.complete is False
+        assert result.question == "Can you give a concrete example?"
+        assert result.denial_recorded is False

@@ -237,3 +237,92 @@ def test_the_denial_floor_writes_drop_the_adjacent_pointer():
     assert violations and violations[0]["reason"] == "no_evidence"
     assert healed[0]["status"] == "gap"
     assert "adjacent_evidence" not in healed[0]
+
+
+# ---------------------------------------------------------------------------
+# #555 — candidate-attested distinctness outranks the dedup heuristic
+# ---------------------------------------------------------------------------
+
+
+def test_attested_distinct_skills_survive_the_prefix_collapse():
+    """#555 (run 2026-08-15): the candidate twice explicitly confirmed
+    "SAP PP" and "SAP MM" as skills SEPARATE from "SAP" — the vault carries
+    all three as attested entries, and the JD-extraction prompt itself
+    mandates the decomposition (job_analysis.py, qualified-requirement
+    disposition). `_collapse_prefix_duplicates` nonetheless merged all three
+    into one generic "SAP" row once their statuses aligned post-interview.
+
+    The narrowing is a fact, not a judgement (ADR-062 clause 1): two
+    concepts that BOTH exist as distinct attested vault skills are distinct
+    by the candidate's own testimony, and testimony outranks a dedup
+    heuristic (ADR-059 line)."""
+    out = build_keyword_ledger(
+        required_skills=["SAP", "SAP PP", "SAP MM"],
+        nice_to_have_skills=[],
+        keywords=[],
+        classifications=[
+            {"concept": "SAP", "status": "direct",
+             "evidence": "15 Jahre tägliche Arbeit mit SAP."},
+            {"concept": "SAP PP", "status": "direct",
+             "evidence": "Key-User für PP im SAP-Rollout; tägliche Arbeit."},
+            {"concept": "SAP MM", "status": "direct",
+             "evidence": "Tägliche Arbeit mit SAP MM in der Disposition."},
+        ],
+        profile_json={
+            "skills": [
+                {"name": "SAP"},
+                {"name": "SAP PP"},
+                {"name": "SAP MM"},
+            ]
+        },
+    )
+    concepts = sorted(e["concept"] for e in out if e["concept"].startswith("SAP"))
+    assert concepts == ["SAP", "SAP MM", "SAP PP"], (
+        f"attested-distinct skills must never be merged, got {concepts!r}"
+    )
+
+
+def test_unattested_restatement_duplicates_still_merge():
+    """The narrowing must not reopen E037 F2: a JD-phrase restatement the
+    candidate never attested as its own skill still collapses into the
+    short concept term."""
+    out = build_keyword_ledger(
+        required_skills=["Kubernetes", "Kubernetes (production at scale)"],
+        nice_to_have_skills=[],
+        keywords=[],
+        classifications=[
+            {"concept": "Kubernetes", "status": "direct",
+             "evidence": "Runs three production clusters."},
+            {"concept": "Kubernetes (production at scale)", "status": "direct",
+             "evidence": "Runs three production clusters."},
+        ],
+        profile_json={"skills": [{"name": "Kubernetes"}]},
+    )
+    kube = [e for e in out if "Kubernetes" in e["concept"]]
+    assert len(kube) == 1, f"expected the restatement collapse, got {kube!r}"
+    assert kube[0]["concept"] == "Kubernetes"
+
+
+def test_denied_skill_entries_do_not_count_as_attested_distinctness():
+    """The attestation fact rides `entry_is_claimable`: a denied or
+    unconfirmed vault skill is not testimony of distinctness, so the
+    collapse behaves exactly as before the narrowing."""
+    out = build_keyword_ledger(
+        required_skills=["Terraform", "Terraform Cloud"],
+        nice_to_have_skills=[],
+        keywords=[],
+        classifications=[
+            {"concept": "Terraform", "status": "direct",
+             "evidence": "IaC for every environment."},
+            {"concept": "Terraform Cloud", "status": "direct",
+             "evidence": "IaC for every environment."},
+        ],
+        profile_json={
+            "skills": [
+                {"name": "Terraform"},
+                {"name": "Terraform Cloud", "status": "denied"},
+            ]
+        },
+    )
+    tf = [e for e in out if "Terraform" in e["concept"]]
+    assert len(tf) == 1, f"a denied entry must not block the merge, got {tf!r}"
