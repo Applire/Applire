@@ -1,0 +1,43 @@
+{
+  "_provenance": {
+    "run": "2026-08-15 evening evidence run, operations_marcus_de persona (Stefan Brandt, synthetic)",
+    "issue": "#552",
+    "source_log_jsonl_line": 183,
+    "what_this_is": "The cover_letter_condense loop's LAST generator output (attempt 5), which condenses the cover_letter loop's own settled output (line 173, header/recipient/body/signature). NOT a reviewer-approved final: BOTH the cover_letter loop (lines 163-172) and the cover_letter_condense loop (lines 174-183) exhausted 5 reviewer attempts each with approved=false. Reviewer 5's blocking issues (line 181) explicitly named the SAME class evidence this fixture pins for #552: 'does not deliver the required gap_transfer_argument for the gap \"Produktion\"' and an incomplete scope_positioning statement -- i.e. the delivered letter shipped with the reviewer's own transfer-argument concern still open.",
+    "uncertainty": "Pinned as the CLOSEST log-derivable form of the delivered letter_data -- the last generator output before the loop's retry budget exhausted, not a reviewer-approved document. Lines 184/185 (sentence-classification passes) and 186 (findings: []) run AFTER this generator output but are audit/classification passes, not further generation, so they do not change body/header/recipient/signature."
+  },
+  "letter_data": {
+    "header": {
+      "name": "STEFAN BRANDT",
+      "address": "Koblenz",
+      "phone": "+49 261 0000000",
+      "email": "stefan.brandt@example.com",
+      "photo_url": null
+    },
+    "recipient": {
+      "name": null,
+      "title": null,
+      "company": "Rheinwerk Verpackungen GmbH",
+      "address": "Koblenz",
+      "date": null
+    },
+    "body": {
+      "paragraphs": [
+        "Sehr geehrte Damen und Herren,",
+        "die Position als Leiter Operations (m/w/d) bei der Rheinwerk Verpackungen GmbH spricht mich an. Rheinwerk fertigt hochwertige Kunststoff- und Verbundverpackungen für Konsumgüter- und Lebensmittelkunden in Europa — genau dieses Umfeld reizt mich. Meine Schwerpunkte liegen in Feinplanung, Fertigungssteuerung und praxisnaher Prozessverbesserung.",
+        "Als Produktionsleiter bei der Weberit Kunststofftechnik GmbH verantworte ich zwei Fertigungsbereiche mit 38 Mitarbeitenden und führe diese über drei Schichtleiter. In Urlaubs- und Krankheitsvertretung des Betriebsleiters führte ich bei Weberit mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden, jeweils zwei bis vier Wochen am Stück. Bei Rasselstein Umformtechnik GmbH führte ich als Fertigungsmeister / Schichtleiter eine Schicht mit 14 Mitarbeitenden. Shopfloor-Management und KVP-Routinen setzte ich bei Weberit als Führungsinstrumente ein und verfüge dort über Führung von Schichtleitern. Durch Feinplanung und SMED-Rüstworkshops steigerte ich bei Weberit die Termintreue von 87 % auf 96 %. Als Projektleiter der MES-Einführung bei Weberit verantwortete ich die Auswahl, Pilotlinie und den Rollout eines MES-Systems zur Maschinendatenerfassung und Betriebsdatenerfassung an 14 Spritzgussmaschinen, schuf dort Echtzeit-OEE-Transparenz und erhöhte die OEE im Spritzguss in 18 Monaten von 61 % auf 73 %; außerdem erarbeitete ich gemeinsam mit der Geschäftsführung die Industrie-4.0-Roadmap, bereitete die Investitionsentscheidung für die Systemauswahl und den Rollout mit vor und vertrat sie gegenüber der Geschäftsführung. Ergänzend verfüge ich bei Weberit über tägliche Praxis mit SAP PP und MM sowie Budgetverantwortung von rund 6 Mio. Euro jährlich. Bei Rasselstein moderierte ich als Fertigungsmeister / Schichtleiter 5S- und Kaizen-Workshops.",
+        "Die direkte Produktion für Lebensmittelkunden sowie Erfahrung mit IFS oder BRC sind für mich eine ehrliche Lücke. Über die MES-Einführung hinaus habe ich keine weiteren konkreten Digitalisierungsprojekte verantwortet; mein Schwerpunkt liegt vor allem in Shopfloor-Management, KVP, Feinplanung und SMED, und die MES/OEE-Transparenz war mein zentraler Beitrag zur Fertigungsdigitalisierung. Im Produktionsbereich bei Weberit unterstützte ich die Vorbereitung der ISO-45001-Zertifizierung. Dabei überarbeitete ich Gefährdungsbeurteilungen und setzte das Unterweisungssystem neu auf; die Zertifizierung selbst verantwortete der QHSE-Leiter, während ich den Produktionsteil übernahm. Bei Weberit senkte ich die Unfallquote (LTIF) in meinem Bereich in fünf Jahren von 8,2 auf 3,1. Diese Erfahrung aus ISO-45001-Arbeitssicherheitsmanagement, Gefährdungsbeurteilungen und der Übernahme des Produktionsteils übertrage ich auf die Anforderungen in der Produktion. Hygiene- und Dokumentationsdisziplin kenne ich aus der Fertigung für Kosmetik-Verpackungen, dem Sauberraumbereich bei Weberit seit 2021 und zehn Jahren ISO-9001-Audit-Praxis; der Standard ist neu, die Audit- und Dokumentationsdisziplin nicht.",
+        "Bei Weberit umfasst meine Führungserfahrung die direkte Führung von 38 Mitarbeitenden über drei Schichtleiter. Während Urlaubs- und Krankheitsvertretungen des Betriebsleiters führte ich mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden, jeweils zwei bis vier Wochen am Stück. Bei Rasselstein Umformtechnik GmbH führte ich als Fertigungsmeister / Schichtleiter eine Schicht mit 14 Mitarbeitenden. Deutsch ist meine Muttersprache; außerdem begleite ich Werksbesuche des französischen Mutterkonzerns auf Englisch und präsentiere Quartalszahlen auf Englisch. Gern erläutere ich Ihnen im persönlichen Gespräch, wie ich Rheinwerk unterstützen kann. Über Ihre Einladung freue ich mich; mein Eintrittstermin kann besprochen werden.",
+        "Mit freundlichen Grüßen"
+      ],
+      "signature": {
+        "closing": null,
+        "name": "STEFAN BRANDT"
+      }
+    },
+    "signature": {
+      "closing": null,
+      "name": "STEFAN BRANDT"
+    }
+  }
+}
