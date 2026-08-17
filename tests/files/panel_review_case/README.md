@@ -21,7 +21,7 @@ Procedure: `applire-journey-walkthrough` skill, §"Hiring-panel quality gate"
 ## Shared design shape (every case)
 
 1. **Two CV sources** (CV + LinkedIn/XING-style export) — exercises two-source merge and dedupe.
-2. **A JD engineered for a pre-interview match of 0.55–0.80** (the band, not a point, is the assertion — LLM classification wobbles).
+2. **A JD engineered for a pre-interview match of 0.55–0.80** (the band, not a point, is the assertion — LLM classification wobbles). Per-case exception: `operations_marcus_de` is recalibrated to 0.40–0.55 (#554) — its JD's sub-concept density makes the extraction denominator structurally exceed this band's assumption; see that case's README.
 3. **An off-CV dossier** (`dossier_*.md`) — facts the candidate genuinely has that appear in NEITHER CV, keyed to the designed gaps. The tester answers interview questions **only** from the CVs + dossier, first person, 2–5 sentences, never inventing.
 4. **One verbatim explicit denial** per case — must yield an honest status (`denial_recorded` on the agent channel) and the concept must **never become claimable** afterwards (ADR-059).
 5. **At least one no-overclaim trap** — a partial the documents must state precisely (assisted-not-independent, in-progress-not-done, course-not-responsibility). An unbounded claim in any generated document is a truthfulness finding.
