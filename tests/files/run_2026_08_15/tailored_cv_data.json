@@ -1,0 +1,79 @@
+{
+  "_provenance": {
+    "run": "2026-08-15 evening evidence run, operations_marcus_de persona (Stefan Brandt, synthetic)",
+    "issue": "#552",
+    "source_log_jsonl_line": 159,
+    "what_this_is": "The cv_tailoring loop's LAST generator output (attempt 5). NOT a reviewer-approved final: reviewer attempts 1-5 (lines 150,152,154,156,158) all returned approved=false (blocking issues on framing precision, e.g. the 13-year Fuehrungserfahrung figure and the OEE 61%->73% attribution); the loop exhausted its retry budget and generator 5's output is what would ship (this repo's documented 'exhausted, never a delivery gate' settle path).",
+    "uncertainty": "This is the WRITER's raw section-level tailoring output only (summary/work/skills) -- this run predates #538/#539's terminal-review topology, so there is no terminal-verdict pass to pin. It has NOT been run through the full downstream composition pipeline (_compose_document: join with untouched vault sections, the ADR-040 compose block, the un-migrated SIGNAL passes, or the measure-and-condense loop) -- that machinery cannot be faithfully replayed from this log alone (it needs the full profile_json + prior tailored_data state at each pipeline stage, which the log does not carry end-to-end). Pinned as the CLOSEST log-derivable form of the delivered tailored_data, not a byte-identical reconstruction of what the candidate would have downloaded."
+  },
+  "tailored_data": {
+    "summary": "Produktionsleiter mit 14 Jahren Erfahrung in der diskreten Fertigung sowie Führungserfahrung aus verschiedenen Stationen, darunter 13 Jahre Mitarbeiterführung. Schwerpunkte sind Lean Management, Shopfloor-Management, KVP, Feinplanung, SMED und kennzahlenorientierte operative Verbesserung – ergänzt durch MES, OEE, SAP sowie Budget- und Arbeitssicherheitsverantwortung.",
+    "work": [
+      {
+        "id": "a9c435a6-8139-4ab9-b610-dbcdb5f627eb",
+        "bullets": [
+          "Direktführung von 38 Mitarbeitenden über drei Schichtleiter in zwei Fertigungsbereichen im Dreischichtbetrieb; Shopfloor-Management und KVP-Routinen als Führungsinstrumente eingeführt und die Ausschussquote von 4,1 % auf 2,3 % gesenkt.",
+          "Termintreue durch neue Feinplanung und Rüstworkshops nach SMED von 87 % auf 96 % verbessert.",
+          "Jährliche Budgetverantwortung für Personal, Instandhaltung und Material-Gemeinkosten in Höhe von rund 6 Mio. Euro; zusätzlich SAP PP und MM in Disposition und Bestellanforderungen für Instandhaltungsmaterial eingesetzt.",
+          "Den Produktionsteil im Rahmen der Vorbereitung der ISO-45001-Zertifizierung übernommen, während die Zertifizierung selbst vom QHSE-Leiter verantwortet wurde; Gefährdungsbeurteilungen überarbeitet und das Unterweisungssystem neu aufgesetzt. Die Unfallquote (LTIF) im eigenen Bereich in fünf Jahren von 8,2 auf 3,1 gesenkt.",
+          "Zehn Jahre ISO-9001-Audit-Praxis eingebracht; zusätzlich als Bereichsverantwortlicher für ISO 9001 tätig und als vorübergehende Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden für jeweils zwei bis vier Wochen geführt."
+        ],
+        "projects": [
+          {
+            "name": "Einführung eines MES-Systems",
+            "bullets": [
+              "Auswahl, Pilotlinie und Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen begleitet sowie die Investitionsentscheidung gemeinsam mit der Geschäftsführung vorbereitet und vertreten.",
+              "OEE-Transparenz in Echtzeit am Shopfloor-Board geschaffen und den OEE im Spritzguss von 61 % auf 73 % in 18 Monaten gesteigert; die Einführung war Bestandteil einer gemeinsam mit der Geschäftsführung erarbeiteten Industrie-4.0-Roadmap."
+            ]
+          }
+        ]
+      },
+      {
+        "id": "e22635f4-a247-44de-98fd-cd60d658ddd1",
+        "bullets": [
+          "Eine Schicht mit 14 Mitarbeitenden in der Blechumformung geführt.",
+          "Als Lean-Multiplikator 5S- und Kaizen-Workshops moderiert.",
+          "Die Einführung von SAP in der Fertigung begleitet und beim SAP-Rollout als Key-User für SAP PP mit Fertigungsaufträgen und Rückmeldungen gearbeitet."
+        ]
+      },
+      {
+        "id": "9091fa01-4652-4409-a610-bd41245f1fad",
+        "bullets": [
+          "Als Facharbeiter in der Instandhaltung, später als Vorarbeiter, in der Umformtechnik gearbeitet."
+        ]
+      }
+    ],
+    "skills": [
+      "Führungserfahrung",
+      "Lean Management",
+      "Shopfloor-Management",
+      "KVP",
+      "SMED",
+      "5S",
+      "OEE",
+      "MES",
+      "Maschinendatenerfassung",
+      "Betriebsdatenerfassung",
+      "Industrie 4.0",
+      "SAP PP",
+      "SAP MM",
+      "SAP",
+      "Feinplanung/Fertigungssteuerung",
+      "Arbeitsvorbereitung",
+      "Budgetverantwortung",
+      "Budgetsteuerung",
+      "Investitionsplanung",
+      "Arbeitssicherheit",
+      "Arbeitssicherheitsmanagement",
+      "ISO 45001",
+      "ISO 9001",
+      "Gefährdungsbeurteilungen",
+      "Instandhaltung",
+      "Dreischichtbetrieb",
+      "Schnittstelle zu Supply Chain",
+      "Hygiene- und Dokumentationsdisziplin",
+      "Deutsch",
+      "Englisch (B2)"
+    ]
+  }
+}

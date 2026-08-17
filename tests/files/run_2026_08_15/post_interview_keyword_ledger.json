@@ -1,0 +1,832 @@
+{
+  "_provenance": {
+    "run": "2026-08-15 evening evidence run, operations_marcus_de persona (Stefan Brandt, synthetic)",
+    "issue": "#552",
+    "source_log": "Documents/Runs/Tiramisu/adr076-wave2-evidence-run/llm-log-2026-08-15.jsonl (not committed; internal-only, read-only source)",
+    "classifier_response_jsonl_line": 147,
+    "reconciler_denial_jsonl_lines": [
+      28,
+      43,
+      47,
+      50,
+      56,
+      125,
+      131,
+      143,
+      146
+    ],
+    "method": "Extracted JSONL line 147's gap-classifier response (classifications, scope_classifications) and its embedded JOB ANALYSIS + CANDIDATE PROFILE (from the prompt). Reconstructed profile.metadata.denied_concepts by collecting every reconciler-response `denials` list up to and including line 146 (the profile's durable denial record, which is never itself embedded in the classifier prompt). Ran the REAL production pipeline over these inputs: applire.services.gap.ledger_input_from_classification, applire.services.keyword_ledger.build_keyword_ledger, applire.services.scope_requirements.build_scope_prompt_block / build_scope_ledger_entries, applire.services.keyword_ledger.assert_claimable_backed, applire.services.match_score.compute_match_score_from_ledger -- no merge logic reimplemented.",
+    "cross_check": "Exact match (all 38 rows, every field, and match_score) against the surviving API snapshot gap_analysis_post_interview.json -- zero divergence.",
+    "class_proof_finding_552": "REFUTED for this run, not confirmed: none of the 6 denied rows (IFS, BRC, Verpackungsindustrie, Lebensmittelindustrie, Konsumgueter, Lebensmittel) carries adjacent_evidence -- production code (_denied_row/_floored_row, ADR-048 amended 2026-08-13 #526) strips it by design on every denied/floored row, and the raw classifier output never attached it to these rows in any of the 4 refresh calls either. The Sauberraum/hygiene transfer material this run's testimony produced (skill 'Hygiene- und Dokumentationsdisziplin') instead surfaces as regular claimable, narrative_backed material on a DIFFERENT, non-denied ledger row ('Verpackungen', status=partial) -- i.e. it does NOT live only as denial-adjacent evidence."
+  },
+  "match_score": 0.7450980392156863,
+  "denied_concepts": [
+    {
+      "concept": "eigenständiges Digitalisierungsvorhaben über MES und SAP hinaus",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "IFS",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "BRC",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "eigenständige Investitionsplanung für Maschinen",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "eigenständige Investitionsplanung für Kapazitätserweiterungen",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Vertragsverhandlungen auf Englisch",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Lebensmittelindustrie",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Produktion für Lebensmittelkunden",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Verbundverpackungen",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "weitere konkrete Digitalisierungsprojekte",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Digitalisierung von Abläufen",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Vernetzung von Produktionsdaten",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "weitere digitale Verbesserungen",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "dauerhafte Führungsspanne von 120",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "direkte Produktion für Lebensmittelkunden",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Verpackungsindustrie",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Lebensmittel",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    },
+    {
+      "concept": "Konsumgüter",
+      "statement": "",
+      "source": "interview",
+      "date": "2026-08-15",
+      "denial_level": "direct",
+      "probe_asked": true
+    }
+  ],
+  "keyword_ledger": [
+    {
+      "concept": "Produktionsmanagement",
+      "surface_forms": [
+        "Produktionsmanagement",
+        "Produktionsleitung",
+        "Produktions- und Betriebsleiter"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "14 Jahre Erfahrung als Produktions- und Betriebsleiter mit Verantwortung für Fertigungsbereiche, Serienfertigung und Feinplanung/Fertigungssteuerung.",
+      "claimable": true,
+      "adjacent_evidence": "Feinplanung/Fertigungssteuerung",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Führungserfahrung",
+      "surface_forms": [
+        "Führungserfahrung",
+        "Mitarbeiterführung",
+        "Führung gewerblicher Teams"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "13 Jahre Mitarbeiterführung und Führung gewerblicher Teams, einschließlich der Direktführung von 38 Mitarbeitenden über drei Schichtleiter.",
+      "claimable": true,
+      "narrative_backed": false
+    },
+    {
+      "concept": "Lean Production",
+      "surface_forms": [
+        "Lean Production",
+        "Lean Management",
+        "Lean-Produktion"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "Erfahrung mit Lean Management, 5S, KVP/Kaizen, SMED und Shopfloor-Management in der diskreten Fertigung.; Lean Management, 5S, KVP/Kaizen, SMED und Shopfloor-Management in der Fertigung eingesetzt.",
+      "claimable": true,
+      "adjacent_evidence": "Lean Management",
+      "narrative_backed": false
+    },
+    {
+      "concept": "5S",
+      "surface_forms": [
+        "5S",
+        "5-S"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Als Lean-Multiplikator Moderation von 5S-Workshops mit sechs Jahren Erfahrung.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "SMED",
+      "surface_forms": [
+        "SMED",
+        "Single-Minute Exchange of Die",
+        "Rüstzeitoptimierung"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Rüstworkshops nach SMED durchgeführt und damit die Termintreue von 87 % auf 96 % verbessert; neun Jahre Erfahrung.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "KVP",
+      "surface_forms": [
+        "KVP",
+        "Kontinuierlicher Verbesserungsprozess",
+        "Kaizen",
+        "KVP/Kaizen"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Shopfloor-Management und KVP-Routinen eingeführt; neun Jahre Erfahrung mit KVP.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Shopfloor-Management",
+      "surface_forms": [
+        "Shopfloor-Management",
+        "Shopfloor Management",
+        "Shopfloor"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Shopfloor-Management eingeführt und als Führungsinstrument mit KVP-Routinen eingesetzt.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "OEE",
+      "surface_forms": [
+        "OEE",
+        "Overall Equipment Effectiveness",
+        "Gesamtanlageneffektivität"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "OEE-Transparenz in Echtzeit geschaffen und OEE im Spritzguss von 61 % auf 73 % gesteigert.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "MES",
+      "surface_forms": [
+        "MES",
+        "MES-System",
+        "MES-Systeme",
+        "Manufacturing Execution System"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Auswahl, Pilotlinie und Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen; vier Jahre Erfahrung.; Auswahl und Rollout eines MES-Systems zur Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Fertigungsdigitalisierung",
+      "surface_forms": [
+        "Fertigungsdigitalisierung"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "MES-Einführung mit Maschinen- und Betriebsdatenerfassung sowie OEE-Transparenz umgesetzt.",
+      "claimable": true,
+      "adjacent_evidence": "MES",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Industrie 4.0",
+      "surface_forms": [
+        "Industrie 4.0",
+        "Industrie-4.0",
+        "Industry 4.0"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Industrie-4.0-Roadmap gemeinsam mit der Geschäftsführung erarbeitet und im Rahmen der MES-Einführung umgesetzt.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "SAP",
+      "surface_forms": [
+        "SAP",
+        "SAP ERP",
+        "SAP PP",
+        "SAP Produktionsplanung",
+        "SAP Production Planning",
+        "SAP MM",
+        "SAP Materialwirtschaft",
+        "SAP Materials Management"
+      ],
+      "sources": [
+        "keyword",
+        "nice_to_have",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Tägliche Arbeit mit SAP PP und MM sowie Tätigkeit als Key-User für PP im SAP-Rollout; 15 Jahre Erfahrung.; Tägliche Arbeit mit SAP PP sowie Tätigkeit als Key-User für Fertigungsaufträge und Rückmeldungen; 15 Jahre Erfahrung.; Tägliche Arbeit mit SAP MM in Disposition und Bestellanforderungen für Instandhaltungsmaterial; neun Jahre Erfahrung.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Budgetverantwortung",
+      "surface_forms": [
+        "Budgetverantwortung",
+        "Budgetsteuerung",
+        "Budgetplanung",
+        "Budgetplanung und -steuerung"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Jährliche Budgetverantwortung für Personal, Instandhaltung und Material-Gemeinkosten in Höhe von rund 6 Mio. Euro.; Budgetplanung ist im Profil als Skill benannt; zusätzlich jährliche Budgetverantwortung von rund 6 Mio. Euro.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Investitionsplanung",
+      "surface_forms": [
+        "Investitionsplanung",
+        "Investitionsentscheidung",
+        "Investitionsbudget"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Investitionsentscheidung für die Systemauswahl und den Rollout an 14 Spritzgussmaschinen vorbereitet und gegenüber der Geschäftsführung vertreten.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Arbeitssicherheit",
+      "surface_forms": [
+        "Arbeitssicherheit",
+        "Arbeitssicherheitsmanagement",
+        "Arbeitsschutz",
+        "Arbeitsschutzmanagement"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Gefährdungsbeurteilungen überarbeitet, Unterweisungssystem neu aufgesetzt und als Sicherheitsbeauftragter tätig; Unfallquote im Bereich von 8,2 auf 3,1 gesenkt.; Arbeitssicherheitsmanagement, Gefährdungsbeurteilungen und Unterweisungssystem im Profil ausgewiesen.",
+      "claimable": true,
+      "narrative_backed": false
+    },
+    {
+      "concept": "ISO 45001",
+      "surface_forms": [
+        "ISO 45001",
+        "DIN ISO 45001"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet und den Produktionsteil übernommen.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "ISO 9001",
+      "surface_forms": [
+        "ISO 9001",
+        "DIN ISO 9001"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Zehn Jahre ISO-9001-Audit-Praxis und Bereichsverantwortung bei jährlichen ISO-9001-Audits.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Durchsetzungsvermögen",
+      "surface_forms": [
+        "Durchsetzungsvermögen",
+        "Durchsetzungsstärke"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "Als Produktionsleiter Eskalationsinstanz für Kundenreklamationen, Führungsverantwortlicher und Standortvertretung eingesetzt.",
+      "claimable": true,
+      "adjacent_evidence": "Standortführung",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Wertschätzende Führung",
+      "surface_forms": [
+        "Wertschätzende Führung",
+        "Wertschätzender Führungsstil"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "Führung gewerblicher Teams und von Schichtleitern mit Shopfloor-Management und KVP-Routinen als Führungsinstrumenten.",
+      "claimable": true,
+      "adjacent_evidence": "Führung von Schichtleitern",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Deutsch",
+      "surface_forms": [
+        "Deutsch",
+        "Deutschkenntnisse"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Deutsch als Muttersprache.",
+      "claimable": true,
+      "narrative_backed": false
+    },
+    {
+      "concept": "Englisch",
+      "surface_forms": [
+        "Englisch",
+        "English",
+        "Business English"
+      ],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "direct",
+      "evidence": "Werksbesuche auf Englisch begleitet und Quartalszahlen auf Englisch präsentiert; Englisch auf B2-Niveau.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "IFS",
+      "surface_forms": [
+        "IFS"
+      ],
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "BRC",
+      "surface_forms": [
+        "BRC",
+        "BRCGS"
+      ],
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Verpackungsindustrie",
+      "surface_forms": [
+        "Verpackungsindustrie"
+      ],
+      "sources": [
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Lebensmittelindustrie",
+      "surface_forms": [
+        "Lebensmittelindustrie",
+        "Food Industry"
+      ],
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Leiter Operations",
+      "surface_forms": [
+        "Leiter Operations",
+        "Operationsleiter",
+        "Head of Operations"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "partial",
+      "evidence": "Produktions- und Betriebsleiter mit Verantwortung für Fertigungsbereiche, Führung, Budget und operative Verbesserung.",
+      "claimable": true,
+      "adjacent_evidence": "Produktionsleiter",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Produktion",
+      "surface_forms": [
+        "Produktion",
+        "Produktionsleitung",
+        "Fertigung"
+      ],
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "gap",
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Instandhaltung",
+      "surface_forms": [
+        "Instandhaltung",
+        "Maintenance",
+        "Instandhaltungsmanagement"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "direct",
+      "evidence": "Sieben Jahre als Industriemechaniker in der Instandhaltung sowie Budget- und Materialverantwortung für Instandhaltung als Produktionsleiter.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Arbeitsvorbereitung",
+      "surface_forms": [
+        "Arbeitsvorbereitung",
+        "AVOR",
+        "Arbeitsplanung"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "direct",
+      "evidence": "Arbeitsvorbereitung ist im Profil als Skill benannt; zusätzlich Stammdatenbereinigung für Arbeitspläne geleitet.",
+      "claimable": true,
+      "narrative_backed": false
+    },
+    {
+      "concept": "Mehrschichtbetrieb",
+      "surface_forms": [
+        "Mehrschichtbetrieb",
+        "Dreischichtbetrieb",
+        "Schichtbetrieb"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "direct",
+      "evidence": "Verantwortung für Fertigungsbereiche im Dreischichtbetrieb sowie frühere Schichtführung.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Qualitätsmanagement",
+      "surface_forms": [
+        "Qualitätsmanagement",
+        "QM",
+        "Quality Management"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "partial",
+      "evidence": "ISO-9001-Bereichsverantwortung, Audit-Praxis und Schnittstelle zur Qualitätssicherung.",
+      "claimable": true,
+      "adjacent_evidence": "ISO 9001",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Maschinendatenerfassung",
+      "surface_forms": [
+        "Maschinendatenerfassung",
+        "MDE",
+        "Machine Data Collection"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "direct",
+      "evidence": "Maschinendatenerfassung an 14 Spritzgussmaschinen im MES-Projekt umgesetzt.",
+      "claimable": true,
+      "narrative_backed": false
+    },
+    {
+      "concept": "Supply Chain",
+      "surface_forms": [
+        "Supply Chain",
+        "Supply-Chain-Management",
+        "SCM"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "direct",
+      "evidence": "Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain als Produktionsleiter.",
+      "claimable": true,
+      "narrative_backed": true
+    },
+    {
+      "concept": "Verpackungen",
+      "surface_forms": [
+        "Verpackungen",
+        "Kosmetik-Verpackungen",
+        "Packaging"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "partial",
+      "evidence": "Hygiene- und Dokumentationsdisziplin aus der Fertigung für Kosmetik-Verpackungen.",
+      "claimable": true,
+      "adjacent_evidence": "Hygiene- und Dokumentationsdisziplin",
+      "narrative_backed": true
+    },
+    {
+      "concept": "Konsumgüter",
+      "surface_forms": [
+        "Konsumgüter",
+        "Consumer Goods"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Lebensmittel",
+      "surface_forms": [
+        "Lebensmittel",
+        "Food",
+        "Lebensmittelproduktion"
+      ],
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "denial_level": "direct",
+      "narrative_backed": false
+    },
+    {
+      "concept": "Führungskräfteentwicklung",
+      "surface_forms": [
+        "Führungskräfteentwicklung",
+        "Leadership Development",
+        "Managemententwicklung"
+      ],
+      "sources": [
+        "keyword"
+      ],
+      "fit_weight": 0.0,
+      "status": "gap",
+      "evidence": "",
+      "claimable": false,
+      "narrative_backed": false
+    },
+    {
+      "concept": "Führungsspanne ~120 MA",
+      "surface_forms": [],
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0,
+      "status": "partial",
+      "evidence": "JD bar (team_size): \"Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.\". Vault: 38 (Produktionsleiter @ Weberit Kunststofftechnik GmbH — direct reports in that one role (not total organisational span)); 14 (Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH — direct reports in that one role (not total organisational span)). Attested (Gesamtstandort während Vertretung): \"In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach Führung des Gesamtstandorts mit rund 90 Mitarbeitenden, jeweils zwei bis vier Wochen am Stück.\" (Produktionsleiter @ Weberit Kunststofftechnik GmbH). Judgement: Verglichen wurden die direkten Berichtsgrößen von 38 Mitarbeitenden als Produktionsleiter und 14 Mitarbeitenden als Schichtleiter mit der geforderten Gesamtverantwortung für etwa 120 Mitarbeitende. Die Kandidatenwerte messen direkte Reports in einzelnen Rollen, während die JD eine gesamte organisationale Führungsspanne umfasst; zusätzlich wurde eine zeitweise Standortvertretung für rund 90 Mitarbeitende attested.",
+      "claimable": true,
+      "narrative_backed": true,
+      "bar": {
+        "kind": "team_size",
+        "value": 120.0,
+        "value_max": null,
+        "comparator": "approx",
+        "quote": "Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.",
+        "level": "required",
+        "candidate_values": [
+          {
+            "value": 38,
+            "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+            "semantics": "direct reports in that one role (not total organisational span)",
+            "provenance": "derived",
+            "unit": null
+          },
+          {
+            "value": 14,
+            "entry": "Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH",
+            "semantics": "direct reports in that one role (not total organisational span)",
+            "provenance": "derived",
+            "unit": null
+          }
+        ],
+        "cited_entry": null,
+        "attested": {
+          "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+          "quote": "In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach Führung des Gesamtstandorts mit rund 90 Mitarbeitenden, jeweils zwei bis vier Wochen am Stück.",
+          "unit": "Gesamtstandort während Vertretung"
+        }
+      }
+    }
+  ]
+}
