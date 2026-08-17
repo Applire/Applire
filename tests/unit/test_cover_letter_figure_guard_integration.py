@@ -279,10 +279,10 @@ async def test_the_reviewer_prompt_carries_the_figures_vault_ownership(seeded):
 
     mock_provider = MagicMock()
     mock_provider.aparse_json = AsyncMock(return_value={"body": {"paragraphs": []}})
-    captured: dict = {}
+    captured: list[dict] = []
 
     async def _capture(**kwargs):
-        captured.update(kwargs)
+        captured.append(kwargs)
         return _fabricated_letter()
 
     with (
@@ -297,7 +297,11 @@ async def test_the_reviewer_prompt_carries_the_figures_vault_ownership(seeded):
         mock_session_local.return_value.__aenter__.return_value = db
         await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
 
-    reviewer_prompt = captured["reviewer_prompt_fn"]("source", _fabricated_letter())
+    # The PRIMARY (drafting) loop's reviewer stack — the terminal round's stack
+    # (#539) computes the same block over the COMPOSED subject, where the #254
+    # guard has already stripped the borrowed figure; its visibility is pinned
+    # in test_letter_terminal_review.py.
+    reviewer_prompt = captured[0]["reviewer_prompt_fn"]("source", _fabricated_letter())
     assert "FIGURE OWNERSHIP" in reviewer_prompt
     # the borrowed headcount's REAL owner, named to the reviewer
     assert "DataCore Systems" in reviewer_prompt

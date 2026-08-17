@@ -151,7 +151,8 @@ async def test_review_and_refine_receives_has_closing_paragraph_as_retain_if(see
 
 @pytest.mark.asyncio
 async def test_condense_pass_also_receives_retain_if(seeded):
-    """The condense/refine loop is a SEPARATE review_and_refine call — the
+    """#539: the round that reviews the condense rewrite is the TERMINAL
+    review's invocation (shared budget, not a separate condense chain) — the
     retain_if wiring must be present there too."""
     db, job, profile, cl = seeded
 
@@ -235,8 +236,9 @@ async def test_primary_loop_does_not_receive_prefer_if(seeded):
 
 @pytest.mark.asyncio
 async def test_condense_pass_alone_receives_prefer_if(seeded):
-    """The condense/refine loop keeps the word-budget prefer_if — narrowing
-    among CONDENSE rounds is its designed use (charter run #6). The primary
+    """The terminal invocation that reviews the CONDENSE rewrite keeps the
+    word-budget prefer_if — narrowing among condense-descendant drafts is its
+    designed use (charter run #6; #539 wires it per-invocation). The primary
     loop must not carry it (#420) — asserted per call below."""
     db, job, profile, cl = seeded
 
@@ -287,11 +289,14 @@ async def test_condense_pass_alone_receives_prefer_if(seeded):
 
 @pytest.mark.asyncio
 async def test_condense_over_budget_result_emits_letter_over_budget_log(seeded, caplog):
-    """Wave-6 follow-up (charter run #6, Task 3): if the condense pass's settled
-    result STILL exceeds the region's word budget (e.g. because retain_if
-    correctly refused a shorter draft that lost its closing), that must be
-    countable after the fact via a distinct, stable LETTER_OVER_BUDGET log line
-    naming the chain, the measured word count, and the norm."""
+    """Wave-6 follow-up (charter run #6, Task 3), carried into #539: if the
+    condense rewrite's settled result STILL exceeds the region's word budget
+    (e.g. because retain_if correctly refused a shorter draft that lost its
+    closing), that must be countable after the fact via a distinct, stable
+    LETTER_OVER_BUDGET log line naming the chain, the measured word count, and
+    the norm. Since #539 the condense re-enters the terminal review, so the
+    line carries the ``letter_terminal_review`` chain id (the
+    ``cover_letter_condense`` vocabulary is retired with that chain)."""
     import logging
 
     db, job, profile, cl = seeded
@@ -332,7 +337,10 @@ async def test_condense_over_budget_result_emits_letter_over_budget_log(seeded, 
 
     over_budget_lines = [r for r in caplog.records if "LETTER_OVER_BUDGET" in r.getMessage()]
     assert over_budget_lines, "expected a LETTER_OVER_BUDGET log line"
-    assert any("cover_letter_condense" in r.getMessage() for r in over_budget_lines)
+    assert any("letter_terminal_review" in r.getMessage() for r in over_budget_lines)
+    assert not any("cover_letter_condense" in r.getMessage() for r in over_budget_lines), (
+        "the cover_letter_condense chain (and its log vocabulary) is retired (#539)"
+    )
     assert any(str(budget) in r.getMessage() for r in over_budget_lines)
 
 

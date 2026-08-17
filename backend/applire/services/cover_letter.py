@@ -35,6 +35,7 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import date, timezone
 from pathlib import Path
 
@@ -49,7 +50,12 @@ from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
-from applire.constants import CV_GENERATION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
+from applire.constants import (
+    CV_GENERATION_MAX_TOKENS,
+    LETTER_TERMINAL_REENTRY_MAX,
+    LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+    LLM_REVIEW_MAX_RETRIES,
+)
 from applire.prompts.cover_letter import (
     SYSTEM_PROMPT,
     build_condense_prompt,
@@ -58,8 +64,10 @@ from applire.prompts.cover_letter import (
 from applire.prompts.review_cover_letter import (
     COVER_LETTER_REFINEMENT_PROMPT,
     REVIEW_SYSTEM_PROMPT,
+    TERMINAL_REVIEW_SYSTEM_PROMPT,
     build_retry_prompt,
     build_review_prompt,
+    build_terminal_review_prompt,
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
@@ -71,6 +79,7 @@ from applire.services.letter_figure_guard import (
 from applire.services.letter_outcome_guard import guard_letter_outcome_preference
 from applire.services.load_bearing import load_bearing_fn_from_ledger
 from applire.services.reviewer import review_and_refine
+from applire.services.subject_identity import subject_hash
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
@@ -1082,58 +1091,70 @@ async def _render_cover_letter_background(
             # letter loops from this one wiring point — the loop run A's
             # evidence (SAP+Shopfloor -> 5S+Arbeitssicherheit -> ...
             # displacement churn) exhausted 5/5 on.
-            reviewer_prompt_fn = unaddressed_requirements_reviewer_prompt_fn(
-                coverage_reviewer_prompt_fn(
-                    build_review_prompt,
-                    keyword_ledger,
-                    budget=letter_coverage_budget(norm.letter_body_word_budget),
-                ),
-                keyword_ledger=keyword_ledger,
-            )
-            # #272 Task 6: a THIRD deterministic wrapper — each reviewer iteration also
-            # carries a WORD FLOOR check against the CURRENT draft's body (ADR-051 norm
-            # registry; a thin letter previously passed silently since only an upper
-            # bound existed). Composes on top of the two wrappers above exactly like
-            # they compose with each other — no new LLM call, no new loop.
+            # #272 Task 6 / #299 / #531 — see the per-wrapper comments inside
+            # ``_wrap_reviewer``. ADR-076 clause 3 (#539): the five-wrapper
+            # stack is built by ONE closure so the terminal round further down
+            # carries the IDENTICAL deterministic checks over its composed
+            # subject — two doors, one stack (the ADR-066 shape), and the
+            # clause-6 rank-gating above covers every reviewer invocation of
+            # this render from this one wiring point.
             from applire.services.cover_letter_positioning import (
                 body_word_count,
                 has_closing_paragraph,
                 within_word_budget,
                 word_floor_reviewer_prompt_fn,
             )
-            reviewer_prompt_fn = word_floor_reviewer_prompt_fn(
-                reviewer_prompt_fn, word_floor=norm.letter_body_word_floor
-            )
-            # #299 (ADR-062 clause 2): a FOURTH deterministic wrapper — each
-            # reviewer iteration also carries the vault OWNERSHIP of every
-            # grounded figure in the CURRENT draft ("figure N appears in the
-            # vault only under X"). That is a data-structure lookup, a FACT;
-            # deciding which employer the sentence carrying it is ABOUT is a
-            # judgement about prose, and it now belongs to the reviewer — which
-            # can re-anchor or rewrite the claim, where the post-loop guard
-            # (below, still the floor) can only delete the sentence. Same
-            # composition as the three wrappers above: no new LLM call, no new
-            # pass, no new loop (ADR-058 freeze amended 2026-07-24 — threading
-            # existing vault data into an existing prompt is bugfix-grade).
-            reviewer_prompt_fn = figure_ownership_reviewer_prompt_fn(
-                reviewer_prompt_fn, profile.profile_json if profile else {}
-            )
-            # #531 (ADR-021 amended 2026-08-13, clause 4): a FIFTH deterministic
-            # wrapper — which DO-NOT-CLAIM terms the CURRENT draft actually
-            # contains, by the shared presence predicate. The reviewer's
-            # forbidden-claim check is a usage-honesty judgement that silently
-            # presupposes a presence determination, and the prompt forbids the
-            # model from string-matching to answer it: in gate charter run 1,
-            # 2 of 3 DO-NOT-CLAIM findings named a term appearing nowhere in the
-            # graded draft. A prohibition is not a substitute for supplying the
-            # answer. Positive direction only — the fold is English-only, so a
-            # term the scan misses stays raisable, at the price of a quote.
             from applire.services.keyword_ledger import (
                 forbidden_presence_reviewer_prompt_fn,
             )
-            reviewer_prompt_fn = forbidden_presence_reviewer_prompt_fn(
-                reviewer_prompt_fn, keyword_ledger
-            )
+
+            def _wrap_reviewer(base_fn):
+                fn = unaddressed_requirements_reviewer_prompt_fn(
+                    coverage_reviewer_prompt_fn(
+                        base_fn,
+                        keyword_ledger,
+                        budget=letter_coverage_budget(norm.letter_body_word_budget),
+                    ),
+                    keyword_ledger=keyword_ledger,
+                )
+                # #272 Task 6: a THIRD deterministic wrapper — each reviewer
+                # iteration also carries a WORD FLOOR check against the CURRENT
+                # draft's body (ADR-051 norm registry; a thin letter previously
+                # passed silently since only an upper bound existed). Composes
+                # on top of the two wrappers above exactly like they compose
+                # with each other — no new LLM call, no new loop.
+                fn = word_floor_reviewer_prompt_fn(
+                    fn, word_floor=norm.letter_body_word_floor
+                )
+                # #299 (ADR-062 clause 2): a FOURTH deterministic wrapper — each
+                # reviewer iteration also carries the vault OWNERSHIP of every
+                # grounded figure in the CURRENT draft ("figure N appears in the
+                # vault only under X"). That is a data-structure lookup, a FACT;
+                # deciding which employer the sentence carrying it is ABOUT is a
+                # judgement about prose, and it now belongs to the reviewer —
+                # which can re-anchor or rewrite the claim, where the
+                # composition-site guard (the floor) can only delete the
+                # sentence. Same composition as the wrappers above: no new LLM
+                # call, no new pass, no new loop (ADR-058 freeze amended
+                # 2026-07-24 — threading existing vault data into an existing
+                # prompt is bugfix-grade).
+                fn = figure_ownership_reviewer_prompt_fn(
+                    fn, profile.profile_json if profile else {}
+                )
+                # #531 (ADR-021 amended 2026-08-13, clause 4): a FIFTH
+                # deterministic wrapper — which DO-NOT-CLAIM terms the CURRENT
+                # draft actually contains, by the shared presence predicate. The
+                # reviewer's forbidden-claim check is a usage-honesty judgement
+                # that silently presupposes a presence determination, and the
+                # prompt forbids the model from string-matching to answer it: in
+                # gate charter run 1, 2 of 3 DO-NOT-CLAIM findings named a term
+                # appearing nowhere in the graded draft. A prohibition is not a
+                # substitute for supplying the answer. Positive direction only —
+                # the fold is English-only, so a term the scan misses stays
+                # raisable, at the price of a quote.
+                return forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
+
+            reviewer_prompt_fn = _wrap_reviewer(build_review_prompt)
             # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
             # structural-only tie-break over drafts retain_if already accepts.
             # #420 (ADR-021 amended 2026-08-02): it is wired into the CONDENSE
@@ -1205,215 +1226,147 @@ async def _render_cover_letter_background(
                     "cover_letter", _settled_word_count, norm.letter_body_word_budget
                 )
 
-            # #254 — deterministic figure-attribution guard, run on the FINAL
-            # settled output of the review/corrector loop (never mid-loop): the
-            # ADR-021 corrector sees the whole profile and can mint a figure
-            # borrowed from an unrelated role/story (e.g. "mentoring teams of
-            # 5+" borrowed from a different position's "team of five"). Belt
-            # and suspenders with the Oracle's post-hoc detection (services/
-            # oracle/audit.py) — this is the generation-path prevention half.
-            letter_data = guard_letter_figures(letter_data, profile.profile_json if profile else {})
-
-            # #261 (run-4 blind hiring-panel finding): the letter-side twin of the
-            # CV's outcome-preference guard — surface a measured result over a bare
-            # target/projection for the same, unambiguously-named initiative. Same
-            # settled-output contract as the figure guard above.
-            letter_data = guard_letter_outcome_preference(
-                letter_data, profile.profile_json if profile else {}, detected_language
+            # ADR-076 clause 3 (#539): ONE composition site. The seven
+            # deterministic guards that used to run here inline — and AGAIN,
+            # duplicated verbatim after the condense rewrite (#189's and #307's
+            # individually-retrofitted twins) — are extracted into
+            # ``_compose_letter`` (a pure function), so the terminal review
+            # below closes over the COMPOSED letter and every re-entry is
+            # re-composed identically. Pass order and mechanisms are
+            # byte-identical to the pre-#539 inline sequence; the duplicated
+            # tail is gone because the topology no longer needs it — not
+            # because the code was deduplicated.
+            letter_data = _compose_letter(
+                letter_data,
+                profile_json=profile.profile_json if profile else {},
+                cv_data=cv_data,
+                profile=profile,
+                pre_gen=pre_gen,
+                language=detected_language,
             )
 
-            # F3 (blind PQ blocker): the recipient the user typed in the generate dialog
-            # is overlaid deterministically AFTER the LLM/review step — the LLM's JSON
-            # solely owns letter_data, so a typed recipient could otherwise be silently
-            # dropped (null) or altered. User input always wins (AC #2).
-            letter_data = _apply_recipient_overrides(letter_data, pre_gen)
+            # Persist + render + measure. E037 PQ #2 (ATS "not available" race):
+            # the ATS audit must be persisted BEFORE status flips to 'ready' —
+            # status stays 'generating' through every intermediate commit of
+            # this pipeline (including the terminal loop's re-compositions), so
+            # none of them is observable as done. The render is fail-open: a
+            # measurement error must never fail generation (HTML preview still
+            # works; PDF download fails gracefully).
+            pdf_bytes, measured = await _persist_and_measure(cl, db, letter_data, norm)
 
-            # The letter date is system-injected AFTER review — the model never sets it
-            # (the prior date-hallucination fix, 2026-06-10). recipient.date stays null
-            # through generation + review, then is stamped here from the system clock.
-            letter_data = _inject_letter_date(letter_data, detected_language)
+            # TERMINAL REVIEW (ADR-076 clause 3, #539): the terminal verdict is
+            # rendered over the COMPOSED letter with the real render measure
+            # (pages + body words). The bounded condense rewrite (#177 / ADR-051
+            # §6: letters have no bullet model, so condense is a scoped LLM
+            # rewrite) now RE-ENTERS this same review inside the shared retry
+            # budget — the retired ``cover_letter_condense`` chain ran as its
+            # own 5-round loop with its own verbatim copy of the guard tail
+            # (5/5 exhaustion measured on three runs; #525's welded coverage
+            # re-insert lived in exactly that seam). LLM_REVIEW_MAX_RETRIES=0
+            # disables the terminal round with the rest of the review layer.
+            _reviews_enabled = (
+                LLM_REVIEW_MAX_RETRIES > 0 and LETTER_TERMINAL_REVIEW_MAX_RETRIES > 0
+            )
+            tr = await _terminal_review_letter(
+                cl, db,
+                draft=letter_data,
+                grounding_source=grounding_source,
+                provider=provider,
+                corrector_prompt_fn=corrector_prompt_fn,
+                wrap_reviewer=_wrap_reviewer,
+                norm=norm,
+                profile=profile,
+                cv_data=cv_data,
+                pre_gen=pre_gen,
+                language=detected_language,
+                load_bearing_fn=load_bearing_fn,
+                within_budget_fn=_within_budget,
+                retain_if_fn=has_closing_paragraph,
+                pdf_bytes=pdf_bytes,
+                measured=measured,
+                reviews_enabled=_reviews_enabled,
+            )
+            letter_data = tr.draft
+            pdf_bytes, measured = tr.pdf_bytes, tr.measured
+            terminal_rounds = tr.rounds
+            reentry_exhausted = tr.reentry_exhausted
+            condense_used = tr.condense_used
 
-            # #189: the sign-off is chrome — overwrite it with the language-routed label
-            # so an EN letter never closes with the German "Mit freundlichen Grüßen"
-            # (ADR-038). And backfill the sender name from the candidate's real name when
-            # the LLM left signature.name/header.name empty (the fallback profile_json
-            # path fed a blank name), so the letter is never unsigned.
-            letter_data = _normalize_signature_closing(letter_data, detected_language)
-            letter_data = _backfill_sender_name(letter_data, cv_data, profile)
-            # #307: the Anrede gets its own paragraph — the writer runs it into the
-            # opening sentence, which is the DACH letter's most visible formal defect.
-            letter_data = _split_inline_salutation(letter_data)
+            # Wave-6 follow-up (charter run #6, Task 3), carried over: the
+            # condense rewrite is bounded and retain_if never sacrifices the
+            # closing to hit the budget — so the letter CAN still ship over
+            # budget (with a genuine closing). That stays countable after the
+            # fact, now under the terminal chain's name (the
+            # ``cover_letter_condense`` vocabulary is retired with the chain —
+            # watch-item counters must read the new chain id).
+            if condense_used and measured.word_count > norm.letter_body_word_budget:
+                log_letter_over_budget(
+                    "letter_terminal_review",
+                    measured.word_count,
+                    norm.letter_body_word_budget,
+                )
 
-            # Store the letter body, but keep status 'generating' for now. E037 PQ #2
-            # (ATS "not available" race): the ATS audit must be persisted BEFORE status
-            # flips to 'ready', because the frontend fetches the report once with no retry
-            # — a 'ready' row that has no report yet read NULL and showed "unavailable"
-            # permanently. So: persist letter_data → render smoke PDF → audit (commits the
-            # report while still 'generating') → ONLY THEN flip to 'ready'. The ready flip
-            # is the last write, so 'ready' is never observable before the report exists.
-            cl.letter_data = letter_data
-            await db.commit()
-
-            # Generate PDF via Playwright. allow_unready=True lets the renderer work while
-            # the letter is still 'generating' (the audit needs the PDF before the flip).
-            pdf_bytes: bytes | None = None
-            try:
-                from applire.services.cover_letter_pdf import render_pdf
-                pdf_bytes = await render_pdf(cl_id, allow_unready=True)
-            except Exception as pdf_err:
-                logger.warning("PDF render failed for CL %s: %s", cl_id, pdf_err)
-                # HTML preview still works; PDF download will fail gracefully
-
-            # #177 / ADR-051 §6 (amended 2026-07-16): the letter gets the CV's guarantee
-            # shape — measure the real render, ONE bounded condense-regenerate, audit as
-            # the honest backstop. Letters have no bullet model, so the condense is an
-            # LLM rewrite routed back through the grounding review (ADR-040) — a
-            # deliberate, scoped deviation from the CV's deterministic cuts (ADR-approved
-            # amendment). Skipped when the user has section overrides (their edits win;
-            # the audit still reports). The page-count measurement is deliberately
-            # fail-open — the same philosophy as the audit itself (services/cv.py
-            # ``_update_ats_report``): a measurement error must never fail generation or
-            # keep status away from 'ready'.
-            if pdf_bytes is not None and not (cl.section_overrides or {}):
-                page_count: int | None = None
-                try:
-                    from applire.services.ats_audit import extract_text_and_pages
-                    _, page_count = extract_text_and_pages(pdf_bytes)
-                except Exception as measure_err:
-                    logger.warning(
-                        "Letter page-count measurement failed for CL %s: %s", cl_id, measure_err
-                    )
-                if page_count is not None and page_count > norm.letter_pages:
-                    # Review Finding 2: the condense generation+review is a bounded,
-                    # best-effort optimization pass over an ALREADY-VALID rendered
-                    # letter. A transient LLM error here must fail OPEN — keep the
-                    # original letter_data/pdf_bytes untouched and let the ATS audit
-                    # stay the honest backstop — rather than propagate to the outer
-                    # handler and mark the whole letter 'failed', discarding a good
-                    # letter over a failed optimization.
-                    original_letter_data = letter_data
-                    try:
-                        condensed = await provider.aparse_json(
-                            build_condense_prompt(
-                                letter_data, norm.letter_body_word_budget, page_count,
-                                letter_pages=norm.letter_pages,
-                            ),
-                            system=SYSTEM_PROMPT,
-                            max_tokens=CV_GENERATION_MAX_TOKENS,
-                        )
-                        # #270 Fix D: same composed reviewer wrapper as the primary loop
-                        # above — the condense pass is a fresh rewrite and must be
-                        # re-checked for cross-document conflicts against cv_data too.
-                        condensed = await review_and_refine(
-                            source=grounding_source,
-                            draft=condensed,
-                            # #306: same corrector-side coverage retention as
-                            # the primary loop — the condense pass is a fresh
-                            # rewrite under length pressure, and on 2026-08-06
-                            # the cover_letter_condense chain lost SMED at
-                            # round 2 exactly as the primary chain did.
-                            generator_prompt_fn=corrector_prompt_fn,
-                            generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                            reviewer_prompt_fn=reviewer_prompt_fn,
-                            reviewer_system=REVIEW_SYSTEM_PROMPT,
-                            provider=provider,
-                            max_retries=LLM_REVIEW_MAX_RETRIES,
-                            chain_id="cover_letter_condense",
-                            # #272 Task 3: same structural retention guard as the
-                            # primary loop — the condense pass is a fresh rewrite
-                            # under length pressure and must not lose the closing
-                            # paragraph either.
-                            retain_if=has_closing_paragraph,
-                            # Wave-6 follow-up (charter run #6, Task 2): same
-                            # secondary tie-break as the primary loop — among
-                            # closing-satisfying drafts THIS condense loop produces,
-                            # prefer one that also fits the budget. retain_if still
-                            # decides eligibility, so a condense round that dropped
-                            # the closing again is never selected just because it
-                            # is shorter.
-                            prefer_if=_within_budget,
-                            # #306 (b): same evidence-blind-substitution guard as
-                            # the primary loop above — the condense pass is a
-                            # fresh rewrite under length pressure and must not
-                            # trade load-bearing figures away for a shorter shape.
-                            load_bearing_fn=load_bearing_fn,
-                        )
-                        # #254 — same generation-path guard as the primary loop
-                        # above: the condense pass is itself a fresh corrector-
-                        # style rewrite routed back through review_and_refine
-                        # and must be checked again before it ships.
-                        condensed = guard_letter_figures(
-                            condensed, profile.profile_json if profile else {}
-                        )
-                        # #261 — same generation-path guard as the primary loop above,
-                        # re-applied to the condense pass's fresh rewrite.
-                        condensed = guard_letter_outcome_preference(
-                            condensed, profile.profile_json if profile else {}, detected_language
-                        )
-                        condensed = _apply_recipient_overrides(condensed, pre_gen)
-                        condensed = _inject_letter_date(condensed, detected_language)
-                        # #189: the condense pass is a fresh LLM rewrite, so re-apply the
-                        # deterministic chrome sign-off + sender-name backfill to it too.
-                        condensed = _normalize_signature_closing(condensed, detected_language)
-                        condensed = _backfill_sender_name(condensed, cv_data, profile)
-                        # #307: the condense pass is a fresh rewrite — re-split too.
-                        condensed = _split_inline_salutation(condensed)
-                        letter_data = condensed
-                        # Wave-6 follow-up (charter run #6, Task 3): the condense
-                        # pass is bounded to exactly one round (ADR-051 §6) and
-                        # retain_if never sacrifices the closing to hit the budget
-                        # — so the letter CAN still ship over budget (with a
-                        # genuine closing) when no round satisfied both. That must
-                        # stay countable after the fact, not silent.
-                        _condensed_word_count = body_word_count(letter_data)
-                        if _condensed_word_count > norm.letter_body_word_budget:
-                            log_letter_over_budget(
-                                "cover_letter_condense",
-                                _condensed_word_count,
-                                norm.letter_body_word_budget,
-                            )
-                        cl.letter_data = letter_data
-                        await db.commit()
-                        try:
-                            pdf_bytes = await render_pdf(cl_id, allow_unready=True)
-                        except Exception as pdf_err:
-                            logger.warning("Condense re-render failed for CL %s: %s", cl_id, pdf_err)
-                            # Finding 1 / ADR-039: the re-render failed, so pdf_bytes
-                            # must NOT keep the STALE pre-condense PDF — that PDF
-                            # describes content that no longer matches letter_data
-                            # (already overwritten above). A NULL report (or the
-                            # fresh internal re-render _update_ats_report_letter
-                            # falls back to when pdf=None) beats an audit persisted
-                            # against stale content.
-                            pdf_bytes = None
-                    except Exception as condense_err:
-                        logger.warning(
-                            "Condense pass failed for CL %s — keeping the original letter: %s",
-                            cl_id, condense_err,
-                        )
-                        # #181 (review item 4): if the failure was the condense
-                        # db.commit() itself, cl.letter_data is already the condensed
-                        # value in-memory and the session needs a rollback before it
-                        # can be reused — otherwise the function's final commit would
-                        # persist the half-condensed state (or raise on a dirty
-                        # session). Roll back to discard the failed transaction, then
-                        # refresh cl so it holds the last-committed (original) value as
-                        # clean, LOADED state — a bare rollback leaves cl expired, and
-                        # the expired-attribute reload during the final flush trips a
-                        # MissingGreenlet (rollback expires the ORM).
-                        try:
-                            await db.rollback()
-                            await db.refresh(cl)
-                        except Exception as restore_err:  # pragma: no cover - defensive
-                            logger.warning(
-                                "Condense rollback/restore failed for CL %s: %s",
-                                cl_id, restore_err,
-                            )
-                        letter_data = original_letter_data
-
-            # ADR-039 — persist the ATS audit (commits while status is still 'generating').
-            # An audit failure is non-fatal: it leaves ats_report NULL and we still flip ready.
-            await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
+            # SUBJECT-IDENTITY gate (#539 evidence layer 1 — the letter mount
+            # of #538's instrument): the content the terminal verdict covered
+            # must BE the delivered content. The audit below is measurement-only
+            # by contract; a mismatch means a write happened after the terminal
+            # verdict — the change re-enters review (clause 3), bounded, then
+            # ships loudly (never a gate).
+            verdict_hash = subject_hash(cl.letter_data)
+            reentered = 0
+            while True:
+                # ADR-039 — persist the ATS audit (commits while status is still
+                # 'generating'). An audit failure is non-fatal: it leaves
+                # ats_report NULL and we still flip ready.
+                await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
+                delivered_hash = subject_hash(cl.letter_data)
+                match = delivered_hash == verdict_hash
+                _log_subject_identity_letter(
+                    cl_id=cl.id,
+                    verdict_hash=verdict_hash,
+                    delivered_hash=delivered_hash,
+                    match=match,
+                    terminal_rounds=terminal_rounds,
+                    reentered=reentered,
+                    reentry_exhausted=reentry_exhausted,
+                )
+                if match or reentered >= LETTER_TERMINAL_REENTRY_MAX:
+                    break
+                reentered += 1
+                # Re-render + re-measure the mutated content, then re-enter the
+                # terminal review over it (the subject cache seeds from the
+                # record, so the reviewer sees the CHANGE — it is not silently
+                # reverted).
+                pdf_bytes, measured = await _persist_and_measure(
+                    cl, db, cl.letter_data, norm
+                )
+                tr = await _terminal_review_letter(
+                    cl, db,
+                    draft=cl.letter_data,
+                    grounding_source=grounding_source,
+                    provider=provider,
+                    corrector_prompt_fn=corrector_prompt_fn,
+                    wrap_reviewer=_wrap_reviewer,
+                    norm=norm,
+                    profile=profile,
+                    cv_data=cv_data,
+                    pre_gen=pre_gen,
+                    language=detected_language,
+                    load_bearing_fn=load_bearing_fn,
+                    within_budget_fn=_within_budget,
+                    retain_if_fn=has_closing_paragraph,
+                    pdf_bytes=pdf_bytes,
+                    measured=measured,
+                    reviews_enabled=_reviews_enabled,
+                    # ADR-051 §6: the ONE bounded condense is a per-DELIVERY
+                    # budget — a re-entry must not mint a second rewrite.
+                    condense_spent=condense_used,
+                )
+                pdf_bytes, measured = tr.pdf_bytes, tr.measured
+                terminal_rounds += tr.rounds
+                reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                condense_used = condense_used or tr.condense_used
+                verdict_hash = subject_hash(cl.letter_data)
 
             # Now flip to 'ready' — the report is already committed, so the frontend's
             # single fetch always sees it.
@@ -1431,6 +1384,396 @@ async def _render_cover_letter_background(
                     err_cl.status = CoverLetterStatus.failed.value
                     err_cl.error_message = str(exc)[:500]
                     await err_db.commit()
+
+
+# ---------------------------------------------------------------------------
+# ADR-076 clause 3 (#539): the single composition site + the terminal review
+# (letter twin of services/cv.py's #538 machinery — deliberately a twin, not a
+# shared generalisation: the shared loop implementation is review_and_refine
+# itself (ADR-066); the two mounts differ in measure semantics (pages vs
+# pages+words), condense mechanism (deterministic SIGNAL-fated cuts vs a
+# bounded LLM rewrite that itself needs review) and persistence (autoflush
+# HTML render vs commit+PDF), so a parameterised double-hull would BE the
+# second loop implementation, not its avoidance — deviation flagged in the
+# ADR-076 migration note.)
+# ---------------------------------------------------------------------------
+
+
+def _compose_letter(
+    letter_data: dict,
+    *,
+    profile_json: dict,
+    cv_data: dict,
+    profile,
+    pre_gen: dict,
+    language: str,
+    today: date | None = None,
+) -> dict:
+    """ADR-076 clause 3 (#539): the letter's ENTIRE deterministic tail as one
+    pure, re-runnable function — the SEVEN guards, in the exact pre-#539 inline
+    order. Extracted verbatim so the terminal review closes over the COMPOSED
+    letter and any re-entry (a condense rewrite, a terminal corrector change, a
+    detected post-verdict mutation) is re-composed identically. Reordering,
+    never rerouting: no guard changes mechanism or pen here, and the duplicated
+    post-condense copy (#189/#307's retrofitted twins at the old ~:1345–:1360)
+    is gone because the topology no longer needs it.
+
+    Per-pass fates stay with the #540 dispositioning table (canonical per
+    ADR-076 amendment 3). When a pass migrates, it leaves this function.
+    """
+    # #254 — deterministic figure-attribution guard, run on the settled output
+    # of a review/corrector loop (never mid-loop): the ADR-021 corrector sees
+    # the whole profile and can mint a figure borrowed from an unrelated
+    # role/story. Belt and suspenders with the Oracle's post-hoc detection —
+    # this is the generation-path prevention half.
+    letter_data = guard_letter_figures(letter_data, profile_json)
+    # #261 (run-4 blind hiring-panel finding): the letter-side twin of the CV's
+    # outcome-preference guard — surface a measured result over a bare
+    # target/projection for the same, unambiguously-named initiative.
+    letter_data = guard_letter_outcome_preference(letter_data, profile_json, language)
+    # F3 (blind PQ blocker): the recipient the user typed in the generate
+    # dialog is overlaid deterministically AFTER the LLM/review step — user
+    # input always wins (AC #2).
+    letter_data = _apply_recipient_overrides(letter_data, pre_gen)
+    # The letter date is system-injected — the model never sets it (the prior
+    # date-hallucination fix, 2026-06-10).
+    letter_data = _inject_letter_date(letter_data, language, today)
+    # #189: the sign-off is chrome — language-routed label + sender-name
+    # backfill from the candidate's real name, so the letter is never unsigned.
+    letter_data = _normalize_signature_closing(letter_data, language)
+    letter_data = _backfill_sender_name(letter_data, cv_data, profile)
+    # #307: the Anrede gets its own paragraph — the writer runs it into the
+    # opening sentence, the DACH letter's most visible formal defect.
+    letter_data = _split_inline_salutation(letter_data)
+    return letter_data
+
+
+@dataclass
+class MeasuredLetter:
+    """The letter render measure, handed forward so the terminal review and the
+    over-budget honesty log read the SAME measurement (#539; the letter twin of
+    cv.MeasuredRender). ``page_count`` is None when the render or the page
+    measurement failed — both are fail-open by contract."""
+
+    page_count: int | None
+    letter_pages: int
+    word_count: int
+    word_budget: int
+
+
+async def _persist_and_measure(
+    cl: GeneratedCoverLetter,
+    db: AsyncSession,
+    composed: dict,
+    norm,
+) -> tuple[bytes | None, MeasuredLetter]:
+    """Persist a composed letter state, render it, and measure it (#539).
+
+    The single write+measure step every path shares: the initial composition,
+    a condense re-entry, a terminal corrector re-entry, and the
+    subject-identity re-entry. Persisting commits (the PDF renderer reads the
+    row from its own session); status stays 'generating' throughout the
+    pipeline, so intermediate commits are never observable as done (E037 PQ #2).
+    Render and page measurement are fail-open — a measurement error must never
+    fail generation (the pre-#539 contract, unchanged)."""
+    from applire.services.cover_letter_positioning import body_word_count
+
+    cl.letter_data = composed
+    await db.commit()
+    pdf_bytes: bytes | None = None
+    page_count: int | None = None
+    try:
+        from applire.services.cover_letter_pdf import render_pdf
+
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+    except Exception as pdf_err:
+        logger.warning("PDF render failed for CL %s: %s", cl.id, pdf_err)
+    if pdf_bytes is not None:
+        try:
+            from applire.services.ats_audit import extract_text_and_pages
+
+            _, page_count = extract_text_and_pages(pdf_bytes)
+        except Exception as measure_err:
+            logger.warning(
+                "Letter page-count measurement failed for CL %s: %s", cl.id, measure_err
+            )
+    return pdf_bytes, MeasuredLetter(
+        page_count=page_count,
+        letter_pages=norm.letter_pages,
+        word_count=body_word_count(composed),
+        word_budget=norm.letter_body_word_budget,
+    )
+
+
+def _log_subject_identity_letter(
+    *,
+    cl_id: uuid.UUID,
+    verdict_hash: str,
+    delivered_hash: str,
+    match: bool,
+    terminal_rounds: int,
+    reentered: int,
+    reentry_exhausted: bool,
+) -> None:
+    """#539 — always-on, structured subject-identity line, letter mount.
+
+    DESIGN DECISION (explicit, not silent): same ``REVIEW_SUBJECT_IDENTITY``
+    prefix and fields as the CV mount, discriminated by the id key
+    (``cl_id=`` vs ``cv_id=``) — it measures the identical topology property,
+    and one capability keeps one vocabulary (ADR-066; the precedent is
+    ``REVIEW_VERDICT``'s chain_id discriminator). Per-mount counting stays a
+    one-token grep (``cl_id=``). No separate LETTER_SUBJECT_ vocabulary.
+
+    Semantics mirror ``cv._log_subject_identity``: WARNING on mismatch or on a
+    bound-exhausted final change (bookkeeping is not testimony — the structured
+    field is the countable signal), INFO otherwise; hashes and counts only,
+    never content."""
+    level = logging.INFO if (match and not reentry_exhausted) else logging.WARNING
+    logger.log(
+        level,
+        "REVIEW_SUBJECT_IDENTITY cl_id=%s verdict_hash=%s delivered_hash=%s "
+        "match=%s terminal_rounds=%d reentered=%d reentry_exhausted=%s",
+        cl_id, verdict_hash, delivered_hash, match, terminal_rounds, reentered,
+        reentry_exhausted,
+    )
+
+
+@dataclass
+class LetterTerminalReviewResult:
+    """Outcome of one `_terminal_review_letter` invocation (#539)."""
+
+    draft: dict
+    pdf_bytes: bytes | None
+    measured: MeasuredLetter
+    rounds: int
+    reentry_exhausted: bool
+    condense_used: bool
+
+
+async def _terminal_review_letter(
+    cl: GeneratedCoverLetter,
+    db: AsyncSession,
+    *,
+    draft: dict,
+    grounding_source: str,
+    provider: LLMProvider,
+    corrector_prompt_fn,
+    wrap_reviewer,
+    norm,
+    profile,
+    cv_data: dict,
+    pre_gen: dict,
+    language: str,
+    load_bearing_fn,
+    within_budget_fn,
+    retain_if_fn,
+    pdf_bytes: bytes | None,
+    measured: MeasuredLetter,
+    reviews_enabled: bool = True,
+    condense_spent: bool = False,
+) -> LetterTerminalReviewResult:
+    """ADR-076 clause 3 (#539): the letter's TERMINAL review — the verdict that
+    closes over the COMPOSED letter (the delivered artifact) with the real
+    render measure attached (pages + body words).
+
+    Topology (the #538 shape, letter mount): the reviewer's subject is built
+    per round by COMPOSING the current draft through the single composition
+    site (``_compose_letter``); the corrector only ever patches the raw draft,
+    and every change is re-composed by code. The bounded condense rewrite
+    (page overrun) fires AT MOST ONCE per delivery, BEFORE a verdict round, and
+    its output re-enters THIS same review — chain ``letter_terminal_review``,
+    shared retry budget — instead of the retired ``cover_letter_condense``
+    chain's own 5-round loop with its own guard-tail copy. A corrector change
+    re-composes, re-renders, re-measures and re-enters, bounded by
+    ``LETTER_TERMINAL_REENTRY_MAX``; on bound exhaustion the letter ships with
+    the gap loudly logged (ship-and-report — never a delivery gate).
+
+    Reviewer stack: the SAME five deterministic wrappers as the drafting loop
+    (``wrap_reviewer``), over the terminal base prompt — so the clause-6
+    rank-gated coverage demand (#543/PR #549) governs the condense re-entry
+    too, which is exactly the budget-blind demand that fuelled run A's 5/5
+    exhaustion. ``retain_if``/``load_bearing_fn`` guard every terminal
+    invocation; ``prefer_if`` (the word-budget tie-break) is wired ONLY into
+    the round that reviews a condense rewrite, preserving #420's boundary
+    (never a preference for shorter drafts on a content round).
+
+    The subject cache is seeded with ``cl.letter_data`` AS IS: on the normal
+    path that equals ``_compose_letter(draft)``; on a subject-identity re-entry
+    it is the mutated content itself — the CHANGE re-enters review, it is not
+    silently reverted."""
+
+    def _canon(d: dict) -> str:
+        return json.dumps(d, sort_keys=True, default=str)
+
+    def _compose(d: dict) -> dict:
+        return _compose_letter(
+            d,
+            profile_json=profile.profile_json if profile else {},
+            cv_data=cv_data,
+            profile=profile,
+            pre_gen=pre_gen,
+            language=language,
+        )
+
+    subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
+    pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
+    measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
+    # ADR-051 §6's bound is PER DELIVERY, not per invocation: the caller passes
+    # ``condense_spent=True`` on a subject-identity re-entry so the second
+    # terminal invocation cannot mint a second condense generation (adversarial
+    # pre-propagation finding, 2026-08-16 — a fresh per-invocation flag would
+    # have allowed two rewrites when a post-verdict mutation coincided with a
+    # still-over-norm render).
+    condense_state = {"used": condense_spent}
+
+    def _subject_of(d: dict) -> dict:
+        key = _canon(d)
+        subject = subject_by_draft.get(key)
+        if subject is None:
+            subject = _compose(d)
+            subject_by_draft[key] = subject
+        return subject
+
+    async def _apply(d: dict) -> None:
+        """Re-compose + persist + re-render + re-measure the current draft;
+        refresh the subject cache from the record (the persisted truth)."""
+        composed = _subject_of(d)
+        pdf, m = await _persist_and_measure(cl, db, composed, norm)
+        pdf_cell["pdf"] = pdf
+        measure_cell["measured"] = m
+        subject_by_draft[_canon(d)] = cl.letter_data
+
+    def _terminal_base(source: str, composed: dict) -> str:
+        m = measure_cell["measured"]
+        over_norm = m.page_count is not None and m.page_count > norm.letter_pages
+        return build_terminal_review_prompt(
+            source,
+            composed,
+            page_count=m.page_count,
+            letter_pages=norm.letter_pages,
+            word_count=m.word_count,
+            word_budget=norm.letter_body_word_budget,
+            # The loop head below spends the single condense BEFORE any verdict
+            # round, so an over-norm measure at review time means the bounded
+            # rewrite is already spent or unavailable (section overrides /
+            # render failure) — stated for honest context, never a mandate.
+            condense_exhausted=over_norm,
+        )
+
+    _wrapped = wrap_reviewer(_terminal_base)
+
+    def _reviewer_prompt(source: str, d: dict) -> str:
+        return _wrapped(source, _subject_of(d))
+
+    current = draft
+    rounds = 0
+    reentry_exhausted = False
+    entered_via_condense = False
+    while True:
+        # Pre-verdict condense (#177 / ADR-051 §6, position changed — pen and
+        # bound unchanged): at most ONE bounded rewrite per delivery, fired
+        # while the real render exceeds the page norm, skipped over section
+        # overrides (the user's edits win; the audit still reports). Fail-OPEN:
+        # a condense failure keeps the current composed letter — never fails
+        # generation (Review Finding 2 / #181, contract carried over).
+        m = measure_cell["measured"]
+        if (
+            not condense_state["used"]
+            and not (cl.section_overrides or {})
+            and m.page_count is not None
+            and m.page_count > norm.letter_pages
+        ):
+            condense_state["used"] = True
+            previous = current
+            try:
+                condensed = await provider.aparse_json(
+                    build_condense_prompt(
+                        _subject_of(current),
+                        norm.letter_body_word_budget,
+                        m.page_count,
+                        letter_pages=norm.letter_pages,
+                    ),
+                    system=SYSTEM_PROMPT,
+                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                )
+                current = condensed
+                entered_via_condense = True
+                await _apply(current)
+            except Exception as condense_err:
+                logger.warning(
+                    "Condense pass failed for CL %s — keeping the composed "
+                    "letter: %s", cl.id, condense_err,
+                )
+                # #181: if the failure was the persist commit itself, the
+                # session needs a rollback before reuse, and cl must be
+                # refreshed to the last-committed state (a bare rollback
+                # leaves the ORM expired → MissingGreenlet at the next flush).
+                try:
+                    await db.rollback()
+                    await db.refresh(cl)
+                except Exception as restore_err:  # pragma: no cover - defensive
+                    logger.warning(
+                        "Condense rollback/restore failed for CL %s: %s",
+                        cl.id, restore_err,
+                    )
+                current = previous
+                entered_via_condense = False
+        if not reviews_enabled:
+            # LLM_REVIEW_MAX_RETRIES=0 disables the review layer, not the
+            # page-budget mechanism: the bounded condense still applies (via
+            # the single composition site), but no verdict round runs —
+            # ``rounds`` stays 0 and the identity line reports it honestly
+            # (the pre-#539 behaviour, where condense ran while
+            # review_and_refine short-circuited itself).
+            break
+        rounds += 1
+        settled = await review_and_refine(
+            source=grounding_source,
+            draft=current,
+            generator_prompt_fn=corrector_prompt_fn,
+            generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+            reviewer_prompt_fn=_reviewer_prompt,
+            reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+            provider=provider,
+            max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+            chain_id="letter_terminal_review",
+            # #272 Task 3: the structural retention guard covers the terminal
+            # round exactly as it covered both retired loops.
+            retain_if=retain_if_fn,
+            # #306 (b): the evidence-blind-substitution guard too.
+            load_bearing_fn=load_bearing_fn,
+            # #420's boundary, preserved: the word-budget tie-break narrows
+            # only among CONDENSE-descendant drafts, never on a content round.
+            prefer_if=(within_budget_fn if entered_via_condense else None),
+        )
+        entered_via_condense = False
+        if _canon(settled) == _canon(current):
+            # The verdict covers exactly the composition already sitting on
+            # the record — the delivered letter.
+            break
+        # A terminal corrector round changed the draft → re-compose, persist,
+        # re-render, re-measure, and let the CHANGED letter re-enter review
+        # (clause 3). The corrector emitted a raw draft; the guards are
+        # re-applied by the single composition site.
+        current = settled
+        await _apply(current)
+        if rounds > LETTER_TERMINAL_REENTRY_MAX:
+            reentry_exhausted = True
+            logger.warning(
+                "Letter terminal review re-entry bound reached for %s after %d "
+                "rounds — delivering the recomposed letter; its final change "
+                "was not re-reviewed (ship-and-report, ADR-076 clause 3)",
+                cl.id, rounds,
+            )
+            break
+    return LetterTerminalReviewResult(
+        draft=current,
+        pdf_bytes=pdf_cell["pdf"],
+        measured=measure_cell["measured"],
+        rounds=rounds,
+        reentry_exhausted=reentry_exhausted,
+        condense_used=condense_state["used"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1481,6 +1824,14 @@ async def _update_ats_report_letter(
              launch is needed.  The BackgroundTasks patch path leaves this
              None, triggering a fresh render inside the try block.
     """
+    # Stage relabel (#539 evidence-run refuter observation, letter mount of the
+    # #538 finding): without this, the audit tail's own LLM calls (Oracle
+    # sentence triage, outcome critic Pass B) inherit the LAST chain's stage
+    # label from the contextvar — `letter_terminal_review` on the 2026-08-16
+    # run — and every log-based per-chain count silently misclassifies them.
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    _set_llm_log_stage("letter_audit")
     try:
         from applire.services.ats_audit import audit_cover_letter
         from applire.services.cover_letter_pdf import render_pdf

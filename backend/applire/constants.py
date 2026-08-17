@@ -88,6 +88,20 @@ CV_TERMINAL_REENTRY_MAX: int = int(
     os.environ.get("CV_TERMINAL_REENTRY_MAX", "1")
 )
 
+# ADR-076 clause 3 (#539) — the LETTER's terminal review round, the letter twin
+# of the two CV constants above (one meaning per constant, one owner per
+# document — ADR-066). The terminal round reviews the COMPOSED letter (the
+# seven deterministic guards applied once) with the real render measure; the
+# bounded condense rewrite and every post-verdict change re-enter THIS round's
+# shared budget instead of the retired `cover_letter_condense` chain's own
+# 5-round loop. LLM_REVIEW_MAX_RETRIES=0 disables it with the review layer.
+LETTER_TERMINAL_REVIEW_MAX_RETRIES: int = int(
+    os.environ.get("LETTER_TERMINAL_REVIEW_MAX_RETRIES", "1")
+)
+LETTER_TERMINAL_REENTRY_MAX: int = int(
+    os.environ.get("LETTER_TERMINAL_REENTRY_MAX", "1")
+)
+
 # ADR-060 Pass B — the outcome critic's cross-document coherence pass (#322).
 # Community feature, operator-configurable, default ON (ADR-060 clause 8 / PO
 # decision 3): a self-hoster on a tight provider budget can turn it off.

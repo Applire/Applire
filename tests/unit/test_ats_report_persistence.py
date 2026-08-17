@@ -773,17 +773,23 @@ async def test_letter_background_persists_report(db_with_cover_letter):
     mock_provider = AsyncMock()
     mock_provider.aparse_json.return_value = letter_raw
 
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
     mock_render_pdf = AsyncMock(return_value=b"%PDF-fake")
     with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
          patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
          patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
          patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report):
         mock_session_local.return_value.__aenter__.return_value = session
         from applire.services.cover_letter import _render_cover_letter_background
         await _render_cover_letter_background(cl_id, None, job_id)
 
-    # render_pdf must be called exactly once — smoke render bytes are reused by
-    # _update_ats_report_letter; a second Playwright launch must NOT occur.
+    # render_pdf must be called exactly once on the no-change path — the
+    # measure render's bytes are reused by _update_ats_report_letter; the
+    # audit itself must NOT launch a second Playwright render (#539: reviews
+    # are stubbed to settle unchanged, so no terminal re-composition renders).
     mock_render_pdf.assert_called_once()
 
     cl = await session.get(GeneratedCoverLetter, cl_id)
@@ -1392,8 +1398,11 @@ async def test_router_cl_ats_report_404_unknown(cl_ats_client):
 
 @pytest.mark.asyncio
 async def test_letter_overrun_triggers_one_condense_regenerate(db_with_cover_letter):
-    """2-page smoke render -> exactly one condense pass -> re-render; overrides/date
-    re-applied on the condensed result."""
+    """2-page smoke render -> exactly ONE condense generation -> re-render; the
+    condense rewrite RE-ENTERS the terminal review (#539: chain
+    ``letter_terminal_review``, shared budget — the ``cover_letter_condense``
+    chain with its own loop and its own guard-tail copy is retired), and the
+    guards/date are re-applied via the single composition site."""
     from applire.models.cover_letter import GeneratedCoverLetter
 
     ctx = db_with_cover_letter
@@ -1430,8 +1439,24 @@ async def test_letter_overrun_triggers_one_condense_regenerate(db_with_cover_let
     assert mock_render_pdf.call_count == 2, (
         f"expected 2 renders (smoke + condense re-render), got {mock_render_pdf.call_count}"
     )
-    assert review_calls.count("cover_letter_condense") == 1, (
-        f"expected exactly one condense-chain grounding review, got {review_calls}"
+    # Exactly one condense GENERATION (initial writer + condense rewrite).
+    # The Oracle's pre-grading sentence-triage self-audit call (ADR-068) is
+    # not a condense call — count only the others.
+    non_triage_calls = [
+        c
+        for c in mock_provider.aparse_json.call_args_list
+        if "sentence triage" not in (c.kwargs.get("system") or "").lower()
+    ]
+    assert len(non_triage_calls) == 2, (
+        f"expected exactly one condense generation, got {len(non_triage_calls) - 1}"
+    )
+    # ... and its output re-enters the SAME terminal review — never the retired
+    # cover_letter_condense chain with its own retry budget.
+    assert review_calls.count("cover_letter_condense") == 0, (
+        f"the cover_letter_condense chain is retired (#539), got {review_calls}"
+    )
+    assert review_calls.count("letter_terminal_review") == 1, (
+        f"the condense rewrite must re-enter the terminal review, got {review_calls}"
     )
 
     cl = await session.get(GeneratedCoverLetter, cl_id)
@@ -1493,7 +1518,12 @@ async def test_letter_overrun_with_section_overrides_skips_condense(db_with_cove
         if "sentence triage" not in (c.kwargs.get("system") or "").lower()
     ]
     assert len(non_triage_calls) == 1, "the LLM must not be called again for condense"
-    mock_extract.assert_not_called()
+    # #539: the measure itself now always runs (the terminal review carries the
+    # real render measure as context) — what the override seam forbids is the
+    # CONDENSE, i.e. the second LLM call and the second render, both asserted
+    # above. The pre-#539 `mock_extract.assert_not_called()` pinned the old
+    # gate's position, not the guarantee.
+    assert mock_extract.call_count == 1
 
     cl = await session.get(GeneratedCoverLetter, cl_id)
     assert cl.status == "ready"

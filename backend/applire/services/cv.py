@@ -3237,10 +3237,13 @@ def _subject_hash(tailored_data: dict) -> str:
     reordering governs) live only in ``tailored_data``. The snapshot is a pure
     projection of ``tailored_data``, so tailored-data identity implies
     snapshot-content identity.
+
+    The canonicalisation itself is shared with the letter mount (#539) via
+    ``services.subject_identity`` — one hash definition, two mounts.
     """
-    return hashlib.sha256(
-        _json.dumps(tailored_data, sort_keys=True, ensure_ascii=False, default=str).encode()
-    ).hexdigest()
+    from applire.services.subject_identity import subject_hash
+
+    return subject_hash(tailored_data)
 
 
 def _log_subject_identity(
@@ -3477,6 +3480,13 @@ async def _update_ats_report(
     fail or alter generation status. Deliberately wipes any previous report on error:
     ADR-039 forbids a persisted report describing a state it was not computed from.
     """
+    # Stage relabel (#538 refuter observation, fixed in #539): the audit tail's
+    # own LLM calls (Oracle sentence triage, outcome critic Pass A) otherwise
+    # inherit the last chain's stage label (`cv_terminal_review`) from the
+    # contextvar — a classification trap for every log-based per-chain count.
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    _set_llm_log_stage("cv_audit")
     try:
         from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
         from applire.services.cv_section_editor import apply_overrides_to_tailored

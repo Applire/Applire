@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v3 (#539 / ADR-076 clause 3, 2026-08-16 — the TERMINAL round
+#   variant is added: TERMINAL_REVIEW_SYSTEM_PROMPT + build_terminal_review_prompt
+#   review the COMPOSED letter (the delivered artifact — date stamped, sign-off
+#   normalized, sender backfilled, salutation split, recipient overlaid, figure/
+#   outcome guards applied), with the real render measure attached as context.
+#   The authority model, the subject test, the five checks and the minor channel
+#   are BYTE-IDENTICAL to v2 and shared as module constants — one definition,
+#   two shape doors (ADR-066); only the SHAPE NOTE differs. The drafting-round
+#   REVIEW_SYSTEM_PROMPT is byte-for-byte unchanged. The terminal SHAPE NOTE
+#   declares the guard-applied chrome ground-truth-by-construction (the #385
+#   lesson: a check aimed at fields a mechanism owns can only fail falsely and
+#   exhausts the loop), and the render-measure block is context-only and
+#   explicitly forbids length findings (#525's exhaustion fuel).
+#   ADR-062 clause 7: prompt effect; CI pins the wording only.)
 # Prompt version: v2 (2026-07-28 — rebuilt from the System FMEA's SF-WRITE rows)
 # Used by: services/cover_letter.py → reviewer.review_and_refine
 #
@@ -71,11 +85,37 @@ import json
 
 from applire.prompts.review_severity import review_output_schema
 
-REVIEW_SYSTEM_PROMPT = """\
+# Shared building blocks (v3): ONE definition of the grounding role, the
+# authority model, the subject test, the checks and the minor channel; two
+# shape doors (drafting round / terminal composed round).
+_GROUNDING_INTRO = """\
 You are the grounding check on a cover letter that will be signed and sent to a real
 employer. You are not its editor. You judge one thing: whether it tells the truth about
 the candidate, and whether it delivers the content it was required to deliver.
 
+"""
+
+_SHAPE_NOTE_TERMINAL = """\
+SHAPE NOTE — TERMINAL ROUND (ADR-076 clause 3): the letter you receive is the COMPOSED
+artifact, exactly as it will be delivered. After the writer, a fixed sequence of
+deterministic guards ran over it by code: the letter DATE was stamped by the system; the
+sign-off closing was normalized to the language-routed label and the sender name
+backfilled from the candidate's own profile; the salutation was split into its own
+paragraph; the recipient fields were overlaid with the user's own typed inputs; an
+unanchored borrowed figure may have been stripped, and a bare target/projection may have
+been re-framed to its measured outcome from the profile. These effects are ground truth
+BY CONSTRUCTION — never flag the date, the sign-off wording, the salutation placement,
+the recipient identity, or the sender name as an issue of any kind, and never ask for a
+guard-stripped or guard-re-framed sentence to be restored. Your checks apply to the
+authored content of the letter body.
+
+A RENDER MEASURE block accompanies the letter as context only. Length is enforced by a
+bounded condense mechanism that has already run — NEVER raise a length, word-count,
+page-count, or "too long / too short" finding.
+
+"""
+
+_AUTHORITY_AND_CHECKS = """\
 AUTHORITY — three sources, each authoritative for one kind of claim, and never for
 another:
 - CANDIDATE SOURCE (grounded CV data, master profile, the candidate's own stated inputs
@@ -209,7 +249,9 @@ never justifies regenerating the letter. Record it as `minor` and move on. Never
 to soften, narrow, or cut an honest gap or a scoped limit — trimming padding must never
 become trimming honesty.
 
-""" + review_output_schema(
+"""
+
+_SCHEMA_AND_CLOSER = review_output_schema(
     issue_hint="the paragraph plus what is untrue or missing — empty array if nothing found",
     feedback_hint="concise instruction for the writer to correct the BLOCKING issues — empty string if there are none",
 ) + """
@@ -217,6 +259,12 @@ become trimming honesty.
 Keep `feedback` concise and *referential*: name the offending location (paragraph, claim) and
 state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate
 source itself (ADR-021 amended 2026-06-29)."""
+
+REVIEW_SYSTEM_PROMPT = _GROUNDING_INTRO + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+
+TERMINAL_REVIEW_SYSTEM_PROMPT = (
+    _GROUNDING_INTRO + _SHAPE_NOTE_TERMINAL + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+)
 
 
 def build_review_prompt(source_material: str, letter_json: dict) -> str:
@@ -231,6 +279,72 @@ def build_review_prompt(source_material: str, letter_json: dict) -> str:
         "Review this cover letter against the candidate's source material.\n\n"
         f"CANDIDATE SOURCE (source of truth):\n{source_material}\n\n"
         f"COVER LETTER:\n{json.dumps(letter_json, ensure_ascii=False, indent=2)}\n\n"
+        "Does the letter body contain only claims grounded in the source — no invented "
+        "dates, employers, titles, achievements, or metrics? Also check any "
+        "'positioning_requested' block in the CANDIDATE SOURCE: is every REQUIRED "
+        "company/domain, gap/transfer-argument, availability, or scope-positioning "
+        "instruction actually delivered in the body (check 4) — and, where a "
+        "DO-NOT-CLAIM term is used there, is it used honestly (naming an employer fact "
+        "or the candidate's own absence of it) rather than as a candidate competence "
+        "claim (check 5, the KEYWORD LEDGER — DO NOT CLAIM bullet)? Return your review "
+        "JSON."
+    )
+
+
+def build_terminal_review_prompt(
+    source_material: str,
+    composed_json: dict,
+    *,
+    page_count: int | None,
+    letter_pages: int,
+    word_count: int,
+    word_budget: int,
+    condense_exhausted: bool,
+) -> str:
+    """Build the TERMINAL-round reviewer user prompt (#539, ADR-076 clause 3).
+
+    Args:
+        source_material: The same grounding source the drafting rounds review
+                         against (cv_data + profile + candidate inputs + JD +
+                         positioning, plus the folded ledger/title blocks).
+        composed_json: The COMPOSED letter — ``letter_data`` after the single
+                       composition site (the seven deterministic guards), i.e.
+                       the delivered artifact.
+        page_count: The real render measure (pages), or ``None`` when the
+                    render/measure failed (the round still runs; the verdict
+                    simply lacks the page measure).
+        letter_pages: The region's letter page norm (ADR-051 §1 — always the
+                    norm value, never a literal).
+        word_count: The deterministic ``body_word_count`` of the composed letter.
+        word_budget: The region's body word budget (ADR-051 §1).
+        condense_exhausted: True when the bounded condense rewrite is spent (or
+                    unavailable) and the letter still exceeds the page norm —
+                    stated for honest context, never as a mandate.
+    """
+    if page_count is not None:
+        measure = (
+            f"measured pages: {page_count}, page norm: {letter_pages}; "
+            f"body words: {word_count}, word budget: {word_budget}"
+        )
+    else:
+        measure = (
+            f"page measure unavailable for this round (page norm: {letter_pages}); "
+            f"body words: {word_count}, word budget: {word_budget}"
+        )
+    if condense_exhausted:
+        measure += (
+            " — condense exhausted: the bounded condense rewrite could not reach "
+            "the page norm"
+        )
+    return (
+        "Terminal review: the letter below is the COMPOSED artifact exactly as it "
+        "will be delivered (see SHAPE NOTE — TERMINAL ROUND).\n\n"
+        f"CANDIDATE SOURCE (source of truth):\n{source_material}\n\n"
+        f"COMPOSED COVER LETTER (the delivered letter):\n"
+        f"{json.dumps(composed_json, ensure_ascii=False, indent=2)}\n\n"
+        f"RENDER MEASURE (context only): {measure}. Length is enforced by a "
+        "bounded condense mechanism that has already run — NEVER raise a "
+        "length, word-count or page-count finding.\n\n"
         "Does the letter body contain only claims grounded in the source — no invented "
         "dates, employers, titles, achievements, or metrics? Also check any "
         "'positioning_requested' block in the CANDIDATE SOURCE: is every REQUIRED "
