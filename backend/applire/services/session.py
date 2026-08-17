@@ -809,6 +809,7 @@ async def _ask_confirmation(
         pending_conflicts=turn.conflict_summaries or None,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        denial_recorded=turn.denial_recorded,  # #380
     )
 
 
@@ -1865,6 +1866,9 @@ async def _ask_denial_probe(
         choices=probe_choices,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        # #380: the probe is issued ON the denial turn — the caller must see
+        # that the denial landed even though the session keeps asking.
+        denial_recorded=turn.denial_recorded,
     )
 
 
@@ -2305,8 +2309,13 @@ async def send_message(
         # makes "termination = sufficiency OR budget OR user-done" an explicit,
         # independently testable seam rather than an implicit `<= 0` check.
         if is_interview_sufficient(state["critical_gaps"], next_index, skipped_set_updated):
+            # #380: the terminal turn's denial must reach the caller ON this
+            # response (ADR-059 — the flag is the honest status, and the
+            # captured 2026-08-15 instance completed exactly here). The
+            # hard-ceiling twin above already threads it.
             return await _complete_session(
-                record, state, db, "gaps_resolved", provider, profile_record
+                record, state, db, "gaps_resolved", provider, profile_record,
+                denial_recorded=turn.denial_recorded,
             )
 
         # Generate next question
@@ -2345,6 +2354,10 @@ async def send_message(
             choices=next_choices,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
+            # #380: every response built from a reconciled turn carries the
+            # turn's fact — False is "no denial this turn", None is reserved
+            # for responses with no reconciled turn behind them.
+            denial_recorded=turn.denial_recorded,
         )
 
     else:
@@ -2393,6 +2406,7 @@ async def send_message(
             choices=None,
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
+            denial_recorded=turn.denial_recorded,  # #380
         )
 
 
