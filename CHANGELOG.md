@@ -4,6 +4,76 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.39.0-beta] – 2026-08-19
+
+The Tiramisu closing release: truthfulness becomes architecture. One write path
+into the vault, one review loop over the composed document, and documents that
+earn blind hiring-panel invites — the release gate ran all four canonical
+panel cases end-to-end (8/8 invite decisions, every designed denial recorded
+and never claimed). 93 commits, five database migrations (0052–0056).
+
+### Added
+- **One vault write path (`commit_ops`)** — every writer (interview, import,
+  section editor, conflict/confirmation resolution, role lifecycle, metadata,
+  first-profile creation) routes through a single committed write seam with
+  per-entry receipts; the strict clause-6 guard deleted the twentieth ad-hoc
+  writer (#480, PRs 1–9; ADR-063).
+- **Terminal review over the composed document** — the CV and cover-letter
+  verdicts now close over the document as assembled, not the draft before
+  composition; ship-and-report bounds re-entry (ADR-076 waves 1–3; #537, #538,
+  #539, #540, #543).
+- **Compliance instrument on the real corpus** — measurement reach grew from
+  2% to 58%/73% per class; the fallback fires on every early-settle path
+  (#537, #540, #551, #553).
+- **Outcome critic on both mounts** — a persisted critic report for the
+  assembled CV and letter, advisory-only, with dropped-citation accounting
+  (E049 49.6/49.7; migrations 0052/0053).
+- **The attested partial is deliverable** — an honestly bounded partial
+  (assisted-not-independent, in-progress) reaches documents as data instead of
+  being dropped (ADR-070, #411).
+- **A JD's stated bar is data** — scope requirements, leadership-vs-hands-on
+  weighting, decomposition-never-demotion (ADR-069, #271, #387, #397;
+  migrations 0054/0056).
+- **The interview can produce a partial match** — denial chips carry mirrored
+  evidence conditions; the denial floor is reachable on the agent door
+  (ADR-064, #341–#344, #347).
+
+### Changed
+- **Presence is a fact the letter reviewer is told, not asked** — blocking
+  demands dropped 70→52, false demands 10→4, false presence 2→0 (ADR-021
+  amendment; #530, #531, #534, #535).
+- **CV prose custody** — the writer emits prose only; facts are joined
+  deterministically, and the deterministic tail may never silently delete
+  evidence (E049 / ADR-067, ADR-071, ADR-072).
+- **Test strategy** — a replay tier, mutation-verified detection credit, and a
+  coverage gate that measures every tree CI actually invokes (ADR-073, #438,
+  #444).
+- German UI pinned to Du; review rationale keys localized de+en (#311, #523).
+
+### Fixed
+- The review loop's unsatisfiable cell, closed at its cause (#526) — and the
+  corrector is told the coverage it already holds (#306).
+- A denied requirement is never a gap at the read seams; denying a compound is
+  not denying its head noun; a retraction demotes a confirmed skill and
+  reverses upgrades on both doors (#351, #352, #383, #485).
+- Oracle precision: durations and date fragments are not figures; currency
+  multipliers fold numerically; stated tenure may not exceed the vault's
+  derivable span; sentence triage gates letter grading (#214, #215, #220,
+  #309, #373, #403, #469).
+- CV rendering: position blocks stay atomic across page breaks; projects with
+  no bullets never render a heading; no duplicate project blocks or bilingual
+  language rows; skills passes stop reshaping the page (#312, #357, #386,
+  charter-run-11 batch).
+- Profile/vault: parked confirmations survive the next import; every
+  confirmation a turn raises is asked; `_meta.na_fields` survives schema
+  round-trips; unrecognised declared proficiency falls to basic (#319, #333,
+  #353, #505).
+- Interview: retry follow-up hints name the gap, not its cluster id; denial
+  statements are write-once and recorded on every turn (#301, #348, #380).
+- Education entries with unknown start dates render without a dangling dash;
+  language-field seam and silent summary replacement fixed (#113 partial,
+  #461).
+
 ## [0.38.0-beta] – 2026-07-28
 
 Two development cycles in one release — **Spaghettieis** (the returning-user

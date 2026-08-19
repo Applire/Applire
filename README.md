@@ -598,8 +598,14 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.37.2-beta)
+### ✅ Current Release (v0.39.0-beta)
 
+- [x] One vault write path: every writer — interview, import, section editor, conflict resolution, role lifecycle — commits through `commit_ops` with per-entry receipts; no ad-hoc profile writes remain
+- [x] Terminal document review closes over the CV and cover letter **as composed**, with bounded re-entry and ship-and-report semantics
+- [x] Letter review treats presence as a fact it is told, not a question it asks — false demands and false-presence findings driven to near zero
+- [x] CV prose custody: the writer emits prose only; facts join deterministically, and the deterministic tail can never silently delete evidence
+- [x] Honestly bounded partials (assisted-not-independent, in-progress) are deliverable data instead of dropped claims
+- [x] Outcome critic: a persisted advisory report for every generated CV and cover letter, including dropped-citation accounting
 - [x] Truthfulness stance guard: an interview answer that denies experience can never become a CV claim — the reconciler's own denial verdicts deterministically outrank its edits
 - [x] Document-language enforcement covers project bullets — nothing prose-shaped enters a generated CV after the language pass
 - [x] Claimable keyword coverage self-heals inside the generation pipeline — the deterministic check that grades the document also gates every writer, including the output-language pass
@@ -629,14 +635,8 @@ Applire/
 
 Applire ships in dessert-named releases, each tracked as a public [milestone](https://github.com/Applire/Applire/milestones) — follow along on the [blog](https://applire.de/en/blog/):
 
-> **`main` is ahead of the newest release.** The two flavours below are complete or well advanced in
-> `main`, but the newest published release is still v0.37.2-beta, and `docker-compose.yml` pins
-> `:latest`, which only moves when a non-prerelease Release is published. So a self-hoster following
-> the install instructions above is running the Chocolate line — the features marked complete here
-> arrive with the next release, not with today's `docker compose pull`.
-
-- [x] **Spaghettieis** — complete in `main` (milestone closed, 27 issues). Parallel applications became first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
-- [ ] **Tiramisu** (in progress) — **Truthfulness Oracle**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? Merged in `main`, in the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself; likewise **`render_document`** (your agent's own content through Applire's norms-checked renderer, never rewritten), **`submit_claims`** / **`submit_testimony`** (agent-run interviews landing in the profile with receipts) and **`resolve_gap`**. The flavour stays open for the work these exposed: evidence *selection* — making sure the strongest thing your profile can prove is what actually reaches the page
+- [x] **Spaghettieis** — shipped with v0.39.0-beta (milestone closed, 27 issues). Parallel applications became first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
+- [x] **Tiramisu** — shipped with v0.39.0-beta. **Truthfulness Oracle**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself; likewise **`render_document`** (your agent's own content through Applire's norms-checked renderer, never rewritten), **`submit_claims`** / **`submit_testimony`** (agent-run interviews landing in the profile with receipts) and **`resolve_gap`**. The flavour closed on evidence *selection*: one write path into the profile, and a review loop whose verdict covers the document as composed
 - [ ] **Stracciatella** — Precision work on the surface: Master Profile view overhaul, expanded CV template library, finer CV and cover-letter finetuning, pre-download review clarity
 - [ ] **Strawberry** — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and operator controls
 
