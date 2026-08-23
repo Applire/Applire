@@ -575,8 +575,14 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.37.2-beta)
+### ✅ Aktuelle Version (v0.39.0-beta)
 
+- [x] Ein Schreibpfad ins Vault: Jeder Schreiber — Interview, Import, Abschnitts-Editor, Konfliktauflösung, Rollen-Lebenszyklus — schreibt über `commit_ops` mit Belegen je Eintrag; keine Ad-hoc-Profiländerungen mehr
+- [x] Abschließende Dokumentprüfung schließt über Lebenslauf und Anschreiben **wie komponiert**, mit begrenztem Wiedereintritt und Ship-and-Report-Semantik
+- [x] Anschreiben-Prüfung behandelt Vorhandensein als mitgeteilten Fakt, nicht als eigene Frage — falsche Forderungen und Falsch-Vorhanden-Befunde nahe null
+- [x] Prosa-Hoheit im Lebenslauf: Der Writer liefert nur Prosa; Fakten werden deterministisch angefügt, und der deterministische Abschluss kann Belege nie stillschweigend löschen
+- [x] Ehrlich begrenzte Teilaussagen (unterstützt statt eigenverantwortlich, in Arbeit) sind lieferbare Daten statt verworfener Aussagen
+- [x] Ergebnis-Kritiker: Ein gespeicherter beratender Report zu jedem erzeugten Lebenslauf und Anschreiben, inklusive Abrechnung entfallener Belege
 - [x] Wahrhaftigkeits-Schutz: Eine Interview-Antwort, die Erfahrung verneint, kann nie zur Lebenslauf-Aussage werden — die Ablehnungs-Urteile des Reconcilers überstimmen deterministisch seine eigenen Änderungen
 - [x] Durchsetzung der Dokumentsprache erfasst auch Projekt-Bullets — nach dem Sprach-Durchlauf gelangt kein prosaförmiger Text mehr in einen generierten Lebenslauf
 - [x] Abdeckung belegbarer Keywords heilt sich in der Generierungs-Pipeline selbst — die deterministische Prüfung, die das Dokument bewertet, kontrolliert auch jeden Schreibschritt einschließlich des Sprach-Durchlaufs
@@ -606,15 +612,8 @@ Applire/
 
 Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milestone](https://github.com/Applire/Applire/milestones) — zum Mitlesen gibt es den [Blog](https://applire.de/blog/):
 
-> **`main` ist dem neuesten Release voraus.** Die beiden folgenden Flavours sind in `main` fertig
-> bzw. weit fortgeschritten, das neueste veröffentlichte Release ist aber weiterhin v0.37.2-beta —
-> und `docker-compose.yml` ist auf `:latest` gepinnt, das sich nur bewegt, wenn ein Release
-> *ohne* Pre-Release-Markierung veröffentlicht wird. Wer der Installationsanleitung oben folgt,
-> betreibt also die Chocolate-Linie: Was hier als fertig markiert ist, kommt mit dem nächsten
-> Release — nicht mit einem `docker compose pull` von heute.
-
 - [x] **Spaghettieis** — ausgeliefert mit v0.38.0-beta (Milestone geschlossen, 27 Issues). Parallele Bewerbungen wurden erstklassig: Bewerbungs-Dashboard mit Status-Tracking, Re-Tailoring über mehrere Stellen mit einem Klick, aktualisierte Stellenanzeigen-Analyse und besseres Fortschritts-Feedback bei langen Schritten
-- [ ] **Tiramisu** (laufend) — **Wahrheits-Orakel**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In `main` gemerged, in der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat; ebenso **`render_document`** (die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer, niemals umgeschrieben), **`submit_claims`** / **`submit_testimony`** (Agent-Interviews landen mit Belegen im Profil) und **`resolve_gap`**. Der Flavour bleibt offen für die Arbeit, die diese Werkzeuge sichtbar gemacht haben: die *Auswahl* der Belege — dafür zu sorgen, dass das Stärkste, was dein Profil beweisen kann, tatsächlich auf der Seite landet
+- [x] **Tiramisu** — ausgeliefert mit v0.39.0-beta. **Wahrheits-Orakel**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat; ebenso **`render_document`** (die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer, niemals umgeschrieben), **`submit_claims`** / **`submit_testimony`** (Agent-Interviews landen mit Belegen im Profil) und **`resolve_gap`**. Der Flavour schloss mit der *Auswahl* der Belege: ein einziger Schreibpfad ins Profil und eine Prüfschleife, deren Urteil das Dokument wie komponiert abdeckt
 - [ ] **Stracciatella** — Felix übernimmt das Steuer: die führende Dokumentsprache pro Bewerbung wählen (Erkennung wird zum Vorschlag statt zum Gesetz), strukturierte Master-Profil-Editoren statt Roh-JSON und Muss-Fakten ans Dokument pinnen — dazu Härtung der gelieferten Dokumente (die Ship-Gate-Befunde aus v0.39 und die Prompt-Injection-Abwehr)
 - [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und Operator-Einstellungen
 
