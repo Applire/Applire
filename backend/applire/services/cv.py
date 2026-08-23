@@ -97,7 +97,10 @@ from applire.templates.labels import cv_labels
 from applire.services.load_bearing import bullet_carries_figure
 from applire.services.reviewer import review_and_refine
 from applire.utils.budget_unit import budget_needs_unit
-from applire.utils.language_detection import resolve_jd_language
+from applire.utils.language_detection import (
+    resolve_document_language,
+    resolve_jd_language,
+)
 from applire.services.profile.merge import _sort_work_by_date
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
@@ -2066,6 +2069,15 @@ async def generate_cv(
     user_setting = settings_result.scalar_one_or_none()
     resolved_target_pages = resolve_target_pages(target_pages, user_setting)
 
+    # E054 / ADR-038 amendment clause 3: resolve the document language ONCE,
+    # here, and pin it on the record. The override is user-mutable while the
+    # background render runs — the render and every read path use the pinned
+    # value, never a fresh resolve.
+    from applire.services.application import get_application_for_job
+
+    application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
+    document_language = resolve_document_language(application, job)
+
     # Create pending record
     record = GeneratedCV(
         job_analysis_id=job_id,
@@ -2074,6 +2086,7 @@ async def generate_cv(
         template=template,
         status=CVGenerationStatus.pending.value,
         target_pages=resolved_target_pages,
+        document_language=document_language,
     )
     db.add(record)
     await db.commit()
@@ -2336,10 +2349,20 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
 
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
-    # #4 (ADR-038): section headings follow the document's output language, resolved
-    # from the target job. Injected as `labels`/`lang` so template chrome matches content.
-    job = await db.get(JobAnalysis, record.job_analysis_id)
-    lang = resolve_jd_language(job) if job else "de"
+    # #4 (ADR-038): section headings follow the document's output language.
+    # E054 clause 3b: the record's PINNED language wins — a fresh resolve
+    # against the mutable override would repaint chrome around unchanged
+    # prose. NULL pin (pre-migration row) falls back to the seam.
+    lang = record.document_language
+    if not lang:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+
+        job = await db.get(JobAnalysis, record.job_analysis_id)
+        application = await get_application_for_job(
+            record.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
     return template.render(cv=tailored, color=color_ctx, lang=lang, labels=cv_labels(lang))
 
 
@@ -2381,6 +2404,14 @@ async def _render_cv_background(
             # Load job + profile + optional gap analysis
             job = await db.get(JobAnalysis, job_id)
             profile = await db.get(MasterProfile, profile_id)
+
+            # E054 / ADR-038 amendment clause 3a: ONE language for the whole
+            # run — the value generate_cv pinned on the record. Never re-resolve
+            # per pass: the override is user-mutable mid-flight, and a split
+            # would let the language reviewer "correct" the writer's output
+            # against the wrong target. NULL pin (pre-migration row) falls
+            # back to detection.
+            document_language = record.document_language or resolve_jd_language(job)
 
             # Auto-detect and cache company brand color (best-effort; never blocks CV generation)
             try:
@@ -2478,7 +2509,7 @@ async def _render_cv_background(
             from applire.services.scope_requirements import render_scope_positioning_block
 
             scope_positioning_block = render_scope_positioning_block(
-                keyword_ledger, resolve_jd_language(job)
+                keyword_ledger, document_language
             ) or None
 
             # #303 (#271's CV half): the strongest-vault-evidence digest — for
@@ -2546,7 +2577,7 @@ async def _render_cv_background(
                 job_dict,
                 profile_json,
                 keyword_gaps,
-                output_language=resolve_jd_language(job),
+                output_language=document_language,
                 provider=provider,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
@@ -2656,7 +2687,7 @@ async def _render_cv_background(
             # Carries the ledger: this pass is the LAST writer, so the US213 coverage
             # gate must also watch its rewording (#122 follow-up).
             prose_draft = await _review_cv_language(
-                prose_draft, resolve_jd_language(job), provider,
+                prose_draft, document_language, provider,
                 keyword_ledger=keyword_ledger,
                 budget=budget,
             )
@@ -2677,7 +2708,7 @@ async def _render_cv_background(
                 keyword_ledger=keyword_ledger,
                 budget=budget,
                 job_dict=job_dict,
-                language=resolve_jd_language(job),
+                language=document_language,
             )
 
             from applire.services.cv_section_editor import build_content_snapshot
@@ -2730,7 +2761,7 @@ async def _render_cv_background(
                     keyword_ledger=keyword_ledger,
                     budget=budget,
                     job_dict=job_dict,
-                    language=resolve_jd_language(job),
+                    language=document_language,
                     condense_ctx=condense_ctx,
                     coverage_budget=coverage_budget,
                     measured=measured,
@@ -2784,7 +2815,7 @@ async def _render_cv_background(
                         keyword_ledger=keyword_ledger,
                         budget=budget,
                         job_dict=job_dict,
-                        language=resolve_jd_language(job),
+                        language=document_language,
                         condense_ctx=condense_ctx,
                         coverage_budget=coverage_budget,
                         measured=measured,
@@ -3553,20 +3584,22 @@ async def _update_ats_report(
             record.content_snapshot,
             record.section_overrides,
         )
-        # ADR-068 clause 7: the JD-resolved OUTPUT language (ADR-038,
-        # ``resolve_jd_language`` — the same value the writer/reviewer chain
-        # itself generated this CV in, see e.g. line ~2087's
-        # ``output_language=resolve_jd_language(job)``) is this document's
-        # own language for the cross-language judgement seam. A job-less
-        # audit (job row missing/deleted) leaves it ``None`` — the seam then
-        # stays off, fail-open, exactly like the pre-ADR-068 report.
+        # ADR-068 clause 7: the document's OWN output language feeds the
+        # cross-language judgement seam. E054 clause 3a/3b: that is the
+        # record's PINNED ``document_language`` (the value the writer chain
+        # actually generated in) — never a fresh resolve, which could diverge
+        # after a mid-run override flip. NULL pin (pre-migration row) falls
+        # back to the JD's detected language. A job-less audit (job row
+        # missing/deleted) leaves it ``None`` — the seam then stays off,
+        # fail-open, exactly like the pre-ADR-068 report.
         judgement_job = await db.get(JobAnalysis, record.job_analysis_id)
         record.truthfulness_report = await build_self_audit_report(
             profile.profile_json if profile else {},
             tailored_data=audited.model_dump(mode="json"),
             provider=get_provider(),
             document_language=(
-                resolve_jd_language(judgement_job) if judgement_job else None
+                record.document_language
+                or (resolve_jd_language(judgement_job) if judgement_job else None)
             ),
         )
     except Exception:

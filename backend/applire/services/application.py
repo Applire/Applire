@@ -75,6 +75,28 @@ class ConflictError(Exception):
 # ---------------------------------------------------------------------------
 
 
+async def get_application_for_job(
+    job_analysis_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> Application | None:
+    """The live application row for (user, job), or None.
+
+    E054 / ADR-038 amendment 2026-08-23: document-language resolution
+    (``resolve_document_language``) needs the application's
+    ``language_override``; generation entry points and NULL-pin read paths
+    load it through this one helper.
+    """
+    result = await db.execute(
+        select(Application).where(
+            Application.user_id == user_id,
+            Application.job_analysis_id == job_analysis_id,
+            Application.deleted_at.is_(None),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_application(
     user_id: uuid.UUID,
     request: CreateApplicationRequest,
@@ -229,7 +251,9 @@ async def patch_application(
 
     # Clearable dossier fields: an explicit null in the body clears the value
     # (the UI's "remove deadline/note/source" action — E039/US217).
-    for field in ("notes", "applied_at", "deadline", "source_url"):
+    # language_override (E054, ADR-038 amendment clause 5) is deliberately in
+    # THIS class: explicit null = back to automatic detection.
+    for field in ("notes", "applied_at", "deadline", "source_url", "language_override"):
         if field in provided:
             setattr(app, field, provided[field])
 
