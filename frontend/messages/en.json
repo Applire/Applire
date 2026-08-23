@@ -184,7 +184,12 @@
     "liabilityDropped": "Dropped — no longer claimed",
     "liabilityResolved": "Story added",
     "liabilityUnavailable": "Still preparing a question — check back in a moment",
-    "liabilityDropError": "Couldn't drop the keyword. Try again."
+    "liabilityDropError": "Couldn't drop the keyword. Try again.",
+    "docLanguageLabel": "Documents in",
+    "docLanguageGerman": "German",
+    "docLanguageEnglish": "English",
+    "docLanguageAutoDetected": "auto-detected",
+    "docLanguageSaveError": "Could not save — please try again."
   },
   "interview": {
     "loading": "Starting interview…",

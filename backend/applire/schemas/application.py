@@ -101,6 +101,10 @@ class PatchApplicationRequest(BaseModel):
     # Stale-CV nudge dismissal (E039/US221): True stamps stale_cv_dismissed_at.
     # There is no un-dismiss — the hint re-arms by itself on the next enrichment.
     dismiss_stale_cv: bool | None = None
+    # E054 / ADR-038 amendment 2026-08-23 clause 5: the user's document-language
+    # choice. CLEARABLE — explicit null returns the application to automatic
+    # detection. DE/EN only (clause 8).
+    language_override: Literal["de", "en"] | None = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "PatchApplicationRequest":
@@ -125,6 +129,8 @@ class ApplicationResponse(BaseModel):
     source_url: str | None
     submitted_cv_id: uuid.UUID | None = None
     submitted_cover_letter_id: uuid.UUID | None = None
+    # E054: the user's document-language choice; None = automatic detection.
+    language_override: str | None = None
     # Read model: the pinned CV's creation timestamp — the stable "version"
     # identity for the sent badge (an ordinal would renumber when retention
     # purges older unpinned CVs). Enriched by the service layer, not a column.

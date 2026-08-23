@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScoreCircle } from "@/components/ui/score-circle";
 import { StatCard } from "@/components/ui/stat-card";
 import { JobEchoCard } from "@/components/gaps/JobEchoCard";
+import { DocumentLanguageControl } from "@/components/gaps/DocumentLanguageControl";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
@@ -481,7 +482,13 @@ export default function GapsPage({
     company_name: string | null;
     required_skills: string[];
     nice_to_have_skills: string[];
+    jd_language: "de" | "en" | null;
   } | null>(null);
+  // E054/US288: the application's persisted document-language override.
+  // undefined = still loading (control hidden), null = loaded, no override.
+  const [appLanguageOverride, setAppLanguageOverride] = useState<
+    "de" | "en" | null | undefined
+  >(undefined);
   // US225: below md the decision bar (interview/generate/explore/cancel)
   // becomes `fixed` at the viewport bottom; this spacer reserves the same
   // height in normal flow so the fixed bar never permanently covers the
@@ -555,10 +562,26 @@ export default function GapsPage({
                 company_name: j.company_name ?? null,
                 required_skills: j.required_skills ?? [],
                 nice_to_have_skills: j.nice_to_have_skills ?? [],
+                jd_language: j.jd_language ?? null,
               });
             }
           } catch {
             // echo is non-critical; never block gap analysis on it
+          }
+          // E054/US288: current document-language override for the control's
+          // prefill. Best-effort like the echo above.
+          if (fs.application_id) {
+            try {
+              const aRes = await fetch(
+                `${API_BASE}/api/applications/${fs.application_id}`
+              );
+              if (aRes.ok) {
+                const a = await aRes.json();
+                setAppLanguageOverride(a.language_override ?? null);
+              }
+            } catch {
+              // control simply stays hidden
+            }
           }
         }
 
@@ -902,12 +925,28 @@ export default function GapsPage({
             jobEcho.nice_to_have_skills,
           );
           return (
-            <JobEchoCard
-              companyName={jobEcho.company_name}
-              roleTitle={jobEcho.role_title}
-              requiredSkills={echoChips.required}
-              niceToHaveSkills={echoChips.niceToHave}
-            />
+            <>
+              <JobEchoCard
+                companyName={jobEcho.company_name}
+                roleTitle={jobEcho.role_title}
+                requiredSkills={echoChips.required}
+                niceToHaveSkills={echoChips.niceToHave}
+              />
+              {/* E054/US288: leading document language — detection prefills,
+                  the user decides (ADR-038 amendment 2026-08-23). Rendered
+                  once the persisted override finished loading so the
+                  control's initial state is honest. */}
+              {flowState?.application_id && appLanguageOverride !== undefined && (
+                <div className="-mt-6 mb-8">
+                  <DocumentLanguageControl
+                    applicationId={flowState.application_id}
+                    detectedLanguage={jobEcho.jd_language}
+                    initialOverride={appLanguageOverride}
+                    apiBase={API_BASE}
+                  />
+                </div>
+              )}
+            </>
           );
         })()}
 

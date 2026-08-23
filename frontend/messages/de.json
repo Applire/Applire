@@ -184,7 +184,12 @@
     "liabilityDropped": "Verworfen — wird nicht mehr beansprucht",
     "liabilityResolved": "Geschichte hinzugefügt",
     "liabilityUnavailable": "Frage wird noch vorbereitet — bitte gleich noch einmal versuchen",
-    "liabilityDropError": "Schlagwort konnte nicht verworfen werden. Bitte erneut versuchen."
+    "liabilityDropError": "Schlagwort konnte nicht verworfen werden. Bitte erneut versuchen.",
+    "docLanguageLabel": "Dokumente auf",
+    "docLanguageGerman": "Deutsch",
+    "docLanguageEnglish": "Englisch",
+    "docLanguageAutoDetected": "automatisch erkannt",
+    "docLanguageSaveError": "Speichern fehlgeschlagen — bitte erneut versuchen."
   },
   "interview": {
     "loading": "Interview wird gestartet…",

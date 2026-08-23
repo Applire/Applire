@@ -300,12 +300,22 @@ async def patch_cv_section(
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
     # #4 (ADR-038): section headings follow the document's output language (mirrors
-    # cv.get_cv_html). The templates require `lang`/`labels` in their render context.
-    from applire.models.job import JobAnalysis
-    from applire.utils.language_detection import resolve_jd_language
+    # cv.get_cv_html). E054 clause 3b: the record's PINNED language wins; NULL
+    # pin (pre-migration row) falls back to the seam.
     from applire.templates.labels import cv_labels
-    job = await db.get(JobAnalysis, record.job_analysis_id)
-    lang = resolve_jd_language(job) if job else "de"
+
+    lang = record.document_language
+    if not lang:
+        from applire.models.job import JobAnalysis
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        job = await db.get(JobAnalysis, record.job_analysis_id)
+        application = await get_application_for_job(
+            record.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
     html = template.render(
         cv=tailored_with_overrides, color=color_ctx, lang=lang, labels=cv_labels(lang)
     )
@@ -481,15 +491,20 @@ async def _save_section_to_profile(
 
     lang = "de"
     if section_id == "introduction":
-        from applire.models.job import JobAnalysis
-        from applire.utils.language_detection import resolve_jd_language
+        # E054 clause 3b: pinned document language first; seam fallback for
+        # pre-migration rows.
+        lang = record.document_language or "de"
+        if not record.document_language and record.job_analysis_id:
+            from applire.models.job import JobAnalysis
+            from applire.services.application import get_application_for_job
+            from applire.services.color_detection import _CE_STUB_USER_ID
+            from applire.utils.language_detection import resolve_document_language
 
-        job = (
-            await db.get(JobAnalysis, record.job_analysis_id)
-            if record.job_analysis_id
-            else None
-        )
-        lang = resolve_jd_language(job) if job else "de"
+            job = await db.get(JobAnalysis, record.job_analysis_id)
+            application = await get_application_for_job(
+                record.job_analysis_id, _CE_STUB_USER_ID, db
+            )
+            lang = resolve_document_language(application, job) if job else "de"
 
     field_edit = build_section_field_edit(
         section_id,

@@ -97,6 +97,12 @@ class JobAnalysisResponse(BaseModel):
     seniority_level: str
     company_culture_signals: list[str]
     language_requirement: str
+    # E054 / ADR-038 amendment clause 5: the language the JD is WRITTEN in
+    # ('de'/'en'; None for pre-migration rows) — the document-routing signal,
+    # as opposed to language_requirement (what the job demands of the
+    # candidate). Surfaced so UI and agents can prefill/override the document
+    # language (applications.language_override).
+    jd_language: Optional[str] = None
     company_name: Optional[str] = None
     # KldB 2020 (BA-Klassifikation der Berufe 2020) — nullable for pre-migration rows
     berufsbild_code: Optional[str] = None

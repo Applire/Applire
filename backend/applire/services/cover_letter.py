@@ -164,6 +164,18 @@ async def generate_cover_letter(
         "tone": request.tone,
     }
 
+    # E054 / ADR-038 amendment clause 3: resolve the document language ONCE,
+    # here, and pin it on the record (mirrors services/cv.generate_cv).
+    from applire.services.application import get_application_for_job
+    from applire.services.color_detection import _CE_STUB_USER_ID
+    from applire.utils.language_detection import resolve_document_language
+
+    job_row = await db.get(JobAnalysis, request.job_id)
+    application = await get_application_for_job(request.job_id, _CE_STUB_USER_ID, db)
+    document_language = (
+        resolve_document_language(application, job_row) if job_row else "de"
+    )
+
     # Create the record — flush immediately so cl.id is populated before we
     # assign it to flow.generated_cover_letter_id (SQLAlchemy default=uuid.uuid4
     # is applied at flush time, not at object construction time).
@@ -175,6 +187,7 @@ async def generate_cover_letter(
         pre_gen_inputs=pre_gen_inputs,
         color_profile_id=color_profile_id,
         status=CoverLetterStatus.pending.value,
+        document_language=document_language,
     )
     db.add(cl)
     await db.flush()  # assigns cl.id
@@ -267,7 +280,20 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     profile = await db.get(MasterProfile, cl.profile_id)
     name = ((profile.profile_json or {}).get("personal_info") or {}).get("name") if profile else None
     job = await db.get(JobAnalysis, cl.job_analysis_id)
-    language = resolve_jd_language(job) if job is not None else "de"
+    # E054 clause 3b: the record's pinned language wins; seam fallback for
+    # pre-migration rows — the filename must name the document it renders.
+    language = cl.document_language
+    if not language:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        language = (
+            resolve_document_language(application, job) if job is not None else "de"
+        )
     suffix = "Cover-Letter" if language == "en" else "Anschreiben"
     fallback_stem = "cover-letter" if language == "en" else "anschreiben"
     return compose_document_filename(
@@ -325,7 +351,18 @@ async def get_cover_letter_html(
     from applire.models.job import JobAnalysis
     from applire.templates.labels import cover_letter_labels
     job = await db.get(JobAnalysis, cl.job_analysis_id)
-    lang = resolve_jd_language(job) if job else "de"
+    # E054 clause 3b: pinned document language first; seam fallback for
+    # pre-migration rows.
+    lang = cl.document_language
+    if not lang:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
     # F3 (blind PQ blocker) AC #3: the subject must reference the target role, not
     # just the bare word "Application"/"Bewerbung". Computed at render time (never
     # stored on letter_data) so it always reflects the job's current role_title —
@@ -670,8 +707,10 @@ async def _render_cover_letter_background(
 
             # ADR-038: the letter follows the language the JD is written in —
             # not language_requirement, which is the candidate requirement
-            # (e.g. "Bilingual DE/EN") and misroutes.
-            detected_language = resolve_jd_language(job)
+            # (e.g. "Bilingual DE/EN") and misroutes. E054 clause 3a: the
+            # record's PINNED language wins (resolved once at generate time);
+            # NULL pin (pre-migration row) falls back to detection.
+            detected_language = cl.document_language or resolve_jd_language(job)
 
             # ADR-048 / US201: load the latest Keyword Ledger for this job (read-only,
             # mirrors cv.py) so the prompt surfaces claimable terms with their profile
@@ -1881,8 +1920,11 @@ async def _update_ats_report_letter(
             profile_row.profile_json if profile_row else {},
             letter_data=audited,
             provider=get_provider(),
+            # E054 clause 3a/3b: the record's PINNED language — never a fresh
+            # resolve, which could diverge after a mid-run override flip.
             document_language=(
-                resolve_jd_language(judgement_job) if judgement_job else None
+                cl.document_language
+                or (resolve_jd_language(judgement_job) if judgement_job else None)
             ),
         )
     except Exception:
@@ -2159,7 +2201,14 @@ async def render_agent_letter(
     letter_data["header"]["photo_url"] = None
 
     # Chrome rule: inject only when the caller left it empty.
-    language = resolve_jd_language(job)
+    # E054 clause 2: the agent door renders an employer-facing artifact —
+    # the user's override applies here exactly as on the pipeline path.
+    from applire.services.application import get_application_for_job
+    from applire.services.color_detection import _CE_STUB_USER_ID
+    from applire.utils.language_detection import resolve_document_language
+
+    _application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
+    language = resolve_document_language(_application, job)
     if not letter_data["recipient"].get("date"):
         letter_data = _inject_letter_date(letter_data, language)
     if not letter_data["signature"].get("closing"):
@@ -2179,6 +2228,8 @@ async def render_agent_letter(
         template=template,
         status=CoverLetterStatus.generating.value,
         origin="agent",
+        # E054 clause 3b: agent-door documents pin their language too.
+        document_language=language,
     )
     db.add(cl)
     await db.commit()
