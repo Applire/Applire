@@ -527,3 +527,59 @@ class TestCoverLetterPinning:
         filename = await get_cover_letter_pdf_filename(cl.id, db)
         assert "Cover-Letter" in filename
         assert "Anschreiben" not in filename
+
+
+class TestAgentSurface:
+    """Amendment clause 5 — MCP parity + analyze_jd names the language."""
+
+    def test_job_analysis_response_exposes_jd_language(self, user_and_job):
+        # analyze_jd's result (REST and MCP both serialize this schema) gains
+        # the detected document language — today only language_requirement is
+        # exposed, which is the wrong routing signal (2026-06-10 amendment).
+        from applire.schemas.job import JobAnalysisResponse
+
+        assert "jd_language" in JobAnalysisResponse.model_fields
+
+    @pytest.mark.asyncio
+    async def test_mcp_update_application_sets_the_override(self, db, user_and_job):
+        from applire.schemas.application import CreateApplicationRequest
+        from applire.services.application import create_application
+
+        user, job = user_and_job
+        created = await create_application(
+            user.id, CreateApplicationRequest(job_analysis_id=job.id), db
+        )
+        result = await _call_mcp_update_application(
+            db, str(created.id), language_override="en"
+        )
+        assert result.get("language_override") == "en"
+
+    @pytest.mark.asyncio
+    async def test_mcp_auto_sentinel_clears_the_override(self, db, user_and_job):
+        # The MCP tool builds its request skipping None, so explicit null is
+        # unreachable on this channel — 'auto' restores parity (clause 5).
+        from applire.schemas.application import CreateApplicationRequest
+        from applire.services.application import create_application
+
+        user, job = user_and_job
+        created = await create_application(
+            user.id, CreateApplicationRequest(job_analysis_id=job.id), db
+        )
+        await _call_mcp_update_application(db, str(created.id), language_override="en")
+        result = await _call_mcp_update_application(
+            db, str(created.id), language_override="auto"
+        )
+        assert result.get("language_override") is None
+
+
+async def _call_mcp_update_application(db, application_id: str, **kwargs):
+    """Drive the MCP update_application tool against the real test session."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from applire.mcp.server import update_application
+
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    with patch("applire.mcp.server.get_db", return_value=cm):
+        return await update_application(application_id=application_id, **kwargs)

@@ -276,7 +276,10 @@ async def import_cv(
         "Provide exactly one of: text (the JD body) or url (scraped "
         "server-side). Pass role_title/company_name to override the values "
         "inferred from the body (do this when the board lists them separately, "
-        "e.g. LinkedIn). May return a duplicate_of hint (see guide)."
+        "e.g. LinkedIn). May return a duplicate_of hint (see guide). The "
+        "result's jd_language ('de'/'en') is the detected document language — "
+        "generated documents follow it by default; the user can override it "
+        "per application via update_application(language_override=...)."
     )
 )
 async def analyze_jd(
@@ -1062,7 +1065,11 @@ async def create_application(
         "pin the exact document sent to the employer (must belong to this "
         "application's job; pins are kept while active). "
         "dismiss_stale_cv=true mutes the stale-CV hint until the profile "
-        "grows again."
+        "grows again. language_override ('de'/'en') fixes the language of "
+        "ALL subsequently generated documents for this application — "
+        "detection (analyze_jd's jd_language) is only the default; pass "
+        "'auto' to return to automatic detection. Already-generated "
+        "documents keep their language (regenerate to apply a change)."
     )
 )
 async def update_application(
@@ -1076,6 +1083,7 @@ async def update_application(
     submitted_cv_id: str | None = None,
     submitted_cover_letter_id: str | None = None,
     dismiss_stale_cv: bool | None = None,
+    language_override: str | None = None,
 ) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     # Build the request from provided fields only, so PatchApplicationRequest's
@@ -1104,11 +1112,21 @@ async def update_application(
         )
     if dismiss_stale_cv is not None:
         fields["dismiss_stale_cv"] = dismiss_stale_cv
+    if language_override is not None:
+        # E054 / ADR-038 amendment clause 5: this tool builds its request by
+        # skipping None, so an explicit null can never reach the clearable
+        # PATCH semantics from this channel — 'auto' is the clear sentinel.
+        if language_override == "auto":
+            fields["language_override"] = None
+        elif language_override in ("de", "en"):
+            fields["language_override"] = language_override
+        else:
+            raise invalid_input("language_override must be 'de', 'en' or 'auto'")
     if not fields:
         raise invalid_input(
             "At least one field must be provided (user_status, company_name, "
             "role_title, notes, deadline, source_url, submitted_cv_id, "
-            "submitted_cover_letter_id, dismiss_stale_cv)."
+            "submitted_cover_letter_id, dismiss_stale_cv, language_override)."
         )
     req = PatchApplicationRequest(**fields)
     async with get_db() as db:
