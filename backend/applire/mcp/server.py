@@ -275,11 +275,9 @@ async def import_cv(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
         "server-side). Pass role_title/company_name to override the values "
-        "inferred from the body (do this when the board lists them separately, "
-        "e.g. LinkedIn). May return a duplicate_of hint (see guide). The "
-        "result's jd_language ('de'/'en') is the detected document language — "
-        "generated documents follow it by default; the user can override it "
-        "per application via update_application(language_override=...)."
+        "inferred from the body (when the board lists them separately). "
+        "May return a duplicate_of hint (see guide). jd_language = detected "
+        "document language (see guide)."
     )
 )
 async def analyze_jd(
@@ -346,10 +344,9 @@ async def get_profile() -> dict:
     description=(
         "Update a section of the MasterProfile. "
         f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
-        "Object-shaped sections (personal_info, professional_summary) are PATCHED: "
-        "supplied keys are merged, an explicit null clears a field, omitted keys "
-        "keep their value. List-shaped sections (e.g. skills, work_experience) are "
-        "REPLACED WHOLESALE with the supplied list — always send the complete list."
+        "Object sections (personal_info, professional_summary) are PATCHED "
+        "(null clears, omitted keeps). List sections are REPLACED WHOLESALE — "
+        "always send the complete list."
     )
 )
 async def update_profile(section: str, data: dict | list) -> dict:
@@ -1059,17 +1056,12 @@ async def create_application(
 
 @mcp.tool(
     description=(
-        "Update user-managed fields on an application; omitted fields stay "
-        f"unchanged. user_status must be one of: {_USER_STATUS_VALUES}. "
-        "deadline is ISO 8601. submitted_cv_id / submitted_cover_letter_id "
-        "pin the exact document sent to the employer (must belong to this "
-        "application's job; pins are kept while active). "
-        "dismiss_stale_cv=true mutes the stale-CV hint until the profile "
-        "grows again. language_override ('de'/'en') fixes the language of "
-        "ALL subsequently generated documents for this application — "
-        "detection (analyze_jd's jd_language) is only the default; pass "
-        "'auto' to return to automatic detection. Already-generated "
-        "documents keep their language (regenerate to apply a change)."
+        "Update user-managed fields; omitted fields stay unchanged. "
+        f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
+        "submitted_cv_id/submitted_cover_letter_id pin the sent document "
+        "(must belong to this job). dismiss_stale_cv=true mutes the "
+        "stale-CV hint. language_override: 'de'/'en'/'auto' (document "
+        "language) — see guide."
     )
 )
 async def update_application(

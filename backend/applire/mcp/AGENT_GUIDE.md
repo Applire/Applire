@@ -160,6 +160,21 @@ Every tool in this section works standalone; nothing forces you into the
 pipeline (`generate_cover_letter` is the exception across the surface — it
 needs a flow session, because it is a pipeline tool).
 
+## Document language
+
+Generated documents follow the language the JD is *written in* by default —
+`analyze_jd` reports it as `jd_language` (`de`/`en`). The user's choice beats
+detection (E054): `update_application(language_override="en")` fixes the
+language of every document generated for that application from then on;
+`"auto"` returns to detection. Detection is the default, never the law — a
+candidate may legitimately answer a German posting in English for an
+international employer. Two things to know: already-generated documents keep
+the language they were generated in (regenerate to apply a change — never
+expect an in-place translation), and the interview/conversation language does
+NOT follow this override (it has its own rule; see ADR-038). Surface the
+choice to your human when the JD's language and their intended application
+language might differ.
+
 ## Operational gotchas
 
 - **Generation is async**: `generate_cv`/`generate_cover_letter` return ids —

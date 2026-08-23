@@ -149,6 +149,7 @@ class TestResponseSchema:
         record.seniority_level = "Senior"
         record.company_culture_signals = []
         record.language_requirement = "English"
+        record.jd_language = None
         record.company_name = None
         record.berufsbild_code = None
         record.berufsbild_label = None
@@ -169,6 +170,7 @@ class TestResponseSchema:
         record.seniority_level = "Senior"
         record.company_culture_signals = []
         record.language_requirement = "English"
+        record.jd_language = None
         record.company_name = None
         record.berufsbild_code = None
         record.berufsbild_label = None
