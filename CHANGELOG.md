@@ -4,6 +4,18 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Choose the leading document language (E054/US288)** — detection is the
+  default, not the law: a DE/EN control on the gap view lets the user decide
+  the language of all generated documents per application
+  (`applications.language_override`; migration 0057). Every generated document
+  pins its own language, so switching later never repaints an existing CV or
+  letter — it applies to the next generation. Agent channel:
+  `update_application(language_override="de"/"en"/"auto")`, `analyze_jd` now
+  reports the detected `jd_language` (ADR-038 amendment 2026-08-23).
+
 ## [0.39.0-beta] – 2026-08-19
 
 The Tiramisu closing release: truthfulness becomes architecture. One write path
