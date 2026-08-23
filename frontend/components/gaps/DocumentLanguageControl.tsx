@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 interface DocumentLanguageControlProps {
@@ -50,10 +50,18 @@ export function DocumentLanguageControl({
   const t = useTranslations("gaps");
   const [override, setOverride] = useState<"de" | "en" | null>(initialOverride);
   const [saveError, setSaveError] = useState(false);
+  // Rapid clicks issue concurrent PATCHes; responses can arrive out of
+  // network order. Only the LATEST click may write state (adversarial
+  // finding, 2026-08-23) — the server sees last-write-wins on the same
+  // ordering the user clicked in, so the seq guard keeps UI and DB aligned.
+  const clickSeq = useRef(0);
 
-  const active = override ?? detectedLanguage ?? "de";
+  // No override and no detection (legacy row, jd_language NULL): highlight
+  // nothing rather than claim a hardcoded German detection that never ran.
+  const active = override ?? detectedLanguage;
 
   async function choose(lang: "de" | "en") {
+    const seq = ++clickSeq.current;
     setSaveError(false);
     try {
       const res = await fetch(`${apiBase}/api/applications/${applicationId}`, {
@@ -61,13 +69,14 @@ export function DocumentLanguageControl({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language_override: lang }),
       });
+      if (seq !== clickSeq.current) return; // stale response — a newer click won
       if (!res.ok) {
         setSaveError(true);
         return;
       }
       setOverride(lang);
     } catch {
-      setSaveError(true);
+      if (seq === clickSeq.current) setSaveError(true);
     }
   }
 

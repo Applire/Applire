@@ -104,6 +104,78 @@ describe("DocumentLanguageControl", () => {
     expect(JSON.parse(init.body)).toEqual({ language_override: "de" });
   });
 
+  it("applies only the LATEST click when responses arrive out of order", async () => {
+    // Adversarial finding 10a (2026-08-23): two rapid clicks issue two
+    // concurrent PATCHes; if the first response arrives last, the control
+    // must still show the last CLICK, not the last RESPONSE.
+    let resolveFirst!: (v: unknown) => void;
+    let resolveSecond!: (v: unknown) => void;
+    const first = new Promise((r) => (resolveFirst = r));
+    const second = new Promise((r) => (resolveSecond = r));
+    const fn = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+    vi.stubGlobal("fetch", fn);
+
+    render(
+      withIntl(
+        <DocumentLanguageControl
+          applicationId={APP_ID}
+          detectedLanguage="de"
+          initialOverride={null}
+          apiBase=""
+        />
+      )
+    );
+    fireEvent.click(screen.getByTestId("doc-language-en"));
+    fireEvent.click(screen.getByTestId("doc-language-de"));
+    // Second (latest) click's response lands first…
+    resolveSecond({ ok: true, json: async () => ({}) });
+    await waitFor(() =>
+      expect(screen.getByTestId("doc-language-de")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+    );
+    // …then the stale first response arrives and must be IGNORED.
+    resolveFirst({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("doc-language-de")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByTestId("doc-language-en")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
+  it("highlights nothing when neither an override nor a detection exists", () => {
+    // Adversarial finding 10b: for a legacy row (jd_language NULL) a
+    // hardcoded 'de' highlight would claim a detection that never ran —
+    // show no active choice instead.
+    mockFetchOk();
+    render(
+      withIntl(
+        <DocumentLanguageControl
+          applicationId={APP_ID}
+          detectedLanguage={null}
+          initialOverride={null}
+          apiBase=""
+        />
+      )
+    );
+    expect(screen.getByTestId("doc-language-de")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    expect(screen.getByTestId("doc-language-en")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
   it("hides the auto badge once an override is on record", () => {
     mockFetchOk();
     render(
