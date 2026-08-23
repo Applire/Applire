@@ -450,3 +450,80 @@ class TestBackgroundRenderThreadsPinnedLanguage:
 
         assert fallback_kwargs.get("output_language") == "en"
         assert language_pass_langs and all(l == "en" for l in language_pass_langs)
+
+
+class TestCoverLetterPinning:
+    """Amendment clause 3 — letter twin of the CV pinning tests."""
+
+    async def _seed_profile(self, db):
+        from applire.models.profile import MasterProfile, authorized_profile_write
+
+        with authorized_profile_write():
+            profile = MasterProfile(
+                profile_json={
+                    "personal_info": {"name": "Max"},
+                    "skills": [],
+                    "metadata": {},
+                }
+            )
+        db.add(profile)
+        await db.commit()
+        return profile
+
+    @pytest.mark.asyncio
+    async def test_generate_cover_letter_pins_the_override_language(
+        self, db, user_and_job, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        import applire.services.cover_letter as cl_module
+        from applire.models.application import Application
+        from applire.models.cover_letter import GeneratedCoverLetter
+        from applire.models.flow import FlowSession
+        from applire.schemas.cover_letter import CoverLetterGenerateRequest
+
+        user, job = user_and_job
+        await self._seed_profile(db)
+        db.add(
+            Application(
+                user_id=user.id, job_analysis_id=job.id, language_override="en"
+            )
+        )
+        db.add(FlowSession(user_id=user.id, job_id=job.id, current_step="cv_generation"))
+        await db.commit()
+
+        monkeypatch.setattr(
+            cl_module, "_render_cover_letter_background", AsyncMock()
+        )
+        resp = await cl_module.generate_cover_letter(
+            CoverLetterGenerateRequest(job_id=job.id),
+            db,
+            provider=AsyncMock(),
+            background_tasks=None,
+        )
+        record = await db.get(GeneratedCoverLetter, resp.cover_letter_id)
+        assert record.document_language == "en"
+
+    @pytest.mark.asyncio
+    async def test_pdf_filename_follows_the_pinned_language(self, db, user_and_job):
+        # Pinned 'en' over a German job: the filename suffix must be
+        # "Cover-Letter", not "Anschreiben" — the record wins over detection.
+        from applire.models.cover_letter import GeneratedCoverLetter
+        from applire.services.cover_letter import get_cover_letter_pdf_filename
+
+        user, job = user_and_job
+        profile = await self._seed_profile(db)
+        cl = GeneratedCoverLetter(
+            job_analysis_id=job.id,
+            profile_id=profile.id,
+            letter_data={},
+            pre_gen_inputs={},
+            status="ready",
+            document_language="en",
+        )
+        db.add(cl)
+        await db.commit()
+
+        filename = await get_cover_letter_pdf_filename(cl.id, db)
+        assert "Cover-Letter" in filename
+        assert "Anschreiben" not in filename

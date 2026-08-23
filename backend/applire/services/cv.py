@@ -3809,6 +3809,12 @@ async def render_agent_cv(
     )
     user_setting = settings_result.scalar_one_or_none()
 
+    # E054 clause 3b: agent-door documents pin their language too — the
+    # override applies to every employer-facing artifact (clause 2).
+    from applire.services.application import get_application_for_job
+
+    _application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
+    job_row = await db.get(JobAnalysis, job_id)
     record = GeneratedCV(
         job_analysis_id=job_id,
         profile_id=profile.id,
@@ -3818,6 +3824,9 @@ async def render_agent_cv(
         origin="agent",
         target_pages=resolve_target_pages(target_pages, user_setting),
         content_snapshot=build_content_snapshot(tailored),
+        document_language=(
+            resolve_document_language(_application, job_row) if job_row else None
+        ),
     )
     db.add(record)
     await db.flush()
