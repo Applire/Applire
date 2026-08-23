@@ -109,6 +109,12 @@ class Application(Base):
     # Where the posting was found (E039/US216): denormalized from
     # JobAnalysis.source_url on create, user-overridable for pasted JDs.
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # E054 / ADR-038 amendment 2026-08-23: the user's document-language choice
+    # ('de'/'en'; NULL = automatic detection). Lives HERE, not on the
+    # hash-deduplicated job_analyses row — a preference there would be a
+    # cross-user write in a shared DB. Resolved via
+    # utils.language_detection.resolve_document_language.
+    language_override: Mapped[str | None] = mapped_column(String(5), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

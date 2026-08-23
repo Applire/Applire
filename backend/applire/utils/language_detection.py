@@ -62,5 +62,27 @@ def resolve_jd_language(job) -> str:
 
     Prefers the ``jd_language`` column (set at analysis time); falls back to
     detection on ``raw_text`` for rows that pre-date migration 0032.
+
+    This is the DETECTION primitive — the language the JD is *written in*.
+    A user's language choice cannot change that; the E054 override sits in
+    :func:`resolve_document_language` ABOVE this function. Document surfaces
+    must call the seam, not this primitive (ADR-038 amendment 2026-08-23,
+    clause 2); direct callers are the seam itself, the conversation fallback
+    (``get_conversation_language``) and JD-analysis stamping.
     """
     return job.jd_language or detect_language(job.raw_text or "")
+
+
+def resolve_document_language(application, job) -> str:
+    """Return the language for an employer-facing document of *application*.
+
+    ADR-038 amendment 2026-08-23 (E054): ``applications.language_override``
+    beats detection; NULL (or no application row) falls back to
+    :func:`resolve_jd_language`. Callers in a generation run must resolve
+    ONCE and thread the value (clause 3a — the override is user-mutable
+    while a background generation is in flight); read/render/edit paths use
+    the document's own pinned ``document_language`` instead (clause 3b).
+    """
+    if application is not None and getattr(application, "language_override", None):
+        return application.language_override
+    return resolve_jd_language(job)

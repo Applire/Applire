@@ -56,6 +56,9 @@ class GeneratedCoverLetter(Base):
     letter_data: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)
     pre_gen_inputs: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # E054 / ADR-038 amendment 2026-08-23 clause 3b: pinned generation
+    # language — see GeneratedCV.document_language.
+    document_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
     ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-052 (E043/US246): persisted truthfulness self-audit; NULL = not audited

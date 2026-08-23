@@ -65,6 +65,12 @@ class GeneratedCV(Base):
     error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     content_snapshot: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     section_overrides: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # E054 / ADR-038 amendment 2026-08-23 clause 3b: the language this document
+    # was generated in, pinned at generation. Read/render/edit paths use THIS,
+    # never a fresh resolve — the override is mutable and a per-read resolve
+    # would repaint chrome around unchanged prose. NULL (pre-migration rows)
+    # falls back to resolve_document_language at read time.
+    document_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
     ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-052 (E043/US246): persisted truthfulness self-audit; NULL = not audited
