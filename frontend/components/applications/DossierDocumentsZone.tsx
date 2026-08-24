@@ -24,6 +24,7 @@ import { Bot, CheckCircle2, FileText, Loader2, AlertTriangle, Send, X } from "lu
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { patchSubmittedCv, patchSubmittedCoverLetter } from "@/lib/api/applications";
+import { DocumentLanguageBadge } from "@/components/document/DocumentLanguageBadge";
 import type { ApplicationDetail, CoverLetterSummary } from "@/app/(shell)/applications/[appId]/page";
 
 const API_BASE =
@@ -40,6 +41,8 @@ interface CvListItem {
   error_code?: string | null;
   /** E044/US252 (ADR-054): 'pipeline' | 'agent' — agent-rendered documents carry a badge. */
   origin?: string | null;
+  /** E054/US289 (clause 3b): the pinned language; null/absent = legacy row, no chip. */
+  document_language?: "de" | "en" | null;
 }
 
 // Template id → next-intl key in the `cv` namespace — the same mapping
@@ -246,6 +249,15 @@ export function DossierDocumentsZone({
                         {/* Badge is a non-truncating SIBLING of the label — inside the
                             truncate <p> it gets clipped away entirely (pixel check, E044). */}
                         <p className="text-sm font-medium text-on-surface truncate">{readyLabel}</p>
+                        {/* E054/US289 (JF-F-G2.2): after a language switch, older
+                            versions keep their language BY DESIGN — the chip is what
+                            keeps a mixed list from reading as a bug. */}
+                        {cv.document_language && (
+                          <DocumentLanguageBadge
+                            lang={cv.document_language}
+                            testid="dossier-doc-language"
+                          />
+                        )}
                         {cv.origin === "agent" && (
                           <span
                             data-testid="dossier-origin-agent"
@@ -344,7 +356,16 @@ export function DossierDocumentsZone({
                       </>
                     )}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-on-surface truncate">{t("coverLetterAction")}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-medium text-on-surface truncate">{t("coverLetterAction")}</p>
+                        {/* E054/US289 (JF-F-G2.2): same language chip as the CV rows. */}
+                        {isClReady && coverLetter.document_language && (
+                          <DocumentLanguageBadge
+                            lang={coverLetter.document_language}
+                            testid="dossier-cl-language"
+                          />
+                        )}
+                      </div>
                       {isClGenerating && (
                         <p className="text-sm text-on-surface-variant">{t("docGeneratingLabel")}</p>
                       )}

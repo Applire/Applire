@@ -37,6 +37,9 @@ interface DocumentWorkspaceProps {
    * the component itself is responsible for its `md:hidden` visibility.
    */
   commandBar?: ReactNode;
+  /** E054/US289: the active document's pinned language — forwarded to the
+   *  top bar's badge (JF-F-G2.2). Absent = no badge. */
+  documentLanguage?: "de" | "en" | null;
 }
 
 /**
@@ -55,6 +58,7 @@ export function DocumentWorkspace({
   atsPanel,
   sidebar,
   commandBar,
+  documentLanguage = null,
 }: DocumentWorkspaceProps) {
   return (
     <div
@@ -69,6 +73,7 @@ export function DocumentWorkspace({
         // E040/US226: a command bar carries its own primary Download action —
         // hide the top-bar one below `md` so mobile shows a single CTA.
         hideDownloadBelowMd={Boolean(commandBar)}
+        documentLanguage={documentLanguage}
       />
       <div className="flex flex-1 min-h-0">
         {/* Left column: document preview + ATS panel below it.

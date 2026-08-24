@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { RefreshCw, FileText, CheckCircle2, ArrowRight, Send, X } from "lucide-react";
@@ -33,6 +33,9 @@ interface CVActionsTabProps {
   onGenerateCoverLetter: () => void;
   onRegenerateSame: () => void;
   onNext: () => void;
+  /** E054/US289: the post-generation language switch (DocumentLanguageSwitch),
+   *  slotted by the page so this tab stays decoupled from its wiring. */
+  languageSwitch?: ReactNode;
 }
 
 /**
@@ -49,6 +52,7 @@ export function CVActionsTab({
   onGenerateCoverLetter,
   onRegenerateSame,
   onNext,
+  languageSwitch,
 }: CVActionsTabProps) {
   const t = useTranslations("cv");
   const router = useRouter();
@@ -109,6 +113,12 @@ export function CVActionsTab({
         <RefreshCw className="w-4 h-4" aria-hidden="true" />
         {t("regenerateCurrentTemplate")}
       </button>
+
+      {languageSwitch && (
+        <div className="rounded-lg border border-outline-variant bg-surface-container/50 px-3 py-2">
+          {languageSwitch}
+        </div>
+      )}
 
       {!coverLetterId && (
         <button

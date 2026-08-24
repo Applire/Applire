@@ -73,4 +73,14 @@ describe("DocumentTopBar", () => {
     expect(className).toContain("hidden");
     expect(className).toContain("md:inline-flex");
   });
+
+  it("E054/US289 (JF-F-G2.2): badges the active document's pinned language", () => {
+    render(withIntl(<DocumentTopBar {...BASE} documentLanguage="en" />));
+    expect(screen.getByTestId("document-language-badge")).toBeInTheDocument();
+  });
+
+  it("renders NO language badge for a legacy row without a pin — the bar must not claim a language the generation run never stamped", () => {
+    render(withIntl(<DocumentTopBar {...BASE} documentLanguage={null} />));
+    expect(screen.queryByTestId("document-language-badge")).toBeNull();
+  });
 });

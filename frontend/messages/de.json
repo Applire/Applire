@@ -1183,7 +1183,20 @@
     "matchScoreLabel": "Profil-Match",
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",
-    "validUntil": "gültig bis {date}"
+    "validUntil": "gültig bis {date}",
+    "langNameDe": "Deutsch",
+    "langNameEn": "Englisch",
+    "languageBadgeTitle": "Dokumentsprache",
+    "languageSwitchLabel": "Dokumentsprache",
+    "languageSwitchTitle": "Auf {lang} neu generieren?",
+    "languageSwitchBody": "Das Dokument wird auf {lang} neu erstellt — als neue Version über den normalen Generierungsweg.",
+    "languageSwitchOverridesNamed": "Deine manuellen Änderungen an {sections} gehen dabei verloren.",
+    "languageSwitchOverridesGeneric": "Manuelle Änderungen an Abschnitten dieses Dokuments gehen dabei verloren.",
+    "languageSwitchScope": "Alle künftigen Dokumente dieser Bewerbung folgen der neuen Sprache. Bereits erstellte Dokumente behalten ihre bisherige Sprache, bis Du sie neu generierst.",
+    "languageSwitchConfirm": "Neu generieren",
+    "languageSwitchCancel": "Abbrechen",
+    "languageSwitchBusy": "Wird gespeichert …",
+    "languageSwitchError": "Speichern fehlgeschlagen — bitte erneut versuchen."
   },
   "commandBar": {
     "atsChecks": "ATS-Checks",

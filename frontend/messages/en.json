@@ -1183,7 +1183,20 @@
     "matchScoreLabel": "Profile match",
     "panelCollapse": "Collapse panel",
     "panelExpand": "Expand panel",
-    "validUntil": "valid until {date}"
+    "validUntil": "valid until {date}",
+    "langNameDe": "German",
+    "langNameEn": "English",
+    "languageBadgeTitle": "Document language",
+    "languageSwitchLabel": "Document language",
+    "languageSwitchTitle": "Regenerate in {lang}?",
+    "languageSwitchBody": "The document will be regenerated in {lang} — as a new version through the normal generation path.",
+    "languageSwitchOverridesNamed": "Your manual edits to {sections} will be lost.",
+    "languageSwitchOverridesGeneric": "Manual edits to this document's sections will be lost.",
+    "languageSwitchScope": "All future documents of this application will follow the new language. Already generated documents keep their current language until you regenerate them.",
+    "languageSwitchConfirm": "Regenerate",
+    "languageSwitchCancel": "Cancel",
+    "languageSwitchBusy": "Saving …",
+    "languageSwitchError": "Saving failed — please try again."
   },
   "commandBar": {
     "atsChecks": "ATS Checks",

@@ -27,6 +27,7 @@ import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { GenerationProgress } from "@/components/cv/GenerationProgress";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
 import { ContentTab } from "@/components/cv/ContentTab";
 import { DesignTab } from "@/components/cv/DesignTab";
@@ -53,6 +54,7 @@ const CLOSE_ICON = "close";
 
 type Phase = "photo_prompt" | "template_select" | "generating" | "preview" | "complete";
 type CVTemplate = "classic_german" | "modern_swiss" | "executive" | "tech_developer" | "creative_sidebar" | "academic" | "compact_pro";
+const CV_TEMPLATES: readonly CVTemplate[] = ["classic_german", "modern_swiss", "executive", "tech_developer", "creative_sidebar", "academic", "compact_pro"];
 
 interface FlowState {
   job_id: string;
@@ -115,6 +117,9 @@ export default function CVPage({
   const [targetPages, setTargetPages] = useState<number>(2);
   // Bumping this counter re-fetches the ATS report after a section save (backend re-audits asynchronously)
   const [atsRefresh, setAtsRefresh] = useState(0);
+  // E054/US289: the previewed CV's PINNED language (ADR-038 clause 3b) — badge
+  // + language-switch state. null = legacy row without a pin (no badge).
+  const [docLanguage, setDocLanguage] = useState<"de" | "en" | null>(null);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
@@ -259,6 +264,31 @@ export default function CVPage({
     void fetchTruthReport();
     void fetchCriticReport();
   }, [cvId, phase, atsRefresh]);
+
+  // E054/US289: read the previewed CV's pinned document_language (badge +
+  // switch) and seed the template from the status response — after a reload
+  // the local template state would otherwise default to classic_german and
+  // "regenerate in the same template" (incl. the language switch) would
+  // silently change the template.
+  useEffect(() => {
+    if (!cvId || phase !== "preview") return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/cv/${cvId}/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { document_language?: "de" | "en" | null; template?: string | null } | null) => {
+        if (cancelled || !data) return;
+        setDocLanguage(data.document_language ?? null);
+        if (data.template && (CV_TEMPLATES as readonly string[]).includes(data.template)) {
+          setTemplate(data.template as CVTemplate);
+        }
+      })
+      .catch(() => {
+        // Non-fatal — no badge, template keeps its current value
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cvId, phase]);
 
   async function handleGenerate(tpl: CVTemplate) {
     if (!flowState) return;
@@ -420,6 +450,23 @@ export default function CVPage({
             onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
             onRegenerateSame={() => void handleGenerate(template)}
             onNext={() => setPhase("complete")}
+            languageSwitch={
+              flowState?.application_id ? (
+                <DocumentLanguageSwitch
+                  applicationId={flowState.application_id}
+                  documentLanguage={docLanguage}
+                  overriddenSectionLabels={
+                    flowState?.cv_summary?.sections
+                      ?.filter((s) => s.has_override)
+                      .map((s) => s.label) ?? []
+                  }
+                  // ADR-038 clause 6: the switch IS the existing regeneration
+                  // path — same template, new GeneratedCV, overrides fall.
+                  onSwitched={() => void handleGenerate(template)}
+                  apiBase={API_BASE}
+                />
+              ) : undefined
+            }
           />
         ),
       },
@@ -457,6 +504,7 @@ export default function CVPage({
         <DocumentWorkspace
           flowId={flowId}
           activeDoc="cv"
+          documentLanguage={docLanguage}
           onDownloadPdf={() => void requestDownload()}
           preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
           atsPanel={

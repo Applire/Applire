@@ -20,6 +20,7 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Download } from "lucide-react";
+import { DocumentLanguageBadge } from "@/components/document/DocumentLanguageBadge";
 
 interface DocumentTopBarProps {
   flowId: string;
@@ -32,6 +33,12 @@ interface DocumentTopBarProps {
    * mobile never shows two Download CTAs at once. Desktop is unaffected.
    */
   hideDownloadBelowMd?: boolean;
+  /**
+   * E054/US289 (FMEA JF-F-G2.2): the active document's PINNED language.
+   * null/undefined (legacy rows, still generating) renders no badge — the
+   * bar must not claim a language the generation run never stamped.
+   */
+  documentLanguage?: "de" | "en" | null;
 }
 
 /**
@@ -47,6 +54,7 @@ export function DocumentTopBar({
   onDownloadPdf,
   downloadDisabled = false,
   hideDownloadBelowMd = false,
+  documentLanguage = null,
 }: DocumentTopBarProps) {
   const t = useTranslations("document");
 
@@ -65,7 +73,11 @@ export function DocumentTopBar({
       className="flex items-center justify-between gap-3 px-5 py-2.5 bg-surface-bright border-b border-outline-variant flex-shrink-0"
       data-testid="document-topbar"
     >
-      {/* Document toggle — segmented pill */}
+      {/* Document toggle — segmented pill (+ the active document's pinned
+          language, E054/US289: after a switch, older documents keep their
+          language by design; the badge is what keeps that from reading as
+          inconsistency) */}
+      <div className="flex items-center gap-3 min-w-0">
       <div
         className="flex items-center gap-1 rounded-full bg-surface-container p-1"
         role="tablist"
@@ -91,6 +103,8 @@ export function DocumentTopBar({
             </Link>
           );
         })}
+      </div>
+      {documentLanguage && <DocumentLanguageBadge lang={documentLanguage} />}
       </div>
 
       {/* Primary CTA — always visible on both documents */}
