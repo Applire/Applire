@@ -170,10 +170,13 @@ language of every document generated for that application from then on;
 candidate may legitimately answer a German posting in English for an
 international employer. Two things to know: already-generated documents keep
 the language they were generated in (regenerate to apply a change — never
-expect an in-place translation), and the interview/conversation language does
-NOT follow this override (it has its own rule; see ADR-038). Surface the
-choice to your human when the JD's language and their intended application
-language might differ.
+expect an in-place translation; regeneration creates a NEW document and drops
+any manual section edits), and the interview/conversation language does
+NOT follow this override (it has its own rule; see ADR-038). Each document's
+own language rides `get_cv_status`/`get_cover_letter_status` as
+`document_language` — read it before assuming a mixed-language portfolio is a
+bug. Surface the choice to your human when the JD's language and their
+intended application language might differ.
 
 ## Operational gotchas
 

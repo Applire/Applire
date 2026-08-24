@@ -255,6 +255,8 @@ async def get_cover_letter_status(
         letter_data=letter_data,
         origin=cl.origin,
         critic_report=cl.critic_report,
+        # E054/US289 (clause 3b): pinned language, stored value as-is.
+        document_language=cl.document_language,
     )
 
 
@@ -265,11 +267,11 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     filename; the suffix keeps the pair from colliding in a Downloads folder.
 
     issue #241 item 3 — the suffix must follow the letter's actual output
-    language, not be hardcoded to German. The letter itself carries no
-    language field of its own; its content language is the JD's language,
-    resolved via ``resolve_jd_language`` (ADR-038 — the same resolution
-    `generate_cover_letter`/`_inject_letter_date`/etc. already use to write the
-    letter, so the filename can never disagree with the document it names).
+    language, not be hardcoded to German. Since E054 (ADR-038 amendment
+    clause 3b) the letter pins ``document_language`` at generation; the
+    filename reads that stored value, with the ``resolve_document_language``
+    seam as fallback for pre-migration rows — so the filename can never
+    disagree with the document it names.
     """
     from applire.services.cv import compose_document_filename
 

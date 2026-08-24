@@ -2151,11 +2151,16 @@ async def get_cv_status(
             record.error_code or ("generation_failed" if status == CVGenerationStatus.failed else None)
         ),
         expires_at=record.expires_at,
+        # US289: the single-status door carries template too (the list already
+        # did) — the CV page seeds regenerate-same-template from it on reload.
+        template=record.template,
         target_pages=record.target_pages,
         origin=record.origin,
         # ADR-060 clause 6: the Pass A verdict is data on the status surface,
         # both doors (REST poller and MCP get_cv_status serialize this model).
         critic_report=record.critic_report,
+        # E054/US289 (clause 3b): pinned language, stored value as-is.
+        document_language=record.document_language,
     )
 
 
@@ -2194,6 +2199,8 @@ async def list_cvs_for_job(
             created_at=r.created_at,
             target_pages=r.target_pages,
             origin=r.origin,
+            # E054/US289 (clause 3b): pinned language, stored value as-is.
+            document_language=r.document_language,
         )
         for r in records
     ]

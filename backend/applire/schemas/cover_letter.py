@@ -130,6 +130,10 @@ class CoverLetterStatusResponse(BaseModel):
     # agent sees the advisory the moment it polls for readiness, same as a
     # human. Null until computed; see OutcomeCriticReport.reason for why.
     critic_report: Optional[dict] = None
+    # E054/US289 (ADR-038 amendment clause 3b): the language pinned at
+    # generation time — badge source (FMEA JF-F-G2.2). Stored value as-is;
+    # legacy NULL rows stay None.
+    document_language: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

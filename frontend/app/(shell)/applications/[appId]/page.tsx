@@ -96,6 +96,8 @@ export interface CoverLetterSummary {
   error_message?: string | null;
   expires_at: string;
   letter_data?: Record<string, unknown> | null;
+  /** E054/US289 (clause 3b): the pinned language; null/absent = legacy row, no chip. */
+  document_language?: "de" | "en" | null;
 }
 
 /** Subset of GET /api/job/{job_id} (JobAnalysisResponse) rendered in the header JD summary. */

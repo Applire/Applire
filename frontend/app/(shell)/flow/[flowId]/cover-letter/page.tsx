@@ -26,6 +26,7 @@ import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterCont
 import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
 import { FileText, Palette, Zap } from "lucide-react";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
@@ -59,9 +60,12 @@ interface CLState {
   letterData: Record<string, unknown> | null;
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
+  applicationId: string | null;
   roleTitle: string | null;
   matchScore: number | null;
   expiresAt: string | null;
+  /** E054/US289: the letter's PINNED language (clause 3b); null = legacy row. */
+  documentLanguage: "de" | "en" | null;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -112,6 +116,7 @@ export default function CoverLetterPage({
           template: string;
         };
         job_id?: string;
+        application_id?: string | null;
         job_summary?: { role_title?: string };
         gap_summary?: { match_score?: number };
         cv_summary?: { expires_at?: string };
@@ -129,9 +134,11 @@ export default function CoverLetterPage({
           letterData: null,
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
+          applicationId: flowData.application_id ?? null,
           roleTitle: flowData.job_summary?.role_title ?? null,
           matchScore: null,
           expiresAt: null,
+          documentLanguage: null,
         });
         setPhase("not_found");
         return;
@@ -143,6 +150,7 @@ export default function CoverLetterPage({
       const statusData = await statusRes.json() as {
         status: string;
         letter_data?: Record<string, unknown> | null;
+        document_language?: "de" | "en" | null;
       };
 
       setClState({
@@ -152,6 +160,7 @@ export default function CoverLetterPage({
         letterData: statusData.letter_data ?? null,
         preGenInputs: null,
         jobId: flowData.job_id ?? null,
+        applicationId: flowData.application_id ?? null,
         roleTitle: flowData.job_summary?.role_title ?? null,
         // gap_summary.match_score is a 0–1 fraction; the sidebar expects 0–100.
         matchScore:
@@ -159,6 +168,7 @@ export default function CoverLetterPage({
             ? flowData.gap_summary.match_score * 100
             : null,
         expiresAt: flowData.cv_summary?.expires_at ?? null,
+        documentLanguage: statusData.document_language ?? null,
       });
 
       if (statusData.status === "ready") {
@@ -245,12 +255,20 @@ export default function CoverLetterPage({
         const data = await res.json() as {
           status: string;
           letter_data?: Record<string, unknown> | null;
+          document_language?: "de" | "en" | null;
         };
         if (data.status === "ready") {
           clearInterval(pollRef.current!);
           setPhase("ready");
           setClState((prev) =>
-            prev ? { ...prev, status: "ready", letterData: data.letter_data ?? null } : prev
+            prev
+              ? {
+                  ...prev,
+                  status: "ready",
+                  letterData: data.letter_data ?? null,
+                  documentLanguage: data.document_language ?? null,
+                }
+              : prev
           );
         } else {
           setClState((prev) => prev ? { ...prev, status: data.status } : prev);
@@ -413,6 +431,20 @@ export default function CoverLetterPage({
       body: (
         <CoverLetterActionsTab
           onRegenerateCoverLetter={() => setShowModal(true)}
+          languageSwitch={
+            clState?.applicationId ? (
+              <DocumentLanguageSwitch
+                applicationId={clState.applicationId}
+                documentLanguage={clState.documentLanguage}
+                // The page does not know WHICH letter sections carry manual
+                // overrides — the switch falls back to the generic loss notice.
+                // ADR-038 clause 6: after persisting the override, hand off to
+                // the letter's existing regeneration path (the modal).
+                onSwitched={() => setShowModal(true)}
+                apiBase={API_BASE}
+              />
+            ) : undefined
+          }
         />
       ),
     },
@@ -423,6 +455,7 @@ export default function CoverLetterPage({
       <DocumentWorkspace
         flowId={flowId}
         activeDoc="cover-letter"
+        documentLanguage={clState?.documentLanguage ?? null}
         onDownloadPdf={requestDownload}
         downloadDisabled={downloading || phase !== "ready"}
         preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}

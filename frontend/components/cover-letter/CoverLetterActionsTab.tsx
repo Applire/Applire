@@ -19,9 +19,13 @@
 
 
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 
 interface CoverLetterActionsTabProps {
   onRegenerateCoverLetter: () => void;
+  /** E054/US289: the post-generation language switch (DocumentLanguageSwitch),
+   *  slotted by the page — mirrors CVActionsTab's slot. */
+  languageSwitch?: ReactNode;
 }
 
 // PDF download is owned by the shared DocumentTopBar (E038); the Aktionen tab
@@ -29,10 +33,16 @@ interface CoverLetterActionsTabProps {
 // tabs are structurally consistent.
 export function CoverLetterActionsTab({
   onRegenerateCoverLetter,
+  languageSwitch,
 }: CoverLetterActionsTabProps) {
   const t = useTranslations("coverLetter");
   return (
     <div className="flex flex-col gap-3 p-3">
+      {languageSwitch && (
+        <div className="rounded-lg border border-outline-variant bg-surface-container/50 px-3 py-2">
+          {languageSwitch}
+        </div>
+      )}
       <div className="border-t border-neutral-200 pt-3">
         <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
           {t("regenerateHeading")}
