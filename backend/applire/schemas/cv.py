@@ -93,6 +93,11 @@ class CVStatusResponse(BaseModel):
     # status carrying its critic_report (ADR-060 clause 6). None = not yet
     # computed or pre-two-mount row.
     critic_report: Optional[dict] = None
+    # E054/US289 (ADR-038 amendment clause 3b): the language PINNED at
+    # generation time — the UI badges each document with it (FMEA JF-F-G2.2).
+    # Surfaced as stored; a legacy NULL row stays None rather than gaining a
+    # freshly-resolved claim the generation run never stamped.
+    document_language: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
