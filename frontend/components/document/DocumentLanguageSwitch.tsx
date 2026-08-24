@@ -18,6 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 
 interface DocumentLanguageSwitchProps {
@@ -118,7 +119,11 @@ export function DocumentLanguageSwitch({
         ))}
       </div>
 
-      {target && (
+      {/* Portal to <body>: the switch lives inside the refinement sidebar,
+          whose ancestor stack traps position:fixed (transform containment) —
+          rendered in place, the overlay dims only the sidebar column
+          (pixel-verified 2026-08-24). */}
+      {target && createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -173,7 +178,8 @@ export function DocumentLanguageSwitch({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
