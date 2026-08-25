@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from applire.models.application import UserStatus, WorkflowStatus
 
@@ -85,6 +85,50 @@ class CreateApplicationRequest(BaseModel):
     source_url: str | None = None
 
 
+FactPinEntryType = Literal[
+    "work",
+    "project",
+    "volunteer",
+    "signature_story",
+    "skill",
+    "certification",
+    "education",
+    "language",
+    "publication",
+]
+
+
+class FactPin(BaseModel):
+    """ADR-077 clause 1 — a verbatim vault quote with a vault address.
+
+    Carries no free text of its own: `quote` must resolve (normalized
+    containment, fail-closed) inside the referenced entry's content fields at
+    write time. `stale` is a recomputed measurement (clause 7): the quote no
+    longer resolves — the pin is excluded from generation and surfaced, never
+    auto-deleted.
+    """
+
+    pin_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    entry_type: FactPinEntryType
+    entry_id: str
+    quote: str
+    targets: list[Literal["cv", "letter"]] = Field(
+        default_factory=lambda: ["cv", "letter"]
+    )
+    stale: bool = False
+
+
+class AddFactPinRequest(BaseModel):
+    """POST /api/applications/{id}/pins — additive, never a list replace."""
+
+    entry_type: FactPinEntryType
+    entry_id: str = Field(min_length=1)
+    quote: str = Field(min_length=1)
+    targets: list[Literal["cv", "letter"]] = Field(
+        default_factory=lambda: ["cv", "letter"], min_length=1
+    )
+
+
 class PatchApplicationRequest(BaseModel):
     """Only user-managed fields. workflow_status is rejected at the service layer."""
     user_status: UserStatus | None = None
@@ -131,6 +175,13 @@ class ApplicationResponse(BaseModel):
     submitted_cover_letter_id: uuid.UUID | None = None
     # E054: the user's document-language choice; None = automatic detection.
     language_override: str | None = None
+    # E056/ADR-077: fact pins in insertion order (NULL column reads as []).
+    pinned_facts: list[FactPin] = Field(default_factory=list)
+
+    @field_validator("pinned_facts", mode="before")
+    @classmethod
+    def _null_column_reads_as_empty(cls, v: object) -> object:
+        return v if isinstance(v, list) else []
     # Read model: the pinned CV's creation timestamp — the stable "version"
     # identity for the sent badge (an ordinal would renumber when retention
     # purges older unpinned CVs). Enriched by the service layer, not a column.

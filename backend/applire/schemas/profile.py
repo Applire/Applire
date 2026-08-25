@@ -197,6 +197,8 @@ class WorkEntry(ExperienceBase):
 
 
 class EducationEntry(BaseModel):
+    # ADR-077 clause 1 — persisted id (see Skill.id)
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     institution: str
     degree: str
     field: str = ""
@@ -247,6 +249,8 @@ def _coerce_partial_date(v: Any) -> Any:
 
 
 class Certification(BaseModel):
+    # ADR-077 clause 1 — persisted id (see Skill.id)
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     issuing_organization: str | None = None
     date_obtained: date | None = None
@@ -314,6 +318,12 @@ _PROFICIENCY_ALIASES: dict[str, str] = {
 
 
 class Skill(BaseModel):
+    # ADR-077 clause 1 — a fact pin addresses a vault entry by id, so every
+    # pinnable type carries the WorkEntry persisted-id pattern. The factory
+    # mints an id only for a blob that lacks one; the value is an identity
+    # ONLY once written back through the committer (an unpersisted
+    # default_factory id regenerates on every parse — SF-PIN.8).
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     category: Literal["technical", "soft", "language", "domain"] = "technical"
     proficiency: Literal["basic", "intermediate", "advanced", "expert"] = "intermediate"
@@ -478,12 +488,16 @@ class SignatureStory(BaseModel):
 
 
 class Language(BaseModel):
+    # ADR-077 clause 1 — persisted id (see Skill.id)
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     language: str
     level: str | None = None
     status: Literal["confirmed", "unconfirmed"] = "confirmed"  # ADR-061 clause 3
 
 
 class Publication(BaseModel):
+    # ADR-077 clause 1 — persisted id (see Skill.id)
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     type: Literal["publication", "patent"] = "publication"
     co_authors: list[str] = Field(default_factory=list)
