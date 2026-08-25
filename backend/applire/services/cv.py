@@ -289,6 +289,7 @@ async def generate_cv_segmented(
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
     vault_evidence_items: "list | None" = None,
+    pinned_facts_block: str | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -371,6 +372,7 @@ async def generate_cv_segmented(
                 w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger,
                 budget, scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=owned_evidence,
+                pinned_facts_block=pinned_facts_block,
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
@@ -393,6 +395,7 @@ async def generate_cv_segmented(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger,
             stated_limits_block,
+            pinned_facts_block=pinned_facts_block,
         ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
@@ -434,6 +437,7 @@ async def _tailor_cv_with_fallback(
     scope_positioning_block: str | None = None,
     vault_evidence_block: str | None = None,
     vault_evidence_items: "list | None" = None,
+    pinned_facts_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
     the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
@@ -459,6 +463,7 @@ async def _tailor_cv_with_fallback(
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
             vault_evidence_items=vault_evidence_items,
+            pinned_facts_block=pinned_facts_block,
         )
     try:
         return await provider.aparse_json(
@@ -470,6 +475,7 @@ async def _tailor_cv_with_fallback(
                 stated_limits_block=stated_limits_block,
                 scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=vault_evidence_block,
+                pinned_facts_block=pinned_facts_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -487,6 +493,7 @@ async def _tailor_cv_with_fallback(
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
             vault_evidence_items=vault_evidence_items,
+            pinned_facts_block=pinned_facts_block,
         )
 
 
@@ -2533,6 +2540,61 @@ async def _render_cv_background(
                 keyword_ledger, document_language
             ) or None
 
+            # ADR-077 (E056): fact pins — generation-start re-verify (clause 7)
+            # + the PINNED FACTS input block (clause 3). Staleness is measured
+            # against the RAW persisted profile (claimability included); a
+            # moved flag is written back on the application row in this same
+            # transaction. Active CV-target pins then partition the cut paths
+            # (clause 4) and feed the writer block. Fail-safe: a pin-load
+            # failure degrades to "no pins", never breaks generation.
+            cv_pins: list = []
+            pinned_facts_block: str | None = None
+            try:
+                from applire.schemas.profile import MasterProfileData
+                from applire.services.application import get_application_for_job
+                from applire.services.color_detection import _CE_STUB_USER_ID
+                from applire.services.fact_pins import (
+                    load_pins,
+                    refresh_pin_staleness,
+                )
+                from applire.services.pin_reach import (
+                    active_pins,
+                    render_pinned_facts_block,
+                )
+
+                pin_application = await get_application_for_job(
+                    record.job_analysis_id, _CE_STUB_USER_ID, db
+                )
+                if pin_application is not None and pin_application.pinned_facts:
+                    raw_profile_data = MasterProfileData.model_validate(
+                        profile.profile_json or {}
+                    )
+                    refreshed, pins_moved = refresh_pin_staleness(
+                        load_pins(pin_application), raw_profile_data
+                    )
+                    if pins_moved:
+                        pin_application.pinned_facts = [
+                            pn.model_dump(mode="json") for pn in refreshed
+                        ]
+                        await db.flush()
+                    cv_pins = active_pins(refreshed, "cv")
+                    pinned_facts_block = (
+                        render_pinned_facts_block(
+                            cv_pins,
+                            raw_profile_data,
+                            target="cv",
+                            language=document_language,
+                        )
+                        or None
+                    )
+            except Exception:
+                logger.exception(
+                    "fact-pin load failed for CV %s — generating without pins "
+                    "(ADR-077 fail-safe)", cv_id,
+                )
+                cv_pins = []
+                pinned_facts_block = None
+
             # #303 (#271's CV half): the strongest-vault-evidence digest — for
             # each claimable ledger concept, the vault's OWN sentence that
             # answers it, verbatim, with the entry that owns it. The letter
@@ -2606,6 +2668,7 @@ async def _render_cv_background(
                 scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=vault_evidence_block,
                 vault_evidence_items=vault_evidence_items,
+                pinned_facts_block=pinned_facts_block,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -2730,6 +2793,7 @@ async def _render_cv_background(
                 budget=budget,
                 job_dict=job_dict,
                 language=document_language,
+                pins=cv_pins,
             )
 
             from applire.services.cv_section_editor import build_content_snapshot
@@ -2754,7 +2818,9 @@ async def _render_cv_background(
             # clause 3 (#538): the loop runs BEFORE the terminal verdict — no content
             # write may happen after it — with mechanism, bounds, bail rule and
             # RENDER_BUDGET_ITERATION instrumentation unchanged.
-            condense_ctx = CondenseContext(budgets=budget, target=resolved_target_pages)
+            condense_ctx = CondenseContext(
+                budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins)
+            )
             try:
                 measured = await _measure_and_condense(record, db, condense_ctx)
             except Exception:
@@ -2871,6 +2937,7 @@ def _compose_document(
     budget: "BudgetResult",
     job_dict: dict,
     language: str,
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """ADR-076 clause 3 (#538): the CV's ENTIRE deterministic tail as one pure,
     re-runnable function — the E049/ADR-067 join, the ADR-040/ADR-067 compose
@@ -2923,7 +2990,7 @@ def _compose_document(
     # verbatim vault bullet that carries a claimable Keyword Ledger concept the
     # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
     # the budget uses (structural since assemble_tailored_cv).
-    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
+    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget, pins=pins)
 
     # #261 (run-4 blind hiring-panel finding): deterministically prefer a
     # MEASURED outcome over a bare target/projection for the same initiative
@@ -3055,6 +3122,10 @@ class CondenseContext:
 
     budgets: "BudgetResult"
     target: int
+    # ADR-077 clause 4: the application's active CV fact pins — threaded into
+    # condense_to_budget so pin carriers never enter the removable set, and
+    # into the terminal re-compose. Empty for legacy/audit-only paths.
+    pins: tuple = ()
 
 
 def _log_render_budget_iteration(
@@ -3236,7 +3307,8 @@ async def _measure_and_condense(
             )
             break
         condensed, changed = condense_to_budget(
-            record.tailored_data, condense_ctx.budgets, iteration
+            record.tailored_data, condense_ctx.budgets, iteration,
+            pins=condense_ctx.pins,
         )
         if not changed:
             # Nothing left to cut — the overrun is structural (education/skills).
@@ -3411,6 +3483,9 @@ async def _terminal_review(
             budget=budget,
             job_dict=job_dict,
             language=language,
+            # ADR-077 clause 4: a terminal-round re-compose keeps the same
+            # pin partition as the original compose (rule-against-one-of-N).
+            pins=condense_ctx.pins,
         )
 
     subject_by_draft: dict[str, TailoredCVData] = {

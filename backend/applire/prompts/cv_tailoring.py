@@ -165,6 +165,7 @@ def build_user_prompt(
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
     vault_evidence_block: str | None = None,
+    pinned_facts_block: str | None = None,
 ) -> str:
     """Build the single-call CV tailoring user prompt.
 
@@ -212,6 +213,11 @@ def build_user_prompt(
     # candidate side only, never the posting's figure. Omitted/empty → adds
     # nothing (legacy callers unchanged).
     scope_section = f"{scope_positioning_block}\n\n" if scope_positioning_block else ""
+    # ADR-077 clause 3: the user's pinned vault quotes as REQUIRED content
+    # (services.pin_reach.render_pinned_facts_block) — candidate-side vault
+    # text only, verbatim in substance, never extended. Omitted/empty → adds
+    # nothing (legacy callers unchanged).
+    pinned_section = f"{pinned_facts_block}\n\n" if pinned_facts_block else ""
     # E042/US237, ADR-051 §3: per-role bullet-count ceilings computed deterministically
     # BEFORE generation. Under ADR-067 clause 3 this block is also the id channel: the
     # writer keys its work entries to the [id] each budget line carries.
@@ -229,6 +235,7 @@ def build_user_prompt(
         f"{evidence_section}"
         f"{stated_limits_section}"
         f"{scope_section}"
+        f"{pinned_section}"
         f"{budget_section}"
         f"KEYWORD GAPS (incorporate only where explicitly supported by profile):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"

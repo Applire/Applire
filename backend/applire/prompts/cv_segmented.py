@@ -162,6 +162,7 @@ def build_work_section_prompt(
     budget: "BudgetResult | None" = None,
     scope_positioning_block: str | None = None,
     vault_evidence_block: str | None = None,
+    pinned_facts_block: str | None = None,
 ) -> str:
     """One work entry's tailoring prompt (segmented path).
 
@@ -181,6 +182,10 @@ def build_work_section_prompt(
     # matching role, and only the writer of that entry can place it.
     scope_section = f"{scope_positioning_block}\n\n" if scope_positioning_block else ""
     evidence_section = f"{vault_evidence_block}\n\n" if vault_evidence_block else ""
+    # ADR-077 clause 3 (segmented-path parity, ADR-066): the same PINNED FACTS
+    # block the single-call writer receives — a pinned bullet belongs in ITS
+    # matching role, and only the writer of that entry can weave it.
+    pinned_section = f"{pinned_facts_block}\n\n" if pinned_facts_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"EMPHASIS THEME FOR THIS ENTRY: {theme or '(use the summary angle)'}\n"
@@ -191,6 +196,7 @@ def build_work_section_prompt(
         f"{_ledger_section(keyword_ledger)}"
         f"{evidence_section}"
         f"{scope_section}"
+        f"{pinned_section}"
         f"KEYWORD GAPS (use only where explicitly supported by this entry):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the tailored bullets + nested projects JSON for this entry only."
@@ -224,6 +230,7 @@ def build_summary_prompt(
     output_language: str,
     keyword_ledger: list[dict] | None = None,
     stated_limits_block: str | None = None,
+    pinned_facts_block: str | None = None,
 ) -> str:
     """stated_limits_block: the candidate's persisted denial statements rendered
     verbatim (mirrors cv_tailoring.build_user_prompt's kwarg of the same name), so no
@@ -267,12 +274,16 @@ def build_skills_prompt(
     output_language: str,
     keyword_ledger: list[dict] | None = None,
     stated_limits_block: str | None = None,
+    pinned_facts_block: str | None = None,
 ) -> str:
     """stated_limits_block: the candidate's persisted denial statements rendered
     verbatim (mirrors cv_tailoring.build_user_prompt's kwarg of the same name), so
     the skills list never asserts something they explicitly disclaimed — and never
     hedges something they did not. Optional; empty → adds nothing (back-compat)."""
     stated_limits_section = f"{stated_limits_block}\n\n" if stated_limits_block else ""
+    # ADR-077 clause 3: a pinned scalar fact (skill/certification/language)
+    # surfaces through the skills writer — same block as the single-call path.
+    pinned_section = f"{pinned_facts_block}\n\n" if pinned_facts_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SKILLS TO FOREGROUND: {json.dumps(directive.get('skills_focus') or [], ensure_ascii=False)}\n\n"
@@ -280,6 +291,7 @@ def build_skills_prompt(
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
         f"{stated_limits_section}"
+        f"{pinned_section}"
         f"KEYWORD GAPS (include only where explicitly demonstrated):\n"
         f"{json.dumps(keyword_gaps, ensure_ascii=False)}\n\n"
         "Return the skills JSON."
