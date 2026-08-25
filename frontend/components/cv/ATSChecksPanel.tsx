@@ -31,9 +31,26 @@ type ATSCheck = {
   // frontend localises; `details` stays the EN fallback for legacy reports.
   details_key?: string | null;
   details_params?: Record<string, string | number> | null;
+  // E056/ADR-077 clause 5: structured driver for a fail band — currently only
+  // {"pinned_facts": N} on the page-length check (N present pinned facts).
+  driver?: Record<string, number> | null;
+};
+// E056/ADR-077 clauses 3+5: one fact pin's measured fate on THIS document —
+// present in the tailored twin, stale (excluded from generation), or removed
+// by a truth floor (hierarchy: truth > pin, never silent). Ship-and-report,
+// never a gate.
+export type PinnedFactReportEntry = {
+  pin_id: string;
+  entry_type: string;
+  quote: string;
+  present: boolean;
+  stale: boolean;
+  removed_by_truth_floor?: boolean;
 };
 export type ATSReport = {
   checks: ATSCheck[];
+  // null/absent = audited without pin context (legacy reports, no pins).
+  pinned_facts?: PinnedFactReportEntry[] | null;
   keywords: {
     present: string[];
     missing: string[];
@@ -196,6 +213,9 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   const structurePassed = failed.length === 0;
   const hasUnsurfacedClaimable = structurePassed && missingClaimable.length > 0;
 
+  // E056/ADR-077: null/absent = audited without pin context (legacy reports).
+  const pinnedFacts = report.pinned_facts ?? [];
+
   return (
     <>
       <section
@@ -310,6 +330,17 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                       {detailText(c)}
                     </span>
                   ) : null}
+                  {/* E056/ADR-077 clause 5: the page-length band's structured
+                      driver — pins may honestly push a document over the
+                      norm; that overrun is reported, never repaired. */}
+                  {c.driver?.pinned_facts ? (
+                    <span
+                      data-testid={`ats-check-${c.id}-pin-driver`}
+                      className="block text-xs text-on-surface-variant"
+                    >
+                      {t("pinnedFacts.driverLine", { count: c.driver.pinned_facts })}
+                    </span>
+                  ) : null}
                 </span>
               </li>
             ))}
@@ -331,6 +362,64 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
               </li>
             ))}
           </ul>
+        )}
+
+        {/* E056/ADR-077 clauses 3+5: per-pin presence measurement on THIS
+            document — ship-and-report, never a gate. Rendered whenever the
+            report carries pin context, independent of pass/fail status. */}
+        {pinnedFacts.length > 0 && (
+          <div
+            data-testid="ats-pinned-facts"
+            className="mt-2 space-y-1 border-t border-outline-variant pt-2"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              {t("pinnedFacts.title")}
+            </p>
+            <ul className="space-y-1">
+              {pinnedFacts.map((pin) => (
+                <li
+                  key={pin.pin_id}
+                  data-testid={`ats-pinned-fact-${pin.pin_id}`}
+                  className="flex items-start gap-2 text-sm text-on-surface"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 shrink-0 text-xs font-bold ${
+                      pin.present ? "text-success" : "text-critical"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
+                    {pin.present ? "✓" : "✗"}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate" title={pin.quote}>
+                      {pin.quote}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5 text-xs text-on-surface-variant">
+                      {!pin.present && (
+                        <span data-testid={`ats-pinned-fact-unmet-${pin.pin_id}`}>
+                          {t("pinnedFacts.unmet")}
+                        </span>
+                      )}
+                      {pin.stale && (
+                        <span
+                          data-testid={`ats-pinned-fact-stale-${pin.pin_id}`}
+                          className="rounded-full bg-warning-container px-2 py-0.5 font-medium text-on-surface"
+                        >
+                          {t("pinnedFacts.stale")}
+                        </span>
+                      )}
+                      {pin.removed_by_truth_floor && (
+                        <span data-testid={`ats-pinned-fact-floor-${pin.pin_id}`}>
+                          {t("pinnedFacts.removedByTruthFloor")}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 

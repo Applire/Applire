@@ -30,6 +30,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { JobEchoCard } from "@/components/gaps/JobEchoCard";
 import { DocumentLanguageControl } from "@/components/gaps/DocumentLanguageControl";
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
+import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
@@ -945,6 +946,14 @@ export default function GapsPage({
                     apiBase={API_BASE}
                   />
                 </div>
+              )}
+              {/* E056/ADR-077: fact pins — a verbatim vault quote the user
+                  pins to this application (truth > pin > budget). */}
+              {flowState?.application_id && (
+                <PinnedFactsPanel
+                  applicationId={flowState.application_id}
+                  apiBase={API_BASE}
+                />
               )}
             </>
           );
