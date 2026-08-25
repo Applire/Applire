@@ -320,3 +320,11 @@ async def test_pinning_changes_nothing_but_the_pin_store(db, scene):
     assert record.profile_json == profile_before  # vault untouched
     assert (app.workflow_status, app.user_status) == status_before
     assert len(app.pinned_facts) == 1
+
+
+def test_duplicate_targets_are_deduplicated():
+    # 2026-08-25 adversarial finding: ["cv","cv"] was stored verbatim.
+    req = AddFactPinRequest(
+        entry_type="skill", entry_id="e1", quote="X", targets=["cv", "cv"]
+    )
+    assert req.targets == ["cv"]

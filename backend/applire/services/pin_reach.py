@@ -64,18 +64,44 @@ def active_pins(pins: Iterable[FactPin], target: str) -> list[FactPin]:
 
 # ── The PINNED FACTS input block (clause 3) ──────────────────────────────────
 
-_BLOCK_HEADER = {
+# Two instruction variants (2026-08-25 adversarial real-LLM finding): the CV
+# demands VERBATIM reproduction — "woven naturally" invited paraphrase, and a
+# paraphrased pin escapes BOTH the containment-based cut immunity and the
+# presence measurement (it reads as an honest miss). The letter keeps the
+# natural-weave instruction: letters are prose, and the reviewer enforces the
+# pinned_facts positioning key there (check 4).
+_BLOCK_HEADER_CV = {
     "en": (
         "PINNED FACTS (user-selected, REQUIRED):\n"
-        "The candidate pinned these facts — each MUST appear in the document, "
-        "woven naturally where it fits best. State only what the quote "
-        "states; never extend or inflate it."
+        "The candidate pinned these facts. Reproduce each quote below "
+        "WORD-FOR-WORD as its own bullet in its matching entry (or verbatim "
+        "in its section for skills/certifications/education) — never "
+        "paraphrase, shorten, or extend it. A reworded pin counts as "
+        "missing."
     ),
     "de": (
         "PINNED FACTS (vom Kandidaten angeheftet, VERPFLICHTEND):\n"
-        "Der Kandidat hat diese Fakten angeheftet — jeder MUSS im Dokument "
-        "erscheinen, natürlich eingewoben. Nur wiedergeben, was das Zitat "
-        "aussagt; niemals erweitern oder aufblähen."
+        "Der Kandidat hat diese Fakten angeheftet. Gib jedes Zitat unten "
+        "WORTWÖRTLICH als eigenen Bullet im passenden Eintrag wieder (bzw. "
+        "verbatim in seiner Sektion bei Kenntnissen/Zertifizierungen/"
+        "Ausbildung) — niemals umformulieren, kürzen oder erweitern. Ein "
+        "umformulierter Pin gilt als fehlend."
+    ),
+}
+_BLOCK_HEADER_LETTER = {
+    "en": (
+        "PINNED FACTS (user-selected, REQUIRED):\n"
+        "The candidate pinned these facts — each MUST appear in the letter, "
+        "woven naturally, quoting the fact's own wording as closely as the "
+        "sentence allows. State only what the quote states; never extend or "
+        "inflate it."
+    ),
+    "de": (
+        "PINNED FACTS (vom Kandidaten angeheftet, VERPFLICHTEND):\n"
+        "Der Kandidat hat diese Fakten angeheftet — jeder MUSS im Anschreiben "
+        "erscheinen, natürlich eingewoben, so nah am Wortlaut des Zitats wie "
+        "der Satz erlaubt. Nur wiedergeben, was das Zitat aussagt; niemals "
+        "erweitern oder aufblähen."
     ),
 }
 
@@ -105,7 +131,8 @@ def render_pinned_facts_block(
     if not selected:
         return ""
     lang = "de" if (language or "").startswith("de") else "en"
-    lines = [_BLOCK_HEADER[lang]]
+    header = _BLOCK_HEADER_CV if target == "cv" else _BLOCK_HEADER_LETTER
+    lines = [header[lang]]
     for pin in selected:
         lines.append(f'- "{pin.quote}" ({_entry_label(pin, profile)})')
     return "\n".join(lines)

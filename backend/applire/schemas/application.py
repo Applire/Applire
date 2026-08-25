@@ -128,6 +128,12 @@ class AddFactPinRequest(BaseModel):
         default_factory=lambda: ["cv", "letter"], min_length=1
     )
 
+    @field_validator("targets", mode="after")
+    @classmethod
+    def _dedupe_targets(cls, v: list) -> list:
+        # 2026-08-25 adversarial finding: ["cv","cv"] was stored verbatim.
+        return list(dict.fromkeys(v))
+
 
 class PatchApplicationRequest(BaseModel):
     """Only user-managed fields. workflow_status is rejected at the service layer."""
