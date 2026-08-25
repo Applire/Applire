@@ -115,6 +115,14 @@ class PersonalInfo(BaseModel):
 Contact = PersonalInfo
 
 
+def _blank_to_none(v: object) -> object:
+    """A blank/whitespace-only date string means "unknown" — stored as None."""
+    if isinstance(v, str):
+        stripped = v.strip()
+        return stripped if stripped else None
+    return v
+
+
 class ExperienceBase(BaseModel):
     """Shared capability set for any kind of engagement (ADR-044).
 
@@ -152,6 +160,16 @@ class ExperienceBase(BaseModel):
     @classmethod
     def coerce_expected_fields(cls, v: object) -> object:
         return v if (v is None or isinstance(v, list)) else None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def blank_date_is_unknown(cls, v: object) -> object:
+        # E055 / JF-F-H1.9: "unknown" is `null`, never "". An empty or
+        # whitespace-only string passes the type but defeats every
+        # identity-to-None gate downstream (role_add "is the role open?",
+        # close-role, the CV month filter) — normalise it at the schema so no
+        # writer, UI or agent, can persist the ambiguous form.
+        return _blank_to_none(v)
 
     def org_label(self) -> str:
         """Human label for the engagement's "where" — subclasses override."""
@@ -212,6 +230,11 @@ class EducationEntry(BaseModel):
     @classmethod
     def coerce_list_fields(cls, v: object) -> list:
         return v if isinstance(v, list) else []
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def blank_date_is_unknown(cls, v: object) -> object:
+        return _blank_to_none(v)  # see ExperienceBase
 
     start_date: str | None = None
     end_date: str | None = None

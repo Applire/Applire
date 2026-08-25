@@ -558,6 +558,7 @@ async def patch_profile_section(
     source: str = "manual_edit",
     source_session_id: str | None = None,
     provider: LLMProvider | None = None,
+    basis_updated_at: datetime | None = None,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
 
@@ -596,7 +597,7 @@ async def patch_profile_section(
     """
     # Pure adapter first: a mis-shaped payload is refused before anything
     # touches the database, exactly as it was.
-    op = build_replace_section_op(section, value)
+    op = build_replace_section_op(section, value, basis_updated_at=basis_updated_at)
 
     record = await _get_latest(db)
     if not record:

@@ -82,6 +82,7 @@ from applire.constants import MAX_TARGET_PAGES
 from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
+from applire.services.profile.commit import StaleEditError
 from applire.models.application import UserStatus
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
@@ -344,24 +345,35 @@ async def get_profile() -> dict:
 
 @mcp.tool(
     description=(
-        "Update a section of the MasterProfile. "
+        "Update one MasterProfile section. "
         f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
-        "Object sections (personal_info, professional_summary) are PATCHED "
-        "(null clears, omitted keeps); list sections are REPLACED WHOLESALE "
-        "— always send the complete list."
+        "Lists REPLACED WHOLESALE, objects PATCHED. "
+        "basis_updated_at: get_profile's updated_at; stale → refused."
     )
 )
-async def update_profile(section: str, data: dict | list) -> dict:
+async def update_profile(
+    section: str, data: dict | list, basis_updated_at: str | None = None
+) -> dict:
     # #337 / ADR-058 clause 2 — the REST route passes a provider and this tool
     # did not, so `patch_profile_section`'s `if provider is not None` gate meant
     # a skills edit was enriched through the UI and silently not through the
     # agent door. Same intake, different vault state, decided by entry path.
     provider = get_provider()
+    # ADR-063 amended 2026-08-25 (ADR-058 parity): the same OPTIONAL basis the
+    # REST door takes; omitted = last-write-wins exactly as before.
+    basis: datetime | None = None
+    if basis_updated_at:
+        try:
+            basis = datetime.fromisoformat(basis_updated_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise invalid_input(f"basis_updated_at is not an ISO datetime: {exc}")
     async with get_db() as db:
         try:
             result = await profile_svc.patch_profile_section(
-                section, data, db, provider=provider
+                section, data, db, provider=provider, basis_updated_at=basis
             )
+        except StaleEditError as exc:
+            raise invalid_input(str(exc))
         except ValueError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:

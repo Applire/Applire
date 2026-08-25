@@ -78,6 +78,8 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "profile.sources.interview",
   "flow.stepInterview",
   "profile.fieldName",
+  "profile.entryEditor.currentStatusLabel",
+  "profile.educationEditor.fieldInstitution",
   "coverLetter.recipientNamePlaceholder",
   "home.jdUrlTab",
   "dashboard.jdTabUrl",

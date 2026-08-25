@@ -727,6 +727,8 @@ One more correction worth knowing, because it changes what the committer is: **i
 
 ---
 
+**Amended (2026-08-25) — the section editor can refuse a stale edit, and `projects` becomes an editable section.** Two things the structured profile editors (Stracciatella) forced. First, a section edit may carry the profile's `updated_at` as returned by the GET it was composed against (`basis_updated_at`); when the profile has moved since, the committer refuses the write and the API answers 409 with the current profile so the client can reload instead of silently overwriting someone else's change (an interview turn, an agent call, a second tab). Omitting the basis keeps last-write-wins, so existing callers are unchanged; the MCP `update_profile` tool takes the same optional parameter. Second, `projects` joins the set of sections the one write path accepts — it had been excluded only because nothing edited it manually. Both are scoped with the editors, not yet built.
+
 ### ADR-064 — A Denial Is Scoped to the Level It Denies (accepted 2026-07-29, amended 2026-08-05 / 2026-08-06)
 
 **Decision:** A denial records *which level* it denies, as `denial_level: "direct" | "partial" | None`. It is stored on the denial record itself (`ProfileMetadata.denied_concepts[]`) and mirrored onto the Keyword Ledger entry, which is rebuilt from scratch on every gap analysis. The four-value `status` enum is unchanged.

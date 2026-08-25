@@ -40,7 +40,7 @@ import sys
 import types
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -687,3 +687,119 @@ async def test_a_section_edit_cannot_reach_a_persisted_denial(durable_db):
     assert exc.value.status_code == 422
     denied = (await _read_back(engine, profile_id))["metadata"]["denied_concepts"]
     assert [d["concept"] for d in denied] == ["Kubernetes"]
+
+
+# ── ADR-063 amended 2026-08-25 (E055 / JF-F-H1.6) — stale-edit refusal ───────
+
+
+async def _updated_at(engine, profile_id: uuid.UUID) -> datetime:
+    from applire.models.profile import MasterProfile
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        row = (
+            await session.execute(
+                select(MasterProfile).where(MasterProfile.id == profile_id)
+            )
+        ).scalar_one()
+        value = row.updated_at
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_rest_patch_with_a_matching_basis_saves(durable_db):
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    basis = await _updated_at(engine, profile_id)
+
+    async with factory() as request_session:
+        response = await patch_section(
+            "languages",
+            _fake_request([{"language": "French", "level": "B1"}]),
+            request_session,
+            None,
+            None,
+            basis_updated_at=basis,
+        )
+    assert [lang.language for lang in response.profile.languages] == ["French"]
+
+
+@pytest.mark.asyncio
+async def test_rest_patch_with_a_stale_basis_is_a_409_carrying_the_current_profile(durable_db):
+    """The UI door: the profile moved since the GET → 409, body names the
+    error and carries the CURRENT profile so the editor can reload; the vault
+    is untouched (no receipt either)."""
+    from fastapi import HTTPException
+
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stale = (await _updated_at(engine, profile_id)) - timedelta(seconds=5)
+
+    async with factory() as request_session:
+        with pytest.raises(HTTPException) as excinfo:
+            await patch_section(
+                "languages",
+                _fake_request([{"language": "French", "level": "B1"}]),
+                request_session,
+                None,
+                None,
+                basis_updated_at=stale,
+            )
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["error"] == "stale_edit"
+    assert [lang["language"] for lang in detail["current"]["profile"]["languages"]] == ["German"]
+    stored = await _read_back(engine, profile_id)
+    assert [lang["language"] for lang in stored["languages"]] == ["German"]
+    assert not stored["metadata"].get("enrichment_history")
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_profile_with_a_stale_basis_is_refused_the_same_way(durable_db, monkeypatch):
+    """ADR-058 parity: the agent door takes the same OPTIONAL basis and refuses
+    a stale one; omitting it keeps last-write-wins exactly as before."""
+    from mcp.shared.exceptions import McpError
+
+    from applire.mcp import server as mcp_server
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stale = (await _updated_at(engine, profile_id)) - timedelta(seconds=5)
+
+    @asynccontextmanager
+    async def _get_db():
+        async with factory() as session:
+            yield session
+
+    monkeypatch.setattr(mcp_server, "get_db", _get_db)
+    monkeypatch.setattr(mcp_server, "get_provider", lambda: None)
+
+    with pytest.raises(McpError) as excinfo:
+        await mcp_server.update_profile(
+            "languages",
+            [{"language": "French", "level": "B1"}],
+            basis_updated_at=stale.isoformat(),
+        )
+    assert "stale_edit" in str(excinfo.value)
+
+    # Omitted basis: unchanged behaviour.
+    result = await mcp_server.update_profile(
+        "languages", [{"language": "French", "level": "B1"}]
+    )
+    assert [lang["language"] for lang in result["profile"]["languages"]] == ["French"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_profile_advertises_the_optional_basis():
+    from applire.mcp.server import mcp
+
+    tools = await mcp.list_tools()
+    tool = next(t for t in tools if t.name == "update_profile")
+    props = tool.inputSchema["properties"]
+    assert "basis_updated_at" in props
+    assert "basis_updated_at" not in tool.inputSchema.get("required", [])

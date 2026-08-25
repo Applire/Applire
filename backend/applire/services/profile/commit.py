@@ -347,6 +347,40 @@ def _refloor_persisted_denials(profile: MasterProfileData) -> list[FieldChange]:
     return refloored
 
 
+class StaleEditError(Exception):
+    """ADR-063 amended 2026-08-25 (E055 / JF-F-H1.6): an op carried the
+    `updated_at` it was composed against and the profile has moved since.
+    Raised BEFORE any op is applied — no receipt, no sweep, no change. Doors
+    translate it (REST 409 with the current profile; MCP invalid_input)."""
+
+    def __init__(self, current_updated_at: datetime, basis_updated_at: datetime) -> None:
+        self.current_updated_at = current_updated_at
+        self.basis_updated_at = basis_updated_at
+        super().__init__(
+            "stale_edit: the profile changed at "
+            f"{current_updated_at.isoformat()} (edit was based on "
+            f"{basis_updated_at.isoformat()}); re-read and retry"
+        )
+
+
+def _as_utc_instant(value: datetime) -> datetime:
+    # SQLite hands back naive datetimes for a timezone=True column; the JSON
+    # basis is aware. Compare instants, not representations.
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _refuse_stale_basis(ops: Sequence[CommitOp], record: MasterProfile) -> None:
+    """The lost-update check, opt-in per op: only ops that carry a basis are
+    compared; `None` is every pre-E055 caller and stays last-write-wins."""
+    for op in ops:
+        basis = getattr(op, "basis_updated_at", None)
+        if basis is None:
+            continue
+        current = record.updated_at
+        if _as_utc_instant(current) != _as_utc_instant(basis):
+            raise StaleEditError(_as_utc_instant(current), _as_utc_instant(basis))
+
+
 async def commit_ops(
     db: AsyncSession,
     ops: Sequence[CommitOp],
@@ -437,6 +471,8 @@ async def commit_ops(
 
     if record is None:
         record = await _get_latest(db)
+    if record is not None:
+        _refuse_stale_basis(ops, record)
     if record is None:
         # #480 PR 8 — CREATION is the committer's act too. The three sites that
         # used to construct the row themselves (both first-import writers and

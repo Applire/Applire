@@ -271,7 +271,7 @@ export function ProfileSectionBody({
               {bullets.length > 0 && (
                 <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
                   {bullets.map((b, bi) => (
-                    <li key={bi}>{b}</li>
+                    <li key={bi} className="break-words">{b}</li>
                   ))}
                 </ul>
               )}
