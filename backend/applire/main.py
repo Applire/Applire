@@ -66,6 +66,14 @@ async def lifespan(app: FastAPI):
             {"id": str(_STUB_USER_ID), "email": _STUB_EMAIL, "created_at": datetime.now(timezone.utc)},
         )
         await db.commit()
+    # ADR-077 clause 1 — one-time entry-id backfill through the committer
+    # module. Idempotent (skips fully-migrated profiles), so it rides every
+    # startup right after the schema migration, like the migration itself.
+    from applire.services.profile.commit import backfill_entry_ids
+
+    async with AsyncSessionLocal() as db:
+        await backfill_entry_ids(db)
+        await db.commit()
     await ensure_thumbnails(STATIC_DIR)
     yield
 

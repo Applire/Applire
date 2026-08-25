@@ -443,7 +443,7 @@ async def test_post_verdict_mutation_breaks_hash_and_reenters(db, caplog):
 
     fired = {"n": 0}
 
-    async def mutating_update(cl, db_, pdf=None):
+    async def mutating_update(cl, db_, pdf=None, **kwargs):
         if fired["n"] == 0:
             fired["n"] = 1
             data = dict(cl.letter_data)
@@ -577,7 +577,7 @@ async def test_identity_reentry_does_not_mint_a_second_condense(db, caplog):
 
     fired = {"n": 0}
 
-    async def mutating_update(cl, db_, pdf=None):
+    async def mutating_update(cl, db_, pdf=None, **kwargs):
         if fired["n"] == 0:
             fired["n"] = 1
             data = dict(cl.letter_data)

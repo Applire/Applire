@@ -294,3 +294,47 @@ class TestPreferMeasuredOutcomes:
         result = _prefer_measured_outcomes(tailored, profile_json)
 
         assert result is tailored
+
+
+class TestFactPinGuard:
+    """ADR-077 clause 4 (pass-inventory disposition): a bullet carrying an
+    active CV fact pin is never dropped or reframed by this pass — the pin is
+    the user's verbatim priority and outranks the quality preference."""
+
+    def test_pin_presence_survives_the_pass(self):
+        # The contract is CONTAINMENT presence (the real predicate), not
+        # byte-identity: a reframe that keeps the quote inside the bullet
+        # satisfies the pin; one that drops it must revert the entry.
+        from applire.schemas.application import FactPin
+        from applire.services.cv import _prefer_measured_outcomes
+        from applire.services.pin_reach import pin_present_in_cv
+
+        pin = FactPin(
+            entry_type="work", entry_id=_OWNER_ID, quote=_TARGET_BULLET
+        )
+        tailored = _tailored([_TARGET_BULLET])
+        assert pin_present_in_cv(pin, tailored) is True  # fixture sanity
+        out = _prefer_measured_outcomes(
+            tailored, _alpha_systems_profile_json(), "en", pins=[pin]
+        )
+        assert pin_present_in_cv(pin, out) is True
+
+    def test_pinned_bullet_that_would_be_dropped_reverts_the_entry(self):
+        # "both bullets present" shape: the naked target is DROPPED outright
+        # (not reframed) — with a pin on it, the entry reverts.
+        from applire.schemas.application import FactPin
+        from applire.services.cv import _prefer_measured_outcomes
+        from applire.services.pin_reach import pin_present_in_cv
+
+        pin = FactPin(
+            entry_type="work", entry_id=_OWNER_ID, quote=_TARGET_BULLET
+        )
+        tailored = _tailored([_TARGET_BULLET, _ACHIEVEMENT_BULLET])
+        unpinned = _prefer_measured_outcomes(
+            tailored, _alpha_systems_profile_json(), "en"
+        )
+        assert _TARGET_BULLET not in unpinned.work_history[0].bullets  # control
+        out = _prefer_measured_outcomes(
+            tailored, _alpha_systems_profile_json(), "en", pins=[pin]
+        )
+        assert pin_present_in_cv(pin, out) is True

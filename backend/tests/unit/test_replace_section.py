@@ -295,12 +295,15 @@ def test_editing_an_entry_is_an_update_not_a_remove_plus_add():
 
 
 def test_an_id_less_payload_matches_on_labels_instead_of_inventing_deletions():
-    """A hand-built agent payload carries no ids, and the schema mints a fresh
-    uuid on every load — so id-only matching would read every edit as a
-    deletion plus an addition, i.e. would invent two deletions the candidate
-    never made. Both entries DO report `updated` here, honestly: an id-less
-    payload really does re-mint the stored ids. Nothing is reported gone."""
+    """A hand-built agent payload carries no ids — id-only matching would read
+    every edit as a deletion plus an addition, i.e. would invent deletions the
+    candidate never made. Since ADR-077's id preservation, an id-less incoming
+    entry inherits its natural-key match's stored id, so the receipt is
+    precise: only the actually-edited entry reports, nothing is reported gone,
+    and the stored ids survive (a re-mint would mass-stale the fact pins
+    addressing this section — SF-PIN.8's shape through this door)."""
     profile = _profile()
+    stored_ids = [e["id"] for e in _sections_of(profile, "work_experience")]
     entries = _sections_of(profile, "work_experience")
     for entry in entries:
         entry.pop("id", None)
@@ -310,10 +313,10 @@ def test_an_id_less_payload_matches_on_labels_instead_of_inventing_deletions():
     result = apply_ops(profile, [op], "manual_edit")
 
     assert {c.action for c in result.changes} == {"updated"}
-    assert sorted(c.field for c in result.changes) == [
-        "Analyst @ Beta AG",
-        "Engineer @ Acme GmbH",
-    ]
+    assert [c.field for c in result.changes] == ["Engineer @ Acme GmbH"]
+    assert [
+        e.id for e in result.profile.work_experience
+    ] == stored_ids  # ids preserved, pins stay resolvable
 
 
 def test_renaming_a_role_on_a_kept_id_is_an_update():

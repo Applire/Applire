@@ -399,13 +399,20 @@ async def test_both_doors_produce_the_same_vault_state(durable_db, monkeypatch):
     mcp_state = await _read_back(engine, mcp_profile)
 
     def _comparable(state: dict) -> dict:
-        """Strip the identifiers and timestamps that differ by construction."""
-        state = {k: v for k, v in state.items() if k != "metadata"}
-        state["work_experience"] = [
-            {k: v for k, v in w.items() if k != "id"}
-            for w in state["work_experience"]
-        ]
-        return state
+        """Strip the identifiers and timestamps that differ by construction.
+
+        ADR-077 gave the five previously id-less vault types minted ids —
+        random per door invocation, like the work-entry ids already stripped
+        here — so every entry ``id`` is normalized away recursively."""
+
+        def _strip_ids(node):
+            if isinstance(node, dict):
+                return {k: _strip_ids(v) for k, v in node.items() if k != "id"}
+            if isinstance(node, list):
+                return [_strip_ids(v) for v in node]
+            return node
+
+        return _strip_ids({k: v for k, v in state.items() if k != "metadata"})
 
     assert _comparable(rest_state) == _comparable(mcp_state)
     assert (

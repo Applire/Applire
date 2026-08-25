@@ -44,7 +44,7 @@ Tools:
   add_role          — add a new work-experience role to the Master Profile
   get_guide         — the agent-usage guide + honesty contract (ADR-056)
   create_application — create a new job application record
-  update_application — update user-managed fields (status, notes, deadline, source_url, submitted pins, stale-CV dismiss)
+  update_application — update user-managed fields (status, notes, deadline, source_url, submitted documents, stale-CV dismiss, fact pins)
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
   submit_testimony   — reconcile a whole free-text testimony document into the profile (#258)
@@ -91,6 +91,7 @@ from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
 from applire.schemas.application import (
+    AddFactPinRequest,
     ApplicationListResponse,
     ApplicationResponse,
     CreateApplicationRequest,
@@ -104,6 +105,7 @@ from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
 from applire.services.scraper import ScraperError, scrape_job_url
 from applire.services import application as app_svc
+from applire.services import fact_pins as pin_svc
 from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
@@ -117,7 +119,7 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-07-25"
+GUIDE_VERSION = "2026-08-25"
 
 logger = logging.getLogger(__name__)
 
@@ -343,10 +345,10 @@ async def get_profile() -> dict:
 @mcp.tool(
     description=(
         "Update a section of the MasterProfile. "
-        f"section must be one of: {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
+        f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
         "Object sections (personal_info, professional_summary) are PATCHED "
-        "(null clears, omitted keeps). List sections are REPLACED WHOLESALE — "
-        "always send the complete list."
+        "(null clears, omitted keeps); list sections are REPLACED WHOLESALE "
+        "— always send the complete list."
     )
 )
 async def update_profile(section: str, data: dict | list) -> dict:
@@ -369,15 +371,13 @@ async def update_profile(section: str, data: dict | list) -> dict:
 
 @mcp.tool(
     description=(
-        "Submit facts you elicited from the candidate as free-text testimony "
+        "Submit facts elicited from the candidate as free-text testimony "
         "(their own words); Applire reconciles them into the profile with "
-        "receipts. Claims are recorded, not verified — the vault stays "
-        "self-attested. Read resource schema://claims first (max 20 claims/"
-        "call). Optional `gap` must be an EXACT concept string from "
-        "analyze_gaps output (requires job_id). Ambiguous or conflicting "
-        "claims are parked for the candidate in the profile Health hub, "
-        "reported per claim. A denial is recorded too (status "
-        "denial_recorded), never silently dropped."
+        "receipts. Recorded, not verified — the vault stays self-attested. "
+        "Read resource schema://claims first (max 20/call). Optional `gap` = "
+        "EXACT concept string from analyze_gaps (requires job_id). Ambiguous/"
+        "conflicting claims are parked in the profile Health hub, reported "
+        "per claim. Denials are recorded (denial_recorded), never dropped."
     )
 )
 async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
@@ -468,12 +468,10 @@ async def run_interview(job_id: str) -> dict:
 @mcp.tool(
     description=(
         "Send a message in an active interview session. "
-        "Returns the next question, or {complete: true} when the session is finished. "
-        "Reply 'done' to end the interview. "
-        "If 'pending_confirmations' is present, the system is unsure whether a fact "
-        "matches an existing profile entry (e.g. two role titles for one job) and is "
-        "asking you to confirm — reply by sending one of the listed 'options' as the "
-        "next message; never assume the answer."
+        "Returns the next question, or {complete: true} when finished. "
+        "Reply 'done' to end. If 'pending_confirmations' is present, reply "
+        "with one of the listed 'options' as the next message; never assume "
+        "the answer (guide)."
     )
 )
 async def send_message(session_id: str, message: str) -> dict:
@@ -695,13 +693,12 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
 
 @mcp.tool(
     description=(
-        "Audit a document against the master profile (the vault): per-claim "
-        "verdicts grounded | inflated | misattributed | unbacked | "
-        "unverifiable, with vault evidence refs. Pass EXACTLY ONE of "
-        "document_id (a generated CV/cover-letter — persisted report) or "
-        "document_text (raw text of ANY document; no position anchors, so "
-        "misattribution checks are skipped). STATED LIMIT: verifies "
-        "document-vault consistency only — the vault itself is self-attested."
+        "Audit a document against the vault: per-claim verdicts grounded | "
+        "inflated | misattributed | unbacked | unverifiable, with evidence "
+        "refs. Pass EXACTLY ONE of document_id (generated CV/letter — "
+        "persisted report) or document_text (raw text; no position anchors, "
+        "misattribution skipped). Verifies document-vault consistency only — "
+        "the vault is self-attested."
     )
 )
 async def audit_document(
@@ -744,12 +741,11 @@ async def audit_document(
 @mcp.tool(
     description=(
         "Render YOUR agent-authored structured content into a norms-checked, "
-        "templated PDF — Applire renders, checks, and reports; it NEVER "
-        "rewrites your content. Read resource schema://cv or "
-        "schema://cover-letter first; unknown or mistyped fields are rejected "
-        "with their field paths. "
-        "Returns document_id, pdf_url/html_url, schema_version, and the ATS + "
-        "truthfulness reports. UI-visible only after create_application (guide)."
+        "templated PDF — Applire renders, checks, reports; it NEVER rewrites "
+        "your content. Read resource schema://cv or schema://cover-letter "
+        "first; unknown fields are rejected with field paths. Returns "
+        "document_id, pdf_url/html_url, schema_version, ATS + truthfulness "
+        "reports. UI-visible only after create_application (guide)."
     )
 )
 async def render_document(
@@ -1058,10 +1054,11 @@ async def create_application(
     description=(
         "Update user-managed fields; omitted fields stay unchanged. "
         f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
-        "submitted_cv_id/submitted_cover_letter_id pin the sent document "
-        "(must belong to this job). dismiss_stale_cv=true mutes the "
-        "stale-CV hint. language_override: 'de'/'en'/'auto' (document "
-        "language) — see guide."
+        "submitted_cv_id/submitted_cover_letter_id record the sent document. "
+        "dismiss_stale_cv=true mutes the stale-CV hint. language_override: "
+        "'de'/'en'/'auto'. add_fact_pin {entry_type, entry_id, quote, "
+        "targets?} pins a verbatim vault quote so generation must keep it; "
+        "remove_fact_pin: pin_id — see guide."
     )
 )
 async def update_application(
@@ -1076,6 +1073,8 @@ async def update_application(
     submitted_cover_letter_id: str | None = None,
     dismiss_stale_cv: bool | None = None,
     language_override: str | None = None,
+    add_fact_pin: dict | None = None,
+    remove_fact_pin: str | None = None,
 ) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     # Build the request from provided fields only, so PatchApplicationRequest's
@@ -1114,17 +1113,33 @@ async def update_application(
             fields["language_override"] = language_override
         else:
             raise invalid_input("language_override must be 'de', 'en' or 'auto'")
-    if not fields:
+    # ADR-077 clause 6 — fact-pin ops share this tool (hard ADR-058 parity
+    # with the REST pins subresource: additive add, idempotent remove).
+    pin_request: AddFactPinRequest | None = None
+    if add_fact_pin is not None:
+        try:
+            pin_request = AddFactPinRequest.model_validate(add_fact_pin)
+        except Exception as exc:
+            raise invalid_input(f"add_fact_pin: {exc}")
+    if not fields and pin_request is None and remove_fact_pin is None:
         raise invalid_input(
             "At least one field must be provided (user_status, company_name, "
             "role_title, notes, deadline, source_url, submitted_cv_id, "
-            "submitted_cover_letter_id, dismiss_stale_cv, language_override)."
+            "submitted_cover_letter_id, dismiss_stale_cv, language_override, "
+            "add_fact_pin, remove_fact_pin)."
         )
-    req = PatchApplicationRequest(**fields)
     async with get_db() as db:
         uid = await _current_user_id(db)
         try:
-            result = await app_svc.patch_application(aid, uid, req, db)
+            if pin_request is not None:
+                await pin_svc.add_fact_pin(aid, uid, pin_request, db)
+            if remove_fact_pin is not None:
+                await pin_svc.remove_fact_pin(aid, uid, remove_fact_pin, db)
+            if fields:
+                req = PatchApplicationRequest(**fields)
+                result = await app_svc.patch_application(aid, uid, req, db)
+            else:
+                result = await app_svc.get_application(aid, uid, db)
         except LookupError as exc:
             raise not_found(str(exc))
         except ValueError as exc:

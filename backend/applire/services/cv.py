@@ -289,6 +289,7 @@ async def generate_cv_segmented(
     stated_limits_block: str | None = None,
     scope_positioning_block: str | None = None,
     vault_evidence_items: "list | None" = None,
+    pinned_facts_block: str | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -371,6 +372,7 @@ async def generate_cv_segmented(
                 w, directive, job_analysis, keyword_gaps, output_language, keyword_ledger,
                 budget, scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=owned_evidence,
+                pinned_facts_block=pinned_facts_block,
             ),
             system=WORK_SECTION_SYSTEM_PROMPT,
             temperature=0.3,
@@ -393,6 +395,7 @@ async def generate_cv_segmented(
         build_skills_prompt(
             directive, job_analysis, profile, keyword_gaps, output_language, keyword_ledger,
             stated_limits_block,
+            pinned_facts_block=pinned_facts_block,
         ),
         system=SKILLS_SECTION_SYSTEM_PROMPT, temperature=0.3, max_tokens=token_budget,
     )
@@ -434,6 +437,7 @@ async def _tailor_cv_with_fallback(
     scope_positioning_block: str | None = None,
     vault_evidence_block: str | None = None,
     vault_evidence_items: "list | None" = None,
+    pinned_facts_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
     the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
@@ -459,6 +463,7 @@ async def _tailor_cv_with_fallback(
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
             vault_evidence_items=vault_evidence_items,
+            pinned_facts_block=pinned_facts_block,
         )
     try:
         return await provider.aparse_json(
@@ -470,6 +475,7 @@ async def _tailor_cv_with_fallback(
                 stated_limits_block=stated_limits_block,
                 scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=vault_evidence_block,
+                pinned_facts_block=pinned_facts_block,
             ),
             system=SYSTEM_PROMPT,
             temperature=0.3,
@@ -487,6 +493,7 @@ async def _tailor_cv_with_fallback(
             stated_limits_block=stated_limits_block,
             scope_positioning_block=scope_positioning_block,
             vault_evidence_items=vault_evidence_items,
+            pinned_facts_block=pinned_facts_block,
         )
 
 
@@ -906,6 +913,7 @@ def _cap_bullets(
     concept_groups: Sequence[Sequence[str]] = (),
     external_text: str = "",
     context: dict | None = None,
+    pinned: set[int] = frozenset(),
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -964,6 +972,8 @@ def _cap_bullets(
         keep=max_bullets,
         concept_groups=concept_groups,
         external_text=external_text,
+        # ADR-077 clause 4: fact-pin carriers never enter the removable set.
+        pinned=pinned,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -974,6 +984,7 @@ def _restore_ledger_bullets(
     profile_json: dict,
     keyword_ledger: list[dict] | None,
     budget: "BudgetResult | None",
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#234 (Tiramisu founder-acceptance F1/F2) — deterministic post-draft guard.
 
@@ -1172,6 +1183,7 @@ def _restore_ledger_bullets(
                 # a load-bearing restoration is restored precisely because its
                 # concept was verifiably absent, so it is a sole carrier too.
                 from applire.services.bullet_cuts import apply_cuts, log_cuts, rank_cuts
+                from applire.services.pin_reach import bullet_pin_carrier_indices
 
                 lb = set(restored_load_bearing)
                 cuts = rank_cuts(
@@ -1184,6 +1196,10 @@ def _restore_ledger_bullets(
                     keep=rb.max_bullets,
                     concept_groups=concept_groups,
                     external_text=_external_text(w_index, w_dict),
+                    # ADR-077 clause 4: fact-pin carriers are partitioned out.
+                    pinned=bullet_pin_carrier_indices(
+                        ordered, entry_id=eid, pins=pins
+                    ),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1222,11 +1238,16 @@ def _restore_ledger_bullets(
         # gone; #377 / ADR-067 clause 4). Untouched
         # (under-ceiling) entries keep their original bullets AND order exactly.
         if rb is not None and len(existing_bullets) > rb.max_bullets:
+            from applire.services.pin_reach import bullet_pin_carrier_indices
+
             capped = _cap_bullets(
                 existing_bullets, rb.max_bullets,
                 concept_groups=concept_groups,
                 external_text=_external_text(w_index, w_dict),
                 context={"work_entry_id": eid},
+                pinned=bullet_pin_carrier_indices(
+                    existing_bullets, entry_id=eid, pins=pins
+                ),
             )
             if capped != existing_bullets:
                 changed = True
@@ -1242,7 +1263,8 @@ def _restore_ledger_bullets(
 
 
 def _prefer_measured_outcomes(
-    tailored: TailoredCVData, profile_json: dict, lang: str = "de"
+    tailored: TailoredCVData, profile_json: dict, lang: str = "de",
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#261 — prefer MEASURED OUTCOMES over TARGETS for the same initiative.
 
@@ -1291,6 +1313,29 @@ def _prefer_measured_outcomes(
         new_bullets = prefer_measured_outcomes_for_owner(
             list(w.bullets), owner_id, index.units, lang
         )
+        # ADR-077 clause 4 (pass-inventory disposition): this pass REWRITES
+        # bullets, so a pin carrier could be dropped/reframed by it. The pin
+        # is the user's verbatim priority — it outranks this quality
+        # preference; a carried bullet that would vanish reverts the whole
+        # entry to its original bullets (protection inside the existing pass,
+        # never a new writer — ADR-076).
+        if new_bullets != w.bullets and pins:
+            from applire.services.pin_reach import bullet_pin_carrier_indices
+
+            def _lost_a_pin(old: list[str], new: list[str]) -> bool:
+                for pin in pins:
+                    had = bullet_pin_carrier_indices(
+                        old, entry_id=owner_id, pins=[pin]
+                    )
+                    still = bullet_pin_carrier_indices(
+                        new, entry_id=owner_id, pins=[pin]
+                    )
+                    if had and not still:
+                        return True
+                return False
+
+            if _lost_a_pin(list(w.bullets), new_bullets):
+                new_bullets = list(w.bullets)
         if new_bullets != w.bullets:
             changed = True
             new_work.append(w.model_copy(update={"bullets": new_bullets}))
@@ -1406,6 +1451,7 @@ def _tailor_skills_to_jd(
     keyword_ledger: list[dict] | None,
     *,
     cap: int = CV_MAX_SKILLS,
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#192: present a prioritised, JD-relevant SUBSET of the candidate's skills.
 
@@ -1499,12 +1545,36 @@ def _tailor_skills_to_jd(
         elif skill_tokens(s) > skill_tokens(deduped[dup]):
             deduped[dup] = s
 
+    # ADR-077 clause 4 (pass-inventory disposition): a skill carrying an
+    # active CV skill/certification/language pin is kept even past the cap —
+    # the skills-section mount of "pin carriers never enter the removable
+    # set". Containment via the shared _norm_quote fold, scoped to THIS
+    # section (a skill pin never protects anything outside it).
+    _pin_quotes: list[str] = []
+    for _p in pins:
+        if getattr(_p, "stale", False) or "cv" not in getattr(_p, "targets", ()):
+            continue
+        if getattr(_p, "entry_type", "") in ("skill", "certification", "language"):
+            from applire.services.scope_requirements import _norm_quote
+
+            qn = _norm_quote(_p.quote)
+            if qn:
+                _pin_quotes.append(qn)
+
+    def _is_pinned_skill(s: str) -> bool:
+        if not _pin_quotes:
+            return False
+        from applire.services.scope_requirements import _norm_quote
+
+        sn = _norm_quote(s)
+        return any(q in sn for q in _pin_quotes)
+
     # Stable sort by tier (required lead the section); keep all tier-0 even past the cap,
     # then fill remaining slots up to `cap` in tier order — tier-3 (no relevance) drops first.
     ranked = sorted(enumerate(deduped), key=lambda it: (_tier(it[1]), it[0]))
     selected: list[str] = []
     for _, s in ranked:
-        if _tier(s) == 0 or len(selected) < cap:
+        if _tier(s) == 0 or _is_pinned_skill(s) or len(selected) < cap:
             selected.append(s)
 
     if selected == tailored_skills:
@@ -2519,6 +2589,61 @@ async def _render_cv_background(
                 keyword_ledger, document_language
             ) or None
 
+            # ADR-077 (E056): fact pins — generation-start re-verify (clause 7)
+            # + the PINNED FACTS input block (clause 3). Staleness is measured
+            # against the RAW persisted profile (claimability included); a
+            # moved flag is written back on the application row in this same
+            # transaction. Active CV-target pins then partition the cut paths
+            # (clause 4) and feed the writer block. Fail-safe: a pin-load
+            # failure degrades to "no pins", never breaks generation.
+            cv_pins: list = []
+            pinned_facts_block: str | None = None
+            try:
+                from applire.schemas.profile import MasterProfileData
+                from applire.services.application import get_application_for_job
+                from applire.services.color_detection import _CE_STUB_USER_ID
+                from applire.services.fact_pins import (
+                    load_pins,
+                    refresh_pin_staleness,
+                )
+                from applire.services.pin_reach import (
+                    active_pins,
+                    render_pinned_facts_block,
+                )
+
+                pin_application = await get_application_for_job(
+                    record.job_analysis_id, _CE_STUB_USER_ID, db
+                )
+                if pin_application is not None and pin_application.pinned_facts:
+                    raw_profile_data = MasterProfileData.model_validate(
+                        profile.profile_json or {}
+                    )
+                    refreshed, pins_moved = refresh_pin_staleness(
+                        load_pins(pin_application), raw_profile_data
+                    )
+                    if pins_moved:
+                        pin_application.pinned_facts = [
+                            pn.model_dump(mode="json") for pn in refreshed
+                        ]
+                        await db.flush()
+                    cv_pins = active_pins(refreshed, "cv")
+                    pinned_facts_block = (
+                        render_pinned_facts_block(
+                            cv_pins,
+                            raw_profile_data,
+                            target="cv",
+                            language=document_language,
+                        )
+                        or None
+                    )
+            except Exception:
+                logger.exception(
+                    "fact-pin load failed for CV %s — generating without pins "
+                    "(ADR-077 fail-safe)", cv_id,
+                )
+                cv_pins = []
+                pinned_facts_block = None
+
             # #303 (#271's CV half): the strongest-vault-evidence digest — for
             # each claimable ledger concept, the vault's OWN sentence that
             # answers it, verbatim, with the entry that owns it. The letter
@@ -2592,6 +2717,7 @@ async def _render_cv_background(
                 scope_positioning_block=scope_positioning_block,
                 vault_evidence_block=vault_evidence_block,
                 vault_evidence_items=vault_evidence_items,
+                pinned_facts_block=pinned_facts_block,
             )
 
             source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
@@ -2716,6 +2842,7 @@ async def _render_cv_background(
                 budget=budget,
                 job_dict=job_dict,
                 language=document_language,
+                pins=cv_pins,
             )
 
             from applire.services.cv_section_editor import build_content_snapshot
@@ -2740,7 +2867,9 @@ async def _render_cv_background(
             # clause 3 (#538): the loop runs BEFORE the terminal verdict — no content
             # write may happen after it — with mechanism, bounds, bail rule and
             # RENDER_BUDGET_ITERATION instrumentation unchanged.
-            condense_ctx = CondenseContext(budgets=budget, target=resolved_target_pages)
+            condense_ctx = CondenseContext(
+                budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins)
+            )
             try:
                 measured = await _measure_and_condense(record, db, condense_ctx)
             except Exception:
@@ -2857,6 +2986,7 @@ def _compose_document(
     budget: "BudgetResult",
     job_dict: dict,
     language: str,
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """ADR-076 clause 3 (#538): the CV's ENTIRE deterministic tail as one pure,
     re-runnable function — the E049/ADR-067 join, the ADR-040/ADR-067 compose
@@ -2909,13 +3039,13 @@ def _compose_document(
     # verbatim vault bullet that carries a claimable Keyword Ledger concept the
     # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
     # the budget uses (structural since assemble_tailored_cv).
-    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget)
+    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget, pins=pins)
 
     # #261 (run-4 blind hiring-panel finding): deterministically prefer a
     # MEASURED outcome over a bare target/projection for the same initiative
     # (owner-scoped via the #196/#244 attribution machinery). MUST run after
     # _restore_ledger_bullets so a restored vault bullet is also covered.
-    tailored = _prefer_measured_outcomes(tailored, profile_json, language)
+    tailored = _prefer_measured_outcomes(tailored, profile_json, language, pins=pins)
 
     # #172: collapse near-duplicate skill tags (the shared ats_audit
     # predicate) so the CV is clean even when the master profile still
@@ -2939,7 +3069,9 @@ def _compose_document(
     # language pass (so it ranks the final target-language tags): guarantees the
     # JD-required skills the candidate actually has, drops no-relevance tags over
     # the cap, and never invents a skill.
-    tailored = _tailor_skills_to_jd(tailored, profile_json, job_dict, keyword_ledger)
+    tailored = _tailor_skills_to_jd(
+        tailored, profile_json, job_dict, keyword_ledger, pins=pins
+    )
 
     # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
     # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to
@@ -3041,6 +3173,10 @@ class CondenseContext:
 
     budgets: "BudgetResult"
     target: int
+    # ADR-077 clause 4: the application's active CV fact pins — threaded into
+    # condense_to_budget so pin carriers never enter the removable set, and
+    # into the terminal re-compose. Empty for legacy/audit-only paths.
+    pins: tuple = ()
 
 
 def _log_render_budget_iteration(
@@ -3222,7 +3358,8 @@ async def _measure_and_condense(
             )
             break
         condensed, changed = condense_to_budget(
-            record.tailored_data, condense_ctx.budgets, iteration
+            record.tailored_data, condense_ctx.budgets, iteration,
+            pins=condense_ctx.pins,
         )
         if not changed:
             # Nothing left to cut — the overrun is structural (education/skills).
@@ -3397,6 +3534,9 @@ async def _terminal_review(
             budget=budget,
             job_dict=job_dict,
             language=language,
+            # ADR-077 clause 4: a terminal-round re-compose keeps the same
+            # pin partition as the original compose (rule-against-one-of-N).
+            pins=condense_ctx.pins,
         )
 
     subject_by_draft: dict[str, TailoredCVData] = {
@@ -3560,6 +3700,28 @@ async def _update_ats_report(
         profile_json = profile_row.profile_json if profile_row else None
         vault_text_norm = profile_literal_corpus(profile_json) or None
         vault_skill_forms = _vault_skill_forms_for_audit(profile_json)
+        # E056/ADR-077 clauses 3+5+7: load the application's fact pins so the
+        # audit measures per-pin presence against the override-applied content.
+        # Loaded HERE — inside the one implementation all three doors share
+        # (generation, section-editor re-audit, agent render) — so no door can
+        # be forgotten (SF-PIN.5, rule-against-one-of-N). Fail-safe: a pin
+        # load failure audits without pins, never fails the audit.
+        audit_pins: list = []
+        try:
+            from applire.services.application import get_application_for_job
+            from applire.services.color_detection import _CE_STUB_USER_ID
+            from applire.services.fact_pins import load_pins
+
+            pin_app = await get_application_for_job(
+                record.job_analysis_id, _CE_STUB_USER_ID, db
+            )
+            if pin_app is not None and pin_app.pinned_facts:
+                audit_pins = load_pins(pin_app)
+        except Exception:
+            logger.exception(
+                "fact-pin load failed during ATS audit for CV %s — auditing "
+                "without pins (ADR-077 fail-safe)", record.id,
+            )
         record.ats_report = _audit_cv_text(
             text,
             tailored,
@@ -3571,6 +3733,7 @@ async def _update_ats_report(
             condensation_exhausted=condensation_exhausted,
             vault_text_norm=vault_text_norm,
             vault_skill_forms=vault_skill_forms,
+            pins=audit_pins,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

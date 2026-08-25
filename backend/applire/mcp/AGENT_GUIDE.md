@@ -178,6 +178,28 @@ own language rides `get_cv_status`/`get_cover_letter_status` as
 bug. Surface the choice to your human when the JD's language and their
 intended application language might differ.
 
+## Fact pins — the user's seat at the budget table
+
+When the human says "this fact MUST appear", pin it: `update_application(
+add_fact_pin={entry_type, entry_id, quote, targets?})`. `entry_type` is one
+of work, project, volunteer, signature_story, skill, certification,
+education, language, publication; `entry_id` and the **verbatim** quote come
+from `get_profile` — the quote must resolve inside that entry's own content
+(matching is normalization-tolerant for case/punctuation, but do not
+paraphrase), or the call fails 422. `targets` defaults to both `["cv",
+"letter"]`. Remove with `remove_fact_pin=pin_id`; read pins on
+`get_application`.
+
+What a pin means — hierarchy **truth > pin > budget**: generation must carry
+the pinned fact and may exceed the page norm for it; the overrun is honestly
+reported on the ATS report (a structured `driver` names the pin count), never
+silently repaired. A pin is a rendering priority, NOT evidence: it cannot
+upgrade a gap, bypass the truthfulness Oracle, or protect a claim a truth
+floor deletes (such deletions are reported visibly). Limits: max 10 pins per
+application; a pin whose vault entry changes goes `stale` (excluded from
+generation, surfaced, never auto-deleted — re-pin after the edit); an
+unconfirmed or denied entry is not pinnable.
+
 ## Operational gotchas
 
 - **Generation is async**: `generate_cv`/`generate_cover_letter` return ids —
@@ -203,6 +225,11 @@ intended application language might differ.
   honest "no, I've never used X" continues the interview rather than ending it.
 - **Truncated interview turn**: if `send_message` errors with a rolled-back
   turn, resend the same message — nothing was saved.
+- **Interview confirmations**: when `send_message` returns
+  `pending_confirmations`, the system is unsure whether a fact matches an
+  existing profile entry (e.g. two role titles for one job) and is asking you
+  to confirm — reply by sending one of the listed `options` as the next
+  message; never assume the answer.
 - **Repost hint**: `analyze_jd` may return `duplicate_of` — offer to open the
   existing application (`get_application`, `list_applications`) instead of
   creating a duplicate.

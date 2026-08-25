@@ -592,6 +592,14 @@ async def commit_ops(
         # Flush, NOT commit — the caller owns the transaction.
         await db.flush()
 
+    # ── ADR-077 clause 7 / SF-PIN.4: the fact-pin staleness sweep ────────────
+    # Same seam as the denial re-floor: every vault write re-verifies the fact
+    # pins immediately, whatever door it came through. A pin whose quote no
+    # longer resolves (or whose entry lost claimability) is marked stale on
+    # the application row IN THIS TRANSACTION — excluded and surfaced, never
+    # deleted. Single-user CE: all applications with pins are the user's.
+    await _sweep_fact_pins(db, final)
+
     logger.debug(
         "commit_ops: %d op(s) via %s/%s (grounded=%s) → %d change(s), %d denial(s), "
         "%d demotion(s), %d re-floored",
@@ -617,3 +625,111 @@ async def commit_ops(
         enrichment_record=enrichment_record,
         completeness=completeness,
     )
+
+
+# ─── ADR-077 clause 1: one-time entry-id backfill ────────────────────────────
+# The five previously id-less vault types (Skill, Certification,
+# EducationEntry, Language, Publication) mint ids via default_factory — which
+# regenerates on every parse until the value is WRITTEN BACK (SF-PIN.8). This
+# is that write: it lives here because commit.py is the single authorized
+# vault write path (the deleted migrate.py runner is the precedent for why a
+# standalone script is not allowed to do this). Idempotent — a profile whose
+# entries all carry ids is never rewritten; `updated_at` is deliberately NOT
+# moved (a mechanical backfill must not reset the GDPR inactivity clock).
+
+_ID_BACKFILL_SECTIONS: tuple[str, ...] = (
+    "skills",
+    "certifications",
+    "education",
+    "languages",
+    "publications",
+)
+
+
+def _needs_entry_id_backfill(blob: object) -> bool:
+    if not isinstance(blob, dict):
+        return False
+    for section in _ID_BACKFILL_SECTIONS:
+        for entry in blob.get(section) or []:
+            if isinstance(entry, dict) and not entry.get("id"):
+                return True
+    return False
+
+
+async def backfill_entry_ids(db: AsyncSession) -> int:
+    """Write minted entry ids back into every profile that lacks them.
+
+    Returns the number of profiles rewritten. Flush, not commit — the caller
+    (the startup hook) owns the transaction, like every commit_ops caller.
+    """
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(MasterProfile).where(MasterProfile.deleted_at.is_(None))
+    )
+    rewritten = 0
+    for record in result.scalars():
+        if not _needs_entry_id_backfill(record.profile_json):
+            continue
+        # model_validate mints ids only where the blob has none and keeps
+        # existing ones verbatim; the dump persists exactly those values.
+        profile = MasterProfileData.model_validate(record.profile_json)
+        with authorized_profile_write():
+            record.profile_json = profile.model_dump(mode="json")
+            await db.flush()
+        rewritten += 1
+        logger.info(
+            "backfill_entry_ids (ADR-077): wrote persisted entry ids for "
+            "profile %s",
+            record.id,
+        )
+    return rewritten
+
+
+async def _sweep_fact_pins(db: AsyncSession, profile: MasterProfileData) -> None:
+    """Re-verify every application's fact pins against the just-written vault.
+
+    Fail-safe: the vault write is this transaction's purpose — a sweep failure
+    (e.g. a partial test schema without the applications table) is logged and
+    swallowed, never allowed to fail the write. The degraded path is honest:
+    generation-start re-verification (ADR-077 clause 7) recomputes staleness
+    before any pin reaches a document.
+    """
+    from sqlalchemy import select
+
+    from applire.models.application import Application
+    from applire.services.fact_pins import load_pins, refresh_pin_staleness
+
+    try:
+        # SAVEPOINT, not a bare try: on PostgreSQL a failed statement aborts
+        # the whole transaction — a swallowed error without the savepoint
+        # would silently lose the vault write this transaction exists for.
+        async with db.begin_nested():
+            result = await db.execute(
+                select(Application).where(
+                    Application.deleted_at.is_(None),
+                    Application.pinned_facts.isnot(None),
+                )
+            )
+            for app_row in result.scalars():
+                pins = load_pins(app_row)
+                if not pins:
+                    continue
+                refreshed, changed = refresh_pin_staleness(pins, profile)
+                if changed:
+                    app_row.pinned_facts = [
+                        p.model_dump(mode="json") for p in refreshed
+                    ]
+                    await db.flush()
+                    logger.info(
+                        "fact-pin sweep (ADR-077): staleness moved on "
+                        "application %s (%d stale of %d)",
+                        app_row.id,
+                        sum(1 for p in refreshed if p.stale),
+                        len(refreshed),
+                    )
+    except Exception:
+        logger.exception(
+            "fact-pin sweep skipped — query/write failed (ADR-077 fail-safe; "
+            "generation-start re-verify remains the backstop)"
+        )

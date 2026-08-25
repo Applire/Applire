@@ -125,6 +125,7 @@ def rank_cuts(
     *,
     concept_groups: ConceptGroups = (),
     external_text: str = "",
+    pinned: Sequence[int] | set[int] = (),
 ) -> list[Cut]:
     """Choose which of ``texts`` to remove so that ``keep`` survive.
 
@@ -138,6 +139,15 @@ def rank_cuts(
     the summary, the skills list, other roles' surviving bullets. A concept
     present there is covered no matter what happens here.
 
+    ``pinned`` (ADR-077 clause 4) — indices of fact-pin carriers. This is a
+    PARTITION, not a ranking tier: pinned indices never enter the removable
+    set, the ``keep`` ceiling applies to the rest only (each pin occupies one
+    budget slot), and when pins alone exceed the ceiling, the ceiling is
+    violated by design — that violation IS "pin beats budget", logged here
+    at WARNING and reported via the clause-5 driver. A tier implementation
+    would be silently defeated by a tight ceiling (the sole-carrier WARNING
+    boundary), which the 2026-08-24 adversarial pass proved.
+
     Returns the removals in the order they were decided (never sorted by index),
     so a caller logging them reports the same sequence the pass reasoned in.
     Empty list when already within budget — the caller then leaves its input
@@ -147,11 +157,26 @@ def rank_cuts(
     if len(texts) <= keep:
         return []
 
+    pinned_set = {i for i in pinned if 0 <= i < len(texts)}
+    if len(pinned_set) > keep:
+        logger.warning(
+            "PIN_CEILING_VIOLATED (ADR-077 clause 4) pinned=%d keep=%d — "
+            "the ceiling yields; pins beat the budget",
+            len(pinned_set),
+            keep,
+        )
+    keep = max(0, keep - len(pinned_set))
+
     groups = [list(g) for g in concept_groups]
     per_text = [_concepts_carried(t, groups) for t in texts]
     external = _concepts_carried(external_text, groups) if groups else frozenset()
+    # A pinned bullet survives by construction, so the concepts it carries are
+    # covered exactly like external text — a rest bullet repeating them is not
+    # a sole carrier.
+    for i in pinned_set:
+        external = external | per_text[i]
 
-    surviving = set(range(len(texts)))
+    surviving = set(range(len(texts))) - pinned_set
     cuts: list[Cut] = []
     while len(surviving) > keep:
         # Recount before every removal: the second-to-last carrier of a concept

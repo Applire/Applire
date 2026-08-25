@@ -31,6 +31,10 @@ class ATSCheck(BaseModel):
     # agent channel read it. Both None for pure EN diagnostics.
     details_key: Optional[str] = None
     details_params: Optional[dict[str, int | str]] = None
+    # E056/ADR-077 clause 5: structured driver for a fail band — machine-
+    # readable on every door (an agent reading only pass/fail must not be the
+    # design assumption). Currently only {"pinned_facts": N} on page-length.
+    driver: Optional[dict[str, int]] = None
 
 
 class ATSKeywordCoverage(BaseModel):
@@ -67,6 +71,22 @@ class ATSKeywordCoverage(BaseModel):
     keyword_liability_concepts: list[str] = []
 
 
+class PinnedFactReportEntry(BaseModel):
+    """E056/ADR-077 clauses 3+5 — one fact pin's measured fate on this
+    document. `present` is the normalized-containment FACT scoped to the
+    pinned entry's tailored twin (never document-wide); a stale pin is
+    surfaced here with present=False, never silently dropped."""
+
+    pin_id: str
+    entry_type: str
+    quote: str
+    present: bool
+    stale: bool = False
+    # ADR-077 clause 2 / SF-PIN.6: a truth floor (letter_figure_guard et al.)
+    # deleted the carrier — correct by hierarchy (truth > pin), never silent.
+    removed_by_truth_floor: bool = False
+
+
 class ATSReport(BaseModel):
     version: int = 1
     document: Literal["cv", "cover_letter"]
@@ -75,6 +95,9 @@ class ATSReport(BaseModel):
     # convenience counts — NOT a score (ADR-039/ADR-035): the UI shows the list, never a percentage
     passed: int
     failed: int
+    # E056/ADR-077: per-pin presence measurement (ship-and-report, never a
+    # gate). None = audited without pin context (legacy reports, no pins).
+    pinned_facts: Optional[list[PinnedFactReportEntry]] = None
 
 
 class ATSReportResponse(BaseModel):

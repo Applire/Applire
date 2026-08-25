@@ -215,6 +215,7 @@ def build_cover_letter_prompt(
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
+    pinned_facts_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -416,6 +417,12 @@ def build_cover_letter_prompt(
     # reviewer requires and the corrector preserves it. Absent → adds nothing.
     if scope_positioning_block:
         lines += ["", scope_positioning_block]
+    # E056/ADR-077 clause 3: the user's pinned vault quotes as REQUIRED
+    # content — mirrored into positioning_requested["pinned_facts"] by the
+    # caller so the reviewer requires and the corrector preserves them.
+    # Absent → adds nothing.
+    if pinned_facts_block:
+        lines += ["", pinned_facts_block]
 
     if gap_testimony:
         story = gap_testimony.get("story") or {}
@@ -490,6 +497,7 @@ def build_cover_letter_prompt(
 
 def build_condense_prompt(
     letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
+    pinned_quotes: list[str] | None = None,
 ) -> str:
     """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
     same facts, fewer words. Omission-only in spirit — nothing new is claimed.
@@ -539,6 +547,15 @@ def build_condense_prompt(
         "is silently stripped by a downstream guard, which makes the letter vaguer, "
         "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
         "sentence as the achievement/figure it belongs to.",
+        # E056/ADR-077 clause 3: the user's pinned facts survive the
+        # shortening by instruction here and by measurement afterwards (the
+        # condense-regenerate has no deterministic backstop — a miss is
+        # reported, never silently accepted).
+        *([
+            "- The candidate's PINNED FACTS — each of these user-pinned quotes "
+            "must remain stated (verbatim in substance): "
+            + "; ".join(f'"{q}"' for q in pinned_quotes)
+        ] if pinned_quotes else []),
         "If the budget is tight, compress each of these to its shortest honest form — "
         "do not delete any of them outright to make the count.",
         "",

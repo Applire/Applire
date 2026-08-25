@@ -330,3 +330,9 @@ ORACLE_MAX_TRIAGE_CALLS: int = int(os.environ.get("ORACLE_MAX_TRIAGE_CALLS", "3"
 # above any DACH norm (ADR-051 default cv_standard_pages is 2), just a sane
 # outer bound on the budget arithmetic.
 MAX_TARGET_PAGES: int = 10
+
+# ADR-077 clause 1 (PO 2026-08-25) — fact pins per application. The exhaustion
+# guard: pins rank above the length budget, so unbounded pins reproduce the
+# #525/#303 shape (N simultaneous above-budget REQUIRED demands exhausting the
+# review loop). 422 beyond the cap.
+MAX_FACT_PINS: int = 10

@@ -35,7 +35,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, timezone
 from pathlib import Path
 
@@ -863,6 +863,57 @@ async def _render_cover_letter_background(
                 keyword_ledger, detected_language
             ) or None
 
+            # ADR-077 (E056): fact pins — generation-start re-verify (clause 7)
+            # + the PINNED FACTS block for the letter writer (clause 3).
+            # Fail-safe: a pin-load failure degrades to "no pins".
+            letter_pins: list = []
+            pinned_facts_block: str | None = None
+            try:
+                from applire.schemas.profile import MasterProfileData
+                from applire.services.application import get_application_for_job
+                from applire.services.color_detection import _CE_STUB_USER_ID
+                from applire.services.fact_pins import (
+                    load_pins,
+                    refresh_pin_staleness,
+                )
+                from applire.services.pin_reach import (
+                    active_pins,
+                    render_pinned_facts_block,
+                )
+
+                pin_application = await get_application_for_job(
+                    cl.job_analysis_id, _CE_STUB_USER_ID, db
+                )
+                if pin_application is not None and pin_application.pinned_facts:
+                    raw_profile_data = MasterProfileData.model_validate(
+                        (profile.profile_json if profile else {}) or {}
+                    )
+                    refreshed, pins_moved = refresh_pin_staleness(
+                        load_pins(pin_application), raw_profile_data
+                    )
+                    if pins_moved:
+                        pin_application.pinned_facts = [
+                            pn.model_dump(mode="json") for pn in refreshed
+                        ]
+                        await db.flush()
+                    letter_pins = active_pins(refreshed, "letter")
+                    pinned_facts_block = (
+                        render_pinned_facts_block(
+                            letter_pins,
+                            raw_profile_data,
+                            target="letter",
+                            language=detected_language,
+                        )
+                        or None
+                    )
+            except Exception:
+                logger.exception(
+                    "fact-pin load failed for cover letter %s — generating "
+                    "without pins (ADR-077 fail-safe)", cl_id,
+                )
+                letter_pins = []
+                pinned_facts_block = None
+
             # #255 (ADR-057 amended 2026-07-24): the run-4 ground truth showed the writer
             # received all three POSITIONING blocks (and engaged the domain) but the
             # ADR-021 reviewer/corrector loop never did — so it could not tell a legitimate,
@@ -977,6 +1028,16 @@ async def _render_cover_letter_background(
                     ),
                 }
 
+            # E056/ADR-077 clause 3: the pinned-fact positioning entry — the
+            # reviewer requires it (check 4 names the key), the corrector
+            # preserves it, review_compliance carries a pin cue. Gated like
+            # scope_positioning: absent when no active letter pin exists.
+            from applire.services.pin_reach import pinned_facts_positioning_entry
+
+            _pin_entry = pinned_facts_positioning_entry(letter_pins)
+            if _pin_entry is not None:
+                positioning_requested["pinned_facts"] = _pin_entry
+
             # Call LLM
             # #177 / ADR-051 §6 amended: feedforward body-word budget from the region
             # norm registry — the CV's guarantee shape, extended to letters. NO
@@ -1031,6 +1092,7 @@ async def _render_cover_letter_background(
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
                 scope_positioning_block=scope_positioning_block,
+                pinned_facts_block=pinned_facts_block,
             )
             # Explicit budget to match CV generation (cv.py): a signed letter must
             # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
@@ -1277,6 +1339,7 @@ async def _render_cover_letter_background(
             # byte-identical to the pre-#539 inline sequence; the duplicated
             # tail is gone because the topology no longer needs it — not
             # because the code was deduplicated.
+            _pre_compose = letter_data
             letter_data = _compose_letter(
                 letter_data,
                 profile_json=profile.profile_json if profile else {},
@@ -1285,6 +1348,20 @@ async def _render_cover_letter_background(
                 pre_gen=pre_gen,
                 language=detected_language,
             )
+            # ADR-077 clause 2 / SF-PIN.6: a truth floor inside the compose
+            # tail (letter_figure_guard et al.) that deletes a pin carrier is
+            # correct by hierarchy (truth > pin) — and never silent: the flip
+            # is recorded and lands on the report as removed_by_truth_floor.
+            pin_floor_hits: set[str] = set()
+            if letter_pins:
+                from applire.services.pin_reach import letter_pin_present_in_dict
+
+                pin_floor_hits = {
+                    pn.pin_id
+                    for pn in letter_pins
+                    if letter_pin_present_in_dict(pn, _pre_compose)
+                    and not letter_pin_present_in_dict(pn, letter_data)
+                }
 
             # Persist + render + measure. E037 PQ #2 (ATS "not available" race):
             # the ATS audit must be persisted BEFORE status flips to 'ready' —
@@ -1326,7 +1403,9 @@ async def _render_cover_letter_background(
                 pdf_bytes=pdf_bytes,
                 measured=measured,
                 reviews_enabled=_reviews_enabled,
+                pins=letter_pins,
             )
+            pin_floor_hits |= tr.pin_floor_hits
             letter_data = tr.draft
             pdf_bytes, measured = tr.pdf_bytes, tr.measured
             terminal_rounds = tr.rounds
@@ -1359,7 +1438,10 @@ async def _render_cover_letter_background(
                 # ADR-039 — persist the ATS audit (commits while status is still
                 # 'generating'). An audit failure is non-fatal: it leaves
                 # ats_report NULL and we still flip ready.
-                await _update_ats_report_letter(cl, db, pdf=pdf_bytes)
+                await _update_ats_report_letter(
+                    cl, db, pdf=pdf_bytes,
+                    pins=letter_pins, truth_floor_hits=pin_floor_hits,
+                )
                 delivered_hash = subject_hash(cl.letter_data)
                 match = delivered_hash == verdict_hash
                 _log_subject_identity_letter(
@@ -1589,6 +1671,9 @@ class LetterTerminalReviewResult:
     rounds: int
     reentry_exhausted: bool
     condense_used: bool
+    # ADR-077 clause 2 / SF-PIN.6: pins whose carrier a compose-tail truth
+    # floor deleted during THIS invocation's re-compositions.
+    pin_floor_hits: set = dataclass_field(default_factory=set)
 
 
 async def _terminal_review_letter(
@@ -1612,6 +1697,7 @@ async def _terminal_review_letter(
     measured: MeasuredLetter,
     reviews_enabled: bool = True,
     condense_spent: bool = False,
+    pins: list = (),
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539): the letter's TERMINAL review — the verdict that
     closes over the COMPOSED letter (the delivered artifact) with the real
@@ -1646,8 +1732,10 @@ async def _terminal_review_letter(
     def _canon(d: dict) -> str:
         return json.dumps(d, sort_keys=True, default=str)
 
+    floor_hits: set[str] = set()
+
     def _compose(d: dict) -> dict:
-        return _compose_letter(
+        composed = _compose_letter(
             d,
             profile_json=profile.profile_json if profile else {},
             cv_data=cv_data,
@@ -1655,6 +1743,18 @@ async def _terminal_review_letter(
             pre_gen=pre_gen,
             language=language,
         )
+        # ADR-077 clause 2 / SF-PIN.6: record a compose-tail truth-floor
+        # deletion of a pin carrier — the flip lands on the report.
+        if pins:
+            from applire.services.pin_reach import letter_pin_present_in_dict
+
+            floor_hits.update(
+                pn.pin_id
+                for pn in pins
+                if letter_pin_present_in_dict(pn, d)
+                and not letter_pin_present_in_dict(pn, composed)
+            )
+        return composed
 
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
@@ -1733,6 +1833,9 @@ async def _terminal_review_letter(
                         norm.letter_body_word_budget,
                         m.page_count,
                         letter_pages=norm.letter_pages,
+                        # ADR-077 clause 3: the pins survive the shortening —
+                        # by instruction here, by measurement on the report.
+                        pinned_quotes=[pn.quote for pn in pins] or None,
                     ),
                     system=SYSTEM_PROMPT,
                     max_tokens=CV_GENERATION_MAX_TOKENS,
@@ -1814,6 +1917,7 @@ async def _terminal_review_letter(
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
         condense_used=condense_state["used"],
+        pin_floor_hits=floor_hits,
     )
 
 
@@ -1847,6 +1951,8 @@ async def _update_ats_report_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
     pdf: bytes | None = None,
+    pins: list | None = None,
+    truth_floor_hits: set | frozenset = frozenset(),
 ) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
@@ -1892,12 +1998,35 @@ async def _update_ats_report_letter(
             profile_literal_corpus(profile_row.profile_json if profile_row else None)
             or None
         )
+        # E056/ADR-077 clauses 2+3+5: pin presence rides the letter report on
+        # every door. The generation door passes its pins (+ any truth-floor
+        # hits); the section-edit/agent re-audit doors load them here so no
+        # door is forgotten (SF-PIN.5's rule-against-one-of-N, letter mount).
+        if pins is None:
+            pins = []
+            try:
+                from applire.services.application import get_application_for_job
+                from applire.services.color_detection import _CE_STUB_USER_ID
+                from applire.services.fact_pins import load_pins
+
+                _pin_app = await get_application_for_job(
+                    cl.job_analysis_id, _CE_STUB_USER_ID, db
+                )
+                if _pin_app is not None and _pin_app.pinned_facts:
+                    pins = load_pins(_pin_app)
+            except Exception:
+                logger.exception(
+                    "fact-pin load failed during letter audit for %s — "
+                    "auditing without pins (ADR-077 fail-safe)", cl.id,
+                )
         cl.ats_report = audit_cover_letter(
             pdf,
             letter_data,
             list(job.keywords or []) if job else [],
             ledger,
             vault_text_norm=vault_text_norm,
+            pins=pins,
+            truth_floor_hits=set(truth_floor_hits),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)

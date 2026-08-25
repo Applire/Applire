@@ -159,7 +159,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    requirement is fine; asserting it is already held, when the source is silent, is not.
    - The letter DATE is inserted by the system. Out of scope.
    - FIGURES: grounded when a numerically-equivalent form appears anywhere in the source
-     (profile, a claimable ledger entry's ``evidence``, or a positioning ``testimony``).
+     (profile, a claimable ledger entry's ``evidence``, a positioning ``testimony`` or
+     ``pinned_facts`` quote — the latter is vault text verbatim).
      Words and digits are the same figure — "seven months" and "7 months", "€4bn" and its
      digit form. Never flag a word-vs-digit or spacing difference, and never ask the
      writer to convert one grounded form into another. "Multiple", "several", "various"
@@ -193,7 +194,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    candidate fact.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
-   ``gap_transfer_argument``, ``availability``, ``scope_positioning``, ``closing``. Each
+   ``gap_transfer_argument``, ``availability``, ``scope_positioning``,
+   ``pinned_facts``, ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
    deliver is an issue: name it BY KEY (e.g. ``company_domain_engagement``) and point
    the writer to ONLY that entry's own grounding — NEVER copy ``job_description`` wording
@@ -204,6 +206,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
    delivering it with the candidate's values is not overclaiming; stating the posting's
    own figure as the candidate's is.
+   ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
+   must appear, never extended; flag a missing one by key with its text.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -369,8 +373,11 @@ Rules:
   ungrounded claims while keeping the letter coherent and well-written.
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
-  honest gap/transfer argument, availability, and ``scope_positioning`` paragraphs are
-  REQUIRED content — do not strip or dilute them while fixing an unrelated issue. A
+  honest gap/transfer argument, availability, ``scope_positioning`` and ``pinned_facts``
+  paragraphs are REQUIRED content — do not strip or dilute them while fixing an
+  unrelated issue. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
+  text pinned by the candidate — keep each pinned fact stated (verbatim in
+  substance) and never extend it beyond what the quote says. A
   ``scope_positioning`` statement (ADR-070) quotes the candidate's own attested scale
   values with their stated unit — it is grounded by that entry's own ``testimony``, never
   a fabrication; when patching it, keep the candidate's figures verbatim and never

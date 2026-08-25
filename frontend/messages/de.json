@@ -189,7 +189,43 @@
     "docLanguageGerman": "Deutsch",
     "docLanguageEnglish": "Englisch",
     "docLanguageAutoDetected": "automatisch erkannt",
-    "docLanguageSaveError": "Speichern fehlgeschlagen — bitte erneut versuchen."
+    "docLanguageSaveError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
+    "pins": {
+      "title": "Angeheftete Fakten ({count}/{max})",
+      "addButton": "Fakt anheften",
+      "capReachedTitle": "Maximum von {max} angehefteten Fakten erreicht",
+      "empty": "Noch keine Fakten angeheftet.",
+      "loadError": "Angeheftete Fakten konnten nicht geladen werden.",
+      "remove": "Entfernen",
+      "removeAria": "Diesen angehefteten Fakt entfernen",
+      "stale": "Veraltet",
+      "targetCv": "Lebenslauf",
+      "targetLetter": "Anschreiben",
+      "entryTypes": {
+        "work": "Berufserfahrung",
+        "project": "Projekt",
+        "volunteer": "Ehrenamt",
+        "signature_story": "Signature Story",
+        "skill": "Kenntnis",
+        "certification": "Zertifizierung",
+        "education": "Ausbildung",
+        "language": "Sprache",
+        "publication": "Publikation"
+      },
+      "dialogTitle": "Fakt anheften",
+      "dialogChooseEntry": "Eintrag auswählen",
+      "dialogChooseQuote": "Zitat auswählen",
+      "dialogChooseTargets": "Gilt für",
+      "dialogBack": "Zurück",
+      "dialogLoading": "Dein Profil wird geladen…",
+      "dialogLoadError": "Dein Profil konnte nicht geladen werden.",
+      "dialogNoEntries": "In deinem Profil wurde kein anheftbarer Text gefunden.",
+      "dialogCancel": "Abbrechen",
+      "dialogConfirm": "Fakt anheften",
+      "dialogBusy": "Wird angeheftet…",
+      "pinError": "Anheften fehlgeschlagen:",
+      "pinErrorGeneric": "Anheften fehlgeschlagen. Bitte erneut versuchen."
+    }
   },
   "interview": {
     "loading": "Interview wird gestartet…",
@@ -985,6 +1021,13 @@
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
+    },
+    "pinnedFacts": {
+      "title": "Angeheftete Fakten",
+      "unmet": "nicht im Dokument",
+      "stale": "Veraltet",
+      "removedByTruthFloor": "durch Wahrheits-Prüfung entfernt",
+      "driverLine": "Länge u. a. durch {count, plural, one {einen angehefteten Fakt} other {# angeheftete Fakten}} bedingt"
     }
   },
   "truthfulness": {

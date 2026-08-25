@@ -58,6 +58,7 @@ all, or every role scores 0 hits, tiers are assigned by recency alone
 (recent->top, mid->mid, old->bottom).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -459,6 +460,7 @@ def condense_to_budget(
     tailored_data: dict[str, Any],
     budgets: BudgetResult,
     iteration: int,
+    pins: Sequence[Any] = (),
 ) -> tuple[dict[str, Any], bool]:
     """Trim each role's bullets down to its budget ceiling (ADR-051 §4).
 
@@ -572,12 +574,26 @@ def condense_to_budget(
         # last); then figure-less before figure-bearing (#377 / ADR-067
         # clause 4); then project before role; then later-listed before
         # earlier, so the earliest bullets survive.
+        # ADR-077 clause 4: pin carriers are partitioned out of the removable
+        # set before ranking — role and project bullets counted uniformly
+        # (this flattened list is exactly why: the #540 cap-vs-condense seam
+        # must not reappear inside the pin guard). The ceiling yields when
+        # pins alone exceed it.
+        item_texts = [it["text"] for it in items]
+        pinned_idx: set[int] = set()
+        if pins:
+            from applire.services.pin_reach import bullet_pin_carrier_indices
+
+            pinned_idx = bullet_pin_carrier_indices(
+                item_texts, entry_id=str(entry.get("id") or ""), pins=pins
+            )
         cuts = rank_cuts(
-            [it["text"] for it in items],
+            item_texts,
             [(it["carries_figure"], it["is_role"], -it["order"]) for it in items],
             keep=ceiling,
             concept_groups=concept_groups,
             external_text=external,
+            pinned=pinned_idx,
         )
         log_cuts(
             "condense_to_budget", cuts,

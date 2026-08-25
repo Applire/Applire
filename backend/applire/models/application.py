@@ -33,7 +33,12 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import JSON
+
+# ADR-002 pattern: JSONB on PostgreSQL, plain JSON on SQLite (unit tests).
+_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 from applire.db.session import Base
 from applire.constants import PROFILE_INACTIVITY_TTL_DAYS as _APPLICATION_TTL_DAYS
@@ -134,6 +139,16 @@ class Application(Base):
     submitted_cover_letter_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("generated_cover_letters.id"), nullable=True
     )
+
+    # --- Fact pins (E056/ADR-077) ---
+    # User-selected verbatim vault quotes that outrank the length budget in
+    # generation (truth > pin > budget). Each element:
+    # {pin_id, entry_type, entry_id, quote, targets, stale}. Additive writes
+    # only (POST/DELETE subresource — a full-list replace is a lost-update
+    # vector). The quote is a copy of the candidate's own vault prose: it
+    # follows this row's retention lifecycle, and Art.-17 erasure clears it
+    # with the profile. NULL = pre-migration row, read as [].
+    pinned_facts: Mapped[list | None] = mapped_column(_JSON, nullable=True)
 
     # --- Stale-CV nudge dismissal (E039/US221) ---
     # Persisted so "not now" survives reloads; the indicator re-arms when an
