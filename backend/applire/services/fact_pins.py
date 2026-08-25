@@ -69,6 +69,17 @@ def _find_entry(profile: MasterProfileData, entry_type: str, entry_id: str):
     return None
 
 
+def entry_is_claimable(entry) -> bool:
+    """ADR-077 clause 2 — the claim gate runs ABOVE pins.
+
+    An `unconfirmed` or `denied` entry cannot back a CV line or a letter
+    sentence (ADR-061 clause 3 / amendment #485); a pin on it would launder
+    the entry past that gate through the PINNED FACTS block. Types without a
+    status field are always claimable.
+    """
+    return getattr(entry, "status", None) not in ("unconfirmed", "denied")
+
+
 def quote_resolves_in_entry(quote: str, entry, entry_type: str) -> bool:
     """The fact of normalized-quote containment (ADR-062 clause 1 discipline)."""
     quote_norm = _norm_quote(quote)
@@ -86,8 +97,10 @@ def quote_resolves_in_entry(quote: str, entry, entry_type: str) -> bool:
 
 def pin_resolves(pin: FactPin, profile: MasterProfileData) -> bool:
     entry = _find_entry(profile, pin.entry_type, pin.entry_id)
-    return entry is not None and quote_resolves_in_entry(
-        pin.quote, entry, pin.entry_type
+    return (
+        entry is not None
+        and entry_is_claimable(entry)
+        and quote_resolves_in_entry(pin.quote, entry, pin.entry_type)
     )
 
 
@@ -152,6 +165,11 @@ async def add_fact_pin(
     if entry is None:
         raise ValueError(
             f"No {request.entry_type} entry with id {request.entry_id} in the vault."
+        )
+    if not entry_is_claimable(entry):
+        raise ValueError(
+            "This entry is not claimable (unconfirmed or retracted) — a pin "
+            "cannot carry it past the claim gate (truth > pin)."
         )
     if not quote_resolves_in_entry(request.quote, entry, request.entry_type):
         raise ValueError(

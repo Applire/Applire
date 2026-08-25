@@ -196,6 +196,31 @@ async def test_skill_pin_resolves_against_the_name_field(db, scene):
 
 
 @pytest.mark.asyncio
+async def test_unconfirmed_entry_is_not_pinnable(db, scene):
+    # ADR-077 clause 2: the claim gate runs above pins — a pin must not
+    # launder an unconfirmed/denied entry into the PINNED FACTS block.
+    from applire.models.profile import MasterProfile, authorized_profile_write
+    from sqlalchemy import select
+
+    profile = _profile_data()
+    profile.skills[0].status = "unconfirmed"
+    record = (
+        await db.execute(select(MasterProfile).limit(1))
+    ).scalar_one()
+    with authorized_profile_write():
+        record.profile_json = profile.model_dump(mode="json")
+    await db.flush()
+
+    req = AddFactPinRequest(
+        entry_type="skill",
+        entry_id=profile.skills[0].id,
+        quote="Kubernetes",
+    )
+    with pytest.raises(ValueError):
+        await add_fact_pin(scene["application"].id, _STUB_USER_ID, req, db)
+
+
+@pytest.mark.asyncio
 async def test_duplicate_pin_same_entry_and_quote_is_rejected(db, scene):
     req = AddFactPinRequest(
         entry_type="work",
