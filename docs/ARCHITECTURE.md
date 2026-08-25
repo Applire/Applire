@@ -987,6 +987,14 @@ A constraint and an obligation are not the same thing. "Never contradict a state
 **Why:** A four-run blind-panel comparison across two models showed the substantive findings were properties of the pipeline topology, not the model: a post-review pass had written a machine-tell duplication into a delivered CV that no reviewer ever saw; correct figures were accused of being unbacked because equivalence was string comparison; and half the blind reviewers independently identified the documents as tool-written by pointing at the pipeline's own uniformity mechanisms. The judging layer ended before the document existed, so nobody owned the questions only the finished artifact can answer.
 
 ---
+
+### ADR-077 — A Fact Pin Is the User's Seat at the Budget Table (accepted 2026-08-25, scoped — not yet built)
+
+**Decision:** The user can pin facts from their master profile to one application — "this MUST appear in the CV / the letter." A fact pin is a **verbatim quote from the user's own profile plus the referenced entry's id**, stored per application (at most 10), verified fail-closed at pin time: nothing is pinnable that the profile does not already back, so a pin can never introduce a new claim. The hierarchy is **truth > pin > budget**: a pin outranks the regional length norm (a document may honestly exceed the norm because pins need the space — the length check then reports the overrun with a structured driver naming the pins, instead of silently cutting or silently stretching), but a pin never outranks the truthfulness machinery — pinned content is graded like everything else, and a truthfulness guard that removes pinned content says so visibly. Deterministic cut passes treat pin-carrying content as outside the removable set entirely (a contract change to the shared cut-ranking module — a mere ranking preference would be silently defeated by a tight page ceiling). Presence in the document is verified by measurement and honestly reported when unmet, never enforced by a post-review edit (ADR-076). Pins ride both doors from day one: a REST pins subresource with additive add/remove semantics, and matching MCP parameters on `update_application` (ADR-058 door parity). As a prerequisite, the profile entry types that had no stable ids (skills, certifications, education, languages, publications) gain persisted ids with a one-time backfill.
+
+**Why:** Which facts survive the page-budget trade was decided entirely by the writer and the ranking machinery — and a real evaluation run showed the machine cutting exactly the fact both blind reviewers considered decisive. Every system-side protection guesses what matters; a pin is the user's own judgement, carried as data. The design was adversarially reviewed before acceptance; the review reshaped the cut-immunity mechanism and added the visibility guarantees for user edits and truthfulness interventions.
+
+---
 ## 4. Data Model Highlights
 
 ### Master Profile JSONB Shape
