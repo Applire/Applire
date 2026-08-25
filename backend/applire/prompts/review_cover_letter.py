@@ -159,8 +159,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    requirement is fine; asserting it is already held, when the source is silent, is not.
    - The letter DATE is inserted by the system. Out of scope.
    - FIGURES: grounded when a numerically-equivalent form appears anywhere in the source
-     (profile, a claimable ledger entry's ``evidence``, a positioning ``testimony``, or
-     a ``pinned_facts`` quote — a pinned quote is the candidate's vault text verbatim).
+     (profile, a claimable ledger entry's ``evidence``, a positioning ``testimony`` or
+     ``pinned_facts`` quote — the latter is vault text verbatim).
      Words and digits are the same figure — "seven months" and "7 months", "€4bn" and its
      digit form. Never flag a word-vs-digit or spacing difference, and never ask the
      writer to convert one grounded form into another. "Multiple", "several", "various"
@@ -206,10 +206,8 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
    delivering it with the candidate's values is not overclaiming; stating the posting's
    own figure as the candidate's is.
-   ``pinned_facts`` (ADR-077) are quotes the CANDIDATE pinned from their own vault:
-   each must appear in the body, woven naturally, never extended beyond what the
-   quote states. A missing pinned fact is an issue — name it as ``pinned_facts``
-   and quote ONLY the missing pin's own text.
+   ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
+   must appear, never extended; flag a missing one by key with its text.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a

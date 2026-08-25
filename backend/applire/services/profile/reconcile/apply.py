@@ -788,6 +788,58 @@ def _diff_object_section(section: str, before: Any, after: Any) -> list[FieldCha
     return changes
 
 
+#: Natural identity per list section — the fields a human would use to say
+#: "the same entry" when a wholesale payload carries no ids (ADR-077 cl. 1).
+_ENTRY_NATURAL_KEYS: dict[str, tuple[str, ...]] = {
+    "skills": ("name",),
+    "certifications": ("name",),
+    "languages": ("language",),
+    "education": ("institution", "degree"),
+    "publications": ("title",),
+    "work_experience": ("company", "role"),
+    "projects": ("name",),
+    "volunteer_activities": ("organization", "role"),
+    "signature_stories": ("title",),
+}
+
+
+def _preserve_entry_ids(section: str, before, incoming):
+    """Copy existing entry ids onto id-less incoming entries by natural key."""
+    keys = _ENTRY_NATURAL_KEYS.get(section)
+    if not keys or not isinstance(incoming, list) or not isinstance(before, list):
+        return incoming
+
+    def _nat(entry) -> tuple | None:
+        if not isinstance(entry, dict):
+            return None
+        parts = tuple(
+            str(entry.get(k) or "").casefold().strip() for k in keys
+        )
+        return parts if any(parts) else None
+
+    unclaimed: dict[tuple, list[str]] = {}
+    for entry in before:
+        nat = _nat(entry)
+        if nat is not None and isinstance(entry, dict) and entry.get("id"):
+            unclaimed.setdefault(nat, []).append(entry["id"])
+
+    before_ids = {
+        e.get("id") for e in before if isinstance(e, dict) and e.get("id")
+    }
+    preserved = []
+    for entry in incoming:
+        # An id-less entry AND an entry whose id exists nowhere in the stored
+        # section (a parse-minted artifact from validating the payload before
+        # the op) both inherit the natural-key match's stored id.
+        if isinstance(entry, dict) and entry.get("id") not in before_ids:
+            nat = _nat(entry)
+            ids = unclaimed.get(nat) if nat is not None else None
+            if ids:
+                entry = {**entry, "id": ids.pop(0)}
+        preserved.append(entry)
+    return preserved
+
+
 def _apply_replace_section(
     op: ReplaceSection, profile: MasterProfileData, changes: list[FieldChange]
 ) -> MasterProfileData:
@@ -820,7 +872,16 @@ def _apply_replace_section(
         merged.update(op.value)
         dumped[op.section] = merged
     else:
-        dumped[op.section] = op.value
+        # ADR-077 clause 1 — id preservation on wholesale replace. Incoming
+        # payloads (UI textarea, MCP update_profile) may carry no entry ids;
+        # validating them would MINT fresh ones, which (a) receipts every
+        # kept entry as spuriously "updated" and (b) mass-stales every fact
+        # pin addressing the section (the SF-PIN.8 shape through this door).
+        # An id-less incoming entry inherits the id of its natural-key match
+        # in the section it replaces; genuinely new entries mint normally.
+        dumped[op.section] = _preserve_entry_ids(
+            op.section, before, op.value
+        )
 
     # The same round-trip the PATCH intake always performed — a payload the
     # schema rejects raises here (pydantic's ValidationError IS a ValueError,
