@@ -36,6 +36,7 @@ inherits the committer's invariant set without knowing it exists.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from applire.schemas.profile import OBJECT_SECTIONS, VAULT_SECTIONS
@@ -59,7 +60,7 @@ def decode_section_payload(value: Any) -> Any:
 
 
 def build_replace_section_op(
-    section: str, value: Any, *, basis_digest: str | None = None
+    section: str, value: Any, *, basis_updated_at: "datetime | None" = None
 ) -> ReplaceSection:
     """Turn a manual section edit into the typed act the committer applies.
 
@@ -89,4 +90,4 @@ def build_replace_section_op(
             f"(an explicit null clears a field)."
         )
 
-    return ReplaceSection(section=section, value=decoded, basis_digest=basis_digest)
+    return ReplaceSection(section=section, value=decoded, basis_updated_at=basis_updated_at)

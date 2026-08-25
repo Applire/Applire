@@ -212,9 +212,13 @@ unconfirmed or denied entry is not pinnable.
   application is active.
 - **`update_profile` replaces list sections WHOLESALE** — always send the
   complete list, or you will silently delete data. Object sections
-  (personal_info, professional_summary) are merge-patched. Prefer
-  `submit_claims` (testimony + receipts) or `add_role` (post-hire role) over
-  raw section writes.
+  (personal_info, professional_summary) are merge-patched (null clears,
+  omitted keeps). Prefer `submit_claims` (testimony + receipts) or `add_role`
+  (post-hire role) over raw section writes. **Lost-update guard:** pass
+  `basis_updated_at` = the `updated_at` you read from `get_profile`; if the
+  profile changed since (the user, an interview, another agent), the call is
+  refused with `stale_edit` — re-read and retry. Omit it only for a one-shot
+  write you are sure nobody else is editing.
 - **Page length**: `target_pages` on `generate_cv`/`render_document` pins the
   page count for that generation; omit it for the user default, then the
   region standard (DACH: 2 pages standard, 3 max). On `render_document`

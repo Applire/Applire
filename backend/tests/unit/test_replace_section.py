@@ -374,12 +374,16 @@ def test_a_schema_rejecting_payload_raises_a_value_error():
         apply_ops(profile, [op], "manual_edit")
 
 
-def test_basis_digest_is_carried_and_enforced_by_nothing():
-    """Design §4.1 names an optional digest of the section the edit was based
-    on. It is recorded, never consulted — refusing a stale edit is a product
-    decision nobody has taken, and half-building it would be worse than not."""
-    profile = _profile()
-    op = build_replace_section_op("skills", [], basis_digest="deadbeef")
+def test_basis_updated_at_is_carried_on_the_op_and_ignored_by_the_applier():
+    """ADR-063 amended 2026-08-25 (E055): the basis is the profile's
+    `updated_at` the edit was composed against. The APPLIER never consults it
+    — refusing a stale edit is the committer's job (see
+    test_commit_ops_stale_edit.py), so a pure `apply_ops` stays pure."""
+    from datetime import datetime, timezone
 
-    assert op.basis_digest == "deadbeef"
+    profile = _profile()
+    basis = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    op = build_replace_section_op("skills", [], basis_updated_at=basis)
+
+    assert op.basis_updated_at == basis
     assert apply_ops(profile, [op], "manual_edit").profile.skills == []

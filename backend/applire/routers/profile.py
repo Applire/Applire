@@ -65,6 +65,7 @@ from applire.services.profile.import_jobs import (
     run_import_job_background,
 )
 from applire.services.profile.snapshots import undo_last_merge
+from applire.services.profile.commit import StaleEditError
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
@@ -692,10 +693,33 @@ async def patch_section(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
     provider: LLMProvider = Depends(_get_provider),
+    basis_updated_at: Annotated[
+        datetime | None,
+        Query(
+            description=(
+            "The profile's `updated_at` from the GET this edit was composed "
+            "against (ADR-063 amended 2026-08-25). When the profile has moved "
+            "since, the write is refused with 409 and the current profile in "
+            "`detail.current`. Omit for last-write-wins."
+            ),
+        ),
+    ] = None,
 ) -> MasterProfileResponse:
     body = await request.json()
     try:
-        return await patch_profile_section(section, body, db, provider=provider)
+        return await patch_profile_section(
+            section, body, db, provider=provider, basis_updated_at=basis_updated_at
+        )
+    except StaleEditError as exc:
+        current = await get_profile(db)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "stale_edit",
+                "current_updated_at": exc.current_updated_at.isoformat(),
+                "current": current.model_dump(mode="json"),
+            },
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

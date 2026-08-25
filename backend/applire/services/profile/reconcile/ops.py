@@ -31,6 +31,7 @@ the applier against the batch's ref-map first, then against existing entity ids.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
@@ -308,14 +309,14 @@ class ReplaceSection(BaseModel):
     #: applier round-trips it through ``MasterProfileData`` exactly as the PATCH
     #: intake always did, so schema validation is unchanged.
     value: Any = None
-    #: **Carried, not enforced.** The design (§4.1) names an optional digest of
-    #: the section state the edit was composed against — the raw material for a
-    #: lost-update check ("someone else changed this section since you loaded
-    #: it"). No door supplies one today and nothing reads it, so this records
-    #: the adapter's basis when it has one and changes no behaviour. REFUSING a
-    #: stale edit is a product decision nobody has taken; it is deliberately not
-    #: taken here by accident.
-    basis_digest: str | None = None
+    #: The profile's `updated_at` as the GET the edit was composed against
+    #: returned it (ADR-063 amended 2026-08-25, E055 / JF-F-H1.6). `None` —
+    #: every pre-E055 caller — keeps last-write-wins. A value is compared by
+    #: the COMMITTER against `record.updated_at` before any op is applied and
+    #: refused with `StaleEditError` when the profile has moved. The applier
+    #: never reads it: `apply_ops` stays pure. (Was `basis_digest`, carried and
+    #: enforced by nothing; the product decision it deferred is now taken.)
+    basis_updated_at: datetime | None = None
 
     @field_validator("section")
     @classmethod
