@@ -189,7 +189,43 @@
     "docLanguageGerman": "German",
     "docLanguageEnglish": "English",
     "docLanguageAutoDetected": "auto-detected",
-    "docLanguageSaveError": "Could not save — please try again."
+    "docLanguageSaveError": "Could not save — please try again.",
+    "pins": {
+      "title": "Pinned facts ({count}/{max})",
+      "addButton": "Pin a fact",
+      "capReachedTitle": "Maximum of {max} pinned facts reached",
+      "empty": "No facts pinned yet.",
+      "loadError": "Pinned facts could not be loaded.",
+      "remove": "Remove",
+      "removeAria": "Remove this pinned fact",
+      "stale": "Stale",
+      "targetCv": "CV",
+      "targetLetter": "Cover letter",
+      "entryTypes": {
+        "work": "Work experience",
+        "project": "Project",
+        "volunteer": "Volunteering",
+        "signature_story": "Signature story",
+        "skill": "Skill",
+        "certification": "Certification",
+        "education": "Education",
+        "language": "Language",
+        "publication": "Publication"
+      },
+      "dialogTitle": "Pin a fact",
+      "dialogChooseEntry": "Choose an entry",
+      "dialogChooseQuote": "Choose the quote",
+      "dialogChooseTargets": "Applies to",
+      "dialogBack": "Back",
+      "dialogLoading": "Loading your vault…",
+      "dialogLoadError": "Your profile could not be loaded.",
+      "dialogNoEntries": "No pinnable text was found in your vault.",
+      "dialogCancel": "Cancel",
+      "dialogConfirm": "Pin fact",
+      "dialogBusy": "Pinning…",
+      "pinError": "Pinning failed:",
+      "pinErrorGeneric": "Pinning failed. Please try again."
+    }
   },
   "interview": {
     "loading": "Starting interview…",
@@ -985,6 +1021,13 @@
       "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
+    },
+    "pinnedFacts": {
+      "title": "Pinned facts",
+      "unmet": "not in the document",
+      "stale": "Stale",
+      "removedByTruthFloor": "removed by the truthfulness check",
+      "driverLine": "Length partly driven by {count, plural, one {# pinned fact} other {# pinned facts}}"
     }
   },
   "truthfulness": {
