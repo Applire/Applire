@@ -614,6 +614,32 @@ async def _reap_stale_cl_jobs(db: AsyncSession) -> int:
         return 0
 
 
+
+async def _release_fact_pins(db: AsyncSession) -> int:
+    """Clear fact-pin quote copies on tombstoned applications (ADR-077 cl. 7).
+
+    A fact pin's ``quote`` is a verbatim copy of the candidate's vault prose
+    living on the applications row. While the application is live it serves
+    the user's pin; once the row is tombstoned it is a purposeless copy of
+    personal data — released in the same sweep that releases the
+    submitted-document pins. Data minimisation, not an FK necessity (fact
+    pins reference profile entries, not generated documents).
+    """
+    try:
+        result = await db.execute(
+            text(
+                "UPDATE applications SET pinned_facts = NULL "
+                "WHERE deleted_at IS NOT NULL AND pinned_facts IS NOT NULL"
+            )
+        )
+        await db.commit()
+        return result.rowcount  # type: ignore[return-value]
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_release_fact_pins skipped: %s", exc)
+        await db.rollback()
+        return 0
+
+
 async def run() -> None:
     """Execute all TTL rules and emit a structured JSON report to stdout."""
     async with AsyncSessionLocal() as db:
@@ -627,6 +653,9 @@ async def run() -> None:
         profiles_tombstoned = await _tombstone_inactive_profiles(db)
         users_tombstoned = await _tombstone_inactive_users(db)
         applications_tombstoned = await _tombstone_inactive_applications(db)
+        # After the tombstone sweep: an application tombstoned TODAY releases
+        # its fact-pin quotes in the same run (ADR-077 clause 7).
+        fact_pins_released = await _release_fact_pins(db)
         # After the tombstone sweep so a cancelled application whose grace
         # window ended TODAY purges in the same run (US222).
         (
@@ -652,6 +681,7 @@ async def run() -> None:
         "master_profiles_tombstoned": profiles_tombstoned,
         "users_tombstoned": users_tombstoned,
         "applications_tombstoned": applications_tombstoned,
+        "fact_pins_released": fact_pins_released,
         "cancelled_cvs_deleted": cancelled_cvs_deleted,
         "cancelled_cover_letters_deleted": cancelled_cover_letters_deleted,
         "cancelled_flows_tombstoned": cancelled_flows_tombstoned,

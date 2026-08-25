@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS applications (
     user_status TEXT NOT NULL DEFAULT 'tracking',
     submitted_cv_id TEXT,
     submitted_cover_letter_id TEXT,
+    pinned_facts TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
@@ -1085,3 +1086,52 @@ async def test_worker_report_includes_orphan_count(db, local_storage, monkeypatc
 
     report = _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert report["orphan_files_deleted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ADR-077 clause 7 — fact-pin quote release on tombstoned applications
+# ---------------------------------------------------------------------------
+
+
+async def _seed_app_with_pins(db, *, deleted: bool) -> str:
+    aid = _uid()
+    pins = '[{"pin_id": "p1", "entry_type": "skill", "entry_id": "e1", "quote": "Kubernetes", "targets": ["cv"], "stale": false}]'
+    await db.execute(
+        text(
+            "INSERT INTO applications "
+            "(id, user_id, job_analysis_id, workflow_status, user_status, "
+            " pinned_facts, created_at, updated_at, expires_at, deleted_at) "
+            "VALUES (:id, :uid, :jid, 'none', 'applied', :pins, :now, :now, :exp, :del)"
+        ),
+        {"id": aid, "uid": _uid(), "jid": _uid(), "pins": pins,
+         "now": _ts(_now()), "exp": _ts(_now() + timedelta(days=700)),
+         "del": _ts(_now()) if deleted else None},
+    )
+    await db.commit()
+    return aid
+
+
+@pytest.mark.asyncio
+async def test_release_fact_pins_clears_quotes_on_tombstoned_applications(db):
+    from applire.retention.worker import _release_fact_pins
+
+    dead = await _seed_app_with_pins(db, deleted=True)
+    released = await _release_fact_pins(db)
+    assert released == 1
+    row = await db.execute(
+        text("SELECT pinned_facts FROM applications WHERE id = :id"), {"id": dead}
+    )
+    assert row.scalar_one() is None
+
+
+@pytest.mark.asyncio
+async def test_release_fact_pins_spares_live_applications(db):
+    from applire.retention.worker import _release_fact_pins
+
+    alive = await _seed_app_with_pins(db, deleted=False)
+    released = await _release_fact_pins(db)
+    assert released == 0
+    row = await db.execute(
+        text("SELECT pinned_facts FROM applications WHERE id = :id"), {"id": alive}
+    )
+    assert row.scalar_one() is not None
