@@ -197,6 +197,37 @@ def pin_present_in_letter(pin: FactPin, letter: LetterData) -> bool:
     return quote_norm in _norm_quote(body)
 
 
+def letter_pin_present_in_dict(pin: FactPin, letter_data: dict) -> bool:
+    """Dict-shaped twin of :func:`pin_present_in_letter` for the audit path
+    (the persisted ``letter_data`` JSONB, overrides already applied)."""
+    quote_norm = _norm_quote(pin.quote)
+    if not quote_norm:
+        return False
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    text = " ".join(p for p in (paragraphs or []) if isinstance(p, str))
+    return quote_norm in _norm_quote(text)
+
+
+def pinned_facts_positioning_entry(pins: Iterable[FactPin]) -> dict | None:
+    """ADR-077 clause 3 — the ``positioning_requested["pinned_facts"]`` entry.
+
+    The reviewer requires it (check 4 names the key), the corrector preserves
+    it. None when no active letter pin exists, so the key is absent rather
+    than empty (the scope_positioning gating precedent)."""
+    selected = active_pins(pins, "letter")
+    if not selected:
+        return None
+    quotes = "; ".join(f'"{p.quote}"' for p in selected)
+    return {
+        "required": True,
+        "instruction": (
+            "The candidate PINNED these facts — each must appear in the "
+            f"letter, woven naturally, never extended: {quotes}"
+        ),
+    }
+
+
 # ── Carrier partition input (clause 4) ───────────────────────────────────────
 
 

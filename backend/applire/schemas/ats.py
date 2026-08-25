@@ -82,6 +82,9 @@ class PinnedFactReportEntry(BaseModel):
     quote: str
     present: bool
     stale: bool = False
+    # ADR-077 clause 2 / SF-PIN.6: a truth floor (letter_figure_guard et al.)
+    # deleted the carrier — correct by hierarchy (truth > pin), never silent.
+    removed_by_truth_floor: bool = False
 
 
 class ATSReport(BaseModel):

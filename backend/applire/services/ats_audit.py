@@ -936,6 +936,8 @@ def _audit_letter_text(
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
     vault_text_norm: str | None = None,
+    pins: list | None = None,
+    truth_floor_hits: set[str] | frozenset[str] = frozenset(),
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -979,7 +981,39 @@ def _audit_letter_text(
                                 "letterPages": letter_pages},
             ))
 
-    return _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    # ── E056/ADR-077 clauses 2+3+5: pin presence + floor escalation ─────────
+    # Measured over the override-applied letter body (the letter twin of the
+    # CV seam); a truth-floor deletion is named on its entry (SF-PIN.6), and
+    # a failed length band with present pins carries the structured driver.
+    pin_entries = None
+    if pins:
+        from applire.schemas.ats import PinnedFactReportEntry
+        from applire.services.pin_reach import letter_pin_present_in_dict
+
+        pin_entries = []
+        for pin in pins:
+            if "letter" not in pin.targets:
+                continue
+            present = (not pin.stale) and letter_pin_present_in_dict(
+                pin, letter_data
+            )
+            pin_entries.append(PinnedFactReportEntry(
+                pin_id=pin.pin_id,
+                entry_type=pin.entry_type,
+                quote=pin.quote,
+                present=present,
+                stale=pin.stale,
+                removed_by_truth_floor=pin.pin_id in truth_floor_hits,
+            ))
+        present_count = sum(1 for e in pin_entries if e.present)
+        page_check = next((c for c in checks if c.id == "page-length"), None)
+        if page_check is not None and page_check.status == "fail" and present_count:
+            page_check.driver = {"pinned_facts": present_count}
+
+    report = _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    if pin_entries is not None:
+        report.pinned_facts = pin_entries
+    return report
 
 
 def audit_cover_letter(
@@ -988,6 +1022,8 @@ def audit_cover_letter(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     vault_text_norm: str | None = None,
+    pins: list | None = None,
+    truth_floor_hits: set[str] | frozenset[str] = frozenset(),
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -1005,4 +1041,5 @@ def audit_cover_letter(
     return _audit_letter_text(
         text, letter_data, keywords, ledger, page_count=page_count,
         vault_text_norm=vault_text_norm,
+        pins=pins, truth_floor_hits=truth_floor_hits,
     )

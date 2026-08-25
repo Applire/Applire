@@ -169,7 +169,11 @@ _SIGNAL_CUES: tuple[tuple[SignalClass, re.Pattern[str]], ...] = (
         SignalClass.UNADDRESSED_REQUIREMENT,
         re.compile(
             r"unaddressed|hard requirement|positioning_requested|required content|"
-            r"gap[_\s]transfer|company_domain_engagement|scope_positioning",
+            r"gap[_\s]transfer|company_domain_engagement|scope_positioning|"
+            # E056/ADR-077: a pin finding must not misclassify to OTHER —
+            # the positioning key is `pinned_facts`, reviewer prose says
+            # "pinned fact".
+            r"pinned[_\s]fact",
             re.IGNORECASE,
         ),
     ),
