@@ -127,6 +127,43 @@ const REPORT_ALL_PASS: ATSReport = {
   },
 };
 
+// E056/ADR-077 clauses 3+5: per-pin presence measurement — present, unmet
+// (present=false), stale, and truth-floor-removed all render distinctly.
+const REPORT_WITH_PINNED_FACTS: ATSReport = {
+  checks: [{ id: "contact-name", status: "pass" }],
+  keywords: { present: [], missing: [] },
+  pinned_facts: [
+    { pin_id: "p1", entry_type: "work", quote: "Led a team of 8 engineers", present: true, stale: false },
+    { pin_id: "p2", entry_type: "skill", quote: "Kubernetes", present: false, stale: false },
+    { pin_id: "p3", entry_type: "certification", quote: "PMP", present: false, stale: true },
+    {
+      pin_id: "p4",
+      entry_type: "signature_story",
+      quote: "Cut deployment time by 90%",
+      present: false,
+      stale: false,
+      removed_by_truth_floor: true,
+    },
+  ],
+};
+
+// #238 page-length driver (ADR-077 clause 5): a failing page-length check
+// carrying a structured driver — N present pinned facts occupy space the
+// condense loop was forbidden to reclaim.
+const REPORT_PAGE_LENGTH_WITH_PIN_DRIVER: ATSReport = {
+  checks: [
+    {
+      id: "page-length",
+      status: "fail",
+      details: "3 pages — exceeds the DACH norm of 2 pages (max 2)",
+      details_key: "page-length-exceeds",
+      details_params: { pages: 3, region: "DACH", standard: 2, max: 2 },
+      driver: { pinned_facts: 2 },
+    },
+  ],
+  keywords: { present: [], missing: [] },
+};
+
 describe("ATSChecksPanel", () => {
   // Case 1: failed checks render inline on the compact card — visible without any interaction
   it("renders failed checks inline with data-testid ats-check-<id> and details", () => {
@@ -454,5 +491,61 @@ describe("ATSChecksPanel", () => {
   it("stays silent when no skills-weak-vault-tie check is present", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_ADVISORY} />));
     expect(screen.queryByTestId("ats-advisory-skills-weak-vault-tie")).toBeNull();
+  });
+
+  // E056/ADR-077 — per-pin presence measurement.
+  describe("pinned facts", () => {
+    it("renders a row per pin with present/unmet, stale and truth-floor status", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_PINNED_FACTS} />));
+      expect(screen.getByTestId("ats-pinned-facts")).toBeInTheDocument();
+
+      // present=true: no "unmet" marker
+      expect(screen.getByTestId("ats-pinned-fact-p1")).toBeInTheDocument();
+      expect(screen.queryByTestId("ats-pinned-fact-unmet-p1")).toBeNull();
+
+      // present=false: the unmet marker renders
+      expect(screen.getByTestId("ats-pinned-fact-unmet-p2")).toBeInTheDocument();
+
+      // stale
+      expect(screen.getByTestId("ats-pinned-fact-stale-p3")).toBeInTheDocument();
+
+      // removed_by_truth_floor (hierarchy: truth > pin, surfaced never silent)
+      expect(screen.getByTestId("ats-pinned-fact-floor-p4")).toBeInTheDocument();
+    });
+
+    it("localises the pinned-facts section and statuses into German", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_PINNED_FACTS} />, "de"));
+      expect(screen.getByTestId("ats-pinned-facts").textContent).toContain("Angeheftete Fakten");
+      expect(screen.getByTestId("ats-pinned-fact-unmet-p2").textContent).toContain(
+        "nicht im Dokument",
+      );
+      expect(screen.getByTestId("ats-pinned-fact-stale-p3").textContent).toContain("Veraltet");
+      expect(screen.getByTestId("ats-pinned-fact-floor-p4").textContent).toContain(
+        "durch Wahrheits-Prüfung entfernt",
+      );
+    });
+
+    it("stays silent when the report carries no pin context (legacy reports)", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+      expect(screen.queryByTestId("ats-pinned-facts")).toBeNull();
+    });
+
+    it("renders the structured page-length driver line under the failing check", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_PAGE_LENGTH_WITH_PIN_DRIVER} />));
+      const driverLine = screen.getByTestId("ats-check-page-length-pin-driver");
+      expect(driverLine.textContent).toContain("2");
+      expect(driverLine.textContent).toContain("pinned facts");
+    });
+
+    it("localises the page-length driver line into German (ICU plural)", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_PAGE_LENGTH_WITH_PIN_DRIVER} />, "de"));
+      const driverLine = screen.getByTestId("ats-check-page-length-pin-driver");
+      expect(driverLine.textContent).toContain("angeheftete Fakten");
+    });
+
+    it("does not render the driver line when the check carries no driver", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
+      expect(screen.queryByTestId("ats-check-contact-phone-pin-driver")).toBeNull();
+    });
   });
 });
