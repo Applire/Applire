@@ -3649,6 +3649,28 @@ async def _update_ats_report(
         profile_json = profile_row.profile_json if profile_row else None
         vault_text_norm = profile_literal_corpus(profile_json) or None
         vault_skill_forms = _vault_skill_forms_for_audit(profile_json)
+        # E056/ADR-077 clauses 3+5+7: load the application's fact pins so the
+        # audit measures per-pin presence against the override-applied content.
+        # Loaded HERE — inside the one implementation all three doors share
+        # (generation, section-editor re-audit, agent render) — so no door can
+        # be forgotten (SF-PIN.5, rule-against-one-of-N). Fail-safe: a pin
+        # load failure audits without pins, never fails the audit.
+        audit_pins: list = []
+        try:
+            from applire.services.application import get_application_for_job
+            from applire.services.color_detection import _CE_STUB_USER_ID
+            from applire.services.fact_pins import load_pins
+
+            pin_app = await get_application_for_job(
+                record.job_analysis_id, _CE_STUB_USER_ID, db
+            )
+            if pin_app is not None and pin_app.pinned_facts:
+                audit_pins = load_pins(pin_app)
+        except Exception:
+            logger.exception(
+                "fact-pin load failed during ATS audit for CV %s — auditing "
+                "without pins (ADR-077 fail-safe)", record.id,
+            )
         record.ats_report = _audit_cv_text(
             text,
             tailored,
@@ -3660,6 +3682,7 @@ async def _update_ats_report(
             condensation_exhausted=condensation_exhausted,
             vault_text_norm=vault_text_norm,
             vault_skill_forms=vault_skill_forms,
+            pins=audit_pins,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)

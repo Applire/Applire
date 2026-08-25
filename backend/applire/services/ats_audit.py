@@ -653,6 +653,7 @@ def _audit_cv_text(
     condensation_exhausted: bool = False,
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
+    pins: list | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -847,7 +848,39 @@ def _audit_cv_text(
                                 "standard": standard, "max": maximum},
             ))
 
-    return _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    # ── E056/ADR-077 clauses 3+5: pin presence + the structured driver ──────
+    # Measured HERE because `tailored` is the override-applied content every
+    # `_update_ats_report` door hands in (SF-PIN.5: the single seam covers the
+    # generation door, the section-editor re-audit door and the agent door).
+    pin_entries = None
+    if pins:
+        from applire.schemas.ats import PinnedFactReportEntry
+        from applire.services.pin_reach import pin_present_in_cv
+
+        pin_entries = []
+        for pin in pins:
+            if "cv" not in pin.targets:
+                continue
+            present = (not pin.stale) and pin_present_in_cv(pin, tailored)
+            pin_entries.append(PinnedFactReportEntry(
+                pin_id=pin.pin_id,
+                entry_type=pin.entry_type,
+                quote=pin.quote,
+                present=present,
+                stale=pin.stale,
+            ))
+        present_count = sum(1 for e in pin_entries if e.present)
+        page_check = next((c for c in checks if c.id == "page-length"), None)
+        if page_check is not None and page_check.status == "fail" and present_count:
+            # The bands themselves are UNCHANGED (incl. #238); the driver is
+            # additive machine-readable context: N pinned facts occupy space
+            # the condense loop was forbidden to reclaim.
+            page_check.driver = {"pinned_facts": present_count}
+
+    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    if pin_entries is not None:
+        report.pinned_facts = pin_entries
+    return report
 
 
 def audit_cv(
@@ -860,6 +893,7 @@ def audit_cv(
     condensation_exhausted: bool = False,
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
+    pins: list | None = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
