@@ -1427,6 +1427,7 @@ def _tailor_skills_to_jd(
     keyword_ledger: list[dict] | None,
     *,
     cap: int = CV_MAX_SKILLS,
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#192: present a prioritised, JD-relevant SUBSET of the candidate's skills.
 
@@ -1520,12 +1521,36 @@ def _tailor_skills_to_jd(
         elif skill_tokens(s) > skill_tokens(deduped[dup]):
             deduped[dup] = s
 
+    # ADR-077 clause 4 (pass-inventory disposition): a skill carrying an
+    # active CV skill/certification/language pin is kept even past the cap —
+    # the skills-section mount of "pin carriers never enter the removable
+    # set". Containment via the shared _norm_quote fold, scoped to THIS
+    # section (a skill pin never protects anything outside it).
+    _pin_quotes: list[str] = []
+    for _p in pins:
+        if getattr(_p, "stale", False) or "cv" not in getattr(_p, "targets", ()):
+            continue
+        if getattr(_p, "entry_type", "") in ("skill", "certification", "language"):
+            from applire.services.scope_requirements import _norm_quote
+
+            qn = _norm_quote(_p.quote)
+            if qn:
+                _pin_quotes.append(qn)
+
+    def _is_pinned_skill(s: str) -> bool:
+        if not _pin_quotes:
+            return False
+        from applire.services.scope_requirements import _norm_quote
+
+        sn = _norm_quote(s)
+        return any(q in sn for q in _pin_quotes)
+
     # Stable sort by tier (required lead the section); keep all tier-0 even past the cap,
     # then fill remaining slots up to `cap` in tier order — tier-3 (no relevance) drops first.
     ranked = sorted(enumerate(deduped), key=lambda it: (_tier(it[1]), it[0]))
     selected: list[str] = []
     for _, s in ranked:
-        if _tier(s) == 0 or len(selected) < cap:
+        if _tier(s) == 0 or _is_pinned_skill(s) or len(selected) < cap:
             selected.append(s)
 
     if selected == tailored_skills:
@@ -3020,7 +3045,9 @@ def _compose_document(
     # language pass (so it ranks the final target-language tags): guarantees the
     # JD-required skills the candidate actually has, drops no-relevance tags over
     # the cap, and never invents a skill.
-    tailored = _tailor_skills_to_jd(tailored, profile_json, job_dict, keyword_ledger)
+    tailored = _tailor_skills_to_jd(
+        tailored, profile_json, job_dict, keyword_ledger, pins=pins
+    )
 
     # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any
     # skill name the ADR-038 language pass mangled (e.g. "GxP" expanded to

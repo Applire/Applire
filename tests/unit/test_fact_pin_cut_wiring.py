@@ -185,3 +185,37 @@ def test_restore_overflow_branch_spares_the_pinned_bullet():
     kept = result.work_history[0].bullets
     assert PINNED_BULLET in kept
     assert "Migrated the stack to Kubernetes" in kept
+
+
+# ── _tailor_skills_to_jd (the skills-section cap — clause-4 pass inventory) ──
+
+
+def test_pinned_skill_survives_the_skills_cap():
+    from applire.services.cv import _tailor_skills_to_jd
+
+    pin = FactPin(
+        pin_id=str(uuid.uuid4()),
+        entry_type="skill",
+        entry_id="s1",
+        quote="Sauberraumtechnik",
+    )
+    tailored = TailoredCVData.model_validate({
+        "contact": {"name": "X"},
+        "work_history": [],
+        # JD-irrelevant pinned skill listed LAST — tier 3, cut first without the guard
+        "skills": ["React", "Node.js", "Sauberraumtechnik"],
+    })
+    job_dict = {"required_skills": ["React", "Node.js"], "nice_to_have_skills": [], "keywords": []}
+    profile_json = {"skills": [
+        {"name": "React"}, {"name": "Node.js"}, {"name": "Sauberraumtechnik"},
+    ]}
+    out = _tailor_skills_to_jd(
+        tailored, profile_json, job_dict, None, cap=2, pins=[pin]
+    )
+    assert "Sauberraumtechnik" in out.skills
+
+    # negative control: without the pin the cap drops it
+    out_unpinned = _tailor_skills_to_jd(
+        tailored, profile_json, job_dict, None, cap=2
+    )
+    assert "Sauberraumtechnik" not in out_unpinned.skills
