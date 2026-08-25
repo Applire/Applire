@@ -687,30 +687,49 @@ async def backfill_entry_ids(db: AsyncSession) -> int:
 
 
 async def _sweep_fact_pins(db: AsyncSession, profile: MasterProfileData) -> None:
-    """Re-verify every application's fact pins against the just-written vault."""
+    """Re-verify every application's fact pins against the just-written vault.
+
+    Fail-safe: the vault write is this transaction's purpose — a sweep failure
+    (e.g. a partial test schema without the applications table) is logged and
+    swallowed, never allowed to fail the write. The degraded path is honest:
+    generation-start re-verification (ADR-077 clause 7) recomputes staleness
+    before any pin reaches a document.
+    """
     from sqlalchemy import select
 
     from applire.models.application import Application
     from applire.services.fact_pins import load_pins, refresh_pin_staleness
 
-    result = await db.execute(
-        select(Application).where(
-            Application.deleted_at.is_(None),
-            Application.pinned_facts.isnot(None),
-        )
-    )
-    for app_row in result.scalars():
-        pins = load_pins(app_row)
-        if not pins:
-            continue
-        refreshed, changed = refresh_pin_staleness(pins, profile)
-        if changed:
-            app_row.pinned_facts = [p.model_dump(mode="json") for p in refreshed]
-            await db.flush()
-            logger.info(
-                "fact-pin sweep (ADR-077): staleness moved on application %s "
-                "(%d stale of %d)",
-                app_row.id,
-                sum(1 for p in refreshed if p.stale),
-                len(refreshed),
+    try:
+        # SAVEPOINT, not a bare try: on PostgreSQL a failed statement aborts
+        # the whole transaction — a swallowed error without the savepoint
+        # would silently lose the vault write this transaction exists for.
+        async with db.begin_nested():
+            result = await db.execute(
+                select(Application).where(
+                    Application.deleted_at.is_(None),
+                    Application.pinned_facts.isnot(None),
+                )
             )
+            for app_row in result.scalars():
+                pins = load_pins(app_row)
+                if not pins:
+                    continue
+                refreshed, changed = refresh_pin_staleness(pins, profile)
+                if changed:
+                    app_row.pinned_facts = [
+                        p.model_dump(mode="json") for p in refreshed
+                    ]
+                    await db.flush()
+                    logger.info(
+                        "fact-pin sweep (ADR-077): staleness moved on "
+                        "application %s (%d stale of %d)",
+                        app_row.id,
+                        sum(1 for p in refreshed if p.stale),
+                        len(refreshed),
+                    )
+    except Exception:
+        logger.exception(
+            "fact-pin sweep skipped — query/write failed (ADR-077 fail-safe; "
+            "generation-start re-verify remains the backstop)"
+        )
