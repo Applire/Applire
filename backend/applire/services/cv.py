@@ -1263,7 +1263,8 @@ def _restore_ledger_bullets(
 
 
 def _prefer_measured_outcomes(
-    tailored: TailoredCVData, profile_json: dict, lang: str = "de"
+    tailored: TailoredCVData, profile_json: dict, lang: str = "de",
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#261 — prefer MEASURED OUTCOMES over TARGETS for the same initiative.
 
@@ -1312,6 +1313,29 @@ def _prefer_measured_outcomes(
         new_bullets = prefer_measured_outcomes_for_owner(
             list(w.bullets), owner_id, index.units, lang
         )
+        # ADR-077 clause 4 (pass-inventory disposition): this pass REWRITES
+        # bullets, so a pin carrier could be dropped/reframed by it. The pin
+        # is the user's verbatim priority — it outranks this quality
+        # preference; a carried bullet that would vanish reverts the whole
+        # entry to its original bullets (protection inside the existing pass,
+        # never a new writer — ADR-076).
+        if new_bullets != w.bullets and pins:
+            from applire.services.pin_reach import bullet_pin_carrier_indices
+
+            def _lost_a_pin(old: list[str], new: list[str]) -> bool:
+                for pin in pins:
+                    had = bullet_pin_carrier_indices(
+                        old, entry_id=owner_id, pins=[pin]
+                    )
+                    still = bullet_pin_carrier_indices(
+                        new, entry_id=owner_id, pins=[pin]
+                    )
+                    if had and not still:
+                        return True
+                return False
+
+            if _lost_a_pin(list(w.bullets), new_bullets):
+                new_bullets = list(w.bullets)
         if new_bullets != w.bullets:
             changed = True
             new_work.append(w.model_copy(update={"bullets": new_bullets}))
@@ -3021,7 +3045,7 @@ def _compose_document(
     # MEASURED outcome over a bare target/projection for the same initiative
     # (owner-scoped via the #196/#244 attribution machinery). MUST run after
     # _restore_ledger_bullets so a restored vault bullet is also covered.
-    tailored = _prefer_measured_outcomes(tailored, profile_json, language)
+    tailored = _prefer_measured_outcomes(tailored, profile_json, language, pins=pins)
 
     # #172: collapse near-duplicate skill tags (the shared ats_audit
     # predicate) so the CV is clean even when the master profile still
