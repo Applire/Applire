@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 // Copyright (C) 2024-2026 Tobias Rosenbaum
 //
 // This file is part of Applire.
@@ -40,17 +42,33 @@ export function PartialDateField({ id, label, value, onChange, disabled }: Parti
   const t = useTranslations("profile");
   const parsed = parsePartialDate(value);
   const isLegacy = parsed === "legacy";
-  const year = parsed && parsed !== "legacy" ? String(parsed.year) : "";
-  const month = parsed && parsed !== "legacy" && parsed.month !== null ? String(parsed.month).padStart(2, "0") : "";
+  // A month chosen BEFORE the year cannot live in `value` (no year -> null,
+  // H1.9), so it is held here until a 4-digit year arrives; otherwise the
+  // month silently vanished when the user filled the fields left-to-right
+  // (found on the 2026-08-25 real-browser pass).
+  const [pendingMonth, setPendingMonth] = useState("");
+  // The year input keeps what the user is typing ("20", "201") until it is a
+  // full year — emitting `null` for a partial year must not blank the field.
+  const [draftYear, setDraftYear] = useState<string | null>(null);
+  const parsedYear = parsed && parsed !== "legacy" ? String(parsed.year) : "";
+  const year = draftYear ?? parsedYear;
+  const parsedMonth =
+    parsed && parsed !== "legacy" && parsed.month !== null ? String(parsed.month).padStart(2, "0") : "";
+  const month = parsedMonth || pendingMonth;
 
   function emit(nextYear: string, nextMonth: string) {
     const trimmedYear = nextYear.trim();
     if (!/^\d{4}$/.test(trimmedYear)) {
       // No 4-digit year -> nothing the picker can represent; the canonical
-      // "unknown" value is null, NEVER an empty string (H1.9).
+      // "unknown" value is null, NEVER an empty string (H1.9). Keep the
+      // month the user already chose for when the year arrives.
+      setPendingMonth(nextMonth);
+      setDraftYear(trimmedYear === "" ? null : nextYear);
       onChange(null);
       return;
     }
+    setDraftYear(null);
+    setPendingMonth("");
     const yearNum = Number(trimmedYear);
     if (nextMonth === "") {
       onChange(formatPartialDate({ year: yearNum, month: null }));

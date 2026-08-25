@@ -275,15 +275,6 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                   : t("educationEditor.dialogTitleEdit")}
               </h3>
 
-              {staleNotice && (
-                <p
-                  data-testid="education-entry-stale-notice"
-                  className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
-                >
-                  {t("entryEditor.staleNotice")}
-                </p>
-              )}
-
               <div className="space-y-3">
                 <div>
                   <label
@@ -376,6 +367,14 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                   allowReorder={false}
                 />
 
+                {staleNotice && (
+                  <p
+                    data-testid="education-entry-stale-notice"
+                    className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
+                  >
+                    {t("entryEditor.staleNotice")}
+                  </p>
+                )}
                 {validationError && (
                   <p className="text-sm text-critical" data-testid="education-entry-validation-error">
                     {validationError}

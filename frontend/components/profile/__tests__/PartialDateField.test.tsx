@@ -50,6 +50,35 @@ describe("PartialDateField", () => {
     expect(onChange).toHaveBeenLastCalledWith("2021-07");
   });
 
+  // H1.2 — a month chosen BEFORE the year must survive until the year
+  // arrives (real-browser finding 2026-08-25: it used to vanish, leaving
+  // "2018" where the user meant "2018-06").
+  it("keeps a month chosen before the year and emits YYYY-MM once the year arrives", () => {
+    const onChange = vi.fn();
+    render(withIntl(<ControlledField onChange={onChange} />));
+
+    fireEvent.change(screen.getByTestId("start-month"), { target: { value: "06" } });
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect((screen.getByTestId("start-month") as HTMLSelectElement).value).toBe("06");
+
+    fireEvent.change(screen.getByTestId("start-year"), { target: { value: "2018" } });
+
+    expect(onChange).toHaveBeenLastCalledWith("2018-06");
+  });
+
+  // A partially typed year must not be wiped by the null emission.
+  it("keeps a partially typed year visible while it is not yet four digits", () => {
+    const onChange = vi.fn();
+    render(withIntl(<ControlledField onChange={onChange} />));
+
+    fireEvent.change(screen.getByTestId("start-year"), { target: { value: "201" } });
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect((screen.getByTestId("start-year") as HTMLInputElement).value).toBe("201");
+
+    fireEvent.change(screen.getByTestId("start-year"), { target: { value: "2019" } });
+    expect(onChange).toHaveBeenLastCalledWith("2019");
+  });
+
   // H1.2 — year-only (month left at "—") emits YYYY.
   it("emits YYYY when only the year is set", () => {
     const onChange = vi.fn();

@@ -288,15 +288,6 @@ export function WorkExperienceEditor({
                 {dialog.index === null ? t("workEditor.dialogTitleAdd") : t("workEditor.dialogTitleEdit")}
               </h3>
 
-              {staleNotice && (
-                <p
-                  data-testid="work-entry-stale-notice"
-                  className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
-                >
-                  {t("entryEditor.staleNotice")}
-                </p>
-              )}
-
               <div className="space-y-3">
                 <div>
                   <label htmlFor="work-company" className="mb-1 block text-xs font-medium text-on-surface-variant">
@@ -416,6 +407,14 @@ export function WorkExperienceEditor({
                   allowReorder={false}
                 />
 
+                {staleNotice && (
+                  <p
+                    data-testid="work-entry-stale-notice"
+                    className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
+                  >
+                    {t("entryEditor.staleNotice")}
+                  </p>
+                )}
                 {validationError && (
                   <p className="text-sm text-critical" data-testid="work-entry-validation-error">
                     {validationError}
