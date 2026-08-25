@@ -906,6 +906,7 @@ def _cap_bullets(
     concept_groups: Sequence[Sequence[str]] = (),
     external_text: str = "",
     context: dict | None = None,
+    pinned: set[int] = frozenset(),
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -964,6 +965,8 @@ def _cap_bullets(
         keep=max_bullets,
         concept_groups=concept_groups,
         external_text=external_text,
+        # ADR-077 clause 4: fact-pin carriers never enter the removable set.
+        pinned=pinned,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -974,6 +977,7 @@ def _restore_ledger_bullets(
     profile_json: dict,
     keyword_ledger: list[dict] | None,
     budget: "BudgetResult | None",
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#234 (Tiramisu founder-acceptance F1/F2) — deterministic post-draft guard.
 
@@ -1172,6 +1176,7 @@ def _restore_ledger_bullets(
                 # a load-bearing restoration is restored precisely because its
                 # concept was verifiably absent, so it is a sole carrier too.
                 from applire.services.bullet_cuts import apply_cuts, log_cuts, rank_cuts
+                from applire.services.pin_reach import bullet_pin_carrier_indices
 
                 lb = set(restored_load_bearing)
                 cuts = rank_cuts(
@@ -1184,6 +1189,10 @@ def _restore_ledger_bullets(
                     keep=rb.max_bullets,
                     concept_groups=concept_groups,
                     external_text=_external_text(w_index, w_dict),
+                    # ADR-077 clause 4: fact-pin carriers are partitioned out.
+                    pinned=bullet_pin_carrier_indices(
+                        ordered, entry_id=eid, pins=pins
+                    ),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1222,11 +1231,16 @@ def _restore_ledger_bullets(
         # gone; #377 / ADR-067 clause 4). Untouched
         # (under-ceiling) entries keep their original bullets AND order exactly.
         if rb is not None and len(existing_bullets) > rb.max_bullets:
+            from applire.services.pin_reach import bullet_pin_carrier_indices
+
             capped = _cap_bullets(
                 existing_bullets, rb.max_bullets,
                 concept_groups=concept_groups,
                 external_text=_external_text(w_index, w_dict),
                 context={"work_entry_id": eid},
+                pinned=bullet_pin_carrier_indices(
+                    existing_bullets, entry_id=eid, pins=pins
+                ),
             )
             if capped != existing_bullets:
                 changed = True
