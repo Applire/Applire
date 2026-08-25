@@ -326,4 +326,54 @@ describe("WorkExperienceEditor", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
     expect(screen.getByTestId("work-experience-add")).toBeInTheDocument();
   });
+
+  // Adversarial pass 2026-08-25 — blocker: the focus effect re-fired on every
+  // keystroke and stole focus back to the first field mid-word.
+  it("keeps focus in the field being typed into", async () => {
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("work-entry-edit-0"));
+    const role = screen.getByTestId("work-field-role") as HTMLInputElement;
+    role.focus();
+    fireEvent.change(role, { target: { value: "Staff Engineer" } });
+    fireEvent.change(role, { target: { value: "Staff Engineer II" } });
+
+    expect(document.activeElement).toBe(role);
+    expect(role.value).toBe("Staff Engineer II");
+    expect((screen.getByTestId("work-field-company") as HTMLInputElement).value).toBe(FULL_ENTRY.company);
+  });
+
+  // Adversarial pass 2026-08-25 — major: two rapid Save clicks fired two PATCHes.
+  it("sends exactly one PATCH when Save is clicked twice quickly", async () => {
+    let resolveFetch: (value: Response) => void = () => {};
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("work-entry-edit-0"));
+    fireEvent.click(screen.getByTestId("work-entry-save"));
+    fireEvent.click(screen.getByTestId("work-entry-save"));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch(jsonResponse(200, { updated_at: "t2", profile: { work_experience: [FULL_ENTRY] } }));
+    await waitFor(() => expect(screen.queryByTestId("work-entry-dialog")).not.toBeInTheDocument());
+  });
+
+  // Adversarial pass 2026-08-25 — minor: whitespace-only bullets were persisted.
+  it("drops whitespace-only bullets and trims the rest before saving", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, { updated_at: "t2", profile: { work_experience: [FULL_ENTRY] } }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("work-entry-edit-0"));
+    fireEvent.change(screen.getByTestId("work-responsibilities-item-0"), { target: { value: "  kept  " } });
+    fireEvent.click(screen.getByTestId("work-responsibilities-add"));
+    fireEvent.change(screen.getByTestId("work-responsibilities-item-1"), { target: { value: "   " } });
+    fireEvent.click(screen.getByTestId("work-entry-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)[0];
+    expect(sent.responsibilities).toEqual(["kept"]);
+  });
 });

@@ -140,3 +140,15 @@ export function makeEmptyEducationEntry(): EducationEntry {
 export function cloneEntry<T>(entry: T): T {
   return JSON.parse(JSON.stringify(entry)) as T;
 }
+
+/**
+ * Trim every bullet and drop the empty ones — a whitespace-only bullet renders
+ * as an invisible list item and is never what the user meant (adversarial
+ * finding 2026-08-25). Pure, so the editors can normalise BEFORE validating.
+ */
+export function trimStringList(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}

@@ -34,6 +34,7 @@ import {
   nonEmptyText,
   type ProfileSectionsResponse,
 } from "@/lib/profile-entries";
+import { trimStringList } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
@@ -72,9 +73,19 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
 
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
 
+  // Focus the first field when the dialog OPENS — keyed on open-state and
+  // entry index, never on the `dialog` object itself: every keystroke
+  // replaces that object, and `[dialog]` re-fired the effect on each one,
+  // stealing focus back to the first field mid-word (adversarial finding
+  // 2026-08-25, blocker).
+  const dialogOpen = dialog !== null;
+  const dialogIndex = dialog?.index ?? -1;
   useEffect(() => {
-    if (dialog) firstFieldRef.current?.focus();
-  }, [dialog]);
+    if (dialogOpen) firstFieldRef.current?.focus();
+  }, [dialogOpen, dialogIndex]);
+  // Double-submit guard: `saving` is React state and lags a second click by a
+  // render; a ref closes the gap (two identical PATCHes were observed).
+  const inFlight = useRef(false);
 
   function openAdd() {
     setValidationError(null);
@@ -103,7 +114,9 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
 
   async function handleSubmit() {
     if (!dialog) return;
-    const { index, draft } = dialog;
+    if (inFlight.current) return;
+    const { index } = dialog;
+    const draft = { ...dialog.draft, relevant_coursework: trimStringList(dialog.draft.relevant_coursework) };
     const institution = (draft.institution ?? "").trim();
     const degree = (draft.degree ?? "").trim();
     if (!institution || !degree) {
@@ -122,6 +135,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
       savedEntryId = draft.id;
     }
 
+    inFlight.current = true;
     setSaving(true);
     setDialogError(null);
     setStaleNotice(false);
@@ -133,6 +147,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
       savedEntryId,
     });
     setSaving(false);
+    inFlight.current = false;
 
     if (result.status === "ok") {
       onProfileUpdated(result.profile);
