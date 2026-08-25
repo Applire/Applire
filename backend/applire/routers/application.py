@@ -17,13 +17,15 @@
 
 """Application router — Iteration 17
 
-6 endpoints:
+Endpoints:
   GET  /api/applications            — list user's pipeline
   POST /api/applications            — add job to tracking
   GET  /api/applications/{id}       — detail with flow state
   PATCH /api/applications/{id}      — update user-managed fields
   DELETE /api/applications/{id}     — remove from pipeline (soft-delete cascade)
   POST /api/applications/{id}/start — create FlowSession (deferred activation)
+  POST /api/applications/{id}/pins  — add one fact pin (E056/ADR-077, additive)
+  DELETE /api/applications/{id}/pins/{pin_id} — remove one fact pin (idempotent)
 """
 
 import uuid
@@ -36,12 +38,15 @@ from applire.auth.base import AuthProvider
 from applire.db.session import get_db
 from applire.models.application import UserStatus, WorkflowStatus
 from applire.schemas.application import (
+    AddFactPinRequest,
     ApplicationListResponse,
     ApplicationResponse,
     CreateApplicationRequest,
+    FactPin,
     PatchApplicationRequest,
 )
 from applire.schemas.application_mark_hired import MarkHiredResponse
+from applire.services.fact_pins import add_fact_pin, remove_fact_pin
 from applire.services.application import (
     ConflictError,
     create_application,
@@ -176,5 +181,49 @@ async def mark_hired(
     user = await auth.get_current_user(request)
     try:
         return await mark_application_hired(application_id, user.id, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post(
+    "/{application_id}/pins",
+    response_model=FactPin,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_pin(
+    application_id: uuid.UUID,
+    body: AddFactPinRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> FactPin:
+    """Add one fact pin (E056/ADR-077 clause 6 — additive, never list-replace).
+
+    422 when the quote does not resolve fail-closed inside the referenced
+    vault entry, on the MAX_FACT_PINS cap, and on duplicates.
+    """
+    user = await auth.get_current_user(request)
+    try:
+        return await add_fact_pin(application_id, user.id, body, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+@router.delete(
+    "/{application_id}/pins/{pin_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_pin(
+    application_id: uuid.UUID,
+    pin_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthProvider = Depends(get_auth_provider),
+) -> None:
+    """Remove one fact pin — idempotent (an absent pin_id is not an error)."""
+    user = await auth.get_current_user(request)
+    try:
+        await remove_fact_pin(application_id, user.id, pin_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
