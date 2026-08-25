@@ -45,6 +45,9 @@ import {
   type WorkEntryGapFields,
 } from "@/lib/profile-gaps";
 import { enrichmentSourceKey } from "@/lib/enrichment-sources";
+import { WorkExperienceEditor } from "@/components/profile/WorkExperienceEditor";
+import { EducationEditor } from "@/components/profile/EducationEditor";
+import type { EducationEntry, WorkEntry } from "@/lib/profile-entries";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -54,21 +57,10 @@ interface ProfileSection {
   phone?: string;
   location?: string;
   summary?: string;
-  work_experience?: Array<{
-    title?: string;
-    company?: string;
-    start_date?: string;
-    end_date?: string | null;
-    // #155 — tri-state current-position marker (true = ongoing, false = ended,
-    // null/undefined = unknown)
-    is_current?: boolean | null;
-    description?: string;
-  }>;
-  education?: Array<{
-    degree?: string;
-    institution?: string;
-    year?: string;
-  }>;
+  // US290 — the full WorkEntry/EducationEntry schema (id, role, achievements,
+  // technologies, etc.); the structured editors below round-trip every key.
+  work_experience?: WorkEntry[];
+  education?: EducationEntry[];
   skills?: string[];
   // #113(c) — `language` is the vault's field; `name` is a tolerated legacy alias.
   languages?: Array<{ language?: string; name?: string; level?: string }>;
@@ -152,6 +144,11 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
 // instead of rendering a "not provided" shell.
 const READ_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 const HIDE_WHEN_EMPTY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
+
+// US290 — work_experience/education get structured per-entry editors instead
+// of the generic whole-section JSON textarea; the section header's "Bearbeiten"
+// button (which drives that textarea) is suppressed for them.
+const ENTRY_EDITOR_SECTIONS: ReadonlySet<SectionKey> = new Set(["work_experience", "education"]);
 
 // F9.2 — a summary is "missing" only when NO language has one. A profile with an
 // English summary but no German one is NOT incomplete; the missing-language nuance
@@ -458,7 +455,7 @@ export default function ProfilePage() {
                   <h3 className="font-heading text-base font-semibold text-neutral-dark">
                     {t(SECTION_LABEL_KEYS[section])}
                   </h3>
-                  {!isEditing && !READ_ONLY_SECTIONS.has(section) && (
+                  {!isEditing && !READ_ONLY_SECTIONS.has(section) && !ENTRY_EDITOR_SECTIONS.has(section) && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -469,33 +466,29 @@ export default function ProfilePage() {
                   )}
                 </div>
 
-                {isEditing ? (
-                  <div className="space-y-3">
-                    <textarea
-                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark min-h-[120px] focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                    />
-                    {error && (
-                      <p className="text-sm text-critical">{error}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <Button onClick={handleSave} disabled={saving}>
-                        {saving ? t("saving") : tCommon("save")}
-                      </Button>
-                      <Button variant="outline" onClick={handleCancel}>
-                        {tCommon("cancel")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
+                {ENTRY_EDITOR_SECTIONS.has(section) ? (
                   <div className="text-sm text-gray-700">
-                    {/* F8 (#76): structured cards, never raw JSON; internal fields hidden. */}
-                    <ProfileSectionBody
-                      section={section}
-                      value={value}
-                      uiLanguage={uiLanguage}
-                    />
+                    {/* US290 — structured per-entry editors replace the raw-JSON
+                        textarea for exactly these two sections. */}
+                    {section === "work_experience" ? (
+                      <WorkExperienceEditor
+                        entries={(value as WorkEntry[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : (
+                      <EducationEditor
+                        entries={(value as EducationEntry[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    )}
                     {/* Per-entry enrichment affordance for work experience with gaps. */}
                     {section === "work_experience" && Array.isArray(value) && (
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -579,6 +572,34 @@ export default function ProfilePage() {
                           })}
                       </div>
                     )}
+                  </div>
+                ) : isEditing ? (
+                  <div className="space-y-3">
+                    <textarea
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark min-h-[120px] focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                    />
+                    {error && (
+                      <p className="text-sm text-critical">{error}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button onClick={handleSave} disabled={saving}>
+                        {saving ? t("saving") : tCommon("save")}
+                      </Button>
+                      <Button variant="outline" onClick={handleCancel}>
+                        {tCommon("cancel")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-700">
+                    {/* F8 (#76): structured cards, never raw JSON; internal fields hidden. */}
+                    <ProfileSectionBody
+                      section={section}
+                      value={value}
+                      uiLanguage={uiLanguage}
+                    />
                   </div>
                 )}
               </Card>
