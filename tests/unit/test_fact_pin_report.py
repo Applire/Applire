@@ -121,3 +121,16 @@ def test_passing_page_length_gets_no_driver():
     )
     page = next(c for c in report.checks if c.id == "page-length")
     assert page.status == "pass" and page.driver is None
+
+
+def test_audit_verdicts_do_not_branch_on_pinnedness():
+    """ADR-077 clause 2 (masquerade guard, direction 2): no audit path may
+    branch on pinned-ness — same document, with and without pins, yields
+    identical checks and keyword coverage; only the additive pin report and
+    the driver differ."""
+    tailored = _tailored([f"Delivered: {ACHIEVEMENT}"])
+    with_pins = _audit(tailored, pins=[_pin()], page_count=2, target=2)
+    without = _audit(tailored, pins=[], page_count=2, target=2)
+    strip = lambda r: [(c.id, c.status, c.details) for c in r.checks]
+    assert strip(with_pins) == strip(without)
+    assert with_pins.keywords == without.keywords

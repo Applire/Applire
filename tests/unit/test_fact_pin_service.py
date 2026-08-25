@@ -292,3 +292,31 @@ def test_refresh_clears_stale_when_the_quote_resolves_again():
     refreshed, changed = refresh_pin_staleness([pin], profile)
     assert changed is True
     assert refreshed[0].stale is False
+
+
+@pytest.mark.asyncio
+async def test_pinning_changes_nothing_but_the_pin_store(db, scene):
+    """ADR-077 clause 2 (masquerade guard, direction 1): a pin is a rendering
+    priority, not evidence — adding one touches the pin store and nothing
+    else (no vault write, no status upgrade)."""
+    import copy
+
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    record = (await db.execute(select(MasterProfile).limit(1))).scalar_one()
+    profile_before = copy.deepcopy(record.profile_json)
+    app = scene["application"]
+    status_before = (app.workflow_status, app.user_status)
+
+    req = AddFactPinRequest(
+        entry_type="work",
+        entry_id=_work_entry_id(scene["profile"]),
+        quote=ACHIEVEMENT,
+    )
+    await add_fact_pin(app.id, _STUB_USER_ID, req, db)
+
+    await db.refresh(record)
+    assert record.profile_json == profile_before  # vault untouched
+    assert (app.workflow_status, app.user_status) == status_before
+    assert len(app.pinned_facts) == 1

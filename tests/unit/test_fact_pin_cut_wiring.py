@@ -219,3 +219,52 @@ def test_pinned_skill_survives_the_skills_cap():
         tailored, profile_json, job_dict, None, cap=2
     )
     assert "Sauberraumtechnik" not in out_unpinned.skills
+
+
+# ── Clause-8 unit instruments ────────────────────────────────────────────────
+
+
+def test_overrun_instrument_pinned_fact_survives_and_driver_reports():
+    """ADR-077 clause 8, unit tier (the render_budget_overrun shape): the
+    unpinned condense cuts the fact; the pinned condense keeps it; the audit
+    of the still-over-target render carries the structured driver."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    bullets = [f"Filler bullet number {i}" for i in range(5)] + [PINNED_BULLET]
+    data = _cv([{"id": "r1", "bullets": list(bullets)}])
+    budget = _budget({"r1": 3})
+
+    unpinned, _ = condense_to_budget(data, budget, 1)
+    assert PINNED_BULLET not in unpinned["work_history"][0]["bullets"]
+
+    pinned, _ = condense_to_budget(data, budget, 1, pins=[_pin("r1")])
+    kept = pinned["work_history"][0]["bullets"]
+    assert PINNED_BULLET in kept
+
+    report = _audit_cv_text(
+        "text",
+        _tailored(kept, entry_id="r1"),
+        [],
+        None,
+        page_count=3,
+        target=2,
+        region="DACH",
+        condensation_exhausted=True,
+        pins=[_pin("r1")],
+    )
+    page = next(c for c in report.checks if c.id == "page-length")
+    assert page.status == "fail" and page.driver == {"pinned_facts": 1}
+    assert report.pinned_facts[0].present is True
+
+
+def test_ten_pin_probe_cap_and_partition_hold():
+    """ADR-077 clause 8 — the MAX_FACT_PINS probe at the partition."""
+    from applire.constants import MAX_FACT_PINS
+    from applire.services.bullet_cuts import apply_cuts, rank_cuts
+
+    texts = [f"Pinned fact {i}" for i in range(MAX_FACT_PINS)] + ["Filler A", "Filler B"]
+    tiers = [(0, -i) for i in range(len(texts))]
+    cuts = rank_cuts(texts, tiers, keep=5, pinned=set(range(MAX_FACT_PINS)))
+    survivors = apply_cuts(texts, cuts)
+    # All 10 pins survive a keep=5 ceiling (violated by design); the rest is cut.
+    assert survivors == texts[:MAX_FACT_PINS]
