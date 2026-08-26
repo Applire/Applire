@@ -174,6 +174,19 @@ def test_the_meta_sidecar_is_dropped():
     assert "_meta" not in prompt_profile_view(_profile_json())
 
 
+@pytest.mark.parametrize("meta_value", [{}, None, [], "", 0, False])
+def test_a_FALSY_excluded_key_is_dropped_too(meta_value):
+    """Adversarial finding (2026-08-26): every fixture gave `_meta` a truthy
+    value, so mutating the filter to `if k not in EXCLUDED or not v` — which
+    lets any falsy excluded key through — survived the whole suite. The
+    exclusion is by KEY, never by truthiness: `_meta` has `extra="allow"`, so
+    tomorrow's `_meta` may be falsy-but-present and must still not ride in.
+    """
+    src = _profile_json()
+    src["_meta"] = meta_value
+    assert "_meta" not in prompt_profile_view(src)
+
+
 def test_the_metadata_key_is_REMOVED_not_emptied_when_nothing_survives():
     """ADR-078 clause 2. An empty ``metadata: {}`` is noise in the prompt AND
     reads as a different claim — "this candidate has no history"."""
@@ -209,6 +222,21 @@ def test_malformed_shapes_never_raise(value):
     out = prompt_profile_view(value)
     if isinstance(value, dict):
         assert "metadata" not in out
+
+
+@pytest.mark.parametrize("value", [None, [], "", 0, 17, "a string"])
+def test_a_non_profile_is_returned_UNCHANGED_not_emptied(value):
+    """The docstring's contract for the non-dict branch, pinned.
+
+    Adversarial finding (2026-08-26): `test_malformed_shapes_never_raise`
+    asserted only that these inputs do not raise, so mutating
+    `return profile_json` to `return {}` survived the whole suite. The branch
+    is unreachable from today's five call sites — every one hands over a real
+    dict — but an unasserted contract is one refactor away from silently
+    swallowing a profile, and "returns unchanged" is what the docstring
+    promises. Identity, not just equality: the filter must not copy either.
+    """
+    assert prompt_profile_view(value) is value
 
 
 def test_a_profile_with_no_metadata_at_all_is_unchanged():
@@ -539,6 +567,28 @@ async def test_SEAM_letter_grounding_source_carries_no_audit_trail(letter_seeded
         assert "enrichment_history" not in source
     # …and the grounding is still grounding: the vault content must be there.
     assert any("DataCore Systems" in s for s in sources)
+    # The allowlist SURVIVOR must arrive too — exclusion alone is half the
+    # contract, and a view that dropped `denied_concepts` would pass every
+    # assertion above (adversarial finding, 2026-08-26). Asserted on the JSON
+    # dump specifically, not merely "somewhere in the source": `stated_limits`
+    # is folded into the same string by a second, independent channel
+    # (`collect_stated_limits`), which would otherwise mask the regression.
+    def _profile_block(src: str) -> dict:
+        # `grounding_source` is a JSON object with deterministic blocks appended
+        # after it, so a plain json.loads raises "Extra data" — decode the JSON
+        # PREFIX only. (Found while writing this assertion: a naive json.loads
+        # silently yielded {} and made the check pass vacuously in the direction
+        # that matters.)
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(src)
+        except ValueError:
+            return {}
+        return (obj or {}).get("profile") or {}
+
+    profile_blocks = [_profile_block(s) for s in sources]
+    assert any(
+        (b.get("metadata") or {}).get("denied_concepts") for b in profile_blocks
+    ), "the allowlisted denied_concepts did not survive into grounding_source"
 
     # The writer's cv_data on this branch IS the raw profile (defence in depth —
     # `build_cover_letter_prompt` reads named keys, so this changes no prompt today,
@@ -546,3 +596,70 @@ async def test_SEAM_letter_grounding_source_carries_no_audit_trail(letter_seeded
     cv_data = captured.get("cv_data")
     assert cv_data is not None, "the letter writer prompt was never built"
     assert RECEIPT_MARKER not in json.dumps(cv_data, ensure_ascii=False)
+
+
+# ───────────── tier 3c — the writer's TWO paths (ADR-047 fallback) ─────────
+#
+# Adversarial finding (2026-08-26): the CV seam test patches
+# `_tailor_cv_with_fallback` itself, so it proves what is handed TO that
+# function and never runs its body. Inside, `profile` reaches EITHER
+# `prompts/cv_tailoring.build_user_prompt` (single call) OR
+# `generate_cv_segmented`, which dumps it into FOUR more prompts
+# (`prompts/cv_segmented.py:124,248,291,329`). One filtered variable feeds all
+# five builders today — but "one of N implementations" is exactly the shape
+# that goes wrong later, so both branches get a test that actually executes.
+
+
+async def _run_writer(profile: dict, *, segmented: bool) -> dict:
+    """Run the REAL `_tailor_cv_with_fallback` and capture what each branch got."""
+    from applire.services.cv import _tailor_cv_with_fallback
+
+    captured: dict = {}
+
+    def fake_build_user_prompt(job_analysis, prof, *a, **kw):
+        captured["single_call_profile"] = prof
+        return "USER PROMPT"
+
+    async def fake_segmented(job_analysis, prof, *a, **kw):
+        captured["segmented_profile"] = prof
+        return _tailored_raw()
+
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(return_value=_tailored_raw())
+
+    with patch("applire.services.cv.build_user_prompt", side_effect=fake_build_user_prompt), \
+         patch("applire.services.cv.generate_cv_segmented", side_effect=fake_segmented), \
+         patch("applire.services.cv._should_segment_upfront",
+               new=AsyncMock(return_value=segmented)):
+        await _tailor_cv_with_fallback(
+            {"role_title": "Senior Backend Engineer", "required_skills": [],
+             "nice_to_have_skills": [], "keywords": [], "seniority_level": "senior",
+             "company_culture_signals": [], "language_requirement": "en"},
+            profile, [], output_language="en", provider=provider,
+        )
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_the_single_call_writer_path_receives_no_audit_trail():
+    captured = await _run_writer(prompt_profile_view(_profile_json()), segmented=False)
+    prof = captured.get("single_call_profile")
+    assert prof is not None, "the single-call builder was never reached"
+    assert RECEIPT_MARKER not in json.dumps(prof, ensure_ascii=False)
+    assert prof["work_experience"][0]["company"] == "DataCore Systems"
+
+
+@pytest.mark.asyncio
+async def test_the_SEGMENTED_writer_path_receives_the_same_filtered_profile():
+    """The ADR-047 fallback dumps the profile into four further prompts. It
+    must see exactly what the single-call path sees — a filter that landed on
+    one of the two branches would read as complete and ship a 200k prompt on
+    every truncation retry."""
+    view = prompt_profile_view(_profile_json())
+    single = (await _run_writer(view, segmented=False))["single_call_profile"]
+    segmented = (await _run_writer(view, segmented=True))["segmented_profile"]
+    assert RECEIPT_MARKER not in json.dumps(segmented, ensure_ascii=False)
+    assert segmented == single, (
+        "the segmented fallback and the single-call path disagree about what "
+        "the writer may see"
+    )
