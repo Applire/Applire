@@ -292,8 +292,18 @@ def build_user_prompt(
     # the labeled statements section below. (The idempotency fingerprint hashes
     # profile_json itself — services/gap.py — so this prompt-shape change does
     # not affect reuse.)
+    # ADR-078 clause 4 (2026-08-26): the strip below is now the SHARED prompt-facing
+    # view with an explicitly NARROWED allowlist, declared here at the call site
+    # rather than as a second implementation (ADR-066). `keep=frozenset()` — this
+    # chain excludes `metadata` ENTIRELY, denials included, which is stricter than
+    # the default view: the F4 reason above is exactly why. Same output as the
+    # former inline comprehension, plus the `_meta` sidecar (#505 N/A suppressions —
+    # bookkeeping by its own docstring), which the view drops for the same reason
+    # F4 gives.
+    from applire.services.prompt_view import prompt_profile_view
+
     profile = profile if isinstance(profile, dict) else {}
-    profile_wo_meta = {k: v for k, v in profile.items() if k != "metadata"}
+    profile_wo_meta = prompt_profile_view(profile, keep=frozenset())
     statements = _interview_statements(profile)
     statements_block = (
         f"{_STATEMENTS_LABEL}\n{json.dumps(statements, ensure_ascii=False, indent=2)}\n\n"
