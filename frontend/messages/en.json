@@ -192,6 +192,7 @@
     "docLanguageSaveError": "Could not save — please try again.",
     "pins": {
       "title": "Pinned facts ({count}/{max})",
+      "subtitle": "From your vault — unchanged. Pins beat the length budget, never the truthfulness check.",
       "addButton": "Pin a fact",
       "capReachedTitle": "Maximum of {max} pinned facts reached",
       "empty": "No facts pinned yet.",
@@ -216,6 +217,7 @@
       "dialogChooseEntry": "Choose an entry",
       "dialogChooseQuote": "Choose the quote",
       "dialogChooseTargets": "Applies to",
+      "dialogCvTargetUnavailable": "The CV has no section for this entry type — pin it for the cover letter only.",
       "dialogBack": "Back",
       "dialogLoading": "Loading your vault…",
       "dialogLoadError": "Your profile could not be loaded.",
@@ -224,7 +226,16 @@
       "dialogConfirm": "Pin fact",
       "dialogBusy": "Pinning…",
       "pinError": "Pinning failed:",
-      "pinErrorGeneric": "Pinning failed. Please try again."
+      "pinErrorGeneric": "Pinning failed. Please try again.",
+      "fate": {
+        "cvPresent": "in the CV",
+        "cvUnmet": "not in the CV",
+        "letterPresent": "in the cover letter",
+        "letterUnmet": "not in the cover letter",
+        "removedByTruthFloor": "removed by the truthfulness check",
+        "notMeasured": "not measured yet",
+        "ledgerConflict": "— do-not-claim term: {terms}"
+      }
     }
   },
   "interview": {
@@ -1189,7 +1200,8 @@
       "unmet": "not in the document",
       "stale": "Stale",
       "removedByTruthFloor": "removed by the truthfulness check",
-      "driverLine": "Length partly driven by {count, plural, one {# pinned fact} other {# pinned facts}}"
+      "driverLine": "Length partly driven by {count, plural, one {# pinned fact} other {# pinned facts}}",
+      "ledgerConflict": "— do-not-claim term: {terms}"
     }
   },
   "truthfulness": {
