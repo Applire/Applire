@@ -162,9 +162,12 @@ describe("ProfilePage", () => {
   it("offers a structured editor for every editable section and no JSON textarea", async () => {
     render(withIntl(<ProfilePage />, "en"));
 
-    await waitFor(() => expect(screen.getByText("CI/CD Migration")).toBeInTheDocument());
-    expect(screen.getByText("Zero-downtime schema migrations")).toBeInTheDocument();
-    expect(screen.getByText(/Hackerspace München/)).toBeInTheDocument();
+    // Editor rows join name and role into one text node ("CI/CD Migration · Lead Developer").
+    await waitFor(() =>
+      expect(screen.getAllByText(/CI\/CD Migration/).length).toBeGreaterThan(0),
+    );
+    expect(screen.getAllByText(/Zero-downtime schema migrations/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Hackerspace München/).length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toMatch(/expected_fields|proj-1|pub-1|vol-1/);
 
     for (const testId of [
@@ -178,9 +181,10 @@ describe("ProfilePage", () => {
     ]) {
       expect(screen.getByTestId(testId)).toBeInTheDocument();
     }
-    // The retired path: no whole-section textarea, no section-level "Edit"
-    // button that would serialise a section to JSON.
-    expect(document.querySelector("textarea")).toBeNull();
+    // The retired path: no whole-section textarea inside any section card (the
+    // #258 testimony intake keeps its own textarea outside the cards), and no
+    // section-level "Edit" button that would serialise a section to JSON.
+    expect(document.querySelector('[id^="section-"] textarea')).toBeNull();
     expect(screen.queryByRole("button", { name: /^Edit$/ })).not.toBeInTheDocument();
   });
 
