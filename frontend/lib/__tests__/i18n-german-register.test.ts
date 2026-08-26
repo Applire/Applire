@@ -80,6 +80,8 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "profile.fieldName",
   "profile.entryEditor.currentStatusLabel",
   "profile.educationEditor.fieldInstitution",
+  "profile.skillsEditor.fieldName",
+  "profile.certificationsEditor.fieldName",
   "coverLetter.recipientNamePlaceholder",
   "home.jdUrlTab",
   "dashboard.jdTabUrl",

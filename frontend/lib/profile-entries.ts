@@ -66,12 +66,66 @@ export interface EducationEntry {
   [key: string]: unknown;
 }
 
+/** Read-only provenance badge shown next to a skill/language/certification entry. */
+export type EntryStatus = "confirmed" | "unconfirmed" | "denied";
+
+/**
+ * US291 — Skill/Language/Certification mirror the backend Pydantic schemas
+ * verbatim (`Skill`/`Language`/`Certification`); an index signature keeps any
+ * unknown/legacy key round-tripping through the spread-based form state
+ * instead of being silently dropped (H1.3), exactly like WorkEntry/EducationEntry.
+ */
+export interface Skill {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  name: string;
+  category?: "technical" | "soft" | "language" | "domain";
+  proficiency?: "basic" | "intermediate" | "advanced" | "expert";
+  years_experience?: number | null;
+  /** Provenance of the number — NEVER editable on this door. */
+  source?: string | null;
+  last_used?: string | null;
+  /** NEVER editable on this door. */
+  experience_refs?: string[];
+  /** Read-only badge — never a form control (H2.1). */
+  status?: EntryStatus;
+  [key: string]: unknown;
+}
+
+export interface Language {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  /** The vault's canonical field — NOT `name` (H2.4). */
+  language: string;
+  level?: string | null;
+  /** Read-only badge — never a form control (H2.1). Languages are never "denied". */
+  status?: "confirmed" | "unconfirmed";
+  [key: string]: unknown;
+}
+
+export interface Certification {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  name: string;
+  issuing_organization?: string | null;
+  date_obtained?: string | null;
+  expiry_date?: string | null;
+  credential_id?: string | null;
+  credential_url?: string | null;
+  /** Read-only badge — never a form control (H2.1). Certifications are never "denied". */
+  status?: "confirmed" | "unconfirmed";
+  [key: string]: unknown;
+}
+
 /** The shape both GET /api/profile and PATCH /api/profile/{section} return. */
 export interface ProfileSectionsResponse {
   updated_at: string;
   profile: {
     work_experience?: WorkEntry[];
     education?: EducationEntry[];
+    skills?: Skill[];
+    languages?: Language[];
+    certifications?: Certification[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -133,6 +187,43 @@ export function makeEmptyEducationEntry(): EducationEntry {
     grade: null,
     thesis_title: null,
     relevant_coursework: [],
+  };
+}
+
+/**
+ * A brand-new skill/language/certification — deliberately carries no `id` key
+ * (H1.1) and an EXPLICIT `status: "confirmed"` (H2.2, PO ruling 2026-08-25):
+ * the user vouching for a fact they just typed is affirmative provenance,
+ * not silence, so it is never left to default/omitted.
+ */
+export function makeEmptySkill(): Skill {
+  return {
+    name: "",
+    category: "technical",
+    proficiency: "intermediate",
+    years_experience: null,
+    last_used: null,
+    status: "confirmed",
+  };
+}
+
+export function makeEmptyLanguage(): Language {
+  return {
+    language: "",
+    level: null,
+    status: "confirmed",
+  };
+}
+
+export function makeEmptyCertification(): Certification {
+  return {
+    name: "",
+    issuing_organization: null,
+    date_obtained: null,
+    expiry_date: null,
+    credential_id: null,
+    credential_url: null,
+    status: "confirmed",
   };
 }
 
