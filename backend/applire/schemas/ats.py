@@ -88,8 +88,10 @@ class PinnedFactReportEntry(BaseModel):
     # ADR-077 amended 2026-08-26 (#580): the Keyword Ledger's DO-NOT-CLAIM concepts
     # the pinned quote carries as whole tokens — a FACT about the quote (the same
     # fact that keeps the reviewer from demanding it), never a statement about
-    # why the pin is absent. `[]` = no conflict or no ledger.
-    ledger_conflict: list[str] = Field(default_factory=list)
+    # why the pin is absent. `[]` = measured, no conflict (or no ledger);
+    # `None` = the report predates the field and was never measured — a legacy
+    # report must not read as "genuinely clean" (adversarial pass 2026-08-26).
+    ledger_conflict: list[str] | None = None
 
 
 class ATSReport(BaseModel):

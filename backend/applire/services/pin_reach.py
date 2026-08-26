@@ -42,6 +42,7 @@ ship-and-report (clause 5), never a gate.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Iterable
 
 from applire.schemas.application import FactPin
@@ -387,11 +388,24 @@ def pin_ledger_conflicts(quote: str, keyword_ledger) -> list[str]:
 
     A fact about the quote, in ledger order, de-duplicated; ``[]`` without a
     ledger or without forbidden entries. Whether the quote *claims* the concept
-    is the reviewer's judgement (check 6(b)) and is never computed here."""
+    is the reviewer's judgement (check 6(b)) and is never computed here.
+
+    Hyphens INSIDE THE QUOTE are folded to spaces before matching (the same dash
+    class `_norm_quote` folds) — the adversarial pass of 2026-08-26 showed
+    "Kubernetes-based rollout" / "microservices-oriented" reading as no
+    conflict, because `term_present` keeps a hyphenated compound as one word
+    (right for a compliance demand: `Instandhaltungs-Sicherheit` must not
+    satisfy a bare `Sicherheit`). For THIS fact the directions are asymmetric:
+    a missed conflict lets the block DEMAND a pin that check 6(b) will strike
+    (the loop fights itself), a spurious conflict only withholds one demand and
+    names the term on the report — so the fold errs toward "conflict". The
+    term's own hyphens keep `term_present`'s rule (`back-end` ↔ `back end`)."""
     if not quote or not keyword_ledger:
         return []
     from applire.services.keyword_ledger import split_ledger_for_prompt
     from applire.services.review_compliance import term_present
+
+    quote_folded = re.sub(r"[-\u2010-\u2015\u2212]", " ", quote)
 
     _, forbidden = split_ledger_for_prompt(keyword_ledger)
     if not forbidden:
@@ -407,7 +421,7 @@ def pin_ledger_conflicts(quote: str, keyword_ledger) -> list[str]:
     for concept in forbidden:
         if concept in out:
             continue
-        if any(term_present(f, quote) for f in [concept, *forms_by_concept.get(concept, [])]):
+        if any(term_present(f, quote_folded) for f in [concept, *forms_by_concept.get(concept, [])]):
             out.append(concept)
     return out
 

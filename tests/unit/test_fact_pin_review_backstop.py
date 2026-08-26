@@ -154,6 +154,14 @@ def test_ledger_conflict_is_a_token_bounded_string_fact(fx):
     # claimable concepts never conflict
     assert pin_ledger_conflicts("Python and FastAPI expert", ledger) == []
     assert pin_ledger_conflicts("anything", None) == []
+    # adversarial pass 2026-08-26: a hyphenated compound in the QUOTE still carries
+    # the term — a missed conflict is the expensive direction (a demand that fights
+    # check 6(b)), so hyphens in the quote fold to spaces before matching
+    assert pin_ledger_conflicts("Led the Kubernetes-based rollout across three regions.", ledger) == ["Kubernetes"]
+    assert pin_ledger_conflicts("Delivered a microservices-oriented platform redesign.", ledger) == ["microservices"]
+    assert pin_ledger_conflicts("Owned the backend-heavy platform rewrite.", ledger) == ["backend"]
+    # the term's own hyphen keeps term_present's rule: `back-end` ↔ `back end`
+    assert pin_ledger_conflicts("Tuned the back end for throughput", ledger) == ["backend"]
 
 
 def test_non_authored_pin_types_are_never_demanded(fx):
@@ -360,6 +368,13 @@ def test_report_entry_carries_the_ledger_conflict_fact(fx):
         region="DACH", condensation_exhausted=False, pins=[long_pin],
     )
     assert report2.pinned_facts[0].ledger_conflict == []
+    # a report that predates the field reads as NOT MEASURED, never as "clean"
+    from applire.schemas.ats import PinnedFactReportEntry
+
+    legacy = PinnedFactReportEntry.model_validate(
+        {"pin_id": "p", "entry_type": "work", "quote": "q", "present": False}
+    )
+    assert legacy.ledger_conflict is None
 
 
 def test_letter_report_entry_carries_the_same_fact(fx):
