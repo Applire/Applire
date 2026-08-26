@@ -256,12 +256,28 @@ def build_reconcile_prompt(
 ) -> str:
     """Serialise the profile, the new info, and the source into a user prompt.
 
-    The whole profile is dumped (no RAG), INCLUDING entity `id`s so the model can
-    target existing entities. ``new_info`` is JSON-serialised if it is a dict/list,
-    otherwise passed through as text.
+    The whole profile's CONTENT is dumped (no RAG), INCLUDING entity `id`s so the
+    model can target existing entities. ``new_info`` is JSON-serialised if it is a
+    dict/list, otherwise passed through as text.
+
+    ADR-078 (#593): the vault's BOOKKEEPING is not dumped. `model_dump()` carries
+    `metadata` — and on a used profile `metadata.enrichment_history` dwarfs
+    everything else (138,946 of 144,624 chars measured 2026-08-26), which put this
+    prompt at 209,305 chars. It is the heaviest instance of the class because this
+    is a vault WRITE path: the model reads it to propose merge ops, so the audit
+    trail of previous merges was competing for attention with the profile those
+    merges produced. The filter is applied HERE rather than at the single caller so
+    that it cannot be bypassed by a second one. Nothing in this prompt reads
+    `metadata`: rule 9's STANCE is about denials in the NEW INFORMATION and
+    `"denials"` is an OUTPUT array, and the allowlisted `denied_concepts` survives
+    the view regardless.
     """
+    from applire.services.prompt_view import prompt_profile_view
+
     profile_json = json.dumps(
-        profile.model_dump(mode="json"), ensure_ascii=False, indent=2
+        prompt_profile_view(profile.model_dump(mode="json")),
+        ensure_ascii=False,
+        indent=2,
     )
 
     if isinstance(new_info, (dict, list)):

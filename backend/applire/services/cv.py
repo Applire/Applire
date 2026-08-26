@@ -2747,13 +2747,33 @@ async def _render_cv_background(
                 vault_evidence_items = []
 
             provider: LLMProvider = get_provider()
+
+            # ADR-078 (#593): what the MODEL sees is the vault's CONTENT, not its
+            # bookkeeping. `profile_json` below is the full generation copy every
+            # deterministic pass in this function reads (assembly, the certifications
+            # passthrough, the role-fact join, the restoration pools, the pin reach) —
+            # unchanged. `prompt_profile` is the same vault with `metadata` reduced to
+            # the ADR-078 allowlist and `_meta` dropped, and it is used at exactly the
+            # two places profile data becomes PROMPT TEXT: the writer call (both the
+            # single-call and segmented paths) and `source_material`, which the
+            # reviewer AND the corrector re-read every round. Before this, 138,946 of
+            # this profile's 144,624 chars were `metadata.enrichment_history` and the
+            # writer prompt measured 211,507 chars — nine calls of one generation over
+            # the debug log's 200,000-char field cap. Distinct from `exclude_unconfirmed`
+            # above (ADR-061 cl. 3), which filters CONTENT for the LLM *and* for the
+            # deterministic passes; this one is prompt-only, because those passes and
+            # the Keyword Ledger read `metadata` on purpose.
+            from applire.services.prompt_view import prompt_profile_view
+
+            prompt_profile = prompt_profile_view(profile_json)
+
             # Single call on the fast path; segmented (outline-then-expand) as the fallback
             # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
             # E049/ADR-067: both paths return the PROSE shape (summary / id-keyed work /
             # skills) — the vault facts are joined only after both LLM review chains.
             prose_draft: dict = await _tailor_cv_with_fallback(
                 job_dict,
-                profile_json,
+                prompt_profile,
                 keyword_gaps,
                 output_language=document_language,
                 provider=provider,
@@ -2766,7 +2786,7 @@ async def _render_cv_background(
                 pinned_facts_block=pinned_facts_block,
             )
 
-            source_material = _json.dumps(profile_json, ensure_ascii=False, indent=2)
+            source_material = _json.dumps(prompt_profile, ensure_ascii=False, indent=2)
             # #277: fold the SAME scoped-boundary block into the reviewer/retry source —
             # mirrors the ledger_block fold immediately below (US202+US213 precedent) —
             # so a review-loop retry (_build_cv_retry_prompt reads `source` as the

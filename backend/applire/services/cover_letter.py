@@ -696,7 +696,17 @@ async def _render_cover_letter_background(
                 # as the writer's evidence — an unconfirmed skill/language/
                 # certification must not reach the letter as though established.
                 from applire.services.profile.reconcile.stance import exclude_unconfirmed
-                cv_data = exclude_unconfirmed(profile.profile_json or {})
+                # ADR-078 (#593): DEFENCE IN DEPTH, not a measured reduction. On this
+                # branch the raw profile IS `cv_data`, the writer's prompt input — but
+                # `build_cover_letter_prompt` builds its CANDIDATE PROFILE block from
+                # NAMED keys (contact/summary/skills/work_history), so `metadata` does
+                # not reach that prompt today and this call changes no prompt. It is
+                # applied because the variable is a prompt input by name and by role:
+                # a builder that later dumps it whole would silently reopen #593 on a
+                # path nobody would think to re-measure. The letter's REVIEWER seam
+                # (`grounding_source`, below) is the one that actually carried it.
+                from applire.services.prompt_view import prompt_profile_view
+                cv_data = prompt_profile_view(exclude_unconfirmed(profile.profile_json or {}))
 
             # Auto-extract recipient if not provided
             pre_gen = dict(cl.pre_gen_inputs or {})
@@ -1106,13 +1116,22 @@ async def _render_cover_letter_background(
             # letter is shown. Source of truth = the grounded CV data + profile + the
             # candidate's OWN inputs (so user-stated facts are not false-flagged).
             from applire.services.profile.reconcile.stance import exclude_unconfirmed
+            from applire.services.prompt_view import prompt_profile_view
 
             grounding_source = json.dumps(
                 {
                     "cv_data": cv_data,
                     # ADR-061 clause 3: an unconfirmed vault entry must not count as
                     # grounding for the reviewer — it cannot back a letter sentence.
-                    "profile": exclude_unconfirmed(profile.profile_json) if profile is not None else {},
+                    # ADR-078 (#593): and the vault's BOOKKEEPING is not grounding at
+                    # all — `grounding_source` is built once and handed to the reviewer
+                    # and the corrector unchanged every round (§5.3.23), so every char
+                    # of the audit trail was paid for on each of them.
+                    "profile": (
+                        prompt_profile_view(exclude_unconfirmed(profile.profile_json))
+                        if profile is not None
+                        else {}
+                    ),
                     "candidate_inputs": {
                         k: pre_gen.get(k)
                         for k in ("motivation", "salary", "availability")
