@@ -56,6 +56,7 @@ type PersonalInfoBaseline = Record<FieldKey, string | null>;
 // input shapes): "DD.MM.YYYY" / "D.M.YYYY" or ISO "YYYY-MM-DD".
 const DATE_OF_BIRTH_PATTERN = /^(\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})$/;
 const GERMAN_DATE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
  * Send the date in the shape the backend STORES (ISO). The backend accepts
@@ -68,6 +69,39 @@ function toIsoDate(value: string): string {
   const m = GERMAN_DATE.exec(value);
   if (!m) return value;
   return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+
+/**
+ * F3 — the shape regex above accepts "31.02.1990": a well-formed but
+ * impossible calendar date. `Date` silently rolls such a date over into the
+ * next month (JS Date normalisation), so the only reliable check is a
+ * round-trip: build the date, then confirm the reported year/month/day
+ * still match what was typed.
+ */
+function isValidCalendarDate(isoDate: string): boolean {
+  const m = ISO_DATE.exec(isoDate);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
+/**
+ * F5 — a light client-side shape check: no whitespace, exactly one "@", and a
+ * "." somewhere inside the domain part (not its first or last character).
+ * Not a full RFC 5322 validator — just enough to catch an obviously mistyped
+ * address like "us er@example.com" before it reaches the backend.
+ */
+function isValidEmailShape(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const parts = value.split("@");
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (!local || !domain) return false;
+  const dotIndex = domain.indexOf(".");
+  return dotIndex > 0 && dotIndex < domain.length - 1;
 }
 
 interface DialogState {
@@ -132,6 +166,18 @@ export function PersonalInfoEditor({
     if (dialogOpen) nameFieldRef.current?.focus();
   }, [dialogOpen]);
 
+  // F2 — a failed save (422) leaves focus stuck outside the dialog, so the
+  // element-level onKeyDown never sees the Escape keystroke. A document-level
+  // listener closes the gap without replacing the element-level handler.
+  useEffect(() => {
+    if (!dialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDialog();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialogOpen]);
+
   function openDialog() {
     setValidationError(null);
     setDialogError(null);
@@ -159,8 +205,19 @@ export function PersonalInfoEditor({
       setValidationError(t("entryEditor.validationRequired"));
       return;
     }
+    const email = dialog.draft.email.trim();
+    if (email && !isValidEmailShape(email)) {
+      setValidationError(t("personalInfoEditor.validationEmail"));
+      return;
+    }
     const dob = dialog.draft.date_of_birth.trim();
     if (dob && !DATE_OF_BIRTH_PATTERN.test(dob)) {
+      setValidationError(t("personalInfoEditor.validationDateOfBirth"));
+      return;
+    }
+    // F3 — the shape regex above accepts "31.02.1990"; a round-trip through
+    // the ISO form catches an impossible calendar date the regex cannot see.
+    if (dob && !isValidCalendarDate(toIsoDate(dob))) {
       setValidationError(t("personalInfoEditor.validationDateOfBirth"));
       return;
     }

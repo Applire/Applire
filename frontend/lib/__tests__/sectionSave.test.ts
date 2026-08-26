@@ -212,6 +212,23 @@ describe("saveProfileSection", () => {
     if (result.status === "invalid") expect(result.message).toBe("company must not be blank");
   });
 
+  // F3 — a raw Pydantic validation dump must never reach the user verbatim;
+  // returning "" routes every caller to its translated generic error.
+  it("blanks out a 422 detail that looks like a raw Pydantic validation dump", async () => {
+    const dump =
+      "1 validation error for MasterProfileData\npersonal_info.date_of_birth\n  Input should be a valid date [type=date_from_datetime_parsing]";
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: dump }));
+    const result = await saveProfileSection({
+      apiBase: "http://api",
+      section: "work_experience",
+      entries: [],
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("invalid");
+    if (result.status === "invalid") expect(result.message).toBe("");
+  });
+
   it("classifies any other non-ok status as a generic error", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(500, {}));
     const result = await saveProfileSection({

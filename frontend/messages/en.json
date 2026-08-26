@@ -730,6 +730,7 @@
       "genericError": "The section could not be saved. Please try again.",
       "removeEntryTitle": "Remove this entry?",
       "removeEntryBody": "This entry will be permanently removed from your profile.",
+      "removeEntryBodyNamed": "“{label}” will be permanently removed from your profile.",
       "editEntryAria": "Edit {label}",
       "removeEntryAria": "Remove {label}",
       "statusConfirmed": "confirmed",
@@ -758,6 +759,7 @@
       "fieldDateOfBirth": "Date of birth",
       "dateOfBirthPlaceholder": "DD.MM.YYYY",
       "validationDateOfBirth": "Please enter a valid date (DD.MM.YYYY or YYYY-MM-DD).",
+      "validationEmail": "Please enter a valid email address.",
       "fieldLinkedin": "LinkedIn",
       "fieldXing": "XING",
       "fieldWebsite": "Website"

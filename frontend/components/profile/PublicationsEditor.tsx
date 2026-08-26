@@ -46,6 +46,15 @@ interface DialogState {
   draft: Publication;
 }
 
+interface PendingRemove {
+  /** Fallback identity for legacy id-less entries only — see F1. */
+  index: number;
+  /** Non-empty entry id when available; the removal is keyed on THIS, not the index. */
+  id: string | null;
+  /** Raw entry label, or null when nothing nameable was on the entry (H2 F1c). */
+  label: string | null;
+}
+
 interface PublicationsEditorProps {
   entries: Publication[];
   apiBase: string;
@@ -71,7 +80,8 @@ export function PublicationsEditor({
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [staleNotice, setStaleNotice] = useState(false);
   const [mismatchNotice, setMismatchNotice] = useState(false);
-  const [pendingRemoveIndex, setPendingRemoveIndex] = useState<number | null>(null);
+  const [listStaleNotice, setListStaleNotice] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<PendingRemove | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -83,6 +93,28 @@ export function PublicationsEditor({
     if (dialogOpen) firstFieldRef.current?.focus();
   }, [dialogOpen, dialogIndex]);
   const inFlight = useRef(false);
+
+  // F2 — a failed save (422) leaves focus stuck outside the dialog, so the
+  // element-level onKeyDown never sees the Escape keystroke. A document-level
+  // listener closes the gap without replacing the element-level handler.
+  useEffect(() => {
+    if (!dialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDialog();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialogOpen]);
+
+  const removeDialogOpen = pendingRemove !== null;
+  useEffect(() => {
+    if (!removeDialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setPendingRemove(null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [removeDialogOpen]);
 
   function openAdd() {
     setValidationError(null);
@@ -178,8 +210,13 @@ export function PublicationsEditor({
   }
 
   async function confirmRemove() {
-    if (pendingRemoveIndex === null) return;
-    const nextEntries = entries.filter((_, i) => i !== pendingRemoveIndex);
+    if (!pendingRemove) return;
+    // F1 — key the removal on the entry's id whenever it has one; the index
+    // is only a fallback for legacy id-less entries (see WorkExperienceEditor).
+    const nextEntries =
+      pendingRemove.id !== null
+        ? entries.filter((e) => e.id !== pendingRemove.id)
+        : entries.filter((_, i) => i !== pendingRemove.index);
     setRemoveBusy(true);
     setRemoveError(null);
     const result = await saveProfileSection<ProfileSectionsResponse>({
@@ -192,12 +229,14 @@ export function PublicationsEditor({
 
     if (result.status === "ok") {
       onProfileUpdated(result.profile);
-      setPendingRemoveIndex(null);
+      setPendingRemove(null);
       return;
     }
     if (result.status === "stale") {
+      // F1 — close the confirm dialog rather than retrying on a stale index.
       onProfileUpdated(result.current);
-      setRemoveError(t("entryEditor.staleNotice"));
+      setPendingRemove(null);
+      setListStaleNotice(true);
       return;
     }
     if (result.status === "invalid") {
@@ -217,16 +256,25 @@ export function PublicationsEditor({
           {t("entryEditor.mismatchNotice")}
         </div>
       )}
+      {listStaleNotice && (
+        <div
+          data-testid="publications-stale-notice"
+          className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
+        >
+          {t("entryEditor.staleNotice")}
+        </div>
+      )}
 
       {entries.length === 0 ? (
         <p className="text-gray-400 italic text-sm">{t("notProvided")}</p>
       ) : (
         <ul className="space-y-2">
           {entries.map((p, i) => {
-            const label = nonEmptyText(p.title) ? p.title : t("notProvided");
+            const rawLabel = nonEmptyText(p.title) ? p.title : null;
+            const label = rawLabel ?? t("notProvided");
             return (
               <li
-                key={p.id ?? i}
+                key={nonEmptyText(p.id) ? p.id : i}
                 className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-lg border border-outline-variant bg-white px-3 py-2"
               >
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -261,7 +309,11 @@ export function PublicationsEditor({
                     aria-label={t("entryEditor.removeEntryAria", { label })}
                     onClick={() => {
                       setRemoveError(null);
-                      setPendingRemoveIndex(i);
+                      setPendingRemove({
+                        index: i,
+                        id: nonEmptyText(p.id) ? p.id : null,
+                        label: rawLabel,
+                      });
                     }}
                     className="text-xs font-medium text-critical hover:underline"
                   >
@@ -460,7 +512,7 @@ export function PublicationsEditor({
           document.body,
         )}
 
-      {pendingRemoveIndex !== null &&
+      {pendingRemove !== null &&
         createPortal(
           <div
             role="dialog"
@@ -469,12 +521,16 @@ export function PublicationsEditor({
             data-testid="publication-entry-remove-dialog"
             className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
             onKeyDown={(e) => {
-              if (e.key === "Escape") setPendingRemoveIndex(null);
+              if (e.key === "Escape") setPendingRemove(null);
             }}
           >
             <div className="w-full rounded-t-2xl bg-white p-6 shadow-xl md:max-w-md md:rounded-xl">
               <h3 className="mb-2 text-base font-bold text-on-surface">{t("entryEditor.removeEntryTitle")}</h3>
-              <p className="mb-4 text-sm text-on-surface-variant">{t("entryEditor.removeEntryBody")}</p>
+              <p className="mb-4 text-sm text-on-surface-variant">
+                {pendingRemove.label
+                  ? t("entryEditor.removeEntryBodyNamed", { label: pendingRemove.label })
+                  : t("entryEditor.removeEntryBody")}
+              </p>
               {removeError && (
                 <p className="mb-3 text-sm text-critical" data-testid="publication-entry-remove-error">
                   {removeError}
@@ -485,7 +541,7 @@ export function PublicationsEditor({
                   type="button"
                   data-testid="publication-entry-remove-cancel"
                   disabled={removeBusy}
-                  onClick={() => setPendingRemoveIndex(null)}
+                  onClick={() => setPendingRemove(null)}
                   className="rounded-lg border border-outline-variant px-4 py-2 text-[13px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-50"
                 >
                   {tCommon("cancel")}

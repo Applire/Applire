@@ -107,6 +107,18 @@ export function SummaryEditor({
     if (dialogOpen) deFieldRef.current?.focus();
   }, [dialogOpen]);
 
+  // F2 — a failed save (422) leaves focus stuck outside the dialog, so the
+  // element-level onKeyDown never sees the Escape keystroke. A document-level
+  // listener closes the gap without replacing the element-level handler.
+  useEffect(() => {
+    if (!dialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDialog();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialogOpen]);
+
   function openDialog() {
     setDialogError(null);
     setStaleNotice(false);

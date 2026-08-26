@@ -157,7 +157,16 @@ async function patchSection<TProfile extends ProfileSectionsResponseLike>(
       responseBody = undefined;
     }
     const detail = (responseBody as { detail?: unknown } | undefined)?.detail;
-    return { kind: "invalid", message: typeof detail === "string" ? detail : "" };
+    const message = typeof detail === "string" ? detail : "";
+    // A raw Pydantic validation dump ("1 validation error for
+    // MasterProfileData\n...") is not user-facing text — it is multi-line,
+    // English-only, and exposes internal schema names. Every caller's
+    // `result.message || t("entryEditor.genericError")` fallback already
+    // handles an empty message, so returning "" here routes every editor to
+    // its translated generic error instead of rendering the dump verbatim
+    // (adversarial finding 2026-08-26, F3).
+    const isPydanticDump = message.includes("validation error for");
+    return { kind: "invalid", message: isPydanticDump ? "" : message };
   }
 
   if (!res.ok) {

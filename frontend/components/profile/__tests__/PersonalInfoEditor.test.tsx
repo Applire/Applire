@@ -334,4 +334,143 @@ describe("PersonalInfoEditor", () => {
 
     expect(document.activeElement).toBe(emailField);
   });
+
+  // F2 (major) — a failed save leaves focus outside the dialog; Escape must
+  // still close it via a document-level listener.
+  it("closes the dialog on a document-level Escape after a failed (422) save", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: "phone is invalid" }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-phone"), { target: { value: "+49 30 000" } });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+    await screen.findByTestId("personal-info-dialog-error");
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(screen.queryByTestId("personal-info-dialog")).not.toBeInTheDocument();
+  });
+
+  // F3 — a well-formed but impossible calendar date ("31.02.1990") passes the
+  // shape regex; only a round-trip through the ISO form catches it.
+  it("rejects a well-formed but impossible calendar date (31.02.1990)", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-date-of-birth"), {
+      target: { value: "31.02.1990" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    expect(await screen.findByTestId("personal-info-validation-error")).toHaveTextContent(
+      "Please enter a valid date",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts 29.02.2024 (leap year)", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor({ ...FULL_INFO, date_of_birth: null });
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-date-of-birth"), {
+      target: { value: "29.02.2024" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ date_of_birth: "2024-02-29" });
+  });
+
+  it("rejects 29.02.2023 (not a leap year)", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-date-of-birth"), {
+      target: { value: "29.02.2023" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    expect(await screen.findByTestId("personal-info-validation-error")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // F3 — a raw Pydantic validation dump must never reach the user verbatim;
+  // sectionSave.ts blanks it out, so the editor falls back to its generic error.
+  it("shows the generic error, not a raw Pydantic dump, on a 422 validation-error response", async () => {
+    const dump =
+      "1 validation error for MasterProfileData\npersonal_info.date_of_birth\n  Input should be a valid date [type=date_from_datetime_parsing]";
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: dump }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-phone"), { target: { value: "+49 30 000" } });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    const errorEl = await screen.findByTestId("personal-info-dialog-error");
+    expect(errorEl.textContent).not.toContain("validation error for");
+    expect(errorEl.textContent).not.toContain("MasterProfileData");
+    expect(errorEl).toHaveTextContent("The section could not be saved. Please try again.");
+  });
+
+  // F5 (minor) — a space inside the local part is an obviously mistyped email.
+  it("rejects an email with a space (\"us er@example.com\")", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-email"), {
+      target: { value: "us er@example.com" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    expect(await screen.findByTestId("personal-info-validation-error")).toHaveTextContent(
+      "valid email address",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a well-formed email", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-email"), {
+      target: { value: "new@example.com" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ email: "new@example.com" });
+  });
+
+  it("leaves an emptied email allowed (no validation error)", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor(FULL_INFO);
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-email"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("personal-info-validation-error")).not.toBeInTheDocument();
+  });
 });

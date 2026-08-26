@@ -284,4 +284,116 @@ describe("ProjectsEditor", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
     expect(screen.getByTestId("projects-add")).toBeInTheDocument();
   });
+
+  it("cancelling the remove confirmation sends nothing", () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("project-remove-0"));
+    fireEvent.click(screen.getByTestId("project-entry-remove-cancel"));
+    expect(screen.queryByTestId("project-entry-remove-dialog")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Adversarial pass 2026-08-26 — F1 (blocker, reproduced live: the user
+  // selected "Project Beta", the retry deleted an unrelated entry). A
+  // stale-conflict retry on Remove must never leave the confirm dialog open
+  // on the same index.
+  it("on a 409 during confirmRemove, closes the confirm dialog, reloads via onProfileUpdated, and shows a list-level stale notice", async () => {
+    const current = { updated_at: "t3", profile: { projects: [FULL_ENTRY] } };
+    const fetchMock = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { onProfileUpdated } = renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("project-remove-0"));
+    fireEvent.click(screen.getByTestId("project-entry-remove-confirm"));
+
+    await waitFor(() => expect(screen.getByTestId("projects-stale-notice")).toBeInTheDocument());
+    expect(screen.queryByTestId("project-entry-remove-dialog")).not.toBeInTheDocument();
+    expect(onProfileUpdated).toHaveBeenCalledWith(current);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // F1 — the removal is keyed on the entry's id, not on its position. This is
+  // the exact live-reproduced defect: "Project Beta" selected, but an
+  // index-based filter removed whatever now sat at that position.
+  it("removes 'Project Beta' by id even when the list has been reordered since the confirm dialog opened", async () => {
+    const projectAlpha: ProjectEntry = { ...FULL_ENTRY, id: "p-alpha", name: "Project Alpha" };
+    const projectBeta: ProjectEntry = { ...FULL_ENTRY, id: "p-beta", name: "Project Beta" };
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { projects: [projectAlpha] } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { rerender } = render(withIntl(
+      <ProjectsEditor
+        entries={[projectAlpha, projectBeta]}
+        apiBase="http://api"
+        profileUpdatedAt="2026-08-25T09:00:00Z"
+        onProfileUpdated={vi.fn()}
+      />,
+    ));
+
+    // The user opens the confirm dialog on "Project Beta" (index 1)...
+    fireEvent.click(screen.getByTestId("project-remove-1"));
+
+    // ...then the list reorders before they confirm.
+    rerender(withIntl(
+      <ProjectsEditor
+        entries={[projectBeta, projectAlpha]}
+        apiBase="http://api"
+        profileUpdatedAt="2026-08-25T09:00:00Z"
+        onProfileUpdated={vi.fn()}
+      />,
+    ));
+
+    fireEvent.click(screen.getByTestId("project-entry-remove-confirm"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    // An index-based filter would have removed whatever sits at index 1 AFTER
+    // the reorder (projectAlpha) — leaving Beta behind by mistake.
+    expect(sent).toEqual([projectAlpha]);
+  });
+
+  // F1c — the confirm dialog names the entry being removed.
+  it("names the entry in the remove confirmation body", () => {
+    renderEditor([FULL_ENTRY]);
+    fireEvent.click(screen.getByTestId("project-remove-0"));
+    expect(screen.getByTestId("project-entry-remove-dialog").textContent).toContain(
+      "Internal Tooling Revamp",
+    );
+  });
+
+  // F2 (major) — a failed save leaves focus outside the dialog; Escape must
+  // still close it via a document-level listener.
+  it("closes the dialog on a document-level Escape after a failed (422) save", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(422, { detail: "name must not be blank" }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_ENTRY]);
+
+    fireEvent.click(screen.getByTestId("project-edit-0"));
+    fireEvent.click(screen.getByTestId("project-entry-save"));
+    await screen.findByTestId("project-entry-dialog-error");
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(screen.queryByTestId("project-entry-dialog")).not.toBeInTheDocument();
+  });
+
+  // F4 — two id-less legacy entries (id: "") must not collide on their React key.
+  it("renders two rows for two projects sharing an empty id, without a key warning", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const a: ProjectEntry = { ...FULL_ENTRY, id: "", name: "Alpha Project" };
+    const b: ProjectEntry = { ...FULL_ENTRY, id: "", name: "Beta Project" };
+    renderEditor([a, b]);
+
+    expect(screen.getByTestId("project-edit-0")).toBeInTheDocument();
+    expect(screen.getByTestId("project-edit-1")).toBeInTheDocument();
+    const keyWarning = errorSpy.mock.calls.some((call) =>
+      call.some((arg) => typeof arg === "string" && arg.includes("same key")),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
+  });
 });

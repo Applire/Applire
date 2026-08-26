@@ -730,6 +730,7 @@
       "genericError": "Der Abschnitt konnte nicht gespeichert werden. Bitte versuche es erneut.",
       "removeEntryTitle": "Eintrag entfernen?",
       "removeEntryBody": "Dieser Eintrag wird endgültig aus deinem Profil entfernt.",
+      "removeEntryBodyNamed": "„{label}“ wird endgültig aus deinem Profil entfernt.",
       "editEntryAria": "{label} bearbeiten",
       "removeEntryAria": "{label} entfernen",
       "statusConfirmed": "bestätigt",
@@ -758,6 +759,7 @@
       "fieldDateOfBirth": "Geburtsdatum",
       "dateOfBirthPlaceholder": "TT.MM.JJJJ",
       "validationDateOfBirth": "Bitte ein gültiges Datum angeben (TT.MM.JJJJ oder JJJJ-MM-TT).",
+      "validationEmail": "Bitte eine gültige E-Mail-Adresse angeben.",
       "fieldLinkedin": "LinkedIn",
       "fieldXing": "XING",
       "fieldWebsite": "Webseite"
