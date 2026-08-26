@@ -547,5 +547,42 @@ describe("ATSChecksPanel", () => {
       render(withIntl(<ATSChecksPanel report={REPORT_WITH_FAILURES} />));
       expect(screen.queryByTestId("ats-check-contact-phone-pin-driver")).toBeNull();
     });
+
+    // #580: ledger_conflict is a fact about the QUOTE (the job's do-not-claim
+    // terms it carries), appended to the unmet marker so the report and the
+    // pin control (PinnedFactsPanel) say the same thing.
+    const REPORT_WITH_LEDGER_CONFLICT: ATSReport = {
+      checks: [{ id: "contact-name", status: "pass" }],
+      keywords: { present: [], missing: [] },
+      pinned_facts: [
+        {
+          pin_id: "p5",
+          entry_type: "skill",
+          quote: "Kubernetes",
+          present: false,
+          stale: false,
+          ledger_conflict: ["microservices"],
+        },
+      ],
+    };
+
+    it("appends the do-not-claim term to the unmet marker when ledger_conflict is present", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_LEDGER_CONFLICT} />));
+      const unmet = screen.getByTestId("ats-pinned-fact-unmet-p5");
+      expect(unmet.textContent).toContain("not in the document");
+      expect(unmet.textContent).toContain("do-not-claim term: microservices");
+    });
+
+    it("localises the do-not-claim term into German", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_LEDGER_CONFLICT} />, "de"));
+      const unmet = screen.getByTestId("ats-pinned-fact-unmet-p5");
+      expect(unmet.textContent).toContain("Nicht-behaupten-Begriff: microservices");
+    });
+
+    it("omits the do-not-claim suffix when ledger_conflict is empty or absent", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_PINNED_FACTS} />));
+      const unmet = screen.getByTestId("ats-pinned-fact-unmet-p2");
+      expect(unmet.textContent).not.toContain("do-not-claim");
+    });
   });
 });
