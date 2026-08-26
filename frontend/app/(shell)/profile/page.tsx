@@ -45,6 +45,7 @@ import {
   type WorkEntryGapFields,
 } from "@/lib/profile-gaps";
 import { enrichmentSourceKey } from "@/lib/enrichment-sources";
+import { sectionForFieldRef } from "@/lib/profile-sections";
 import { WorkExperienceEditor } from "@/components/profile/WorkExperienceEditor";
 import { EducationEditor } from "@/components/profile/EducationEditor";
 import { SkillsEditor } from "@/components/profile/SkillsEditor";
@@ -235,27 +236,10 @@ export default function ProfilePage() {
   };
 
   // Map a health issue to the profile section it concerns, so "Resolve" can take
-  // the user straight to the editable section that needs attention.
-  const sectionForIssue = (issue: HealthIssue): SectionKey => {
-    const ref = (issue.field_ref ?? "").toLowerCase();
-    if (ref.includes("skill")) return "skills";
-    if (ref.includes("summary")) return "professional_summary";
-    if (ref.includes("cert")) return "certifications";
-    if (ref.includes("educat")) return "education";
-    if (ref.includes("language") || ref.includes("lang")) return "languages";
-    if (
-      ref.includes("work") ||
-      ref.includes("experience") ||
-      ref.includes("role") ||
-      ref.includes("title") ||
-      ref.includes("company") ||
-      ref.includes("date") ||
-      ref.includes("budget") ||
-      ref.includes("team")
-    )
-      return "work_experience";
-    return "skills";
-  };
+  // the user straight to the section (and its structured editor) that needs
+  // attention — lib/profile-sections.ts, unit-tested.
+  const sectionForIssue = (issue: HealthIssue): SectionKey =>
+    sectionForFieldRef(issue.field_ref);
 
   const handleResolve = (issue: HealthIssue) => {
     setResolveIssue(issue);
