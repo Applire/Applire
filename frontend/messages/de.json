@@ -832,7 +832,7 @@
       "dialogTitleEdit": "Projekt bearbeiten",
       "fieldName": "Name *",
       "fieldRole": "Rolle",
-      "fieldAssociatedExperience": "Zugehörige Station",
+      "fieldAssociatedExperience": "Zugehörige Tätigkeit (Job oder Ehrenamt)",
       "fieldLocation": "Ort",
       "fieldDescription": "Beschreibung",
       "fieldUrl": "URL"
