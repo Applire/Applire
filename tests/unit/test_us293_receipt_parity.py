@@ -209,6 +209,30 @@ def test_todays_editor_body_differs_from_the_pre_epic_body_where_the_epic_change
         assert editor == pre_epic, "update/rename/remove send the complete list on both eras"
 
 
+def test_the_skeleton_abstracts_the_label_span_not_a_substring():
+    """Found by the US293 browser pass: the summary editor's receipt names the
+    key `de`, which is also a substring of "Added". A substring replace turned
+    "Added de in professional_summary" into "Ad<label>d <label> in <section>"
+    and the live receipt read as a different form. The abstraction must take
+    the exact ` {field} in {section} ` span the committer writes."""
+    record = {
+        "source": "manual_edit",
+        "changes": [
+            {
+                "section": "professional_summary",
+                "field": "de",
+                "action": "added",
+                "rationale": "Added de in professional_summary (manual section edit).",
+                "rationale_key": "manual_section_added",
+                "old_value": None,
+                "new_value": "Deutsch.",
+            }
+        ],
+    }
+    change = rec.skeleton(rec.receipt_shape(record))["changes"][0]
+    assert change["rationale"] == "Added <label> in <section> (manual section edit)."
+
+
 def test_the_list_sections_share_one_receipt_form_per_op():
     """The section-generic form `projects` is pinned against must BE one
     form: if any recorded list section diverged, the sibling comparison

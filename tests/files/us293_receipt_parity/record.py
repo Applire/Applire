@@ -481,8 +481,13 @@ def skeleton(shape: dict) -> dict:
     out = {k: shape[k] for k in ("source", "source_session_id", "confidence", "reconciliation")}
     changes = []
     for c in shape["changes"]:
-        rationale = c["rationale"] or ""
-        rationale = rationale.replace(c["field"], "<label>").replace(c["section"], "<section>")
+        # Abstract the exact "<verb> {field} in {section}" span the committer
+        # writes (`_section_change`) — never a bare substring replace: a
+        # label like "de" also occurs inside "Added" (found by the US293
+        # browser pass on the summary editor).
+        rationale = (c["rationale"] or "").replace(
+            f" {c['field']} in {c['section']} ", " <label> in <section> ", 1
+        )
         changes.append(
             {
                 "action": c["action"],
