@@ -407,3 +407,14 @@ def test_a_second_entry_with_the_same_natural_key_gets_its_own_id():
     assert ids[0] == stored["id"]
     assert ids[1] != stored["id"]
     assert len(set(ids)) == 2
+
+
+def test_projects_is_an_editable_section():
+    """ADR-063 amended 2026-08-25 (E055/US292, JF-F-H3.2): `projects` joins the
+    manual vocabulary — its first manual editor. The #480 PR 3 exclusion was
+    scope discipline, not a design reason; the natural key and the persisted
+    id were already declared, so the op needs nothing new."""
+    assert "projects" in VAULT_SECTIONS
+    assert "projects" not in OBJECT_SECTIONS
+    ReplaceSection(section="projects", value=[])
+    build_replace_section_op("projects", [{"name": "CI/CD Migration"}])

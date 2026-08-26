@@ -1064,12 +1064,12 @@ async def create_application(
 
 @mcp.tool(
     description=(
-        "Update user-managed fields; omitted fields stay unchanged. "
+        "Update user-managed fields (omitted ones stay unchanged). "
         f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
-        "submitted_cv_id/submitted_cover_letter_id record the sent document. "
-        "dismiss_stale_cv=true mutes the stale-CV hint. language_override: "
+        "submitted_cv_id/submitted_cover_letter_id: the sent document. "
+        "dismiss_stale_cv=true mutes the stale hint. language_override: "
         "'de'/'en'/'auto'. add_fact_pin {entry_type, entry_id, quote, "
-        "targets?} pins a verbatim vault quote so generation must keep it; "
+        "targets?} pins a verbatim vault quote generation must keep; "
         "remove_fact_pin: pin_id — see guide."
     )
 )

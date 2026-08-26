@@ -641,6 +641,7 @@ _SECTION_ENTRY_LABEL_FIELDS: dict[str, tuple[str, ...]] = {
     "skills": ("name",),
     "languages": ("language",),
     "publications": ("title",),
+    "projects": ("name",),
     "volunteer_activities": ("role", "organization"),
     "signature_stories": ("title",),
 }
