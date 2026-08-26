@@ -394,7 +394,11 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
                   disabled={saving}
                   className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  {saving ? t("saving") : tCommon("save")}
+                  {saving
+                    ? t("saving")
+                    : dialog.index === null
+                      ? t("entryEditor.addAsConfirmed")
+                      : tCommon("save")}
                 </button>
               </div>
             </div>

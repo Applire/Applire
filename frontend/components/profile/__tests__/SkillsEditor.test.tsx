@@ -233,4 +233,14 @@ describe("SkillsEditor", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
     expect(screen.getByTestId("skills-add")).toBeInTheDocument();
   });
+
+  // H2.2 — the affordance sits on the commit button too, not only on the
+  // section's add button (real-browser pass 2026-08-26: the dialog said "Save").
+  it("labels the add-dialog save button with the confirmed affordance", () => {
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    renderEditor([]);
+
+    fireEvent.click(screen.getByTestId("skills-add"));
+    expect(screen.getByTestId("skill-entry-save")).toHaveTextContent("Add as confirmed");
+  });
 });
