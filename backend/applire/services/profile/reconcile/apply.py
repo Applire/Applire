@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import types
 import typing
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal, Union
 
@@ -234,7 +235,10 @@ class UserConfirmedSkill:
 
 
 def _norm(value: object) -> str:
-    return (str(value) if value is not None else "").strip().casefold()
+    # NFC first: "Café" typed on a Mac (NFD) and "Café" from a CV parser (NFC)
+    # are the same word; without normalisation they were two entries
+    # (adversarial finding 2026-08-26 — the U+2019 lesson, composition half).
+    return unicodedata.normalize("NFC", str(value) if value is not None else "").strip().casefold()
 
 
 def _is_empty(value: Any) -> bool:
@@ -813,10 +817,42 @@ def _preserve_entry_ids(section: str, before, incoming):
     def _nat(entry) -> tuple | None:
         if not isinstance(entry, dict):
             return None
-        parts = tuple(
-            str(entry.get(k) or "").casefold().strip() for k in keys
-        )
+        parts = tuple(_norm(entry.get(k) or "") for k in keys)
         return parts if any(parts) else None
+
+    # Id hygiene BEFORE any matching (adversarial blocker 2026-08-26): a
+    # blank / non-string id is no id at all, and one id may name at most
+    # ONE entry in the list — two entries persisted with the identity ""
+    # collided as React keys and made a fact pin addressed by id ambiguous.
+    # A duplicated id stays with the entry whose natural key matches the
+    # stored entry of that id (else the first carrier); every other carrier
+    # loses it and is rescued by natural key or minted afresh below.
+    stored_nat_by_id: dict[str, tuple | None] = {
+        e["id"]: _nat(e) for e in before if isinstance(e, dict) and e.get("id")
+    }
+    cleaned: list = []
+    for entry in incoming:
+        if isinstance(entry, dict) and "id" in entry:
+            raw = entry.get("id")
+            if not isinstance(raw, str) or not raw.strip():
+                entry = {k: v for k, v in entry.items() if k != "id"}
+        cleaned.append(entry)
+    carriers: dict[str, list[int]] = {}
+    for idx, entry in enumerate(cleaned):
+        if isinstance(entry, dict) and entry.get("id"):
+            carriers.setdefault(entry["id"], []).append(idx)
+    for dup_id, idxs in carriers.items():
+        if len(idxs) < 2:
+            continue
+        stored_nat = stored_nat_by_id.get(dup_id)
+        keeper = next(
+            (i for i in idxs if stored_nat is not None and _nat(cleaned[i]) == stored_nat),
+            idxs[0],
+        )
+        for i in idxs:
+            if i != keeper:
+                cleaned[i] = {k: v for k, v in cleaned[i].items() if k != "id"}
+    incoming = cleaned
 
     unclaimed: dict[tuple, list[str]] = {}
     for entry in before:

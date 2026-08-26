@@ -806,6 +806,19 @@ class MasterProfileData(BaseModel):
     # model_validate() → model_dump() round-trip (#505).
     meta: ProfileMetaBlock | None = Field(default=None, alias="_meta")
 
+    @field_validator("professional_summary", mode="before")
+    @classmethod
+    def _legacy_string_summary(cls, v: object) -> object:
+        """A pre-#178 row holds the summary as a plain string; it crashed the
+        read model (GET 500, and the 409 stale-recovery path with it —
+        adversarial finding 2026-08-26). Load it into the DE slot: DACH-first
+        product, German-first era; the summary editor shows both slots, so a
+        mis-slotted legacy text is one move away, never lost."""
+        if isinstance(v, str):
+            text = v.strip()
+            return {"de": text or None, "en": None}
+        return v
+
     @model_serializer(mode="wrap")
     def _serialize_meta_under_its_json_key(self, handler: Any) -> Any:
         """Emit `meta` as `_meta`, and only when the profile actually has one.
