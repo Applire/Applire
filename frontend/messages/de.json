@@ -723,7 +723,13 @@
       "removeEntryTitle": "Eintrag entfernen?",
       "removeEntryBody": "Dieser Eintrag wird endgültig aus deinem Profil entfernt.",
       "editEntryAria": "{label} bearbeiten",
-      "removeEntryAria": "{label} entfernen"
+      "removeEntryAria": "{label} entfernen",
+      "statusConfirmed": "bestätigt",
+      "statusUnconfirmed": "unbestätigt",
+      "statusDenied": "verneint",
+      "addAsConfirmed": "Als bestätigt hinzufügen",
+      "validationMonthRequired": "Bitte auch den Monat angeben — ein Jahr allein würde als 1. Januar gespeichert.",
+      "validationYearsRange": "Jahre der Erfahrung: bitte 0–80 angeben."
     },
     "workEditor": {
       "addButton": "Eintrag hinzufügen",
@@ -758,6 +764,36 @@
       "fieldCoursework": "Relevante Kurse",
       "addCoursework": "Kurs hinzufügen",
       "courseworkAria": "Kurs {index}"
+    },
+    "skillsEditor": {
+      "dialogTitleAdd": "Fähigkeit hinzufügen",
+      "dialogTitleEdit": "Fähigkeit bearbeiten",
+      "fieldName": "Name *",
+      "fieldCategory": "Kategorie",
+      "fieldProficiency": "Niveau",
+      "fieldYearsExperience": "Jahre Erfahrung",
+      "categoryTechnical": "Technisch",
+      "categorySoft": "Soft Skill",
+      "categoryLanguage": "Sprache",
+      "categoryDomain": "Fachgebiet"
+    },
+    "languagesEditor": {
+      "dialogTitleAdd": "Sprache hinzufügen",
+      "dialogTitleEdit": "Sprache bearbeiten",
+      "fieldLanguage": "Sprache *",
+      "fieldLevel": "Niveau",
+      "levelUnset": "Nicht angegeben",
+      "levelNative": "Muttersprache"
+    },
+    "certificationsEditor": {
+      "dialogTitleAdd": "Zertifizierung hinzufügen",
+      "dialogTitleEdit": "Zertifizierung bearbeiten",
+      "fieldName": "Name *",
+      "fieldIssuingOrganization": "Ausstellende Organisation",
+      "fieldDateObtained": "Ausstellungsdatum",
+      "fieldExpiryDate": "Ablaufdatum",
+      "fieldCredentialId": "Zertifikat-ID",
+      "fieldCredentialUrl": "Zertifikat-URL"
     }
   },
   "health": {

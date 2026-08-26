@@ -803,3 +803,113 @@ async def test_mcp_update_profile_advertises_the_optional_basis():
     props = tool.inputSchema["properties"]
     assert "basis_updated_at" in props
     assert "basis_updated_at" not in tool.inputSchema.get("required", [])
+
+
+# ── E055 / JF-F-H2.1 — the denial re-floor THROUGH a manual skills edit ───────
+# Owed since the F-H walk: the re-floor had only ever been tested op-level.
+# `test_a_section_edit_cannot_reach_a_persisted_denial` tests the `metadata`
+# exclusion, not this path.
+
+
+@pytest.mark.asyncio
+async def test_a_manual_skills_edit_cannot_confirm_a_denied_skill(durable_db):
+    """A chip editor (or any raw PATCH) that re-sends a denied skill as
+    `confirmed` gets it re-floored to `denied` by the committer's invariant 2;
+    an `unconfirmed` skill whose level changes stays `unconfirmed`."""
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["skills"] = [
+        {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+        {"id": "s-an", "name": "Ansible", "category": "technical", "status": "denied"},
+        {"id": "s-go", "name": "Go", "category": "technical", "status": "unconfirmed",
+         "proficiency": "basic"},
+    ]
+    seed["metadata"] = {
+        "denied_concepts": [
+            {"concept": "Ansible", "statement": "I have never used Ansible.",
+             "source": "interview", "date": "2026-08-01", "denial_level": "direct"}
+        ]
+    }
+    profile_id = await _seed_profile(factory, seed)
+
+    laundered = [
+        {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+        {"id": "s-an", "name": "Ansible", "category": "technical", "status": "confirmed",
+         "proficiency": "expert"},
+        {"id": "s-go", "name": "Go", "category": "technical", "status": "unconfirmed",
+         "proficiency": "advanced"},
+    ]
+    async with factory() as request_session:
+        await patch_section("skills", _fake_request(laundered), request_session, None, None)
+
+    stored = {s["name"]: s for s in (await _read_back(engine, profile_id))["skills"]}
+    assert stored["Ansible"]["status"] == "denied"
+    assert stored["Go"]["status"] == "unconfirmed"
+    assert stored["Go"]["proficiency"] == "advanced"  # the level edit itself landed
+    assert stored["Python"]["status"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_certification_dates_accept_the_pickers_shapes(durable_db):
+    """JF-F-H2.3: the certification editor emits `YYYY-MM` / `YYYY`; the schema
+    coerces both to a date (year-only lands on 1 January — recorded shape)."""
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    payload = [
+        {"name": "AWS SAA", "date_obtained": "2021-06", "expiry_date": "2024"},
+        {"name": "Undated", "date_obtained": None, "expiry_date": ""},
+    ]
+    async with factory() as request_session:
+        await patch_section("certifications", _fake_request(payload), request_session, None, None)
+
+    stored = {c["name"]: c for c in (await _read_back(engine, profile_id))["certifications"]}
+    assert stored["AWS SAA"]["date_obtained"] == "2021-06-01"
+    assert stored["AWS SAA"]["expiry_date"] == "2024-01-01"
+    assert stored["Undated"]["date_obtained"] is None
+    assert stored["Undated"]["expiry_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_persisted_denied_status_is_floored_without_a_denied_concept(durable_db):
+    """Adversarial finding 2026-08-26: the re-floor only knew
+    `metadata.denied_concepts`; a skill persisted as `denied` any other way
+    could be re-confirmed by a raw PATCH. Invariant 2b floors on the
+    PERSISTED status itself (by id, then by name); removal stays allowed."""
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["skills"] = [
+        {"id": "s-k8s", "name": "Kubernetes", "category": "technical", "status": "denied"},
+        {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+    ]
+    seed["metadata"] = {}  # NO denied_concepts — the gap the finding named
+    profile_id = await _seed_profile(factory, seed)
+
+    async with factory() as request_session:
+        await patch_section(
+            "skills",
+            _fake_request([
+                {"id": "s-k8s", "name": "Kubernetes", "category": "technical", "status": "confirmed"},
+                {"name": "kubernetes", "category": "technical", "status": "confirmed"},  # namesake, no id
+                {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+            ]),
+            request_session, None, None,
+        )
+    stored = (await _read_back(engine, profile_id))["skills"]
+    by_name = {s["name"].casefold(): s["status"] for s in stored}
+    assert by_name["kubernetes"] == "denied"
+    assert all(s["status"] == "denied" for s in stored if s["name"].casefold() == "kubernetes")
+    assert by_name["python"] == "confirmed"
+    # Removal is not floored — the candidate may drop the entry.
+    async with factory() as request_session:
+        await patch_section(
+            "skills",
+            _fake_request([{"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"}]),
+            request_session, None, None,
+        )
+    assert [s["name"] for s in (await _read_back(engine, profile_id))["skills"]] == ["Python"]

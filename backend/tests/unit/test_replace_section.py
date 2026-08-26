@@ -387,3 +387,23 @@ def test_basis_updated_at_is_carried_on_the_op_and_ignored_by_the_applier():
 
     assert op.basis_updated_at == basis
     assert apply_ops(profile, [op], "manual_edit").profile.skills == []
+
+
+def test_a_second_entry_with_the_same_natural_key_gets_its_own_id():
+    """Adversarial finding 2026-08-26: the existing entry keeps its id, so the
+    rescue pool must not hand that id to a new, id-less namesake — two
+    entries sharing one id breaks ADR-077's identity contract (fact pins,
+    React keys)."""
+    profile = _profile()
+    stored = profile.model_dump(mode="json")["skills"][0]
+    payload = [
+        {**stored},  # the original, carrying its stored id
+        {"name": stored["name"], "category": stored["category"]},  # a namesake, no id
+    ]
+    op = build_replace_section_op("skills", payload)
+    result = apply_ops(profile, [op], "manual_edit")
+
+    ids = [s.id for s in result.profile.skills]
+    assert ids[0] == stored["id"]
+    assert ids[1] != stored["id"]
+    assert len(set(ids)) == 2

@@ -723,7 +723,13 @@
       "removeEntryTitle": "Remove this entry?",
       "removeEntryBody": "This entry will be permanently removed from your profile.",
       "editEntryAria": "Edit {label}",
-      "removeEntryAria": "Remove {label}"
+      "removeEntryAria": "Remove {label}",
+      "statusConfirmed": "confirmed",
+      "statusUnconfirmed": "unconfirmed",
+      "statusDenied": "denied",
+      "addAsConfirmed": "Add as confirmed",
+      "validationMonthRequired": "Please add the month too — a year alone would be stored as 1 January.",
+      "validationYearsRange": "Years of experience: please enter 0–80."
     },
     "workEditor": {
       "addButton": "Add entry",
@@ -758,6 +764,36 @@
       "fieldCoursework": "Relevant coursework",
       "addCoursework": "Add course",
       "courseworkAria": "Course {index}"
+    },
+    "skillsEditor": {
+      "dialogTitleAdd": "Add skill",
+      "dialogTitleEdit": "Edit skill",
+      "fieldName": "Name *",
+      "fieldCategory": "Category",
+      "fieldProficiency": "Proficiency",
+      "fieldYearsExperience": "Years of experience",
+      "categoryTechnical": "Technical",
+      "categorySoft": "Soft skill",
+      "categoryLanguage": "Language",
+      "categoryDomain": "Domain"
+    },
+    "languagesEditor": {
+      "dialogTitleAdd": "Add language",
+      "dialogTitleEdit": "Edit language",
+      "fieldLanguage": "Language *",
+      "fieldLevel": "Level",
+      "levelUnset": "Not specified",
+      "levelNative": "Native"
+    },
+    "certificationsEditor": {
+      "dialogTitleAdd": "Add certification",
+      "dialogTitleEdit": "Edit certification",
+      "fieldName": "Name *",
+      "fieldIssuingOrganization": "Issuing organization",
+      "fieldDateObtained": "Date obtained",
+      "fieldExpiryDate": "Expiry date",
+      "fieldCredentialId": "Credential ID",
+      "fieldCredentialUrl": "Credential URL"
     }
   },
   "health": {

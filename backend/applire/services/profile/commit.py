@@ -381,6 +381,62 @@ def _refuse_stale_basis(ops: Sequence[CommitOp], record: MasterProfile) -> None:
             raise StaleEditError(_as_utc_instant(current), _as_utc_instant(basis))
 
 
+def _refloor_persisted_denied_status(
+    profile: MasterProfileData, record: MasterProfile
+) -> list[FieldChange]:
+    """Invariant 2, second half (E055 / JF-F-H2.1, adversarial finding
+    2026-08-26): a vault skill that is PERSISTED as ``denied`` stays denied
+    through any section write — whether or not a ``DeniedConcept`` records
+    why. `_refloor_persisted_denials` floors on `metadata.denied_concepts`;
+    a skill whose ``status`` was set to ``denied`` by any other writer (a
+    seeded profile, an import, a future un-denial reversal) had no floor at
+    all, so a raw PATCH or an agent `update_profile` could re-confirm it
+    with zero resistance. ADR-061: never-claim outranks claim; the only way
+    out of ``denied`` is an explicit un-denial act (#506), never a section
+    replace. Matched by id first, then by case-folded name; removal is still
+    allowed (nothing to floor). Receipted, kept OFF ``changes`` (invariant 7).
+    """
+    before = (record.profile_json or {}).get("skills") or []
+    denied_ids = {s.get("id") for s in before if isinstance(s, dict) and s.get("status") == "denied" and s.get("id")}
+    denied_names = {
+        (s.get("name") or "").casefold().strip()
+        for s in before
+        if isinstance(s, dict) and s.get("status") == "denied" and s.get("name")
+    }
+    if not denied_ids and not denied_names:
+        return []
+    receipts: list[FieldChange] = []
+    for skill in profile.skills:
+        if skill.status == "denied":
+            continue
+        if skill.id in denied_ids or skill.name.casefold().strip() in denied_names:
+            # Per ENTRY, not via the name-keyed demote applier: that one
+            # returns after the first name match, so a namesake added next to
+            # the floored entry would slip through. Same receipt shape.
+            old = skill.status
+            skill.status = "denied"
+            receipts.append(
+                FieldChange(
+                    section="skills",
+                    field="status",
+                    action="updated",
+                    old_value=old,
+                    new_value="denied",
+                    rationale=(
+                        f"Retracted: {skill.name} stays denied — its persisted status was "
+                        "denied and a section write may not lift a denial (ADR-061; "
+                        "un-denial is an explicit act). The entry and its history are kept."
+                    ),
+                )
+            )
+    if receipts:
+        logger.info(
+            "commit_ops: re-floored %d skill(s) whose PERSISTED status was denied (invariant 2b)",
+            len(receipts),
+        )
+    return receipts
+
+
 async def commit_ops(
     db: AsyncSession,
     ops: Sequence[CommitOp],
@@ -550,6 +606,7 @@ async def commit_ops(
     # It runs HERE, after the ops land and before the assignment, so it sees the
     # post-op profile including the denial `record_denials` just wrote above.
     refloored = _refloor_persisted_denials(profile)
+    refloored += _refloor_persisted_denied_status(profile, record)
 
     # ── Invariant 6 — deterministic skill enrichment (policy-gated) ──────────
     # `enrich_skills` IS the deterministic pass plus the LLM estimate for the

@@ -47,7 +47,16 @@ import {
 import { enrichmentSourceKey } from "@/lib/enrichment-sources";
 import { WorkExperienceEditor } from "@/components/profile/WorkExperienceEditor";
 import { EducationEditor } from "@/components/profile/EducationEditor";
-import type { EducationEntry, WorkEntry } from "@/lib/profile-entries";
+import { SkillsEditor } from "@/components/profile/SkillsEditor";
+import { LanguagesEditor } from "@/components/profile/LanguagesEditor";
+import { CertificationsEditor } from "@/components/profile/CertificationsEditor";
+import type {
+  Certification,
+  EducationEntry,
+  Language,
+  Skill,
+  WorkEntry,
+} from "@/lib/profile-entries";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -57,14 +66,15 @@ interface ProfileSection {
   phone?: string;
   location?: string;
   summary?: string;
-  // US290 — the full WorkEntry/EducationEntry schema (id, role, achievements,
-  // technologies, etc.); the structured editors below round-trip every key.
+  // US290/US291 — the full Work/Education/Skill/Language/Certification schema
+  // (id, status, provenance, etc.); the structured editors below round-trip
+  // every key.
   work_experience?: WorkEntry[];
   education?: EducationEntry[];
-  skills?: string[];
+  skills?: Skill[];
   // #113(c) — `language` is the vault's field; `name` is a tolerated legacy alias.
-  languages?: Array<{ language?: string; name?: string; level?: string }>;
-  certifications?: Array<{ name?: string; issuer?: string; year?: string }>;
+  languages?: Language[];
+  certifications?: Certification[];
   photo_url?: string | null;
 }
 
@@ -145,10 +155,17 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
 const READ_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 const HIDE_WHEN_EMPTY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 
-// US290 — work_experience/education get structured per-entry editors instead
-// of the generic whole-section JSON textarea; the section header's "Bearbeiten"
-// button (which drives that textarea) is suppressed for them.
-const ENTRY_EDITOR_SECTIONS: ReadonlySet<SectionKey> = new Set(["work_experience", "education"]);
+// US290/US291 — work_experience/education/skills/languages/certifications get
+// structured per-entry editors instead of the generic whole-section JSON
+// textarea; the section header's "Bearbeiten" button (which drives that
+// textarea) is suppressed for them.
+const ENTRY_EDITOR_SECTIONS: ReadonlySet<SectionKey> = new Set([
+  "work_experience",
+  "education",
+  "skills",
+  "languages",
+  "certifications",
+]);
 
 // F9.2 — a summary is "missing" only when NO language has one. A profile with an
 // English summary but no German one is NOT incomplete; the missing-language nuance
@@ -468,8 +485,8 @@ export default function ProfilePage() {
 
                 {ENTRY_EDITOR_SECTIONS.has(section) ? (
                   <div className="text-sm text-gray-700">
-                    {/* US290 — structured per-entry editors replace the raw-JSON
-                        textarea for exactly these two sections. */}
+                    {/* US290/US291 — structured per-entry editors replace the
+                        raw-JSON textarea for exactly these five sections. */}
                     {section === "work_experience" ? (
                       <WorkExperienceEditor
                         entries={(value as WorkEntry[]) ?? []}
@@ -479,9 +496,36 @@ export default function ProfilePage() {
                           setProfile(updated as unknown as ProfileResponse)
                         }
                       />
-                    ) : (
+                    ) : section === "education" ? (
                       <EducationEditor
                         entries={(value as EducationEntry[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : section === "skills" ? (
+                      <SkillsEditor
+                        entries={(value as Skill[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : section === "languages" ? (
+                      <LanguagesEditor
+                        entries={(value as Language[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : (
+                      <CertificationsEditor
+                        entries={(value as Certification[]) ?? []}
                         apiBase={API_BASE}
                         profileUpdatedAt={profile?.updated_at ?? ""}
                         onProfileUpdated={(updated) =>
