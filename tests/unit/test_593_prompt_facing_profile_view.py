@@ -436,3 +436,113 @@ async def test_the_prompt_does_not_grow_with_the_audit_trail():
         f"{len(writer_small)} chars vs {len(writer_large)} on a profile that grew "
         f"{raw_small} → {raw_large}. That coupling IS #593."
     )
+
+
+# ───────────── tier 3b — the cover-letter seams (own harness) ─────────────
+#
+# The letter chain needs a real DB session, so it gets its own fixtures rather
+# than the CV chain's mock-session harness above.
+
+
+@pytest_asyncio.fixture
+async def letter_db():
+    from applire.db.session import Base
+    import applire.models.user  # noqa: F401
+    import applire.models.job  # noqa: F401
+    import applire.models.profile  # noqa: F401
+    import applire.models.gap  # noqa: F401
+    import applire.models.cv  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401
+    import applire.models.session  # noqa: F401
+    import applire.models.application  # noqa: F401
+    import applire.models.flow  # noqa: F401
+    import applire.models.uploads  # noqa: F401
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def letter_seeded(letter_db):
+    from tests.support.profile_factory import make_master_profile
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+    from applire.models.user import User
+
+    letter_db.add(User(id=uuid.uuid4(), email="pv-593@test.com"))
+    job = JobAnalysis(
+        id=uuid.uuid4(), raw_text_hash="pv593hash",
+        raw_text="Senior Backend Engineer at Vector Analytics",
+        role_title="Senior Backend Engineer", company_name="Vector Analytics",
+        required_skills=[], nice_to_have_skills=[], keywords=[],
+        seniority_level="senior", company_culture_signals=[], language_requirement="en",
+    )
+    letter_db.add(job)
+    profile = make_master_profile(profile_json=_profile_json())
+    letter_db.add(profile)
+    await letter_db.flush()
+    cl = GeneratedCoverLetter(
+        job_analysis_id=job.id, profile_id=profile.id, template="classic_german",
+        letter_data={}, pre_gen_inputs={}, status=CoverLetterStatus.pending.value,
+    )
+    letter_db.add(cl)
+    await letter_db.commit()
+    await letter_db.refresh(cl)
+    return letter_db, job, cl
+
+
+@pytest.mark.asyncio
+async def test_SEAM_letter_grounding_source_carries_no_audit_trail(letter_seeded):
+    """`grounding_source` is built ONCE and handed to the letter reviewer AND
+    the corrector unchanged every round (§5.3.23) — so before this change every
+    receipt in the trail was paid for on each of them (144,433 chars measured).
+
+    Driven with `cv_id=None`, which is also the branch where the raw profile
+    stands in as the writer's `cv_data` — so this exercises both edited seams
+    of `cover_letter.py` in one run.
+    """
+    db, job, cl = letter_seeded
+    captured: dict = {}
+
+    async def fake_loop(**kw):
+        captured.setdefault("sources", []).append(kw.get("source"))
+        return kw["draft"]
+
+    def fake_writer_prompt(**kw):
+        captured["cv_data"] = kw.get("cv_data")
+        return "PROMPT"
+
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"body": {"paragraphs": ["Dear Team,", "x", "Sincerely,"]}})
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as sl, \
+         patch("applire.services.cover_letter.get_provider", return_value=provider), \
+         patch("applire.services.cover_letter.build_cover_letter_prompt",
+               side_effect=fake_writer_prompt), \
+         patch("applire.services.cover_letter.review_and_refine",
+               new=AsyncMock(side_effect=fake_loop)), \
+         patch("applire.services.cover_letter_pdf.render_pdf",
+               new=AsyncMock(side_effect=RuntimeError("no browser in unit test"))):
+        sl.return_value.__aenter__.return_value = db
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id=cl.id, cv_id=None, job_id=job.id)
+
+    sources = [s for s in captured.get("sources", []) if s]
+    assert sources, "the letter review loop was never called with a grounding source"
+    for source in sources:
+        assert RECEIPT_MARKER not in source, "an enrichment receipt reached the letter reviewer"
+        assert "enrichment_history" not in source
+    # …and the grounding is still grounding: the vault content must be there.
+    assert any("DataCore Systems" in s for s in sources)
+
+    # The writer's cv_data on this branch IS the raw profile (defence in depth —
+    # `build_cover_letter_prompt` reads named keys, so this changes no prompt today,
+    # but the filter must still be applied or a future builder reopens #593).
+    cv_data = captured.get("cv_data")
+    assert cv_data is not None, "the letter writer prompt was never built"
+    assert RECEIPT_MARKER not in json.dumps(cv_data, ensure_ascii=False)
