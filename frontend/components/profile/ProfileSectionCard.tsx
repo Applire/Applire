@@ -187,6 +187,14 @@ interface PersonalInfoShape {
   email?: string | null;
   phone?: string | null;
   location?: string | null;
+  // US292 — extended contact/detail fields. `photo_url` is deliberately
+  // absent: it is owned by PhotoManager and never rendered as a text row.
+  address?: string | null;
+  nationality?: string | null;
+  date_of_birth?: string | null;
+  linkedin_url?: string | null;
+  xing_url?: string | null;
+  website_url?: string | null;
 }
 
 function nonEmpty(s?: string | null): s is string {
@@ -256,6 +264,13 @@ export function ProfileSectionBody({
       [t("fieldEmail"), info.email],
       [t("fieldPhone"), info.phone],
       [t("fieldLocation"), info.location],
+      [t("fieldAddress"), info.address],
+      [t("fieldNationality"), info.nationality],
+      // As stored (backend returns ISO YYYY-MM-DD) — no reformatting here.
+      [t("fieldDateOfBirth"), info.date_of_birth],
+      [t("fieldLinkedin"), info.linkedin_url],
+      [t("fieldXing"), info.xing_url],
+      [t("fieldWebsite"), info.website_url],
     ];
     const shown = rows.filter(([, v]) => nonEmpty(v));
     if (shown.length === 0) return empty;

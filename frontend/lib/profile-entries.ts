@@ -193,6 +193,26 @@ export interface VolunteerActivity {
   [key: string]: unknown;
 }
 
+/**
+ * US292 — mirrors the backend `PersonalInfo` Pydantic schema verbatim.
+ * `photo_url` is intentionally OMITTED here: it is owned by PhotoManager and
+ * must never be read or written by PersonalInfoEditor's merge-patch (#178).
+ */
+export interface PersonalInfo {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  address?: string | null;
+  nationality?: string | null;
+  /** Backend `date` field — accepts "DD.MM.YYYY"/"D.M.YYYY"/ISO, stores ISO. */
+  date_of_birth?: string | null;
+  linkedin_url?: string | null;
+  xing_url?: string | null;
+  website_url?: string | null;
+  [key: string]: unknown;
+}
+
 /** The shape both GET /api/profile and PATCH /api/profile/{section} return. */
 export interface ProfileSectionsResponse {
   updated_at: string;
@@ -205,6 +225,7 @@ export interface ProfileSectionsResponse {
     projects?: ProjectEntry[];
     publications?: Publication[];
     volunteer_activities?: VolunteerActivity[];
+    personal_info?: PersonalInfo;
     [key: string]: unknown;
   };
   [key: string]: unknown;

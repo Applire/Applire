@@ -438,3 +438,50 @@ describe("ProfileSectionCard — volunteer activities (US292)", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
   });
 });
+
+// US292 — personal_info gained six new read-only rows (address, nationality,
+// date_of_birth, linkedin_url, xing_url, website_url); photo_url stays
+// hidden regardless (it is owned by PhotoManager, never a text row here).
+describe("ProfileSectionCard — personal_info extended contact fields (US292)", () => {
+  it("renders the new fields when present, as stored", () => {
+    const info = {
+      name: "Anna Bauer",
+      address: "Musterstraße 1, 10115 Berlin",
+      nationality: "Deutsch",
+      date_of_birth: "1990-02-01",
+      linkedin_url: "https://linkedin.com/in/annabauer",
+      xing_url: "https://xing.com/profile/AnnaBauer",
+      website_url: "https://annabauer.dev",
+    };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.getByText("Address")).toBeInTheDocument();
+    expect(screen.getByText("Musterstraße 1, 10115 Berlin")).toBeInTheDocument();
+    expect(screen.getByText("Nationality")).toBeInTheDocument();
+    expect(screen.getByText("Deutsch")).toBeInTheDocument();
+    expect(screen.getByText("Date of birth")).toBeInTheDocument();
+    expect(screen.getByText("1990-02-01")).toBeInTheDocument();
+    expect(screen.getByText("LinkedIn")).toBeInTheDocument();
+    expect(screen.getByText("https://linkedin.com/in/annabauer")).toBeInTheDocument();
+    expect(screen.getByText("XING")).toBeInTheDocument();
+    expect(screen.getByText("https://xing.com/profile/AnnaBauer")).toBeInTheDocument();
+    expect(screen.getByText("Website")).toBeInTheDocument();
+    expect(screen.getByText("https://annabauer.dev")).toBeInTheDocument();
+  });
+
+  it("never renders photo_url, even when present on the value", () => {
+    const info = { name: "Anna Bauer", photo_url: "https://cdn.example.com/photo.jpg" };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.queryByText(/photo\.jpg/)).not.toBeInTheDocument();
+  });
+
+  it("omits the new rows entirely when their fields are absent", () => {
+    const info = { name: "Anna Bauer" };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.queryByText("Address")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nationality")).not.toBeInTheDocument();
+    expect(screen.queryByText("Date of birth")).not.toBeInTheDocument();
+    expect(screen.queryByText("LinkedIn")).not.toBeInTheDocument();
+    expect(screen.queryByText("XING")).not.toBeInTheDocument();
+    expect(screen.queryByText("Website")).not.toBeInTheDocument();
+  });
+});

@@ -16,14 +16,19 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * US290 — PATCH /api/profile/{section} driver, kept as a pure async function
- * (no React) so the 409/422/mismatch handling (H1.6, H0.4) is unit-testable
- * without mounting a dialog.
+ * US290/US292 — PATCH /api/profile/{section} drivers, kept as pure async
+ * functions (no React) so the 409/422/mismatch handling (H1.6, H0.4) is
+ * unit-testable without mounting a dialog.
  *
  * Contract (backend, built in parallel on the leading branch):
- *  - PATCH /api/profile/{section}?basis_updated_at=<url-encoded ISO> with the
- *    COMPLETE section list as the body.
- *  - 200 -> the full profile response (same shape as GET /api/profile).
+ *  - List sections (`saveProfileSection`): PATCH with the COMPLETE section
+ *    list as the body.
+ *  - Object sections (`saveProfileObjectSection`, US292, #178): PATCH with a
+ *    MERGE-PATCH body (RFC-7386 style) — only the keys the caller supplies.
+ *    Supplied keys win, an explicit `null` CLEARS that field, and omitted
+ *    keys survive untouched on the backend.
+ *  - 200 -> the full profile response (same shape as GET /api/profile), both
+ *    kinds.
  *  - 409 -> {"detail": {"error": "stale_edit", "current": <full profile>}}
  *    (FastAPI wraps HTTPException.detail — the error code and the reload
  *    payload both live UNDER `detail`, not `detail` itself).
@@ -66,6 +71,95 @@ function findById(list: unknown, id: string): Record<string, unknown> | undefine
   );
 }
 
+type RawPatchOutcome<TProfile extends ProfileSectionsResponseLike> =
+  | { kind: "ok"; profile: TProfile }
+  | { kind: "stale"; current: TProfile }
+  | { kind: "invalid"; message: string }
+  | { kind: "error" };
+
+/**
+ * Shared PATCH + status classification for both the list and object section
+ * drivers below. Callers own the request body shape and the post-200
+ * mismatch computation (the two kinds diff their bodies differently).
+ */
+async function patchSection<TProfile extends ProfileSectionsResponseLike>(
+  apiBase: string,
+  section: string,
+  basisUpdatedAt: string,
+  body: unknown,
+  fetchImpl: typeof fetch | undefined,
+): Promise<RawPatchOutcome<TProfile>> {
+  const doFetch = fetchImpl ?? fetch;
+
+  let res: Response;
+  try {
+    res = await doFetch(
+      `${apiBase}/api/profile/${section}?basis_updated_at=${encodeURIComponent(basisUpdatedAt)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch {
+    return { kind: "error" };
+  }
+
+  if (res.status === 409) {
+    let responseBody: unknown;
+    try {
+      responseBody = await res.json();
+    } catch {
+      return { kind: "error" };
+    }
+    const detail = (responseBody as { detail?: { error?: string; current?: unknown } } | undefined)?.detail;
+    if (detail && detail.error === "stale_edit" && detail.current) {
+      return { kind: "stale", current: detail.current as TProfile };
+    }
+    return { kind: "error" };
+  }
+
+  if (res.status === 422) {
+    let responseBody: unknown;
+    try {
+      responseBody = await res.json();
+    } catch {
+      responseBody = undefined;
+    }
+    const detail = (responseBody as { detail?: unknown } | undefined)?.detail;
+    return { kind: "invalid", message: typeof detail === "string" ? detail : "" };
+  }
+
+  if (!res.ok) {
+    return { kind: "error" };
+  }
+
+  let profile: TProfile;
+  try {
+    profile = (await res.json()) as TProfile;
+  } catch {
+    return { kind: "error" };
+  }
+
+  return { kind: "ok", profile };
+}
+
+function toSectionSaveResult<TProfile extends ProfileSectionsResponseLike>(
+  outcome: RawPatchOutcome<TProfile>,
+  computeMismatch: (profile: TProfile) => boolean,
+): SectionSaveResult<TProfile> {
+  switch (outcome.kind) {
+    case "ok":
+      return { status: "ok", profile: outcome.profile, mismatch: computeMismatch(outcome.profile) };
+    case "stale":
+      return { status: "stale", current: outcome.current };
+    case "invalid":
+      return { status: "invalid", message: outcome.message };
+    case "error":
+      return { status: "error" };
+  }
+}
+
 /**
  * PATCHes a whole Master Profile section and classifies the result.
  *
@@ -78,71 +172,61 @@ export async function saveProfileSection<TProfile extends ProfileSectionsRespons
   params: SaveProfileSectionParams,
 ): Promise<SectionSaveResult<TProfile>> {
   const { apiBase, section, entries, basisUpdatedAt, savedEntryId, fetchImpl } = params;
-  const doFetch = fetchImpl ?? fetch;
 
-  let res: Response;
-  try {
-    res = await doFetch(
-      `${apiBase}/api/profile/${section}?basis_updated_at=${encodeURIComponent(basisUpdatedAt)}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entries),
-      },
-    );
-  } catch {
-    return { status: "error" };
-  }
+  const outcome = await patchSection<TProfile>(apiBase, section, basisUpdatedAt, entries, fetchImpl);
 
-  if (res.status === 409) {
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      return { status: "error" };
-    }
-    const detail = (body as { detail?: { error?: string; current?: unknown } } | undefined)?.detail;
-    if (detail && detail.error === "stale_edit" && detail.current) {
-      return { status: "stale", current: detail.current as TProfile };
-    }
-    return { status: "error" };
-  }
-
-  if (res.status === 422) {
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      body = undefined;
-    }
-    const detail = (body as { detail?: unknown } | undefined)?.detail;
-    return { status: "invalid", message: typeof detail === "string" ? detail : "" };
-  }
-
-  if (!res.ok) {
-    return { status: "error" };
-  }
-
-  let profile: TProfile;
-  try {
-    profile = (await res.json()) as TProfile;
-  } catch {
-    return { status: "error" };
-  }
-
-  let mismatch = false;
-  if (savedEntryId) {
+  return toSectionSaveResult(outcome, (profile) => {
+    if (!savedEntryId) return false;
     const sentEntry = findById(entries, savedEntryId);
     const returnedEntry = findById(profile.profile?.[section], savedEntryId);
     if (!returnedEntry) {
       // The entry we just saved isn't even present in the response — a
       // committer gate that dropped it is at least as bad as leaving it
       // byte-identical (H0.4's "unchanged vault" is the narrower case).
-      mismatch = true;
-    } else if (sentEntry) {
-      mismatch = JSON.stringify(sentEntry) !== JSON.stringify(returnedEntry);
+      return true;
     }
-  }
+    if (sentEntry) {
+      return JSON.stringify(sentEntry) !== JSON.stringify(returnedEntry);
+    }
+    return false;
+  });
+}
 
-  return { status: "ok", profile, mismatch };
+export interface SaveProfileObjectSectionParams {
+  apiBase: string;
+  section: string;
+  /** Only the keys the caller actually changed — merge-patch body (#178). */
+  patch: Record<string, unknown>;
+  /** `updated_at` from the last GET this edit is based on. */
+  basisUpdatedAt: string;
+  /** Injectable for tests; defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * PATCHes an OBJECT Master Profile section (`professional_summary`,
+ * `personal_info`) as a merge-patch and classifies the result. Same
+ * SectionSaveResult union as `saveProfileSection` — callers branch on
+ * `status` identically regardless of which driver produced it.
+ *
+ * H0.4 for objects: for every key present in `patch`, compare
+ * `JSON.stringify(sent)` against `JSON.stringify(profile.profile[section]?.[key])`,
+ * treating `undefined` and `null` as equal — a cleared field legitimately
+ * comes back `null`, not absent.
+ */
+export async function saveProfileObjectSection<TProfile extends ProfileSectionsResponseLike>(
+  params: SaveProfileObjectSectionParams,
+): Promise<SectionSaveResult<TProfile>> {
+  const { apiBase, section, patch, basisUpdatedAt, fetchImpl } = params;
+
+  const outcome = await patchSection<TProfile>(apiBase, section, basisUpdatedAt, patch, fetchImpl);
+
+  return toSectionSaveResult(outcome, (profile) => {
+    const returnedSection = (profile.profile?.[section] ?? {}) as Record<string, unknown>;
+    return Object.keys(patch).some((key) => {
+      const sent = patch[key] === undefined ? null : patch[key];
+      const returned = returnedSection[key] === undefined ? null : returnedSection[key];
+      return JSON.stringify(sent) !== JSON.stringify(returned);
+    });
+  });
 }
