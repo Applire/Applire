@@ -128,7 +128,7 @@ describe("PersonalInfoEditor", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("accepts date_of_birth as DD.MM.YYYY and sends it as typed", async () => {
+  it("accepts date_of_birth as DD.MM.YYYY and sends it as ISO (what the backend stores)", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
@@ -143,10 +143,10 @@ describe("PersonalInfoEditor", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toEqual({ date_of_birth: "01.02.1990" });
+    expect(body).toEqual({ date_of_birth: "1990-02-01" });
   });
 
-  it("accepts date_of_birth as D.M.YYYY (single-digit day/month) and sends it as typed", async () => {
+  it("accepts date_of_birth as D.M.YYYY (single-digit day/month) and sends it zero-padded ISO", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
@@ -161,10 +161,10 @@ describe("PersonalInfoEditor", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toEqual({ date_of_birth: "1.2.1990" });
+    expect(body).toEqual({ date_of_birth: "1990-02-01" });
   });
 
-  it("accepts date_of_birth as ISO YYYY-MM-DD and sends it as typed", async () => {
+  it("accepts date_of_birth as ISO YYYY-MM-DD and sends it unchanged", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
@@ -261,6 +261,31 @@ describe("PersonalInfoEditor", () => {
   });
 
   // H0.4 — a 200 with every sent key coming back unchanged surfaces the notice.
+  // H0.4 — a German-typed date comes back ISO from the backend; that is a
+  // normalisation, not a lost write, so no mismatch notice may appear.
+  it("shows NO mismatch notice when a DD.MM.YYYY date comes back as ISO", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, {
+        updated_at: "t2",
+        profile: { personal_info: { ...FULL_INFO, date_of_birth: "1990-02-01" } },
+      }),
+    );
+    global.fetch = fetchMock;
+    renderEditor({ ...FULL_INFO, date_of_birth: null });
+
+    fireEvent.click(screen.getByTestId("personal-info-edit"));
+    fireEvent.change(screen.getByTestId("personal-info-field-date-of-birth"), {
+      target: { value: "01.02.1990" },
+    });
+    fireEvent.click(screen.getByTestId("personal-info-save"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByTestId("personal-info-dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("personal-info-mismatch-notice")).not.toBeInTheDocument();
+  });
+
   it("shows a mismatch notice when the saved keys come back unchanged", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),

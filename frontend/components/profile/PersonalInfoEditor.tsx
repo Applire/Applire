@@ -53,9 +53,22 @@ type PersonalInfoDraft = Record<FieldKey, string>;
 type PersonalInfoBaseline = Record<FieldKey, string | null>;
 
 // Client-side pre-check only (mirrors the backend `date` field's accepted
-// input shapes): "DD.MM.YYYY" / "D.M.YYYY" or ISO "YYYY-MM-DD". The value is
-// sent AS TYPED — the backend normalises it to ISO on save.
+// input shapes): "DD.MM.YYYY" / "D.M.YYYY" or ISO "YYYY-MM-DD".
 const DATE_OF_BIRTH_PATTERN = /^(\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})$/;
+const GERMAN_DATE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+
+/**
+ * Send the date in the shape the backend STORES (ISO). The backend accepts
+ * "DD.MM.YYYY" too, but it normalises on save — and the H0.4 mismatch
+ * detector compares what was sent with what came back, so a value sent as
+ * typed ("01.02.1990") would read as "not saved" against the stored
+ * "1990-02-01" (integrator finding, real-browser pass 2026-08-26).
+ */
+function toIsoDate(value: string): string {
+  const m = GERMAN_DATE.exec(value);
+  if (!m) return value;
+  return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
 
 interface DialogState {
   draft: PersonalInfoDraft;
@@ -156,7 +169,8 @@ export function PersonalInfoEditor({
     for (const key of FIELD_KEYS) {
       if (fieldChanged(dialog.draft[key], dialog.baseline[key])) {
         const trimmed = dialog.draft[key].trim();
-        patch[key] = trimmed === "" ? null : trimmed;
+        const normalised = key === "date_of_birth" ? toIsoDate(trimmed) : trimmed;
+        patch[key] = normalised === "" ? null : normalised;
       }
     }
 
