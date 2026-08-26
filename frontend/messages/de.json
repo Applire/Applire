@@ -635,7 +635,6 @@
     "saving": "Wird gespeichert...",
     "saveFailed": "Abschnitt konnte nicht gespeichert werden.",
     "notProvided": "Nicht angegeben",
-    "invalidJson": "Ungültiges JSON-Format. Bitte überprüfe deine Eingabe.",
     "enrichmentHistory": "Anreicherungshistorie",
     "sources": {
       "cv_upload": "Lebenslauf-Upload",

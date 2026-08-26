@@ -635,7 +635,6 @@
     "saving": "Saving...",
     "saveFailed": "Failed to save section.",
     "notProvided": "Not provided",
-    "invalidJson": "Invalid JSON format. Please check your input.",
     "enrichmentHistory": "Enrichment History",
     "sources": {
       "cv_upload": "CV upload",

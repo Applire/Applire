@@ -50,11 +50,19 @@ import { EducationEditor } from "@/components/profile/EducationEditor";
 import { SkillsEditor } from "@/components/profile/SkillsEditor";
 import { LanguagesEditor } from "@/components/profile/LanguagesEditor";
 import { CertificationsEditor } from "@/components/profile/CertificationsEditor";
+import { ProjectsEditor } from "@/components/profile/ProjectsEditor";
+import { PublicationsEditor } from "@/components/profile/PublicationsEditor";
+import { VolunteerEditor } from "@/components/profile/VolunteerEditor";
+import { SummaryEditor } from "@/components/profile/SummaryEditor";
+import { PersonalInfoEditor } from "@/components/profile/PersonalInfoEditor";
 import type {
   Certification,
   EducationEntry,
   Language,
+  ProjectEntry,
+  Publication,
   Skill,
+  VolunteerActivity,
   WorkEntry,
 } from "@/lib/profile-entries";
 
@@ -75,7 +83,18 @@ interface ProfileSection {
   // #113(c) — `language` is the vault's field; `name` is a tolerated legacy alias.
   languages?: Language[];
   certifications?: Certification[];
+  // US292 — the last three list sections get their structured editors.
+  projects?: ProjectEntry[];
+  publications?: Publication[];
+  volunteer_activities?: VolunteerActivity[];
   photo_url?: string | null;
+  // US292 — contact fields the PersonalInfoEditor edits (merge-patched).
+  address?: string | null;
+  nationality?: string | null;
+  date_of_birth?: string | null;
+  linkedin_url?: string | null;
+  xing_url?: string | null;
+  website_url?: string | null;
 }
 
 interface EnrichmentRecord {
@@ -104,6 +123,9 @@ interface ProfileResponse {
     skills?: ProfileSection["skills"];
     languages?: ProfileSection["languages"];
     certifications?: ProfileSection["certifications"];
+    projects?: ProfileSection["projects"];
+    publications?: ProfileSection["publications"];
+    volunteer_activities?: ProfileSection["volunteer_activities"];
     // ADR-055 (E046) — read-only in the UI; written via the reconciler/API.
     signature_stories?: Array<Record<string, unknown>>;
   };
@@ -126,6 +148,9 @@ type SectionKey =
   | "skills"
   | "languages"
   | "certifications"
+  | "projects"
+  | "publications"
+  | "volunteer_activities"
   | "signature_stories";
 
 type SectionLabelKey =
@@ -136,6 +161,9 @@ type SectionLabelKey =
   | "sectionSkills"
   | "sectionLanguages"
   | "sectionCertifications"
+  | "sectionProjects"
+  | "sectionPublications"
+  | "sectionVolunteer"
   | "sectionSignatureStories";
 
 const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
@@ -146,26 +174,18 @@ const SECTION_LABEL_KEYS: Record<SectionKey, SectionLabelKey> = {
   skills: "sectionSkills",
   languages: "sectionLanguages",
   certifications: "sectionCertifications",
+  projects: "sectionProjects",
+  publications: "sectionPublications",
+  volunteer_activities: "sectionVolunteer",
   signature_stories: "sectionSignatureStories",
 };
 
-// ADR-055 — stories are reconciler/API-written; the raw-JSON section editor is
-// suppressed for them (read-only v1), and the section hides entirely when empty
-// instead of rendering a "not provided" shell.
+// ADR-055 — stories are reconciler/API-written and read-only in v1; the section
+// hides entirely when empty instead of rendering a "not provided" shell.
+// Every other section has a structured editor (E055, US290–US292) — the
+// whole-section JSON textarea that used to live here is retired (US292).
 const READ_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
 const HIDE_WHEN_EMPTY_SECTIONS: ReadonlySet<SectionKey> = new Set(["signature_stories"]);
-
-// US290/US291 — work_experience/education/skills/languages/certifications get
-// structured per-entry editors instead of the generic whole-section JSON
-// textarea; the section header's "Bearbeiten" button (which drives that
-// textarea) is suppressed for them.
-const ENTRY_EDITOR_SECTIONS: ReadonlySet<SectionKey> = new Set([
-  "work_experience",
-  "education",
-  "skills",
-  "languages",
-  "certifications",
-]);
 
 // F9.2 — a summary is "missing" only when NO language has one. A profile with an
 // English summary but no German one is NOT incomplete; the missing-language nuance
@@ -186,16 +206,12 @@ function hasProfileGaps(
 export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
-  const tCommon = useTranslations("common");
   const { locale } = useLocale();
   const uiLanguage: UiLanguage = locale === "de" ? "de" : "en";
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [health, setHealth] = useState<ProfileHealth | null>(null);
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
-  const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [enrichDrawerOpen, setEnrichDrawerOpen] = useState(false);
@@ -245,13 +261,13 @@ export default function ProfilePage() {
     setReviewDrawerOpen(true);
   };
 
-  // F3b: the review drawer's action — close it and open the affected section's
-  // editor so the user can add back what the merge dropped. Never a dead end.
+  // F3b: the review drawer's action — close it and bring the affected section
+  // (with its structured editor) into view so the user can add back what the
+  // merge dropped. Never a dead end.
   const handleResolveAction = (issue: HealthIssue) => {
     setReviewDrawerOpen(false);
     setResolveIssue(null);
     const section = sectionForIssue(issue);
-    handleEdit(section);
     if (typeof document !== "undefined") {
       document
         .getElementById(`section-${section}`)
@@ -296,62 +312,6 @@ export default function ProfilePage() {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
-
-  const handleEdit = (section: SectionKey) => {
-    if (!profile) return;
-    const value = profile.profile[section];
-    setEditValue(typeof value === "string" ? value : JSON.stringify(value, null, 2));
-    setEditingSection(section);
-    setError("");
-  };
-
-  const handleSave = async () => {
-    if (!profile || !editingSection) return;
-    setSaving(true);
-    try {
-      const originalValue = profile.profile[editingSection];
-      const isStringSection = typeof originalValue === "string";
-      let parsed: unknown;
-      if (isStringSection) {
-        parsed = editValue;
-      } else {
-        try {
-          parsed = JSON.parse(editValue);
-        } catch {
-          setError(t("invalidJson"));
-          setSaving(false);
-          return;
-        }
-      }
-
-      const res = await fetch(`${API_BASE}/api/profile/${editingSection}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
-      });
-
-      if (res.ok) {
-        const updated: ProfileResponse = await res.json();
-        setProfile(updated);
-        setEditingSection(null);
-        setEditValue("");
-      } else {
-        const err = await res.json();
-        setError(err.detail || t("saveFailed"));
-      }
-    } catch (err) {
-      console.error("Save failed:", err);
-      setError(t("saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setEditingSection(null);
-    setEditValue("");
-    setError("");
-  };
 
   const completenessScore = profile?.completeness ?? 0;
 
@@ -456,7 +416,6 @@ export default function ProfilePage() {
 
           {/* Profile Sections */}
           {(Object.keys(SECTION_LABEL_KEYS) as SectionKey[]).map((section) => {
-            const isEditing = editingSection === section;
             const value = profile?.profile[section];
 
             if (
@@ -472,22 +431,56 @@ export default function ProfilePage() {
                   <h3 className="font-heading text-base font-semibold text-neutral-dark">
                     {t(SECTION_LABEL_KEYS[section])}
                   </h3>
-                  {!isEditing && !READ_ONLY_SECTIONS.has(section) && !ENTRY_EDITOR_SECTIONS.has(section) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEdit(section)}
-                    >
-                      {t("edit")}
-                    </Button>
-                  )}
                 </div>
 
-                {ENTRY_EDITOR_SECTIONS.has(section) ? (
+                {READ_ONLY_SECTIONS.has(section) ? (
                   <div className="text-sm text-gray-700">
-                    {/* US290/US291 — structured per-entry editors replace the
-                        raw-JSON textarea for exactly these five sections. */}
-                    {section === "work_experience" ? (
+                    {/* F8 (#76): structured cards, never raw JSON; internal fields hidden. */}
+                    <ProfileSectionBody
+                      section={section}
+                      value={value}
+                      uiLanguage={uiLanguage}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-700">
+                    {/* E055 (US290–US292) — every editable section has a structured
+                        editor; each save runs through PATCH /api/profile/{section}
+                        (commit_ops) with the profile's updated_at as its basis. */}
+                    {section === "professional_summary" ? (
+                      <>
+                        <ProfileSectionBody
+                          section={section}
+                          value={value}
+                          uiLanguage={uiLanguage}
+                        />
+                        <SummaryEditor
+                          value={value as SummaryValue}
+                          uiLanguage={uiLanguage}
+                          apiBase={API_BASE}
+                          profileUpdatedAt={profile?.updated_at ?? ""}
+                          onProfileUpdated={(updated) =>
+                            setProfile(updated as unknown as ProfileResponse)
+                          }
+                        />
+                      </>
+                    ) : section === "personal_info" ? (
+                      <>
+                        <ProfileSectionBody
+                          section={section}
+                          value={value}
+                          uiLanguage={uiLanguage}
+                        />
+                        <PersonalInfoEditor
+                          value={(value as ProfileSection | undefined) ?? {}}
+                          apiBase={API_BASE}
+                          profileUpdatedAt={profile?.updated_at ?? ""}
+                          onProfileUpdated={(updated) =>
+                            setProfile(updated as unknown as ProfileResponse)
+                          }
+                        />
+                      </>
+                    ) : section === "work_experience" ? (
                       <WorkExperienceEditor
                         entries={(value as WorkEntry[]) ?? []}
                         apiBase={API_BASE}
@@ -523,9 +516,36 @@ export default function ProfilePage() {
                           setProfile(updated as unknown as ProfileResponse)
                         }
                       />
-                    ) : (
+                    ) : section === "certifications" ? (
                       <CertificationsEditor
                         entries={(value as Certification[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : section === "projects" ? (
+                      <ProjectsEditor
+                        entries={(value as ProjectEntry[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : section === "publications" ? (
+                      <PublicationsEditor
+                        entries={(value as Publication[]) ?? []}
+                        apiBase={API_BASE}
+                        profileUpdatedAt={profile?.updated_at ?? ""}
+                        onProfileUpdated={(updated) =>
+                          setProfile(updated as unknown as ProfileResponse)
+                        }
+                      />
+                    ) : (
+                      <VolunteerEditor
+                        entries={(value as VolunteerActivity[]) ?? []}
                         apiBase={API_BASE}
                         profileUpdatedAt={profile?.updated_at ?? ""}
                         onProfileUpdated={(updated) =>
@@ -616,34 +636,6 @@ export default function ProfilePage() {
                           })}
                       </div>
                     )}
-                  </div>
-                ) : isEditing ? (
-                  <div className="space-y-3">
-                    <textarea
-                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-neutral-dark min-h-[120px] focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/20"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                    />
-                    {error && (
-                      <p className="text-sm text-critical">{error}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <Button onClick={handleSave} disabled={saving}>
-                        {saving ? t("saving") : tCommon("save")}
-                      </Button>
-                      <Button variant="outline" onClick={handleCancel}>
-                        {tCommon("cancel")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-700">
-                    {/* F8 (#76): structured cards, never raw JSON; internal fields hidden. */}
-                    <ProfileSectionBody
-                      section={section}
-                      value={value}
-                      uiLanguage={uiLanguage}
-                    />
                   </div>
                 )}
               </Card>
