@@ -1,0 +1,4376 @@
+{
+  "story": "US293 — structured edits keep the write-seam contract (E055)",
+  "recorded_at": "2026-08-26T15:34:09+00:00",
+  "recorded_from": {
+    "commit": "1b410de902f36f3a2550afe10216cf7e4d7be867",
+    "applire_root": "/home/applire-adm/Projekte/applire/wt-us293-preepic/backend/applire",
+    "sha256": {
+      "services/profile/reconcile/apply.py": "c7c725ebcae9e21f42df33e69a1f4d837d8396848ac87731a58e731f3e3ee19e",
+      "services/profile/field_edit.py": "ce1ef6e7d0c0bb4144b1d70c0f49d3878eebdd27100e7bc009e4645b6dab69a8",
+      "services/profile/commit.py": "13cc2279ed1afb6ac1e88a229ea34621e365d7438add6083c93830dc7ca54295",
+      "services/profile/__init__.py": "183300748b81e461e0adfa885b70b95bd407bf0926e56b75fe9052d30f3595ae",
+      "routers/profile.py": "7082a7a6cd4a5557e979c6f52a854a8d1a5b6165bc647f37b3b4f0a930d4a852",
+      "schemas/profile.py": "a97ef8fbb2425f7a44b2fd9bf99489cad833be4fa416cb741182416dafd2e20f"
+    }
+  },
+  "seed_sha256": "5bf3a6dedc4baab0dba8fe1b2c7d4284576117650537491fd26181844d65d611",
+  "cases_sha256": "90f2910ab915ef2b2911c309603f95623bb7cdf92ad3b4532cce056985b3733e",
+  "cases": {
+    "work_experience.add": {
+      "section": "work_experience",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "role": "Engineer",
+          "location": "Berlin",
+          "start_date": "2020-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [
+            "Ran the build",
+            "Owned the release train"
+          ],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "Kafka"
+          ],
+          "expected_fields": null,
+          "id": "00000001-0000-4000-8000-000000000001",
+          "company": "Acme GmbH",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        },
+        {
+          "role": "Analyst",
+          "location": null,
+          "start_date": "2016-01",
+          "end_date": "2019-12",
+          "is_current": false,
+          "responsibilities": [
+            "Reported on pipeline health"
+          ],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000002-0000-4000-8000-000000000002",
+          "company": "Beta AG",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        },
+        {
+          "company": "Gamma SE",
+          "role": "Platform Lead",
+          "start_date": "2021-03",
+          "is_current": true
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Platform Lead @ Gamma SE",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "role": "Platform Lead",
+              "location": null,
+              "start_date": "2021-03",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Gamma SE",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "rationale": "Added Platform Lead @ Gamma SE in work_experience (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Platform Lead @ Gamma SE",
+            "action": "added",
+            "rationale": "Added Platform Lead @ Gamma SE in work_experience (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Platform Lead",
+                "location": null,
+                "start_date": "2021-03",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Gamma SE",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            }
+          }
+        ]
+      }
+    },
+    "work_experience.update": {
+      "section": "work_experience",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "role": "Engineer",
+          "location": "Berlin",
+          "start_date": "2020-01",
+          "end_date": "2022-06",
+          "is_current": false,
+          "responsibilities": [
+            "Ran the build",
+            "Owned the release train"
+          ],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "Kafka"
+          ],
+          "expected_fields": null,
+          "id": "00000001-0000-4000-8000-000000000001",
+          "company": "Acme GmbH",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        },
+        {
+          "role": "Analyst",
+          "location": null,
+          "start_date": "2016-01",
+          "end_date": "2019-12",
+          "is_current": false,
+          "responsibilities": [
+            "Reported on pipeline health"
+          ],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000002-0000-4000-8000-000000000002",
+          "company": "Beta AG",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Engineer @ Acme GmbH",
+            "action": "updated",
+            "old_value": {
+              "role": "Engineer",
+              "location": "Berlin",
+              "start_date": "2020-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [
+                "Ran the build",
+                "Owned the release train"
+              ],
+              "achievements": [],
+              "technologies": [
+                "Python",
+                "Kafka"
+              ],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Acme GmbH",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "new_value": {
+              "role": "Engineer",
+              "location": "Berlin",
+              "start_date": "2020-01",
+              "end_date": "2022-06",
+              "is_current": false,
+              "responsibilities": [
+                "Ran the build",
+                "Owned the release train"
+              ],
+              "achievements": [],
+              "technologies": [
+                "Python",
+                "Kafka"
+              ],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Acme GmbH",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "rationale": "Updated Engineer @ Acme GmbH in work_experience (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Engineer @ Acme GmbH",
+            "action": "updated",
+            "rationale": "Updated Engineer @ Acme GmbH in work_experience (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Engineer",
+                "location": "Berlin",
+                "start_date": "2020-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [
+                  "Ran the build",
+                  "Owned the release train"
+                ],
+                "achievements": [],
+                "technologies": [
+                  "Python",
+                  "Kafka"
+                ],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Acme GmbH",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Engineer",
+                "location": "Berlin",
+                "start_date": "2020-01",
+                "end_date": "2022-06",
+                "is_current": false,
+                "responsibilities": [
+                  "Ran the build",
+                  "Owned the release train"
+                ],
+                "achievements": [],
+                "technologies": [
+                  "Python",
+                  "Kafka"
+                ],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Acme GmbH",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "work_experience.rename": {
+      "section": "work_experience",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "role": "Senior Engineer",
+          "location": "Berlin",
+          "start_date": "2020-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [
+            "Ran the build",
+            "Owned the release train"
+          ],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "Kafka"
+          ],
+          "expected_fields": null,
+          "id": "00000001-0000-4000-8000-000000000001",
+          "company": "Acme GmbH",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        },
+        {
+          "role": "Analyst",
+          "location": null,
+          "start_date": "2016-01",
+          "end_date": "2019-12",
+          "is_current": false,
+          "responsibilities": [
+            "Reported on pipeline health"
+          ],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000002-0000-4000-8000-000000000002",
+          "company": "Beta AG",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Senior Engineer @ Acme GmbH",
+            "action": "updated",
+            "old_value": {
+              "role": "Engineer",
+              "location": "Berlin",
+              "start_date": "2020-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [
+                "Ran the build",
+                "Owned the release train"
+              ],
+              "achievements": [],
+              "technologies": [
+                "Python",
+                "Kafka"
+              ],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Acme GmbH",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "new_value": {
+              "role": "Senior Engineer",
+              "location": "Berlin",
+              "start_date": "2020-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [
+                "Ran the build",
+                "Owned the release train"
+              ],
+              "achievements": [],
+              "technologies": [
+                "Python",
+                "Kafka"
+              ],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Acme GmbH",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "rationale": "Updated Senior Engineer @ Acme GmbH in work_experience (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Senior Engineer @ Acme GmbH",
+            "action": "updated",
+            "rationale": "Updated Senior Engineer @ Acme GmbH in work_experience (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Engineer",
+                "location": "Berlin",
+                "start_date": "2020-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [
+                  "Ran the build",
+                  "Owned the release train"
+                ],
+                "achievements": [],
+                "technologies": [
+                  "Python",
+                  "Kafka"
+                ],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Acme GmbH",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Senior Engineer",
+                "location": "Berlin",
+                "start_date": "2020-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [
+                  "Ran the build",
+                  "Owned the release train"
+                ],
+                "achievements": [],
+                "technologies": [
+                  "Python",
+                  "Kafka"
+                ],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Acme GmbH",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "work_experience.remove": {
+      "section": "work_experience",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "role": "Engineer",
+          "location": "Berlin",
+          "start_date": "2020-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [
+            "Ran the build",
+            "Owned the release train"
+          ],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "Kafka"
+          ],
+          "expected_fields": null,
+          "id": "00000001-0000-4000-8000-000000000001",
+          "company": "Acme GmbH",
+          "role_aliases": [],
+          "industry_context": null,
+          "team_size": null,
+          "budget_managed": null,
+          "role_fact_projections": {}
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Analyst @ Beta AG",
+            "action": "removed",
+            "old_value": {
+              "role": "Analyst",
+              "location": null,
+              "start_date": "2016-01",
+              "end_date": "2019-12",
+              "is_current": false,
+              "responsibilities": [
+                "Reported on pipeline health"
+              ],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "company": "Beta AG",
+              "role_aliases": [],
+              "industry_context": null,
+              "team_size": null,
+              "budget_managed": null,
+              "role_fact_projections": {}
+            },
+            "new_value": null,
+            "rationale": "Removed Analyst @ Beta AG in work_experience (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "work_experience",
+            "field": "Analyst @ Beta AG",
+            "action": "removed",
+            "rationale": "Removed Analyst @ Beta AG in work_experience (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "budget_managed",
+                "company",
+                "end_date",
+                "expected_fields",
+                "id",
+                "industry_context",
+                "is_current",
+                "location",
+                "responsibilities",
+                "role",
+                "role_aliases",
+                "role_fact_projections",
+                "start_date",
+                "team_size",
+                "technologies"
+              ],
+              "value": {
+                "role": "Analyst",
+                "location": null,
+                "start_date": "2016-01",
+                "end_date": "2019-12",
+                "is_current": false,
+                "responsibilities": [
+                  "Reported on pipeline health"
+                ],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "company": "Beta AG",
+                "role_aliases": [],
+                "industry_context": null,
+                "team_size": null,
+                "budget_managed": null,
+                "role_fact_projections": {}
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "education.add": {
+      "section": "education",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000003-0000-4000-8000-000000000003",
+          "institution": "TU Berlin",
+          "degree": "M.Sc.",
+          "field": "Computer Science",
+          "start_date": "2010-10",
+          "end_date": "2013-03",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000004",
+          "institution": "Universität Hamburg",
+          "degree": "B.Sc.",
+          "field": "Mathematics",
+          "start_date": "2007-10",
+          "end_date": "2010-09",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        },
+        {
+          "institution": "RWTH Aachen",
+          "degree": "Dr.-Ing.",
+          "field": "Computer Science",
+          "start_date": "2013-10"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "Dr.-Ing. @ RWTH Aachen",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "institution": "RWTH Aachen",
+              "degree": "Dr.-Ing.",
+              "field": "Computer Science",
+              "start_date": "2013-10",
+              "end_date": null,
+              "grade": null,
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "rationale": "Added Dr.-Ing. @ RWTH Aachen in education (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "Dr.-Ing. @ RWTH Aachen",
+            "action": "added",
+            "rationale": "Added Dr.-Ing. @ RWTH Aachen in education (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "RWTH Aachen",
+                "degree": "Dr.-Ing.",
+                "field": "Computer Science",
+                "start_date": "2013-10",
+                "end_date": null,
+                "grade": null,
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            }
+          }
+        ]
+      }
+    },
+    "education.update": {
+      "section": "education",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000003-0000-4000-8000-000000000003",
+          "institution": "TU Berlin",
+          "degree": "M.Sc.",
+          "field": "Computer Science",
+          "start_date": "2010-10",
+          "end_date": "2013-03",
+          "grade": "1.3",
+          "thesis_title": null,
+          "relevant_coursework": []
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000004",
+          "institution": "Universität Hamburg",
+          "degree": "B.Sc.",
+          "field": "Mathematics",
+          "start_date": "2007-10",
+          "end_date": "2010-09",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "M.Sc. @ TU Berlin",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "institution": "TU Berlin",
+              "degree": "M.Sc.",
+              "field": "Computer Science",
+              "start_date": "2010-10",
+              "end_date": "2013-03",
+              "grade": null,
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "institution": "TU Berlin",
+              "degree": "M.Sc.",
+              "field": "Computer Science",
+              "start_date": "2010-10",
+              "end_date": "2013-03",
+              "grade": "1.3",
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "rationale": "Updated M.Sc. @ TU Berlin in education (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "M.Sc. @ TU Berlin",
+            "action": "updated",
+            "rationale": "Updated M.Sc. @ TU Berlin in education (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "TU Berlin",
+                "degree": "M.Sc.",
+                "field": "Computer Science",
+                "start_date": "2010-10",
+                "end_date": "2013-03",
+                "grade": null,
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "TU Berlin",
+                "degree": "M.Sc.",
+                "field": "Computer Science",
+                "start_date": "2010-10",
+                "end_date": "2013-03",
+                "grade": "1.3",
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "education.rename": {
+      "section": "education",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000003-0000-4000-8000-000000000003",
+          "institution": "TU Berlin",
+          "degree": "M.Sc. Informatik",
+          "field": "Computer Science",
+          "start_date": "2010-10",
+          "end_date": "2013-03",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000004",
+          "institution": "Universität Hamburg",
+          "degree": "B.Sc.",
+          "field": "Mathematics",
+          "start_date": "2007-10",
+          "end_date": "2010-09",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "M.Sc. Informatik @ TU Berlin",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "institution": "TU Berlin",
+              "degree": "M.Sc.",
+              "field": "Computer Science",
+              "start_date": "2010-10",
+              "end_date": "2013-03",
+              "grade": null,
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "institution": "TU Berlin",
+              "degree": "M.Sc. Informatik",
+              "field": "Computer Science",
+              "start_date": "2010-10",
+              "end_date": "2013-03",
+              "grade": null,
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "rationale": "Updated M.Sc. Informatik @ TU Berlin in education (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "M.Sc. Informatik @ TU Berlin",
+            "action": "updated",
+            "rationale": "Updated M.Sc. Informatik @ TU Berlin in education (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "TU Berlin",
+                "degree": "M.Sc.",
+                "field": "Computer Science",
+                "start_date": "2010-10",
+                "end_date": "2013-03",
+                "grade": null,
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "TU Berlin",
+                "degree": "M.Sc. Informatik",
+                "field": "Computer Science",
+                "start_date": "2010-10",
+                "end_date": "2013-03",
+                "grade": null,
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "education.remove": {
+      "section": "education",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000003-0000-4000-8000-000000000003",
+          "institution": "TU Berlin",
+          "degree": "M.Sc.",
+          "field": "Computer Science",
+          "start_date": "2010-10",
+          "end_date": "2013-03",
+          "grade": null,
+          "thesis_title": null,
+          "relevant_coursework": []
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "B.Sc. @ Universität Hamburg",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "institution": "Universität Hamburg",
+              "degree": "B.Sc.",
+              "field": "Mathematics",
+              "start_date": "2007-10",
+              "end_date": "2010-09",
+              "grade": null,
+              "thesis_title": null,
+              "relevant_coursework": []
+            },
+            "new_value": null,
+            "rationale": "Removed B.Sc. @ Universität Hamburg in education (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "education",
+            "field": "B.Sc. @ Universität Hamburg",
+            "action": "removed",
+            "rationale": "Removed B.Sc. @ Universität Hamburg in education (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "degree",
+                "end_date",
+                "field",
+                "grade",
+                "id",
+                "institution",
+                "relevant_coursework",
+                "start_date",
+                "thesis_title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "institution": "Universität Hamburg",
+                "degree": "B.Sc.",
+                "field": "Mathematics",
+                "start_date": "2007-10",
+                "end_date": "2010-09",
+                "grade": null,
+                "thesis_title": null,
+                "relevant_coursework": []
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "certifications.add": {
+      "section": "certifications",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000005-0000-4000-8000-000000000005",
+          "name": "AWS Solutions Architect – Associate",
+          "issuing_organization": "Amazon Web Services",
+          "date_obtained": "2022-05-01",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        },
+        {
+          "id": "00000006-0000-4000-8000-000000000006",
+          "name": "Professional Scrum Master I",
+          "issuing_organization": "Scrum.org",
+          "date_obtained": "2019-02-15",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        },
+        {
+          "name": "Certified Kubernetes Administrator",
+          "issuing_organization": "CNCF",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "Certified Kubernetes Administrator",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "name": "Certified Kubernetes Administrator",
+              "issuing_organization": "CNCF",
+              "date_obtained": null,
+              "expiry_date": null,
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "rationale": "Added Certified Kubernetes Administrator in certifications (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "Certified Kubernetes Administrator",
+            "action": "added",
+            "rationale": "Added Certified Kubernetes Administrator in certifications (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Certified Kubernetes Administrator",
+                "issuing_organization": "CNCF",
+                "date_obtained": null,
+                "expiry_date": null,
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "certifications.update": {
+      "section": "certifications",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000005-0000-4000-8000-000000000005",
+          "name": "AWS Solutions Architect – Associate",
+          "issuing_organization": "Amazon Web Services",
+          "date_obtained": "2022-05-01",
+          "expiry_date": "2027-05-01",
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        },
+        {
+          "id": "00000006-0000-4000-8000-000000000006",
+          "name": "Professional Scrum Master I",
+          "issuing_organization": "Scrum.org",
+          "date_obtained": "2019-02-15",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "AWS Solutions Architect – Associate",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "AWS Solutions Architect – Associate",
+              "issuing_organization": "Amazon Web Services",
+              "date_obtained": "2022-05-01",
+              "expiry_date": null,
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "name": "AWS Solutions Architect – Associate",
+              "issuing_organization": "Amazon Web Services",
+              "date_obtained": "2022-05-01",
+              "expiry_date": "2027-05-01",
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "rationale": "Updated AWS Solutions Architect – Associate in certifications (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "AWS Solutions Architect – Associate",
+            "action": "updated",
+            "rationale": "Updated AWS Solutions Architect – Associate in certifications (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "AWS Solutions Architect – Associate",
+                "issuing_organization": "Amazon Web Services",
+                "date_obtained": "2022-05-01",
+                "expiry_date": null,
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "AWS Solutions Architect – Associate",
+                "issuing_organization": "Amazon Web Services",
+                "date_obtained": "2022-05-01",
+                "expiry_date": "2027-05-01",
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "certifications.rename": {
+      "section": "certifications",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000005-0000-4000-8000-000000000005",
+          "name": "AWS Solutions Architect – Professional",
+          "issuing_organization": "Amazon Web Services",
+          "date_obtained": "2022-05-01",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        },
+        {
+          "id": "00000006-0000-4000-8000-000000000006",
+          "name": "Professional Scrum Master I",
+          "issuing_organization": "Scrum.org",
+          "date_obtained": "2019-02-15",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "AWS Solutions Architect – Professional",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "AWS Solutions Architect – Associate",
+              "issuing_organization": "Amazon Web Services",
+              "date_obtained": "2022-05-01",
+              "expiry_date": null,
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "name": "AWS Solutions Architect – Professional",
+              "issuing_organization": "Amazon Web Services",
+              "date_obtained": "2022-05-01",
+              "expiry_date": null,
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "rationale": "Updated AWS Solutions Architect – Professional in certifications (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "AWS Solutions Architect – Professional",
+            "action": "updated",
+            "rationale": "Updated AWS Solutions Architect – Professional in certifications (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "AWS Solutions Architect – Associate",
+                "issuing_organization": "Amazon Web Services",
+                "date_obtained": "2022-05-01",
+                "expiry_date": null,
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "AWS Solutions Architect – Professional",
+                "issuing_organization": "Amazon Web Services",
+                "date_obtained": "2022-05-01",
+                "expiry_date": null,
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "certifications.remove": {
+      "section": "certifications",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000005-0000-4000-8000-000000000005",
+          "name": "AWS Solutions Architect – Associate",
+          "issuing_organization": "Amazon Web Services",
+          "date_obtained": "2022-05-01",
+          "expiry_date": null,
+          "credential_id": null,
+          "credential_url": null,
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "Professional Scrum Master I",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "Professional Scrum Master I",
+              "issuing_organization": "Scrum.org",
+              "date_obtained": "2019-02-15",
+              "expiry_date": null,
+              "credential_id": null,
+              "credential_url": null,
+              "status": "confirmed"
+            },
+            "new_value": null,
+            "rationale": "Removed Professional Scrum Master I in certifications (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "certifications",
+            "field": "Professional Scrum Master I",
+            "action": "removed",
+            "rationale": "Removed Professional Scrum Master I in certifications (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "credential_id",
+                "credential_url",
+                "date_obtained",
+                "expiry_date",
+                "id",
+                "issuing_organization",
+                "name",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Professional Scrum Master I",
+                "issuing_organization": "Scrum.org",
+                "date_obtained": "2019-02-15",
+                "expiry_date": null,
+                "credential_id": null,
+                "credential_url": null,
+                "status": "confirmed"
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "skills.add": {
+      "section": "skills",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000007-0000-4000-8000-000000000007",
+          "name": "Python",
+          "category": "technical",
+          "proficiency": "advanced",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000008-0000-4000-8000-000000000008",
+          "name": "Kafka",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000009-0000-4000-8000-000000000009",
+          "name": "SQL",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "unconfirmed"
+        },
+        {
+          "name": "Terraform",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Terraform",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "name": "Terraform",
+              "category": "technical",
+              "proficiency": "intermediate",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "rationale": "Added Terraform in skills (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Terraform",
+            "action": "added",
+            "rationale": "Added Terraform in skills (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Terraform",
+                "category": "technical",
+                "proficiency": "intermediate",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "skills.update": {
+      "section": "skills",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000007-0000-4000-8000-000000000007",
+          "name": "Python",
+          "category": "technical",
+          "proficiency": "expert",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000008-0000-4000-8000-000000000008",
+          "name": "Kafka",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000009-0000-4000-8000-000000000009",
+          "name": "SQL",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "unconfirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Python",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "Python",
+              "category": "technical",
+              "proficiency": "advanced",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "name": "Python",
+              "category": "technical",
+              "proficiency": "expert",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "rationale": "Updated Python in skills (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Python",
+            "action": "updated",
+            "rationale": "Updated Python in skills (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Python",
+                "category": "technical",
+                "proficiency": "advanced",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Python",
+                "category": "technical",
+                "proficiency": "expert",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "skills.rename": {
+      "section": "skills",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000007-0000-4000-8000-000000000007",
+          "name": "Python 3",
+          "category": "technical",
+          "proficiency": "advanced",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000008-0000-4000-8000-000000000008",
+          "name": "Kafka",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000009-0000-4000-8000-000000000009",
+          "name": "SQL",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "unconfirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Python 3",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "Python",
+              "category": "technical",
+              "proficiency": "advanced",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "name": "Python 3",
+              "category": "technical",
+              "proficiency": "advanced",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "rationale": "Updated Python 3 in skills (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Python 3",
+            "action": "updated",
+            "rationale": "Updated Python 3 in skills (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Python",
+                "category": "technical",
+                "proficiency": "advanced",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Python 3",
+                "category": "technical",
+                "proficiency": "advanced",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "skills.remove": {
+      "section": "skills",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000007-0000-4000-8000-000000000007",
+          "name": "Python",
+          "category": "technical",
+          "proficiency": "advanced",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "confirmed"
+        },
+        {
+          "id": "00000009-0000-4000-8000-000000000009",
+          "name": "SQL",
+          "category": "technical",
+          "proficiency": "intermediate",
+          "years_experience": null,
+          "source": null,
+          "last_used": null,
+          "experience_refs": [],
+          "status": "unconfirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Kafka",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "name": "Kafka",
+              "category": "technical",
+              "proficiency": "intermediate",
+              "years_experience": null,
+              "source": null,
+              "last_used": null,
+              "experience_refs": [],
+              "status": "confirmed"
+            },
+            "new_value": null,
+            "rationale": "Removed Kafka in skills (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "skills",
+            "field": "Kafka",
+            "action": "removed",
+            "rationale": "Removed Kafka in skills (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "category",
+                "experience_refs",
+                "id",
+                "last_used",
+                "name",
+                "proficiency",
+                "source",
+                "status",
+                "years_experience"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "name": "Kafka",
+                "category": "technical",
+                "proficiency": "intermediate",
+                "years_experience": null,
+                "source": null,
+                "last_used": null,
+                "experience_refs": [],
+                "status": "confirmed"
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "languages.add": {
+      "section": "languages",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000010-0000-4000-8000-000000000010",
+          "language": "German",
+          "level": "C2",
+          "status": "confirmed"
+        },
+        {
+          "id": "00000011-0000-4000-8000-000000000011",
+          "language": "English",
+          "level": "C1",
+          "status": "confirmed"
+        },
+        {
+          "language": "French",
+          "level": "B1",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "French",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "language": "French",
+              "level": "B1",
+              "status": "confirmed"
+            },
+            "rationale": "Added French in languages (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "French",
+            "action": "added",
+            "rationale": "Added French in languages (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "French",
+                "level": "B1",
+                "status": "confirmed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "languages.update": {
+      "section": "languages",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000010-0000-4000-8000-000000000010",
+          "language": "German",
+          "level": "C1",
+          "status": "confirmed"
+        },
+        {
+          "id": "00000011-0000-4000-8000-000000000011",
+          "language": "English",
+          "level": "C1",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "German",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "language": "German",
+              "level": "C2",
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "language": "German",
+              "level": "C1",
+              "status": "confirmed"
+            },
+            "rationale": "Updated German in languages (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "German",
+            "action": "updated",
+            "rationale": "Updated German in languages (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "German",
+                "level": "C2",
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "German",
+                "level": "C1",
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "languages.rename": {
+      "section": "languages",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000010-0000-4000-8000-000000000010",
+          "language": "Deutsch",
+          "level": "C2",
+          "status": "confirmed"
+        },
+        {
+          "id": "00000011-0000-4000-8000-000000000011",
+          "language": "English",
+          "level": "C1",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "Deutsch",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "language": "German",
+              "level": "C2",
+              "status": "confirmed"
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "language": "Deutsch",
+              "level": "C2",
+              "status": "confirmed"
+            },
+            "rationale": "Updated Deutsch in languages (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "Deutsch",
+            "action": "updated",
+            "rationale": "Updated Deutsch in languages (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "German",
+                "level": "C2",
+                "status": "confirmed"
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "Deutsch",
+                "level": "C2",
+                "status": "confirmed"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "languages.remove": {
+      "section": "languages",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000010-0000-4000-8000-000000000010",
+          "language": "German",
+          "level": "C2",
+          "status": "confirmed"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "English",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "language": "English",
+              "level": "C1",
+              "status": "confirmed"
+            },
+            "new_value": null,
+            "rationale": "Removed English in languages (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "languages",
+            "field": "English",
+            "action": "removed",
+            "rationale": "Removed English in languages (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "id",
+                "language",
+                "level",
+                "status"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "language": "English",
+                "level": "C1",
+                "status": "confirmed"
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "publications.add": {
+      "section": "publications",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000012-0000-4000-8000-000000000012",
+          "title": "Kafka in Practice",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "JavaSPEKTRUM",
+          "published_date": "2021-06-01",
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        },
+        {
+          "id": "00000013-0000-4000-8000-000000000013",
+          "title": "Observability for Batch Jobs",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "Blog",
+          "published_date": null,
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        },
+        {
+          "title": "Streaming at Scale",
+          "type": "publication",
+          "venue": "QCon London"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Streaming at Scale",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "title": "Streaming at Scale",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "QCon London",
+              "published_date": null,
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "rationale": "Added Streaming at Scale in publications (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Streaming at Scale",
+            "action": "added",
+            "rationale": "Added Streaming at Scale in publications (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Streaming at Scale",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "QCon London",
+                "published_date": null,
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    "publications.update": {
+      "section": "publications",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000012-0000-4000-8000-000000000012",
+          "title": "Kafka in Practice",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "JavaSPEKTRUM",
+          "published_date": "2024-11-05",
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        },
+        {
+          "id": "00000013-0000-4000-8000-000000000013",
+          "title": "Observability for Batch Jobs",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "Blog",
+          "published_date": null,
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Kafka in Practice",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "Kafka in Practice",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "JavaSPEKTRUM",
+              "published_date": "2021-06-01",
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "title": "Kafka in Practice",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "JavaSPEKTRUM",
+              "published_date": "2024-11-05",
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "rationale": "Updated Kafka in Practice in publications (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Kafka in Practice",
+            "action": "updated",
+            "rationale": "Updated Kafka in Practice in publications (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Kafka in Practice",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "JavaSPEKTRUM",
+                "published_date": "2021-06-01",
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Kafka in Practice",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "JavaSPEKTRUM",
+                "published_date": "2024-11-05",
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "publications.rename": {
+      "section": "publications",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000012-0000-4000-8000-000000000012",
+          "title": "Kafka in Practice, 2nd ed.",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "JavaSPEKTRUM",
+          "published_date": "2021-06-01",
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        },
+        {
+          "id": "00000013-0000-4000-8000-000000000013",
+          "title": "Observability for Batch Jobs",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "Blog",
+          "published_date": null,
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Kafka in Practice, 2nd ed.",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "Kafka in Practice",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "JavaSPEKTRUM",
+              "published_date": "2021-06-01",
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "title": "Kafka in Practice, 2nd ed.",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "JavaSPEKTRUM",
+              "published_date": "2021-06-01",
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "rationale": "Updated Kafka in Practice, 2nd ed. in publications (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Kafka in Practice, 2nd ed.",
+            "action": "updated",
+            "rationale": "Updated Kafka in Practice, 2nd ed. in publications (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Kafka in Practice",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "JavaSPEKTRUM",
+                "published_date": "2021-06-01",
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Kafka in Practice, 2nd ed.",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "JavaSPEKTRUM",
+                "published_date": "2021-06-01",
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "publications.remove": {
+      "section": "publications",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000012-0000-4000-8000-000000000012",
+          "title": "Kafka in Practice",
+          "type": "publication",
+          "co_authors": [],
+          "venue": "JavaSPEKTRUM",
+          "published_date": "2021-06-01",
+          "doi": null,
+          "url": null,
+          "patent_number": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Observability for Batch Jobs",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "Observability for Batch Jobs",
+              "type": "publication",
+              "co_authors": [],
+              "venue": "Blog",
+              "published_date": null,
+              "doi": null,
+              "url": null,
+              "patent_number": null
+            },
+            "new_value": null,
+            "rationale": "Removed Observability for Batch Jobs in publications (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "publications",
+            "field": "Observability for Batch Jobs",
+            "action": "removed",
+            "rationale": "Removed Observability for Batch Jobs in publications (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "co_authors",
+                "doi",
+                "id",
+                "patent_number",
+                "published_date",
+                "title",
+                "type",
+                "url",
+                "venue"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Observability for Batch Jobs",
+                "type": "publication",
+                "co_authors": [],
+                "venue": "Blog",
+                "published_date": null,
+                "doi": null,
+                "url": null,
+                "patent_number": null
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "volunteer_activities.add": {
+      "section": "volunteer_activities",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "role": "Mentor",
+          "location": null,
+          "start_date": "2018-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000014-0000-4000-8000-000000000014",
+          "organization": "CoderDojo Berlin",
+          "description": null,
+          "cause": null
+        },
+        {
+          "role": "Volunteer",
+          "location": null,
+          "start_date": "2015-03",
+          "end_date": "2016-03",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000015-0000-4000-8000-000000000015",
+          "organization": "Tafel Berlin",
+          "description": null,
+          "cause": null
+        },
+        {
+          "organization": "Hackerspace Berlin",
+          "role": "Mentor"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Mentor @ Hackerspace Berlin",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "role": "Mentor",
+              "location": null,
+              "start_date": null,
+              "end_date": null,
+              "is_current": null,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "Hackerspace Berlin",
+              "description": null,
+              "cause": null
+            },
+            "rationale": "Added Mentor @ Hackerspace Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Mentor @ Hackerspace Berlin",
+            "action": "added",
+            "rationale": "Added Mentor @ Hackerspace Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Mentor",
+                "location": null,
+                "start_date": null,
+                "end_date": null,
+                "is_current": null,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "Hackerspace Berlin",
+                "description": null,
+                "cause": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    "volunteer_activities.update": {
+      "section": "volunteer_activities",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "role": "Mentor",
+          "location": null,
+          "start_date": "2018-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000014-0000-4000-8000-000000000014",
+          "organization": "CoderDojo Berlin",
+          "description": null,
+          "cause": "Education"
+        },
+        {
+          "role": "Volunteer",
+          "location": null,
+          "start_date": "2015-03",
+          "end_date": "2016-03",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000015-0000-4000-8000-000000000015",
+          "organization": "Tafel Berlin",
+          "description": null,
+          "cause": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Mentor @ CoderDojo Berlin",
+            "action": "updated",
+            "old_value": {
+              "role": "Mentor",
+              "location": null,
+              "start_date": "2018-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "CoderDojo Berlin",
+              "description": null,
+              "cause": null
+            },
+            "new_value": {
+              "role": "Mentor",
+              "location": null,
+              "start_date": "2018-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "CoderDojo Berlin",
+              "description": null,
+              "cause": "Education"
+            },
+            "rationale": "Updated Mentor @ CoderDojo Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Mentor @ CoderDojo Berlin",
+            "action": "updated",
+            "rationale": "Updated Mentor @ CoderDojo Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Mentor",
+                "location": null,
+                "start_date": "2018-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "CoderDojo Berlin",
+                "description": null,
+                "cause": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Mentor",
+                "location": null,
+                "start_date": "2018-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "CoderDojo Berlin",
+                "description": null,
+                "cause": "Education"
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "volunteer_activities.rename": {
+      "section": "volunteer_activities",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "role": "Board member",
+          "location": null,
+          "start_date": "2018-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000014-0000-4000-8000-000000000014",
+          "organization": "CoderDojo Berlin",
+          "description": null,
+          "cause": null
+        },
+        {
+          "role": "Volunteer",
+          "location": null,
+          "start_date": "2015-03",
+          "end_date": "2016-03",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000015-0000-4000-8000-000000000015",
+          "organization": "Tafel Berlin",
+          "description": null,
+          "cause": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Board member @ CoderDojo Berlin",
+            "action": "updated",
+            "old_value": {
+              "role": "Mentor",
+              "location": null,
+              "start_date": "2018-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "CoderDojo Berlin",
+              "description": null,
+              "cause": null
+            },
+            "new_value": {
+              "role": "Board member",
+              "location": null,
+              "start_date": "2018-01",
+              "end_date": null,
+              "is_current": true,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "CoderDojo Berlin",
+              "description": null,
+              "cause": null
+            },
+            "rationale": "Updated Board member @ CoderDojo Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Board member @ CoderDojo Berlin",
+            "action": "updated",
+            "rationale": "Updated Board member @ CoderDojo Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Mentor",
+                "location": null,
+                "start_date": "2018-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "CoderDojo Berlin",
+                "description": null,
+                "cause": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Board member",
+                "location": null,
+                "start_date": "2018-01",
+                "end_date": null,
+                "is_current": true,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "CoderDojo Berlin",
+                "description": null,
+                "cause": null
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "volunteer_activities.remove": {
+      "section": "volunteer_activities",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "role": "Mentor",
+          "location": null,
+          "start_date": "2018-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000014-0000-4000-8000-000000000014",
+          "organization": "CoderDojo Berlin",
+          "description": null,
+          "cause": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Volunteer @ Tafel Berlin",
+            "action": "removed",
+            "old_value": {
+              "role": "Volunteer",
+              "location": null,
+              "start_date": "2015-03",
+              "end_date": "2016-03",
+              "is_current": false,
+              "responsibilities": [],
+              "achievements": [],
+              "technologies": [],
+              "expected_fields": null,
+              "id": "<uuid>",
+              "organization": "Tafel Berlin",
+              "description": null,
+              "cause": null
+            },
+            "new_value": null,
+            "rationale": "Removed Volunteer @ Tafel Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "volunteer_activities",
+            "field": "Volunteer @ Tafel Berlin",
+            "action": "removed",
+            "rationale": "Removed Volunteer @ Tafel Berlin in volunteer_activities (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "achievements",
+                "cause",
+                "description",
+                "end_date",
+                "expected_fields",
+                "id",
+                "is_current",
+                "location",
+                "organization",
+                "responsibilities",
+                "role",
+                "start_date",
+                "technologies"
+              ],
+              "value": {
+                "role": "Volunteer",
+                "location": null,
+                "start_date": "2015-03",
+                "end_date": "2016-03",
+                "is_current": false,
+                "responsibilities": [],
+                "achievements": [],
+                "technologies": [],
+                "expected_fields": null,
+                "id": "<uuid>",
+                "organization": "Tafel Berlin",
+                "description": null,
+                "cause": null
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "signature_stories.add": {
+      "section": "signature_stories",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "id": "00000016-0000-4000-8000-000000000016",
+          "title": "The migration nobody noticed",
+          "challenge": "A monolith with a 2h deploy window",
+          "mechanism": "Strangler pattern behind a feature flag",
+          "outcome": "Deploy time down to 6 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        },
+        {
+          "id": "00000017-0000-4000-8000-000000000017",
+          "title": "Pipeline health made visible",
+          "challenge": "Silent batch failures",
+          "mechanism": "Per-job SLO dashboards",
+          "outcome": "Mean time to detect from 2 days to 20 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        },
+        {
+          "title": "Zero-downtime schema change",
+          "challenge": "A 400 GB table nobody dared to alter",
+          "mechanism": "Online migration in shadow columns",
+          "outcome": "Zero minutes of downtime across 3 releases"
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "Zero-downtime schema change",
+            "action": "added",
+            "old_value": null,
+            "new_value": {
+              "id": "<uuid>",
+              "title": "Zero-downtime schema change",
+              "challenge": "A 400 GB table nobody dared to alter",
+              "mechanism": "Online migration in shadow columns",
+              "outcome": "Zero minutes of downtime across 3 releases",
+              "benchmark": null,
+              "experience_refs": [],
+              "source": null
+            },
+            "rationale": "Added Zero-downtime schema change in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "Zero-downtime schema change",
+            "action": "added",
+            "rationale": "Added Zero-downtime schema change in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Zero-downtime schema change",
+                "challenge": "A 400 GB table nobody dared to alter",
+                "mechanism": "Online migration in shadow columns",
+                "outcome": "Zero minutes of downtime across 3 releases",
+                "benchmark": null,
+                "experience_refs": [],
+                "source": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    "signature_stories.update": {
+      "section": "signature_stories",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "id": "00000016-0000-4000-8000-000000000016",
+          "title": "The migration nobody noticed",
+          "challenge": "A monolith with a 2h deploy window",
+          "mechanism": "Strangler pattern behind a feature flag",
+          "outcome": "Deploy time down to 6 minutes",
+          "benchmark": "industry median: 4 h maintenance window",
+          "experience_refs": [],
+          "source": null
+        },
+        {
+          "id": "00000017-0000-4000-8000-000000000017",
+          "title": "Pipeline health made visible",
+          "challenge": "Silent batch failures",
+          "mechanism": "Per-job SLO dashboards",
+          "outcome": "Mean time to detect from 2 days to 20 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "The migration nobody noticed",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "The migration nobody noticed",
+              "challenge": "A monolith with a 2h deploy window",
+              "mechanism": "Strangler pattern behind a feature flag",
+              "outcome": "Deploy time down to 6 minutes",
+              "benchmark": null,
+              "experience_refs": [],
+              "source": null
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "title": "The migration nobody noticed",
+              "challenge": "A monolith with a 2h deploy window",
+              "mechanism": "Strangler pattern behind a feature flag",
+              "outcome": "Deploy time down to 6 minutes",
+              "benchmark": "industry median: 4 h maintenance window",
+              "experience_refs": [],
+              "source": null
+            },
+            "rationale": "Updated The migration nobody noticed in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "The migration nobody noticed",
+            "action": "updated",
+            "rationale": "Updated The migration nobody noticed in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "The migration nobody noticed",
+                "challenge": "A monolith with a 2h deploy window",
+                "mechanism": "Strangler pattern behind a feature flag",
+                "outcome": "Deploy time down to 6 minutes",
+                "benchmark": null,
+                "experience_refs": [],
+                "source": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "The migration nobody noticed",
+                "challenge": "A monolith with a 2h deploy window",
+                "mechanism": "Strangler pattern behind a feature flag",
+                "outcome": "Deploy time down to 6 minutes",
+                "benchmark": "industry median: 4 h maintenance window",
+                "experience_refs": [],
+                "source": null
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "signature_stories.rename": {
+      "section": "signature_stories",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "id": "00000016-0000-4000-8000-000000000016",
+          "title": "The migration nobody noticed (2)",
+          "challenge": "A monolith with a 2h deploy window",
+          "mechanism": "Strangler pattern behind a feature flag",
+          "outcome": "Deploy time down to 6 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        },
+        {
+          "id": "00000017-0000-4000-8000-000000000017",
+          "title": "Pipeline health made visible",
+          "challenge": "Silent batch failures",
+          "mechanism": "Per-job SLO dashboards",
+          "outcome": "Mean time to detect from 2 days to 20 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "The migration nobody noticed (2)",
+            "action": "updated",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "The migration nobody noticed",
+              "challenge": "A monolith with a 2h deploy window",
+              "mechanism": "Strangler pattern behind a feature flag",
+              "outcome": "Deploy time down to 6 minutes",
+              "benchmark": null,
+              "experience_refs": [],
+              "source": null
+            },
+            "new_value": {
+              "id": "<uuid>",
+              "title": "The migration nobody noticed (2)",
+              "challenge": "A monolith with a 2h deploy window",
+              "mechanism": "Strangler pattern behind a feature flag",
+              "outcome": "Deploy time down to 6 minutes",
+              "benchmark": null,
+              "experience_refs": [],
+              "source": null
+            },
+            "rationale": "Updated The migration nobody noticed (2) in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "The migration nobody noticed (2)",
+            "action": "updated",
+            "rationale": "Updated The migration nobody noticed (2) in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "The migration nobody noticed",
+                "challenge": "A monolith with a 2h deploy window",
+                "mechanism": "Strangler pattern behind a feature flag",
+                "outcome": "Deploy time down to 6 minutes",
+                "benchmark": null,
+                "experience_refs": [],
+                "source": null
+              }
+            },
+            "new_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "The migration nobody noticed (2)",
+                "challenge": "A monolith with a 2h deploy window",
+                "mechanism": "Strangler pattern behind a feature flag",
+                "outcome": "Deploy time down to 6 minutes",
+                "benchmark": null,
+                "experience_refs": [],
+                "source": null
+              }
+            },
+            "same_id": true
+          }
+        ]
+      }
+    },
+    "signature_stories.remove": {
+      "section": "signature_stories",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "id": "00000016-0000-4000-8000-000000000016",
+          "title": "The migration nobody noticed",
+          "challenge": "A monolith with a 2h deploy window",
+          "mechanism": "Strangler pattern behind a feature flag",
+          "outcome": "Deploy time down to 6 minutes",
+          "benchmark": null,
+          "experience_refs": [],
+          "source": null
+        }
+      ],
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "Pipeline health made visible",
+            "action": "removed",
+            "old_value": {
+              "id": "<uuid>",
+              "title": "Pipeline health made visible",
+              "challenge": "Silent batch failures",
+              "mechanism": "Per-job SLO dashboards",
+              "outcome": "Mean time to detect from 2 days to 20 minutes",
+              "benchmark": null,
+              "experience_refs": [],
+              "source": null
+            },
+            "new_value": null,
+            "rationale": "Removed Pipeline health made visible in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "signature_stories",
+            "field": "Pipeline health made visible",
+            "action": "removed",
+            "rationale": "Removed Pipeline health made visible in signature_stories (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "object",
+              "keys": [
+                "benchmark",
+                "challenge",
+                "experience_refs",
+                "id",
+                "mechanism",
+                "outcome",
+                "source",
+                "title"
+              ],
+              "value": {
+                "id": "<uuid>",
+                "title": "Pipeline health made visible",
+                "challenge": "Silent batch failures",
+                "mechanism": "Per-job SLO dashboards",
+                "outcome": "Mean time to detect from 2 days to 20 minutes",
+                "benchmark": null,
+                "experience_refs": [],
+                "source": null
+              }
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "projects.add": {
+      "section": "projects",
+      "kind": "list",
+      "op": "add",
+      "pre_epic_body": [
+        {
+          "role": "Lead",
+          "location": null,
+          "start_date": "2022-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "PostgreSQL"
+          ],
+          "expected_fields": null,
+          "id": "00000018-0000-4000-8000-000000000018",
+          "name": "Ledger",
+          "description": "Double-entry ledger service",
+          "url": null,
+          "associated_experience": null
+        },
+        {
+          "role": "Contributor",
+          "location": null,
+          "start_date": "2021-05",
+          "end_date": "2021-09",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000019-0000-4000-8000-000000000019",
+          "name": "Build Cache",
+          "description": null,
+          "url": null,
+          "associated_experience": null
+        },
+        {
+          "name": "Cost Explorer",
+          "role": "Lead"
+        }
+      ],
+      "status": 422,
+      "refusal": "Invalid section 'projects'. Valid: ['certifications', 'education', 'languages', 'personal_info', 'professional_summary', 'publications', 'signature_stories', 'skills', 'volunteer_activities', 'work_experience']"
+    },
+    "projects.update": {
+      "section": "projects",
+      "kind": "list",
+      "op": "update",
+      "pre_epic_body": [
+        {
+          "role": "Lead",
+          "location": null,
+          "start_date": "2022-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "PostgreSQL"
+          ],
+          "expected_fields": null,
+          "id": "00000018-0000-4000-8000-000000000018",
+          "name": "Ledger",
+          "description": "Double-entry ledger service for the platform",
+          "url": null,
+          "associated_experience": null
+        },
+        {
+          "role": "Contributor",
+          "location": null,
+          "start_date": "2021-05",
+          "end_date": "2021-09",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000019-0000-4000-8000-000000000019",
+          "name": "Build Cache",
+          "description": null,
+          "url": null,
+          "associated_experience": null
+        }
+      ],
+      "status": 422,
+      "refusal": "Invalid section 'projects'. Valid: ['certifications', 'education', 'languages', 'personal_info', 'professional_summary', 'publications', 'signature_stories', 'skills', 'volunteer_activities', 'work_experience']"
+    },
+    "projects.rename": {
+      "section": "projects",
+      "kind": "list",
+      "op": "rename",
+      "pre_epic_body": [
+        {
+          "role": "Lead",
+          "location": null,
+          "start_date": "2022-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "PostgreSQL"
+          ],
+          "expected_fields": null,
+          "id": "00000018-0000-4000-8000-000000000018",
+          "name": "Ledger v2",
+          "description": "Double-entry ledger service",
+          "url": null,
+          "associated_experience": null
+        },
+        {
+          "role": "Contributor",
+          "location": null,
+          "start_date": "2021-05",
+          "end_date": "2021-09",
+          "is_current": false,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [],
+          "expected_fields": null,
+          "id": "00000019-0000-4000-8000-000000000019",
+          "name": "Build Cache",
+          "description": null,
+          "url": null,
+          "associated_experience": null
+        }
+      ],
+      "status": 422,
+      "refusal": "Invalid section 'projects'. Valid: ['certifications', 'education', 'languages', 'personal_info', 'professional_summary', 'publications', 'signature_stories', 'skills', 'volunteer_activities', 'work_experience']"
+    },
+    "projects.remove": {
+      "section": "projects",
+      "kind": "list",
+      "op": "remove",
+      "pre_epic_body": [
+        {
+          "role": "Lead",
+          "location": null,
+          "start_date": "2022-01",
+          "end_date": null,
+          "is_current": true,
+          "responsibilities": [],
+          "achievements": [],
+          "technologies": [
+            "Python",
+            "PostgreSQL"
+          ],
+          "expected_fields": null,
+          "id": "00000018-0000-4000-8000-000000000018",
+          "name": "Ledger",
+          "description": "Double-entry ledger service",
+          "url": null,
+          "associated_experience": null
+        }
+      ],
+      "status": 422,
+      "refusal": "Invalid section 'projects'. Valid: ['certifications', 'education', 'languages', 'personal_info', 'professional_summary', 'publications', 'signature_stories', 'skills', 'volunteer_activities', 'work_experience']"
+    },
+    "personal_info.add": {
+      "section": "personal_info",
+      "kind": "object",
+      "op": "add",
+      "pre_epic_body": {
+        "name": "Anna Bauer",
+        "email": "anna@example.invalid",
+        "phone": "+49 30 000000",
+        "location": "Berlin",
+        "address": null,
+        "nationality": null,
+        "date_of_birth": "1990-04-12",
+        "photo_url": null,
+        "linkedin_url": "https://www.linkedin.com/in/anna-bauer-example",
+        "xing_url": null,
+        "website_url": null
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "location",
+            "action": "added",
+            "old_value": null,
+            "new_value": "Berlin",
+            "rationale": "Added location in personal_info (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "location",
+            "action": "added",
+            "rationale": "Added location in personal_info (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "str",
+              "value": "Berlin"
+            }
+          }
+        ]
+      }
+    },
+    "personal_info.update": {
+      "section": "personal_info",
+      "kind": "object",
+      "op": "update",
+      "pre_epic_body": {
+        "name": "Anna Bauer",
+        "email": "anna@example.invalid",
+        "phone": "+49 30 111111",
+        "location": null,
+        "address": null,
+        "nationality": null,
+        "date_of_birth": "1990-04-12",
+        "photo_url": null,
+        "linkedin_url": "https://www.linkedin.com/in/anna-bauer-example",
+        "xing_url": null,
+        "website_url": null
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "phone",
+            "action": "updated",
+            "old_value": "+49 30 000000",
+            "new_value": "+49 30 111111",
+            "rationale": "Updated phone in personal_info (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "phone",
+            "action": "updated",
+            "rationale": "Updated phone in personal_info (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "str",
+              "value": "+49 30 000000"
+            },
+            "new_value": {
+              "type": "str",
+              "value": "+49 30 111111"
+            }
+          }
+        ]
+      }
+    },
+    "personal_info.remove": {
+      "section": "personal_info",
+      "kind": "object",
+      "op": "remove",
+      "pre_epic_body": {
+        "name": "Anna Bauer",
+        "email": "anna@example.invalid",
+        "phone": null,
+        "location": null,
+        "address": null,
+        "nationality": null,
+        "date_of_birth": "1990-04-12",
+        "photo_url": null,
+        "linkedin_url": "https://www.linkedin.com/in/anna-bauer-example",
+        "xing_url": null,
+        "website_url": null
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "phone",
+            "action": "removed",
+            "old_value": "+49 30 000000",
+            "new_value": null,
+            "rationale": "Removed phone in personal_info (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "personal_info",
+            "field": "phone",
+            "action": "removed",
+            "rationale": "Removed phone in personal_info (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "str",
+              "value": "+49 30 000000"
+            },
+            "new_value": null
+          }
+        ]
+      }
+    },
+    "professional_summary.add": {
+      "section": "professional_summary",
+      "kind": "object",
+      "op": "add",
+      "pre_epic_body": {
+        "de": "Deutsche Zusammenfassung.",
+        "en": "English summary."
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "en",
+            "action": "added",
+            "old_value": null,
+            "new_value": "English summary.",
+            "rationale": "Added en in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_added"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "en",
+            "action": "added",
+            "rationale": "Added en in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_added",
+            "old_value": null,
+            "new_value": {
+              "type": "str",
+              "value": "English summary."
+            }
+          }
+        ]
+      }
+    },
+    "professional_summary.update": {
+      "section": "professional_summary",
+      "kind": "object",
+      "op": "update",
+      "pre_epic_body": {
+        "de": "Neue deutsche Zusammenfassung.",
+        "en": null
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "de",
+            "action": "updated",
+            "old_value": "Deutsche Zusammenfassung.",
+            "new_value": "Neue deutsche Zusammenfassung.",
+            "rationale": "Updated de in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_updated"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "de",
+            "action": "updated",
+            "rationale": "Updated de in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_updated",
+            "old_value": {
+              "type": "str",
+              "value": "Deutsche Zusammenfassung."
+            },
+            "new_value": {
+              "type": "str",
+              "value": "Neue deutsche Zusammenfassung."
+            }
+          }
+        ]
+      }
+    },
+    "professional_summary.remove": {
+      "section": "professional_summary",
+      "kind": "object",
+      "op": "remove",
+      "pre_epic_body": {
+        "de": null,
+        "en": null
+      },
+      "status": 200,
+      "receipt": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "de",
+            "action": "removed",
+            "old_value": "Deutsche Zusammenfassung.",
+            "new_value": null,
+            "rationale": "Removed de in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_removed"
+          }
+        ],
+        "confidence": null,
+        "reconciliation": null
+      },
+      "shape": {
+        "source": "manual_edit",
+        "source_session_id": null,
+        "confidence": null,
+        "reconciliation": null,
+        "changes": [
+          {
+            "section": "professional_summary",
+            "field": "de",
+            "action": "removed",
+            "rationale": "Removed de in professional_summary (manual section edit).",
+            "rationale_key": "manual_section_removed",
+            "old_value": {
+              "type": "str",
+              "value": "Deutsche Zusammenfassung."
+            },
+            "new_value": null
+          }
+        ]
+      }
+    }
+  }
+}
