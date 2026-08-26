@@ -32,4 +32,13 @@ PYTHONPATH=../wt-pre-epic/backend python3 tests/files/us293_receipt_parity/recor
 git worktree remove ../wt-pre-epic
 ```
 
+**Scope, by design.** One case per (section × op) with the payloads the editors send; the door's
+field-level semantics (dates, statuses, parked lists, denials) are pinned by the sibling door tests
+in `tests/unit/test_commit_ops_pr3_door_writes.py`. The CV section editor's sub-door
+(`services/cv_section_editor.py`) is E055-untouched and outside the parity scope: it stamps the CV id
+as `source_session_id` (#336 provenance), so its receipt differs from these in exactly that field.
+Raw agent payloads the editors never send (`""` for a cleared key → #595; an id-less rename → #596)
+are door semantics, not editor semantics. `mask()` hides ONLY an entry's `id` — every other string,
+uuid-shaped or not, stays visible (adversarial pass 2026-08-26).
+
 Synthetic data only — the seed is a fictional "Anna Bauer" vault; no real personal data.

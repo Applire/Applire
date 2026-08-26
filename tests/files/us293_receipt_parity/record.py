@@ -421,14 +421,20 @@ def editor_body(case: dict, loaded: Any) -> Any:
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
-def mask(value: Any) -> Any:
-    """Replace every uuid-shaped string (minted ids differ per run) by a marker."""
-    if isinstance(value, str) and _UUID.match(value):
-        return "<uuid>"
+def mask(value: Any, *, key: str | None = None) -> Any:
+    """Replace an entry's `id` (minted per run) by a marker — and ONLY the id.
+
+    Every other string is data and stays visible, uuid-shaped or not: a
+    `credential_id`, a `doi`, a URL fragment. Masking every uuid-shaped string
+    would let a regression that persisted the WRONG credential id hide behind
+    the marker (adversarial finding 2026-08-26, attack 2a).
+    """
     if isinstance(value, dict):
-        return {k: mask(v) for k, v in value.items()}
+        return {k: mask(v, key=k) for k, v in value.items()}
     if isinstance(value, list):
-        return [mask(v) for v in value]
+        return [mask(v, key=key) for v in value]
+    if key == "id" and isinstance(value, str) and _UUID.match(value):
+        return "<uuid>"
     return value
 
 
@@ -457,7 +463,9 @@ def change_shape(change: dict) -> dict:
         "new_value": _describe(new),
     }
     if isinstance(old, dict) and isinstance(new, dict):
-        shape["same_id"] = old.get("id") is not None and old.get("id") == new.get("id")
+        # A blank id is no id (the committer strips them before the diff);
+        # two blanks must not read as "same identity" (attack 2c).
+        shape["same_id"] = bool(old.get("id")) and old.get("id") == new.get("id")
     return shape
 
 

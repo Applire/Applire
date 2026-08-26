@@ -42,6 +42,17 @@ in `patch_profile_section`" turn these tests red (JF-F-H0.1 (D)).
 Plus JF-F-H0.4, provoked at unit tier for the first time: the committer's
 invariant-8 reload gate answers a normal 200 with the untouched vault.
 
+**Scope.** The two doors the structured editors reach — the REST route and
+the MCP tool — with the payloads the editors send (one case per section and
+op; the door's field-level semantics are pinned by the sibling door tests in
+`test_commit_ops_pr3_door_writes.py`). The CV section editor's sub-door
+(`cv_section_editor.py`) is E055-untouched and out of the parity scope BY
+DESIGN: it stamps the CV's id as `source_session_id` (#336 provenance), so its
+receipt differs from these in exactly that field. Raw agent payloads the
+editors never send (`""` for a cleared key, an id-less rename) are door
+semantics, not editor semantics — see the issues filed from the 2026-08-26
+adversarial pass.
+
 Fixture-gated? No — the fixture is committed; a missing fixture is a failure,
 not a skip (feedback_fixture_gated_tests_are_not_gates).
 """
@@ -256,10 +267,14 @@ async def test_the_rest_door_yields_the_pre_epic_receipt_for_todays_editor_paylo
     engine, factory = durable_db
     profile_id = await rec._seed(factory)
 
-    await _patch(factory, case["section"], _editor_body(case))
+    with _profile_write_witness() as writes:
+        await _patch(factory, case["section"], _editor_body(case))
 
     stored = await rec._read_back(engine, profile_id)
     assert rec.receipt_shape(_latest_receipt(stored)) == FIXTURE["cases"][case["id"]]["shape"]
+    # Every pinned case is also witnessed (adversarial finding 2026-08-26,
+    # attack 3c): the receipt AND the write that carried it are the committer's.
+    _assert_only_the_committer_wrote(writes)
 
 
 @pytest.mark.asyncio
@@ -271,10 +286,12 @@ async def test_the_agent_door_yields_the_pre_epic_receipt_for_the_same_payload(d
     engine, factory = durable_db
     profile_id = await rec._seed(factory)
 
-    await _mcp_update(factory, monkeypatch, case["section"], _editor_body(case))
+    with _profile_write_witness() as writes:
+        await _mcp_update(factory, monkeypatch, case["section"], _editor_body(case))
 
     stored = await rec._read_back(engine, profile_id)
     assert rec.receipt_shape(_latest_receipt(stored)) == FIXTURE["cases"][case["id"]]["shape"]
+    _assert_only_the_committer_wrote(writes)
 
 
 @pytest.mark.asyncio
@@ -312,6 +329,7 @@ def _profile_write_witness():
     assigner: `commit.py` for a routed write, whoever else for a bypass.
     """
     from sqlalchemy import event
+    from sqlalchemy.orm import Session
 
     from applire.models import profile as pm
 
@@ -319,7 +337,7 @@ def _profile_write_witness():
 
     def _assigner() -> str:
         for frame in pm._guard_frames(sys._getframe(0)):
-            if frame.f_code in (_assigner.__code__, _listen.__code__):
+            if frame.f_code in (_assigner.__code__, _record.__code__, _listen.__code__, _listen_bulk.__code__):
                 continue
             filename = frame.f_code.co_filename.replace("\\", "/")
             if "/sqlalchemy/" in filename or filename.endswith("/applire/models/profile.py") or filename.startswith("<"):
@@ -327,13 +345,39 @@ def _profile_write_witness():
             return f"{filename}:{frame.f_lineno}"
         return "<unknown>"
 
+    def _record(mechanism: str) -> None:
+        writes.append(
+            {
+                "mechanism": mechanism,
+                "assigner": _assigner(),
+                "token_held": pm._PROFILE_WRITE_TOKEN.get() is not None,
+            }
+        )
+
     def _listen(target, value, oldvalue, initiator):  # noqa: ANN001
-        writes.append({"assigner": _assigner(), "token_held": pm._PROFILE_WRITE_TOKEN.get() is not None})
+        _record("set")
+
+    def _listen_bulk(orm_execute_state):  # noqa: ANN001
+        # The guard's third mechanism, mirrored: a bulk INSERT/UPDATE against
+        # `master_profiles` that assigns `profile_json` never fires the `set`
+        # event, and a TOKENED one is accepted by the guard — so the witness
+        # must watch this path too (adversarial finding 2026-08-26, attack 3b).
+        if not (orm_execute_state.is_update or orm_execute_state.is_insert):
+            return
+        table = getattr(orm_execute_state.statement, "table", None)
+        if getattr(table, "name", None) != pm.MasterProfile.__tablename__:
+            return
+        columns = pm._bulk_write_columns(orm_execute_state.statement, orm_execute_state.parameters)
+        if columns is not None and "profile_json" not in columns:
+            return
+        _record("bulk")
 
     event.listen(pm.MasterProfile.profile_json, "set", _listen, propagate=True)
+    event.listen(Session, "do_orm_execute", _listen_bulk)
     try:
         yield writes
     finally:
+        event.remove(Session, "do_orm_execute", _listen_bulk)
         event.remove(pm.MasterProfile.profile_json, "set", _listen)
 
 
@@ -362,6 +406,34 @@ def test_the_witness_attributes_a_write_to_the_frame_that_made_it():
         assert Path(__file__).name in write["assigner"]
         assert write["token_held"] is True
         assert not _COMMITTER.search(write["assigner"])
+
+
+@pytest.mark.asyncio
+async def test_the_witness_sees_a_tokened_bulk_update_and_names_this_file(durable_db):
+    """The guard ACCEPTS a tokened bulk UPDATE (its third mechanism, by
+    design) and the `set` event never fires for it — a routing bypass of that
+    shape would be invisible to a set-only witness (attack 3b). The witness
+    watches `do_orm_execute` too, and attributes the write to this file."""
+    from sqlalchemy import update
+
+    from applire.models.profile import MasterProfile, authorized_profile_write
+
+    engine, factory = durable_db
+    profile_id = await rec._seed(factory)
+
+    with _profile_write_witness() as writes:
+        async with factory() as session:
+            with authorized_profile_write():
+                await session.execute(
+                    update(MasterProfile).where(MasterProfile.id == profile_id).values(profile_json={"metadata": {}})
+                )
+            await session.commit()
+
+    assert [w["mechanism"] for w in writes] == ["bulk"]
+    assert Path(__file__).name in writes[0]["assigner"]
+    assert writes[0]["token_held"] is True
+    assert not _COMMITTER.search(writes[0]["assigner"])
+    assert (await rec._read_back(engine, profile_id)) == {"metadata": {}}
 
 
 @pytest.mark.asyncio
@@ -429,6 +501,65 @@ async def test_a_stale_basis_is_refused_before_any_vault_write(durable_db):
 
     assert exc.value.status_code == 409
     assert writes == []
+
+
+# ── Properties of the receipt and of the committer the pin relies on ─────────
+
+
+def test_the_mask_hides_only_an_entrys_id_and_keeps_uuid_shaped_data_visible():
+    """Attack 2a: masking every uuid-shaped string would let a regression that
+    persisted the WRONG `credential_id` hide behind `<uuid>`."""
+    entry = {"id": rec.CERT_A, "name": "AWS SAA", "credential_id": rec._fid(999)}
+    masked = rec.mask(entry)
+    assert masked["id"] == "<uuid>"
+    assert masked["credential_id"] == rec._fid(999)
+    other = dict(entry, credential_id=rec._fid(998))
+    assert rec.mask(entry) != rec.mask(other)
+
+
+def test_two_blank_ids_are_not_the_same_identity():
+    """Attack 2c: `same_id` must not read two `""` ids as one entry."""
+    change = {"section": "skills", "field": "x", "action": "updated", "old_value": {"id": "", "name": "x"}, "new_value": {"id": "", "name": "y"}}
+    assert rec.change_shape(change)["same_id"] is False
+    kept = dict(change, old_value={"id": rec.SKILL_A, "name": "x"}, new_value={"id": rec.SKILL_A, "name": "y"})
+    assert rec.change_shape(kept)["same_id"] is True
+
+
+@pytest.mark.asyncio
+async def test_applying_the_same_section_op_twice_is_one_edit_with_one_receipt(durable_db, tmp_path):
+    """Attack 4 asked whether "apply the ops twice" survives the pin. It does
+    — and it must: `ReplaceSection` is idempotent (a wholesale replace or a
+    merge-patch applied again diffs a section against itself), so a duplicated
+    op batch is an EQUIVALENT mutant, not a gap. Pinned as the property it is:
+    the receipt and the vault are identical to the single application."""
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.field_edit import build_replace_section_op
+
+    case = rec.CASE_BY_ID["work_experience.add"]
+    body = _editor_body(case)
+    provenance = CommitProvenance(source="manual_edit", intake="field_edit", session_id=None, actor="candidate")
+
+    async def _run(engine, factory, times: int):
+        profile_id = await rec._seed(factory)
+        async with factory() as session:
+            await commit_ops(
+                session,
+                [build_replace_section_op("work_experience", body) for _ in range(times)],
+                provenance,
+            )
+            await session.commit()
+        return await rec._read_back(engine, profile_id)
+
+    once = await _run(*durable_db, 1)
+    engine_b, factory_b = await rec._fresh_db(tmp_path / "twice.sqlite")
+    try:
+        twice = await _run(engine_b, factory_b, 2)
+    finally:
+        await engine_b.dispose()
+
+    assert len(once["metadata"]["enrichment_history"]) == len(twice["metadata"]["enrichment_history"]) == 1
+    assert rec.receipt_shape(once["metadata"]["enrichment_history"][0]) == rec.receipt_shape(twice["metadata"]["enrichment_history"][0])
+    assert rec.mask(once["work_experience"]) == rec.mask(twice["work_experience"])
 
 
 # ── JF-F-H0.4: the reload gate answers 200 with the untouched vault ───────────
