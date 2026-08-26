@@ -727,7 +727,9 @@
       "statusConfirmed": "bestätigt",
       "statusUnconfirmed": "unbestätigt",
       "statusDenied": "verneint",
-      "addAsConfirmed": "Als bestätigt hinzufügen"
+      "addAsConfirmed": "Als bestätigt hinzufügen",
+      "validationMonthRequired": "Bitte auch den Monat angeben — ein Jahr allein würde als 1. Januar gespeichert.",
+      "validationYearsRange": "Jahre der Erfahrung: bitte 0–80 angeben."
     },
     "workEditor": {
       "addButton": "Eintrag hinzufügen",

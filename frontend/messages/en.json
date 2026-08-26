@@ -727,7 +727,9 @@
       "statusConfirmed": "confirmed",
       "statusUnconfirmed": "unconfirmed",
       "statusDenied": "denied",
-      "addAsConfirmed": "Add as confirmed"
+      "addAsConfirmed": "Add as confirmed",
+      "validationMonthRequired": "Please add the month too — a year alone would be stored as 1 January.",
+      "validationYearsRange": "Years of experience: please enter 0–80."
     },
     "workEditor": {
       "addButton": "Add entry",

@@ -114,6 +114,11 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
     if (inFlight.current) return;
     const { index } = dialog;
     const name = (dialog.draft.name ?? "").trim();
+    const years = dialog.draft.years_experience;
+    if (years !== null && years !== undefined && (!Number.isInteger(years) || years < 0 || years > 80)) {
+      setValidationError(t("entryEditor.validationYearsRange"));
+      return;
+    }
     if (!name) {
       setValidationError(t("entryEditor.validationRequired"));
       return;
@@ -216,7 +221,7 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
                 key={s.id ?? i}
                 className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-white px-3 py-1"
               >
-                <span className="text-sm font-medium text-neutral-dark">{label}</span>
+                <span className="max-w-[16rem] truncate text-sm font-medium text-neutral-dark" title={label}>{label}</span>
                 {nonEmptyText(s.proficiency) && (
                   <span className="text-xs text-gray-500">
                     {PROFICIENCY_VALUES.includes(s.proficiency as (typeof PROFICIENCY_VALUES)[number])

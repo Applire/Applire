@@ -826,6 +826,17 @@ def _preserve_entry_ids(section: str, before, incoming):
     before_ids = {
         e.get("id") for e in before if isinstance(e, dict) and e.get("id")
     }
+    # An incoming entry that already carries a stored id has CLAIMED it — take
+    # it out of the rescue pool first, or a second, id-less entry with the same
+    # natural key (a second "Python", a re-certification, a second "German")
+    # inherits the very same id and two list entries share one identity
+    # (adversarial finding 2026-08-26 — React key collisions, ambiguous
+    # fact-pin addressing; ADR-077 clause 1).
+    claimed = {
+        e.get("id") for e in incoming if isinstance(e, dict) and e.get("id") in before_ids
+    }
+    for nat, ids in unclaimed.items():
+        unclaimed[nat] = [i for i in ids if i not in claimed]
     preserved = []
     for entry in incoming:
         # An id-less entry AND an entry whose id exists nowhere in the stored

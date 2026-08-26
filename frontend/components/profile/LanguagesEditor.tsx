@@ -216,7 +216,7 @@ export function LanguagesEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                 key={l.id ?? i}
                 className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-white px-3 py-1"
               >
-                <span className="text-sm font-medium text-neutral-dark">{label}</span>
+                <span className="max-w-[16rem] truncate text-sm font-medium text-neutral-dark" title={label}>{label}</span>
                 {nonEmptyText(l.level) && <span className="text-xs text-gray-500">{l.level}</span>}
                 <StatusBadge status={l.status} />
                 <button

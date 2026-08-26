@@ -111,6 +111,14 @@ export function CertificationsEditor({
     if (inFlight.current) return;
     const { index } = dialog;
     const name = (dialog.draft.name ?? "").trim();
+    // A year alone is coerced to 1 January by the backend `date` field — a
+    // fabricated day nobody chose (adversarial finding 2026-08-26). Require the
+    // month whenever a year is given; "unknown" (null) stays allowed.
+    const yearOnly = /^\d{4}$/;
+    if (yearOnly.test(dialog.draft.date_obtained ?? "") || yearOnly.test(dialog.draft.expiry_date ?? "")) {
+      setValidationError(t("entryEditor.validationMonthRequired"));
+      return;
+    }
     if (!name) {
       setValidationError(t("entryEditor.validationRequired"));
       return;

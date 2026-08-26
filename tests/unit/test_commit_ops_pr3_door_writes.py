@@ -871,3 +871,45 @@ async def test_certification_dates_accept_the_pickers_shapes(durable_db):
     assert stored["AWS SAA"]["expiry_date"] == "2024-01-01"
     assert stored["Undated"]["date_obtained"] is None
     assert stored["Undated"]["expiry_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_persisted_denied_status_is_floored_without_a_denied_concept(durable_db):
+    """Adversarial finding 2026-08-26: the re-floor only knew
+    `metadata.denied_concepts`; a skill persisted as `denied` any other way
+    could be re-confirmed by a raw PATCH. Invariant 2b floors on the
+    PERSISTED status itself (by id, then by name); removal stays allowed."""
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["skills"] = [
+        {"id": "s-k8s", "name": "Kubernetes", "category": "technical", "status": "denied"},
+        {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+    ]
+    seed["metadata"] = {}  # NO denied_concepts — the gap the finding named
+    profile_id = await _seed_profile(factory, seed)
+
+    async with factory() as request_session:
+        await patch_section(
+            "skills",
+            _fake_request([
+                {"id": "s-k8s", "name": "Kubernetes", "category": "technical", "status": "confirmed"},
+                {"name": "kubernetes", "category": "technical", "status": "confirmed"},  # namesake, no id
+                {"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"},
+            ]),
+            request_session, None, None,
+        )
+    stored = (await _read_back(engine, profile_id))["skills"]
+    by_name = {s["name"].casefold(): s["status"] for s in stored}
+    assert by_name["kubernetes"] == "denied"
+    assert all(s["status"] == "denied" for s in stored if s["name"].casefold() == "kubernetes")
+    assert by_name["python"] == "confirmed"
+    # Removal is not floored — the candidate may drop the entry.
+    async with factory() as request_session:
+        await patch_section(
+            "skills",
+            _fake_request([{"id": "s-py", "name": "Python", "category": "technical", "status": "confirmed"}]),
+            request_session, None, None,
+        )
+    assert [s["name"] for s in (await _read_back(engine, profile_id))["skills"]] == ["Python"]

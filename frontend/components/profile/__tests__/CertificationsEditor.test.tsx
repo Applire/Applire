@@ -301,4 +301,19 @@ describe("CertificationsEditor", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
     expect(screen.getByTestId("certifications-add")).toBeInTheDocument();
   });
+
+  // Adversarial finding 2026-08-26 (major): a year alone is coerced to 1 January
+  // by the backend `date` field — the editor refuses year-only dates.
+  it("refuses a year-only date so no January is fabricated", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_CERTIFICATION]);
+
+    fireEvent.click(screen.getByTestId("certification-edit-0"));
+    fireEvent.change(screen.getByTestId("certification-date-obtained-month"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("certification-entry-save"));
+
+    expect(await screen.findByTestId("certification-entry-validation-error")).toHaveTextContent("month");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

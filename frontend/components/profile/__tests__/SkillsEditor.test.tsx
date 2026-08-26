@@ -243,4 +243,18 @@ describe("SkillsEditor", () => {
     fireEvent.click(screen.getByTestId("skills-add"));
     expect(screen.getByTestId("skill-entry-save")).toHaveTextContent("Add as confirmed");
   });
+
+  // Adversarial finding 2026-08-26 (minor): `min={0}` was decorative — -5 and 200 persisted.
+  it("refuses years of experience outside 0–80", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_SKILL]);
+
+    fireEvent.click(screen.getByTestId("skill-edit-0"));
+    fireEvent.change(screen.getByTestId("skill-field-years-experience"), { target: { value: "-5" } });
+    fireEvent.click(screen.getByTestId("skill-entry-save"));
+
+    expect(await screen.findByTestId("skill-entry-validation-error")).toHaveTextContent("0–80");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
