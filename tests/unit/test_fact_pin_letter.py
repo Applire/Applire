@@ -84,9 +84,12 @@ def test_truth_floor_hit_is_named_on_the_report_entry():
 def test_classify_signal_has_a_pinned_fact_cue():
     from applire.services.review_compliance import SignalClass, classify_signal
 
+    # #580 / ADR-077 amended 2026-08-26: its OWN class — a pin demand is a verbatim
+    # containment fact, the positioning findings are judgement-shaped; a mixed
+    # bucket hides the measurable class (ADR-076 amendment 2026-08-15, case 3).
     assert (
         classify_signal("the pinned fact 'X' was not delivered")
-        is SignalClass.UNADDRESSED_REQUIREMENT
+        is SignalClass.PINNED_FACT
     )
 
 

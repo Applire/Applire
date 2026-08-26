@@ -61,6 +61,22 @@ _SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+
+#: ADR-077 amended 2026-08-26 (#580, clause 1 correction): entry types the CV never
+#: renders — `TailoredCVData` has no volunteering or publication section. A `cv`
+#: target on them is a pin that cannot fire (SF-PIN.9); refused at pin time on
+#: both doors (one service gate). The `letter` target stays available.
+CV_UNRENDERABLE_PIN_TYPES: frozenset[str] = frozenset({"volunteer", "publication"})
+
+
+def check_target_renderable(request) -> None:
+    """Refuse a target the document cannot render (ValueError → 422 on both doors)."""
+    if "cv" in request.targets and request.entry_type in CV_UNRENDERABLE_PIN_TYPES:
+        raise ValueError(
+            f"The CV has no section for {request.entry_type} entries, so a 'cv' "
+            "target could never be met — pin it for the letter instead."
+        )
+
 def _find_entry(profile: MasterProfileData, entry_type: str, entry_id: str):
     section, _ = _SECTIONS[entry_type]
     for entry in getattr(profile, section, []) or []:
@@ -157,6 +173,10 @@ async def add_fact_pin(
     quote, duplicate, cap.
     """
     from applire.services.application import _get_or_404, _touch
+
+    # Pure shape refusal first (the `build_replace_section_op` precedent): a
+    # target the document cannot render is refused before anything is read.
+    check_target_renderable(request)
 
     app = await _get_or_404(application_id, user_id, db)
     profile = await _load_profile(db)

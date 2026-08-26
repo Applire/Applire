@@ -855,7 +855,7 @@ def _audit_cv_text(
     pin_entries = None
     if pins:
         from applire.schemas.ats import PinnedFactReportEntry
-        from applire.services.pin_reach import pin_present_in_cv
+        from applire.services.pin_reach import pin_ledger_conflicts, pin_present_in_cv
 
         pin_entries = []
         for pin in pins:
@@ -868,6 +868,8 @@ def _audit_cv_text(
                 quote=pin.quote,
                 present=present,
                 stale=pin.stale,
+                # #580: the ledger-conflict FACT rides the same seam on every door.
+                ledger_conflict=pin_ledger_conflicts(pin.quote, ledger),
             ))
         present_count = sum(1 for e in pin_entries if e.present)
         page_check = next((c for c in checks if c.id == "page-length"), None)
@@ -988,7 +990,7 @@ def _audit_letter_text(
     pin_entries = None
     if pins:
         from applire.schemas.ats import PinnedFactReportEntry
-        from applire.services.pin_reach import letter_pin_present_in_dict
+        from applire.services.pin_reach import letter_pin_present_in_dict, pin_ledger_conflicts
 
         pin_entries = []
         for pin in pins:
@@ -1004,6 +1006,7 @@ def _audit_letter_text(
                 present=present,
                 stale=pin.stale,
                 removed_by_truth_floor=pin.pin_id in truth_floor_hits,
+                ledger_conflict=pin_ledger_conflicts(pin.quote, ledger),
             ))
         present_count = sum(1 for e in pin_entries if e.present)
         page_check = next((c for c in checks if c.id == "page-length"), None)

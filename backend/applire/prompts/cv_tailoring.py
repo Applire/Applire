@@ -284,6 +284,11 @@ Rules:
   feedback does not name must survive into your output unchanged — fixing a skills-list
   issue never removes a bullet or a figure, and fixing one bullet never rewrites its
   neighbours.
+- PINNED FACTS (ADR-077): the CANDIDATE PROFILE may end with a PINNED FACTS block — vault
+  quotes required WORD-FOR-WORD. A pin the feedback names as missing: add its full quote
+  verbatim as its own bullet under the named entry `id` (a skill pin verbatim into
+  `skills`). Keep pins already in the draft intact. A pinned line the feedback flags as
+  untrue or forbidden: the truth finding wins — fix it, do not re-insert the pin.
 - Output ONLY the corrected prose JSON in the same schema as the input — no markdown,
   no commentary.
 """

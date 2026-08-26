@@ -1,0 +1,323 @@
+{
+  "profile": {
+    "personal_info": {
+      "name": "Anna Bauer",
+      "email": "anna.bauer@example.de"
+    },
+    "professional_summary": {
+      "de": null,
+      "en": null
+    },
+    "work_experience": [
+      {
+        "id": "3fe1ebf1-7042-418b-b996-8bc6dcff2779",
+        "company": "TechVision GmbH",
+        "role": "Senior Software Engineer",
+        "start_date": "2021-03",
+        "end_date": null,
+        "is_current": true,
+        "location": null,
+        "responsibilities": [
+          "Architected and led the migration of a monolithic Django application into 12 independently deployable microservices, coordinating a team of 6 engineers across 3 time zones over an 18-month rollout that touched every customer-facing endpoint in production.",
+          "Owned the on-call rotation for the payments service, reducing P1 incident MTTR from 4 hours to 35 minutes by rebuilding the alerting pipeline on Prometheus and Grafana."
+        ],
+        "achievements": [
+          "Reduced infrastructure costs by 42% (380k dollars per year) by right-sizing Kubernetes node pools and introducing spot-instance autoscaling.",
+          "Mentored 4 junior engineers, two of whom were promoted to mid-level within a year."
+        ],
+        "technologies": [
+          "Python",
+          "FastAPI",
+          "PostgreSQL",
+          "Docker",
+          "Kubernetes"
+        ]
+      },
+      {
+        "id": "33bfad5d-075a-4f98-89cd-87af3df11bce",
+        "company": "StartupX AG",
+        "role": "Software Engineer",
+        "start_date": "2018-06",
+        "end_date": "2021-02",
+        "is_current": null,
+        "location": null,
+        "responsibilities": [
+          "Built and maintained REST APIs in FastAPI serving 2 million-plus daily requests.",
+          "Implemented CI/CD pipelines using GitHub Actions, cutting deployment time from 45 minutes to 6 minutes."
+        ],
+        "achievements": [
+          "Delivered the company's first automated test suite, raising backend coverage from 12% to 81%."
+        ],
+        "technologies": [
+          "Python",
+          "FastAPI",
+          "PostgreSQL"
+        ]
+      }
+    ],
+    "skills": [
+      {
+        "id": "a87b8f5e-276a-4a48-841a-1a4ee31ae4c8",
+        "name": "Python",
+        "category": "technical",
+        "status": "confirmed"
+      },
+      {
+        "id": "5e237b2c-901e-4e52-8828-f77d0d482edb",
+        "name": "Docker",
+        "category": "technical",
+        "status": "confirmed"
+      },
+      {
+        "id": "8d865695-2a34-4a95-9b05-b77101c60185",
+        "name": "FastAPI",
+        "category": "technical",
+        "status": "confirmed"
+      },
+      {
+        "id": "0062bb4f-e31f-4771-aa2b-31075f6fdcd4",
+        "name": "PostgreSQL",
+        "category": "technical",
+        "status": "confirmed"
+      },
+      {
+        "id": "600b26a3-65a1-45ef-a758-702101884ba5",
+        "name": "Git",
+        "category": "technical",
+        "status": "confirmed"
+      },
+      {
+        "id": "b0b0b0b0-2222-4444-9999-cccccccccccc",
+        "name": "Public Speaking",
+        "category": "soft",
+        "status": "confirmed"
+      }
+    ],
+    "education": [
+      {
+        "id": "e55ce5a3-0a33-4679-9619-7cdcf12c949f",
+        "field": "Computer Science",
+        "grade": null,
+        "degree": "Master of Science",
+        "end_date": "2018-05",
+        "start_date": "2016-10",
+        "institution": "Technische Universität Berlin",
+        "thesis_title": null,
+        "relevant_coursework": []
+      }
+    ],
+    "languages": [
+      {
+        "id": "e034810a-3f7f-4154-a42b-df5467cb854c",
+        "level": "Native",
+        "status": "confirmed",
+        "language": "German"
+      },
+      {
+        "id": "c66a765d-965a-40f5-a277-a272c9dc5307",
+        "level": "C1",
+        "status": "confirmed",
+        "language": "English"
+      }
+    ],
+    "certifications": [
+      {
+        "id": "220c2b71-0cf4-43a8-a10b-6a37af9b5ed8",
+        "name": "ITIL Foundation",
+        "status": "confirmed",
+        "expiry_date": null,
+        "credential_id": null,
+        "date_obtained": "2020-05-01",
+        "credential_url": null,
+        "issuing_organization": "AXELOS"
+      }
+    ],
+    "projects": [
+      {
+        "id": "1ff1b605-c6da-4b5f-a63a-06b8d5d51460",
+        "url": null,
+        "name": "CI/CD Migration",
+        "role": "Lead Developer",
+        "end_date": "2022-06",
+        "location": null,
+        "is_current": null,
+        "start_date": "2022-01",
+        "description": "Migrated legacy Jenkins pipelines to GitHub Actions.",
+        "achievements": [
+          "Reduced average build time from 18 min to 4 min (−78%)"
+        ],
+        "technologies": [
+          "GitHub Actions",
+          "Docker",
+          "Python"
+        ],
+        "expected_fields": null,
+        "responsibilities": [
+          "Designed pipeline architecture",
+          "Wrote reusable workflow templates"
+        ],
+        "associated_experience": "TechVision GmbH"
+      }
+    ],
+    "metadata": {
+      "denied_concepts": []
+    }
+  },
+  "writer_draft": {
+    "summary": "Senior Software Engineer with expert Python and advanced FastAPI and PostgreSQL capabilities, experienced in designing production software and independently deployable services. Delivers measurable improvements through CI/CD pipelines, Docker-based development, automated testing and infrastructure optimisation, while mentoring engineers and coordinating complex technical migrations.",
+    "work": [
+      {
+        "id": "3fe1ebf1-7042-418b-b996-8bc6dcff2779",
+        "bullets": [
+          "Architected and led the migration of a monolithic Django application into 12 independently deployable microservices, coordinating a team of 6 engineers across 3 time zones over an 18-month rollout that touched every customer-facing endpoint in production.",
+          "Reduced infrastructure costs by 42% (380k dollars per year) by right-sizing Kubernetes node pools and introducing spot-instance autoscaling; mentored 4 junior engineers, two of whom were promoted to mid-level within a year."
+        ],
+        "projects": []
+      },
+      {
+        "id": "33bfad5d-075a-4f98-89cd-87af3df11bce",
+        "bullets": [
+          "Built and maintained REST APIs in FastAPI serving 2 million-plus daily requests, using Python and PostgreSQL.",
+          "Implemented CI/CD pipelines using GitHub Actions, cutting deployment time from 45 minutes to 6 minutes.",
+          "Delivered the company's first automated test suite, raising backend coverage from 12% to 81%.",
+          "Applied Python, FastAPI and PostgreSQL in production software development."
+        ],
+        "projects": []
+      }
+    ],
+    "skills": [
+      "Python",
+      "FastAPI",
+      "PostgreSQL",
+      "CI/CD pipelines",
+      "Docker",
+      "Public Speaking"
+    ]
+  },
+  "corrected_draft": {
+    "summary": "Senior Software Engineer with expert Python and advanced FastAPI and PostgreSQL capabilities, experienced in designing production software. Delivers measurable improvements through CI/CD pipelines, Docker-based development, automated testing and infrastructure optimisation, while mentoring engineers and coordinating complex technical migrations.",
+    "work": [
+      {
+        "id": "3fe1ebf1-7042-418b-b996-8bc6dcff2779",
+        "bullets": [
+          "Coordinated a team of 6 engineers across 3 time zones over an 18-month technical migration that touched every customer-facing endpoint in production.",
+          "Mentored 4 junior engineers, two of whom were promoted to mid-level within a year."
+        ],
+        "projects": []
+      },
+      {
+        "id": "33bfad5d-075a-4f98-89cd-87af3df11bce",
+        "bullets": [
+          "Built and maintained software in FastAPI serving 2 million-plus daily requests, using Python and PostgreSQL.",
+          "Implemented CI/CD pipelines using GitHub Actions, cutting deployment time from 45 minutes to 6 minutes.",
+          "Delivered the company's first automated test suite, raising test coverage from 12% to 81%.",
+          "Applied Python, FastAPI and PostgreSQL in production software development."
+        ],
+        "projects": []
+      }
+    ],
+    "skills": [
+      "Python",
+      "FastAPI",
+      "PostgreSQL",
+      "CI/CD pipelines",
+      "Docker",
+      "Public Speaking"
+    ]
+  },
+  "pins": [
+    {
+      "quote": "Architected and led the migration of a monolithic Django application into 12 independently deployable microservices, coordinating a team of 6 engineers across 3 time zones over an 18-month rollout that touched every customer-facing endpoint in production.",
+      "stale": false,
+      "pin_id": "2144c7f2-4629-47c2-8c4a-c3d06bf95ba0",
+      "targets": [
+        "cv",
+        "letter"
+      ],
+      "entry_id": "3fe1ebf1-7042-418b-b996-8bc6dcff2779",
+      "entry_type": "work"
+    },
+    {
+      "quote": "Public Speaking",
+      "stale": false,
+      "pin_id": "625cd25f-2e2c-44ad-80be-b5cf505b0d20",
+      "targets": [
+        "cv",
+        "letter"
+      ],
+      "entry_id": "b0b0b0b0-2222-4444-9999-cccccccccccc",
+      "entry_type": "skill"
+    }
+  ],
+  "keyword_ledger": [
+    {
+      "concept": "REST APIs",
+      "surface_forms": [
+        "REST APIs",
+        "REST"
+      ],
+      "status": "gap",
+      "claimable": false,
+      "evidence": ""
+    },
+    {
+      "concept": "Kubernetes",
+      "surface_forms": [
+        "Kubernetes",
+        "K8s"
+      ],
+      "status": "gap",
+      "claimable": false,
+      "evidence": ""
+    },
+    {
+      "concept": "backend",
+      "surface_forms": [
+        "backend",
+        "back-end"
+      ],
+      "status": "gap",
+      "claimable": false,
+      "evidence": ""
+    },
+    {
+      "concept": "microservices",
+      "surface_forms": [
+        "microservices",
+        "microservices architecture"
+      ],
+      "status": "gap",
+      "claimable": false,
+      "evidence": ""
+    },
+    {
+      "concept": "agile",
+      "surface_forms": [
+        "agile",
+        "Scrum"
+      ],
+      "status": "gap",
+      "claimable": false,
+      "evidence": ""
+    },
+    {
+      "concept": "Python",
+      "surface_forms": [
+        "Python"
+      ],
+      "status": "direct",
+      "claimable": true,
+      "evidence": "listed as expert in skills"
+    },
+    {
+      "concept": "FastAPI",
+      "surface_forms": [
+        "FastAPI"
+      ],
+      "status": "direct",
+      "claimable": true,
+      "evidence": "listed as advanced in skills"
+    }
+  ],
+  "provenance": "captured dev-stack run 2026-08-25 17:31 UTC (synthetic Anna-Bauer profile); writer draft = LLM log record 59, corrected draft = record 61 (cv_tailoring corrector attempt 1 after a check-6(b) finding on the pinned bullet)"
+}

@@ -150,6 +150,35 @@ async def test_malformed_add_fact_pin_is_invalid_input():
             )
 
 
+@pytest.mark.asyncio
+async def test_a_cv_target_on_a_volunteer_pin_is_invalid_input_on_the_agent_door():
+    """ADR-058 parity for the #580 renderability gate: the REAL service gate runs
+    (nothing mocked below it) and its ValueError reaches the agent as
+    invalid_input — before the database is touched."""
+    from applire.mcp.server import update_application
+    from mcp.shared.exceptions import McpError
+
+    cm, _session = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server._current_user_id",
+            AsyncMock(return_value=uuid.uuid4()),
+        ),
+    ):
+        with pytest.raises(McpError) as excinfo:
+            await update_application(
+                application_id=str(uuid.uuid4()),
+                add_fact_pin={
+                    "entry_type": "publication",
+                    "entry_id": "p-1",
+                    "quote": "q",
+                    "targets": ["cv"],
+                },
+            )
+    assert "CV has no section" in str(excinfo.value)
+
+
 def test_tool_description_no_longer_says_submitted_pins():
     """Three pin vocabularies must not share one docstring (ADR-077 cl.6)."""
     import applire.mcp.server as srv

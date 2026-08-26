@@ -141,6 +141,12 @@ class SignalClass(str, Enum):
     # NOT DELIVERED (positioning_requested) — folded together: both are "required
     # content the draft did not deliver", just from a JD-requirement vs. a
     # positioning-block source respectively
+    PINNED_FACT = "pinned_fact"  # pin_reach.py render_pinned_facts_check_block — a
+    # user-pinned vault quote ABSENT word-for-word from the draft (ADR-077 amended
+    # 2026-08-26, #580). Its own class, not folded into UNADDRESSED_REQUIREMENT: the
+    # positioning findings there are judgement-shaped, a pin demand is a verbatim
+    # containment fact — a mixed bucket hides the measurable class (ADR-076
+    # amendment 2026-08-15, case 3).
     UNDER_CLAIM = "under_claim"  # ADR-076 clause 5 — NOT YET EMITTED, see module
     # docstring. Registered so its emptiness is visible, never simply absent.
     OTHER = "other"  # a real blocking finding with no deterministic block behind it
@@ -166,14 +172,16 @@ _SIGNAL_CUES: tuple[tuple[SignalClass, re.Pattern[str]], ...] = (
         ),
     ),
     (
+        # #580 / ADR-077 amended: before UNADDRESSED_REQUIREMENT — a letter
+        # `positioning_requested["pinned_facts"]` finding names both.
+        SignalClass.PINNED_FACT,
+        re.compile(r"pinned[_\s]fact", re.IGNORECASE),
+    ),
+    (
         SignalClass.UNADDRESSED_REQUIREMENT,
         re.compile(
             r"unaddressed|hard requirement|positioning_requested|required content|"
-            r"gap[_\s]transfer|company_domain_engagement|scope_positioning|"
-            # E056/ADR-077: a pin finding must not misclassify to OTHER —
-            # the positioning key is `pinned_facts`, reviewer prose says
-            # "pinned fact".
-            r"pinned[_\s]fact",
+            r"gap[_\s]transfer|company_domain_engagement|scope_positioning",
             re.IGNORECASE,
         ),
     ),
@@ -321,6 +329,11 @@ def _term_present(term: str, text: str) -> bool:
         return False
     needle = r"[\s-]+".join(re.escape(t) for t in tokens)
     return bool(re.search(rf"(?<![\w-]){needle}(?![\w-])", _normalize(text), re.IGNORECASE))
+
+
+#: Public name for the token-boundary presence fact (used by `pin_reach.pin_ledger_conflicts`
+#: — the ledger-conflict fact must NOT use `ats_audit.surface_present`, a substring match).
+term_present = _term_present
 
 
 #: Double-quoted values ("Mittelstand") — QUOTED_RE covers only single quotes, but the
@@ -668,6 +681,46 @@ def _check_repetition_shape(
     )
 
 
+# Shape 0 (#580 / ADR-077 amended 2026-08-26): a PINNED FACT demand — the reviewer's
+# issue text carries the pinned quote in double quotes (check 7 asks for exactly that,
+# the one sanctioned exception to referential critique) and the corrector must
+# reproduce it WORD-FOR-WORD. Two-sided by construction: verbatim containment after
+# the shared `_norm_quote` fold IS the demand, so present → implemented, absent → not.
+# An ellipsis-truncated quote cannot be graded either way (the reviewer shortened its
+# own evidence) and stays INDETERMINATE under its own shape name, never a silent
+# IMPLEMENTED. No quote at all → unmeasurable (the missing-term shape's 6-token cap
+# would never extract a 30-token sentence, which is why this shape exists).
+_PINNED_FACT_CUE = re.compile(r"pinned[_\s]fact", re.IGNORECASE)
+_ELLIPSIS_RE = re.compile(r"(?:\.\.\.|…)\s*$")
+
+
+def _check_pinned_fact_shape(issue_text: str, next_text: str) -> ComplianceVerdict | None:
+    if not _PINNED_FACT_CUE.search(issue_text):
+        return None
+    spans = [s.strip() for s in _DQUOTED_RE.findall(_normalize(issue_text)) if s.strip()]
+    if not spans:
+        return None
+    from applire.services.scope_requirements import _norm_quote
+
+    if any(_ELLIPSIS_RE.search(s) for s in spans):
+        return ComplianceVerdict(
+            issue_text,
+            classify_signal(issue_text),
+            ComplianceOutcome.INDETERMINATE,
+            "pinned_fact_quote_truncated",
+            CheckSidedness.NEGATIVE_ONLY,
+        )
+    text_norm = _norm_quote(next_text)
+    present = all(_norm_quote(s) in text_norm for s in spans)
+    return ComplianceVerdict(
+        issue_text,
+        classify_signal(issue_text),
+        ComplianceOutcome.IMPLEMENTED if present else ComplianceOutcome.NOT_IMPLEMENTED,
+        "pinned_fact_quote_present",
+        CheckSidedness.TWO_SIDED,
+    )
+
+
 def evaluate_compliance(
     issue_text: str,
     current_text: str,
@@ -705,7 +758,12 @@ def evaluate_compliance(
     one-sided shapes' unresolvable branches (forbidden-claim's still-present, the
     grounded proxy's present-but-grounding-unknown) — see each shape's comment for why
     UNMEASURABLE would be the wrong label."""
-    checkers = [_check_forbidden_claim_shape, _check_anchor_shape, _check_missing_term_shape]
+    checkers = [
+        _check_pinned_fact_shape,  # #580: most specific cue, checked first
+        _check_forbidden_claim_shape,
+        _check_anchor_shape,
+        _check_missing_term_shape,
+    ]
     if structured_output:
         checkers.insert(0, _check_ungrounded_value_shape)
     for checker in checkers:

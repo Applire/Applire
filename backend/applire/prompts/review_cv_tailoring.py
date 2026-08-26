@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v9 (#580 / ADR-077 amended 2026-08-26 — check 7, PINNED FACT NOT
+#   DELIVERED, shared by both shape doors. The captured 2026-08-25 run showed the
+#   writer reproducing a pinned vault quote word-for-word and THIS reviewer's check
+#   6(b) having the corrector strip it (the ledger listed 'microservices' as
+#   DO-NOT-CLAIM). Check 7 therefore (a) reads its ground truth from a deterministic
+#   PINNED FACTS CHECK block (the US213 pattern — `pin_reach.pinned_facts_reviewer_
+#   prompt_fn` measures presence per round and demands each pin at most once per
+#   loop), (b) is explicitly SUBORDINATE to checks 1/4/5/6(b) — truth outranks a pin,
+#   a LEDGER CONFLICT entry is never demanded — and (c) keeps the feedback referential
+#   (entry id + first words; the corrector re-reads the verbatim quote from the
+#   PINNED FACTS block folded into its source) while the issue text carries the
+#   quote for the compliance instrument. The mandate line is unchanged: a numbered
+#   check is blocking by that sentence. Size ratchet added with it (letter precedent).
+#   ADR-062 clause 7: prompt effect; CI pins the wording only.)
 # Prompt version: v8 (#538 / ADR-076 clause 3, 2026-08-16 — the TERMINAL round
 #   variant is added: TERMINAL_REVIEW_SYSTEM_PROMPT + build_terminal_review_prompt
 #   review the COMPOSED document (the delivered artifact — vault joins,
@@ -203,6 +217,17 @@ Check for ALL of the following:
        to fabricate, stretch, or force a term that does not genuinely fit.
    (b) FORBIDDEN CLAIM: if any DO NOT CLAIM (honest-gap) concept appears in the CV presented as
        something the candidate has, has done, or knows, flag it — this is a fabrication.
+7. PINNED FACT NOT DELIVERED (ADR-077): when a PINNED FACTS CHECK block is appended to your
+   input, its DEMAND list is ground truth from a deterministic word-for-word scan — do not
+   re-derive it. Each DEMAND entry is a BLOCKING issue: put the quote itself, in double
+   quotes, in the issue text, and in `feedback` name the entry id and the quote's first
+   words — the corrector re-reads the full quote from the PINNED FACTS block in its source
+   and inserts it word-for-word; never ask for a paraphrase, a shortening or an extension
+   of a pinned quote. PRECEDENCE — truth outranks a pin: a quote the block lists under
+   LEDGER CONFLICT, or any pinned line that one of checks 1, 4, 5 or 6(b) flags, is NOT
+   demanded; report it as a "minor" issue naming the pin and the check that outranks it.
+   A pinned quote is the candidate's own vault text — its verbatim presence is never
+   itself a finding.
 
 SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the WHOLE profile
 by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
@@ -232,7 +257,9 @@ _SCHEMA_AND_CLOSER = review_output_schema(
 
 Keep `feedback` concise and *referential*: name the offending location (work_history index,
 field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector
-re-reads the candidate profile itself (ADR-021 amended 2026-06-29)."""
+re-reads the candidate profile itself (ADR-021 amended 2026-06-29). The one exception is
+check 7's pinned quote, which goes into the ISSUE text in double quotes; the feedback
+still names the entry id and the first words only."""
 
 REVIEW_SYSTEM_PROMPT = _AUDITOR_INTRO + _SHAPE_NOTE_PROSE + _CHECKS_AND_MANDATE + _SCHEMA_AND_CLOSER
 

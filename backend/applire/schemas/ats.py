@@ -18,7 +18,7 @@
 import uuid
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ATSCheck(BaseModel):
@@ -85,6 +85,11 @@ class PinnedFactReportEntry(BaseModel):
     # ADR-077 clause 2 / SF-PIN.6: a truth floor (letter_figure_guard et al.)
     # deleted the carrier — correct by hierarchy (truth > pin), never silent.
     removed_by_truth_floor: bool = False
+    # ADR-077 amended 2026-08-26 (#580): the Keyword Ledger's DO-NOT-CLAIM concepts
+    # the pinned quote carries as whole tokens — a FACT about the quote (the same
+    # fact that keeps the reviewer from demanding it), never a statement about
+    # why the pin is absent. `[]` = no conflict or no ledger.
+    ledger_conflict: list[str] = Field(default_factory=list)
 
 
 class ATSReport(BaseModel):

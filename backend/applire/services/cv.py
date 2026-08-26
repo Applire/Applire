@@ -1369,7 +1369,7 @@ def _is_more_specific(candidate: str, kept: str) -> bool:
     return False
 
 
-def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
+def _dedup_skills(tailored: TailoredCVData, *, pins: Sequence = ()) -> TailoredCVData:
     """#172: collapse duplicate skill tags so the rendered CV stays clean even
     when the master profile is still dirty (the reconciler merges going forward, but
     existing profiles carry twins like 'Team Leadership' + 'Team Leadership and
@@ -1393,6 +1393,13 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
     """
     from applire.services.ats_audit import skills_page_dupe
     from applire.services.bullet_cuts import log_deletion
+    from applire.services.pin_reach import pinned_skill_quote_norms, skill_tag_is_pinned
+
+    # ADR-077 amended 2026-08-26 (#580, clause 4 correction): this pass was
+    # pin-blind while its sibling `_tailor_skills_to_jd` was partitioned. A pinned
+    # skill quote is never collapsed: the pinned form is the survivor of its
+    # duplicate cluster; two pinned forms both stay (the user pinned both).
+    pinned = pinned_skill_quote_norms(pins) if pins else frozenset()
 
     original = list(tailored.skills or [])
     kept: list[str] = []
@@ -1402,6 +1409,20 @@ def _dedup_skills(tailored: TailoredCVData) -> TailoredCVData:
         )
         if dup_idx is None:
             kept.append(s)
+            continue
+        s_pinned = skill_tag_is_pinned(s, pinned)
+        k_pinned = skill_tag_is_pinned(kept[dup_idx], pinned)
+        if s_pinned and k_pinned:
+            kept.append(s)
+            continue
+        if s_pinned:
+            log_deletion("_dedup_skills", "skills_page_dupe (unpinned twin of a pinned quote)",
+                         kept[dup_idx], superseded_by=s)
+            kept[dup_idx] = s
+            continue
+        if k_pinned:
+            log_deletion("_dedup_skills", "skills_page_dupe (duplicate of a pinned quote)",
+                         s, duplicate_of=kept[dup_idx])
             continue
         if _is_more_specific(s, kept[dup_idx]):
             log_deletion("_dedup_skills", "skills_page_dupe (less specific form)",
@@ -1587,6 +1608,8 @@ def _drop_ungrounded_jd_echo_skills(
     profile_json: dict,
     job_dict: dict,
     keyword_ledger: list[dict] | None,
+    *,
+    pins: Sequence = (),
 ) -> TailoredCVData:
     """#250 (Tiramisu founder-acceptance blind-panel finding, run 3, 2026-07-24).
 
@@ -1663,8 +1686,15 @@ def _drop_ungrounded_jd_echo_skills(
     def _is_jd_echo(skill: str) -> bool:
         return any(skills_page_dupe(skill, t) for t in jd_terms)
 
+    # ADR-077 amended 2026-08-26 (#580, clause 4 correction): a pinned skill
+    # quote is vault-backed by the pin-time gate and is never dropped here,
+    # whatever the vault-tie predicate concludes about its surface form.
+    from applire.services.pin_reach import pinned_skill_quote_norms, skill_tag_is_pinned
+
+    pinned = pinned_skill_quote_norms(pins) if pins else frozenset()
     kept: list[str] = [
-        s for s in original if _vault_tied(s) or not _is_jd_echo(s)
+        s for s in original
+        if _vault_tied(s) or not _is_jd_echo(s) or skill_tag_is_pinned(s, pinned)
     ]
 
     if kept == original:
@@ -2598,6 +2628,11 @@ async def _render_cv_background(
             # failure degrades to "no pins", never breaks generation.
             cv_pins: list = []
             pinned_facts_block: str | None = None
+            # #580: the corrector's reference variant, folded into the review
+            # loop's `source` (never the writer's REQUIRED/word-for-word header —
+            # the 2026-08-26 replay showed the corrector obeying that header over
+            # the reviewer's "do not insert the conflicted pin").
+            pinned_facts_loop_block: str | None = None
             try:
                 from applire.schemas.profile import MasterProfileData
                 from applire.services.application import get_application_for_job
@@ -2636,6 +2671,16 @@ async def _render_cv_background(
                         )
                         or None
                     )
+                    pinned_facts_loop_block = (
+                        render_pinned_facts_block(
+                            cv_pins,
+                            raw_profile_data,
+                            target="cv",
+                            language=document_language,
+                            audience="corrector",
+                        )
+                        or None
+                    )
             except Exception:
                 logger.exception(
                     "fact-pin load failed for CV %s — generating without pins "
@@ -2643,6 +2688,7 @@ async def _render_cv_background(
                 )
                 cv_pins = []
                 pinned_facts_block = None
+                pinned_facts_loop_block = None
 
             # #303 (#271's CV half): the strongest-vault-evidence digest — for
             # each claimable ledger concept, the vault's OWN sentence that
@@ -2748,19 +2794,42 @@ async def _render_cv_background(
             # enforces — one owner, one ranking (ADR-048 amended 2026-08-15).
             coverage_budget = cv_coverage_budget(budget)
 
+            # ADR-077 amended 2026-08-26 (#580): the PINNED FACTS block joins the
+            # loop's `source` (the ledger-block fold above) so the corrector
+            # re-reads the verbatim quotes every round, and the reviewer prompt is
+            # wrapped with the per-round PINNED FACTS CHECK (check 7): one demand
+            # per pin per loop, ledger-conflicted pins never demanded. The signal's
+            # exhaustion disposition is declared right here (ADR-076 clause 2) —
+            # `signal_ids` makes the registry lookup enforce it at settle time.
+            from applire.services.pin_reach import (
+                PINNED_FACT_SIGNAL_ID,
+                ensure_pinned_fact_signal_registered,
+                pinned_facts_reviewer_prompt_fn,
+            )
+
+            if pinned_facts_loop_block:
+                source_material = f"{source_material}\n\n{pinned_facts_loop_block}"
+            reviewer_fn = coverage_reviewer_prompt_fn(
+                _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
+            )
+            if cv_pins:
+                reviewer_fn = pinned_facts_reviewer_prompt_fn(
+                    reviewer_fn, cv_pins, profile_json, keyword_ledger
+                )
+            ensure_pinned_fact_signal_registered()
+
             prose_draft = await review_and_refine(
                 source=source_material,
                 draft=prose_draft,
                 generator_prompt_fn=_build_cv_retry_prompt,
                 generator_system=CV_TAILORING_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=coverage_reviewer_prompt_fn(
-                    _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
-                ),
+                reviewer_prompt_fn=reviewer_fn,
                 reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
                 provider=provider,
                 max_retries=LLM_REVIEW_MAX_RETRIES,
                 generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                 chain_id="cv_tailoring",
+                signal_ids=(PINNED_FACT_SIGNAL_ID,),
             )
 
             # ADR-071 clause 3: the Oracle's `misattributed` verdict gains a
@@ -3050,7 +3119,7 @@ def _compose_document(
     # #172: collapse near-duplicate skill tags (the shared ats_audit
     # predicate) so the CV is clean even when the master profile still
     # carries twins. After the language pass, which rewords the tags.
-    tailored = _dedup_skills(tailored)
+    tailored = _dedup_skills(tailored, pins=pins)
 
     # #250 (Tiramisu founder-acceptance blind-panel finding): drop bare skill
     # tags that are JD/ledger-concept echoes with no deterministic vault tie
@@ -3061,7 +3130,7 @@ def _compose_document(
     # protected. A dropped tag cannot be re-added below: the #192 guarantee
     # pool is vault skills only, and dropped ⇒ no vault tie.
     tailored = _drop_ungrounded_jd_echo_skills(
-        tailored, profile_json, job_dict, keyword_ledger
+        tailored, profile_json, job_dict, keyword_ledger, pins=pins
     )
 
     # #192: present a prioritised, JD-relevant SUBSET of the candidate's skills
@@ -3562,13 +3631,32 @@ async def _terminal_review(
         _terminal_base, keyword_ledger, budget=coverage_budget
     )
 
+    # ADR-077 amended 2026-08-26 (#580): the PINNED FACTS CHECK over the COMPOSED
+    # subject (certifications/education joined — measurable here, still never
+    # demanded). Its own wrapper = its own one-demand-per-pin bound for this
+    # terminal review, re-entries included (the closure outlives the loop below).
+    from applire.services.pin_reach import (
+        PINNED_FACT_SIGNAL_ID,
+        ensure_pinned_fact_signal_registered,
+        pinned_facts_reviewer_prompt_fn,
+    )
+
+    _subject_fn = (
+        pinned_facts_reviewer_prompt_fn(
+            _coverage_fn, list(condense_ctx.pins), profile_json, keyword_ledger, composed=True
+        )
+        if condense_ctx.pins
+        else _coverage_fn
+    )
+    ensure_pinned_fact_signal_registered()
+
     def _reviewer_prompt(source: str, draft: dict) -> str:
         key = _canon(draft)
         subject = subject_by_draft.get(key)
         if subject is None:
             subject = _compose(draft)
             subject_by_draft[key] = subject
-        return _coverage_fn(source, subject.model_dump(mode="json"))
+        return _subject_fn(source, subject.model_dump(mode="json"))
 
     current = prose_draft
     rounds = 0
@@ -3586,6 +3674,7 @@ async def _terminal_review(
             max_retries=CV_TERMINAL_REVIEW_MAX_RETRIES,
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             chain_id="cv_terminal_review",
+            signal_ids=(PINNED_FACT_SIGNAL_ID,),
         )
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on the
