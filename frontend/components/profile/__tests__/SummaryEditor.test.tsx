@@ -220,4 +220,21 @@ describe("SummaryEditor", () => {
 
     expect(document.activeElement).toBe(enField);
   });
+
+  // F2 (major) — a failed save leaves focus outside the dialog; Escape must
+  // still close it via a document-level listener.
+  it("closes the dialog on a document-level Escape after a failed (422) save", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(422, { detail: "professional_summary is invalid" }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor({ de: "Alt.", en: "" });
+
+    fireEvent.click(screen.getByTestId("summary-edit"));
+    fireEvent.change(screen.getByTestId("summary-field-en"), { target: { value: "New." } });
+    fireEvent.click(screen.getByTestId("summary-save"));
+    await screen.findByTestId("summary-dialog-error");
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(screen.queryByTestId("summary-dialog")).not.toBeInTheDocument();
+  });
 });

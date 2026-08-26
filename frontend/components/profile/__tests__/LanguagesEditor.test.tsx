@@ -221,4 +221,103 @@ describe("LanguagesEditor", () => {
     expect(screen.getByText("Not provided")).toBeInTheDocument();
     expect(screen.getByTestId("languages-add")).toBeInTheDocument();
   });
+
+  it("cancelling the remove confirmation sends nothing", () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_LANGUAGE]);
+
+    fireEvent.click(screen.getByTestId("language-remove-0"));
+    fireEvent.click(screen.getByTestId("language-entry-remove-cancel"));
+    expect(screen.queryByTestId("language-entry-remove-dialog")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Adversarial pass 2026-08-26 — F1 (blocker): a stale-conflict retry on
+  // Remove must never leave the confirm dialog open on the same index.
+  it("on a 409 during confirmRemove, closes the confirm dialog, reloads via onProfileUpdated, and shows a list-level stale notice", async () => {
+    const current = { updated_at: "t3", profile: { languages: [FULL_LANGUAGE] } };
+    const fetchMock = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { onProfileUpdated } = renderEditor([FULL_LANGUAGE]);
+
+    fireEvent.click(screen.getByTestId("language-remove-0"));
+    fireEvent.click(screen.getByTestId("language-entry-remove-confirm"));
+
+    await waitFor(() => expect(screen.getByTestId("languages-stale-notice")).toBeInTheDocument());
+    expect(screen.queryByTestId("language-entry-remove-dialog")).not.toBeInTheDocument();
+    expect(onProfileUpdated).toHaveBeenCalledWith(current);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // F1 — the removal is keyed on the entry's id, not on its position.
+  it("removes the language by id even when the list has been reordered since the confirm dialog opened", async () => {
+    const other: Language = { ...FULL_LANGUAGE, id: "l2", language: "French" };
+    const fetchMock = vi.fn(async () => jsonResponse(200, { updated_at: "t2", profile: { languages: [other] } }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { rerender } = render(withIntl(
+      <LanguagesEditor
+        entries={[FULL_LANGUAGE, other]}
+        apiBase="http://api"
+        profileUpdatedAt="2026-08-25T09:00:00Z"
+        onProfileUpdated={vi.fn()}
+      />,
+    ));
+
+    fireEvent.click(screen.getByTestId("language-remove-1"));
+
+    rerender(withIntl(
+      <LanguagesEditor
+        entries={[other, FULL_LANGUAGE]}
+        apiBase="http://api"
+        profileUpdatedAt="2026-08-25T09:00:00Z"
+        onProfileUpdated={vi.fn()}
+      />,
+    ));
+
+    fireEvent.click(screen.getByTestId("language-entry-remove-confirm"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(sent).toEqual([FULL_LANGUAGE]);
+  });
+
+  // F1c — the confirm dialog names the entry being removed.
+  it("names the entry in the remove confirmation body", () => {
+    renderEditor([FULL_LANGUAGE]);
+    fireEvent.click(screen.getByTestId("language-remove-0"));
+    expect(screen.getByTestId("language-entry-remove-dialog").textContent).toContain("German");
+  });
+
+  // F2 (major) — a failed save leaves focus outside the dialog; Escape must
+  // still close it via a document-level listener.
+  it("closes the dialog on a document-level Escape after a failed (422) save", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(422, { detail: "language must not be blank" }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderEditor([FULL_LANGUAGE]);
+
+    fireEvent.click(screen.getByTestId("language-edit-0"));
+    fireEvent.click(screen.getByTestId("language-entry-save"));
+    await screen.findByTestId("language-entry-dialog-error");
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(screen.queryByTestId("language-entry-dialog")).not.toBeInTheDocument();
+  });
+
+  // F4 — two id-less legacy entries (id: "") must not collide on their React key.
+  it("renders two chips for two languages sharing an empty id, without a key warning", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const a: Language = { ...FULL_LANGUAGE, id: "", language: "Alpha" };
+    const b: Language = { ...FULL_LANGUAGE, id: "", language: "Beta" };
+    renderEditor([a, b]);
+
+    expect(screen.getByTestId("language-edit-0")).toBeInTheDocument();
+    expect(screen.getByTestId("language-edit-1")).toBeInTheDocument();
+    const keyWarning = errorSpy.mock.calls.some((call) =>
+      call.some((arg) => typeof arg === "string" && arg.includes("same key")),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
+  });
 });
