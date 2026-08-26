@@ -78,6 +78,9 @@ export type SectionKey =
   | "skills"
   | "languages"
   | "certifications"
+  | "projects"
+  | "publications"
+  | "volunteer_activities"
   | "signature_stories";
 
 interface WorkEntryShape {
@@ -129,6 +132,43 @@ interface CertificationShape {
   issuer?: string | null;
   date_obtained?: string | null;
   year?: string | null;
+}
+
+// US292 — ProjectEntry/VolunteerActivity extend the backend's ExperienceBase
+// (ADR-044), same span/bullets shape as WorkEntryShape above, plus their own
+// natural-key fields.
+interface ProjectShape {
+  name?: string | null;
+  role?: string | null;
+  location?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_current?: boolean | null;
+  responsibilities?: string[] | null;
+  achievements?: string[] | null;
+  technologies?: string[] | null;
+  description?: string | null;
+}
+
+interface PublicationShape {
+  title?: string | null;
+  type?: "publication" | "patent" | null;
+  venue?: string | null;
+  published_date?: string | null;
+}
+
+interface VolunteerShape {
+  organization?: string | null;
+  role?: string | null;
+  location?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_current?: boolean | null;
+  responsibilities?: string[] | null;
+  achievements?: string[] | null;
+  technologies?: string[] | null;
+  description?: string | null;
+  cause?: string | null;
 }
 
 interface SignatureStoryShape {
@@ -359,6 +399,114 @@ export function ProfileSectionBody({
               <span className="font-medium">{name}</span>
               {nonEmpty(level) && <span className="text-gray-500">{level}</span>}
             </span>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (section === "projects") {
+    // Mirrors the work_experience branch above — same ExperienceBase shape
+    // (period, description, bullets), plus technologies rendered as chips
+    // (US292).
+    const entries = Array.isArray(value) ? (value as ProjectShape[]) : [];
+    const named = entries.filter((p) => nonEmpty(p.name));
+    if (named.length === 0) return empty;
+    return (
+      <div className="space-y-4">
+        {named.map((p, i) => {
+          const period = formatPeriod(p.start_date, p.end_date, t("present"), p.is_current);
+          const bullets = [...(p.achievements ?? []), ...(p.responsibilities ?? [])].filter(nonEmpty);
+          const technologies = (p.technologies ?? []).filter(nonEmpty);
+          return (
+            <div key={i} className="border-l-2 border-teal/40 pl-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                <p className="text-sm font-semibold text-neutral-dark">{p.name}</p>
+                {period && <span className="text-xs text-gray-500">{period}</span>}
+              </div>
+              {nonEmpty(p.role) && <p className="text-xs text-gray-600">{p.role}</p>}
+              {nonEmpty(p.description) && (
+                <p className="mt-1 text-sm text-gray-700">{p.description}</p>
+              )}
+              {bullets.length > 0 && (
+                <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
+                  {bullets.map((b, bi) => (
+                    <li key={bi} className="break-words">{b}</li>
+                  ))}
+                </ul>
+              )}
+              {technologies.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {technologies.map((tech, ti) => (
+                    <span
+                      key={ti}
+                      className="inline-flex items-center rounded-full bg-surface-container px-2 py-0.5 text-xs text-neutral-dark"
+                    >
+                      {tech}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (section === "publications") {
+    const entries = Array.isArray(value) ? (value as PublicationShape[]) : [];
+    const named = entries.filter((p) => nonEmpty(p.title));
+    if (named.length === 0) return empty;
+    return (
+      <ul className="space-y-2 text-sm">
+        {named.map((p, i) => (
+          <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <span className="flex items-center gap-1.5">
+              <span className="font-medium text-neutral-dark">{p.title}</span>
+              {p.type === "patent" && (
+                <span className="inline-flex items-center rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+                  {t("publicationsEditor.typePatent")}
+                </span>
+              )}
+            </span>
+            <span className="text-xs text-gray-500">
+              {[p.venue, p.published_date].filter(nonEmpty).join(" · ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (section === "volunteer_activities") {
+    const entries = Array.isArray(value) ? (value as VolunteerShape[]) : [];
+    const named = entries.filter((v) => nonEmpty(v.organization) || nonEmpty(v.role));
+    if (named.length === 0) return empty;
+    return (
+      <div className="space-y-4">
+        {named.map((v, i) => {
+          const heading = [v.role, v.organization].filter(nonEmpty).join(" @ ");
+          const period = formatPeriod(v.start_date, v.end_date, t("present"), v.is_current);
+          const bullets = [...(v.achievements ?? []), ...(v.responsibilities ?? [])].filter(nonEmpty);
+          return (
+            <div key={i} className="border-l-2 border-teal/40 pl-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                <p className="text-sm font-semibold text-neutral-dark">{heading || t("notProvided")}</p>
+                {period && <span className="text-xs text-gray-500">{period}</span>}
+              </div>
+              {nonEmpty(v.cause) && <p className="text-xs text-gray-600">{v.cause}</p>}
+              {nonEmpty(v.description) && (
+                <p className="mt-1 text-sm text-gray-700">{v.description}</p>
+              )}
+              {bullets.length > 0 && (
+                <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
+                  {bullets.map((b, bi) => (
+                    <li key={bi} className="break-words">{b}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           );
         })}
       </div>
