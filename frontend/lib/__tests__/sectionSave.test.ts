@@ -96,6 +96,45 @@ describe("saveProfileSection", () => {
     if (result.status === "ok") expect(result.mismatch).toBe(true);
   });
 
+  // H0.4 vs the backend's partial-date completion: a certification /
+  // publication date sent as "YYYY-MM" is stored and echoed as "YYYY-MM-01".
+  // That is normalisation, not a lost write (integrator finding 2026-08-26).
+  it("does not flag a partial date the backend completed to the first of the month", async () => {
+    const sent = { id: "c1", name: "AWS SA", date_obtained: "2024-05", expiry_date: null };
+    const stored = { id: "c1", name: "AWS SA", date_obtained: "2024-05-01", expiry_date: null };
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { certifications: [stored] } }),
+    );
+    const result = await saveProfileSection({
+      apiBase: "http://api",
+      section: "certifications",
+      entries: [sent],
+      basisUpdatedAt: "t1",
+      savedEntryId: "c1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.mismatch).toBe(false);
+  });
+
+  it("still flags a date that came back DIFFERENT, not merely completed", async () => {
+    const sent = { id: "c1", name: "AWS SA", date_obtained: "2024-05" };
+    const stored = { id: "c1", name: "AWS SA", date_obtained: "2024-06-01" };
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { certifications: [stored] } }),
+    );
+    const result = await saveProfileSection({
+      apiBase: "http://api",
+      section: "certifications",
+      entries: [sent],
+      basisUpdatedAt: "t1",
+      savedEntryId: "c1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.mismatch).toBe(true);
+  });
+
   it("flags mismatch:true when the saved entry is missing from the response entirely", async () => {
     const sent = { id: "e1", company: "Acme", role: "Engineer" };
     const fetchImpl = vi.fn<typeof fetch>(async () =>

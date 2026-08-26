@@ -64,6 +64,36 @@ export interface SaveProfileSectionParams {
   fetchImpl?: typeof fetch;
 }
 
+/**
+ * The backend stores `Certification.date_obtained` / `expiry_date` and
+ * `Publication.published_date` as true dates and COMPLETES a partial
+ * "YYYY-MM" (or "YYYY") to the first of the month/year on save
+ * (`_coerce_partial_date`). The pickers send the partial shape, so the
+ * value that comes back is longer than the one sent. That is the backend's
+ * documented normalisation, not a lost write — the H0.4 detector must not
+ * read it as one (integrator finding, real-browser pass 2026-08-26; the
+ * schema-precision residual itself is #587).
+ */
+function completedPartialDate(sent: unknown, returned: unknown): boolean {
+  if (typeof sent !== "string" || typeof returned !== "string") return false;
+  if (/^\d{4}-\d{2}$/.test(sent)) return returned === `${sent}-01`;
+  if (/^\d{4}$/.test(sent)) return returned === `${sent}-01-01`;
+  return false;
+}
+
+/** Deep-equal by JSON, tolerating only the backend's partial-date completion. */
+function entriesEquivalent(sent: Record<string, unknown>, returned: Record<string, unknown>): boolean {
+  const keys = new Set([...Object.keys(sent), ...Object.keys(returned)]);
+  for (const key of keys) {
+    const a = sent[key];
+    const b = returned[key];
+    if (JSON.stringify(a) === JSON.stringify(b)) continue;
+    if (completedPartialDate(a, b)) continue;
+    return false;
+  }
+  return true;
+}
+
 function findById(list: unknown, id: string): Record<string, unknown> | undefined {
   if (!Array.isArray(list)) return undefined;
   return (list as Array<Record<string, unknown>>).find(
@@ -186,7 +216,7 @@ export async function saveProfileSection<TProfile extends ProfileSectionsRespons
       return true;
     }
     if (sentEntry) {
-      return JSON.stringify(sentEntry) !== JSON.stringify(returnedEntry);
+      return !entriesEquivalent(sentEntry, returnedEntry);
     }
     return false;
   });
