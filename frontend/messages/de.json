@@ -692,6 +692,12 @@
     "fieldEmail": "E-Mail",
     "fieldPhone": "Telefon",
     "fieldLocation": "Ort",
+    "fieldAddress": "Adresse",
+    "fieldNationality": "Staatsangehörigkeit",
+    "fieldDateOfBirth": "Geburtsdatum",
+    "fieldLinkedin": "LinkedIn",
+    "fieldXing": "XING",
+    "fieldWebsite": "Webseite",
     "present": "heute",
     "language_de": "deutsche",
     "language_en": "englische",
@@ -730,6 +736,29 @@
       "addAsConfirmed": "Als bestätigt hinzufügen",
       "validationMonthRequired": "Bitte auch den Monat angeben — ein Jahr allein würde als 1. Januar gespeichert.",
       "validationYearsRange": "Jahre der Erfahrung: bitte 0–80 angeben."
+    },
+    "summaryEditor": {
+      "editButton": "Kurzprofil bearbeiten",
+      "dialogTitle": "Kurzprofil bearbeiten",
+      "fieldDe": "Deutsch (DE)",
+      "fieldEn": "Englisch (EN)",
+      "hint": "Beide Felder speisen die jeweilige Sprachfassung deines Lebenslaufs — fülle mindestens eines aus."
+    },
+    "personalInfoEditor": {
+      "editButton": "Kontaktdaten bearbeiten",
+      "dialogTitle": "Kontaktdaten bearbeiten",
+      "fieldName": "Name *",
+      "fieldEmail": "E-Mail",
+      "fieldPhone": "Telefon",
+      "fieldLocation": "Ort",
+      "fieldAddress": "Adresse",
+      "fieldNationality": "Staatsangehörigkeit",
+      "fieldDateOfBirth": "Geburtsdatum",
+      "dateOfBirthPlaceholder": "TT.MM.JJJJ",
+      "validationDateOfBirth": "Bitte ein gültiges Datum angeben (TT.MM.JJJJ oder JJJJ-MM-TT).",
+      "fieldLinkedin": "LinkedIn",
+      "fieldXing": "XING",
+      "fieldWebsite": "Webseite"
     },
     "workEditor": {
       "addButton": "Eintrag hinzufügen",

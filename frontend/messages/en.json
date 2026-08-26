@@ -692,6 +692,12 @@
     "fieldEmail": "Email",
     "fieldPhone": "Phone",
     "fieldLocation": "Location",
+    "fieldAddress": "Address",
+    "fieldNationality": "Nationality",
+    "fieldDateOfBirth": "Date of birth",
+    "fieldLinkedin": "LinkedIn",
+    "fieldXing": "XING",
+    "fieldWebsite": "Website",
     "present": "present",
     "language_de": "German",
     "language_en": "English",
@@ -730,6 +736,29 @@
       "addAsConfirmed": "Add as confirmed",
       "validationMonthRequired": "Please add the month too — a year alone would be stored as 1 January.",
       "validationYearsRange": "Years of experience: please enter 0–80."
+    },
+    "summaryEditor": {
+      "editButton": "Edit summary",
+      "dialogTitle": "Edit professional summary",
+      "fieldDe": "German (DE)",
+      "fieldEn": "English (EN)",
+      "hint": "Both fields feed the matching language version of your CV — fill in at least one."
+    },
+    "personalInfoEditor": {
+      "editButton": "Edit contact details",
+      "dialogTitle": "Edit contact details",
+      "fieldName": "Name *",
+      "fieldEmail": "Email",
+      "fieldPhone": "Phone",
+      "fieldLocation": "Location",
+      "fieldAddress": "Address",
+      "fieldNationality": "Nationality",
+      "fieldDateOfBirth": "Date of birth",
+      "dateOfBirthPlaceholder": "DD.MM.YYYY",
+      "validationDateOfBirth": "Please enter a valid date (DD.MM.YYYY or YYYY-MM-DD).",
+      "fieldLinkedin": "LinkedIn",
+      "fieldXing": "XING",
+      "fieldWebsite": "Website"
     },
     "workEditor": {
       "addButton": "Add entry",
