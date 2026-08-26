@@ -117,6 +117,82 @@ export interface Certification {
   [key: string]: unknown;
 }
 
+/**
+ * US292 — Project/Publication/VolunteerActivity mirror the backend Pydantic
+ * schemas verbatim (`ProjectEntry`/`Publication`/`VolunteerActivity` in
+ * `backend/applire/schemas/profile.py`). `ProjectEntry` and
+ * `VolunteerActivity` extend the shared `ExperienceBase` (role, location,
+ * dates, tri-state `is_current`, the three bullet lists, `expected_fields`)
+ * flattened here exactly like `WorkEntry` above. An index signature keeps any
+ * unknown/legacy key round-tripping through the spread-based form state
+ * instead of being silently dropped (H1.3), exactly like the other entry types.
+ */
+export interface ProjectEntry {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  /** Natural key — required. */
+  name: string;
+  description?: string | null;
+  url?: string | null;
+  /** Free-text label of a work/volunteer entry this project hangs off, e.g. "TechVision GmbH". */
+  associated_experience?: string | null;
+  role?: string;
+  location?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  /** Tri-state: null = unknown, true = current, false = ended (H1.10). */
+  is_current?: boolean | null;
+  responsibilities?: string[];
+  achievements?: string[];
+  technologies?: string[];
+  /** Derived by the backend — never recomputed on this door. */
+  expected_fields?: string[] | null;
+  [key: string]: unknown;
+}
+
+export interface Publication {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  /** Natural key — required. */
+  title: string;
+  type?: "publication" | "patent";
+  co_authors?: string[];
+  /** Journal, conference, or patent office. */
+  venue?: string | null;
+  /**
+   * Backend field is a true `date` — a bare "YYYY" would be coerced to
+   * 1 January (the same trap Certification.date_obtained guards against).
+   * Editors must refuse a year-only value (H2.3-equivalent).
+   */
+  published_date?: string | null;
+  doi?: string | null;
+  url?: string | null;
+  patent_number?: string | null;
+  [key: string]: unknown;
+}
+
+export interface VolunteerActivity {
+  /** Absent on a NEW entry — the backend mints the id (H1.1). */
+  id?: string;
+  /** Natural key is (organization, role) — both required. */
+  organization: string;
+  role: string;
+  description?: string | null;
+  /** e.g. "Education", "Environment". */
+  cause?: string | null;
+  location?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  /** Tri-state: null = unknown, true = current, false = ended (H1.10). */
+  is_current?: boolean | null;
+  responsibilities?: string[];
+  achievements?: string[];
+  technologies?: string[];
+  /** Derived by the backend — never recomputed on this door. */
+  expected_fields?: string[] | null;
+  [key: string]: unknown;
+}
+
 /** The shape both GET /api/profile and PATCH /api/profile/{section} return. */
 export interface ProfileSectionsResponse {
   updated_at: string;
@@ -126,6 +202,9 @@ export interface ProfileSectionsResponse {
     skills?: Skill[];
     languages?: Language[];
     certifications?: Certification[];
+    projects?: ProjectEntry[];
+    publications?: Publication[];
+    volunteer_activities?: VolunteerActivity[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -224,6 +303,61 @@ export function makeEmptyCertification(): Certification {
     credential_id: null,
     credential_url: null,
     status: "confirmed",
+  };
+}
+
+/**
+ * A brand-new project — deliberately carries no `id` key (H1.1) and no
+ * `status` key (projects carry no provenance badge, unlike skills/languages/
+ * certifications).
+ */
+export function makeEmptyProjectEntry(): ProjectEntry {
+  return {
+    name: "",
+    description: null,
+    url: null,
+    associated_experience: null,
+    role: "",
+    location: null,
+    start_date: null,
+    end_date: null,
+    is_current: null,
+    responsibilities: [],
+    achievements: [],
+    technologies: [],
+    expected_fields: null,
+  };
+}
+
+/** A brand-new publication — deliberately carries no `id` key (H1.1). */
+export function makeEmptyPublication(): Publication {
+  return {
+    title: "",
+    type: "publication",
+    co_authors: [],
+    venue: null,
+    published_date: null,
+    doi: null,
+    url: null,
+    patent_number: null,
+  };
+}
+
+/** A brand-new volunteer activity — deliberately carries no `id` key (H1.1). */
+export function makeEmptyVolunteerActivity(): VolunteerActivity {
+  return {
+    organization: "",
+    role: "",
+    description: null,
+    cause: null,
+    location: null,
+    start_date: null,
+    end_date: null,
+    is_current: null,
+    responsibilities: [],
+    achievements: [],
+    technologies: [],
+    expected_fields: null,
   };
 }
 
