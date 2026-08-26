@@ -59,6 +59,7 @@ import type {
   Certification,
   EducationEntry,
   Language,
+  PersonalInfo,
   ProjectEntry,
   Publication,
   Skill,
@@ -472,7 +473,7 @@ export default function ProfilePage() {
                           uiLanguage={uiLanguage}
                         />
                         <PersonalInfoEditor
-                          value={(value as ProfileSection | undefined) ?? {}}
+                          value={(value as PersonalInfo | undefined) ?? {}}
                           apiBase={API_BASE}
                           profileUpdatedAt={profile?.updated_at ?? ""}
                           onProfileUpdated={(updated) =>
