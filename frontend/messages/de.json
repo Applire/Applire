@@ -626,6 +626,9 @@
     "sectionLanguages": "Sprachen",
     "sectionCertifications": "Zertifikate",
     "sectionSignatureStories": "Signatur-Geschichten",
+    "sectionProjects": "Projekte",
+    "sectionPublications": "Publikationen",
+    "sectionVolunteer": "Ehrenamt",
     "storyChallenge": "Herausforderung",
     "storyMechanism": "Vorgehen",
     "storyOutcome": "Ergebnis",
@@ -793,6 +796,44 @@
       "fieldExpiryDate": "Ablaufdatum",
       "fieldCredentialId": "Zertifikat-ID",
       "fieldCredentialUrl": "Zertifikat-URL"
+    },
+    "projectsEditor": {
+      "addButton": "Projekt hinzufügen",
+      "dialogTitleAdd": "Projekt hinzufügen",
+      "dialogTitleEdit": "Projekt bearbeiten",
+      "fieldName": "Name *",
+      "fieldRole": "Rolle",
+      "fieldAssociatedExperience": "Zugehörige Station",
+      "fieldLocation": "Ort",
+      "fieldDescription": "Beschreibung",
+      "fieldUrl": "URL"
+    },
+    "publicationsEditor": {
+      "addButton": "Publikation hinzufügen",
+      "dialogTitleAdd": "Publikation hinzufügen",
+      "dialogTitleEdit": "Publikation bearbeiten",
+      "fieldTitle": "Titel *",
+      "fieldType": "Typ",
+      "typePublication": "Publikation",
+      "typePatent": "Patent",
+      "fieldCoAuthors": "Mitautoren",
+      "addCoAuthor": "Mitautor hinzufügen",
+      "coAuthorAria": "Mitautor {index}",
+      "fieldVenue": "Veröffentlicht in",
+      "fieldPublishedDate": "Veröffentlichungsdatum",
+      "fieldDoi": "DOI",
+      "fieldUrl": "URL",
+      "fieldPatentNumber": "Patentnummer"
+    },
+    "volunteerEditor": {
+      "addButton": "Ehrenamt hinzufügen",
+      "dialogTitleAdd": "Ehrenamt hinzufügen",
+      "dialogTitleEdit": "Ehrenamt bearbeiten",
+      "fieldOrganization": "Organisation *",
+      "fieldRole": "Rolle *",
+      "fieldCause": "Bereich",
+      "fieldLocation": "Ort",
+      "fieldDescription": "Beschreibung"
     }
   },
   "health": {

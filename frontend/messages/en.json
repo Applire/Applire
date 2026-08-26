@@ -626,6 +626,9 @@
     "sectionLanguages": "Languages",
     "sectionCertifications": "Certifications",
     "sectionSignatureStories": "Signature stories",
+    "sectionProjects": "Projects",
+    "sectionPublications": "Publications",
+    "sectionVolunteer": "Volunteering",
     "storyChallenge": "Challenge",
     "storyMechanism": "Approach",
     "storyOutcome": "Outcome",
@@ -793,6 +796,44 @@
       "fieldExpiryDate": "Expiry date",
       "fieldCredentialId": "Credential ID",
       "fieldCredentialUrl": "Credential URL"
+    },
+    "projectsEditor": {
+      "addButton": "Add project",
+      "dialogTitleAdd": "Add project",
+      "dialogTitleEdit": "Edit project",
+      "fieldName": "Name *",
+      "fieldRole": "Role",
+      "fieldAssociatedExperience": "Associated experience",
+      "fieldLocation": "Location",
+      "fieldDescription": "Description",
+      "fieldUrl": "URL"
+    },
+    "publicationsEditor": {
+      "addButton": "Add publication",
+      "dialogTitleAdd": "Add publication",
+      "dialogTitleEdit": "Edit publication",
+      "fieldTitle": "Title *",
+      "fieldType": "Type",
+      "typePublication": "Publication",
+      "typePatent": "Patent",
+      "fieldCoAuthors": "Co-authors",
+      "addCoAuthor": "Add co-author",
+      "coAuthorAria": "Co-author {index}",
+      "fieldVenue": "Published in",
+      "fieldPublishedDate": "Publication date",
+      "fieldDoi": "DOI",
+      "fieldUrl": "URL",
+      "fieldPatentNumber": "Patent number"
+    },
+    "volunteerEditor": {
+      "addButton": "Add volunteer activity",
+      "dialogTitleAdd": "Add volunteer activity",
+      "dialogTitleEdit": "Edit volunteer activity",
+      "fieldOrganization": "Organization *",
+      "fieldRole": "Role *",
+      "fieldCause": "Cause",
+      "fieldLocation": "Location",
+      "fieldDescription": "Description"
     }
   },
   "health": {
