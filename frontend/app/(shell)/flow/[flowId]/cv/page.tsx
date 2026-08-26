@@ -41,6 +41,7 @@ import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
+import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
@@ -472,7 +473,28 @@ export default function CVPage({
       },
     ];
 
-    return (
+    // #580 (ADR-077 amended 2026-08-26): ONE ATS panel body for the desktop
+  // workspace and the mobile command bar (rule-against-one-of-N), and the pin
+  // CONTROL mounted on the CV page — a completed flow redirects every other
+  // step to /cv, so the gaps-page mount alone was unreachable after generation
+  // (JF-F-I.3: the fate marker must be where Felix stands after generating).
+  const atsPanelBody = (
+    <div className="space-y-2">
+      <ATSChecksPanel report={atsReport} />
+      <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
+      <CriticAdvisoryPanel report={criticReport} />
+      {flowState?.application_id && (
+        <PinnedFactsPanel
+          applicationId={flowState.application_id}
+          apiBase={API_BASE}
+          cvId={cvId}
+          coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
+        />
+      )}
+    </div>
+  );
+
+  return (
       <div data-testid="cv-page">
         {/* E039/US221: the freshly re-tailored version explains itself —
             "changed because your profile gained X" (delta from the nudge). */}
@@ -507,13 +529,7 @@ export default function CVPage({
           documentLanguage={docLanguage}
           onDownloadPdf={() => void requestDownload()}
           preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
-          atsPanel={
-            <div className="space-y-2">
-              <ATSChecksPanel report={atsReport} />
-              <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
-              <CriticAdvisoryPanel report={criticReport} />
-            </div>
-          }
+          atsPanel={atsPanelBody}
           sidebar={
             <RefinementSidebar
               matchScore={
@@ -530,13 +546,7 @@ export default function CVPage({
           commandBar={
             <MobileCommandBar
               atsReport={atsReport}
-              atsPanel={
-                <div className="space-y-2">
-                  <ATSChecksPanel report={atsReport} />
-                  <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
-                  <CriticAdvisoryPanel report={criticReport} />
-                </div>
-              }
+              atsPanel={atsPanelBody}
               fineTuneSurface={
                 <ContentTab
                   cvId={cvId}

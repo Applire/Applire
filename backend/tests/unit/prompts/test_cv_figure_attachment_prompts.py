@@ -176,15 +176,27 @@ def test_reviewer_no_longer_classes_every_summary_defect_as_minor_by_definition(
     assert "summary phrasing that does not change what is claimed" in blocking
 
 
-def test_reviewer_does_not_gain_a_seventh_numbered_check():
+def test_the_only_seventh_check_is_the_bounded_pinned_fact_check():
     """ADR-062 Consequences: fewer, more general rules beat many specific ones, and this
     reviewer's blocking surface is being DE-escalated (ADR-071 amended 2026-08-06 demoted
     check 2 to visibility-only after run 17 exhausted the loop on 13 false findings).
-    #375 is a scope correction of an existing check, never a new mandate."""
+    #375 was a scope correction of an existing check, never a new mandate — and until
+    2026-08-26 this test forbade a seventh check outright.
+
+    #580 / ADR-077 amended 2026-08-26 is the ONE recorded exception, and it is admitted
+    only because its blocking surface is bounded by construction: check 7 reads its
+    ground truth from a deterministic block that demands each pinned quote at most once
+    per loop and never demands a ledger-conflicted one, and the check itself is
+    subordinate to the truth checks. Nothing else may ride in on it: exactly one
+    seventh check, no eighth, and it must be that check."""
     prompt = _reviewer_prompt()
-    assert "\n7. " not in prompt.split("WHAT IS BLOCKING IN THIS PASS")[0], (
-        "#375 must not add a numbered check to the CV reviewer"
-    )
+    checks = prompt.split("WHAT IS BLOCKING IN THIS PASS")[0]
+    assert checks.count("\n7. ") == 1, "exactly one seventh check"
+    assert "\n8. " not in checks, "no eighth check — the de-escalation stands"
+    seventh = checks.split("\n7. ", 1)[1]
+    assert seventh.startswith("PINNED FACT NOT DELIVERED (ADR-077)")
+    assert "truth outranks a pin" in seventh
+    assert "LEDGER CONFLICT" in seventh and "NOT\n   demanded" in seventh
 
 
 # --------------------------------------------------------------------------

@@ -152,6 +152,20 @@ async def test_post_pin_422_when_quote_does_not_resolve(client):
 
 
 @pytest.mark.asyncio
+async def test_post_pin_422_for_a_cv_target_on_a_volunteer_entry(client):
+    """ADR-077 amended 2026-08-26 (#580, clause 1 correction / SF-PIN.9): the CV
+    renders no volunteering or publication section, so a `cv` target on such an
+    entry is a pin that could never fire — refused before anything is read."""
+    ac, app_id, _profile = client
+    resp = await ac.post(
+        f"/api/applications/{app_id}/pins",
+        json={"entry_type": "volunteer", "entry_id": "any", "quote": "q", "targets": ["cv"]},
+    )
+    assert resp.status_code == 422
+    assert "CV has no section" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_post_pin_404_for_unknown_application(client):
     ac, _app_id, profile = client
     resp = await ac.post(

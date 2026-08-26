@@ -46,6 +46,10 @@ export type PinnedFactReportEntry = {
   present: boolean;
   stale: boolean;
   removed_by_truth_floor?: boolean;
+  // #580: the job's do-not-claim terms this pinned quote carries — a fact
+  // about the quote, never a statement about why the pin is absent. Optional
+  // for back-compat with reports persisted before this field existed.
+  ledger_conflict?: string[];
 };
 export type ATSReport = {
   checks: ATSCheck[];
@@ -399,6 +403,14 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                       {!pin.present && (
                         <span data-testid={`ats-pinned-fact-unmet-${pin.pin_id}`}>
                           {t("pinnedFacts.unmet")}
+                          {pin.ledger_conflict && pin.ledger_conflict.length > 0 && (
+                            <>
+                              {" "}
+                              {t("pinnedFacts.ledgerConflict", {
+                                terms: pin.ledger_conflict.join(", "),
+                              })}
+                            </>
+                          )}
                         </span>
                       )}
                       {pin.stale && (

@@ -30,6 +30,8 @@ import { PinnedFactsPanel } from "../PinnedFactsPanel";
 import { withIntl } from "@/lib/test-utils/with-intl";
 
 const APP_ID = "33333333-3333-3333-3333-333333333333";
+const CV_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const LETTER_ID = "11111111-1111-1111-1111-111111111111";
 
 const PROFILE = {
   profile: {
@@ -65,12 +67,19 @@ const STALE_PIN = {
   stale: true,
 };
 
+// #580: a document's ats-report mock response — "throw" simulates a network
+// failure; omitted (undefined) defaults to a pending document (report: null),
+// i.e. genuinely "not measured yet", never a stand-in for "not present".
+type ReportMockResponse = { ok: boolean; body: unknown } | "throw";
+
 function mockFetch(overrides: {
   pins?: unknown[];
   onPost?: (body: unknown) => { status: number; body: unknown };
   onDelete?: () => void;
+  cvReportResponse?: ReportMockResponse;
+  letterReportResponse?: ReportMockResponse;
 } = {}) {
-  const { pins = [], onPost, onDelete } = overrides;
+  const { pins = [], onPost, onDelete, cvReportResponse, letterReportResponse } = overrides;
   const fn = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (method === "GET" && url === `/api/applications/${APP_ID}`) {
@@ -78,6 +87,22 @@ function mockFetch(overrides: {
     }
     if (method === "GET" && url === "/api/profile") {
       return { ok: true, json: async () => PROFILE } as Response;
+    }
+    if (method === "GET" && url === `/api/cv/${CV_ID}/ats-report`) {
+      if (cvReportResponse === "throw") throw new Error("network error");
+      const resp = cvReportResponse ?? {
+        ok: true,
+        body: { document_id: CV_ID, status: "pending", report: null },
+      };
+      return { ok: resp.ok, json: async () => resp.body } as Response;
+    }
+    if (method === "GET" && url === `/api/cover-letter/${LETTER_ID}/ats-report`) {
+      if (letterReportResponse === "throw") throw new Error("network error");
+      const resp = letterReportResponse ?? {
+        ok: true,
+        body: { document_id: LETTER_ID, status: "pending", report: null },
+      };
+      return { ok: resp.ok, json: async () => resp.body } as Response;
     }
     if (method === "POST" && url === `/api/applications/${APP_ID}/pins`) {
       const body = JSON.parse(init!.body as string);
@@ -196,5 +221,307 @@ describe("PinnedFactsPanel", () => {
       expect(screen.getByTestId("pinned-facts-count").textContent).toContain("10/10"),
     );
     expect(screen.getByTestId("pinned-facts-add")).toBeDisabled();
+  });
+
+  it("renders the JF-F-I.1/JF-F-I.5 subtitle once, regardless of pin count", async () => {
+    mockFetch({ pins: [] });
+    render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" />));
+    await waitFor(() => expect(screen.getByTestId("pinned-facts-empty")).toBeInTheDocument());
+    expect(screen.getByTestId("pinned-facts-subtitle").textContent).toContain(
+      "Pins beat the length budget, never the truthfulness check.",
+    );
+    expect(screen.getAllByTestId("pinned-facts-subtitle")).toHaveLength(1);
+  });
+
+  // #580 — per-document fate markers on the pin control itself: a pin's
+  // presence/absence measured against the CV and/or letter's OWN ATS report,
+  // never a stand-in state for a document that doesn't exist yet.
+  describe("fate markers (#580)", () => {
+    const PIN = {
+      pin_id: "p1",
+      entry_type: "work",
+      entry_id: "w1",
+      quote: "Led a team of 8 engineers",
+      targets: ["cv", "letter"],
+      stale: false,
+    };
+
+    function reportBody(documentId: string, pinnedFacts: unknown[] | null) {
+      return {
+        document_id: documentId,
+        status: "ready",
+        report:
+          pinnedFacts === null
+            ? null
+            : { checks: [], keywords: { present: [], missing: [] }, pinned_facts: pinnedFacts },
+      };
+    }
+
+    it("shows a success chip when the pin is present in the document", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            { pin_id: "p1", entry_type: "work", quote: PIN.quote, present: true, stale: false },
+          ]),
+        },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("in the CV"),
+      );
+    });
+
+    it("shows a critical chip when the pin is unmet, with no do-not-claim term", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            { pin_id: "p1", entry_type: "work", quote: PIN.quote, present: false, stale: false },
+          ]),
+        },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("not in the CV"),
+      );
+    });
+
+    it("appends the do-not-claim term when unmet with a ledger conflict", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            {
+              pin_id: "p1",
+              entry_type: "work",
+              quote: PIN.quote,
+              present: false,
+              stale: false,
+              ledger_conflict: ["microservices"],
+            },
+          ]),
+        },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toContain(
+          "not in the CV",
+        ),
+      );
+      expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toContain(
+        "do-not-claim term: microservices",
+      );
+    });
+
+    it("shows the removed-by-truth-floor text, taking precedence over the plain unmet text", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            {
+              pin_id: "p1",
+              entry_type: "work",
+              quote: PIN.quote,
+              present: false,
+              stale: false,
+              removed_by_truth_floor: true,
+              ledger_conflict: ["microservices"],
+            },
+          ]),
+        },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe(
+          "removed by the truthfulness check",
+        ),
+      );
+      // The plain "not in the CV" / do-not-claim wording must NOT also appear.
+      expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).not.toContain(
+        "not in the CV",
+      );
+    });
+
+    it("shows a neutral not-measured chip when the document's report is null", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: { ok: true, body: reportBody(CV_ID, null) },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("not measured yet"),
+      );
+    });
+
+    it("shows a neutral not-measured chip when the pin has no entry in the report yet", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: { ok: true, body: reportBody(CV_ID, []) },
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("not measured yet"),
+      );
+    });
+
+    it("shows a neutral not-measured chip when the report fetch fails", async () => {
+      mockFetch({ pins: [PIN], cvReportResponse: "throw" });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />));
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("not measured yet"),
+      );
+    });
+
+    it("renders no fate chip for a target with no document id at all", async () => {
+      mockFetch({ pins: [PIN] });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" />));
+      await waitFor(() => expect(screen.getByTestId("pinned-fact-p1")).toBeInTheDocument());
+      expect(screen.queryByTestId("pinned-fact-fate-cv-p1")).toBeNull();
+      expect(screen.queryByTestId("pinned-fact-fate-letter-p1")).toBeNull();
+    });
+
+    it("measures the CV and the letter independently for the same pin", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            { pin_id: "p1", entry_type: "work", quote: PIN.quote, present: true, stale: false },
+          ]),
+        },
+        letterReportResponse: {
+          ok: true,
+          body: reportBody(LETTER_ID, [
+            { pin_id: "p1", entry_type: "work", quote: PIN.quote, present: false, stale: false },
+          ]),
+        },
+      });
+      render(
+        withIntl(
+          <PinnedFactsPanel
+            applicationId={APP_ID}
+            apiBase=""
+            cvId={CV_ID}
+            coverLetterId={LETTER_ID}
+          />,
+        ),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toBe("in the CV"),
+      );
+      expect(screen.getByTestId("pinned-fact-fate-letter-p1").textContent).toBe(
+        "not in the cover letter",
+      );
+    });
+
+    it("localises fate chips into German", async () => {
+      mockFetch({
+        pins: [PIN],
+        cvReportResponse: {
+          ok: true,
+          body: reportBody(CV_ID, [
+            {
+              pin_id: "p1",
+              entry_type: "work",
+              quote: PIN.quote,
+              present: false,
+              stale: false,
+              ledger_conflict: ["Microservices"],
+            },
+          ]),
+        },
+      });
+      render(
+        withIntl(
+          <PinnedFactsPanel applicationId={APP_ID} apiBase="" cvId={CV_ID} />,
+          "de",
+        ),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toContain(
+          "nicht im Lebenslauf",
+        ),
+      );
+      expect(screen.getByTestId("pinned-fact-fate-cv-p1").textContent).toContain(
+        "Nicht-behaupten-Begriff: Microservices",
+      );
+    });
+  });
+
+  // #580 — the picker refuses a `cv` target for entry types the CV template
+  // never renders (volunteer, publication), mirroring the backend's 422
+  // client-side so the user never has to hit the error.
+  describe("picker CV target gate (#580)", () => {
+    const VOLUNTEER_PROFILE = {
+      profile: {
+        ...PROFILE.profile,
+        volunteer_activities: [
+          {
+            id: "v1",
+            role: "Mentor",
+            organization: "Coding for Kids",
+            responsibilities: ["Mentored 5 students"],
+          },
+        ],
+      },
+    };
+
+    function mockFetchWithVolunteer(onPost: (body: unknown) => void) {
+      const fn = vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET" && url === `/api/applications/${APP_ID}`) {
+          return { ok: true, json: async () => ({ pinned_facts: [] }) } as Response;
+        }
+        if (method === "GET" && url === "/api/profile") {
+          return { ok: true, json: async () => VOLUNTEER_PROFILE } as Response;
+        }
+        if (method === "POST" && url === `/api/applications/${APP_ID}/pins`) {
+          const body = JSON.parse(init!.body as string);
+          onPost(body);
+          return { ok: true, status: 201, json: async () => ({ pin_id: "new-pin", ...body }) } as Response;
+        }
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fn);
+      return fn;
+    }
+
+    it("disables and unchecks the CV target for a volunteer entry, showing the hint", async () => {
+      mockFetchWithVolunteer(() => {});
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" />));
+      await waitFor(() => expect(screen.getByTestId("pinned-facts-empty")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("pinned-facts-add"));
+      await waitFor(() => expect(screen.getByTestId("pin-entry-volunteer-v1")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("pin-entry-volunteer-v1"));
+
+      const cvCheckbox = screen.getByTestId("pin-target-cv") as HTMLInputElement;
+      expect(cvCheckbox.disabled).toBe(true);
+      expect(cvCheckbox.checked).toBe(false);
+      expect(screen.getByTestId("pin-target-cv-unavailable-hint")).toBeInTheDocument();
+    });
+
+    it("POSTs targets: [\"letter\"] for a volunteer entry, never cv", async () => {
+      let postedBody: { entry_type?: string; targets?: string[] } | null = null;
+      mockFetchWithVolunteer((body) => {
+        postedBody = body as { entry_type?: string; targets?: string[] };
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" />));
+      await waitFor(() => expect(screen.getByTestId("pinned-facts-empty")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("pinned-facts-add"));
+      await waitFor(() => expect(screen.getByTestId("pin-entry-volunteer-v1")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("pin-entry-volunteer-v1"));
+      fireEvent.click(screen.getByTestId("pin-quote-0"));
+      fireEvent.click(screen.getByTestId("pin-dialog-confirm"));
+
+      await waitFor(() => expect(screen.queryByTestId("pinned-facts-dialog")).toBeNull());
+      expect(postedBody).toMatchObject({ entry_type: "volunteer", targets: ["letter"] });
+    });
   });
 });

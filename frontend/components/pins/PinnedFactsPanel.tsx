@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
+import type { PinnedFactReportEntry } from "@/components/cv/ATSChecksPanel";
 
 export type FactPinEntryType =
   | "work"
@@ -51,6 +52,11 @@ export interface FactPin {
 
 // Mirrors backend/applire/constants.py MAX_FACT_PINS (ADR-077 clause 6).
 const MAX_FACT_PINS = 10;
+
+// #580: the backend refuses (HTTP 422) a `cv` target on these entry types —
+// the CV template renders neither section. Gate client-side so the picker
+// never offers a target the API will reject.
+const CV_TARGET_UNAVAILABLE_TYPES: FactPinEntryType[] = ["volunteer", "publication"];
 
 // Mirrors backend/applire/services/fact_pins.py _SECTIONS — the vault address
 // book: entry_type -> (MasterProfileData list attr, the entry's own content
@@ -181,17 +187,123 @@ async function apiErrorMessage(res: Response): Promise<string> {
   }
 }
 
+// #580 — per-document fate marker. Fetches ONE document's ATS report and
+// indexes its pinned_facts by pin_id. Tolerant by design: a 404/failed fetch,
+// a null report (document pending/failed), or a null/absent pinned_facts
+// array (audited without pin context) all collapse to an empty map — every
+// per-pin lookup against an empty map naturally reads as "not measured yet"
+// (see fateStatus below), so the marker never lies by inventing a fate.
+async function fetchPinnedFactsMap(url: string): Promise<Map<string, PinnedFactReportEntry>> {
+  const map = new Map<string, PinnedFactReportEntry>();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return map;
+    const data = await res.json();
+    const list = data?.report?.pinned_facts;
+    if (!Array.isArray(list)) return map;
+    for (const entry of list as PinnedFactReportEntry[]) {
+      if (entry && typeof entry.pin_id === "string") map.set(entry.pin_id, entry);
+    }
+    return map;
+  } catch {
+    return map;
+  }
+}
+
+type FateStatus = "present" | "unmet" | "truthFloor" | "notMeasured";
+
+function fateStatus(
+  lookup: Map<string, PinnedFactReportEntry>,
+  pinId: string,
+): { status: FateStatus; ledgerConflict: string[] } {
+  const entry = lookup.get(pinId);
+  if (!entry) return { status: "notMeasured", ledgerConflict: [] };
+  if (entry.present) return { status: "present", ledgerConflict: [] };
+  // removed_by_truth_floor takes precedence over the plain unmet text
+  // (hierarchy: truth > pin — the floor's reason for absence is the one
+  // that matters, never dressed up as a garden-variety miss).
+  if (entry.removed_by_truth_floor) return { status: "truthFloor", ledgerConflict: [] };
+  return { status: "unmet", ledgerConflict: entry.ledger_conflict ?? [] };
+}
+
+const FATE_CHIP_CLASS: Record<FateStatus, string> = {
+  present: "bg-success-container text-success",
+  unmet: "bg-critical-container text-critical",
+  truthFloor: "bg-critical-container text-critical",
+  notMeasured: "bg-surface-container text-on-surface-variant",
+};
+
+function fateText(
+  target: "cv" | "letter",
+  fate: { status: FateStatus; ledgerConflict: string[] },
+  t: ReturnType<typeof useTranslations>,
+): string {
+  switch (fate.status) {
+    case "present":
+      return target === "cv" ? t("pins.fate.cvPresent") : t("pins.fate.letterPresent");
+    case "truthFloor":
+      return t("pins.fate.removedByTruthFloor");
+    case "notMeasured":
+      return t("pins.fate.notMeasured");
+    case "unmet": {
+      const base = target === "cv" ? t("pins.fate.cvUnmet") : t("pins.fate.letterUnmet");
+      if (fate.ledgerConflict.length === 0) return base;
+      return `${base} ${t("pins.fate.ledgerConflict", { terms: fate.ledgerConflict.join(", ") })}`;
+    }
+  }
+}
+
+// One fate chip for one pin's one target — a document id must be present
+// (checked by the caller) for this to render at all; "not measured yet" is
+// for a document that EXISTS but has no usable report yet, never a stand-in
+// for "no document".
+function PinFateChip({
+  target,
+  pinId,
+  lookup,
+  t,
+}: {
+  target: "cv" | "letter";
+  pinId: string;
+  lookup: Map<string, PinnedFactReportEntry>;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const fate = fateStatus(lookup, pinId);
+  return (
+    <span
+      data-testid={`pinned-fact-fate-${target}-${pinId}`}
+      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${FATE_CHIP_CLASS[fate.status]}`}
+    >
+      {fateText(target, fate, t)}
+    </span>
+  );
+}
+
 export function PinnedFactsPanel({
   applicationId,
   apiBase,
+  cvId = null,
+  coverLetterId = null,
 }: {
   applicationId: string;
   apiBase: string;
+  // #580: when present, the panel measures each pin's fate against that
+  // document's ATS report. Absent/null means no such document exists yet —
+  // never rendered as "not measured", just nothing to say.
+  cvId?: string | null;
+  coverLetterId?: string | null;
 }) {
   const t = useTranslations("gaps");
 
   const [pins, setPins] = useState<FactPin[] | null>(null);
   const [loadError, setLoadError] = useState(false);
+
+  const [cvPinnedFacts, setCvPinnedFacts] = useState<Map<string, PinnedFactReportEntry>>(
+    new Map(),
+  );
+  const [letterPinnedFacts, setLetterPinnedFacts] = useState<Map<string, PinnedFactReportEntry>>(
+    new Map(),
+  );
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [profile, setProfile] = useState<ProfileEntry | undefined>(undefined);
@@ -223,6 +335,37 @@ export function PinnedFactsPanel({
   useEffect(() => {
     void loadPins();
   }, [loadPins]);
+
+  // #580: per-document fate measurement — fetched in parallel, each
+  // independently tolerant of a missing/failed/pin-less report (see
+  // fetchPinnedFactsMap). No document id at all skips the fetch entirely;
+  // the render layer (not this effect) decides whether that means "no chip".
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCvReport() {
+      if (!cvId) {
+        if (!cancelled) setCvPinnedFacts(new Map());
+        return;
+      }
+      const map = await fetchPinnedFactsMap(`${apiBase}/api/cv/${cvId}/ats-report`);
+      if (!cancelled) setCvPinnedFacts(map);
+    }
+    async function loadLetterReport() {
+      if (!coverLetterId) {
+        if (!cancelled) setLetterPinnedFacts(new Map());
+        return;
+      }
+      const map = await fetchPinnedFactsMap(
+        `${apiBase}/api/cover-letter/${coverLetterId}/ats-report`,
+      );
+      if (!cancelled) setLetterPinnedFacts(map);
+    }
+    void loadCvReport();
+    void loadLetterReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, cvId, coverLetterId]);
 
   function fallbackLabel(type: FactPinEntryType, index: number): string {
     return `${t(`pins.entryTypes.${type}`)} ${index + 1}`;
@@ -275,8 +418,12 @@ export function PinnedFactsPanel({
 
   async function confirmPin() {
     if (!selectedEntry || !selectedQuote) return;
+    // #580: never send a cv target the backend would 422 on — re-derive the
+    // gate here too, not just in the disabled checkbox, so a stale `targets.cv`
+    // from a previously-selected entry can never leak into the POST body.
+    const cvAllowedForSubmit = !CV_TARGET_UNAVAILABLE_TYPES.includes(selectedEntry.entry_type);
     const chosenTargets: ("cv" | "letter")[] = [
-      ...(targets.cv ? (["cv"] as const) : []),
+      ...(cvAllowedForSubmit && targets.cv ? (["cv"] as const) : []),
       ...(targets.letter ? (["letter"] as const) : []),
     ];
     if (chosenTargets.length === 0) return;
@@ -311,6 +458,12 @@ export function PinnedFactsPanel({
   const groups = groupPins(pinList);
   const atCap = pinList.length >= MAX_FACT_PINS;
   const entryOptions = dialogOpen ? buildEntryOptions(profile, fallbackLabel) : undefined;
+  // #580: no entry selected yet → nothing to gate against, so the checkbox
+  // defaults to enabled (it isn't rendered until an entry IS selected anyway).
+  const cvTargetAllowed = selectedEntry
+    ? !CV_TARGET_UNAVAILABLE_TYPES.includes(selectedEntry.entry_type)
+    : true;
+  const hasAnyTarget = (cvTargetAllowed && targets.cv) || targets.letter;
 
   return (
     <div data-testid="pinned-facts-panel" className="mb-8">
@@ -332,6 +485,13 @@ export function PinnedFactsPanel({
           {t("pins.addButton")}
         </button>
       </div>
+
+      {/* JF-F-I.1 / JF-F-I.5 — rendered once for the whole panel, never per
+          pin: pins come from the vault unchanged, and they only ever beat the
+          length budget, never the truthfulness check. */}
+      <p data-testid="pinned-facts-subtitle" className="mb-3 text-xs text-on-surface-variant">
+        {t("pins.subtitle")}
+      </p>
 
       {loadError && (
         <p className="text-sm text-critical" data-testid="pinned-facts-load-error">
@@ -373,10 +533,23 @@ export function PinnedFactsPanel({
                             {t("pins.targetCv")}
                           </span>
                         )}
+                        {/* #580: only when a CV document exists at all — no
+                            document id means nothing to measure, so no chip. */}
+                        {cvId && pin.targets.includes("cv") && (
+                          <PinFateChip target="cv" pinId={pin.pin_id} lookup={cvPinnedFacts} t={t} />
+                        )}
                         {pin.targets.includes("letter") && (
                           <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
                             {t("pins.targetLetter")}
                           </span>
+                        )}
+                        {coverLetterId && pin.targets.includes("letter") && (
+                          <PinFateChip
+                            target="letter"
+                            pinId={pin.pin_id}
+                            lookup={letterPinnedFacts}
+                            t={t}
+                          />
                         )}
                         {pin.stale && (
                           <span
@@ -526,11 +699,16 @@ export function PinnedFactsPanel({
                       {t("pins.dialogChooseTargets")}
                     </p>
                     <div className="flex gap-4">
-                      <label className="flex items-center gap-1.5 text-sm text-on-surface">
+                      <label
+                        className={`flex items-center gap-1.5 text-sm text-on-surface ${
+                          cvTargetAllowed ? "" : "opacity-50"
+                        }`}
+                      >
                         <input
                           type="checkbox"
                           data-testid="pin-target-cv"
-                          checked={targets.cv}
+                          checked={cvTargetAllowed && targets.cv}
+                          disabled={!cvTargetAllowed}
                           onChange={(e) =>
                             setTargets((prev) => ({ ...prev, cv: e.target.checked }))
                           }
@@ -549,6 +727,17 @@ export function PinnedFactsPanel({
                         {t("pins.targetLetter")}
                       </label>
                     </div>
+                    {/* #580: the CV renders neither `volunteer` nor
+                        `publication` entries — the picker gate mirrors the
+                        backend's 422 client-side, before the user ever hits it. */}
+                    {!cvTargetAllowed && (
+                      <p
+                        data-testid="pin-target-cv-unavailable-hint"
+                        className="mt-1.5 text-xs text-on-surface-variant"
+                      >
+                        {t("pins.dialogCvTargetUnavailable")}
+                      </p>
+                    )}
                   </div>
 
                   {submitError && (
@@ -578,11 +767,7 @@ export function PinnedFactsPanel({
                     type="button"
                     data-testid="pin-dialog-confirm"
                     onClick={() => void confirmPin()}
-                    disabled={
-                      submitting ||
-                      !selectedQuote ||
-                      (!targets.cv && !targets.letter)
-                    }
+                    disabled={submitting || !selectedQuote || !hasAnyTarget}
                     className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
                   >
                     {submitting ? t("pins.dialogBusy") : t("pins.dialogConfirm")}

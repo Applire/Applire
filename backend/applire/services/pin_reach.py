@@ -41,14 +41,22 @@ ship-and-report (clause 5), never a gate.
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Iterable
 
 from applire.schemas.application import FactPin
 from applire.schemas.cover_letter import LetterData
 from applire.schemas.cv import TailoredCVData
 from applire.schemas.profile import MasterProfileData
-from applire.services.fact_pins import _find_entry
+from applire.services.fact_pins import CV_UNRENDERABLE_PIN_TYPES, _find_entry
+from applire.services.signal_disposition import (
+    ExhaustionDisposition,
+    register_signal_disposition,
+)
 from applire.services.scope_requirements import _norm_quote
+
+logger = logging.getLogger(__name__)
 
 #: Pin types whose quotes live in role/project bullet lists — the only types
 #: that may partition bullets out of the removable set (clause 4).
@@ -119,20 +127,43 @@ def _entry_label(pin: FactPin, profile: MasterProfileData) -> str:
     return pin.entry_type
 
 
+# #580 (ADR-077 amended 2026-08-26): the CORRECTOR's variant, folded into the CV
+# review loop's `source`. The real-provider replay of 2026-08-26 showed the corrector
+# obeying the WRITER header ("reproduce WORD-FOR-WORD") over the reviewer's feedback
+# ("do not insert the conflicted pin") — re-inserting a ledger-conflicted quote the
+# next round's check 6(b) would strike again. The corrector's block is a reference:
+# insert only what the feedback names, never what it marks conflicted/overridden.
+_BLOCK_HEADER_CV_CORRECTOR = (
+    "PINNED FACTS (reference for corrections):\n"
+    "The candidate pinned these vault quotes. Insert a quote — word-for-word, as its "
+    "own bullet in its entry (a skill pin verbatim into `skills`) — ONLY when the REVIEW "
+    "FEEDBACK names it as missing. Keep every pinned quote already in the draft intact. "
+    "Never insert a quote the feedback marks as conflicted or overridden by a truth "
+    "finding, and never insert one the feedback does not name."
+)
+
+
 def render_pinned_facts_block(
     pins: Iterable[FactPin],
     profile: MasterProfileData,
     *,
     target: str,
     language: str | None,
+    audience: str = "writer",
 ) -> str:
-    """The deterministic PINNED FACTS block — "" when nothing to say."""
+    """The deterministic PINNED FACTS block — "" when nothing to say.
+
+    ``audience="corrector"`` (CV only) renders the reference variant for the
+    review loop's ``source``; the writer keeps the REQUIRED/word-for-word header."""
     selected = active_pins(pins, target)
     if not selected:
         return ""
     lang = "de" if (language or "").startswith("de") else "en"
-    header = _BLOCK_HEADER_CV if target == "cv" else _BLOCK_HEADER_LETTER
-    lines = [header[lang]]
+    if audience == "corrector":
+        lines = [_BLOCK_HEADER_CV_CORRECTOR]
+    else:
+        header = _BLOCK_HEADER_CV if target == "cv" else _BLOCK_HEADER_LETTER
+        lines = [header[lang]]
     for pin in selected:
         lines.append(f'- "{pin.quote}" ({_entry_label(pin, profile)})')
     return "\n".join(lines)
@@ -291,3 +322,290 @@ def bullet_pin_carrier_indices(
         if isinstance(text, str)
         and any(norm in _norm_quote(text) for norm in relevant)
     }
+
+
+# ── #580 / ADR-077 amended 2026-08-26: the reviewer-side pin surface ─────────
+#
+# Per round, the CV reviewer gets a deterministic PINNED FACTS CHECK block — the
+# US213 VERIFIED COVERAGE CHECK pattern (`keyword_ledger.coverage_reviewer_prompt_fn`)
+# applied to pins. Measurement uses the ONE presence instrument above; the
+# reviewer turns a DEMAND into a blocking issue (check 7); the corrector re-reads
+# the verbatim quote from the PINNED FACTS block folded into the loop's `source`.
+#
+# Three structural guards, each from the refuter pass that preceded the amendment:
+#   * DEMAND is limited to the pin types the writer AUTHORS in the prose shape —
+#     a demand the corrector cannot satisfy is a control that fires falsely,
+#     every round, for the life of the pin;
+#   * every pin is demanded at most ONCE per `review_and_refine` invocation —
+#     the deterministic layer has no memory of verdicts, so a bound replaces
+#     memory: a demand a truth check overrides cannot re-enter, and pins can
+#     never supply more than one corrector round each (the #525 exhaustion shape);
+#   * a quote that carries a Keyword-Ledger DO-NOT-CLAIM term as a whole token is
+#     a LEDGER CONFLICT and is never demanded — truth outranks the pin, and a
+#     demand must not contradict check 6(b) inside one round. That is a string
+#     FACT about the quote (ADR-062 clause 1), never a claim about why the pin
+#     is absent; the report carries it as `ledger_conflict`.
+
+PINNED_FACT_SIGNAL_ID = "pinned_fact"
+
+#: Pin types the WRITER authors in the prose shape — the only ones a corrector
+#: round can satisfy. Certifications/education/languages are joined verbatim by
+#: code after the writer; publications and volunteering have no CV section
+#: (`CV_UNRENDERABLE_PIN_TYPES`, refused at pin time); projects are excluded
+#: because `_nest_projects` dedups by name and a corrector stub could suppress
+#: the vault project. Everything else stays measurement-and-report (clause 3).
+DEMANDABLE_PIN_TYPES = frozenset({"work", "skill", "signature_story"})
+
+
+def ensure_pinned_fact_signal_registered() -> None:
+    """ADR-076 clause 2 — the signal's exhaustion disposition, declared at the
+    migration site. Idempotent (re-registration overwrites the same record), so
+    the CV loops call it right before passing ``signal_ids`` and a registry
+    reset in a test process cannot turn the declaration into an
+    ``UndeclaredSignalDispositionError`` at settle time."""
+    register_signal_disposition(
+        PINNED_FACT_SIGNAL_ID,
+        ExhaustionDisposition.SHIP_AND_REPORT,
+        rationale=(
+            "ADR-077 clause 3 / amendment 2026-08-26 (#580): an unmet pin never "
+            "blocks delivery — it ships with a machine-readable report entry "
+            "(`ATSReport.pinned_facts`) on every door. No fallback writer: clause 3 "
+            "refused to build a deterministic inserter and the amendment keeps "
+            "that; presence stays compliance-contingent, bounded to one demand "
+            "per pin per loop."
+        ),
+    )
+
+
+ensure_pinned_fact_signal_registered()
+
+
+def pin_ledger_conflicts(quote: str, keyword_ledger) -> list[str]:
+    """DO-NOT-CLAIM concepts whose concept or surface form the quote carries as a
+    whole token — `review_compliance.term_present` (token-boundary, clause-4
+    normalisation), deliberately NOT `ats_audit.surface_present` (a substring
+    match: 'REST' inside 'restructuring', 'agile' inside 'fragile').
+
+    A fact about the quote, in ledger order, de-duplicated; ``[]`` without a
+    ledger or without forbidden entries. Whether the quote *claims* the concept
+    is the reviewer's judgement (check 6(b)) and is never computed here.
+
+    Hyphens INSIDE THE QUOTE are folded to spaces before matching (the same dash
+    class `_norm_quote` folds) — the adversarial pass of 2026-08-26 showed
+    "Kubernetes-based rollout" / "microservices-oriented" reading as no
+    conflict, because `term_present` keeps a hyphenated compound as one word
+    (right for a compliance demand: `Instandhaltungs-Sicherheit` must not
+    satisfy a bare `Sicherheit`). For THIS fact the directions are asymmetric:
+    a missed conflict lets the block DEMAND a pin that check 6(b) will strike
+    (the loop fights itself), a spurious conflict only withholds one demand and
+    names the term on the report — so the fold errs toward "conflict". The
+    term's own hyphens keep `term_present`'s rule (`back-end` ↔ `back end`)."""
+    if not quote or not keyword_ledger:
+        return []
+    from applire.services.keyword_ledger import split_ledger_for_prompt
+    from applire.services.review_compliance import term_present
+
+    quote_folded = re.sub(r"[-\u2010-\u2015\u2212]", " ", quote)
+
+    _, forbidden = split_ledger_for_prompt(keyword_ledger)
+    if not forbidden:
+        return []
+    forms_by_concept: dict[str, list[str]] = {}
+    for entry in keyword_ledger:
+        concept = entry.get("concept") if isinstance(entry, dict) else None
+        if concept:
+            forms_by_concept.setdefault(concept, []).extend(
+                f for f in (entry.get("surface_forms") or []) if f
+            )
+    out: list[str] = []
+    for concept in forbidden:
+        if concept in out:
+            continue
+        if any(term_present(f, quote_folded) for f in [concept, *forms_by_concept.get(concept, [])]):
+            out.append(concept)
+    return out
+
+
+def measure_pins_in_draft(
+    pins: Iterable[FactPin],
+    draft: dict,
+    profile_json: dict,
+    *,
+    composed: bool = False,
+) -> dict[str, bool] | None:
+    """Presence per active CV pin against ONE draft, with the one instrument.
+
+    ``composed=False``: the loop's prose draft (``summary``/``work``/``skills``)
+    is assembled through ``assemble_tailored_cv`` first — the same join the
+    attribution round measures on (lazy import: ``services/cv.py`` imports this
+    module). ``composed=True``: the terminal subject is already
+    ``TailoredCVData``-shaped. Fail-safe: any assembly/validation failure → ``None``
+    (unmeasured — never a demand, never a crash; the report floor still sees the
+    delivered document)."""
+    try:
+        if composed:
+            tailored = TailoredCVData.model_validate(draft)
+        else:
+            from applire.services.cv import assemble_tailored_cv  # lazy — cv.py imports us
+
+            tailored = TailoredCVData.model_validate(assemble_tailored_cv(draft, profile_json))
+    except Exception:
+        logger.warning(
+            "fact pins: the round's draft is not measurable — no demand this round "
+            "(fail-safe; the report floor measures the delivered document)",
+            exc_info=True,
+        )
+        return None
+    return {p.pin_id: pin_present_in_cv(p, tailored) for p in active_pins(pins, "cv")}
+
+
+def render_pinned_facts_check_block(
+    *,
+    demand: list[tuple[FactPin, str]],
+    conflicted: list[tuple[FactPin, str, list[str]]],
+    present: list[tuple[FactPin, str]] = (),
+    already_demanded: list[tuple[FactPin, str]] = (),
+    report_only: list[tuple[FactPin, str]] = (),
+) -> str:
+    """The reviewer's deterministic block — ``""`` when there is nothing to say.
+
+    A COMPLETE statement, not a prohibition: the real-provider replay of
+    2026-08-26 had the reviewer re-derive "pinned skill missing" for a pin the
+    scan had found present, because the block only listed the absent ones. Every
+    active CV pin is now accounted for — present, demanded, already demanded
+    this loop, report-only (a type the corrector cannot author), or in ledger
+    conflict — so check 7 has its answer and nothing to re-derive
+    (feedback_prohibition_is_not_an_answer).
+
+    English only: reviewer prompts are English; the WRITER block is bilingual
+    because the output language governs it, the reviewer's input does not."""
+    if not (demand or conflicted or present or already_demanded or report_only):
+        return ""
+    lines = [
+        "PINNED FACTS CHECK (deterministic word-for-word scan — this is ground truth, do "
+        "not re-derive it, and raise check 7 ONLY for the DEMAND entries below). Status "
+        "of every pinned vault quote for this CV against the current draft:"
+    ]
+    if present:
+        lines.append("PRESENT — verified word-for-word in the draft; no action, never an issue:")
+        for pin, label in present:
+            lines.append(f'  - entry id {pin.entry_id} ({label}): "{pin.quote}"')
+    if demand:
+        lines.append(
+            "DEMAND — check 7, blocking: name the entry id and the quote's first words in "
+            "your feedback; the corrector inserts the quote verbatim from the PINNED FACTS "
+            "block in its source."
+        )
+        for pin, label in demand:
+            lines.append(f'  - entry id {pin.entry_id} ({label}): "{pin.quote}"')
+    if already_demanded:
+        lines.append(
+            "ALREADY DEMANDED this loop and still absent — a pin is demanded at most once; "
+            "do NOT demand it again (it is reported as unmet):"
+        )
+        for pin, label in already_demanded:
+            lines.append(f'  - entry id {pin.entry_id} ({label}): "{pin.quote}"')
+    if report_only:
+        lines.append(
+            "REPORT ONLY — absent, but this entry type is joined by code after the writer "
+            "or has no CV section; the corrector cannot author it: do NOT demand it:"
+        )
+        for pin, label in report_only:
+            lines.append(f'  - entry id {pin.entry_id} ({label}): "{pin.quote}"')
+    if conflicted:
+        lines.append(
+            "LEDGER CONFLICT — the quote carries a DO-NOT-CLAIM term of the Keyword Ledger; "
+            "truth outranks the pin: do NOT demand it (it is reported as unmet, naming the term):"
+        )
+        for pin, label, terms in conflicted:
+            lines.append(
+                f'  - entry id {pin.entry_id} ({label}): "{pin.quote}" — term(s): {", ".join(terms)}'
+            )
+    return "\n".join(lines)
+
+
+def pinned_facts_reviewer_prompt_fn(
+    base_fn,
+    pins: Iterable[FactPin],
+    profile_json: dict,
+    keyword_ledger,
+    *,
+    composed: bool = False,
+):
+    """Wrap a ``reviewer_prompt_fn(source, draft)`` so every round sees the CURRENT
+    draft's pin state (the ``coverage_reviewer_prompt_fn`` shape, #122).
+
+    One wrapper = one ``review_and_refine`` invocation = one demand bound: the
+    prose loop and the terminal loop build their own (at most two demands per pin
+    per generation). ``pins`` may carry any target/staleness — only active CV
+    pins are measured."""
+    selected = active_pins(pins, "cv")
+    demanded: set[str] = set()
+    try:
+        profile = MasterProfileData.model_validate(profile_json)
+    except Exception:  # a slim/legacy profile: labels degrade to the entry type
+        profile = None
+    conflicts = {p.pin_id: pin_ledger_conflicts(p.quote, keyword_ledger) for p in selected}
+
+    def _label(pin: FactPin) -> str:
+        return _entry_label(pin, profile) if profile is not None else pin.entry_type
+
+    def fn(source: str, draft: dict) -> str:
+        prompt = base_fn(source, draft)
+        if not selected:
+            return prompt
+        presence = measure_pins_in_draft(selected, draft, profile_json, composed=composed)
+        if presence is None:
+            return prompt
+        demand: list[tuple[FactPin, str]] = []
+        conflicted: list[tuple[FactPin, str, list[str]]] = []
+        present: list[tuple[FactPin, str]] = []
+        already: list[tuple[FactPin, str]] = []
+        report_only: list[tuple[FactPin, str]] = []
+        for pin in selected:
+            if presence.get(pin.pin_id, True):
+                present.append((pin, _label(pin)))
+                continue
+            if pin.entry_type not in DEMANDABLE_PIN_TYPES:
+                report_only.append((pin, _label(pin)))  # the corrector cannot author it
+                continue
+            terms = conflicts.get(pin.pin_id) or []
+            if terms:
+                conflicted.append((pin, _label(pin), terms))
+                continue
+            if pin.pin_id in demanded:
+                already.append((pin, _label(pin)))  # the bound: one demand per pin per loop
+                continue
+            demanded.add(pin.pin_id)
+            demand.append((pin, _label(pin)))
+        block = render_pinned_facts_check_block(
+            demand=demand, conflicted=conflicted, present=present,
+            already_demanded=already, report_only=report_only,
+        )
+        if not block:
+            return prompt
+        logger.info(
+            "PINNED FACTS CHECK: %d demand(s), %d ledger conflict(s) this round: %s",
+            len(demand),
+            len(conflicted),
+            [p.pin_id for p, _ in demand] + [p.pin_id for p, _, _ in conflicted],
+        )
+        return f"{prompt}\n\n{block}"
+
+    return fn
+
+
+def pinned_skill_quote_norms(pins: Iterable[FactPin]) -> frozenset[str]:
+    """Normalised quotes of the active CV skill pins — the immunity set for the
+    skills-list passes (`_dedup_skills`, `_drop_ungrounded_jd_echo_skills`,
+    ADR-077 amended 2026-08-26 / clause 4 correction)."""
+    return frozenset(
+        _norm_quote(p.quote) for p in active_pins(pins, "cv") if p.entry_type == "skill"
+    )
+
+
+def skill_tag_is_pinned(tag: str, pinned_norms: frozenset[str]) -> bool:
+    """Is this rendered skill tag one of the pinned quotes (same fold as presence)?"""
+    if not pinned_norms or not isinstance(tag, str):
+        return False
+    return _norm_quote(tag) in pinned_norms

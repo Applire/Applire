@@ -2318,7 +2318,8 @@ class TestPerEntryGroundingAndRoleOwnership:
         p = self._reviewer()
         numbers = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. [A-Z]", p, re.M)]
         assert numbers == list(range(1, len(numbers) + 1))
-        assert len(numbers) == 6
+        # 7 since #580 (ADR-077 amended 2026-08-26): check 7 PINNED FACT NOT DELIVERED.
+        assert len(numbers) == 7
 
     def test_the_check_states_the_profile_shape_facts(self):
         """Run 17's reviewer misread the MES *project* id as a foreign

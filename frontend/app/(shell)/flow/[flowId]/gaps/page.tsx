@@ -68,6 +68,9 @@ interface FlowState {
   application_id?: string | null;
   /** Flow creation time — scopes the merge pointer to THIS run's imports. */
   created_at?: string | null;
+  /** #580: feeds PinnedFactsPanel's per-document fate markers. */
+  cv_summary?: { cv_id: string } | null;
+  cover_letter_summary?: { cover_letter_id: string } | null;
 }
 
 interface ProfileStats {
@@ -953,6 +956,8 @@ export default function GapsPage({
                 <PinnedFactsPanel
                   applicationId={flowState.application_id}
                   apiBase={API_BASE}
+                  cvId={flowState.cv_summary?.cv_id ?? null}
+                  coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
                 />
               )}
             </>

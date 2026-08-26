@@ -192,6 +192,7 @@
     "docLanguageSaveError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
     "pins": {
       "title": "Angeheftete Fakten ({count}/{max})",
+      "subtitle": "Aus Deinem Vault — unverändert. Pins schlagen das Längen-Budget, nie die Wahrheitsprüfung.",
       "addButton": "Fakt anheften",
       "capReachedTitle": "Maximum von {max} angehefteten Fakten erreicht",
       "empty": "Noch keine Fakten angeheftet.",
@@ -216,6 +217,7 @@
       "dialogChooseEntry": "Eintrag auswählen",
       "dialogChooseQuote": "Zitat auswählen",
       "dialogChooseTargets": "Gilt für",
+      "dialogCvTargetUnavailable": "Der Lebenslauf hat keinen Abschnitt für diesen Eintragstyp — nur fürs Anschreiben anheften.",
       "dialogBack": "Zurück",
       "dialogLoading": "Dein Profil wird geladen…",
       "dialogLoadError": "Dein Profil konnte nicht geladen werden.",
@@ -224,7 +226,16 @@
       "dialogConfirm": "Fakt anheften",
       "dialogBusy": "Wird angeheftet…",
       "pinError": "Anheften fehlgeschlagen:",
-      "pinErrorGeneric": "Anheften fehlgeschlagen. Bitte erneut versuchen."
+      "pinErrorGeneric": "Anheften fehlgeschlagen. Bitte erneut versuchen.",
+      "fate": {
+        "cvPresent": "im Lebenslauf",
+        "cvUnmet": "nicht im Lebenslauf",
+        "letterPresent": "im Anschreiben",
+        "letterUnmet": "nicht im Anschreiben",
+        "removedByTruthFloor": "durch Wahrheitsprüfung entfernt",
+        "notMeasured": "noch nicht gemessen",
+        "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
+      }
     }
   },
   "interview": {
@@ -1189,7 +1200,8 @@
       "unmet": "nicht im Dokument",
       "stale": "Veraltet",
       "removedByTruthFloor": "durch Wahrheits-Prüfung entfernt",
-      "driverLine": "Länge u. a. durch {count, plural, one {einen angehefteten Fakt} other {# angeheftete Fakten}} bedingt"
+      "driverLine": "Länge u. a. durch {count, plural, one {einen angehefteten Fakt} other {# angeheftete Fakten}} bedingt",
+      "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
     }
   },
   "truthfulness": {
