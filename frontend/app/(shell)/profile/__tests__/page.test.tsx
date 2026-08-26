@@ -67,6 +67,22 @@ const PROFILE = {
     education: [],
     languages: [],
     certifications: [],
+    // US292 — the last three list sections and their internal plumbing.
+    projects: [
+      {
+        id: "proj-1",
+        name: "CI/CD Migration",
+        role: "Lead Developer",
+        start_date: "2022-01",
+        end_date: "2022-06",
+        achievements: ["Reduced average build time by 78%"],
+        expected_fields: ["team_size"],
+      },
+    ],
+    publications: [{ id: "pub-1", title: "Zero-downtime schema migrations", type: "publication" }],
+    volunteer_activities: [
+      { id: "vol-1", organization: "Hackerspace München", role: "Mentor", cause: "Education" },
+    ],
   },
   completeness: 0.99,
   merge_conflicts: [],
@@ -139,6 +155,39 @@ describe("ProfilePage", () => {
   });
 
   // F5 (#73): the health panel must refetch after a resolve, not stay stale.
+  // E055 / US292 (JF-F-H3.3): the whole-section JSON textarea is retired —
+  // every editable section offers a structured editor and the three sections
+  // that never had a card (projects, publications, volunteering) render as
+  // readable cards with their internal plumbing hidden.
+  it("offers a structured editor for every editable section and no JSON textarea", async () => {
+    render(withIntl(<ProfilePage />, "en"));
+
+    // Editor rows join name and role into one text node ("CI/CD Migration · Lead Developer").
+    await waitFor(() =>
+      expect(screen.getAllByText(/CI\/CD Migration/).length).toBeGreaterThan(0),
+    );
+    expect(screen.getAllByText(/Zero-downtime schema migrations/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Hackerspace München/).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/expected_fields|proj-1|pub-1|vol-1/);
+
+    for (const testId of [
+      "summary-edit",
+      "personal-info-edit",
+      "work-experience-add",
+      "certifications-add",
+      "projects-add",
+      "publications-add",
+      "volunteer-add",
+    ]) {
+      expect(screen.getByTestId(testId)).toBeInTheDocument();
+    }
+    // The retired path: no whole-section textarea inside any section card (the
+    // #258 testimony intake keeps its own textarea outside the cards), and no
+    // section-level "Edit" button that would serialise a section to JSON.
+    expect(document.querySelector('[id^="section-"] textarea')).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Edit$/ })).not.toBeInTheDocument();
+  });
+
   it("refetches profile health after the review drawer closes", async () => {
     const fetchMock = mockFetch();
     global.fetch = fetchMock as unknown as typeof fetch;

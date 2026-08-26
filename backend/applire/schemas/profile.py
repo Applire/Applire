@@ -806,6 +806,19 @@ class MasterProfileData(BaseModel):
     # model_validate() → model_dump() round-trip (#505).
     meta: ProfileMetaBlock | None = Field(default=None, alias="_meta")
 
+    @field_validator("professional_summary", mode="before")
+    @classmethod
+    def _legacy_string_summary(cls, v: object) -> object:
+        """A pre-#178 row holds the summary as a plain string; it crashed the
+        read model (GET 500, and the 409 stale-recovery path with it —
+        adversarial finding 2026-08-26). Load it into the DE slot: DACH-first
+        product, German-first era; the summary editor shows both slots, so a
+        mis-slotted legacy text is one move away, never lost."""
+        if isinstance(v, str):
+            text = v.strip()
+            return {"de": text or None, "en": None}
+        return v
+
     @model_serializer(mode="wrap")
     def _serialize_meta_under_its_json_key(self, handler: Any) -> Any:
         """Emit `meta` as `_meta`, and only when the profile actually has one.
@@ -963,8 +976,10 @@ class MasterProfileData(BaseModel):
 #   (ADR-063 amended 2026-08-09 clause 1).
 # * `_meta` — the candidate's N/A suppressions (#505); written by its own
 #   writer, and `SetProfileMeta` (PR 7) is the op that will reach it.
-# * `projects` — never had a manual editor; unchanged here, deliberately (this
-#   PR preserves today's set exactly rather than widening it in passing).
+# * `projects` — WAS excluded here ("never had a manual editor; unchanged,
+#   deliberately") as #480 PR 3 scope discipline, not as a design reason;
+#   ADR-063 amended 2026-08-25 (E055/US292) widens the set by that one list
+#   section — natural key + persisted id were already declared.
 VAULT_SECTIONS: frozenset[str] = frozenset(
     {
         "personal_info",
@@ -976,6 +991,8 @@ VAULT_SECTIONS: frozenset[str] = frozenset(
         "languages",
         "publications",
         "volunteer_activities",
+        # ADR-063 amended 2026-08-25 (E055/US292) — first manual editor
+        "projects",
         # ADR-055 — stories are list-shaped (replace semantics like other lists)
         "signature_stories",
     }

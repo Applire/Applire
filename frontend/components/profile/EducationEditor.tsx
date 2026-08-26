@@ -45,6 +45,15 @@ interface DialogState {
   draft: EducationEntry;
 }
 
+interface PendingRemove {
+  /** Fallback identity for legacy id-less entries only — see F1. */
+  index: number;
+  /** Non-empty entry id when available; the removal is keyed on THIS, not the index. */
+  id: string | null;
+  /** Raw entry label, or null when nothing nameable was on the entry (H2 F1c). */
+  label: string | null;
+}
+
 interface EducationEditorProps {
   entries: EducationEntry[];
   apiBase: string;
@@ -67,7 +76,8 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [staleNotice, setStaleNotice] = useState(false);
   const [mismatchNotice, setMismatchNotice] = useState(false);
-  const [pendingRemoveIndex, setPendingRemoveIndex] = useState<number | null>(null);
+  const [listStaleNotice, setListStaleNotice] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<PendingRemove | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -86,6 +96,28 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
   // Double-submit guard: `saving` is React state and lags a second click by a
   // render; a ref closes the gap (two identical PATCHes were observed).
   const inFlight = useRef(false);
+
+  // F2 — a failed save (422) leaves focus stuck outside the dialog, so the
+  // element-level onKeyDown never sees the Escape keystroke. A document-level
+  // listener closes the gap without replacing the element-level handler.
+  useEffect(() => {
+    if (!dialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDialog();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialogOpen]);
+
+  const removeDialogOpen = pendingRemove !== null;
+  useEffect(() => {
+    if (!removeDialogOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setPendingRemove(null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [removeDialogOpen]);
 
   function openAdd() {
     setValidationError(null);
@@ -168,8 +200,13 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
   }
 
   async function confirmRemove() {
-    if (pendingRemoveIndex === null) return;
-    const nextEntries = entries.filter((_, i) => i !== pendingRemoveIndex);
+    if (!pendingRemove) return;
+    // F1 — key the removal on the entry's id whenever it has one; the index
+    // is only a fallback for legacy id-less entries (see WorkExperienceEditor).
+    const nextEntries =
+      pendingRemove.id !== null
+        ? entries.filter((e) => e.id !== pendingRemove.id)
+        : entries.filter((_, i) => i !== pendingRemove.index);
     setRemoveBusy(true);
     setRemoveError(null);
     const result = await saveProfileSection<ProfileSectionsResponse>({
@@ -182,12 +219,14 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
 
     if (result.status === "ok") {
       onProfileUpdated(result.profile);
-      setPendingRemoveIndex(null);
+      setPendingRemove(null);
       return;
     }
     if (result.status === "stale") {
+      // F1 — close the confirm dialog rather than retrying on a stale index.
       onProfileUpdated(result.current);
-      setRemoveError(t("entryEditor.staleNotice"));
+      setPendingRemove(null);
+      setListStaleNotice(true);
       return;
     }
     if (result.status === "invalid") {
@@ -207,6 +246,14 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
           {t("entryEditor.mismatchNotice")}
         </div>
       )}
+      {listStaleNotice && (
+        <div
+          data-testid="education-stale-notice"
+          className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
+        >
+          {t("entryEditor.staleNotice")}
+        </div>
+      )}
 
       {entries.length === 0 ? (
         <p className="text-gray-400 italic text-sm">{t("notProvided")}</p>
@@ -217,9 +264,10 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
             const period =
               formatEntryPeriod(e.start_date, e.end_date, t("present")) ??
               (nonEmptyText(e.year) ? e.year : null);
-            const label = entryLabel(e) || t("notProvided");
+            const rawLabel = entryLabel(e);
+            const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
             return (
-              <div key={e.id ?? i} className="border-l-2 border-teal/40 pl-3">
+              <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2">
                   <p className="text-sm font-semibold text-neutral-dark">
                     {heading || e.institution || t("notProvided")}
@@ -241,7 +289,11 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                       aria-label={t("entryEditor.removeEntryAria", { label })}
                       onClick={() => {
                         setRemoveError(null);
-                        setPendingRemoveIndex(i);
+                        setPendingRemove({
+                          index: i,
+                          id: nonEmptyText(e.id) ? e.id : null,
+                          label: nonEmptyText(rawLabel) ? rawLabel : null,
+                        });
                       }}
                       className="text-xs font-medium text-critical hover:underline"
                     >
@@ -427,7 +479,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
           document.body,
         )}
 
-      {pendingRemoveIndex !== null &&
+      {pendingRemove !== null &&
         createPortal(
           <div
             role="dialog"
@@ -436,12 +488,16 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
             data-testid="education-entry-remove-dialog"
             className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
             onKeyDown={(e) => {
-              if (e.key === "Escape") setPendingRemoveIndex(null);
+              if (e.key === "Escape") setPendingRemove(null);
             }}
           >
             <div className="w-full rounded-t-2xl bg-white p-6 shadow-xl md:max-w-md md:rounded-xl">
               <h3 className="mb-2 text-base font-bold text-on-surface">{t("entryEditor.removeEntryTitle")}</h3>
-              <p className="mb-4 text-sm text-on-surface-variant">{t("entryEditor.removeEntryBody")}</p>
+              <p className="mb-4 text-sm text-on-surface-variant">
+                {pendingRemove.label
+                  ? t("entryEditor.removeEntryBodyNamed", { label: pendingRemove.label })
+                  : t("entryEditor.removeEntryBody")}
+              </p>
               {removeError && (
                 <p className="mb-3 text-sm text-critical" data-testid="education-entry-remove-error">
                   {removeError}
@@ -452,7 +508,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                   type="button"
                   data-testid="education-entry-remove-cancel"
                   disabled={removeBusy}
-                  onClick={() => setPendingRemoveIndex(null)}
+                  onClick={() => setPendingRemove(null)}
                   className="rounded-lg border border-outline-variant px-4 py-2 text-[13px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-50"
                 >
                   {tCommon("cancel")}

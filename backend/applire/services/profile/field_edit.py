@@ -90,4 +90,16 @@ def build_replace_section_op(
             f"(an explicit null clears a field)."
         )
 
+    # `photo_url` is owned by the photo endpoints (services/photo.py: upload
+    # records GDPR consent, delete removes the stored file). Through the
+    # section door a null would orphan the file and a foreign URL would end
+    # up in the CV's <img src> (rendered by headless Chromium) — refused on
+    # both doors (adversarial finding 2026-08-26; ADR-063 cl. 8(e) family:
+    # a field another writer owns is not reachable by a section replace).
+    if section == "personal_info" and isinstance(decoded, dict) and "photo_url" in decoded:
+        raise ValueError(
+            "personal_info.photo_url is managed by the photo endpoints "
+            "(POST/DELETE /api/profile/photo); omit it from a section edit."
+        )
+
     return ReplaceSection(section=section, value=decoded, basis_updated_at=basis_updated_at)

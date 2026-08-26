@@ -320,3 +320,168 @@ describe("resolveSummary — language-aware summary check (F9.2)", () => {
     expect(r.missing).toBe(false);
   });
 });
+
+// US292 — projects/publications/volunteer_activities render as readable
+// fields (mirroring the work_experience/certifications branches), never as
+// raw JSON, and never leak internal ids/expected_fields (F8).
+describe("ProfileSectionCard — projects (US292)", () => {
+  it("renders name, role, period, description, bullets and technologies as chips; hides ids", () => {
+    const projects = [
+      {
+        id: "proj-uuid-1111-2222",
+        name: "Internal Tooling Revamp",
+        role: "Tech Lead",
+        start_date: "2021-03",
+        end_date: null,
+        is_current: true,
+        description: "Rebuilt the internal deployment tooling.",
+        responsibilities: ["Own the rollout plan"],
+        achievements: ["Cut deploy time by 50%"],
+        technologies: ["Python", "Terraform"],
+        expected_fields: ["technologies"],
+      },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="projects" value={projects} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("Internal Tooling Revamp")).toBeInTheDocument();
+    expect(screen.getByText("Tech Lead")).toBeInTheDocument();
+    expect(screen.getByText(/2021-03 → present/)).toBeInTheDocument();
+    expect(screen.getByText(/Rebuilt the internal deployment tooling/)).toBeInTheDocument();
+    expect(screen.getByText(/Cut deploy time by 50%/)).toBeInTheDocument();
+    expect(screen.getByText("Python")).toBeInTheDocument();
+    expect(screen.getByText("Terraform")).toBeInTheDocument();
+    // F8 — internal plumbing never renders.
+    expect(screen.queryByText(/proj-uuid/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/expected_fields/)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/"expected_fields":/);
+  });
+
+  it("renders an empty-state, not raw JSON, when there are no named projects", () => {
+    render(withIntl(<ProfileSectionBody section="projects" value={[]} uiLanguage="en" />, "en"));
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
+describe("ProfileSectionCard — publications (US292)", () => {
+  it("renders title, venue and date, and shows a type badge only for patents", () => {
+    const publications = [
+      {
+        id: "pub-uuid-1111",
+        title: "Scalable Event Sourcing for CV Pipelines",
+        type: "publication",
+        venue: "ICSE 2023",
+        published_date: "2023-04",
+      },
+      {
+        id: "pub-uuid-2222",
+        title: "A Patent on Nothing",
+        type: "patent",
+        venue: "EPO",
+        published_date: "2022-01",
+      },
+    ];
+    render(
+      withIntl(<ProfileSectionBody section="publications" value={publications} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("Scalable Event Sourcing for CV Pipelines")).toBeInTheDocument();
+    expect(screen.getByText(/ICSE 2023/)).toBeInTheDocument();
+    expect(screen.getByText("A Patent on Nothing")).toBeInTheDocument();
+    expect(screen.getByText("Patent")).toBeInTheDocument();
+    // F8 — internal plumbing never renders.
+    expect(screen.queryByText(/pub-uuid/)).not.toBeInTheDocument();
+  });
+
+  it("renders an empty-state, not raw JSON, when there are no named publications", () => {
+    render(withIntl(<ProfileSectionBody section="publications" value={[]} uiLanguage="en" />, "en"));
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
+describe("ProfileSectionCard — volunteer activities (US292)", () => {
+  it("renders role @ organization, period, cause, description and bullets; hides ids", () => {
+    const volunteering = [
+      {
+        id: "vol-uuid-1111",
+        organization: "Rotes Kreuz",
+        role: "Ersthelfer",
+        cause: "Health",
+        start_date: "2019-06",
+        end_date: "2021-01",
+        is_current: false,
+        description: "Weekend first-aid shifts.",
+        responsibilities: ["Staff the first-aid tent"],
+        achievements: ["Trained 12 new volunteers"],
+        expected_fields: ["cause"],
+      },
+    ];
+    render(
+      withIntl(
+        <ProfileSectionBody section="volunteer_activities" value={volunteering} uiLanguage="en" />,
+        "en",
+      ),
+    );
+    expect(screen.getByText("Ersthelfer @ Rotes Kreuz")).toBeInTheDocument();
+    expect(screen.getByText(/2019-06 → 2021-01/)).toBeInTheDocument();
+    expect(screen.getByText("Health")).toBeInTheDocument();
+    expect(screen.getByText(/Weekend first-aid shifts/)).toBeInTheDocument();
+    expect(screen.getByText(/Trained 12 new volunteers/)).toBeInTheDocument();
+    // F8 — internal plumbing never renders.
+    expect(screen.queryByText(/vol-uuid/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/expected_fields/)).not.toBeInTheDocument();
+  });
+
+  it("renders an empty-state, not raw JSON, when there are no volunteer activities", () => {
+    render(
+      withIntl(<ProfileSectionBody section="volunteer_activities" value={[]} uiLanguage="en" />, "en"),
+    );
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
+// US292 — personal_info gained six new read-only rows (address, nationality,
+// date_of_birth, linkedin_url, xing_url, website_url); photo_url stays
+// hidden regardless (it is owned by PhotoManager, never a text row here).
+describe("ProfileSectionCard — personal_info extended contact fields (US292)", () => {
+  it("renders the new fields when present, as stored", () => {
+    const info = {
+      name: "Anna Bauer",
+      address: "Musterstraße 1, 10115 Berlin",
+      nationality: "Deutsch",
+      date_of_birth: "1990-02-01",
+      linkedin_url: "https://linkedin.com/in/annabauer",
+      xing_url: "https://xing.com/profile/AnnaBauer",
+      website_url: "https://annabauer.dev",
+    };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.getByText("Address")).toBeInTheDocument();
+    expect(screen.getByText("Musterstraße 1, 10115 Berlin")).toBeInTheDocument();
+    expect(screen.getByText("Nationality")).toBeInTheDocument();
+    expect(screen.getByText("Deutsch")).toBeInTheDocument();
+    expect(screen.getByText("Date of birth")).toBeInTheDocument();
+    expect(screen.getByText("1990-02-01")).toBeInTheDocument();
+    expect(screen.getByText("LinkedIn")).toBeInTheDocument();
+    expect(screen.getByText("https://linkedin.com/in/annabauer")).toBeInTheDocument();
+    expect(screen.getByText("XING")).toBeInTheDocument();
+    expect(screen.getByText("https://xing.com/profile/AnnaBauer")).toBeInTheDocument();
+    expect(screen.getByText("Website")).toBeInTheDocument();
+    expect(screen.getByText("https://annabauer.dev")).toBeInTheDocument();
+  });
+
+  it("never renders photo_url, even when present on the value", () => {
+    const info = { name: "Anna Bauer", photo_url: "https://cdn.example.com/photo.jpg" };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.queryByText(/photo\.jpg/)).not.toBeInTheDocument();
+  });
+
+  it("omits the new rows entirely when their fields are absent", () => {
+    const info = { name: "Anna Bauer" };
+    render(withIntl(<ProfileSectionBody section="personal_info" value={info} uiLanguage="en" />, "en"));
+    expect(screen.queryByText("Address")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nationality")).not.toBeInTheDocument();
+    expect(screen.queryByText("Date of birth")).not.toBeInTheDocument();
+    expect(screen.queryByText("LinkedIn")).not.toBeInTheDocument();
+    expect(screen.queryByText("XING")).not.toBeInTheDocument();
+    expect(screen.queryByText("Website")).not.toBeInTheDocument();
+  });
+});

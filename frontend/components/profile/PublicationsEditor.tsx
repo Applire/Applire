@@ -17,27 +17,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-// US290 — structured editor for the Master Profile's work_experience section,
-// replacing the JSON textarea. Per-entry "Bearbeiten" opens an edit dialog;
-// "Eintrag hinzufügen" opens the same dialog for a new entry. Only company,
-// role, location, dates, the tri-state current-position marker, and the
-// three bullet lists get a form control here — industry_context, team_size,
-// budget_managed, role_aliases, expected_fields and role_fact_projections
-// are preserved verbatim (spread-through) but stay editable via the existing
-// enrichment conversation, not this door (see US290 report deviation note).
+// US292 — structured editor for the Master Profile's publications section,
+// replacing the JSON textarea. `Publication` is its own BaseModel (NOT an
+// ExperienceBase subclass) — no role/location/dates-span/is_current/bullet
+// lists here, just title, type, co_authors, venue, a single published_date,
+// and the identifier fields. `published_date` is a true backend `date` field
+// (like Certification's dates): a year alone would be coerced to 1 January,
+// so a year-only value is refused exactly like CertificationsEditor does.
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import {
   cloneEntry,
-  formatEntryPeriod,
-  makeEmptyWorkEntry,
+  makeEmptyPublication,
   nonEmptyText,
+  trimStringList,
   type ProfileSectionsResponse,
-  type WorkEntry,
+  type Publication,
 } from "@/lib/profile-entries";
-import { trimStringList } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
@@ -45,7 +43,7 @@ import { BulletListField } from "./BulletListField";
 interface DialogState {
   /** null = adding a new entry; otherwise the index being edited. */
   index: number | null;
-  draft: WorkEntry;
+  draft: Publication;
 }
 
 interface PendingRemove {
@@ -57,24 +55,22 @@ interface PendingRemove {
   label: string | null;
 }
 
-interface WorkExperienceEditorProps {
-  entries: WorkEntry[];
+interface PublicationsEditorProps {
+  entries: Publication[];
   apiBase: string;
   /** `updated_at` from the last GET this edit is based on (H1.6). */
   profileUpdatedAt: string;
   onProfileUpdated: (profile: ProfileSectionsResponse) => void;
 }
 
-function entryLabel(entry: WorkEntry): string {
-  return [entry.role, entry.company].filter((s) => nonEmptyText(s)).join(" @ ");
-}
+const YEAR_ONLY = /^\d{4}$/;
 
-export function WorkExperienceEditor({
+export function PublicationsEditor({
   entries,
   apiBase,
   profileUpdatedAt,
   onProfileUpdated,
-}: WorkExperienceEditorProps) {
+}: PublicationsEditorProps) {
   const t = useTranslations("profile");
   const tCommon = useTranslations("common");
 
@@ -91,24 +87,16 @@ export function WorkExperienceEditor({
 
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
 
-  // Focus the first field when the dialog OPENS — keyed on open-state and
-  // entry index, never on the `dialog` object itself: every keystroke
-  // replaces that object, and `[dialog]` re-fired the effect on each one,
-  // stealing focus back to the first field mid-word (adversarial finding
-  // 2026-08-25, blocker).
   const dialogOpen = dialog !== null;
   const dialogIndex = dialog?.index ?? -1;
   useEffect(() => {
     if (dialogOpen) firstFieldRef.current?.focus();
   }, [dialogOpen, dialogIndex]);
-  // Double-submit guard: `saving` is React state and lags a second click by a
-  // render; a ref closes the gap (two identical PATCHes were observed).
   const inFlight = useRef(false);
 
-  // F2 — a failed save (422) leaves focus stuck on the disabled Save button's
-  // former position (often <body>), so the dialog's element-level onKeyDown
-  // never sees the Escape keystroke. A document-level listener closes the
-  // gap without replacing the element-level handler.
+  // F2 — a failed save (422) leaves focus stuck outside the dialog, so the
+  // element-level onKeyDown never sees the Escape keystroke. A document-level
+  // listener closes the gap without replacing the element-level handler.
   useEffect(() => {
     if (!dialogOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -132,7 +120,7 @@ export function WorkExperienceEditor({
     setValidationError(null);
     setDialogError(null);
     setStaleNotice(false);
-    setDialog({ index: null, draft: makeEmptyWorkEntry() });
+    setDialog({ index: null, draft: makeEmptyPublication() });
   }
 
   function openEdit(index: number) {
@@ -149,7 +137,7 @@ export function WorkExperienceEditor({
     setStaleNotice(false);
   }
 
-  function updateDraft(patch: Partial<WorkEntry>) {
+  function updateDraft(patch: Partial<Publication>) {
     setDialog((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
   }
 
@@ -157,15 +145,28 @@ export function WorkExperienceEditor({
     if (!dialog) return;
     if (inFlight.current) return;
     const { index } = dialog;
-    const draft = { ...dialog.draft, responsibilities: trimStringList(dialog.draft.responsibilities), achievements: trimStringList(dialog.draft.achievements), technologies: trimStringList(dialog.draft.technologies) };
-    const company = (draft.company ?? "").trim();
-    const role = (draft.role ?? "").trim();
-    if (!company || !role) {
+    const title = (dialog.draft.title ?? "").trim();
+    // A year alone is coerced to 1 January by the backend `date` field — a
+    // fabricated day nobody chose, exactly like CertificationsEditor's guard.
+    if (YEAR_ONLY.test(dialog.draft.published_date ?? "")) {
+      setValidationError(t("entryEditor.validationMonthRequired"));
+      return;
+    }
+    if (!title) {
       setValidationError(t("entryEditor.validationRequired"));
       return;
     }
+    const draft: Publication = {
+      ...dialog.draft,
+      title,
+      co_authors: trimStringList(dialog.draft.co_authors),
+      venue: nonEmptyText(dialog.draft.venue) ? dialog.draft.venue!.trim() : null,
+      doi: nonEmptyText(dialog.draft.doi) ? dialog.draft.doi!.trim() : null,
+      url: nonEmptyText(dialog.draft.url) ? dialog.draft.url!.trim() : null,
+      patent_number: nonEmptyText(dialog.draft.patent_number) ? dialog.draft.patent_number!.trim() : null,
+    };
 
-    let nextEntries: WorkEntry[];
+    let nextEntries: Publication[];
     let savedEntryId: string | undefined;
     if (index === null) {
       const { id: _unused, ...withoutId } = draft;
@@ -182,7 +183,7 @@ export function WorkExperienceEditor({
     setStaleNotice(false);
     const result = await saveProfileSection<ProfileSectionsResponse>({
       apiBase,
-      section: "work_experience",
+      section: "publications",
       entries: nextEntries,
       basisUpdatedAt: profileUpdatedAt,
       savedEntryId,
@@ -211,10 +212,7 @@ export function WorkExperienceEditor({
   async function confirmRemove() {
     if (!pendingRemove) return;
     // F1 — key the removal on the entry's id whenever it has one; the index
-    // is only a fallback for legacy id-less entries. A plain index is not a
-    // stable identity: if the list changes shape while the confirm dialog is
-    // open, an index-based filter can silently remove a DIFFERENT entry than
-    // the one the user selected.
+    // is only a fallback for legacy id-less entries (see WorkExperienceEditor).
     const nextEntries =
       pendingRemove.id !== null
         ? entries.filter((e) => e.id !== pendingRemove.id)
@@ -223,7 +221,7 @@ export function WorkExperienceEditor({
     setRemoveError(null);
     const result = await saveProfileSection<ProfileSectionsResponse>({
       apiBase,
-      section: "work_experience",
+      section: "publications",
       entries: nextEntries,
       basisUpdatedAt: profileUpdatedAt,
     });
@@ -235,10 +233,7 @@ export function WorkExperienceEditor({
       return;
     }
     if (result.status === "stale") {
-      // F1 — do NOT leave the confirm dialog open on the same (now stale)
-      // index: reload from `current` and make the user re-select
-      // deliberately, via a list-level notice, instead of a "click Delete
-      // again" that could remove whatever now sits at that position.
+      // F1 — close the confirm dialog rather than retrying on a stale index.
       onProfileUpdated(result.current);
       setPendingRemove(null);
       setListStaleNotice(true);
@@ -255,7 +250,7 @@ export function WorkExperienceEditor({
     <div>
       {mismatchNotice && (
         <div
-          data-testid="work-experience-mismatch-notice"
+          data-testid="publications-mismatch-notice"
           className="mb-3 rounded-lg border border-critical/40 bg-critical-container px-3 py-2 text-sm text-critical"
         >
           {t("entryEditor.mismatchNotice")}
@@ -263,7 +258,7 @@ export function WorkExperienceEditor({
       )}
       {listStaleNotice && (
         <div
-          data-testid="work-experience-stale-notice"
+          data-testid="publications-stale-notice"
           className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
         >
           {t("entryEditor.staleNotice")}
@@ -273,73 +268,71 @@ export function WorkExperienceEditor({
       {entries.length === 0 ? (
         <p className="text-gray-400 italic text-sm">{t("notProvided")}</p>
       ) : (
-        <div className="space-y-4">
-          {entries.map((e, i) => {
-            const role = e.role || "";
-            const period = formatEntryPeriod(e.start_date, e.end_date, t("present"), e.is_current);
-            const bullets = [...(e.achievements ?? []), ...(e.responsibilities ?? [])].filter(nonEmptyText);
-            const rawLabel = entryLabel(e);
-            const label = nonEmptyText(rawLabel) ? rawLabel : t("notProvided");
+        <ul className="space-y-2">
+          {entries.map((p, i) => {
+            const rawLabel = nonEmptyText(p.title) ? p.title : null;
+            const label = rawLabel ?? t("notProvided");
             return (
-              <div key={nonEmptyText(e.id) ? e.id : i} className="border-l-2 border-teal/40 pl-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-                  <p className="text-sm font-semibold text-neutral-dark">
-                    {role || e.company || t("notProvided")}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    {period && <span className="text-xs text-gray-500">{period}</span>}
-                    <button
-                      type="button"
-                      data-testid={`work-entry-edit-${i}`}
-                      aria-label={t("entryEditor.editEntryAria", { label })}
-                      onClick={() => openEdit(i)}
-                      className="text-xs font-medium text-primary hover:underline"
+              <li
+                key={nonEmptyText(p.id) ? p.id : i}
+                className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-lg border border-outline-variant bg-white px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-medium text-neutral-dark">{label}</span>
+                  {p.type === "patent" && (
+                    <span
+                      data-testid={`publication-type-badge-${i}`}
+                      className="inline-flex items-center rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-medium text-on-surface-variant"
                     >
-                      {t("edit")}
-                    </button>
-                    <button
-                      type="button"
-                      data-testid={`work-entry-remove-${i}`}
-                      aria-label={t("entryEditor.removeEntryAria", { label })}
-                      onClick={() => {
-                        setRemoveError(null);
-                        setPendingRemove({
-                          index: i,
-                          id: nonEmptyText(e.id) ? e.id : null,
-                          label: nonEmptyText(rawLabel) ? rawLabel : null,
-                        });
-                      }}
-                      className="text-xs font-medium text-critical hover:underline"
-                    >
-                      {tCommon("delete")}
-                    </button>
-                  </div>
+                      {t("publicationsEditor.typePatent")}
+                    </span>
+                  )}
+                  {[p.venue, p.published_date].some(nonEmptyText) && (
+                    <span className="text-xs text-gray-500">
+                      {[p.venue, p.published_date].filter(nonEmptyText).join(" · ")}
+                    </span>
+                  )}
                 </div>
-                {nonEmptyText(e.company) && role !== e.company && (
-                  <p className="text-xs text-gray-600">
-                    {[e.company, nonEmptyText(e.location) ? e.location : null].filter(Boolean).join(" · ")}
-                  </p>
-                )}
-                {bullets.length > 0 && (
-                  <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
-                    {bullets.map((b, bi) => (
-                      <li key={bi}>{b}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid={`publication-edit-${i}`}
+                    aria-label={t("entryEditor.editEntryAria", { label })}
+                    onClick={() => openEdit(i)}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    {t("edit")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`publication-remove-${i}`}
+                    aria-label={t("entryEditor.removeEntryAria", { label })}
+                    onClick={() => {
+                      setRemoveError(null);
+                      setPendingRemove({
+                        index: i,
+                        id: nonEmptyText(p.id) ? p.id : null,
+                        label: rawLabel,
+                      });
+                    }}
+                    className="text-xs font-medium text-critical hover:underline"
+                  >
+                    {tCommon("delete")}
+                  </button>
+                </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
 
       <button
         type="button"
-        data-testid="work-experience-add"
+        data-testid="publications-add"
         onClick={openAdd}
         className="mt-3 rounded-lg border border-outline-variant bg-white px-3 py-1.5 text-sm font-medium text-on-surface hover:bg-surface-container"
       >
-        {t("workEditor.addButton")}
+        {t("publicationsEditor.addButton")}
       </button>
 
       {dialog &&
@@ -348,9 +341,11 @@ export function WorkExperienceEditor({
             role="dialog"
             aria-modal="true"
             aria-label={
-              dialog.index === null ? t("workEditor.dialogTitleAdd") : t("workEditor.dialogTitleEdit")
+              dialog.index === null
+                ? t("publicationsEditor.dialogTitleAdd")
+                : t("publicationsEditor.dialogTitleEdit")
             }
-            data-testid="work-entry-dialog"
+            data-testid="publication-entry-dialog"
             className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
             onKeyDown={(e) => {
               if (e.key === "Escape") closeDialog();
@@ -359,143 +354,134 @@ export function WorkExperienceEditor({
             <div className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-white p-6 shadow-xl md:max-w-lg md:rounded-xl">
               <div aria-hidden="true" className="mx-auto mb-3 h-1 w-10 rounded-full bg-gray-300 md:hidden" />
               <h3 className="mb-4 text-base font-bold text-on-surface">
-                {dialog.index === null ? t("workEditor.dialogTitleAdd") : t("workEditor.dialogTitleEdit")}
+                {dialog.index === null
+                  ? t("publicationsEditor.dialogTitleAdd")
+                  : t("publicationsEditor.dialogTitleEdit")}
               </h3>
 
               <div className="space-y-3">
                 <div>
-                  <label htmlFor="work-company" className="mb-1 block text-xs font-medium text-on-surface-variant">
-                    {t("workEditor.fieldCompany")}
+                  <label
+                    htmlFor="publication-title"
+                    className="mb-1 block text-xs font-medium text-on-surface-variant"
+                  >
+                    {t("publicationsEditor.fieldTitle")}
                   </label>
                   <input
-                    id="work-company"
+                    id="publication-title"
                     ref={firstFieldRef}
-                    data-testid="work-field-company"
-                    value={dialog.draft.company ?? ""}
-                    onChange={(e) => updateDraft({ company: e.target.value })}
+                    data-testid="publication-field-title"
+                    value={dialog.draft.title ?? ""}
+                    onChange={(e) => updateDraft({ title: e.target.value })}
                     className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
                   />
                 </div>
                 <div>
-                  <label htmlFor="work-role" className="mb-1 block text-xs font-medium text-on-surface-variant">
-                    {t("workEditor.fieldRole")}
+                  <label
+                    htmlFor="publication-type"
+                    className="mb-1 block text-xs font-medium text-on-surface-variant"
+                  >
+                    {t("publicationsEditor.fieldType")}
+                  </label>
+                  <select
+                    id="publication-type"
+                    data-testid="publication-field-type"
+                    value={dialog.draft.type ?? "publication"}
+                    onChange={(e) => updateDraft({ type: e.target.value as Publication["type"] })}
+                    className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
+                  >
+                    <option value="publication">{t("publicationsEditor.typePublication")}</option>
+                    <option value="patent">{t("publicationsEditor.typePatent")}</option>
+                  </select>
+                </div>
+
+                <BulletListField
+                  id="publication-co-authors"
+                  label={t("publicationsEditor.fieldCoAuthors")}
+                  items={dialog.draft.co_authors ?? []}
+                  onChange={(items) => updateDraft({ co_authors: items })}
+                  addButtonLabel={t("publicationsEditor.addCoAuthor")}
+                  itemAriaLabel={(i) => t("publicationsEditor.coAuthorAria", { index: i + 1 })}
+                />
+
+                <div>
+                  <label
+                    htmlFor="publication-venue"
+                    className="mb-1 block text-xs font-medium text-on-surface-variant"
+                  >
+                    {t("publicationsEditor.fieldVenue")}
                   </label>
                   <input
-                    id="work-role"
-                    data-testid="work-field-role"
-                    value={dialog.draft.role ?? ""}
-                    onChange={(e) => updateDraft({ role: e.target.value })}
+                    id="publication-venue"
+                    data-testid="publication-field-venue"
+                    value={dialog.draft.venue ?? ""}
+                    onChange={(e) => updateDraft({ venue: e.target.value })}
                     className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
                   />
                 </div>
+
+                <PartialDateField
+                  id="publication-published-date"
+                  label={t("publicationsEditor.fieldPublishedDate")}
+                  value={dialog.draft.published_date ?? null}
+                  onChange={(v) => updateDraft({ published_date: v })}
+                />
+
                 <div>
-                  <label htmlFor="work-location" className="mb-1 block text-xs font-medium text-on-surface-variant">
-                    {t("workEditor.fieldLocation")}
+                  <label htmlFor="publication-doi" className="mb-1 block text-xs font-medium text-on-surface-variant">
+                    {t("publicationsEditor.fieldDoi")}
                   </label>
                   <input
-                    id="work-location"
-                    data-testid="work-field-location"
-                    value={dialog.draft.location ?? ""}
-                    onChange={(e) => updateDraft({ location: e.target.value || null })}
+                    id="publication-doi"
+                    data-testid="publication-field-doi"
+                    value={dialog.draft.doi ?? ""}
+                    onChange={(e) => updateDraft({ doi: e.target.value })}
                     className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <PartialDateField
-                    id="work-start-date"
-                    label={t("workEditor.fieldStartDate")}
-                    value={dialog.draft.start_date ?? null}
-                    onChange={(v) => updateDraft({ start_date: v })}
-                  />
-                  <PartialDateField
-                    id="work-end-date"
-                    label={t("workEditor.fieldEndDate")}
-                    value={dialog.draft.end_date ?? null}
-                    onChange={(v) => updateDraft({ end_date: v })}
-                    disabled={dialog.draft.is_current === true}
-                  />
-                </div>
-
                 <div>
-                  <p className="mb-1 text-xs font-medium text-on-surface-variant">
-                    {t("entryEditor.currentStatusLabel")}
-                  </p>
-                  <div role="radiogroup" aria-label={t("entryEditor.currentStatusLabel")} className="flex gap-4">
-                    <label className="flex items-center gap-1.5 text-sm text-on-surface">
-                      <input
-                        type="radio"
-                        name="work-is-current"
-                        data-testid="work-is-current-current"
-                        checked={dialog.draft.is_current === true}
-                        onChange={() => updateDraft({ is_current: true, end_date: null })}
-                      />
-                      {t("entryEditor.currentStatusCurrent")}
-                    </label>
-                    <label className="flex items-center gap-1.5 text-sm text-on-surface">
-                      <input
-                        type="radio"
-                        name="work-is-current"
-                        data-testid="work-is-current-ended"
-                        checked={dialog.draft.is_current === false}
-                        onChange={() => updateDraft({ is_current: false })}
-                      />
-                      {t("entryEditor.currentStatusEnded")}
-                    </label>
-                    <label className="flex items-center gap-1.5 text-sm text-on-surface">
-                      <input
-                        type="radio"
-                        name="work-is-current"
-                        data-testid="work-is-current-unknown"
-                        checked={dialog.draft.is_current === null || dialog.draft.is_current === undefined}
-                        onChange={() => updateDraft({ is_current: null })}
-                      />
-                      {t("entryEditor.currentStatusUnknown")}
-                    </label>
-                  </div>
+                  <label htmlFor="publication-url" className="mb-1 block text-xs font-medium text-on-surface-variant">
+                    {t("publicationsEditor.fieldUrl")}
+                  </label>
+                  <input
+                    id="publication-url"
+                    data-testid="publication-field-url"
+                    value={dialog.draft.url ?? ""}
+                    onChange={(e) => updateDraft({ url: e.target.value })}
+                    className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
+                  />
                 </div>
-
-                <BulletListField
-                  id="work-responsibilities"
-                  label={t("workEditor.fieldResponsibilities")}
-                  items={dialog.draft.responsibilities ?? []}
-                  onChange={(items) => updateDraft({ responsibilities: items })}
-                  addButtonLabel={t("workEditor.addResponsibility")}
-                  itemAriaLabel={(i) => t("workEditor.responsibilityAria", { index: i + 1 })}
-                />
-                <BulletListField
-                  id="work-achievements"
-                  label={t("workEditor.fieldAchievements")}
-                  items={dialog.draft.achievements ?? []}
-                  onChange={(items) => updateDraft({ achievements: items })}
-                  addButtonLabel={t("workEditor.addAchievement")}
-                  itemAriaLabel={(i) => t("workEditor.achievementAria", { index: i + 1 })}
-                />
-                <BulletListField
-                  id="work-technologies"
-                  label={t("workEditor.fieldTechnologies")}
-                  items={dialog.draft.technologies ?? []}
-                  onChange={(items) => updateDraft({ technologies: items })}
-                  addButtonLabel={t("workEditor.addTechnology")}
-                  itemAriaLabel={(i) => t("workEditor.technologyAria", { index: i + 1 })}
-                  allowReorder={false}
-                />
+                <div>
+                  <label
+                    htmlFor="publication-patent-number"
+                    className="mb-1 block text-xs font-medium text-on-surface-variant"
+                  >
+                    {t("publicationsEditor.fieldPatentNumber")}
+                  </label>
+                  <input
+                    id="publication-patent-number"
+                    data-testid="publication-field-patent-number"
+                    value={dialog.draft.patent_number ?? ""}
+                    onChange={(e) => updateDraft({ patent_number: e.target.value })}
+                    className="w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm text-on-surface"
+                  />
+                </div>
 
                 {staleNotice && (
                   <p
-                    data-testid="work-entry-stale-notice"
+                    data-testid="publication-entry-stale-notice"
                     className="mb-3 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-sm text-on-surface"
                   >
                     {t("entryEditor.staleNotice")}
                   </p>
                 )}
                 {validationError && (
-                  <p className="text-sm text-critical" data-testid="work-entry-validation-error">
+                  <p className="text-sm text-critical" data-testid="publication-entry-validation-error">
                     {validationError}
                   </p>
                 )}
                 {dialogError && (
-                  <p className="text-sm text-critical" data-testid="work-entry-dialog-error">
+                  <p className="text-sm text-critical" data-testid="publication-entry-dialog-error">
                     {dialogError}
                   </p>
                 )}
@@ -504,7 +490,7 @@ export function WorkExperienceEditor({
               <div className="mt-5 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  data-testid="work-entry-cancel"
+                  data-testid="publication-entry-cancel"
                   onClick={closeDialog}
                   disabled={saving}
                   className="rounded-lg border border-outline-variant px-4 py-2 text-[13px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-50"
@@ -513,7 +499,7 @@ export function WorkExperienceEditor({
                 </button>
                 <button
                   type="button"
-                  data-testid="work-entry-save"
+                  data-testid="publication-entry-save"
                   onClick={() => void handleSubmit()}
                   disabled={saving}
                   className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"
@@ -532,7 +518,7 @@ export function WorkExperienceEditor({
             role="dialog"
             aria-modal="true"
             aria-label={t("entryEditor.removeEntryTitle")}
-            data-testid="work-entry-remove-dialog"
+            data-testid="publication-entry-remove-dialog"
             className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4"
             onKeyDown={(e) => {
               if (e.key === "Escape") setPendingRemove(null);
@@ -546,14 +532,14 @@ export function WorkExperienceEditor({
                   : t("entryEditor.removeEntryBody")}
               </p>
               {removeError && (
-                <p className="mb-3 text-sm text-critical" data-testid="work-entry-remove-error">
+                <p className="mb-3 text-sm text-critical" data-testid="publication-entry-remove-error">
                   {removeError}
                 </p>
               )}
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  data-testid="work-entry-remove-cancel"
+                  data-testid="publication-entry-remove-cancel"
                   disabled={removeBusy}
                   onClick={() => setPendingRemove(null)}
                   className="rounded-lg border border-outline-variant px-4 py-2 text-[13px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-50"
@@ -562,7 +548,7 @@ export function WorkExperienceEditor({
                 </button>
                 <button
                   type="button"
-                  data-testid="work-entry-remove-confirm"
+                  data-testid="publication-entry-remove-confirm"
                   disabled={removeBusy}
                   onClick={() => void confirmRemove()}
                   className="rounded-lg bg-critical px-4 py-2 text-[13px] font-bold text-white hover:opacity-90 disabled:opacity-50"

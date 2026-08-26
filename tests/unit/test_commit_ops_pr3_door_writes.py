@@ -913,3 +913,209 @@ async def test_a_persisted_denied_status_is_floored_without_a_denied_concept(dur
             request_session, None, None,
         )
     assert [s["name"] for s in (await _read_back(engine, profile_id))["skills"]] == ["Python"]
+
+
+# ── US292 / ADR-063 amended 2026-08-25 — `projects` through the same door ────
+
+
+@pytest.mark.asyncio
+async def test_rest_patch_door_writes_projects_with_a_named_receipt(durable_db):
+    """JF-F-H3.2 ruling (0): the projects editor saves through the mandated
+    door, its receipt NAMES the project (not the bare section), and the id
+    the committer minted survives the next edit as an `updated` receipt."""
+    from applire.routers.profile import patch_section
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    async with factory() as request_session:
+        response = await patch_section(
+            "projects",
+            _fake_request(
+                [
+                    {
+                        "name": "CI/CD Migration",
+                        "role": "Lead",
+                        "achievements": ["Cut build time by 78%"],
+                    }
+                ]
+            ),
+            request_session,
+            None,
+            None,
+        )
+
+    assert [p.name for p in response.profile.projects] == ["CI/CD Migration"]
+    stored = await _read_back(engine, profile_id)
+    assert [p["name"] for p in stored["projects"]] == ["CI/CD Migration"]
+    added = [c for c in _latest_changes(stored) if c["section"] == "projects"]
+    assert [(c["action"], c["field"]) for c in added] == [("added", "CI/CD Migration")]
+
+    minted_id = stored["projects"][0]["id"]
+    assert minted_id
+    async with factory() as request_session:
+        await patch_section(
+            "projects",
+            _fake_request([{**stored["projects"][0], "role": "Lead Developer"}]),
+            request_session,
+            None,
+            None,
+        )
+    stored2 = await _read_back(engine, profile_id)
+    assert stored2["projects"][0]["id"] == minted_id
+    updated = [c for c in _latest_changes(stored2) if c["section"] == "projects"]
+    assert [(c["action"], c["field"]) for c in updated] == [("updated", "CI/CD Migration")]
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_profile_writes_projects_the_same_way(durable_db, monkeypatch):
+    """ADR-058 parity: the agent door accepts `projects` with identical
+    wholesale-replace semantics and the same named receipt."""
+    import applire.mcp.server as server
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    result = await server.update_profile(
+        section="projects", data=[{"name": "Oncology Pipeline", "role": "Data Lead"}]
+    )
+
+    assert [p["name"] for p in result["profile"]["projects"]] == ["Oncology Pipeline"]
+    stored = await _read_back(engine, profile_id)
+    changes = [c for c in _latest_changes(stored) if c["section"] == "projects"]
+    assert [(c["action"], c["field"]) for c in changes] == [("added", "Oncology Pipeline")]
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_profile_advertises_projects():
+    """The tool description derives its section list from `VAULT_SECTIONS`;
+    an agent reading the surface must see the widened vocabulary."""
+    from applire.mcp.server import mcp
+
+    tools = await mcp.list_tools()
+    tool = next(t for t in tools if t.name == "update_profile")
+    assert "projects" in tool.description
+
+
+# ── Adversarial pass 2026-08-26 (US292) — id hygiene, unicode keys, photo_url ──
+
+
+async def _patch(factory, section, body):
+    from applire.routers.profile import patch_section
+
+    async with factory() as request_session:
+        return await patch_section(section, _fake_request(body), request_session, None, None)
+
+
+@pytest.mark.asyncio
+async def test_blank_ids_on_new_entries_are_minted_fresh_and_distinct(durable_db):
+    """A client that sends ``id: ""`` (or whitespace) on NEW entries must not
+    persist two entries sharing the identity ``""`` — React keys collide and a
+    fact pin addressed by id becomes ambiguous (adversarial blocker)."""
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    await _patch(
+        factory,
+        "projects",
+        [{"id": "", "name": "Empty Id A"}, {"id": "   ", "name": "Empty Id B"}],
+    )
+    stored = await _read_back(engine, profile_id)
+    ids = [p["id"] for p in stored["projects"]]
+    assert all(i and i.strip() for i in ids), ids
+    assert len(set(ids)) == 2, ids
+
+
+@pytest.mark.asyncio
+async def test_a_stored_id_carried_by_two_incoming_entries_stays_with_its_natural_key(durable_db):
+    """Two incoming entries carrying the SAME stored id: the one whose natural
+    key matches the stored entry keeps it, the impostor is minted afresh."""
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    first = await _patch(factory, "projects", [{"name": "Oncology Pipeline", "role": "Lead"}])
+    stored_id = first.profile.projects[0].id
+
+    await _patch(
+        factory,
+        "projects",
+        [
+            {"id": stored_id, "name": "Impostor", "role": "x"},
+            {"id": stored_id, "name": "Oncology Pipeline", "role": "Lead"},
+        ],
+    )
+    stored = await _read_back(engine, profile_id)
+    by_name = {p["name"]: p["id"] for p in stored["projects"]}
+    assert by_name["Oncology Pipeline"] == stored_id
+    assert by_name["Impostor"] and by_name["Impostor"] != stored_id
+
+
+@pytest.mark.asyncio
+async def test_unicode_composition_forms_are_the_same_natural_key(durable_db):
+    """NFC "Café" and NFD "Café" are the same name — an id-less re-send in
+    the other composition form must UPDATE the stored entry, not duplicate it
+    (adversarial major; the U+2019 lesson of reference_unicode_normalize)."""
+    import unicodedata
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    nfc = unicodedata.normalize("NFC", "Café Projekt")
+    nfd = unicodedata.normalize("NFD", "Café Projekt")
+    assert nfc != nfd
+    first = await _patch(factory, "projects", [{"name": nfc, "role": "orig"}])
+    stored_id = first.profile.projects[0].id
+
+    await _patch(factory, "projects", [{"name": nfd, "role": "edited"}])
+    stored = await _read_back(engine, profile_id)
+    assert len(stored["projects"]) == 1, [p["name"] for p in stored["projects"]]
+    assert stored["projects"][0]["id"] == stored_id
+    assert stored["projects"][0]["role"] == "edited"
+    changes = [c for c in _latest_changes(stored) if c["section"] == "projects"]
+    assert [c["action"] for c in changes] == ["updated"], changes
+
+
+@pytest.mark.asyncio
+async def test_personal_info_section_edit_cannot_touch_photo_url(durable_db):
+    """``photo_url`` is owned by the photo endpoints (upload with consent,
+    delete with file removal — services/photo.py). Through the section door it
+    would orphan the stored file or point the CV's <img> at a foreign URL, so
+    both doors refuse it (adversarial major)."""
+    from fastapi import HTTPException
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    with pytest.raises(HTTPException) as exc:
+        await _patch(factory, "personal_info", {"photo_url": None})
+    assert exc.value.status_code == 422
+    assert "photo_url" in str(exc.value.detail)
+
+    with pytest.raises(HTTPException) as exc2:
+        await _patch(factory, "personal_info", {"phone": "+49 1", "photo_url": "https://x/y.jpg"})
+    assert exc2.value.status_code == 422
+    stored = await _read_back(engine, profile_id)
+    assert not stored["metadata"].get("enrichment_history"), "nothing may have landed"
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_plain_string_summary_loads_instead_of_crashing_the_read_model(durable_db):
+    """Pre-#178 rows held ``professional_summary`` as a plain string. Loading
+    one 500-ed GET /api/profile AND the 409 stale-recovery path (adversarial
+    blocker). It now loads into the DE slot (DACH-first product; the pre-object
+    era was German-first) — the summary editor shows both slots, so a
+    mis-slotted legacy text is one move away, never lost."""
+    from applire.services.profile import get_profile
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = "Erfahrene Entwicklerin."
+    await _seed_profile(factory, seed)
+
+    async with factory() as session:
+        response = await get_profile(session)
+    assert response.profile.professional_summary.de == "Erfahrene Entwicklerin."
+    assert response.profile.professional_summary.en is None
