@@ -16,7 +16,11 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, expect, it, vi } from "vitest";
-import { saveProfileSection, type ProfileSectionsResponseLike } from "../sectionSave";
+import {
+  saveProfileSection,
+  saveProfileObjectSection,
+  type ProfileSectionsResponseLike,
+} from "../sectionSave";
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -189,6 +193,122 @@ describe("saveProfileSection", () => {
       apiBase: "http://api",
       section: "work_experience",
       entries: [],
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("error");
+  });
+});
+
+// US292/#178 — the object-section (merge-patch) driver behind SummaryEditor
+// and PersonalInfoEditor.
+describe("saveProfileObjectSection", () => {
+  it("PATCHes with only the supplied keys as the body, url-encoding basis_updated_at", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: { email: "anna@example.com" } } }),
+    );
+    await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { email: "anna@example.com" },
+      basisUpdatedAt: "2026-08-25T09:00:00+00:00",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe(
+      "http://api/api/profile/personal_info?basis_updated_at=2026-08-25T09%3A00%3A00%2B00%3A00",
+    );
+    expect((init as RequestInit).method).toBe("PATCH");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ email: "anna@example.com" });
+  });
+
+  it("returns ok + mismatch:false when every patched key round-trips", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        updated_at: "t2",
+        profile: { personal_info: { name: "Anna Bauer", email: "anna@example.com" } },
+      }),
+    );
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { email: "anna@example.com" },
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.mismatch).toBe(false);
+  });
+
+  // H0.4 — a cleared field legitimately comes back `null`, not absent;
+  // undefined (key omitted from the response section) must count as equal.
+  it("treats a returned undefined as equal to a sent null (cleared field)", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: { name: "Anna Bauer" } } }),
+    );
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { phone: null },
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.mismatch).toBe(false);
+  });
+
+  it("flags mismatch:true when a supplied key does not round-trip", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { updated_at: "t2", profile: { personal_info: { email: "old@example.com" } } }),
+    );
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { email: "new@example.com" },
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.mismatch).toBe(true);
+  });
+
+  it("classifies a 409 as stale and surfaces `current` for reload", async () => {
+    const current = { updated_at: "t3", profile: { personal_info: {} } };
+    const fetchImpl = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { name: "Anna Bauer" },
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("stale");
+    if (result.status === "stale") expect(result.current).toEqual(current);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies a 422 with the string detail message", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(422, { detail: "date_of_birth is invalid" }));
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { date_of_birth: "not-a-date" },
+      basisUpdatedAt: "t1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.status).toBe("invalid");
+    if (result.status === "invalid") expect(result.message).toBe("date_of_birth is invalid");
+  });
+
+  it("classifies a network failure as a generic error", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    const result = await saveProfileObjectSection({
+      apiBase: "http://api",
+      section: "personal_info",
+      patch: { name: "Anna Bauer" },
       basisUpdatedAt: "t1",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
