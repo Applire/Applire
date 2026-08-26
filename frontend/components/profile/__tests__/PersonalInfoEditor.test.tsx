@@ -62,7 +62,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("sends only the changed keys", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -83,7 +83,7 @@ describe("PersonalInfoEditor", () => {
   // never present in a patch even if it is present on the incoming value.
   it("never renders or sends photo_url, even when present on the value", async () => {
     const withPhoto = { ...FULL_INFO, photo_url: "https://cdn.example.com/photo.jpg" } as PersonalInfo;
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: withPhoto } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -100,7 +100,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("normalises a blanked-out field to null, not an empty string", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -129,7 +129,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("accepts date_of_birth as DD.MM.YYYY and sends it as typed", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -147,7 +147,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("accepts date_of_birth as D.M.YYYY (single-digit day/month) and sends it as typed", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -165,7 +165,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("accepts date_of_birth as ISO YYYY-MM-DD and sends it as typed", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -201,7 +201,7 @@ describe("PersonalInfoEditor", () => {
   // stray key on `value` (never tracked by FIELD_KEYS) must never appear.
   it("never echoes an unknown key present on the value", async () => {
     const withUnknown = { ...FULL_INFO, some_legacy_field: "leftover" } as PersonalInfo;
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: withUnknown } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -232,7 +232,7 @@ describe("PersonalInfoEditor", () => {
   // H1.6 (409) — on stale_edit, no retry; reload `current`; dialog stays open; notice shown.
   it("on a 409 stale_edit, reloads from `current`, keeps the dialog open, and shows a notice", async () => {
     const current = { updated_at: "t3", profile: { personal_info: FULL_INFO } };
-    const fetchMock = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
     global.fetch = fetchMock as unknown as typeof fetch;
     const { onProfileUpdated } = renderEditor(FULL_INFO);
 
@@ -247,7 +247,7 @@ describe("PersonalInfoEditor", () => {
   });
 
   it("shows the backend message on a 422", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(422, { detail: "date_of_birth is invalid" }));
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: "date_of_birth is invalid" }));
     global.fetch = fetchMock as unknown as typeof fetch;
     renderEditor(FULL_INFO);
 
@@ -262,7 +262,7 @@ describe("PersonalInfoEditor", () => {
 
   // H0.4 — a 200 with every sent key coming back unchanged surfaces the notice.
   it("shows a mismatch notice when the saved keys come back unchanged", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: FULL_INFO } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;

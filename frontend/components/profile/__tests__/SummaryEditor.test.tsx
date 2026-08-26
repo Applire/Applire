@@ -66,7 +66,7 @@ describe("SummaryEditor", () => {
   });
 
   it("sends only the DE slot when only DE is edited — EN is never sent", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { professional_summary: { de: "Neu.", en: "English." } } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -82,7 +82,7 @@ describe("SummaryEditor", () => {
   });
 
   it("sends null for a slot that is cleared (blanked to whitespace-only)", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { professional_summary: { de: null, en: "English." } } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -113,7 +113,7 @@ describe("SummaryEditor", () => {
   // baseline is {de:null,en:null}; the string is pre-filled into the UI
   // language's slot, so an unmodified Save already migrates it.
   it("migrates a legacy plain-string summary into the ui-language slot on first save", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { professional_summary: { de: null, en: "Legacy text." } } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -139,7 +139,7 @@ describe("SummaryEditor", () => {
   // H1.6 (409) — on stale_edit, no retry; reload `current`; dialog stays open; notice shown.
   it("on a 409 stale_edit, reloads from `current`, keeps the dialog open, and shows a notice", async () => {
     const current = { updated_at: "t3", profile: { professional_summary: { de: "Server.", en: "Server EN." } } };
-    const fetchMock = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
     global.fetch = fetchMock as unknown as typeof fetch;
     const { onProfileUpdated } = renderEditor({ de: "Alt.", en: "English." });
 
@@ -154,7 +154,7 @@ describe("SummaryEditor", () => {
   });
 
   it("shows the backend message on a 422", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(422, { detail: "de must not exceed 2000 characters" }));
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: "de must not exceed 2000 characters" }));
     global.fetch = fetchMock as unknown as typeof fetch;
     renderEditor({ de: "Alt.", en: "English." });
 
@@ -169,7 +169,7 @@ describe("SummaryEditor", () => {
 
   // H0.4 — a 200 with an unchanged slot surfaces the mismatch notice.
   it("shows a mismatch notice when the saved slot comes back unchanged", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { professional_summary: { de: "Alt.", en: "English." } } }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;

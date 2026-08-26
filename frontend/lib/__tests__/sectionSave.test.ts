@@ -40,7 +40,7 @@ const PROFILE: ProfileSectionsResponseLike = {
 describe("saveProfileSection", () => {
   // H1.6 — basis_updated_at is sent, url-encoded, as a query param.
   it("PATCHes with the section body and an encoded basis_updated_at", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, PROFILE));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, PROFILE));
     await saveProfileSection({
       apiBase: "http://api",
       section: "work_experience",
@@ -61,7 +61,7 @@ describe("saveProfileSection", () => {
 
   it("returns ok + mismatch:false when the saved entry round-trips byte-identical", async () => {
     const saved = { id: "e1", company: "Acme", role: "Engineer", achievements: ["Shipped X"] };
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { work_experience: [saved] } }),
     );
     const result = await saveProfileSection({
@@ -81,7 +81,7 @@ describe("saveProfileSection", () => {
   it("flags mismatch:true when the response's entry differs from what was sent", async () => {
     const sent = { id: "e1", company: "Acme", role: "Engineer", achievements: ["Shipped X"] };
     const unchanged = { id: "e1", company: "Acme", role: "Engineer", achievements: [] };
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { work_experience: [unchanged] } }),
     );
     const result = await saveProfileSection({
@@ -98,7 +98,7 @@ describe("saveProfileSection", () => {
 
   it("flags mismatch:true when the saved entry is missing from the response entirely", async () => {
     const sent = { id: "e1", company: "Acme", role: "Engineer" };
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { work_experience: [] } }),
     );
     const result = await saveProfileSection({
@@ -114,7 +114,7 @@ describe("saveProfileSection", () => {
   });
 
   it("skips the mismatch check for a brand-new entry with no id yet", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { work_experience: [{ id: "minted", company: "Acme", role: "Engineer" }] } }),
     );
     const result = await saveProfileSection({
@@ -132,7 +132,7 @@ describe("saveProfileSection", () => {
   // is {"detail": {"error": "stale_edit", "current": <profile>}}.
   it("classifies a 409 as stale and surfaces `current` for reload", async () => {
     const current = { updated_at: "t3", profile: { work_experience: [] } };
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(409, { detail: { error: "stale_edit", current } }),
     );
     const result = await saveProfileSection({
@@ -147,7 +147,7 @@ describe("saveProfileSection", () => {
   });
 
   it("does not retry on 409 — exactly one fetch call", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(409, { detail: { error: "stale_edit", current: PROFILE } }),
     );
     await saveProfileSection({
@@ -161,7 +161,7 @@ describe("saveProfileSection", () => {
   });
 
   it("classifies a 422 with the string detail message", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(422, { detail: "company must not be blank" }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: "company must not be blank" }));
     const result = await saveProfileSection({
       apiBase: "http://api",
       section: "work_experience",
@@ -174,7 +174,7 @@ describe("saveProfileSection", () => {
   });
 
   it("classifies any other non-ok status as a generic error", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(500, {}));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(500, {}));
     const result = await saveProfileSection({
       apiBase: "http://api",
       section: "work_experience",
@@ -186,7 +186,7 @@ describe("saveProfileSection", () => {
   });
 
   it("classifies a network failure as a generic error", async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
       throw new Error("network down");
     });
     const result = await saveProfileSection({
@@ -204,7 +204,7 @@ describe("saveProfileSection", () => {
 // and PersonalInfoEditor.
 describe("saveProfileObjectSection", () => {
   it("PATCHes with only the supplied keys as the body, url-encoding basis_updated_at", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: { email: "anna@example.com" } } }),
     );
     await saveProfileObjectSection({
@@ -224,7 +224,7 @@ describe("saveProfileObjectSection", () => {
   });
 
   it("returns ok + mismatch:false when every patched key round-trips", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, {
         updated_at: "t2",
         profile: { personal_info: { name: "Anna Bauer", email: "anna@example.com" } },
@@ -244,7 +244,7 @@ describe("saveProfileObjectSection", () => {
   // H0.4 — a cleared field legitimately comes back `null`, not absent;
   // undefined (key omitted from the response section) must count as equal.
   it("treats a returned undefined as equal to a sent null (cleared field)", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: { name: "Anna Bauer" } } }),
     );
     const result = await saveProfileObjectSection({
@@ -259,7 +259,7 @@ describe("saveProfileObjectSection", () => {
   });
 
   it("flags mismatch:true when a supplied key does not round-trip", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, { updated_at: "t2", profile: { personal_info: { email: "old@example.com" } } }),
     );
     const result = await saveProfileObjectSection({
@@ -275,7 +275,7 @@ describe("saveProfileObjectSection", () => {
 
   it("classifies a 409 as stale and surfaces `current` for reload", async () => {
     const current = { updated_at: "t3", profile: { personal_info: {} } };
-    const fetchImpl = vi.fn(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(409, { detail: { error: "stale_edit", current } }));
     const result = await saveProfileObjectSection({
       apiBase: "http://api",
       section: "personal_info",
@@ -289,7 +289,7 @@ describe("saveProfileObjectSection", () => {
   });
 
   it("classifies a 422 with the string detail message", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(422, { detail: "date_of_birth is invalid" }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(422, { detail: "date_of_birth is invalid" }));
     const result = await saveProfileObjectSection({
       apiBase: "http://api",
       section: "personal_info",
@@ -302,7 +302,7 @@ describe("saveProfileObjectSection", () => {
   });
 
   it("classifies a network failure as a generic error", async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
       throw new Error("network down");
     });
     const result = await saveProfileObjectSection({
