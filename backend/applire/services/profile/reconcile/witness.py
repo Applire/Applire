@@ -198,11 +198,20 @@ _SPAN_MAX_CHARS = 200
 _MIN_INTEGER_DIGITS = 2
 
 _DIGIT_RUN_RE = re.compile(r"\d+(?:[.,]\d+)*")
+# A DE-format date is not a figure in the #370 sense (a quantity the vault
+# may have dropped): "01.02.2019" / "02.2019" against an op that stores the
+# same date as ISO "2019-02-01" shares no digit run with it and would be
+# reported on every dated dossier (adversarial pass, 2026-08-28). ISO and
+# "MM/YYYY" forms already match through their year run.
+_DE_DATE_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{2,4}$|^\d{1,2}\.\d{4}$")
+# Space- or NBSP-grouped thousands ("1 350 000") are one figure, not three
+# — folded into a plain digit run before extraction (same pass).
+_SPACE_GROUP_RE = re.compile(r"(?<=\d)[ \u00a0\u202f](?=\d{3}(?!\d))")
 
 # A small, independent DE/EN magnitude-word table (see module docstring for
 # why this is not imported from `services.oracle.matchers.figures`).
 _MAGNITUDE_RE = re.compile(
-    r"\s*(mio\.?|mrd\.?|tsd\.?|million(?:en)?|milliarde(?:n)?|tausend|k)\b",
+    r"\s*(mio\.?|mrd\.?|tsd\.?|million(?:en)?|milliarde(?:n)?|tausend|k|m)\b",
     re.IGNORECASE,
 )
 _MAGNITUDE_FACTORS: dict[str, int] = {
@@ -215,6 +224,10 @@ _MAGNITUDE_FACTORS: dict[str, int] = {
     "tsd": 1_000,
     "tausend": 1_000,
     "k": 1_000,
+    # "1.5M" — the EN shorthand; "m" attached to a number is a magnitude, not
+    # a unit, in every testimony shape seen so far ("7 MA" does not match: the
+    # word boundary after "m" fails on the following letter).
+    "m": 1_000_000,
 }
 
 
@@ -241,10 +254,18 @@ def _canonical_digit_variants(raw_digits: str) -> set[str]:
     variants` already uses for the identical ambiguity (independent, narrow
     copy — see the module docstring).
     """
-    return {
+    variants = {
         raw_digits.replace(".", "").replace(",", ""),
         raw_digits.replace(".", "").replace(",", "."),
     }
+    # A single separator followed by anything but a 3-digit group is a DECIMAL
+    # point in either locale ("1.5M", "2.75"): a thousands group is always
+    # exactly three digits. Without this reading "1.5" collapses to "15" and
+    # "1.5M" expands to fifteen million (adversarial pass, 2026-08-28).
+    parts = re.split(r"[.,]", raw_digits)
+    if len(parts) == 2 and len(parts[1]) != 3:
+        variants.add(parts[0] + "." + parts[1])
+    return variants
 
 
 def _expand_with_magnitude(variants: set[str], factor: int) -> set[str]:
@@ -266,8 +287,11 @@ def _extract_figures(text: str) -> list[_FigureOccurrence]:
     reading a caller might find in an op's serialised JSON.
     """
     occurrences: list[_FigureOccurrence] = []
+    text = _SPACE_GROUP_RE.sub("", text)
     for m in _DIGIT_RUN_RE.finditer(text):
         raw = m.group(0)
+        if _DE_DATE_RE.match(raw):
+            continue
         has_separator = ("." in raw) or ("," in raw)
         digits_only = raw.replace(".", "").replace(",", "")
         if not has_separator and len(digits_only) < _MIN_INTEGER_DIGITS:

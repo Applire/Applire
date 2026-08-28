@@ -26,7 +26,7 @@ produced — see the module docstring in `witness.py` for the exact scope
 (post-parse/stance/attribution ops, NOT post-`apply_ops` state)."""
 from __future__ import annotations
 
-from applire.services.profile.reconcile.ops import UpsertWork
+from applire.services.profile.reconcile.ops import SetField, UpsertWork
 from applire.services.profile.reconcile.witness import compute_not_applied
 
 
@@ -275,3 +275,29 @@ def test_fully_carried_testimony_yields_empty_list():
     result = compute_not_applied(text, ops)
 
     assert result == []
+
+
+# ── Adversarial pass 2026-08-28: three false-positive shapes of the figure
+# channel, reproduced with the pure function and closed at the instrument ──
+
+
+def test_de_format_date_is_not_reported_as_a_figure():
+    """"01.02.2019" against an op that stores ISO "2019-02-01": a date is not a
+    quantity, and the ISO form shares no digit run with the dotted form."""
+    ops = [SetField(target="w1", field="start_date", value="2019-02-01")]
+    items = compute_not_applied("Ich habe am 01.02.2019 angefangen, seit 02.2019 im Controlling.", ops)
+    assert [i.span for i in items if i.kind == "figure"] == []
+
+
+def test_space_grouped_thousands_are_one_figure():
+    """"1 350 000 EUR" is one figure; an op storing 1350000 carries it."""
+    ops = [SetField(target="w1", field="budget_managed", value="1350000 EUR")]
+    assert compute_not_applied("Ich hatte ein Budget von 1 350 000 EUR.", ops) == []
+    missing = compute_not_applied("Ich hatte ein Budget von 1 350 000 EUR.", [])
+    # The span is reported in the normalised written form (grouping spaces folded).
+    assert [i.span for i in missing] == ["1350000"]
+
+
+def test_en_shorthand_m_expands_to_millions():
+    ops = [SetField(target="w1", field="budget_managed", value="1500000")]
+    assert compute_not_applied("Budget of 1.5M per year.", ops) == []
