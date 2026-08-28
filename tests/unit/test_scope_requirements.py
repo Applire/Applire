@@ -116,7 +116,12 @@ class TestFactLayer:
         values = collect_candidate_values(_MARCUS_PROFILE, "team_size")
         assert [v["value"] for v in values] == [38, 14]
         assert values[0]["entry"] == "Produktionsleiter @ Weberit Kunststofftechnik GmbH"
-        assert "direct reports" in values[0]["semantics"]
+        # #562 (2026-08-28): the semantics may not claim more than the vault
+        # records — "direct reports" upgraded a functionally led team to a
+        # line-management span in a delivered letter.
+        assert "direct reports" not in values[0]["semantics"].split("upgraded")[0]
+        assert "functional or disciplinary" in values[0]["semantics"]
+        assert "does not record which" in values[0]["semantics"]
 
     def test_budget_values_stay_raw_strings(self):
         # #328 option 4 / #382: the value stays the candidate's own string, now

@@ -75,7 +75,19 @@ _ATTESTED_PROSE_FIELDS = ("responsibilities", "achievements")
 # the mismatch between these and what a JD figure measures is exactly why the
 # status is a judgement, not a >= (ADR-069 clause 2).
 _KIND_SEMANTICS = {
-    "team_size": "direct reports in that one role (not total organisational span)",
+    # #562 (re-PQ 2026-08-28): the vault records the size of the team the
+    # candidate LED in that role — the extraction/reconcile rule counts a team
+    # they were responsible for, functional OR disciplinary — and nothing in
+    # the vault says which. The previous wording ("direct reports") told the
+    # writer more than the data holds: a dossier stating "fachlich ein Team
+    # von 7 Personen" (and "Disziplinarische Führung hatte ich noch nicht")
+    # became "meine direkte Führungsspanne umfasst sieben Personen" in the
+    # delivered letter (gpt-5.6-luna, n=1). Say exactly what the vault knows.
+    "team_size": (
+        "size of the team the candidate led in that one role — functional or "
+        "disciplinary leadership, the vault does not record which; never the "
+        "organisation's total headcount, and not to be upgraded to 'direct reports'"
+    ),
     "budget": "budget managed in that one role, as the candidate stated it (free text)",
 }
 
