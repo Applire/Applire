@@ -70,32 +70,40 @@ class NotApplied(BaseModel):
     FACTS only (ADR-062 clause 1) — computed by the deterministic witness
     (`services.profile.reconcile.witness.compute_not_applied`), never a
     judgement about whether the content "really" landed: a span is listed
-    because it is not LITERALLY present in any op's payload (or, for
-    `kind="op"`, because the model's own raw op failed schema validation at
-    parse time), never because a semantic matcher decided it was paraphrased
-    away. No item here is proof of loss — corroborating a spelled-out figure,
-    or a paraphrase so complete it shares no content word with the ops, both
-    read identically to a genuine drop; the caller (or a human) still makes
-    that call. See the `witness` module docstring for the exact algorithm.
+    because its normalised digit string is not LITERALLY present in any op's
+    payload (or, for `kind="op"`, because the model's own raw op failed
+    schema validation at parse time). No item here is proof of loss — see
+    `witness`'s module docstring, "False-positive shapes of the figure
+    channel", for the three named ways this over-reports; the caller (or a
+    human) still makes the call on what a listed span means.
+
+    **Deliberately figure/op only — no sentence-level channel.** An earlier
+    version also reported a testimony SENTENCE sharing no content token with
+    any op's payload. Dropped by the ADR-063 amendment (item 7, after a
+    refutation pass): ops carry no source spans back to the testimony text,
+    so token overlap against a field value silently inherits the
+    reconciler's OWN judgement calls (paraphrase, translation, an
+    id-targeted merge that need not restate the entity it merges into) — a
+    judgement wearing a fact's label, not itself a fact. See `witness`'s
+    module docstring for the full reasoning.
     """
 
     model_config = {"extra": "forbid"}
 
     #: The verbatim testimony text this item is about (a figure's own written
-    #: form, or a whole sentence), truncated to 200 chars. For `kind="op"`
-    #: there is no testimony excerpt to quote — the loss happened in the
-    #: MODEL's raw output, not at a location in the submitted text — so this
-    #: carries the rejected op's own declared `"op"` type string instead
-    #: (`"<unknown>"` when the raw item carried no string `op` key at all).
+    #: form), truncated to 200 chars. For `kind="op"` there is no testimony
+    #: excerpt to quote — the loss happened in the MODEL's raw output, not at
+    #: a location in the submitted text — so this carries the rejected op's
+    #: own declared `"op"` type string instead (`"<unknown>"` when the raw
+    #: item carried no string `op` key at all).
     span: str
-    kind: Literal["figure", "sentence", "op"]
+    kind: Literal["figure", "op"]
     #: `figure_not_in_any_op` — a numeric figure in the testimony whose
-    #: normalised digit string appears in no op's serialised payload.
-    #: `no_op_carried_it` — a testimony sentence sharing no content token (>=5
-    #: chars, minus a small stopword set) with any op's serialised payload.
+    #: normalised digit string appears in no op's serialised payload (and no
+    #: denial — see `witness._ops_haystack`).
     #: `op_rejected` — a raw op the model emitted failed schema validation at
     #: `engine._parse_ops` and was dropped before ever reaching the applier.
-    reason: Literal["figure_not_in_any_op", "no_op_carried_it", "op_rejected"]
+    reason: Literal["figure_not_in_any_op", "op_rejected"]
 
 
 class TestimonyResult(BaseModel):

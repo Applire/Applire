@@ -48,8 +48,12 @@ type TestimonyStatus =
 
 interface NotAppliedItem {
   span: string;
-  kind: "figure" | "sentence" | "op";
-  reason: "figure_not_in_any_op" | "no_op_carried_it" | "op_rejected";
+  // #370 — figure/op only, no sentence-level channel (ADR-063 amendment:
+  // token-overlap against an op's field value inherits the reconciler's own
+  // paraphrase/translation/id-merge judgement, a judgement wearing a fact's
+  // label — see backend `witness.py`'s module docstring).
+  kind: "figure" | "op";
+  reason: "figure_not_in_any_op" | "op_rejected";
 }
 
 interface TestimonyResult {

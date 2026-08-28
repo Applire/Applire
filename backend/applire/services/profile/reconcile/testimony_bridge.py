@@ -131,9 +131,11 @@ async def submit_testimony(
 
     # #370 — the deterministic witness, computed over exactly what the
     # ENGINE produced (post-parse/stance/attribution, pre-commit): does every
-    # figure/sentence of the submitted text literally show up in an op's own
-    # payload, and which raw ops did the model emit that never even passed
-    # schema validation. Pure and DB-free — safe to run before `commit_ops`.
+    # numeric figure of the submitted text literally show up in an op's own
+    # payload (or a denial), and which raw ops did the model emit that never
+    # even passed schema validation. No sentence-level channel — ADR-063
+    # amendment, see `witness.py`'s module docstring. Pure and DB-free — safe
+    # to run before `commit_ops`.
     not_applied: list[NotApplied] = compute_not_applied(
         text, rc.ops, rejected_ops=rc.rejected_ops, denials=rc.denials
     )

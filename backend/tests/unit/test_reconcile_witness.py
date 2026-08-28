@@ -26,7 +26,7 @@ produced — see the module docstring in `witness.py` for the exact scope
 (post-parse/stance/attribution ops, NOT post-`apply_ops` state)."""
 from __future__ import annotations
 
-from applire.services.profile.reconcile.ops import UpsertSkill, UpsertWork
+from applire.services.profile.reconcile.ops import UpsertWork
 from applire.services.profile.reconcile.witness import compute_not_applied
 
 
@@ -62,8 +62,9 @@ def test_figure_missing_from_every_op_is_reported():
 
 def test_single_digit_integer_is_below_the_figure_floor():
     # "3" is a single digit with no decimal marker — below the ">= 2 digits"
-    # floor, so it must never be reported as a missing FIGURE (it may still
-    # surface via the sentence-level check).
+    # floor, so it must never be reported as a missing FIGURE. There is no
+    # sentence-level fallback any more (ADR-063 amendment) — a bare "3" is
+    # simply invisible to this witness.
     text = "Ok."
     ops: list = []
 
@@ -126,88 +127,47 @@ def test_duplicate_missing_figure_is_reported_once():
     assert len(figures) == 1
 
 
-# ── (b) sentences ────────────────────────────────────────────────────────
-
-
-def test_sentence_fully_carried_shares_a_content_token():
-    from applire.services.profile.reconcile.ops import AddBullets
-
-    text = "I led the Kubernetes migration for ACME."
-    ops = [AddBullets(target="w1", achievements=["Led the Kubernetes migration"])]
-
-    result = compute_not_applied(text, ops)
-
-    assert not any(item.kind == "sentence" for item in result)
-
-
-def test_sentence_sharing_no_content_token_is_reported():
-    from applire.services.profile.reconcile.ops import AddBullets
-
-    text = "I introduced a completely unrelated greenhouse gardening hobby."
-    ops = [AddBullets(target="w1", achievements=["Led the Kubernetes migration"])]
-
-    result = compute_not_applied(text, ops)
-
-    sentences = [item for item in result if item.kind == "sentence"]
-    assert len(sentences) == 1
-    assert sentences[0].reason == "no_op_carried_it"
-    assert "greenhouse" in sentences[0].span.lower()
-
-
-def test_stopwords_alone_do_not_count_as_a_shared_token():
-    from applire.services.profile.reconcile.ops import AddBullets
-
-    # "which", "their", "would" are >= 5 chars but stopwords; the only
-    # non-stopword content token ("zebras") must not appear in the op.
-    text = "These zebras, which their handlers would never expect, escaped."
-    ops = [AddBullets(target="w1", achievements=["Completely different content here"])]
-
-    result = compute_not_applied(text, ops)
-
-    assert any(item.kind == "sentence" for item in result)
-
-
-def test_no_ops_at_all_flags_the_sentence_content():
-    text = "This whole testimony describes nothing the reconciler used."
+def test_span_is_truncated_to_200_chars():
+    # A figure span can only ever exceed 200 chars via a pathologically long
+    # digit run (the magnitude-word tail this module reads is capped at 14
+    # chars, so a realistic "1,35 Mio EUR" span never approaches the limit) —
+    # this pins the defensive `[:_SPAN_MAX_CHARS]` slice itself.
+    long_digit_run = "1" * 250
     ops: list = []
 
-    result = compute_not_applied(text, ops)
+    result = compute_not_applied(f"Betrag: {long_digit_run} EUR.", ops)
 
-    assert any(item.kind == "sentence" for item in result)
-
-
-def test_span_is_truncated_to_200_chars():
-    from applire.services.profile.reconcile.ops import AddBullets
-
-    long_sentence = "Absolutely nothing here overlaps with the op content whatsoever, " * 5
-    ops = [AddBullets(target="w1", achievements=["unrelated"])]
-
-    result = compute_not_applied(long_sentence.strip() + ".", ops)
-
-    assert all(len(item.span) <= 200 for item in result)
+    figures = [item for item in result if item.kind == "figure"]
+    assert len(figures) == 1
+    assert len(figures[0].span) == 200
 
 
-# ── denials fold into "carried" ─────────────────────────────────────────
+# ── denials fold into "carried" (figures inside a denied statement) ──────
 
 
-def test_denied_token_sentence_is_not_reported_when_denial_is_passed():
-    text = "I have no blockchain experience though."
+def test_denied_figure_is_not_reported_when_denial_is_passed():
+    # A denial can itself name a figure ("nie ein Budget von 2,5 Mio
+    # verantwortet") — that figure is carried by the denial receipt, not by
+    # any op, so the fold must still cover it now that the channel is
+    # figure-only.
+    text = "Ich habe nie ein Budget von 2,5 Mio verantwortet."
     ops: list = []  # a pure denial turn emits no ops at all
 
-    result = compute_not_applied(text, ops, denials=["blockchain"])
+    result = compute_not_applied(text, ops, denials=["Budget von 2,5 Mio"])
 
     assert result == []
 
 
-def test_denied_token_sentence_is_reported_without_the_denials_kwarg():
+def test_denied_figure_is_reported_without_the_denials_kwarg():
     # Documents WHY `denials` must be threaded through: omitting it makes a
     # perfectly-handled denial read as a loss.
-    text = "I have no blockchain experience though."
+    text = "Ich habe nie ein Budget von 2,5 Mio verantwortet."
     ops: list = []
 
     result = compute_not_applied(text, ops)
 
-    assert any(item.kind == "sentence" for item in result)
+    figures = [item for item in result if item.kind == "figure"]
+    assert len(figures) == 1
 
 
 # ── (c) parse-rejected ops ──────────────────────────────────────────────

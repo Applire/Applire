@@ -23,8 +23,8 @@ counted or logged the loss, and the caller had no way to distinguish "all of
 it landed" from "most of it landed" (#370). `compute_not_applied` is the
 deterministic FACT-checker that closes that gap: a pure function, no I/O, no
 LLM call, that compares the submitted testimony TEXT against the ops the
-reconcile ENGINE actually produced and reports every piece of testimony
-content that is not literally present in any of them.
+reconcile ENGINE actually produced and reports testimony content that is not
+literally present in any of them.
 
 **ADR-062 clause 1 — a fact, never a judgement.** This module answers
 exactly one question per span: "is this literally present in an op's own
@@ -32,9 +32,8 @@ serialised payload (or, for a rejected raw op, did it fail schema
 validation)". It never asks "was this paraphrased", "did this matter", or
 "should this have applied" — those are judgements, and a deterministic rule
 may not make them. Consequently an item in the returned list is NOT proof
-that content was lost: a spelled-out figure ("zwölf" for 12), a heavily
-paraphrased sentence, or a fact the model correctly decided did not belong in
-the vault at all, all read identically to a genuine drop. The witness is a
+that content was lost — see "False-positive shapes" below for the figure
+channel's own, documented ways of over-reporting. The witness is a
 recall-favouring instrument — "no semantic matching, no 'probably applied'"
 — not a precision one; a human or an upstream judgement still decides what a
 listed span means. That asymmetry is deliberate: #370's whole complaint was
@@ -53,40 +52,84 @@ never mentioned the section at all); catching apply-time no-ops is a
 DIFFERENT, not-yet-covered mechanism, named explicitly so nobody mistakes
 this witness for a total loss-coverage guarantee.
 
-**Three checks, three reasons** (`schemas.testimony.NotApplied`):
+**Two checks, two reasons** (`schemas.testimony.NotApplied`):
 
 (a) ``figure`` / ``figure_not_in_any_op`` — every numeric figure in the
     testimony (integers >= 2 digits, decimals, and a currency/percent/
     magnitude-word form folded to its digit string, e.g. "1,35 Mio" ->
     "1350000") whose normalised digit string appears in NO op's serialised
     JSON.
-(b) ``sentence`` / ``no_op_carried_it`` — every testimony sentence that
-    shares NO content token (lower-cased, >= 5 chars, minus a small EN/DE
-    stopword set) with any op's serialised JSON.
-(c) ``op`` / ``op_rejected`` — every raw op the model emitted that
+(b) ``op`` / ``op_rejected`` — every raw op the model emitted that
     `engine._parse_ops` dropped for failing schema validation, named by its
     own declared `"op"` type string (`rejected_ops`, an optional out-of-band
     list the caller threads through from `ReconcileResult.rejected_ops`).
 
 A `denials` parameter (`ReconcileResult.denials`) is folded into the
-"carried" corpus for (a)/(b) alongside the ops — see `_ops_haystack`'s
-docstring for why this is a deliberate, documented widening past the Part B
-contract's literal wording (a receipted denial is a landed outcome, not a
-loss, and without this every denial-bearing submission reads as partial).
+"carried" corpus for (a) alongside the ops — see `_ops_haystack`'s docstring
+for why this stays needed even with the figure-only scope below: a denied
+STATEMENT can still name a FIGURE ("nie ein Budget von 2,5 Mio verantwortet"),
+and that figure is carried by the denial receipt, not by an op — without the
+fold, every denial-bearing submission containing a number reads as `partial`
+for the wrong reason (a receipted denial is a landed outcome, not a loss).
 
-**Deduplication.** Both (a) and (b) report each DISTINCT missing figure/
-sentence ONCE (keyed by its normalised reading), using the first verbatim
-occurrence as the span — an explicit, documented choice to keep the report
-actionable on a long dossier that repeats a figure, rather than one entry per
-occurrence.
+**Sentence-level loss is deliberately NOT reported — ADR-063 amendment
+(item 7), dropped after a refutation pass.** An earlier version of this
+module also reported a testimony SENTENCE as `not_applied` when it shared no
+content token with any op's serialised payload. That check is REMOVED: ops
+carry no source spans back to the testimony text, so "does this sentence
+share a token with some op's field value" is not the fact it was labelled as
+— it silently INHERITS the reconciler's own judgement calls on paraphrase
+("led the Kubernetes migration" vs. the testimony's own wording), translation
+(a German sentence reconciled into English field values, or vice versa), and
+id-targeted merges (an op that legitimately merges into an EXISTING entity by
+`target: <id>` need not restate that entity's name/company at all — the
+merge's correctness is exactly the judgement ADR-046 already delegates to the
+model). Token overlap dressed up "is this the same fact, reworded" as a
+mechanical presence check, which is a judgement wearing a fact's label
+(ADR-062 clause 1). This module's OWN denials-fold fix (found and pinned
+during #370's build, see `_ops_haystack` below) is that exact false-positive
+class caught red-handed: a denial-carried sentence shared no literal token
+with any `op` payload — the content was genuinely carried (on a different
+channel), yet the removed sentence check could not tell the difference
+without being widened, case by case, indefinitely. The figure channel does
+not have this problem in the same way: a digit string is either present in
+the haystack or it is not, with no paraphrase axis to smuggle a judgement
+through (the "false-positive shapes" below are a narrower, named, closed set,
+not an open-ended "the reconciler reworded it" category).
+
+**Deduplication.** Missing figures are reported once each (keyed by their
+normalised reading), using the first verbatim occurrence as the span — an
+explicit, documented choice to keep the report actionable on a long dossier
+that repeats a figure, rather than one entry per occurrence.
 
 **Figures are digit-only.** Spelled-out numbers ("zwölf", "twelve") are
 deliberately NOT extracted as figures here (unlike some grounding checks
 elsewhere in this package) — the contract's own examples are all digit-form,
 and treating a spelled number as a citable figure would need the same
 magnitude/compound-word machinery this module intentionally keeps narrow. A
-spelled-out figure can still be caught by the SENTENCE check if the rest of
-its sentence shares no token with any op.
+spelled-out figure is invisible to this witness entirely (there is no
+sentence-level fallback any more — see the ADR-063 amendment above).
+
+**False-positive shapes of the figure channel** (read before treating a
+`not_applied` item as proof of loss):
+
+1. **A figure the vault already held.** This witness sees only `ops` (the
+   CURRENT batch) and `denials` — never the profile/vault state. A figure the
+   testimony restates but the model correctly emitted NO op for (because the
+   vault already has it, unchanged) reads identically to a genuinely dropped
+   figure.
+2. **A figure folded into prose under another form** this module's narrow,
+   independent digit-variant generation (`_canonical_digit_variants`,
+   `_expand_with_magnitude`) does not anticipate — a rounding, a different
+   currency conversion, a magnitude word outside the small DE/EN table below,
+   or any other restatement the model produced that is not one of the
+   variants this module generates.
+3. **The UUID-substring haystack imprecision** (`_figure_variant_pool`'s own
+   docstring, kept in full below) — the haystack's figure-variant pool is
+   built from EVERY digit run in the ops' serialised JSON, including entity
+   `id`/`ref`/`target` values, so a testimony figure can coincidentally
+   "match" an unrelated id. This can only ever cause a MISSED report, never a
+   spurious one — the opposite direction from shapes 1 and 2 above.
 
 **Independent, narrow implementation — not imported from `services.oracle`.**
 The Oracle's figure extractor (`services.oracle.matchers.figures.extract_
@@ -108,7 +151,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Sequence
 
 from applire.schemas.testimony import NotApplied
-from applire.services.profile.reconcile.attribution import _split_sentences
 from applire.services.profile.reconcile.ops import CommitOp
 
 _SPAN_MAX_CHARS = 200
@@ -140,55 +182,11 @@ _MAGNITUDE_FACTORS: dict[str, int] = {
     "k": 1_000,
 }
 
-# A small, non-exhaustive EN/DE stopword set — only words >= 5 chars matter
-# here (the length floor already drops every shorter function word), so this
-# is deliberately short: it exists to stop generic connective words from
-# reading as a "shared content token" between two otherwise-unrelated spans,
-# not to be a general-purpose language stopword list.
-_STOPWORDS = frozenset(
-    {
-        # EN
-        "about", "after", "again", "being", "could", "every", "first",
-        "other", "shall", "should", "their", "there", "these", "those",
-        "three", "under", "until", "where", "which", "while", "would",
-        "above", "along", "among", "since", "still", "doing", "having",
-        "might", "small", "large", "within", "without", "across", "always",
-        "before", "cannot", "either", "though", "through",
-        # DE
-        "diese", "dieser", "dieses", "diesem", "einer", "einem", "einen",
-        "keine", "keiner", "meine", "meiner", "seine", "seiner", "sowie",
-        "sowohl", "unter", "durch", "wurde", "wurden", "werden", "worden",
-        "waren", "immer", "schon", "damit", "dabei", "davon", "daran",
-        "dafür", "dahin", "danach", "gegen", "jedoch", "sondern", "während",
-        "zudem", "zwischen", "zusätzlich", "dessen", "deren", "sodass",
-        "sobald", "sofern", "weiter", "weitere", "weiteren", "weiterer",
-        "welche", "welcher", "welchem", "welchen", "ebenso", "hierbei",
-        "hierfür", "insgesamt",
-    }
-)
-
-_TOKEN_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
-
 
 def _norm_text(text: str) -> str:
     """NFKC-normalise then casefold — the same "normalise before matching"
     discipline the rest of the codebase applies (U+2019 lesson)."""
     return unicodedata.normalize("NFKC", text or "").casefold()
-
-
-def _content_tokens(text: str) -> frozenset[str]:
-    """Lower-cased alphabetic tokens of length >= 5, minus the stopword set.
-
-    Digits are deliberately excluded here — figure matching is check (a)'s
-    job, on its own normalised-digit-string terms; blending the two would
-    blur which reason a miss gets and let a coincidental shared digit rescue
-    an unrelated sentence.
-    """
-    normalized = _norm_text(text)
-    return frozenset(
-        tok for tok in _TOKEN_RE.findall(normalized)
-        if len(tok) >= 5 and tok not in _STOPWORDS
-    )
 
 
 @dataclass(frozen=True)
@@ -262,25 +260,23 @@ def _extract_figures(text: str) -> list[_FigureOccurrence]:
 
 def _ops_haystack(ops: Sequence[CommitOp], denials: Sequence[str]) -> str:
     """The ops' own serialised JSON PLUS the engine's denial list, as ONE
-    normalised text — the corpus every figure/sentence check searches.
-    Deliberately per-BATCH, not per-op: the contract asks whether ANY op
-    carries the content, not which one (#370's Part B design).
+    normalised text — the corpus the figure check searches. Deliberately
+    per-BATCH, not per-op: the contract asks whether ANY op carries the
+    content, not which one (#370's Part B design).
 
-    **Deviation from the literal Part B contract, flagged for the refutation
-    pass:** the contract names only "the list of ops the engine produced" as
-    input. A denial ("no blockchain experience") is real testimony that DID
-    land — on `ReconcileResult.denials`, receipted by `commit_ops` via
-    `record_denials` into `metadata.denied_concepts` — but it is a SEPARATE
-    channel from `ops`, so a denial-only sentence shares no token with any op
-    payload and would otherwise be reported as `not_applied` on every single
-    denial-bearing submission (an `upsert_skill` for the affirmed half plus a
-    denial for the negated half is the single most common testimony shape in
-    this codebase's own fixtures). That would make `partial` fire
-    constantly and for the wrong reason — a denial is not a loss, it is a
-    different kind of landing. Folding `denials` into the haystack (as plain
-    text, not run through figure/magnitude parsing — a denial is a token
-    name, never a quantity) treats a receipted denial as "carried", exactly
-    like an op payload.
+    **Why `denials` still folds in, even with the sentence channel gone:** a
+    denied STATEMENT can itself name a FIGURE — "Ich habe nie ein Budget von
+    2,5 Mio verantwortet" — and that figure is carried by the denial receipt
+    (`ReconcileResult.denials`, written by `commit_ops` via `record_denials`
+    into `metadata.denied_concepts`), not by any op. Without this fold, the
+    figure channel would flag "2,5 Mio" as `figure_not_in_any_op` on every
+    denial naming a number — a receipted denial is a landed outcome, not a
+    loss. (This is also the exact false-positive class that got the REMOVED
+    sentence channel refuted — see the module docstring's ADR-063 amendment
+    note — but the figure channel's narrower, digit-only comparison is not
+    itself the paraphrase/translation/id-merge problem that check had; the
+    fold here is just making sure the "carried" corpus is complete, not
+    working around a judgement smuggled into the comparison.)
     """
     payloads = []
     for op in ops:
@@ -308,14 +304,13 @@ def _figure_variant_pool(text: str) -> frozenset[str]:
     own variants) makes the match symmetric regardless of which side used
     which separator/magnitude convention.
 
-    Known, accepted imprecision: this also extracts digit runs from
-    non-figure fields (entity ids/refs), so a testimony figure can
-    coincidentally "match" an unrelated id that happens to share a digit
-    run. This is exactly the recall-over-precision trade-off the module
-    docstring states — it can only ever cause a MISSED report (an id
-    coincidentally rescuing a genuinely-lost figure), never a spurious one,
-    and is left undocumented-narrower rather than parsing the JSON structure
-    to exclude identifier-shaped keys (out of scope for #370's fix).
+    Known, accepted imprecision (false-positive shape 3 in the module
+    docstring): this also extracts digit runs from non-figure fields (entity
+    ids/refs), so a testimony figure can coincidentally "match" an unrelated
+    id that happens to share a digit run. This can only ever cause a MISSED
+    report (an id coincidentally rescuing a genuinely-lost figure), never a
+    spurious one, and is left as-is rather than parsing the JSON structure to
+    exclude identifier-shaped keys (out of scope for #370's fix).
     """
     pool: set[str] = set()
     for occurrence in _extract_figures(text):
@@ -330,16 +325,18 @@ def compute_not_applied(
     rejected_ops: Sequence[str] = (),
     denials: Sequence[str] = (),
 ) -> list[NotApplied]:
-    """Every span of ``text`` the ``ops``/``denials`` do not literally carry,
-    plus every raw op ``rejected_ops`` names as parse-dropped.
+    """Every figure of ``text`` the ``ops``/``denials`` do not literally
+    carry, plus every raw op ``rejected_ops`` names as parse-dropped.
 
     ``denials`` — ``ReconcileResult.denials`` — is folded into the "carried"
-    corpus alongside the ops (see ``_ops_haystack``'s docstring for why: a
-    receipted denial is a landed outcome, not a loss).
+    corpus alongside the ops (see ``_ops_haystack``'s docstring: a denied
+    STATEMENT can itself name a figure, carried by the denial receipt rather
+    than by an op).
 
     Pure and side-effect-free: no DB, no LLM, no mutation of its arguments.
     See the module docstring for the exact algorithm, its FACT-only scope
-    (ADR-062 clause 1), and its known blind spot (apply-time no-ops).
+    (ADR-062 clause 1), why sentence-level loss is deliberately NOT checked
+    (ADR-063 amendment), and the figure channel's own false-positive shapes.
     """
     items: list[NotApplied] = []
 
@@ -364,26 +361,6 @@ def compute_not_applied(
                 span=occurrence.span[:_SPAN_MAX_CHARS],
                 kind="figure",
                 reason="figure_not_in_any_op",
-            )
-        )
-
-    haystack_tokens = frozenset(_TOKEN_RE.findall(haystack))
-    seen_sentences: set[str] = set()
-    for sentence in _split_sentences(text or ""):
-        tokens = _content_tokens(sentence)
-        if not tokens:
-            continue  # nothing to lose — a heading/punctuation-only "sentence"
-        key = _norm_text(sentence)
-        if key in seen_sentences:
-            continue
-        if tokens & haystack_tokens:
-            continue
-        seen_sentences.add(key)
-        items.append(
-            NotApplied(
-                span=sentence.strip()[:_SPAN_MAX_CHARS],
-                kind="sentence",
-                reason="no_op_carried_it",
             )
         )
 
