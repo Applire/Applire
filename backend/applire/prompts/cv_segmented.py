@@ -262,7 +262,9 @@ the job requires, following the directive's skills focus. Include a keyword-gap 
 the profile explicitly demonstrates it. A requirement phrase (#391) — a duration
 ("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is
 not a skill: a skill is a named competence, tool or method the candidate holds in the
-vault.
+vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of
+experience are the SETTING of the work — they belong in the summary or in the bullet that
+states them, never in the skills list.
 
 {_CORE_RULES}
 

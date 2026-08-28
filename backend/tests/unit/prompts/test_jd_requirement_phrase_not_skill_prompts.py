@@ -62,6 +62,13 @@ _RULE_CLAUSE = (
     "holds in the vault"
 )
 
+# The DESTINATION half (2026-08-28 replay: the prohibition alone left "Maschinenbau" in
+# 2/2 skills lists — a prohibition is not a substitute for supplying the answer): where an
+# industry name / years-of-experience phrase belongs instead.
+_DESTINATION_CLAUSE = (
+    "they belong in the summary or in the bullet that states them, never in the skills list"
+)
+
 
 def _normalize(text: str) -> str:
     return " ".join(text.split())
@@ -76,6 +83,7 @@ def test_single_call_writer_prompt_states_a_requirement_phrase_is_not_a_skill():
     built_prompt = _normalize(SYSTEM_PROMPT + "\n\n" + user_prompt)
     assert _RULE_CLAUSE in built_prompt
     assert "duration" in built_prompt and "degree requirement" in built_prompt
+    assert _DESTINATION_CLAUSE in built_prompt  # the answer, not only the prohibition
 
 
 def test_segmented_skills_writer_prompt_states_a_requirement_phrase_is_not_a_skill():
@@ -87,6 +95,7 @@ def test_segmented_skills_writer_prompt_states_a_requirement_phrase_is_not_a_ski
     built_prompt = _normalize(SKILLS_SECTION_SYSTEM_PROMPT + "\n\n" + user_prompt)
     assert _RULE_CLAUSE in built_prompt
     assert "duration" in built_prompt and "degree requirement" in built_prompt
+    assert _DESTINATION_CLAUSE in built_prompt  # the answer, not only the prohibition
 
 
 def test_both_builder_sites_state_the_rule_identically():
@@ -100,4 +109,7 @@ def test_both_builder_sites_state_the_rule_identically():
     for name, prompt in sites.items():
         assert _RULE_CLAUSE in _normalize(prompt), (
             f"{name} is missing the requirement-phrase rule"
+        )
+        assert _DESTINATION_CLAUSE in _normalize(prompt), (
+            f"{name} is missing the destination half of the rule"
         )
