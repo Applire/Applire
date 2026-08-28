@@ -64,22 +64,98 @@ class TestimonyRequest(BaseModel):
 #    contract published at schema://testimony) ────────────────────────────────
 
 
+class NotApplied(BaseModel):
+    """One piece of the submitted testimony the committed ops do not carry (#370).
+
+    FACTS only (ADR-062 clause 1) — computed by the deterministic witness
+    (`services.profile.reconcile.witness.compute_not_applied`), never a
+    judgement about whether the content "really" landed: a span is listed
+    because its normalised digit string is not LITERALLY present in any op's
+    payload (or, for `kind="op"`, because the model's own raw op failed
+    schema validation at parse time). No item here is proof of loss — see
+    `witness`'s module docstring, "False-positive shapes of the figure
+    channel", for the three named ways this over-reports; the caller (or a
+    human) still makes the call on what a listed span means.
+
+    **Deliberately figure/op only — no sentence-level channel.** An earlier
+    version also reported a testimony SENTENCE sharing no content token with
+    any op's payload. Dropped by the ADR-063 amendment (item 7, after a
+    refutation pass): ops carry no source spans back to the testimony text,
+    so token overlap against a field value silently inherits the
+    reconciler's OWN judgement calls (paraphrase, translation, an
+    id-targeted merge that need not restate the entity it merges into) — a
+    judgement wearing a fact's label, not itself a fact. See `witness`'s
+    module docstring for the full reasoning.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    #: The verbatim testimony text this item is about (a figure's own written
+    #: form), truncated to 200 chars. For `kind="op"` there is no testimony
+    #: excerpt to quote — the loss happened in the MODEL's raw output, not at
+    #: a location in the submitted text — so this carries the rejected op's
+    #: own declared `"op"` type string instead (`"<unknown>"` when the raw
+    #: item carried no string `op` key at all).
+    span: str
+    kind: Literal["figure", "op"]
+    #: `figure_not_in_any_op` — a numeric figure in the testimony whose
+    #: normalised digit string appears in no op's serialised payload (and no
+    #: denial — see `witness._ops_haystack`).
+    #: `op_rejected` — a raw op the model emitted failed schema validation at
+    #: `engine._parse_ops` and was dropped before ever reaching the applier.
+    reason: Literal["figure_not_in_any_op", "op_rejected"]
+
+
 class TestimonyResult(BaseModel):
     """The outcome of reconciling one testimony submission into the vault.
 
-    `status` precedence mirrors `ClaimResult` (error > needs_confirmation >
-    conflict > applied > denial_recorded > no_change) — one submission can
-    yield changes AND a confirmation AND a conflict AND a denial; `status`
-    reports the single most-actionable outcome while `changes` /
-    `confirmations` / `conflicts` carry the full parallel detail.
+    `status` precedence (#370 amendment — `partial` inserted): error >
+    needs_confirmation > conflict > partial > applied > denial_recorded >
+    no_change. One submission can yield changes AND a confirmation AND a
+    conflict AND a denial AND unapplied content all at once; `status` reports
+    the single most-actionable outcome while `changes` / `confirmations` /
+    `conflicts` / `not_applied` carry the full parallel detail.
+
+    `partial` — at least one change landed (`bool(changes)`) AND
+    `not_applied` is non-empty: SOME of the submission is visibly missing.
+    `applied` now specifically means "changes landed AND nothing is known to
+    be missing" — `applied` no longer means "applied some of it" (#370's ask).
+
+    `no_change` + a POPULATED `not_applied` (#371, folded into #370): the
+    reconciler produced no ops at all, but the witness can still point at
+    which testimony content shares no token with anything the model emitted —
+    distinguishing "genuinely nothing new was said" (`not_applied` empty,
+    e.g. "Just saying hello") from "the model was given content and produced
+    nothing from it" (`not_applied` populated). `status` itself stays
+    `no_change` either way — there is no positive change to elevate it to
+    `partial`, which requires `bool(changes)`.
+
+    `not_applied` is computed over the ops the reconcile ENGINE produced
+    (post-parse/stance/attribution), not over what the committer/applier
+    finally persisted — see `witness.compute_not_applied`'s docstring for the
+    exact scope and its known blind spots (e.g. an `add_bullets` op whose
+    `target` never resolves at APPLY time is invisible to this witness; that
+    is a distinct, not-yet-covered loss mechanism — Part A of #370's trace).
     """
 
     submission_id: str
     schema_version: str = TESTIMONY_SCHEMA_VERSION
     status: Literal[
-        "error", "needs_confirmation", "conflict", "applied", "denial_recorded", "no_change"
+        "error",
+        "needs_confirmation",
+        "conflict",
+        "partial",
+        "applied",
+        "denial_recorded",
+        "no_change",
     ]
     changes: list[FieldChange] = Field(default_factory=list)
     confirmations: list[PendingConfirmation] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
+    #: #370 — which spans of the submission the committed ops do not
+    #: literally carry, and why. Populated whenever the witness finds
+    #: something, regardless of `status` (including `no_change` — #371).
+    #: Empty for a truncated (`status="error"`) submission: nothing was
+    #: reconciled at all, so there is no op batch to check content against.
+    not_applied: list[NotApplied] = Field(default_factory=list)
     detail: str | None = None

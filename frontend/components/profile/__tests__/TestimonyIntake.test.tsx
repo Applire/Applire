@@ -71,6 +71,35 @@ describe("TestimonyIntake", () => {
     expect((screen.getByTestId("testimony-textarea") as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("reports a partial application distinctly, never as an unqualified applied (#370)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res({
+        submission_id: "s3",
+        status: "partial",
+        changes: [{ section: "work_experience", field: "team_size", action: "updated" }],
+        confirmations: [],
+        conflicts: [],
+        not_applied: [
+          { span: "1350000", kind: "figure", reason: "figure_not_in_any_op" },
+        ],
+      }),
+    );
+
+    render(<TestimonyIntake />);
+    fireEvent.change(screen.getByTestId("testimony-textarea"), {
+      target: { value: "Team of 12, budget 1350000 EUR." },
+    });
+    fireEvent.click(screen.getByText("testimony.submit"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("testimony-result")).toHaveAttribute("data-status", "partial"),
+    );
+    expect(screen.getByTestId("testimony-result").textContent).toContain(
+      "testimony.statusPartial",
+    );
+    expect(screen.getByTestId("testimony-result").textContent).toContain('"count":1');
+  });
+
   it("reports a denial as denial_recorded, not a silent no-op", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       res({

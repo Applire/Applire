@@ -39,29 +39,47 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.exceptions import LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData, ProfileMetadata
-from applire.schemas.testimony import TestimonyResult
+from applire.schemas.testimony import NotApplied, TestimonyResult
 from applire.services.profile.commit import (
     CommitProvenance,
     TurnGrounding,
     commit_ops,
 )
 from applire.services.profile.reconcile.engine import reconcile
+from applire.services.profile.reconcile.witness import compute_not_applied
 
 _SOURCE = "testimony"
 
 
 def _derive_status(
-    *, has_confirmations: bool, has_conflicts: bool, has_applied_changes: bool, has_denial: bool
+    *,
+    has_confirmations: bool,
+    has_conflicts: bool,
+    has_applied_changes: bool,
+    has_denial: bool,
+    has_not_applied: bool = False,
 ) -> str:
-    """Precedence: needs_confirmation > conflict > applied > denial_recorded >
-    no_change (the "error" status is assigned separately, before this is ever
-    reached — a truncated reconcile never gets this far). Mirrors
-    `agent_bridge._derive_status` (#231/#259) for a single testimony submission
-    instead of a per-claim batch."""
+    """Precedence (#370 amendment — `partial` inserted): needs_confirmation >
+    conflict > partial > applied > denial_recorded > no_change (the "error"
+    status is assigned separately, before this is ever reached — a truncated
+    reconcile never gets this far). Mirrors `agent_bridge._derive_status`
+    (#231/#259) for a single testimony submission instead of a per-claim
+    batch, now widened by one rung.
+
+    `partial` — `has_applied_changes` AND `has_not_applied`: some of the
+    submission visibly landed and some visibly did not. `applied` therefore
+    now specifically means "changes landed AND nothing is known to be
+    missing" — it no longer means "applied some of it" (#370's ask).
+    `has_not_applied` alone (no applied changes) does NOT elevate `no_change`
+    — there is no positive change to make partial; the witness spans still
+    reach the caller via `TestimonyResult.not_applied` regardless (#371).
+    """
     if has_confirmations:
         return "needs_confirmation"
     if has_conflicts:
         return "conflict"
+    if has_applied_changes and has_not_applied:
+        return "partial"
     if has_applied_changes:
         return "applied"
     if has_denial:
@@ -111,6 +129,17 @@ async def submit_testimony(
             ),
         )
 
+    # #370 — the deterministic witness, computed over exactly what the
+    # ENGINE produced (post-parse/stance/attribution, pre-commit): does every
+    # numeric figure of the submitted text literally show up in an op's own
+    # payload (or a denial), and which raw ops did the model emit that never
+    # even passed schema validation. No sentence-level channel — ADR-063
+    # amendment, see `witness.py`'s module docstring. Pure and DB-free — safe
+    # to run before `commit_ops`.
+    not_applied: list[NotApplied] = compute_not_applied(
+        text, rc.ops, rejected_ops=rc.rejected_ops, denials=rc.denials
+    )
+
     # ADR-063 — the ONE write path. Everything this door used to do inline
     # (apply, park confirmations/conflicts, record denials, receipt, assign)
     # is the committer's invariant set now; the door keeps only its own wire
@@ -145,8 +174,10 @@ async def submit_testimony(
             has_conflicts=bool(committed.conflicts),
             has_applied_changes=bool(committed.changes),
             has_denial=bool(committed.denials),
+            has_not_applied=bool(not_applied),
         ),
         changes=committed.enrichment_record.changes,
         confirmations=committed.pending_confirmations,
         conflicts=committed.conflicts,
+        not_applied=not_applied,
     )

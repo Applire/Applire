@@ -295,7 +295,13 @@ async def test_real_dossier_produces_story_skill_and_denial_receipts(async_db):
 
     result = await submit_testimony(dossier, async_db, provider)
 
-    assert result.status == "applied"
+    # #370: the stub op batch is explicitly REPRESENTATIVE, not exhaustive —
+    # a real multi-paragraph dossier reconciled to 3 ops necessarily leaves
+    # other dossier content unmatched, and the whole point of the fix is that
+    # this must now show up as `partial`, not read as an unqualified
+    # `applied` the way it silently did before #370.
+    assert result.status == "partial"
+    assert result.not_applied  # the witness found dossier content the stub didn't carry
     sections = {c.section for c in result.changes}
     assert "skills" in sections
     assert "signature_stories" in sections
@@ -303,6 +309,131 @@ async def test_real_dossier_produces_story_skill_and_denial_receipts(async_db):
     assert any(c.section == "denied_concepts" for c in result.changes) or len(
         [c for c in result.changes]
     ) >= 3
+
+
+@pytest.mark.asyncio
+async def test_partial_status_when_some_content_is_not_carried_by_any_op(async_db):
+    """#370 core AC: a testimony stating TWO figures, where the op batch only
+    carries one, must report `status="partial"` and list the exact missing
+    span — never an unqualified `applied` that hides the gap."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [
+                    {
+                        "op": "upsert_work", "ref": "w1", "target": None,
+                        "company": "ACME", "role": "Manager", "team_size": 12,
+                    },
+                    {
+                        "op": "add_bullets", "target": "w1",
+                        "achievements": ["I manage a team of 12 engineers at ACME"],
+                    },
+                ],
+                "ambiguities": [],
+                "denials": [],
+            }
+        ]
+    )
+
+    result = await submit_testimony(
+        "I manage a team of 12 engineers at ACME. "
+        "I also manage a budget of 1350000 EUR.",
+        async_db,
+        provider,
+    )
+
+    assert result.status == "partial"
+    assert result.changes  # the team_size/bullet changes landed
+    figures = [item for item in result.not_applied if item.kind == "figure"]
+    assert len(figures) == 1
+    assert figures[0].reason == "figure_not_in_any_op"
+    assert "1350000" in figures[0].span
+
+
+@pytest.mark.asyncio
+async def test_applied_status_requires_an_empty_not_applied_list(async_db):
+    """#370: `applied` now specifically means "changes landed AND nothing is
+    known to be missing" — when the op batch carries every figure and every
+    sentence's content, `not_applied` is empty and status stays `applied`."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider(
+        [
+            {
+                "ops": [
+                    {
+                        "op": "upsert_work", "ref": "w1", "target": None,
+                        "company": "ACME", "role": "Engineering Lead",
+                        "team_size": 7,
+                    },
+                    {
+                        "op": "add_bullets", "target": "w1",
+                        "achievements": ["Led a team of 7 engineers at ACME"],
+                    },
+                ],
+                "ambiguities": [],
+                "denials": [],
+            }
+        ]
+    )
+
+    result = await submit_testimony(
+        "I led a team of 7 engineers at ACME.", async_db, provider
+    )
+
+    assert result.status == "applied"
+    assert result.not_applied == []
+
+
+@pytest.mark.asyncio
+async def test_no_change_with_populated_not_applied_distinguishes_370_371(async_db):
+    """#371 (folded into #370): a `no_change` submission that actually
+    described something must NOT read identically to a genuine no-op
+    ("Just saying hello", covered above) — `not_applied` is populated even
+    though `status` stays `no_change` (there is no applied change to promote
+    it to `partial`, per the documented precedence)."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider([{"ops": [], "ambiguities": [], "denials": []}])
+
+    result = await submit_testimony(
+        "My budget responsibility is 1350000 EUR annually.", async_db, provider
+    )
+
+    assert result.status == "no_change"
+    assert result.not_applied  # unlike the genuine "Just saying hello" case
+    assert any(item.kind == "figure" for item in result.not_applied)
+
+
+@pytest.mark.asyncio
+async def test_genuine_no_change_still_reports_empty_not_applied_list(async_db):
+    """Companion to the #371 test above: contentless testimony ("Just saying
+    hello") has nothing for the witness to find missing either — `not_applied`
+    stays empty, so the two `no_change` cases really are distinguishable."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider([{"ops": [], "ambiguities": [], "denials": []}])
+
+    result = await submit_testimony("Hi there.", async_db, provider)
+
+    assert result.status == "no_change"
+    # "Hi there." has no figure and no content token >= 5 chars outside the
+    # stopword set, so the witness genuinely finds nothing to report.
+    assert result.not_applied == []
+
+
+@pytest.mark.asyncio
+async def test_truncation_still_returns_error_with_empty_not_applied(async_db):
+    """The witness never runs for a truncated submission — nothing was
+    reconciled at all, so there is no op batch to check content against
+    (`not_applied` stays at its schema default, `[]`)."""
+    await _seed_profile(async_db)
+    provider = _QueueProvider([LLMTruncatedError("output truncated")])
+
+    result = await submit_testimony(
+        "A very long dossier with figures like 1350000 in it...", async_db, provider
+    )
+
+    assert result.status == "error"
+    assert result.not_applied == []
 
 
 @pytest.mark.asyncio

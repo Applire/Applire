@@ -886,3 +886,13 @@ class ReconcileResult(BaseModel):
     # stance guard strips any op content matching these — the model's own
     # denial verdict outranks its ops (never-claim beats claim, ADR-040).
     denials: list[str] = Field(default_factory=list)
+    # #370 — the RAW `op` field of every model-emitted item `engine._parse_ops`
+    # dropped for failing schema validation, in encounter order ("<unknown>"
+    # when the item carried no string `op` key at all). A FACT (ADR-062
+    # clause 1): pure bookkeeping of what failed validation, never a reading
+    # of what the item MEANT. Consumed by the testimony write-loss witness
+    # (`reconcile.witness.compute_not_applied`) so a parse-time drop is
+    # countable instead of visible only at DEBUG log level. Additive and
+    # empty by default — every pre-#370 caller of `reconcile()` is
+    # unaffected.
+    rejected_ops: list[str] = Field(default_factory=list)
