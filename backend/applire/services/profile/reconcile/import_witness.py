@@ -108,6 +108,7 @@ from applire.services.profile.reconcile.apply import _ENTRY_NATURAL_KEYS, _norm
 from applire.services.profile.reconcile.dedupe import (
     _field_relation,
     _SAME,
+    classify_certification_dupe,
     classify_dupe,
     classify_engagement_dupe,
 )
@@ -167,6 +168,22 @@ _ENGAGEMENT_SECTIONS: tuple[_EngagementSection, ...] = (
 _ENGAGEMENT_OP_TYPES: tuple[type[CommitOp], ...] = tuple(
     s.op_type for s in _ENGAGEMENT_SECTIONS
 )
+
+#: The identity the WITNESS (and, through it, the US161 counts) keys on. The
+#: committer's `_ENTRY_NATURAL_KEYS` is the prefix for every section; the three
+#: engagement sections additionally carry `start_date`, because a repeat stint
+#: (same employer, same role, a different year — "Foo Corp / Engineer 2013"
+#: and "Foo Corp / Engineer 2020") is a DISTINCT data point of the CV, and a
+#: key without the date collapsed the two into one: if either copy was in the
+#: merged profile, the other was silently skipped before any arm ran and
+#: `extracted` counted 2 CV lines as 1 (adversarial pass 2026-08-28, B1 —
+#: reproduced through the real `apply_ops`). US161's original key was
+#: (company, start_date); this restores the date as a discriminator while
+#: keeping the committer's (org, role) as the shared prefix.
+WITNESS_KEYS: dict[str, tuple[str, ...]] = {
+    **{name: _ENTRY_NATURAL_KEYS[name] for name in _FLAT_SECTIONS},
+    **{s.name: _ENTRY_NATURAL_KEYS[s.name] + ("start_date",) for s in _ENGAGEMENT_SECTIONS},
+}
 _ENGAGEMENT_SECTION_BY_OP: dict[type[CommitOp], _EngagementSection] = {
     s.op_type: s for s in _ENGAGEMENT_SECTIONS
 }
@@ -213,10 +230,26 @@ def _flat_section_not_applied(
         seen.add(key)
         if key in merged_keys:  # arm (a)
             continue
-        incoming_dict = {f: getattr(entry, f, None) for f in fields}
-        verdict = classify_dupe(
-            incoming_dict, merged_entries, getters, containment_is_same=containment_is_same
-        )
+        if section == "certifications":
+            # N1 (adversarial pass 2026-08-28): the REAL applier
+            # (`_apply_upsert_certification`) decides identity with the
+            # cert-aware instrument (credential-id anchor, ®/™ fold, EN/DE
+            # fold) — the generic label dupe reported "ITIL® Foundation" vs
+            # "ITIL Foundation Level" as lost although the applier merged it.
+            verdict = classify_certification_dupe(
+                name=getattr(entry, "name", None),
+                issuing_organization=getattr(entry, "issuing_organization", None),
+                credential_id=getattr(entry, "credential_id", None),
+                existing=merged_entries,
+                name_getter=lambda c: getattr(c, "name", None),
+                org_getter=lambda c: getattr(c, "issuing_organization", None),
+                credential_id_getter=lambda c: getattr(c, "credential_id", None),
+            )
+        else:
+            incoming_dict = {f: getattr(entry, f, None) for f in fields}
+            verdict = classify_dupe(
+                incoming_dict, merged_entries, getters, containment_is_same=containment_is_same
+            )
         if verdict.match is not None:  # arm (b)
             continue
         if key in op_keys:  # arm (c), sub-clause 1
@@ -229,20 +262,35 @@ def _flat_section_not_applied(
     return items
 
 
-def _merged_id_to_org(merged: MasterProfileData) -> dict[str, tuple[str, str | None]]:
+def _merged_id_to_org(merged: MasterProfileData) -> dict[str, tuple[str, str | None, str | None]]:
     """Every merged engagement entity's id -> (section, its own org value)."""
-    result: dict[str, tuple[str, str | None]] = {}
+    result: dict[str, tuple[str, str | None, str | None]] = {}
     for section in _ENGAGEMENT_SECTIONS:
         for entry in getattr(merged, section.name):
             entry_id = getattr(entry, "id", None)
             if entry_id:
-                result[entry_id] = (section.name, getattr(entry, section.org_field, None))
+                result[entry_id] = (
+                    section.name,
+                    getattr(entry, section.org_field, None),
+                    getattr(entry, "start_date", None),
+                )
     return result
+
+
+def _same_month_or_unknown(a: str | None, b: str | None) -> bool:
+    """Two engagement start dates name the same stint when their YYYY-MM prefixes
+    agree; a side with no date at all (a LinkedIn text without dates) is a
+    wildcard, so a dated existing entity still rescues an undated incoming one.
+    Without this, an `add_bullets` against the 2020 stint rescued the CV's
+    separate 2013 stint at the same employer (B1)."""
+    if not a or not b:
+        return True
+    return _norm(str(a))[:7] == _norm(str(b))[:7]
 
 
 def _op_touched_orgs(
     ops: Sequence[CommitOp], merged: MasterProfileData
-) -> dict[str, list[str]]:
+) -> dict[str, list[tuple[str, str | None]]]:
     """Arm (c), sub-clause 2 — the org string every op-WITH-A-TARGET touches,
     per engagement section. See the module docstring's "known limitation" for
     the local-ref/ambiguous-parking edge this does not attempt to close.
@@ -252,7 +300,7 @@ def _op_touched_orgs(
     # local ref -> (section, org) — resolved via the entity op's OWN target
     # (a real id, ground truth from `merged`) or, for a fresh entity, the
     # entity op's own declared org value.
-    ref_to_org: dict[str, tuple[str, str | None]] = {}
+    ref_to_org: dict[str, tuple[str, str | None, str | None]] = {}
     for op in ops:
         section = _ENGAGEMENT_SECTION_BY_OP.get(type(op))
         if section is None:
@@ -264,9 +312,13 @@ def _op_touched_orgs(
         if target and target in id_to_org:
             ref_to_org[ref] = id_to_org[target]
         else:
-            ref_to_org[ref] = (section.name, getattr(op, section.org_field, None))
+            ref_to_org[ref] = (
+                section.name,
+                getattr(op, section.org_field, None),
+                getattr(op, "start_date", None),
+            )
 
-    touched: dict[str, list[str]] = {s.name: [] for s in _ENGAGEMENT_SECTIONS}
+    touched: dict[str, list[tuple[str, str | None]]] = {s.name: [] for s in _ENGAGEMENT_SECTIONS}
     for op in ops:
         target: str | None = None
         if isinstance(op, (AddBullets, SetField)):
@@ -278,9 +330,9 @@ def _op_touched_orgs(
         resolved = id_to_org.get(target) or ref_to_org.get(target)
         if resolved is None:
             continue
-        section_name, org = resolved
+        section_name, org, start = resolved
         if org:
-            touched[section_name].append(org)
+            touched[section_name].append((org, start))
     return touched
 
 
@@ -289,9 +341,9 @@ def _engagement_section_not_applied(
     incoming: MasterProfileData,
     merged: MasterProfileData,
     ops: Sequence[CommitOp],
-    touched_orgs: dict[str, list[str]],
+    touched_orgs: dict[str, list[tuple[str, str | None]]],
 ) -> list[ImportNotApplied]:
-    fields = _ENTRY_NATURAL_KEYS[section.name]  # (org_field, "role")
+    fields = WITNESS_KEYS[section.name]  # (org_field, "role", "start_date") — B1
     incoming_entries = getattr(incoming, section.name)
     merged_entries = getattr(merged, section.name)
     merged_keys = {_entry_key(e, fields) for e in merged_entries}
@@ -320,9 +372,10 @@ def _engagement_section_not_applied(
         if key in op_keys:  # arm (c), sub-clause 1
             continue
         if any(
-            _field_relation(org, touched, containment_is_same=False) == _SAME
-            for touched in section_touched
-        ):  # arm (c), sub-clause 2
+            _field_relation(org, touched_org, containment_is_same=False) == _SAME
+            and _same_month_or_unknown(start_date, touched_start)
+            for touched_org, touched_start in section_touched
+        ):  # arm (c), sub-clause 2 — the op must have targeted THIS stint (B1)
             continue
         items.append(
             ImportNotApplied(

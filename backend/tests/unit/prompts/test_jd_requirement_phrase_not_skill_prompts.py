@@ -113,3 +113,47 @@ def test_both_builder_sites_state_the_rule_identically():
         assert _DESTINATION_CLAUSE in _normalize(prompt), (
             f"{name} is missing the destination half of the rule"
         )
+    # N2 (adversarial pass 2026-08-28): "the SAME wording" means the whole
+    # two-sentence rule, not two substrings — a stray citation tag in one copy
+    # survived the substring pins. Compare the full span at both sites.
+    spans = {name: _rule_span(prompt) for name, prompt in sites.items()}
+    assert len(set(spans.values())) == 1, spans
+
+
+def _rule_span(prompt: str) -> str:
+    text = _normalize(prompt)
+    start = text.index("A requirement phrase")
+    end = text.index("never in the skills list.", start) + len("never in the skills list.")
+    return text[start:end]
+
+
+# M1 (adversarial pass 2026-08-28): rule 4's ADJACENT clause ("a skills-list
+# position") and the shared ledger block's "Give X prominence in its own right"
+# could route a duration-shaped ADJACENT capability straight back into the skills
+# list rule 7 just closed. Both now carry the carve-out; the ledger block is the
+# shared site (both writer builders render it), so the test drives the REAL
+# builder with an adjacent entry that is itself a requirement phrase.
+_ADJACENT_DURATION_LEDGER = [
+    {
+        "concept": "5+ Jahre Controlling-Erfahrung",
+        "surface_forms": ["5+ Jahre Controlling-Erfahrung", "5 Jahre Controlling"],
+        "sources": ["required"],
+        "status": "partial",
+        "claimable": True,
+        "adjacent_evidence": "3 Jahre FP&A-Erfahrung bei Foo AG",
+        "evidence": "3 Jahre FP&A-Erfahrung bei Foo AG, 2019-2022",
+    }
+]
+_CARVE_OUT = (
+    "If 3 Jahre FP&A-Erfahrung bei Foo AG is itself a requirement phrase (a duration, "
+    "an industry or sector name, a degree requirement), it belongs in the summary or "
+    "in the bullet that states it, never in the skills list."
+)
+
+
+def test_adjacent_capability_shaped_like_a_requirement_phrase_is_kept_out_of_the_skills_list():
+    user_prompt = build_user_prompt(_JOB, _PROFILE, [], "de", keyword_ledger=_ADJACENT_DURATION_LEDGER)
+    built = _normalize(SYSTEM_PROMPT + "\n\n" + user_prompt)
+    assert "Give 3 Jahre FP&A-Erfahrung bei Foo AG prominence in its own right" in built
+    assert _CARVE_OUT in built, "the shared ledger block lost the rule-7 carve-out"
+    assert "unless the adjacent capability is itself a requirement phrase" in built, "rule 4 lost its carve-out"

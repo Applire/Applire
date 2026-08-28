@@ -69,7 +69,8 @@ from __future__ import annotations
 from typing import Sequence
 
 from applire.schemas.profile import ImportNotApplied, MasterProfileData
-from applire.services.profile.reconcile.apply import _ENTRY_NATURAL_KEYS, _norm
+from applire.services.profile.reconcile.apply import _norm
+from applire.services.profile.reconcile.import_witness import WITNESS_KEYS
 
 
 def _key(entry: object, *attrs: str) -> tuple[str, ...]:
@@ -98,7 +99,9 @@ def compute_merge_reconciliation(
         counted_by_section[item.section] = counted_by_section.get(item.section, 0) + 1
 
     result: dict[str, dict[str, int]] = {}
-    for entity, attrs in _ENTRY_NATURAL_KEYS.items():
+    for entity, attrs in WITNESS_KEYS.items():
+        # WITNESS_KEYS = the committer's natural key, plus `start_date` on the
+        # engagement sections (B1: a repeat stint is a distinct data point).
         extracted = len({_key(e, *attrs) for e in getattr(incoming, entity)})
         delta = counted_by_section.get(entity, 0)
         result[entity] = {
